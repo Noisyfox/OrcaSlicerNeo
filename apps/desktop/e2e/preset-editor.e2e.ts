@@ -19,12 +19,14 @@ test('independent preset browsing preserves project choices and both Filament dr
     ` });
     const printerBefore = await page.getByTestId('preset-select').getAttribute('title');
     await page.getByTestId('preset-edit-printer').click();
+    const printerPickerWidth = (await page.getByTestId('preset-editor-preset').boundingBox())!.width;
     await page.getByTestId('preset-editor-preset').click();
     const printerTargets = await page.getByRole('option').evaluateAll(options => options.map(option => option.getAttribute('title')));
     const otherPrinter = [...printerTargets].reverse().find(name => name && name !== printerBefore);
     if (!otherPrinter) throw new Error('expected another installed Printer');
     await page.getByRole('option').and(page.getByTitle(otherPrinter, { exact: true })).click();
     await expect(page.getByTestId('preset-editor-title')).toHaveText(otherPrinter);
+    expect((await page.getByTestId('preset-editor-preset').boundingBox())!.width).toBeCloseTo(printerPickerWidth, 1);
     await expect(page.getByTestId('preset-select')).toHaveAttribute('title', printerBefore!);
     await page.getByTestId('preset-editor-preset').click();
     await expect(page.getByRole('option').and(page.getByTitle(otherPrinter, { exact: true })))
@@ -38,11 +40,13 @@ test('independent preset browsing preserves project choices and both Filament dr
     await page.getByTestId('filament-slot-1').click({ button: 'right' });
     await page.getByTestId('filament-edit-1').click();
     const picker = page.getByTestId('preset-editor-preset');
+    const filamentPickerWidth = (await picker.boundingBox())!.width;
     const settingsSearch = page.getByTestId('preset-editor-search');
     await settingsSearch.fill('filament_diameter');
     const diameter = page.getByTestId('preset-editor-input-filament_diameter');
     await diameter.fill('1.76'); await diameter.press('Enter');
     await expect(picker).toBeEnabled();
+    expect((await picker.boundingBox())!.width).toBeCloseTo(filamentPickerWidth, 1);
     await picker.click();
     const editorPopup = page.locator('[data-slot="select-content"][aria-label="Preset to edit"]');
     const groups = page.locator('[data-slot="select-group"]');
@@ -53,6 +57,7 @@ test('independent preset browsing preserves project choices and both Filament dr
     if (!target) throw new Error('expected an incompatible editor candidate');
     await incompatible.getByRole('option').first().click();
     await expect(page.getByTestId('preset-editor-title')).toHaveText(target);
+    expect((await picker.boundingBox())!.width).toBeCloseTo(filamentPickerWidth, 1);
     await expect(slot).toHaveAttribute('title', source);
     await diameter.fill('1.77'); await diameter.press('Enter');
     await expect(picker).toBeEnabled();
@@ -73,9 +78,9 @@ test('independent preset browsing preserves project choices and both Filament dr
     await expect(editorPopup.getByRole('option')).toBeFocused();
     await presetSearch.fill('');
     if (!REAL) {
-      // Content determines the popup width after switching to a shorter trigger.
+      // The popup accommodates names and is at least as wide as the fixed trigger.
       await expect.poll(async () => (await editorPopup.boundingBox())!.width)
-        .toBeGreaterThan((await picker.boundingBox())!.width);
+        .toBeGreaterThanOrEqual((await picker.boundingBox())!.width - 1);
       expect(await editorPopup.locator('.truncate').evaluateAll(elements =>
         elements.every(element => element.scrollWidth <= element.clientWidth))).toBe(true);
     }
@@ -87,6 +92,12 @@ test('independent preset browsing preserves project choices and both Filament dr
     await picker.click();
     await page.getByRole('option').and(page.getByTitle(target, { exact: true })).click();
     await expect(diameter).toHaveValue('1.77');
+    await page.setViewportSize({ width: 800, height: 720 });
+    const narrowPickerWidth = (await picker.boundingBox())!.width;
+    await picker.click();
+    await page.getByRole('option').and(page.getByTitle(source, { exact: true })).click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(source);
+    expect((await picker.boundingBox())!.width).toBeCloseTo(narrowPickerWidth, 1);
     await page.getByTestId('preset-editor-close').click();
     await expect(slot).toHaveAttribute('title', source);
     await expect(page.getByTestId('preset-select')).toHaveAttribute('title', printerBefore!);

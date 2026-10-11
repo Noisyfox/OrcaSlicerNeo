@@ -938,15 +938,15 @@ export function PresetEditorDialog({
         data-testid="preset-editor-dialog"
         className="flex max-h-[88vh] w-[min(94vw,72rem)] max-w-none flex-col gap-4 overflow-hidden p-5"
       >
-        <div className="flex min-w-0 items-start justify-between gap-4">
-          <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1 basis-[min(32rem,60vw)]">
             <DialogTitle id="preset-editor-title" data-testid="preset-editor-title" className="truncate text-lg">
               {target.canonicalName}
             </DialogTitle>
             <DialogDescription className="mt-1">
               {target.kind === 'printer' ? 'Printer preset' : 'Filament preset'}
             </DialogDescription>
-            {snapshot && <div className="mt-2 flex min-w-64 max-w-[min(32rem,60vw)]">
+            {snapshot && <div className="mt-2 flex w-[min(32rem,60vw)] max-w-full">
               <PresetCombobox
                 mode="select"
                 items={snapshot.editorCandidates.map(candidate => ({ id: candidate.canonicalName,
@@ -967,7 +967,7 @@ export function PresetEditorDialog({
               className="mt-1 text-xs text-muted-foreground"
             >{referencedSlotsLabel(referencedFilamentSlots)}</p>}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             {snapshot?.modified && <span
               data-testid="preset-editor-project-draft"
               className="rounded border px-2 py-1 text-xs"
