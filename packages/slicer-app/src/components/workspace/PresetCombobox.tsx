@@ -68,7 +68,9 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
         <ChevronDown className="sidebar-dropdown-arrow" />
       </DropdownMenuTrigger>
     </div>
-    <DropdownMenuContent className="max-h-[min(60vh,32rem)] min-w-56 overflow-y-auto" aria-label={ariaLabel}>
+    <DropdownMenuContent className={cn('max-h-[min(60vh,32rem)] min-w-56 overflow-y-auto',
+      sectionBy && 'w-max max-w-[min(var(--available-width),calc(100vw-1rem))] min-w-[max(var(--anchor-width),14rem)]')}
+      aria-label={ariaLabel}>
       <div className="p-1"><SearchInput value={search} onValueChange={setSearch}
         placeholder={searchPlaceholder} aria-label={searchPlaceholder}
         onKeyDown={event => {

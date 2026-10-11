@@ -315,6 +315,9 @@ Filaments), including incompatible Filaments. Printer entries identify complete
 canonical profiles, including nozzle/variant differences. Both editor pickers
 display the full canonical preset name in the trigger, entries and tooltips,
 rather than the alias used by sidebar controls. The Filament picker has
+content-sized popup width independent of its trigger, capped by the available
+viewport like the sidebar combobox. Changing targets must not clip preset names
+to a narrower trigger width. It has
 two flat sections: compatible with the project's effective Printer first, then
 not compatible with that Printer. This classification uses native Printer
 compatibility, independent of the active Process and the editor target.

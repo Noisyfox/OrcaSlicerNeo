@@ -35,6 +35,7 @@ test('independent preset browsing preserves project choices and both Filament dr
     await diameter.fill('1.76'); await diameter.press('Enter');
     await expect(picker).toBeEnabled();
     await picker.click();
+    const editorPopup = page.locator('[data-slot="dropdown-menu-content"][aria-label="Preset to edit"]');
     const groups = page.locator('[data-slot="dropdown-menu-group"]');
     const incompatible = groups.filter({ has: page.locator('[data-slot="dropdown-menu-label"]', {
       hasText: 'Not compatible with project printer',
@@ -47,6 +48,13 @@ test('independent preset browsing preserves project choices and both Filament dr
     await diameter.fill('1.77'); await diameter.press('Enter');
     await expect(picker).toBeEnabled();
     await picker.click();
+    if (!REAL) {
+      // Content determines the popup width after switching to a shorter trigger.
+      await expect.poll(async () => (await editorPopup.boundingBox())!.width)
+        .toBeGreaterThan((await picker.boundingBox())!.width);
+      expect(await editorPopup.locator('.truncate').evaluateAll(elements =>
+        elements.every(element => element.scrollWidth <= element.clientWidth))).toBe(true);
+    }
     await expect(incompatible.getByRole('menuitemradio').first()).toHaveAttribute('title', target);
     await expect(incompatible.getByRole('menuitemradio').first().locator('.config-override-label')).toBeVisible();
     await page.getByRole('menuitemradio').and(page.getByTitle(source, { exact: true })).click();
