@@ -21,6 +21,13 @@ remain authoritative for slicing, Undo/Redo, and 3MF save/reopen.
 
 The Process selector displays that selected child in its source profile's row,
 using the source's native label and full name for the trigger and item tooltips.
+All Neo preset selectors display the native alias (or name when no alias is
+available) without `*` or `(modified)` decoration. Dirty state is represented
+by orange highlighting: Process uses resettable project overrides, while
+Printer and Filament use their draft overlays. Native dirty flags are retained.
+This also applies when an ordinary 3MF restores Process differences directly
+into an installed preset's edited copy, and to filament-slot preset labels.
+Imported parameter differences and native preset identity remain unchanged.
 It retains native source order and does not add a separate `(Project)` row.
 Commands still target the child identity. Editing a Filament parameter, such as
 `filament_soluble`, may refresh the complete profile snapshot but must preserve

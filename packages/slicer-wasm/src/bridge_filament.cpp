@@ -2,6 +2,7 @@
 #include "bridge_painting.hpp"
 #include "bridge_history.hpp"
 #include "bridge_preset_drafts.hpp"
+#include "bridge_profiles.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1957,7 +1958,7 @@ json filament_session_snapshot_json()
         slots.push_back({
             {"slot", i + 1},
             {"logical_id", slot_ids[i]},
-            {"preset", {{"id", name}, {"name", name}, {"label", source ? source->label(false) : name}, {"vendor", vendor}}},
+            {"preset", {{"id", name}, {"name", name}, {"label", source ? Profiles::preset_display_label(*source) : name}, {"vendor", vendor}}},
             {"colour", {{"effective", colours[i]}, {"provenance", preset_equivalent ? "preset" : "user"},
                         {"native", {{"representative", native_value(project_colours)},
                                     {"multi_colour", multi}, {"type", type}}},

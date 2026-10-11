@@ -199,6 +199,10 @@ function loadArchive(bytes, name) {
   } finally { Module._free(ptr); }
 }
 const reloaded = loadArchive(projectBytes, 'process-only.3mf');
+const reopenedPrint = reloaded.preset_snapshot.prints.find(preset =>
+  preset.name === reloaded.preset_snapshot.print.name);
+check('3MF reopen keeps dirty decoration out of the Process display name',
+  reopenedPrint?.label && !reopenedPrint.label.startsWith(' (modified)'), JSON.stringify(reopenedPrint));
 const cleanWarning = reloaded.embedded_preset_warnings;
 check('Process-only save/reopen needs no compatibility confirmation',
   cleanWarning.process_count > 0 && cleanWarning.modified_printer_gcode === false &&
@@ -219,6 +223,19 @@ function withProjectConfig(changes) {
   return replaceEntry(projectBytes, 'Metadata/project_settings.config',
     JSON.stringify({ ...projectConfig, ...changes }));
 }
+
+// Ordinary Orca archives may select an installed Process directly and apply
+// different_settings_to_system to its edited copy instead of a child preset.
+const sourceSelected = loadArchive(withProjectConfig({ print_settings_id: parentName,
+  inherits_group: ['', ...(projectConfig.inherits_group ?? []).slice(1)] }), 'source-process-diff.3mf');
+const sourceRow = sourceSelected.preset_snapshot.prints.find(preset =>
+  preset.name === sourceSelected.preset_snapshot.print.name);
+check('3MF source Process diff keeps its undecorated source label',
+  sourceRow?.label === before.prints.find(preset => preset.name === parentName).label,
+  JSON.stringify(sourceRow));
+check('Undecorated Process label preserves the imported parameter change',
+  sourceSelected.preset_snapshot.project_config.layer_height === '0.24' &&
+  nativeSnapshot().project.layer_height === '0.24');
 // Match the pinned Orca validator's different_settings_to_system indexing.
 // It inspects slot 1 when filament_count is 2; do not invent a separate diff.
 const modified = loadArchive(withProjectConfig({

@@ -47,3 +47,37 @@ time here.
   the input (`itemToStringLabel` = the string value).
 - Selection still round-trips through `selectPreset` → `setSelections` →
   `getAppConfig` → `appConfig.save` exactly as before.
+
+## Preset dirty-state display (2026-10-10)
+
+Neo displays dirty state through orange highlighting without `*` or
+`(modified)` in any preset selector. The shared bridge display projection uses
+the native alias, falling back to the full name, for Printer, Process,
+Filament, projected Process source rows, and filament slots. It preserves
+native dirty flags, preset identity, imported values, and scoped overrides.
+Process highlighting uses resettable project overrides; Printer and Filament
+highlighting use draft overlays. This is Neo's presentation policy; Orca's GUI
+initializes its native textual dirty marker to `* `.
+
+The existing native project-preset history harness covers both embedded-child
+save/reopen and direct system-Process difference import. The latter reproduced
+the decorated label on the original artifact. It checks the unchanged source
+label and that the saved layer-height override remains effective and scoped.
+Embedded-child reopening still checks its source-row projection. The draft
+registry harness also checks clean Printer/Filament labels and filament-slot
+labels while the existing modified-source assertions remain active.
+
+Verification passed: `pnpm test` (1,837 passed, 3 existing skips),
+`pnpm typecheck`, dual-variant `scripts\build-windows.bat quick -j 4`,
+`native-project-preset-history-smoke.mjs` and
+`preset-draft-registry-smoke.mjs` on both variants, serial
+`bridge-smoke.mjs` with `fixtures/cube.stl`, and mock Electron
+`project-lifecycle.e2e.ts -g "Electron picker"`. Both variants were staged
+with `pnpm stage:assets`; `git diff --check` passed. Full real-host release
+qualification was not run for this focused label correction.
+
+A locally supplied 3MF was also loaded through the real threaded WASM: its
+Process alias was undecorated, all 14 objects loaded, and 12 effective Process
+overrides remained in scoped configuration. The private archive was not added
+to the repository. The first full unit run timed out in the existing profile
+packaging test during native compilation; the rerun after compilation passed.
