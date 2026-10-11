@@ -108,10 +108,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         state().dormant_preset_drafts.clear();
         state().preset_draft_revision = 0;
         const char* result = Slic3r::Neo::Bridge::Profiles::init_profiles(opts.at("profile_activation"));
-        // PresetBundle seeds this default through its 3MF project-option
-        // import list. A fresh Neo session inherits rotation from Print;
-        // only explicit edits or a later project load own a local override.
-        state().presets.project_config.erase("wipe_tower_rotation_angle");
         Slic3r::Neo::Bridge::PlateSession::reset_plate_session_state();
         Slic3r::Neo::Bridge::PrimeTower::invalidate_projection_cache();
         state().painting.reset();

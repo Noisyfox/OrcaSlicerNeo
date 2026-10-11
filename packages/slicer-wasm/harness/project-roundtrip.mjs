@@ -9,7 +9,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { callAsyncTask, getSliceResult, resultTarget } from './async-task-mailbox.mjs';
-import { readZipEntries } from './native-3mf-parser.mjs';
+import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 import { mutateNativeScopedConfig, setNativeScopedConfig } from './native-scoped-command.mjs';
@@ -67,13 +67,10 @@ check('fresh startup inherits tower rotation without a local override',
 const initialProfiles = callJson('orc_get_preset_snapshot', [], []);
 const initialConfig = initialProfiles.project_config;
 const metadata = callJson('orc_get_option_metadata', [], []);
-const dedicatedKeys = new Set([
-  'wipe_tower_x', 'wipe_tower_y', 'filament_colour', 'filament_colour_type',
-  'filament_multi_colour', 'filament_map_mode', 'filament_map', 'filament_volume_map',
-  'filament_nozzle_map', 'curr_bed_type', 'flush_volumes_vector', 'flush_volumes_matrix',
-  'flush_multiplier', 'flush_multiplier_fast', 'prime_volume_mode', 'nozzle_volume_type',
-  'has_filament_switcher', 'enable_filament_dynamic_map',
-]);
+// Native startup owns rack, purge, mapping and coordinate state. Derive that
+// set from the live snapshot rather than maintaining another option catalogue.
+const dedicatedKeys = new Set(Object.keys(startupScoped));
+
 function changedValue(definition, value) {
   if (definition.enum_values?.length) return definition.enum_values.find(entry => entry !== value);
   if (definition.type === 'bool') return value === '1' ? '0' : '1';
@@ -132,6 +129,8 @@ if (emptyExport.ok) {
     readZipEntries(emptyBytes).find(entry => entry.name === 'Metadata/project_settings.config').content));
   for (const key of auditedKeys)
     if (!Object.hasOwn(archiveConfig, key)) throw new Error(`3MF omitted Project parameter ${key}`);
+  check('rotation is saved through Orca Print preset differences',
+    String(archiveConfig.different_settings_to_system).includes('wipe_tower_rotation_angle'));
   const emptyPtr = writeBytes(emptyBytes);
   const emptyLoaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
     [emptyPtr, emptyBytes.length, 0, 'settings-only.3mf']);
@@ -327,6 +326,41 @@ check('invalid bytes close the loaded project and retain the new empty baseline'
       && afterInvalidResult.ok !== true,
       JSON.stringify({ invalid, objects: afterInvalid.objects?.length,
         session: afterInvalidSession, result: afterInvalidResult }));
+
+// A file may omit a Print-owned project override. Loading it over an edited
+// session must clear the old value and inherit, not manufacture a default.
+const withoutRotation = readZipEntries(project);
+for (const entry of withoutRotation) {
+  if (entry.name !== 'Metadata/project_settings.config' && !entry.name.startsWith('Metadata/process_settings_')) continue;
+  const config = JSON.parse(new TextDecoder().decode(entry.content));
+  delete config.wipe_tower_rotation_angle;
+  entry.content = new TextEncoder().encode(JSON.stringify(config));
+}
+check('set stale rotation before replacement load', setNativeScopedConfig(callJson, 'project', undefined, 'wipe_tower_rotation_angle', '123').ok === true);
+const absentBytes = writeStoredZip(withoutRotation);
+const absentPtr = writeBytes(absentBytes);
+const absentLoaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+  [absentPtr, absentBytes.length, 0, 'without-rotation.3mf']);
+Module._free(absentPtr);
+check('load archive omitting rotation', absentLoaded.ok === true);
+const absentScoped = callJson('orc_get_native_scoped_config', [], []).native_scoped_config.snapshot.project;
+check('missing archive rotation inherits instead of retaining or seeding an override',
+  !Object.hasOwn(absentScoped, 'wipe_tower_rotation_angle'));
+const inherited = absentLoaded.preset_snapshot?.project_config?.wipe_tower_rotation_angle;
+check('missing archive rotation restores the Print baseline', inherited === initialConfig.wipe_tower_rotation_angle);
+check('explicitly set the inherited rotation', setNativeScopedConfig(callJson, 'project', undefined, 'wipe_tower_rotation_angle', inherited).ok === true);
+const equalExport = callJson('orc_export_project', [], []);
+check('export Print scalar at its baseline', equalExport.ok === true);
+if (equalExport.ok) {
+  const equalBytes = readAndFree(equalExport.bytes_ptr, equalExport.bytes_length);
+  const equalPtr = writeBytes(equalBytes);
+  const equalLoaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+    [equalPtr, equalBytes.length, 0, 'explicit-same-value.3mf']);
+  Module._free(equalPtr);
+  check('reopen Print scalar at its baseline', equalLoaded.ok === true);
+  check('Print scalar equal to its baseline stays unmodified after reopening',
+    !Object.hasOwn(callJson('orc_get_native_scoped_config', [], []).native_scoped_config.snapshot.project, 'wipe_tower_rotation_angle'));
+}
 
 if (failures) {
   console.error(`project round-trip failed: ${failures} check(s)`);

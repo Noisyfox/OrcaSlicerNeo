@@ -78,14 +78,15 @@ check('failed Project Print mutation rolls back native materialization',
 // The metadata catalogue must expose region defaults at Project scope, and
 // the same real Project mutation path must retain their native Print ownership.
 const fuzzyValues = { fuzzy_skin: 'all', fuzzy_skin_thickness: '0.42', fuzzy_skin_point_distance: '1.1' };
+const printValues = { ...fuzzyValues, wipe_tower_rotation_angle: '63' };
 const tx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Project Print override', 'project', JSON.stringify(historyContext), '']);
 requireOk('begin Project Print history transaction', tx);
 const changed = setNativeScopedConfig(callJson, 'project', undefined, 'layer_height', '0.24');
 requireOk('set ordinary Project Print value', changed);
-for (const [key, value] of Object.entries(fuzzyValues))
+for (const [key, value] of Object.entries(printValues))
   requireOk(`set Project ${key}`, setNativeScopedConfig(callJson, 'project', undefined, key, value));
-for (const [key, value] of Object.entries(fuzzyValues))
+for (const [key, value] of Object.entries(printValues))
   check(`Project ${key} is stored and effective`, nativeSnapshot().project[key] === value &&
     presetSnapshot().project_config[key] === value);
 const afterMutation = presetSnapshot();
@@ -102,7 +103,7 @@ const undo = requireOk('undo Project Print history', callJson('orc_history_undo'
 const afterUndo = presetSnapshot();
 check('Undo restores the parent Print selection', afterUndo.print?.name === parentName,
   JSON.stringify({ expected: parentName, actual: afterUndo.print?.name, undo }));
-for (const key of Object.keys(fuzzyValues))
+for (const key of Object.keys(printValues))
   check(`Undo removes Project ${key}`, !Object.hasOwn(nativeSnapshot().project, key));
 check('Undo removes the project Print diff', !Object.hasOwn(nativeSnapshot().project, 'layer_height'),
   JSON.stringify(nativeSnapshot()));
@@ -121,6 +122,8 @@ check('Redo recreates and selects the native project Print child',
     nativePrintPreset: redo.context?.nativePrintPreset }));
 check('Redo restores the ordinary Project Print diff', nativeSnapshot().project.layer_height === '0.24',
   JSON.stringify(nativeSnapshot()));
+check('Redo restores the Print-owned rotation', nativeSnapshot().project.wipe_tower_rotation_angle === '63' &&
+  afterRedo.project_config.wipe_tower_rotation_angle === '63');
 
 for (const [key, value] of Object.entries(fuzzyValues))
   check(`Redo restores Project ${key}`, nativeSnapshot().project[key] === value &&

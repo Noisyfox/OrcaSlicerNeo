@@ -111,14 +111,19 @@
   in slicing, and are preserved on a later project save even when the current
   UI has no control for a setting. Edits through supported UI controls overlay
   those retained values.
-- Normal project reopening restores the saved wipe-tower rotation and global
-  support/raft filament routing into their project-owned configuration. New
+- Normal project reopening restores saved Print parameters, including
+  wipe-tower rotation, through the native Print preset. Global support/raft
+  filament routing is restored into its dedicated project configuration. New
   Project discards the previous routing and restores Print parameters,
   including rotation, to the selected system-profile baseline. Clear Scene
   retains these settings.
-- A fresh application session inherits tower rotation from the selected Print
-  profile without creating a local override from native initialization defaults.
-  Explicit edits and values restored from a project remain project-owned.
+- Fresh project defaults omit Print-owned overrides, which inherit from the
+  selected Print profile. Startup and replacement loading use the same native
+  initialization policy; missing archive values do not create local overrides.
+  Ordinary Print parameters use Orca's edited Print preset and parent-diff
+  persistence path. Print scalar values equal to the preset baseline are not
+  marked modified; explicit ownership for scoped values and Print vector
+  elements retains its separate configuration contract.
 - Unrecognized, invalid, or incompatible settings follow the compatibility
   fallback policy rather than being silently discarded.
 - Embedded printer, process, and filament presets are available only for the

@@ -120,6 +120,11 @@ the user hovers over the value. Shared-app tooltips use one consistent shadcn
 tooltip presentation; the settings surface does not use a separate source
 badge beside each option.
 
+Project Print scalar settings follow Orca's edited-preset comparison against
+the parent preset: a value equal to that baseline is not a modified parameter.
+Explicit local ownership described below applies to sparse scoped settings,
+dedicated project settings and Print vector element overrides.
+
 Editable option labels are orange (`#F1754E`) when the displayed scope has a
 local override. Inherited values, value controls, and `Mixed` placeholders are
 not highlighted. For a multi-selection, the label is highlighted if at least
@@ -199,8 +204,9 @@ The initial validation behavior is intentionally limited:
   values and resumes inheritance. A bulk Reset is one undoable action and has
   no confirmation prompt.
 
-An explicit set to a value currently inherited from an earlier level creates
-a local override even when the displayed numeric/text value is equal. That
+For settings with explicit local ownership, setting a value currently inherited
+from an earlier level creates a local override even when the displayed
+numeric/text value is equal. That
 local value then remains fixed if the inherited value later changes. If the
 submitted value is already explicitly stored on every selected target, the
 edit is a no-op: it does not dirty the project or add a history entry. Reset
