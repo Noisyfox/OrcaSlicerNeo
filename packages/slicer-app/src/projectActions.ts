@@ -143,7 +143,7 @@ async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean):
   if (!paintingCommandAllowed()) return { status: 'cancelled' };
   return runProjectSaveOperation(runtimeOf(platform), projectedHistoryContext, async (markSaved) => {
     const session = useProjectStore.getState();
-    if (!session.hasContent) return errorResult(new Error('there is no project to save'));
+    if (!session.hasContent && !session.dirty) return errorResult(new Error('there is no project to save'));
     setOperation('saving', 0, 'Exporting project');
     try {
       if (paintingSessionActive()) {
@@ -160,7 +160,7 @@ async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean):
         return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error);
       }
       const history = await markSaved();
-      useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(saved.displayName), projectFileName: saved.displayName, dirty: history.dirty, dirtyReasons: [], location: saved.location });
+      useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(saved.displayName), projectFileName: saved.displayName, hasContent: true, dirty: history.dirty, dirtyReasons: [], location: saved.location });
       setOperation('completed', 100);
       return { status: 'ok' };
     } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }

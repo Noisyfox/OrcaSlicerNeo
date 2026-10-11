@@ -3364,7 +3364,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { ok: true, path, file_name: `${request.filename_base || 'output'}.gcode` };
     },
     orc_export_project() {
-      if (!modelLoaded) return { error: 'no model loaded' };
       exportedNativeScopedConfig = clone(nativeScopedConfig);
       const archive = new TextEncoder().encode(JSON.stringify({
         format: 'bbs-3mf', objects: buildStructure(), plate_count: 1,

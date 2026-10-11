@@ -172,9 +172,11 @@ before a result is exported or sent.
   these commands.
 - Once the runtime is ready and no slice or project operation is running,
   New Project, Open Project, and Preferences are available. Save Project is
-  available only for a dirty session. Save Project As is available whenever
-  the current session has project content, including a clean opened project,
-  so it can create a copy immediately.
+  available only for a dirty session, including a new session with parameter
+  changes and no models. Save Project As is available whenever the current
+  session has project content or unsaved changes, including a clean opened or
+  saved project, so it can create a copy immediately. A successful save of a
+  settings-only session establishes project content even without models.
 - A successful New Project or Open Project operation selects the Prepare
   workspace. Save and Save As do not change the active workspace.
 - Selecting a `.3mf` through **Add Model** always performs geometry-only,

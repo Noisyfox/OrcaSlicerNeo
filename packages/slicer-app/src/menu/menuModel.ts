@@ -108,8 +108,8 @@ export function deriveMenuItemStates(
   const states = {
     'new-project': state(projectActionsEnabled),
     'open-project': state(projectActionsEnabled),
-    'save-project': state(projectActionsEnabled && project.hasContent && project.dirty),
-    'save-project-as': state(projectActionsEnabled && project.hasContent),
+    'save-project': state(projectActionsEnabled && project.dirty),
+    'save-project-as': state(projectActionsEnabled && (project.hasContent || project.dirty)),
     preferences: state(projectActionsEnabled),
     'setup-wizard': state(taskActionsEnabled && !snapshot.scene.editing),
     'add-model': state(editActionsEnabled && prepareTab),

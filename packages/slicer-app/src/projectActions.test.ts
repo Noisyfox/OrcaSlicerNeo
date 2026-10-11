@@ -389,6 +389,26 @@ describe('transactional project actions', () => {
     expect(projectFilenameBase(useProjectStore.getState())).toBe('Chosen.Name');
   });
 
+  it.each([saveProject, saveProjectAs])('saves a parameter-only dirty project and allows a clean copy', async (save) => {
+    const { platform, runtime, projects } = platformFor();
+    useProjectStore.getState().setProject({ hasContent: false, dirty: true });
+    expect((await save(platform)).status).toBe('ok');
+    expect(runtime.exportProject).toHaveBeenCalledOnce();
+    expect(runtime.markHistorySaved).toHaveBeenCalledOnce();
+    expect(useProjectStore.getState()).toMatchObject({ hasContent: true, dirty: false, projectFileName: 'Robot.3mf' });
+    expect((await saveProjectAs(platform)).status).toBe('ok');
+    expect(projects.saveAs).toHaveBeenCalled();
+  });
+
+  it('cancelled saving of a parameter-only project retains its unsaved changes', async () => {
+    const { platform, runtime, projects } = platformFor();
+    useProjectStore.getState().setProject({ hasContent: false, dirty: true });
+    projects.save.mockResolvedValue({ status: 'cancelled' } as never);
+    expect((await saveProject(platform)).status).toBe('cancelled');
+    expect(runtime.markHistorySaved).not.toHaveBeenCalled();
+    expect(useProjectStore.getState()).toMatchObject({ hasContent: false, dirty: true, projectFileName: null });
+  });
+
   it('first Web save establishes filename identity without an overwrite location', async () => {
     const { platform, projects } = platformFor();
     useProjectStore.getState().setProject({ hasContent: true, dirty: true });

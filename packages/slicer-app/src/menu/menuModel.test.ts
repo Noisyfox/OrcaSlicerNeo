@@ -215,6 +215,19 @@ describe('buildMenuModel', () => {
     expect(state.items['save-project-as'].enabled).toBe(true);
   });
 
+  it('enables saving parameter-only dirty projects on every host', () => {
+    for (const chrome of [web, windows, linux, mac]) {
+      const raw = input();
+      expect(buildMenuStateSnapshot(raw, chrome).items['save-project'].enabled).toBe(false);
+      expect(buildMenuStateSnapshot(raw, chrome).items['save-project-as'].enabled).toBe(false);
+      raw.project.dirty = true;
+      const state = buildMenuStateSnapshot(raw, chrome);
+      expect(state.items['save-project'].enabled).toBe(true);
+      expect(state.items['save-project-as'].enabled).toBe(true);
+      expect(state.items.slice.enabled).toBe(false);
+    }
+  });
+
   it('locks every menu action while a project operation is waiting or running', () => {
     const state = buildMenuStateSnapshot(input({
       project: {

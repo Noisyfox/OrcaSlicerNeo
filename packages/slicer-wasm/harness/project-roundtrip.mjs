@@ -12,6 +12,7 @@ import { callAsyncTask, getSliceResult, resultTarget } from './async-task-mailbo
 import { readZipEntries } from './native-3mf-parser.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
+import { resetNativeScopedConfig, setNativeScopedConfig } from './native-scoped-command.mjs';
 
 const opts = {};
 for (let i = 2; i < argv.length; i += 2) opts[argv[i]?.replace(/^--/, '')] = argv[i + 1];
@@ -56,6 +57,25 @@ function check(label, condition, detail = '') {
 
 const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 check('initialise real module', init.ok === true, JSON.stringify(init));
+
+const emptyChanged = setNativeScopedConfig(callJson, 'project', undefined, 'layer_height', '0.24');
+check('edit settings without geometry', emptyChanged.ok === true);
+const emptyExport = callJson('orc_export_project', [], []);
+check('export settings-only project', emptyExport.ok === true && emptyExport.objects === 0 && emptyExport.bytes_length > 4);
+if (emptyExport.ok) {
+  const emptyBytes = readAndFree(emptyExport.bytes_ptr, emptyExport.bytes_length);
+  const emptyPtr = writeBytes(emptyBytes);
+  const emptyLoaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+    [emptyPtr, emptyBytes.length, 0, 'settings-only.3mf']);
+  Module._free(emptyPtr);
+  check('settings-only reopen retains zero models and edited parameters',
+    emptyLoaded.ok === true && emptyLoaded.objects === 0 &&
+    emptyLoaded.preset_snapshot?.project_config?.layer_height === '0.24',
+    JSON.stringify({ objects: emptyLoaded.objects,
+      layerHeight: emptyLoaded.preset_snapshot?.project_config?.layer_height }));
+}
+const emptyReset = resetNativeScopedConfig(callJson, 'project', undefined, 'layer_height');
+check('reset settings-only fixture override', emptyReset.ok === true);
 
 const modelPtr = writeBytes(model);
 const added = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],

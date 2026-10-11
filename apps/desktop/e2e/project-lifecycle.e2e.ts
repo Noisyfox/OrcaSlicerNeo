@@ -56,6 +56,39 @@ async function makeDirty(page: Page): Promise<void> {
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
 }
 
+test('a new project with parameter changes and no models can be saved', async () => {
+  const { app, savePath } = await launchProjectApp();
+  try {
+    const page = await app.firstWindow();
+    await ready(page);
+    const save = page.getByTestId('titlebar-save-project');
+    await expect(save).toBeDisabled();
+    await expect(page.getByTestId('btn-slice')).toBeDisabled();
+    await page.getByTestId('config-mode-project').click();
+    await page.getByTestId('config-page-Multi.').click();
+    const angle = page.getByTestId('config-input-wipe_tower_rotation_angle');
+    await angle.fill('90');
+    await angle.press('Enter');
+    await expect(save).toBeEnabled();
+    await page.getByTestId('history-undo').click();
+    await expect(save).toBeDisabled();
+    await page.getByTestId('history-redo').click();
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('saved-project');
+    await expect(save).toBeDisabled();
+    expect(existsSync(savePath)).toBe(true);
+    expect(readFileSync(savePath).byteLength).toBeGreaterThan(0);
+    await expect(page.getByTestId('btn-slice')).toBeDisabled();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+n' : 'Control+n');
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('Untitled Project');
+    await expect(page.getByTestId('project-dirty-dialog')).toHaveCount(0);
+  } finally {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy());
+    await app.close();
+  }
+});
+
 test('New Project resets rotation and Printer/Filament session drafts', async () => {
   const { app } = await launchProjectApp();
   try {
