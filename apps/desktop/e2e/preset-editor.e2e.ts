@@ -94,6 +94,12 @@ test('independent preset browsing preserves project choices and both Filament dr
     await expect(diameter).toHaveValue('1.77');
     await page.setViewportSize({ width: 800, height: 720 });
     const narrowPickerWidth = (await picker.boundingBox())!.width;
+    const titleBounds = (await page.getByTestId('preset-editor-title').boundingBox())!;
+    const resetBounds = (await page.getByTestId('preset-editor-reset-preset').boundingBox())!;
+    const closeBounds = (await page.getByTestId('preset-editor-close').boundingBox())!;
+    expect(closeBounds.y).toBeCloseTo(titleBounds.y, 1);
+    expect(resetBounds.y).toBeLessThan(titleBounds.y + titleBounds.height);
+    expect(closeBounds.y + closeBounds.height).toBeLessThanOrEqual((await picker.boundingBox())!.y);
     await picker.click();
     await page.getByRole('option').and(page.getByTitle(source, { exact: true })).click();
     await expect(page.getByTestId('preset-editor-title')).toHaveText(source);

@@ -938,36 +938,16 @@ export function PresetEditorDialog({
         data-testid="preset-editor-dialog"
         className="flex max-h-[88vh] w-[min(94vw,72rem)] max-w-none flex-col gap-4 overflow-hidden p-5"
       >
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1 basis-[min(32rem,60vw)]">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4">
+          <div className="min-w-0">
             <DialogTitle id="preset-editor-title" data-testid="preset-editor-title" className="truncate text-lg">
               {target.canonicalName}
             </DialogTitle>
             <DialogDescription className="mt-1">
               {target.kind === 'printer' ? 'Printer preset' : 'Filament preset'}
             </DialogDescription>
-            {snapshot && <div className="mt-2 flex w-[min(32rem,60vw)] max-w-full">
-              <PresetCombobox
-                mode="select"
-                items={snapshot.editorCandidates.map(candidate => ({ id: candidate.canonicalName,
-                  name: candidate.canonicalName, label: candidate.canonicalName, modified: candidate.modified }))}
-                value={target.canonicalName} modified={snapshot.modified} disabled={interactionPending || invalidFields.size > 0}
-                onValue={name => {
-                  if (interactionPending || invalidFields.size > 0) return;
-                  setActionError(null);
-                  void onSelectPreset(name).catch(error => setActionError(errorText(error)));
-                }} ariaLabel="Preset to edit" testId="preset-editor-preset"
-                searchPlaceholder="Search presets to edit…" emptyText="No matching preset"
-                sectionBy={target.kind === 'filament' ? item => compatibleNames.has(item.id)
-                  ? 'Compatible with project printer' : 'Not compatible with project printer' : undefined}
-              />
-            </div>}
-            {target.kind === 'filament' && <p
-              data-testid="preset-editor-slot-reference"
-              className="mt-1 text-xs text-muted-foreground"
-            >{referencedSlotsLabel(referencedFilamentSlots)}</p>}
           </div>
-          <div className="ml-auto flex shrink-0 items-center gap-2">
+          <div className="flex items-center gap-2">
             {snapshot?.modified && <span
               data-testid="preset-editor-project-draft"
               className="rounded border px-2 py-1 text-xs"
@@ -992,6 +972,26 @@ export function PresetEditorDialog({
               <XIcon aria-hidden="true" />
             </Button>
           </div>
+          {snapshot && <div className="col-span-2 mt-2 flex w-[min(32rem,60vw)] max-w-full">
+            <PresetCombobox
+              mode="select"
+              items={snapshot.editorCandidates.map(candidate => ({ id: candidate.canonicalName,
+                name: candidate.canonicalName, label: candidate.canonicalName, modified: candidate.modified }))}
+              value={target.canonicalName} modified={snapshot.modified} disabled={interactionPending || invalidFields.size > 0}
+              onValue={name => {
+                if (interactionPending || invalidFields.size > 0) return;
+                setActionError(null);
+                void onSelectPreset(name).catch(error => setActionError(errorText(error)));
+              }} ariaLabel="Preset to edit" testId="preset-editor-preset"
+              searchPlaceholder="Search presets to edit…" emptyText="No matching preset"
+              sectionBy={target.kind === 'filament' ? item => compatibleNames.has(item.id)
+                ? 'Compatible with project printer' : 'Not compatible with project printer' : undefined}
+            />
+          </div>}
+          {target.kind === 'filament' && <p
+            data-testid="preset-editor-slot-reference"
+            className="col-span-2 mt-1 text-xs text-muted-foreground"
+          >{referencedSlotsLabel(referencedFilamentSlots)}</p>}
         </div>
 
         <PresetEditorValidationContext.Provider value={reportValidation}>

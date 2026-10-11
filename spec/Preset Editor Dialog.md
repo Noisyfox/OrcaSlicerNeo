@@ -316,7 +316,8 @@ canonical profiles, including nozzle/variant differences. Both editor pickers
 display the full canonical preset name in the trigger, entries and tooltips,
 rather than the alias used by sidebar controls. Both triggers have a fixed
 width of `min(32rem, 60vw)` independent of the selected name and draft status;
-header actions wrap to the next row when necessary. The Filament picker has
+header actions remain at the top right, with the picker on its own row below
+the title and description. The Filament picker has
 content-sized popup width independent of its trigger, capped by the available
 viewport like the sidebar combobox. Changing targets must not clip preset names
 to a narrower trigger width. Both editor pickers reuse the option editor's
