@@ -13,7 +13,7 @@ test('real Web startup fetches selected vendors then fills the wizard without re
     models: [{ vendor: 'Creality', model: 'Creality Ender-3', nozzle_diameter: ['0.4'] }], filaments: ['Generic PLA @System'],
   } })));
   await page.goto('/'); await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
-  const startup = manifest.packages.filter(pkg => ['core', 'OrcaFilamentLibrary', 'Creality'].includes(pkg.id)).map(pkg => pkg.path);
+  const startup = manifest.packages.filter(pkg => ['core', 'OrcaFilamentLibrary', 'Custom', 'Creality'].includes(pkg.id)).map(pkg => pkg.path);
   expect([...new Set(requested)].sort()).toEqual(startup.sort());
   let release!: () => void, held = false;
   const pending = new Promise<void>(resolve => { release = resolve; });

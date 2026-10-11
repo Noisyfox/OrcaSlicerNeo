@@ -155,7 +155,7 @@ export function createProfileInstaller(
   }
   return {
     installStartup(activation: ProfileActivation | null) {
-      return install(new Set(['OrcaFilamentLibrary', ...(activation?.models.map(model => model.vendor) ?? [])]));
+      return install(new Set(['OrcaFilamentLibrary', 'Custom', ...(activation?.models.map(model => model.vendor) ?? [])]));
     },
     installCatalogue() { return install(null); },
   };

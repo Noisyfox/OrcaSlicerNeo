@@ -18,7 +18,7 @@ function manifest(packages: Array<{ id: string; kind: 'core' | 'vendor'; path: s
 }
 
 describe('runtime profile installation session', () => {
-  const packages = ['core', 'OrcaFilamentLibrary', 'Alpha', 'Beta'].map(id => ({ id,
+  const packages = ['core', 'OrcaFilamentLibrary', 'Custom', 'Alpha', 'Beta'].map(id => ({ id,
     kind: id === 'core' ? 'core' as const : 'vendor' as const, path: `${id}.zip` }));
   function fixture() {
     const files: Record<string, Uint8Array> = { 'manifest.json': manifest(packages),
@@ -28,24 +28,25 @@ describe('runtime profile installation session', () => {
     const installer = createProfileInstaller({ FS: { mkdir: () => {}, writeFile: write, readFile: () => new Uint8Array() } }, { fetch }, progress);
     return { files, fetch, write, progress, installer };
   }
-  it.each([null, { models: [], filaments: ['PLA @Beta'] },
+  it.each([null, { models: [{ vendor: 'Custom', model: 'printer', nozzle_diameter: ['0.4'] }], filaments: [] },
+    { models: [], filaments: ['PLA @Beta'] },
     { models: [{ vendor: 'Unknown', model: 'Retired', nozzle_diameter: ['0.4'] }], filaments: [] }])(
-    'installs only the permanent packages for empty, filament-only or unknown selections (%j)', async activation => {
+    'installs only the permanent packages for empty, Custom, filament-only or unknown selections (%j)', async activation => {
       const f = fixture(); await f.installer.installStartup(activation);
-      expect(f.fetch.mock.calls.map(([path]) => path)).toEqual(['manifest.json', 'core.zip', 'OrcaFilamentLibrary.zip']);
-      expect(f.write.mock.calls.map(([path]) => path)).toEqual(['/system/core.json', '/profiles/OrcaFilamentLibrary.json']);
-      expect(f.progress.mock.calls.map(([value]) => [value.index, value.total])).toEqual([[0, 2], [1, 2]]);
+      expect(f.fetch.mock.calls.map(([path]) => path)).toEqual(['manifest.json', 'core.zip', 'OrcaFilamentLibrary.zip', 'Custom.zip']);
+      expect(f.write.mock.calls.map(([path]) => path)).toEqual(['/system/core.json', '/profiles/OrcaFilamentLibrary.json', '/profiles/Custom.json']);
+      expect(f.progress.mock.calls.map(([value]) => [value.index, value.total])).toEqual([[0, 3], [1, 3], [2, 3]]);
     });
   it('installs explicit printer vendors once, fills remaining on open and never rewrites successful packages', async () => {
     const f = fixture(); const activation = { models: [{ vendor: 'Alpha', model: 'printer', nozzle_diameter: ['0.4'] }], filaments: ['PLA @Beta'] };
     await Promise.all([f.installer.installStartup(activation), f.installer.installStartup(activation)]);
-    expect(f.fetch.mock.calls.map(([path]) => path)).toEqual(['manifest.json', 'core.zip', 'OrcaFilamentLibrary.zip', 'Alpha.zip']);
-    expect(f.progress.mock.calls.map(([value]) => value.total)).toEqual([3, 3, 3]);
+    expect(f.fetch.mock.calls.map(([path]) => path)).toEqual(['manifest.json', 'core.zip', 'OrcaFilamentLibrary.zip', 'Custom.zip', 'Alpha.zip']);
+    expect(f.progress.mock.calls.map(([value]) => value.total)).toEqual([4, 4, 4, 4]);
     const initialWrites = f.write.mock.calls.length;
     await f.installer.installCatalogue(); await f.installer.installCatalogue();
-    expect(f.fetch.mock.calls.map(([path]) => path)).toEqual(['manifest.json', 'core.zip', 'OrcaFilamentLibrary.zip', 'Alpha.zip', 'Beta.zip']);
+    expect(f.fetch.mock.calls.map(([path]) => path)).toEqual(['manifest.json', 'core.zip', 'OrcaFilamentLibrary.zip', 'Custom.zip', 'Alpha.zip', 'Beta.zip']);
     expect(f.write).toHaveBeenCalledTimes(initialWrites + 1);
-    expect(f.progress.mock.calls.at(-1)![0]).toMatchObject({ index: 0, total: 1, package: packages[3] });
+    expect(f.progress.mock.calls.at(-1)![0]).toMatchObject({ index: 0, total: 1, package: packages[4] });
   });
   it('retries skipped vendor failures at the next catalogue open, preserving successful writes', async () => {
     const f = fixture(); delete f.files['Beta.zip'];
@@ -61,14 +62,14 @@ describe('runtime profile installation session', () => {
     await expect(f.installer.installStartup(null)).rejects.toThrow('core profile package');
     expect(f.write).not.toHaveBeenCalled(); f.files['core.zip'] = core;
     await f.installer.installStartup(null);
-    expect(f.fetch.mock.calls.map(([path]) => path)).toEqual(['manifest.json', 'core.zip', 'core.zip', 'OrcaFilamentLibrary.zip']);
+    expect(f.fetch.mock.calls.map(([path]) => path)).toEqual(['manifest.json', 'core.zip', 'core.zip', 'OrcaFilamentLibrary.zip', 'Custom.zip']);
   });
   it.each(['../bad.zip', 'https://evil.test/bad.zip', 'vendors/%2e%2e/%2e%2e/bad.zip'])('validates unsafe later manifest path %s before fetching/writing and retries corrected metadata', async path => {
     const f = fixture(); f.files['manifest.json'] = manifest([...packages, { id: 'bad', kind: 'vendor', path }]);
     await expect(f.installer.installStartup(null)).rejects.toThrow(/unsafe profile/);
     expect(f.fetch.mock.calls.map(([path]) => path)).toEqual(['manifest.json']); expect(f.write).not.toHaveBeenCalled();
     f.files['manifest.json'] = manifest(packages); await f.installer.installStartup(null);
-    expect(f.fetch.mock.calls.map(([path]) => path)).toEqual(['manifest.json', 'manifest.json', 'core.zip', 'OrcaFilamentLibrary.zip']);
+    expect(f.fetch.mock.calls.map(([path]) => path)).toEqual(['manifest.json', 'manifest.json', 'core.zip', 'OrcaFilamentLibrary.zip', 'Custom.zip']);
   });
 });
 

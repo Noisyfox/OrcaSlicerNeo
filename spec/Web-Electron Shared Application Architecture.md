@@ -244,8 +244,8 @@ upstream profile tree with `<Vendor>.json` and `<Vendor>/` at its root. The
 vendor ZIP filename uses the `version` field in its matching `<Vendor>.json`;
 the core filename remains `core.upstream.zip` for now. The installer unpacks core resources directly under `/system` and installed vendor
 archive under `/profiles`. Only printer-activated vendors and the permanent
-OrcaFilamentLibrary are linked into `/system` for ordinary native loading;
-core is always present. A small
+OrcaFilamentLibrary and Custom bundles are linked into `/system` for ordinary
+native loading; core is always present. A small
 browser-compatible archive dependency runs in the Worker.
 
 Package membership is generated deterministically from the upstream
@@ -255,7 +255,8 @@ organization defines the vendor packages. This keeps package generation
 reproducible as upstream profiles are added, removed, or reorganized.
 
 The hosts distribute all packages. Before slicer initialization the Worker
-installs only core, OrcaFilamentLibrary and explicit printer-selected vendors.
+installs only core, OrcaFilamentLibrary, Custom and explicit printer-selected
+vendors.
 Opening Setup Wizard installs remaining packages once per runtime before
 building the full catalogue; failed vendors may retry on later openings.
 A shared startup screen remains visible until the WASM runtime and
@@ -354,7 +355,8 @@ state; they are not global selections.
   repositories and generated-result persistence remain deferred.
 
 On boot, saved activation is loaded before runtime initialization, and the
-client links its printer vendors plus OrcaFilamentLibrary for native loading.
+client links its printer vendors plus OrcaFilamentLibrary and Custom for native
+loading.
 Missing activation or no usable real printer presents mandatory setup before
 restoring remembered selections/racks. After configured startup, the runtime restores
 Printer and Process through the C++ bridge in that order. It accepts the

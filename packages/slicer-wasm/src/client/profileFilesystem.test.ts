@@ -5,21 +5,24 @@ import { createClient } from './client';
 
 const encode = (text: string) => new TextEncoder().encode(text);
 describe('profile resource activation', () => {
-  it('links only model vendors plus the permanent library, sharing source files', () => {
+  it('links only model vendors plus permanent Custom and library resources, sharing source files', () => {
     const module = createMockModule();
     installProfileArchive(module, 'core', [{ path: 'hotend.stl', data: encode('core') }]);
-    for (const vendor of ['Enabled', 'Excluded']) installProfileArchive(module, 'vendor', [
+    for (const vendor of ['Custom', 'Enabled', 'Excluded']) installProfileArchive(module, 'vendor', [
       { path: `${vendor}.json`, data: encode('{}') }, { path: `${vendor}/machine/p.json`, data: encode(vendor) },
     ]);
     linkProfileVendors(module, { models: [{ vendor: 'Enabled', model: 'P', nozzle_diameter: ['0.4'] }],
       filaments: ['Excluded PLA'] });
-    expect(module.FS.readdir('/system').sort()).toEqual(['.', '..', 'Enabled', 'Enabled.json', 'OrcaFilamentLibrary', 'OrcaFilamentLibrary.json', 'hotend.stl'].sort());
+    expect(module.FS.readdir('/system').sort()).toEqual(['.', '..', 'Custom', 'Custom.json', 'Enabled', 'Enabled.json', 'OrcaFilamentLibrary', 'OrcaFilamentLibrary.json', 'hotend.stl'].sort());
     expect(module.FS.readFile('/system/Enabled/machine/p.json')).toEqual(encode('Enabled'));
     module.FS.writeFile('/profiles/Enabled/machine/p.json', encode('changed'));
     expect(module.FS.readFile('/system/Enabled/machine/p.json')).toEqual(encode('changed'));
     linkProfileVendors(module, null);
     expect(() => module.FS.readFile('/system/Enabled.json')).toThrow('ENOENT');
     expect(module.FS.readFile('/profiles/Enabled.json')).toEqual(encode('{}'));
+    expect(module.FS.readFile('/system/Custom.json')).toEqual(encode('{}'));
+    expect(module.FS.readFile('/system/Custom/machine/p.json')).toEqual(encode('Custom'));
+    expect(module.FS.readFile('/system/OrcaFilamentLibrary.json')).toBeDefined();
     expect(module.FS.readFile('/system/hotend.stl')).toEqual(encode('core'));
   });
   it.each(['../bad', 'C:', ' ', 'Bad\0'])('rejects unsafe activation vendor %j before changing the view', vendor => {
