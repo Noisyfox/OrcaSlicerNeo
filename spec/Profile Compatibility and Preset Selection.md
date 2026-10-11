@@ -72,7 +72,9 @@ considers them compatible.
 - The Process selector shows only installed, visible processes compatible with
   the selected Printer.
 - Incompatible profiles are hidden. There is no option to reveal or select
-  them in this release.
+  them through the project selectors in this release. The independent
+  [Preset Editor](Preset%20Editor%20Dialog.md) picker may browse incompatible
+  Filaments without selecting them for the project.
 - Printer and Process profiles keep native source order. Filament catalogue
   order is supplied by the native vendor/type/name projection without
   Bambu-specific priorities.

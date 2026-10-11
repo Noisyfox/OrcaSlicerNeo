@@ -5,6 +5,62 @@ import { resolve } from 'node:path';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
 
+test('independent preset browsing preserves project choices and both Filament drafts', async () => {
+  const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.locator('#app-tab-prepare').click();
+    const printerBefore = await page.getByTestId('preset-select').getAttribute('title');
+    await page.getByTestId('preset-edit-printer').click();
+    await page.getByTestId('preset-editor-preset').click();
+    const printerTargets = await page.getByRole('option').evaluateAll(options => options.map(option => option.getAttribute('title')));
+    const otherPrinter = printerTargets.find(name => name && name !== printerBefore);
+    if (!otherPrinter) throw new Error('expected another installed Printer');
+    await page.getByRole('option').and(page.getByTitle(otherPrinter, { exact: true })).click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(otherPrinter);
+    await expect(page.getByTestId('preset-select')).toHaveAttribute('title', printerBefore!);
+    await page.getByTestId('preset-editor-close').click();
+    const slot = page.getByTestId('filament-preset-1');
+    const source = await slot.getAttribute('title');
+    if (!source) throw new Error('expected selected Filament source');
+    await page.getByTestId('filament-slot-1').click({ button: 'right' });
+    await page.getByTestId('filament-edit-1').click();
+    const picker = page.getByTestId('preset-editor-preset');
+    const settingsSearch = page.getByTestId('preset-editor-search');
+    await settingsSearch.fill('filament_diameter');
+    const diameter = page.getByTestId('preset-editor-input-filament_diameter');
+    await diameter.fill('1.76'); await diameter.press('Enter');
+    await expect(picker).toBeEnabled();
+    await picker.click();
+    const groups = page.locator('[data-slot="dropdown-menu-group"]');
+    const incompatible = groups.filter({ has: page.locator('[data-slot="dropdown-menu-label"]', {
+      hasText: 'Not compatible with project printer',
+    }) });
+    const target = await incompatible.getByRole('menuitemradio').first().getAttribute('title');
+    if (!target) throw new Error('expected an incompatible editor candidate');
+    await incompatible.getByRole('menuitemradio').first().click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(target);
+    await expect(slot).toHaveAttribute('title', source);
+    await diameter.fill('1.77'); await diameter.press('Enter');
+    await expect(picker).toBeEnabled();
+    await picker.click();
+    await expect(incompatible.getByRole('menuitemradio').first()).toHaveAttribute('title', target);
+    await expect(incompatible.getByRole('menuitemradio').first().locator('.config-override-label')).toBeVisible();
+    await page.getByRole('menuitemradio').and(page.getByTitle(source, { exact: true })).click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(source);
+    await expect(diameter).toHaveValue('1.76');
+    await picker.click();
+    await page.getByRole('menuitemradio').and(page.getByTitle(target, { exact: true })).click();
+    await expect(diameter).toHaveValue('1.77');
+    await page.getByTestId('preset-editor-close').click();
+    await expect(slot).toHaveAttribute('title', source);
+    await expect(page.getByTestId('preset-select')).toHaveAttribute('title', printerBefore!);
+  } finally { await app.close(); }
+});
+
 async function selectFilamentPreset(page: Page, name: string, label: string): Promise<void> {
   const preset = page.getByTestId('filament-preset-1');
   await preset.click();

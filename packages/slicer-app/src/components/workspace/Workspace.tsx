@@ -225,6 +225,34 @@ export function Workspace({
     setPresetEditorLoading(false);
   }, []);
 
+  const selectPresetEditorTarget = useCallback(async (canonicalName: string) => {
+    const previous = presetEditorTargetRef.current;
+    if (!previous || canonicalName === previous.canonicalName || presetEditorMutationPendingRef.current ||
+        presetEditorRefreshingRef.current || !paintingCommandAllowed()) return;
+    const requestedTarget = { kind: previous.kind, canonicalName };
+    presetEditorTargetRef.current = requestedTarget;
+    presetEditorRefreshingRef.current = true;
+    setPresetEditorRefreshing(true);
+    try {
+      // Browsing is read-only. Never route through project preset selection.
+      const result = await platform.runtime.getPresetDraft(previous.kind, canonicalName);
+      if (presetEditorTargetRef.current !== requestedTarget) return;
+      if (!result.ok) throw new Error(result.error);
+      setPresetEditorTarget(requestedTarget);
+      setPresetEditorSnapshot(result);
+      setPresetEditorLoadError(null);
+    } catch (error) {
+      if (presetEditorTargetRef.current !== requestedTarget) return;
+      presetEditorTargetRef.current = previous;
+      throw error;
+    } finally {
+      if (presetEditorTargetRef.current === requestedTarget || presetEditorTargetRef.current === previous) {
+        presetEditorRefreshingRef.current = false;
+        setPresetEditorRefreshing(false);
+      }
+    }
+  }, [platform.runtime]);
+
   const mutatePresetEditorDraft = useCallback(async (request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult> => {
     const target = presetEditorTargetRef.current;
     if (!target || request.kind !== target.kind || request.canonicalName !== target.canonicalName) {
@@ -896,6 +924,7 @@ export function Workspace({
       mutationPending={presetEditorMutationPending}
       referencedFilamentSlots={referencedPresetSlots}
       onClose={closePresetEditor}
+      onSelectPreset={selectPresetEditorTarget}
       onMutate={mutatePresetEditorDraft}
     />
     </>

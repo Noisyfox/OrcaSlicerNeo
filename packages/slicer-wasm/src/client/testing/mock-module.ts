@@ -712,6 +712,12 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const vectors = editorVectorsFor(kind, canonicalName);
     return { ok: true, kind, canonical_name: canonicalName,
       draft_exists: draft !== undefined, modified: Object.keys(overrides).length > 0,
+      editor_candidates: presetFixtures[kind]
+        .filter(preset => (preset.is_visible && !preset.is_default) || preset.name === canonicalName)
+        .map(preset => ({ canonical_name: preset.name, label: kind === 'printer' ? preset.name : preset.label,
+          compatible: kind === 'printer' || !preset.compatible_printers?.length || preset.compatible_printers.includes(selected.printer),
+          modified: Object.keys(presetDraftRegistry[kind][preset.name] ?? {}).length > 0 }))
+        .sort((a, b) => Number(b.compatible) - Number(a.compatible) || Number(b.modified) - Number(a.modified)),
       overrides, source_values: sourceValues, effective_values: { ...sourceValues, ...Object.fromEntries(Object.entries(overrides).map(([key, value]) =>
         [key, Array.isArray(value) ? serializePresetEditorValues(editorValuesFor(kind, canonicalName, key)!) : value])) },
       option_metadata: optionMetadata, editor_vectors: vectors, revision: historyRevision };

@@ -7,6 +7,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
   DropdownMenuRadioGroup, DropdownMenuRadioItem,
+  DropdownMenuGroup, DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import {
   Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem,
@@ -19,11 +20,13 @@ export interface PresetComboItem {
   name: string;
   /** Native display label (model or alias). */
   label: string;
+  /** Nonempty preset overrides, when the caller exposes draft state. */
+  modified?: boolean;
 }
 
 /** Shared Orca-style presentation; identity and transition policy stay with the caller. */
 export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, testId,
-  searchPlaceholder, emptyText, leading, triggerStyle, groupBy, modified }: {
+  searchPlaceholder, emptyText, leading, triggerStyle, groupBy, sectionBy, modified }: {
   modified: boolean;
   items: readonly PresetComboItem[];
   value: string;
@@ -36,23 +39,25 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
   leading?: ReactNode;
   triggerStyle?: CSSProperties;
   groupBy?: (item: PresetComboItem) => string;
+  /** Flat labelled sections, preserving the caller's candidate order. */
+  sectionBy?: (item: PresetComboItem) => string;
 }) {
   const [search, setSearch] = useState('');
   const entries = new Map(items.map(item => [item.id, item]));
   const groups = new Map<string, string[]>();
-  if (groupBy) for (const item of items) {
-    const label = groupBy(item);
+  if (sectionBy || groupBy) for (const item of items) {
+    const label = (sectionBy ?? groupBy)!(item);
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label)!.push(item.id);
   }
   const renderItem = (id: string) => <ComboboxItem key={id} value={id} title={entries.get(id)!.name}>
-    {entries.get(id)!.label}
+    <span className={cn(entries.get(id)!.modified && 'config-override-label')}>{entries.get(id)!.label}</span>
   </ComboboxItem>;
   const query = search.toLocaleLowerCase();
   const visibleGroups = [...groups].map(([label, ids]) => ({ label,
     ids: ids.filter(id => entries.get(id)!.label.toLocaleLowerCase().includes(query)),
   })).filter(group => group.ids.length > 0);
-  if (groupBy) return <DropdownMenu onOpenChange={open => { if (!open) setSearch(''); }}>
+  if (groupBy || sectionBy) return <DropdownMenu onOpenChange={open => { if (!open) setSearch(''); }}>
     <div className="flex min-w-0 flex-1 gap-1">
       {leading}
       <DropdownMenuTrigger disabled={disabled} render={<Button variant="ghost" size="sm" />}
@@ -62,17 +67,24 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
         <ChevronDown className="sidebar-dropdown-arrow" />
       </DropdownMenuTrigger>
     </div>
-    <DropdownMenuContent className="min-w-56" aria-label={ariaLabel}>
+    <DropdownMenuContent className="max-h-[min(60vh,32rem)] min-w-56 overflow-y-auto" aria-label={ariaLabel}>
       <div className="p-1"><SearchInput value={search} onValueChange={setSearch}
         placeholder={searchPlaceholder} aria-label={searchPlaceholder}
         onKeyDown={event => {
           if (event.key === 'ArrowDown') {
             event.preventDefault();
-            event.currentTarget.closest('[role="menu"]')?.querySelector<HTMLElement>('[data-slot="dropdown-menu-sub-trigger"]')?.focus();
+            event.currentTarget.closest('[role="menu"]')?.querySelector<HTMLElement>('[role="menuitemradio"], [data-slot="dropdown-menu-sub-trigger"]')?.focus();
           }
           if (event.key !== 'Escape') event.stopPropagation();
         }} /></div>
-      {visibleGroups.map(({ label, ids }) => <DropdownMenuSub key={label}>
+      {visibleGroups.map(({ label, ids }) => sectionBy ? <DropdownMenuGroup key={label}>
+        <DropdownMenuLabel>{label}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={value} onValueChange={onValue}>
+          {ids.map(id => <DropdownMenuRadioItem key={id} value={id} title={entries.get(id)!.name} disabled={disabled} closeOnClick>
+            <span className={cn('truncate', entries.get(id)!.modified && 'config-override-label')}>{entries.get(id)!.label}</span>
+          </DropdownMenuRadioItem>)}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuGroup> : <DropdownMenuSub key={label}>
           <DropdownMenuSubTrigger>{label}</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-w-[min(32rem,calc(100vw-1rem))]" aria-label={label}>
             <DropdownMenuRadioGroup value={value} onValueChange={onValue}>

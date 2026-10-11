@@ -164,6 +164,7 @@ describe('Workspace ownership', () => {
         version: 1 as const,
         kind,
         canonicalName: `${canonicalName} canonical`,
+        editorCandidates: [{ canonicalName, label: canonicalName, compatible: true, modified: false }],
         draftExists: false,
         modified: false,
         overrides: {},
@@ -199,6 +200,38 @@ describe('Workspace ownership', () => {
     expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A');
   });
 
+  it('browses Printer sources independently and retains the previous editor when a read fails', async () => {
+    const candidates = ['Printer A', 'Printer B', 'Printer Broken'].map(canonicalName => ({
+      canonicalName, label: canonicalName, compatible: true, modified: false,
+    }));
+    const runtime = {
+      getPresetDraft: vi.fn(async (kind: 'printer' | 'filament', canonicalName: string) => canonicalName === 'Printer Broken'
+        ? { ok: false, error: 'Preset read failed', errorCode: 'runtime_failure' }
+        : { ok: true, kind, canonicalName, editorCandidates: candidates, draftExists: false, modified: false,
+          overrides: {}, sourceValues: { printable_height: '256' }, effectiveValues: { printable_height: '256' },
+          optionMetadata: {}, editorBindings: {}, editorVectors: {}, revision: 1 }),
+      selectProfile: vi.fn(), selectPrinterWithRememberedRack: vi.fn(), selectFilamentSlotPreset: vi.fn(),
+    };
+    platform.runtime = runtime as unknown as PlatformCapabilities['runtime'];
+    const selectedBefore = useSettingsStore.getState().selectedPrinter;
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} /></PlatformProvider>));
+    await act(async () => (container.querySelector('[data-testid="mock-printer-edit"]') as HTMLElement).click());
+    async function choose(name: string) {
+      await act(async () => (document.querySelector('[data-testid="preset-editor-preset"]') as HTMLElement).click());
+      await act(async () => (document.querySelector(`[role="option"][title="${name}"]`) as HTMLElement).click());
+    }
+    await choose('Printer B');
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer B');
+    await choose('Printer Broken');
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer B');
+    expect(document.querySelector('[data-testid="preset-editor-action-error"]')?.textContent).toBe('Preset read failed');
+    expect(useSettingsStore.getState().selectedPrinter).toBe(selectedBefore);
+    expect(runtime.selectProfile).not.toHaveBeenCalled();
+    expect(runtime.selectPrinterWithRememberedRack).not.toHaveBeenCalled();
+    expect(runtime.selectFilamentSlotPreset).not.toHaveBeenCalled();
+  });
+
   it('refreshes an open preset editor from the restored native draft after Undo or Redo', async () => {
     let reads = 0;
     let finishRefresh: (value: Record<string, unknown>) => void = () => undefined;
@@ -208,6 +241,7 @@ describe('Workspace ownership', () => {
       version: 1 as const,
       kind,
       canonicalName,
+      editorCandidates: [{ canonicalName, label: canonicalName, compatible: true, modified: revision === 1 }],
       draftExists: revision === 1,
       modified: revision === 1,
       overrides: revision === 1 ? { printable_height: height } : {},

@@ -1,5 +1,5 @@
 import { configVectorElementAt as vectorAt } from '@slicer/client';
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import type {
   OptionMeta,
@@ -25,6 +25,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
+import { PresetCombobox } from '../PresetCombobox';
 import { optionTooltip } from './optionTooltip';
 import {
   FILAMENT_PRESET_EDITOR_MANIFEST,
@@ -47,8 +48,11 @@ export interface PresetEditorDialogProps {
   /** Current one-based rack slots that select this Filament source. */
   readonly referencedFilamentSlots?: readonly number[];
   readonly onClose: () => void;
+  readonly onSelectPreset: (canonicalName: string) => Promise<void>;
   readonly onMutate: (request: PresetDraftMutationRequest) => Promise<PresetDraftMutationResult>;
 }
+
+const PresetEditorValidationContext = createContext<(id: string, invalid: boolean) => void>(() => undefined);
 
 interface RoutedField {
   readonly page: PresetEditorManifestPage;
@@ -288,6 +292,11 @@ function FieldValue({
   useEffect(() => setColourOpen(false), [effectiveValue]);
 
   const inputId = `preset-editor-input-${page?.id ?? 'field'}-${group?.id ?? 'group'}-${field.key}`;
+  const reportValidation = useContext(PresetEditorValidationContext);
+  useEffect(() => {
+    reportValidation(inputId, fieldError !== null);
+    return () => reportValidation(inputId, false);
+  }, [fieldError, inputId, reportValidation]);
 
   useEffect(() => {
     if (focused.current || fieldError !== null) return;
@@ -863,6 +872,7 @@ export function PresetEditorDialog({
   mutationPending = false,
   referencedFilamentSlots = [],
   onClose,
+  onSelectPreset,
   onMutate,
 }: PresetEditorDialogProps) {
   const interactionPending = loading || refreshing || mutationPending;
@@ -871,6 +881,17 @@ export function PresetEditorDialog({
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
+  const compatibleNames = useMemo(() => new Set(snapshot?.editorCandidates
+    .filter(candidate => candidate.compatible).map(candidate => candidate.canonicalName)), [snapshot]);
+  const [invalidFields, setInvalidFields] = useState<ReadonlySet<string>>(new Set());
+  const reportValidation = useCallback((id: string, invalid: boolean) => {
+    setInvalidFields(previous => {
+      if (previous.has(id) === invalid) return previous;
+      const next = new Set(previous);
+      if (invalid) next.add(id); else next.delete(id);
+      return next;
+    });
+  }, []);
   // A diameter transaction may resolve another canonical Printer source.
   // Keep the open Extruder page and its index through that source change.
   const navigationKey = target?.kind ?? '';
@@ -925,6 +946,21 @@ export function PresetEditorDialog({
             <DialogDescription className="mt-1">
               {target.kind === 'printer' ? 'Printer preset' : 'Filament preset'}
             </DialogDescription>
+            {snapshot && <div className="mt-2 flex min-w-64 max-w-[min(32rem,60vw)]">
+              <PresetCombobox
+                items={snapshot.editorCandidates.map(candidate => ({ id: candidate.canonicalName,
+                  name: candidate.canonicalName, label: candidate.label, modified: candidate.modified }))}
+                value={target.canonicalName} modified={snapshot.modified} disabled={interactionPending || invalidFields.size > 0}
+                onValue={name => {
+                  if (interactionPending || invalidFields.size > 0) return;
+                  setActionError(null);
+                  void onSelectPreset(name).catch(error => setActionError(errorText(error)));
+                }} ariaLabel="Preset to edit" testId="preset-editor-preset"
+                searchPlaceholder="Search presets to edit…" emptyText="No matching preset"
+                sectionBy={target.kind === 'filament' ? item => compatibleNames.has(item.id)
+                  ? 'Compatible with project printer' : 'Not compatible with project printer' : undefined}
+              />
+            </div>}
             {target.kind === 'filament' && <p
               data-testid="preset-editor-slot-reference"
               className="mt-1 text-xs text-muted-foreground"
@@ -957,7 +993,8 @@ export function PresetEditorDialog({
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <PresetEditorValidationContext.Provider value={reportValidation}>
+        <div key={`${target.kind}:${target.canonicalName}`} className="flex min-h-0 flex-1 flex-col gap-3">
           <SearchInput
             type="search"
             aria-label={`Search ${target.kind} preset settings`}
@@ -1046,6 +1083,7 @@ export function PresetEditorDialog({
             ) : null}
           </div>
         </div>
+        </PresetEditorValidationContext.Provider>
       </DialogContent>}
     </Dialog>
   );
