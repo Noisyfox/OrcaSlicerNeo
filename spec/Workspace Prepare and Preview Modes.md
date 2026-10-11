@@ -11,12 +11,12 @@ shared Electron/Web application architecture.
 ## 1. Navigation
 
 The application has one `AppTab` union containing `home`, `prepare`, `preview`,
-and `device`. There is no separate `activeWorkspaceTab` and no global
-`workspaceMode` state.
+and `device`. `activeTab` is the sole top-level route; retained workspace
+presentation is separate local state, not another page route or a global store.
 
 - **Home** is an independent, currently blank page.
 - **Prepare** and **Preview** are the two workspace presentations. Workspace
-  receives the current `AppTab` and owns their presentation boundary.
+  receives the retained Prepare/Preview mode and owns their presentation boundary.
 - **Device** remains independent of the workspace.
 
 Every top-level page remains mounted for the ready application's lifetime.
@@ -24,9 +24,12 @@ Inactive pages are hidden and inert, never unmounted, to preserve state and make
 switching immediate. Thus Home being active never destroys the Workspace; it
 only hides its sidebar and viewport.
 
-App owns only `activeTab: AppTab` as page-routing state. Workspace derives its
-Prepare/Preview presentation directly from that input and requests a tab change
-through a callback when an action must open Preview.
+App owns `activeTab: AppTab` for page routing and retains the last Prepare/Preview
+mode independently. Selecting Prepare or Preview updates that mode; Home and
+Device only hide the mounted Workspace. They do not change scene mode, remove
+action controls, or release Preview projection/layer/text controls. Returning
+to the same mode preserves its component instances and local state. Workspace
+requests a tab change through a callback when an action must open Preview.
 
 After runtime startup, the application opens Home by default.
 

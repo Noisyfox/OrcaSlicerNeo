@@ -258,14 +258,29 @@ pages after the first read the wrong source range and large previews truncate.
 
 The shared renderer also uses native libvgcode OptionTemplate diamonds for
 Retract, Unretract, Seam, Tool change, Color change, Pause Print, and Custom
-G-code event vertices. Wipe remains a thin SegmentTemplate line with its own
-colour and visibility. Action controls are independent of extrusion-role/tool
+G-code event vertices. Wipe remains a thin SegmentTemplate line with independent
+visibility, native yellow in categorical and other non-Speed schemes, and the
+speed ramp in Speed. Its native dimensions are 0.1 mm with a 0.05 eye-space
+depth bias. Action controls are independent of extrusion-role/tool
 filters and remain available across colour schemes, but obey the inclusive
 layer range, move end, and dimming. Their legend is result-dependent.
 
 Marker and segment draws share static textures and partition the existing
 page-local enabled-index texture; changing visibility does not rebuild geometry.
 A shared sixteen-sided diamond geometry and per-page event instance buffers
-are released alongside existing renderer resources. Marker colours and scaling
-follow native options; zero-sized initial events use a 0.4/0.2 mm shape. These
+are released alongside existing renderer resources. Markers sit at event
+endpoints with native option colours, 1.5 shape scaling, and a 0.1 eye-space
+depth bias. Events without positive width/height use a 0.4/0.2 mm shape;
+positive native dimensions are preserved. These
 controls inspect existing events only and never mutate slice results.
+
+## Renderer input and rejection contract
+
+The internal selection contract requires an action-visibility map, a
+category-visibility map, and an explicit category field. Empty maps mean no
+overrides; callers must supply them rather than omit legacy arguments.
+Move-type constants come from their defining module. Shape data follows the
+current typed client contract: historical palette indexing and speculative
+angle/bias aliases are unsupported. An injected template factory must supply
+complete current geometry; reject an incomplete template instead of repairing
+it in the renderer.

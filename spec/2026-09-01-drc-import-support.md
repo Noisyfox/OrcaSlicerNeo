@@ -6,10 +6,10 @@
 
 - The first delivery supports importing `.drc` files only.  DRC export is out
   of scope for this delivery.
-- DRC has the same user entry points as the current STL support: the existing
-  in-app **Add Model** flow in both the Electron and Web hosts.  It does not
-  add drag-and-drop import, operating-system file association, or opening a
-  DRC file from outside the application.
+- DRC uses the shared **Add Model** picker and external OS/browser file-drop
+  flow in both Electron and Web, as defined by [Model Import](Model%20Import.md).
+  Operating-system file association and external application-launch opening
+  remain outside scope; file drops do not add those capabilities.
 - An imported DRC is appended to the current plate.  It never replaces the
   existing scene.
 - A single DRC triangular mesh becomes one model object with one volume, even
@@ -24,7 +24,7 @@
   defined inside the project.  Never pass a host absolute path into shared
   state or the WASM filesystem.
 - Placement matches the current STL behaviour: centre the imported mesh on
-  the XY origin, rest it on the bed, and do not perform collision avoidance or
+  the current plate, rest it on the bed, and do not perform collision avoidance or
   automatic arrangement.  Multiple imported models may overlap.
 - Interpret DRC position values as millimetres, exactly as STL input is
   interpreted.  Preserve the source X/Y/Z axes and handedness without unit
@@ -74,3 +74,20 @@
   generated JavaScript wrapper is not used by this C++ integration.  Draco
   1.5.7 also requires the Emscripten directory in the `EMSCRIPTEN` environment
   variable while configuring.
+
+## Acceptance requirements
+
+- Retain a small subset of Google Draco 1.5.7 official data: the triangular
+  mesh with non-position attributes (`cube_att.drc`) and the `edgebreaker`
+  and `sequential` `test_nm` meshes. These are required non-Orca compatibility
+  fixtures; do not import the entire upstream fixture collection.
+- Keep one official Draco point-cloud fixture as unsupported input. Produce
+  malformed-input coverage by truncating a successful mesh in the test rather
+  than committing another binary.
+- Keep the upstream Apache-2.0 license and precise Google Draco 1.5.7 provenance
+  alongside retained binary fixtures.
+- Successful import checks expected vertex/triangle counts and a
+  tolerance-checked bounding box, then slices the model and verifies G-code
+  output. Absence of an import error is insufficient.
+- Real Electron, Web threaded wasm64, and Web serial wasm64 must pass the DRC
+  success and rejection scenarios. These are release-blocking checks.

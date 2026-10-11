@@ -70,6 +70,28 @@ plates as projection cache hits. Global Prime Tower invalidation remains only
 for session reset and true global slicing-input changes such as project or
 filament configuration, whose native affected set contains every live plate.
 
+Every committed plate input stamp is a Prime Tower projection dependency.
+Refresh from plate-session mutation receipts even when transforms retain the
+same GLVolume and object-list arrays. Reactive projection reads wait until the
+project mutation lease releases, preventing a pre-commit read during an open
+history transaction. Explicit history-restore reads likewise follow the native
+restore commit. Selecting a plate changes interaction ownership only and does
+not issue a projection read.
+
+Native cache entries carry the input stamp and display index; a mismatch is
+recomputed lazily. Explicit eviction is not the sole validity proof. Cache hits
+reuse unaffected plates and incremental used-slot summaries without another
+model traversal or reflow.
+
+Slice cancellation, failure, stale completion, and empty-result reads withdraw
+only derived slice presentation. They do not clear Prepare tower projections
+or used-slot summaries, because they do not mutate model/configuration inputs.
+Retain the regression that checks cache reuse both before and after a cancelled
+job's terminal message, then performs a Move without a full used-slot scan.
+Warm reads, plate selection, ordinary movement, last-object departure/return,
+configuration changes, plate reorder, and deletion to an empty plate must
+preserve correct eligibility/dimensions/slots and unrelated-plate cache hits.
+
 
 ## Verification boundary
 

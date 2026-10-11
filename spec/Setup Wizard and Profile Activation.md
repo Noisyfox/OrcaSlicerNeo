@@ -294,19 +294,26 @@ desktop Orca's preset-file editing and configuration-reload implementation.
   partial-startup recovery flow. The normal no-usable-Printer rule still applies.
 - Persist the accepted activation settings before applying them to the running
   session. If persistence fails, do not apply; keep the wizard open, show the
-  error, and allow retry.
+  error, retain editable selections, and allow retry. Electron and Web
+  preference adapters update their in-memory activation record only after
+  storage succeeds.
 - If persistence succeeds but native application fails, retain the newly saved
-  activation settings, show the error, and allow retrying application. Do not
+  activation settings, show the error, and retry application using the already
+  saved/prepared activation. Do not
   implement cross-storage/runtime rollback. A subsequent startup reads the
   newly saved settings. Success must not be reported for a failed application.
+- If native application succeeds but renderer publication or catalogue close
+  fails, retry completion from the same authoritative receipt. Do not apply
+  native activation a second time or clear history again.
 - Treat an activation record that is malformed or has an unsupported format
   version as absent, using the existing preference normalization mechanism.
   Enter mandatory setup without adding backup recovery or a dedicated repair
   dialog. Preserve other preference fields that can still be read normally.
 
-The pre-save validation/normalization and native apply operations must respect
-this save-before-apply ordering. Exact transport and supplemental-material
-publication details remain part of implementation design.
+Pre-save validation/normalization, native application, and renderer publication
+must respect these save-before-apply and receipt-retry boundaries. Publish the
+authoritative profile, scoped configuration, filament, plate, and history
+receipt before reporting completion.
 
 ### Accepted catalogue and runtime lifecycle policies
 
@@ -318,6 +325,9 @@ publication details remain part of implementation design.
   bundle and projected catalogue only while the wizard is open; release them
   on close. Keep the extracted source resources in `/profiles`, without a
   full or lightweight parsed-catalogue cache between openings.
+- Serialize temporary-catalogue ownership, including StrictMode replay.
+  Cleanup waits for its own pending open, closes that owner exactly once, and
+  then releases the next owner. Delayed cleanup must not close a newer catalogue.
 - Show a loading state while generating the catalogue and disable selection,
   navigation, completion, and cancellation until generation finishes. Do not
   implement cancellation of an in-progress native catalogue load. Once loaded,
@@ -346,6 +356,12 @@ replacing global activation settings. Neo retains that separation.
   pixel-identical reproduction. The Printer page groups model cards by vendor
   with images, names, and nozzle information. The Filament page provides model,
   material-type, manufacturer, and text filters with grouped material rows.
+- Eligible filament rows come only from selected printer resource vendors and
+  `OrcaFilamentLibrary`, using native grouping and explicit model/nozzle mapping.
+  Loading the complete catalogue does not admit materials from unselected
+  printer vendors. Next rechecks default materials.
+- Printer search matches unordered words over model/vendor; filament search
+  matches name substrings and supports `::checked` / `::unchecked` tags.
 - Match Orca's printer ordering: stable ascending `vendor.localeCompare`, with
   the `Custom` vendor moved first. Preserve catalogue/manifest model order
   within each vendor and declared nozzle order. Selected models do not move
@@ -371,6 +387,21 @@ replacing global activation settings. Neo retains that separation.
   permanent library, and that closing releases the temporary catalogue data.
   Reassess optimization needs from measured results. Releasing allocations
   does not require the WASM heap's high-water capacity to shrink.
+
+#### Printer cover lifecycle
+
+Load covers only when their cards intersect the actual Printer-page scroll
+container (`setup-printers`), using it as the `IntersectionObserver` root.
+Offscreen or filtered-out cards do not request image bytes. Reads use the
+existing runtime filesystem API, including unlinked vendor resources under
+`/profiles`; missing paths and failed reads retain the placeholder.
+
+Each catalogue opening owns one image session. Deduplicate successful and
+failed reads by resource path within that session, including search changes
+and returning from Filament. Completion, cancellation, and unmount revoke all
+of its Blob URLs. A read resolving after disposal must neither create a URL nor
+publish into a later session. Reopening creates a fresh image session; there is
+no cross-opening image cache or additional runtime/client/native API.
 
 ## 5. Verification and remaining boundaries
 

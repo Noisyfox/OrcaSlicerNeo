@@ -713,6 +713,11 @@ is complete, allow a new stroke; do not retain a failed-draft Retry workflow.
 An empty stroke creates no history entry. Closing the gizmo does not write the
 completed strokes again.
 
+Stage history begin/commit and allocate the success response before publishing
+history. Failure must preserve Redo, timestamps, save markers, and memory
+accounting. Immutable archives remain shared; back up only changed volumes for
+model rollback. No fallible work follows successful history publication.
+
 A fatal Worker OOM or WASM trap follows the existing shared runtime fatal-error
 flow, as required by the project persistence and multi-filament specifications.
 Painting does not introduce a separate Worker-recovery protocol or autosave,
@@ -751,6 +756,14 @@ buffers promptly, measure peak working memory on representative models, and
 report the actually validated range. Recoverable allocation/operation failures
 and fatal runtime failures follow the policies above; do not promise that every
 allocation failure can be detected or recovered before the runtime fails.
+
+Native geometry transfers use request-owned leases, not frees inferred from
+payload addresses. Stale or malformed geometry with an intact lease releases
+the actual allocation bases. Duplicate release and release after session close
+must be safe. A corrupted lease token cannot establish ownership: reject it
+without speculative frees and leave unidentified allocations native-owned until
+module teardown. These failure rules apply independently of renderer resource
+cleanup and session lifetime.
 
 ## 6. Nested history and compaction
 
@@ -926,6 +939,19 @@ the affected objects and plates, including other instances sharing the edited
 annotations. Ordinary Prepare resources become visible only when they match
 the committed state. Do not repeat invalidations or calculations already settled
 for the same input version.
+
+If the session has no committed painting, retain Prepare without a geometry
+read. Otherwise track every successfully painted object ID across target
+switches and refresh only those objects through the existing scene-delta
+projection and known source/paint keys. Project commands and history navigation
+continue to publish their own projections. Retain the touched-object set through
+Undo and native-close or renderer-publication failure; clear it only after
+successful Prepare publication.
+
+Keep native close, material/Prime Tower settlement, epoch publication, history
+compaction, and conditional Redo cleanup in the closure path. Retain
+synchronous lane ownership through resource publication; an incremental geometry
+refresh does not relax these ordering or deferred-update rules.
 
 Active-stroke Escape cancellation and ignored commands are defined in section
 3.2, including single-gizmo switching and the absence of a whole-session discard

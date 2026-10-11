@@ -80,6 +80,31 @@ normal scheduler. Orca adaptations live in the committed core submodule;
 external OCCT fixes belong to the scaffold dependency patches. Source units
 become millimetres without a renderer axis conversion.
 
+## STEP dependency notices and provenance
+
+This is the build-time notice inventory for the accepted STEP integration;
+fixture provenance remains in the fixture README. The repository has no
+package-wide third-party notice inventory beyond the fixture-local DRC notice.
+Preserve and update this record when dependency inputs change.
+
+- OCCT **7.6.0** uses the
+  [V7_6_0 archive](https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_6_0.zip),
+  SHA-256 `28334f0e98f1b1629799783e9b4d21e05349d89e695809d7e6dfa45ea43e1dbc`.
+  Its legal sources are the
+  [LGPL-2.1 text](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_6_0/LICENSE_LGPL_21.txt)
+  and [Open CASCADE exception 1.0](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_6_0/OCCT_LGPL_EXCEPTION.txt).
+- Emscripten 6.0.6 supplies **FreeType 2.13.3**, linked with `-sUSE_FREETYPE=1`
+  in both variants. Its source is the
+  [VER-2-13-3 archive](https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-3.zip)
+  and its dual-license/attribution terms are in
+  [LICENSE.TXT](https://github.com/freetype/freetype/blob/VER-2-13-3/LICENSE.TXT).
+  This AGPL-3.0 product selects the **FreeType License** option, not GPLv2.
+  FreeType is pinned by the Emscripten toolchain, not a separate project checksum.
+- The normalized meshStep `cube.step` comes from commit
+  [a1a2841633bdb56a54cb91235800d87124af4091](https://github.com/CNCKitchen/meshStep/blob/a1a2841633bdb56a54cb91235800d87124af4091/cube.step)
+  under that repository's AGPL-3.0 terms. Keep its provenance in the
+  [STEP fixture README](../packages/slicer-wasm/fixtures/step/README.md).
+
 ## Verification
 
 Retain malformed-input atomicity, source units, multipart names, transforms,

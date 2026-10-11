@@ -45,6 +45,11 @@ highlighting rules live in [Object List and Object Parts](ObjectList-and-Parts.m
 - Only the accepted drag wrapper may update or finish a gesture. Cancellation,
   release and selection replacement release ownership and restore camera input.
   Raycasting unrelated scene bodies is suspended during active manipulation.
+- Suspend event-manager raycasting during OrbitControls mouse gestures too.
+  A model-body native press stops camera orbit before DragControls crosses its
+  drag threshold. Consume the synthetic click after either a body or Move-gizmo
+  drag so release cannot collapse a dragged group. A Ctrl/Cmd pointer-down
+  toggle also consumes its following click exactly once, without toggling again.
 
 Shift-left-drag draws a screen-space marquee after a 4 CSS-pixel threshold.
 Gizmo handles retain priority, and toolbar/overlay DOM is excluded. Release
@@ -117,7 +122,10 @@ World scaling composes a full affine transform when necessary. It must not
 approximate a sheared result by dropping off-diagonal terms. Move and Rotate
 preserve authoritative matrices. Property resets restore the corresponding
 load-time value and remove a matrix that would otherwise mask that reset.
-Drop to bed uses the true transformed mesh minimum Z.
+Drop to bed computes the aggregate true transformed mesh minimum Z across the
+selected instances and applies the same Z translation to every selected
+instance. Preserve their relative heights; do not drop each instance
+independently or substitute transformed local-box corners for actual vertices.
 
 Part-scoped edits solve the volume transform from the world-space delta and
 the unchanged instance transform. A volume belongs to its object, so every

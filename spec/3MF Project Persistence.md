@@ -210,6 +210,19 @@ The first release's automated compatibility baseline covers:
 Cross-host end-to-end coverage verifies project open, save, dirty-state
 protection, and Web download behaviour.
 
+The external fixture set is controlled by the
+[compatibility manifest](../packages/slicer-wasm/fixtures/project-compatibility/manifest.json),
+which pins repository, commit, path, URL, byte count, SHA-256, and AGPL-3.0
+license. The [fixture acquisition harness](../packages/slicer-wasm/harness/acquire-project-fixtures.mjs)
+fetches these archives on demand; they are not checked into this repository.
+At the pinned commits, the OrcaSlicer and BambuStudio calibration archives
+contain geometry without embedded project presets. They classify as `generic`
+and establish geometry-only fallback, not embedded-settings interoperability.
+A separately generated, self-saved BBS archive establishes the `bambu` path
+with project settings. Retain this distinction when reporting compatibility
+coverage; the baseline list above is not evidence of settings coverage from
+every upstream sample.
+
 ## Long-running project operations
 
 - Project open and save show stage-level progress, disable conflicting project
@@ -220,11 +233,25 @@ protection, and Web download behaviour.
   leaves the existing destination file unchanged and leaves the current
   project dirty.
 
-Project open and geometry-only 3MF import publish the progress dialog before
-native parsing begins, then complete only after applying the project state.
-Both use the common asynchronous-task FIFO. Main-runtime producers notify the
-consumer after committing each event; pthread producers only advance the shared
-wake. Native parsing remains on the stateful Worker.
+Project open and geometry-only 3MF import commit the progress dialog and give
+the browser a paint opportunity before native parsing begins. The opening
+state's frame callback must finish before loading starts. Completion follows
+application of the project state, not merely return from parsing.
+
+Both use the common asynchronous-task FIFO with stable native stages at 0, 10,
+20, 55, 75, 90, and 100. Commit each event with its global sequence first;
+after releasing the FIFO mutex, serial and threaded main-runtime producers
+notify the guarded JavaScript consumer to drain the same FIFO until empty.
+Pthread producers only advance the shared wake and never call JavaScript; the
+main Worker consumes their events on its next poll. Both import paths use the
+same typed Worker-client callback, with no project-load-specific side channel.
+Native parsing remains synchronous on the stateful Worker. Moving parsing to a
+pthread requires a separate ownership, commit, failure, and cancellation design.
+
+Regression coverage must prove live delivery while the native call is active,
+nested-enqueue FIFO order, pthread wake-only behavior, and the frame-callback
+boundary before loading. Real Electron threaded and Web serial journeys must
+render the dialog and a nonterminal native stage before the load result commits.
 
 ## Persistence boundary
 

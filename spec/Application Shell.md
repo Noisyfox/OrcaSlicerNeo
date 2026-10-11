@@ -10,7 +10,9 @@ The application lives in `packages/slicer-app`; hosts inject platform services
 under the [shared architecture](Web-Electron%20Shared%20Application%20Architecture.md).
 Home, Prepare, Preview and Device remain mounted while the application is ready.
 Inactive pages are hidden and inaccessible, preserving their expensive state.
-The desktop layout fits the available space with internal scrolling; mobile
+The complete desktop layout is retained at any window size: settings and the
+3D viewport shrink to fit and scroll internally when constrained. Do not impose
+a fixed minimum viewport or claim partial responsive/mobile support; mobile
 product support remains deferred.
 
 Electron uses a hidden native titlebar. Windows/Linux retain native overlay
@@ -31,18 +33,37 @@ native menu and reserves the traffic-light inset. Web has no Quit/Exit item.
 Quick actions are icon-only, with 28px hit areas and 16px icons. Tabs use 27px
 surfaces flush with the bottom edge, rounded top corners and a gray selected
 surface. Home is icon-only. Narrow navigation scrolls without changing the
-titlebar height. Undo/Redo left-click performs one action; right-click opens
-the corresponding directional history list.
+titlebar height and hides its scrollbar to preserve the centerline. Quick-action
+contents, page-tab contents, and the project name share y=18.5px in the 32px
+bar; quick actions and the project name have a 2.5px downward content offset.
+Tabs have 12px horizontal padding, a 10px icon/text gap, and 13px text with a
+20px line height, also used by the project name. The selected surface is
+`#54545A`; the shell shares its `titlebar-tab` token. Undo/Redo left-click performs
+one action; right-click opens the corresponding directional history list.
+
+Vertical separators follow the hamburger and both sides of the page-tab group.
+Style the installed Base UI separator via `data-orientation`. The divider before
+Home has no right margin and the divider after Device has no left margin; tab
+padding supplies that clearance, with 12px after the latter divider before the
+project name. Selecting Home hides the group's left divider; selecting Device
+hides its right divider. Hidden dividers retain their space. Every divider,
+including those between inactive tabs, is 1px wide, 20px high, with fully opaque
+border colour.
 
 Rendered and native menus consume the same versioned model and complete state
 snapshot. Dispatch rechecks availability, including startup, modal setup,
 project operations, painting, export and slice state. Invalid native snapshots
 fall back to disabled state. Slicer progress is normalized from 0–100 to 0–1
 at the menu projection boundary. Source opening is a fixed allowlisted host
-operation; arbitrary URLs are not accepted by that command. Publish the model
-and complete state from one app-boundary subscription, register commands once,
+operation; arbitrary URLs are not accepted by that command. Once its menu
+surface exists, Help Source remains enabled through startup and failure rather
+than depending on slicer readiness. The modal Setup Wizard's command block still
+applies while it owns the workspace. Publish the model and complete state from
+one app-boundary subscription, register commands once,
 and begin with startup-disabled state. On failure publish failed state; on
-unmount stop publication and ignore late completions. Windows/Linux must not
+unmount stop publication and ignore late completions. Activate and dispose the
+dispatcher together with the native-command subscription, so StrictMode effect
+replay cannot leave a subscribed dispatcher disabled. Windows/Linux must not
 install a competing native File/Help menu. Real packaged macOS verification
 is required for traffic-light insets, menu ownership, availability transitions,
 window dragging, Quit and source opening; a mock browser is insufficient.
@@ -547,9 +568,18 @@ sizes are bytes, and directory sizes are blank. Double-click or keyboard
 activation navigates directories or downloads exact file bytes/name through
 the host. Refresh rereads the directory; errors preserve the path. Reopening
 after close starts at `/`. Filesystem modification is outside this feature.
+Keep the window topmost within the application and contained within the viewport,
+with title-bar dragging and a visible resize handle, without blocking the
+application behind it. Open menubar popovers remain interactive above it.
+Web makes no operating-system topmost-window guarantee. Disabled rows show
+neither hover styling nor a pointer cursor. Use the shared shadcn `Table`
+primitives with the existing scroll viewport, sticky header, row navigation,
+and keyboard activation; import `cn()` from the standalone `cn` package.
 All reads use the typed Worker client; only an explicit download transfers
 file bytes. Electron Help → Show Configuration Folder is a separate fixed
-host command; the shared UI receives no OS path.
+host command that opens Electron's `userData` directory and is available before
+slicer initialization. Web omits it; the shared UI receives no OS path. The modal
+Setup Wizard's command block applies while it owns the workspace.
 
 ## Memory display
 
@@ -568,6 +598,7 @@ exclusive process-memory accounting or introduce an eviction policy.
 ## Verification
 
 Follow [testing guidelines](../doc/testing_guidelines.md). Shared component and
-menu tests cover projection, dismissal, keyboard/resize behavior and guards;
+menu tests cover projection, dismissal, keyboard/resize behavior, File Manager
+viewport containment, sticky-header/scroll ownership, and guards;
 host tests cover native menu validation, OS dialogs, window lifetime and
 browser downloads. Native macOS behavior requires macOS verification.

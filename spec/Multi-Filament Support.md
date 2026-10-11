@@ -478,12 +478,16 @@ dark-colour adjustment and approximately 0.66 opacity. Brim geometry is not
 drawn, but its native effective width participates in placement and boundary
 calculations.
 
-All eligible plates display their tower in Prepare. Only the current plate's
-tower is pickable and movable. The tower is a scene-only special object: it is
+All eligible plates display their tower in Prepare. Any displayed eligible
+tower is pickable and movable, including one on a non-current plate. The tower
+is a scene-only special object: it is
 not a `ModelObject`, does not appear in Object List, and has no delete, copy,
 scale, rotate, or context-menu commands. Selection retains the coloured bands
-and adds the ordinary selection bounds plus an X/Y-only Move gizmo. Direct body
-dragging and the Move gizmo edit the same per-plate position. Switching plates,
+and shows ordinary selection bounds only. The X/Y-only Move gizmo appears only
+after the user explicitly activates Move. Direct body dragging and that gizmo
+edit the same per-plate position. A dragged tower remains assigned to its own
+plate: crossing another plate never changes the current plate, transfers the
+tower, or changes another plate's coordinates. Switching plates,
 disabling the tower, or otherwise removing the selected proxy clears its
 selection without producing history.
 
@@ -494,7 +498,7 @@ toolpath and never overlays the Prepare proxy.
 
 When a new plate or project has no explicit tower coordinates, the Worker uses
 OrcaSlicer's native default placement. Direct dragging constrains the rotated
-tower footprint plus effective brim margin to the current plate's printable
+tower footprint plus effective brim margin to its owning plate's printable
 area. Z movement is unavailable.
 
 One completed pointer drag produces exactly one project-history entry. Pointer
@@ -809,7 +813,8 @@ The deterministic fixture set covers at least:
   replacement after the first flushing-input edit;
 - Prepare-only estimated prime-tower proxies for every eligible plate,
   including native dimensions, band order and colours, read-only imported
-  rotation, one-gesture history, current-plate-only interaction, and
+   rotation, one-gesture history, non-current-plate selection and movement
+   without changing plate ownership, explicitly activated Move gizmos, and
   plate-local slice invalidation;
 - direct-drag boundary clamping with brim margin, silent non-history
   normalization after project load or Printer change, and the too-large-to-fit
@@ -862,6 +867,12 @@ Final milestone acceptance follows
 The final acceptance record names the exact commands and results, including
 every unavailable, intentionally skipped, or failing gate. Roadmap documents
 may mark the milestone delivered only after this complete matrix passes.
+
+The prebuilt real-WASM multi-filament acceptance runner
+(`packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs`)
+must complete its full dual-variant run within 120 seconds. Developer runs may
+select `--threaded-only`; release acceptance runs both serial and threaded
+variants. This runner budget does not replace the other release gates above.
 
 ## 13. Rack normalization and interaction
 

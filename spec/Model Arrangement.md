@@ -22,11 +22,12 @@ Follow the existing
 application code uses the runtime boundary; only the typed WASM client accesses
 the Emscripten module. Arrangement runs off the renderer thread on both hosts.
 The pinned `packages/slicer-wasm/cpp` submodule remains protected by repository
-rules; required upstream adaptations use maintained patches or a deliberate,
-documented submodule update.
+rules; required upstream adaptations are committed directly on the core's
+`dev/orcaslicerneo-wasm` branch before deliberately updating the superproject
+pin. Patches are only for external dependencies, never Orca source changes.
 
 WASM compilation, dependency compatibility, and runtime task behavior must be
-verified through the implementation gates below.
+verified through the [acceptance requirements](#acceptance-requirements) below.
 
 All application, runtime, typed-client, Worker, and native bridge components
 ship together. New internal arrangement APIs require their complete current
@@ -311,8 +312,14 @@ Reset does not reset both printing modes' independent preferences at once.
 
 ### Entry points
 
-The toolbar Arrange action opens the arrangement settings popup. Its Arrange
-button executes Arrange all, and its Reset button uses the scope defined above.
+The toolbar Arrange action toggles the adjacent inline options card, as defined
+by [Application Shell](Application%20Shell.md#tool-cards).
+It does not open a popover. Its Arrange button executes Arrange all, and its
+Reset button uses the scope defined above. Choosing another tool, starting
+arrangement, or pressing the scene canvas closes the card; a scene press still
+reaches the scene. Interacting inside the card keeps it open. Opening Arrange
+disarms the transform gizmo and awaits successful closure of any active painting
+session; unfinished painting operations block switching.
 Provide Arrange current plate through a separate plate-operation entry.
 This follows Orca's entry-point organization.
 
@@ -429,8 +436,34 @@ every complex case.
 Orca uses libnest2d/NLopt optimization with accuracy and parallel-execution
 parameters. Cross-platform layout differences have not yet been measured;
 this criterion does not assert that native and WASM results will differ. The
-implemented fixtures and numerical tolerances are recorded in the acceptance
-section below.
+implemented fixtures and numerical tolerances are recorded in the
+[acceptance requirements](#acceptance-requirements) below.
+
+## Acceptance requirements
+
+`NEO_ARRANGEMENT_TEST` defaults to OFF. When enabled, fault-injection state and
+execution paths compile only into the arrangement implementation file. The
+explicit serial test build exercises publication rollback; ordinary smoke runs
+require the injection sentinel absent from the WASM binary and explicitly skip
+injected-failure assertions. CI tests the enabled build-tree artifact separately
+and uploads only production `out/serial`. Normal full and quick drivers reset
+the gate to OFF before building/staging, even if that CMake cache enabled it
+previously. Do not ship a test-enabled artifact as production.
+
+The real Electron serial journey covers settings, Reset, persisted preferences,
+both entry points, packing, Undo/Redo, and absence of Cancel during computation.
+The real Web threaded journey covers completed packing, disabled editing,
+responsive camera zoom, and cancellation with unchanged transforms/history.
+Both require freshly staged artifacts whose hashes the runner verifies.
+For 20 mm cubes, allow 0.01 mm at bed/non-overlap boundaries and compare restored
+transforms to five decimal places. Native polygon-union checks use relative
+area tolerance `1e-9`.
+
+This functional evidence uses the pinned native Arrange implementation and
+source-traced GUI preparation rules. It does not establish separate desktop-Orca
+GUI differential results, cross-platform layout parity, mobile qualification,
+or native performance. Remote CI must execute its configured dependency-cache
+path before that path can be claimed as verified.
 
 ## Native Orca reference behavior
 

@@ -144,3 +144,30 @@ runtime boundary.
 - For an unprintable instance, Prepare draws the ordinary unprintable model
   appearance using the original mesh and keeps the stored paint intact.
   Printable out-of-bounds instances keep their groups and dim each group.
+
+## Regression acceptance
+
+These requirements survive completion of the implementation steps. Select the
+appropriate checks using [testing guidelines](../doc/testing_guidelines.md);
+do not replace feature-specific failure or ownership coverage with a happy path.
+
+- Native/client fixtures prove split-side painting, state 0 and positive states,
+  multiple instances sharing one returned paint resource, unpainted behavior,
+  independent known-resource omission, and allocation cleanup on malformed or
+  failed responses. Bridge changes require the applicable WASM quick build and
+  focused smoke, plus affected client tests/typecheck.
+- Renderer tests prove atomic initial publication, independent cache hits and
+  misses, multiple-instance sharing and final release, paint-only updates,
+  source-mesh updates, and scene-patch/Undo/Redo restoration without stale paint.
+- Component and interaction checks cover colour/overlay rules, palette changes
+  without geometry rebuilds, and click/selection/drag on painted areas using the
+  original mesh and correct volume identity. Unpainted and wipe-tower rendering
+  remain unaffected.
+- A repository-owned imported 3MF fixture with split painting exercises full
+  load, multiple instances, slot recolouring, scene-patch/history restoration,
+  and Preview in real Electron and Web. Check Prepare-to-Preview colour
+  continuity, current-plate/printability filtering, first-visible-frame paint
+  and 0.15 shell opacity, and unobscured toolpaths.
+- Feature handoff includes affected app tests/typecheck and focused host E2E,
+  then the repository and bridge/host matrix required by the testing guidelines.
+  Report every skipped or unavailable check explicitly.

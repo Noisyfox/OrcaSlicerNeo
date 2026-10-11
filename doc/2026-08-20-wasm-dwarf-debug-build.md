@@ -25,6 +25,10 @@ Boost (`build-boost-wasm64.*`), oneTBB (`build-onetbb.*`), and the vendored
 `deps_core` sources (expat, miniz, admesh, clipper, qhull, glu-libtess,
 semver, qoi) keep their existing `-O3` compile options with no `-g`.
 
+Keep `-fexceptions` in debug mode for libslic3r and the executable translation
+units, preserving the bridge's native exception/error contract. Changing debug
+or optimization flags must not remove exception compilation or catching support.
+
 Trade-off accepted: debug compiles noticeably slower and the module is several
 times larger (DWARF bloat). Run release `build` (no flag) to restore the
 release module in place.
