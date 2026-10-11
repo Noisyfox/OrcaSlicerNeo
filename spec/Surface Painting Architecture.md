@@ -327,6 +327,14 @@ gizmo buttons whenever its session is open, including processing and closing
 phases. Its accessible pressed state and visual active state agree; closing
 the session returns the button to its inactive appearance.
 
+Painting model materials must apply the shared near-black rendering adjustment
+before sRGB-to-linear conversion, matching Orca's
+`TriangleSelectorPatch::render()` / `adjust_color_for_rendering()`. If all three
+encoded RGB channels are below 0.2, raise each to 0.2. This is a presentation
+adjustment only: filament palette values, native annotations, and cursor
+highlight semantics remain unchanged. Retain regression coverage for black,
+near-black, threshold boundaries, and the colour-space conversion order.
+
 The painting mode owns selector-derived draft surfaces, cursor rendering,
 candidate-region highlighting, and any enabled contours, wireframe, or clipping
 presentation. Ordinary object selection, body dragging, box selection, and

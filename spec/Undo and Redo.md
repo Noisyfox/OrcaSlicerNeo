@@ -167,9 +167,22 @@ boundaries. After the existing unsaved-changes confirmation succeeds, Neo
 releases the entire prior history and its saved checkpoint; the loaded or new
 project becomes a new clean baseline. Undo can never revive a replaced project.
 
+New Project must close the old project session, clear active and dormant
+Printer/Filament runtime drafts and embedded preset sources, and recreate the
+plate session before restoring system preset selections. Closure discards the
+old tower X/Y positions; fresh-plate initialization supplies their new values.
+It must also reset project Print overrides through the native Print ownership
+catalogue, including Print options stored in `project_config`, rather than an
+application-maintained field-name allowlist. Existing rack and scene exclusions
+remain in force; flushing matrices, material routing, and bed selection retain
+their existing lifecycle owners. Refresh the effective preset base and full
+scoped configuration after that reset, before establishing the clean baseline.
+Clearing geometry and resetting history alone cannot satisfy this contract.
+
 Add Model remains an ordinary current-project action. Clear Scene is also an
 ordinary, undoable action in the current project: it is semantically equivalent
-to deleting all models, not to opening a new project.
+to deleting all models, not to opening a new project. It retains project
+configuration, runtime drafts, and the current tower position.
 
 This matches OrcaSlicer's `ProjectSeparator`, which clears its main history
 stack before recording a new/reset/loaded project state.

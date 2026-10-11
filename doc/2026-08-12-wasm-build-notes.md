@@ -24,7 +24,10 @@ stages them and profile resources for the hosts; it does not rebuild WASM.
 The superproject gitlink is the exact Orca revision. Make native adaptations
 on `dev/orcaslicerneo-wasm`, validate and commit them, then deliberately update
 the gitlink. Do not maintain Orca source patches or a parallel list of historical
-pins. External dependency patches remain in `packages/slicer-wasm/patches/`.
+pins. Before distributing a superproject commit that updates the gitlink, publish
+its referenced submodule commit to the configured submodule remote so clean
+clones and CI can fetch it. External dependency patches remain in
+`packages/slicer-wasm/patches/`.
 
 The WASM scaffold compiles libslic3r and the headless Neo adapters, excluding
 wxWidgets. Its dependency closure includes Boost, oneTBB for threaded builds,

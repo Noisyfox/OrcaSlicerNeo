@@ -185,15 +185,20 @@ Instance rows show a printable toggle. Object rows show an aggregate printable
 state that toggles every instance of that object. `auto_drop` is not exposed in
 the first version.
 
-Selection restoration follows stable native identities and the operation target:
+Selection restoration must follow stable native identities and the operation
+target. Non-destructive operations (rename, change type, reorder, printable
+toggle) already restore the previous selection by stable ID. The following
+accepted rules remain required but are not yet implemented:
 
-- Non-destructive operations (rename, change type, reorder, printable toggle)
-  restore the previous selection by stable ID.
 - Operations that create new entities (Split to Objects, Assemble, Clone,
-  Separate Instances, Split to Parts) select the newly created objects or
+  Separate Instances, Split to Parts) must select the newly created objects or
   parts and remove vanished nodes from selection.
-- Delete moves selection to the next visible sibling, then the parent object,
-  or clears selection when neither remains.
+- Delete must move selection to the next visible sibling, then the parent
+  object, or clear selection when neither remains.
+
+The current creation/deletion path only retains surviving previous selection
+IDs and prunes vanished ones; it does not select new entities or a deletion
+neighbour. This implementation gap does not revoke either rule.
 
 ## 7. Identity Model
 

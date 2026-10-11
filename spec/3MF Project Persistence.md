@@ -47,8 +47,12 @@
   replaces the current project; it omits only the unavailable project
   settings. Geometry is appended only when the user explicitly chose
   **Import geometry only**.
-- A failed parse or cancelled operation is atomic: the current session stays
-  unchanged.
+- Project replacement follows the
+  [Per-Plate Print lifecycle](Per-Plate%20Print%20Architecture.md#231-project-load-registry-construction-and-replacement-fence):
+  cancellation before closing the old session preserves it. After close, a
+  parse/load failure or cancelled compatibility warning leaves the fresh empty
+  session; the closed project is not restored. Actual archive loading after
+  close is non-cancellable in both WASM variants.
 
 ## Project-save behaviour
 
@@ -225,9 +229,13 @@ every upstream sample.
 
 ## Long-running project operations
 
-- Project open and save show stage-level progress, disable conflicting project
-  commands, and provide a cancellation action.
-- Cancellation of an open operation leaves the current session unchanged.
+- Project open and save show stage-level progress and disable conflicting
+  project commands. Save provides cancellation; open admits cancellation only
+  before the old project session closes. The post-close archive load is
+  non-cancellable in both WASM variants.
+- Cancelling open before close preserves the current session. A cancelled
+  compatibility warning or failed load after close leaves the fresh empty
+  session, as required by the project-replacement lifecycle above.
 - Project export completes into temporary WASM storage before bytes are passed
   to a host. A cancelled or failed export, or a cancelled host save dialog,
   leaves the existing destination file unchanged and leaves the current
@@ -261,7 +269,8 @@ reopening of the last project at startup.
 
 It also does not introduce product-level compressed-file or decompressed-archive
 size quotas for 3MF input. Resource-limit policy is deferred; a runtime
-resource failure still follows the atomic open-failure rule.
+resource failure after project closure leaves the fresh empty session under
+the project-replacement lifecycle above.
 
 Electron does not monitor or merge external changes to an opened project file
 in this release. Save Project follows the Orca-style normal overwrite path;
