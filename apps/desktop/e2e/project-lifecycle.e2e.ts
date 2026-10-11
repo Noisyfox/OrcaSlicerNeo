@@ -56,6 +56,57 @@ async function makeDirty(page: Page): Promise<void> {
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
 }
 
+test('New Project resets rotation and Printer/Filament session drafts', async () => {
+  const { app } = await launchProjectApp();
+  try {
+    const page = await app.firstWindow();
+    await ready(page);
+    await page.getByTestId('preset-edit-printer').click();
+    const height = page.getByTestId('preset-editor-input-printable_height');
+    const sourceHeight = await height.inputValue();
+    await height.fill(String(Number(sourceHeight) + 1));
+    await height.press('Enter');
+    await expect(page.getByTestId('preset-editor-project-draft')).toBeVisible();
+    await page.getByTestId('preset-editor-close').click();
+    await page.getByTestId('filament-slot-1').click({ button: 'right' });
+    await page.getByTestId('filament-edit-1').click();
+    await page.getByTestId('preset-editor-page-tab-advanced').click();
+    const gcode = page.getByTestId('preset-editor-input-filament_start_gcode');
+    const sourceGcode = await gcode.inputValue();
+    await gcode.fill('G28\n; old project draft\n');
+    await gcode.press('Control+Enter');
+    await expect(page.getByTestId('preset-editor-project-draft')).toBeVisible();
+    await page.getByTestId('preset-editor-close').click();
+    await page.getByTestId('config-mode-project').click();
+    await page.getByTestId('config-page-Multi.').click();
+    const angle = page.getByTestId('config-input-wipe_tower_rotation_angle');
+    await expect(angle).toBeVisible();
+    await angle.fill('90');
+    await angle.press('Enter');
+    await expect(page.getByTestId('config-reset-wipe_tower_rotation_angle')).toBeEnabled();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+n' : 'Control+n');
+    await expect(page.getByTestId('project-dirty-dialog')).toBeVisible();
+    await page.getByTestId('project-dirty-dont-save').click();
+    await expect(page.getByTestId('project-dirty-dialog')).toBeHidden();
+    await expect(angle).toHaveValue('0');
+    await expect(page.getByTestId('config-reset-wipe_tower_rotation_angle')).toHaveCount(0);
+    await expect(page.getByTestId('history-undo')).toBeDisabled();
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('Untitled Project');
+    await page.getByTestId('preset-edit-printer').click();
+    await expect(height).toHaveValue(sourceHeight);
+    await expect(page.getByTestId('preset-editor-project-draft')).toHaveCount(0);
+    await page.getByTestId('preset-editor-close').click();
+    await page.getByTestId('filament-slot-1').click({ button: 'right' });
+    await page.getByTestId('filament-edit-1').click();
+    await page.getByTestId('preset-editor-page-tab-advanced').click();
+    await expect(gcode).toHaveValue(sourceGcode);
+    await expect(page.getByTestId('preset-editor-project-draft')).toHaveCount(0);
+  } finally {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy());
+    await app.close();
+  }
+});
+
 test('opening a 3MF clears both previous Undo and Redo controls', async () => {
   const { app } = await launchProjectApp();
   try {

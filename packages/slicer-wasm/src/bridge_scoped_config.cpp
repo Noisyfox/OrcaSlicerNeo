@@ -504,6 +504,11 @@ void apply_project_mutation_to_candidates(const MutationRequest& request,
     }
     for (const std::string& key : project_candidate.keys()) {
         if (!is_native_project_config_key(key) || !resettable_key(key)) continue;
+        // Generic Print resets must not erase rack/printer/scene authorities
+        // merely because they live in project_config. Use Orca's ownership
+        // catalogue, including Print options stored here by the bridge.
+        const auto& print_options = Preset::print_options();
+        if (std::find(print_options.begin(), print_options.end(), key) == print_options.end()) continue;
         const auto* definition = Slic3r::print_config_def.get(key);
         if (category_filter && (definition == nullptr || definition->category != request.category)) continue;
         project_candidate.erase(key);

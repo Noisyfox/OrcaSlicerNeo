@@ -595,4 +595,15 @@ console.log(JSON.stringify({
   dormant_draft_name: dormantSource,
   prime_tower_plate_count: primeTower.plates.length,
 }));
-console.log('preset draft registry smoke passed (shared and independent Filament overlays, Printer overlay, flattened 3MF save/reload, dormant-draft omission, slot-color separation, Prepare projection)');
+// New Project uses the same close boundary as project replacement. Selecting
+// a source again must not revive either active or unreferenced session drafts.
+assert.ok(Object.values(callJson('orc_get_preset_snapshot').modified_presets).some(names => names.length > 0));
+assert.equal(callJson('orc_close_project').ok, true);
+assert.deepEqual(callJson('orc_get_preset_snapshot').modified_presets, { printer: [], filament: [] });
+for (const [kind, name] of [['printer', printer.name], ['filament', genericPlaSource], ['filament', dormantSource]]) {
+  const draft = callJson('orc_get_preset_draft', ['string', 'string'], [kind, name]);
+  assert.equal(draft.ok, true, JSON.stringify(draft));
+  assert.equal(draft.draft_exists, false, `${kind} ${name} survived project closure`);
+}
+assert.equal(historyStatus().canUndo, false);
+console.log('preset draft registry smoke passed (shared and independent Filament overlays, Printer overlay, flattened 3MF save/reload, dormant-draft omission, slot-color separation, Prepare projection, project-close cleanup)');

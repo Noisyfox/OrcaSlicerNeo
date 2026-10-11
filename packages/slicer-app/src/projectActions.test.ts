@@ -72,7 +72,7 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
     clearModel: vi.fn(async () => ({ ok: true })),
     exportProject: vi.fn(async () => ({ ok: true, path: '/tmp/project.3mf', bytes: new Uint8Array([1, 2]) })),
     getNativeScopedConfig: vi.fn(async () => ({ ok: true as const, version: 1 as const, nativeScopedConfig: scopedConfigTransport })),
-    mutateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: scopedConfigTransport })),
+    mutateNativeScopedConfig: vi.fn(async (_request: unknown) => ({ ok: true, nativeScopedConfig: scopedConfigTransport })),
     getProfileSnapshot: vi.fn(async () => snapshot),
     selectProfile: vi.fn(async () => snapshot),
     getFilamentSessionSnapshot: vi.fn(async () => filamentSnapshot(0)),
@@ -99,6 +99,31 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
 }
 
 describe('transactional project actions', () => {
+  it('removes inherited tower rotation override before the New Project clean baseline', async () => {
+    const { platform, runtime } = platformFor();
+    let project = { wipe_tower_rotation_angle: '90', prime_tower_width: '63', wall_loops: '7' } as Record<string, string>;
+    const defaults = { wipe_tower_rotation_angle: '0', prime_tower_width: '35', wall_loops: '2' };
+    runtime.getProfileSnapshot.mockImplementation(async () => ({ ...snapshot, project_config: { ...defaults, ...project } }));
+    runtime.selectProfile.mockImplementation(async () => ({ ...snapshot, project_config: { ...defaults, ...project } }));
+    runtime.mutateNativeScopedConfig.mockImplementation(async (request: unknown) => {
+      if ((request as { operation: string }).operation === 'reset-all') project = {};
+      return { ok: true, nativeScopedConfig: scopedConfigTransport };
+    });
+    runtime.getNativeScopedConfig.mockImplementation(async () => ({ ok: true, version: 1,
+      nativeScopedConfig: { ...scopedConfigTransport, snapshot: { ...scopedConfigTransport.snapshot, project } } }));
+    useSettingsStore.getState().applyNativeScopedConfigTransport({ ...scopedConfigTransport,
+      snapshot: { ...scopedConfigTransport.snapshot, project } });
+    expect((await newProject(platform)).status).toBe('ok');
+    expect(runtime.closeProject).toHaveBeenCalledTimes(1);
+    expect(runtime.clearModel).not.toHaveBeenCalled();
+    expect(runtime.closeProject.mock.invocationCallOrder[0]).toBeLessThan(runtime.selectProfile.mock.invocationCallOrder[0]);
+    expect(useSettingsStore.getState().nativeScopedConfig.project.wipe_tower_rotation_angle).toBeUndefined();
+    expect(useSettingsStore.getState().values).toMatchObject(defaults);
+    expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledWith({ version: 1, operation: 'reset-all',
+      targets: [{ scope: 'project' }] });
+    expect(runtime.mutateNativeScopedConfig.mock.invocationCallOrder[0]).toBeLessThan(runtime.resetHistory.mock.invocationCallOrder[0]);
+  });
+
   it('publishes the loaded clean baseline instead of retaining old Undo and Redo', async () => {
     const { platform, runtime } = platformFor();
     useHistoryNavigationStore.getState().setStatus({
@@ -155,7 +180,7 @@ describe('transactional project actions', () => {
     useSettingsStore.setState({ selectedPrinter: 'Project printer', selectedPrint: 'Project process' });
     useProjectStore.getState().setProject({ systemPresets: { printer: 'Project printer', print: 'Project process' } });
     expect((await newProject(platform)).status).toBe('ok');
-    expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledOnce();
+    expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledTimes(2);
     expect(useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type).toBe('Textured PEI Plate');
     expect(runtime.mutateNativeScopedConfig.mock.invocationCallOrder[0]).toBeLessThan(runtime.resetHistory.mock.invocationCallOrder[0]);
     runtime.mutateNativeScopedConfig.mockClear();
@@ -400,7 +425,7 @@ describe('transactional project actions', () => {
     const { platform, runtime } = platformFor();
     useProjectStore.getState().setProject({ hasContent: true, dirty: true, scope: 'project', systemPresets: { printer: 'System printer', print: 'System process' } });
     const result = await newProject(platform, { decideDirty: () => 'save' });
-    expect(result.status).toBe('ok'); expect(runtime.clearModel).toHaveBeenCalled();
+    expect(result.status).toBe('ok'); expect(runtime.closeProject).toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', dirty: false, scope: 'system', hasContent: false });
     expect(runtime.selectProfile).toHaveBeenCalledWith('printer', 'System printer');
   });
@@ -452,7 +477,7 @@ describe('transactional project actions', () => {
 
   it('New clears the renderer projection and resets a multi-plate session after runtime success', async () => {
     const { platform, runtime } = platformFor();
-    runtime.clearModel.mockResolvedValue({ ok: true, plateSession: freshPlateSession } as never);
+    runtime.closeProject.mockResolvedValue({ ok: true, plateSession: freshPlateSession } as never);
     const dispose = vi.fn();
     glVolumeCollection.volumes = [{ dispose } as never];
     const resetForModel = vi.fn();
@@ -485,7 +510,7 @@ describe('transactional project actions', () => {
 
   it('does not clear the renderer projection when runtime New fails', async () => {
     const { platform, runtime } = platformFor();
-    runtime.clearModel.mockResolvedValue({ ok: false, error: 'clear failed' } as never);
+    runtime.closeProject.mockResolvedValue({ ok: false, error: 'clear failed' } as never);
     const dispose = vi.fn();
     glVolumeCollection.volumes = [{ dispose } as never];
     const resetForModel = vi.fn();
@@ -519,7 +544,7 @@ describe('transactional project actions', () => {
     const result = await newProject(platform, { decideDirty: () => 'cancel', sceneResetTarget: { resetForModel } });
 
     expect(result.status).toBe('cancelled');
-    expect(runtime.clearModel).not.toHaveBeenCalled();
+    expect(runtime.closeProject).not.toHaveBeenCalled();
     expect(dispose).not.toHaveBeenCalled();
     expect(resetForModel).not.toHaveBeenCalled();
     expect(useSettingsStore.getState().modelLoaded).toBe(true);

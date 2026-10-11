@@ -1113,3 +1113,67 @@ the loaded project can be undone. `pnpm test` passed with 1,840 tests and three
 existing skips; `pnpm typecheck`, the focused Electron project-lifecycle E2E,
 and `git diff --check` passed. Native WASM builds were not rerun because the
 correction changes only the shared application projection.
+
+### New Project Process reset correction (2026-10-10)
+
+New Project restores Process overrides before establishing its clean history
+baseline. Clearing geometry alone retains native project settings, including
+the wipe tower rotation override. The lifecycle now uses the existing native
+project `reset-all` operation, then refreshes both the effective preset base and
+the full scoped configuration. This also removes stale renderer values which
+preset selection could expose before the native overrides were erased.
+
+Orca's `Plater::new_project()` calls `reset()`, which removes project-embedded
+presets and reloads selected presets, or transfers modifications when the user
+chooses to keep them. Tower rotation belongs to `Preset::print_options()`.
+Neo's generic Print reset uses that same native ownership catalogue for options
+stored in `project_config`; the application does not maintain a field-name
+allowlist. Existing rack and scene exclusions still apply. Non-Print authorities
+such as flushing matrices, material routing, and bed selection remain under
+their existing lifecycle owners.
+
+New Project now uses the existing project-close boundary rather than Clear
+Model. It clears active and dormant Printer/Filament runtime drafts, removes
+embedded presets, and recreates the plate session before restoring system
+selections. Project closure discards the old tower X/Y arrays so the existing
+fresh-plate initialization supplies new coordinates. Clear Scene retains its
+geometry-only contract, including runtime drafts and the current tower position.
+This keeps lifecycle cleanup distinct from the generic Print reset filter.
+
+The native draft harness checks that project closure removes modified sources
+and cannot revive unreferenced drafts. The tower move harness checks that Clear
+Scene retains the moved first-plate coordinates while project closure restores
+the initial one-plate coordinates and a clean history. The Electron New Project
+regression also edits Printer height and Filament start G-code, then reopens
+both editors and checks their source values and absence of draft markers.
+
+Follow-up verification passed: `pnpm test` (1,838 passed, 3 existing skips),
+`pnpm typecheck` and the final desktop typecheck, dual-variant quick build,
+`preset-draft-registry-smoke.mjs` and `multi-filament-prime-tower-move-smoke.mjs`
+for both variants, and the expanded mock Electron New Project regression.
+The tower harness's existing history-impact assertion now includes the current
+`presetDrafts` and `profileSelection` contract fields. Both artifacts were staged;
+`git diff --check` passed. Full real-host release qualification was not run.
+
+Coverage includes native Clear Model retention, individual rotation reset,
+generic resets of rotation, tower width, and wall loops, preservation of rack,
+flushing, bed, and tower-position authorities, and application effective-base
+refresh before the clean history baseline. The Electron regression edits the
+actual rotation field, creates a new project, and checks its restored value,
+absence of an override indicator, disabled Undo, and clean title.
+
+Verification passed: `pnpm test` (1,838 passed, 3 existing skips),
+`pnpm typecheck`, `scripts\build-windows.bat quick -j 4` (both variants),
+`native-scoped-config-mutation-smoke.mjs` for serial and threaded modules,
+serial `bridge-smoke.mjs` with `fixtures/cube.stl`, and the focused mock
+Electron `project-lifecycle.e2e.ts` New Project regression. Both variants were
+staged with `pnpm stage:assets`; `git diff --check` passed. The complete real
+Web/Electron release matrix was not run for this focused lifecycle correction.
+
+PR #72 was synchronized with `main` on 2026-10-10. Conflict resolution retains
+both the New Project reset regressions and the Open Project history projection
+regressions. Verification passed: focused `projectActions.test.ts` (36 tests),
+`pnpm test` (1,841 passed, three existing skips), `pnpm typecheck`, Electron
+`project-lifecycle.e2e.ts` filtered to `New Project resets|opening a 3MF clears`
+(two tests), and `git diff --check`. Native sources required no manual conflict
+resolution; WASM builds and the complete release matrix were not rerun.

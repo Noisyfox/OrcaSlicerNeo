@@ -283,6 +283,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       filament_notes: { type: 'strings', category: 'Filament' },
       enable_prime_tower: { type: 'bool', scopes: ['project'] },
       prime_tower_width: { type: 'float', scopes: ['project'] },
+      wipe_tower_rotation_angle: { type: 'float', scopes: ['project'] },
       printable_area: { type: 'points', category: 'Printer', scopes: ['project'] },
       gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'], scopes: ['project'] },
       curr_bed_type: { type: 'enum', enum_values: ['Cool Plate', 'Engineering Plate', 'High Temp Plate', 'Textured PEI Plate', 'Textured Cool Plate', 'Supertack Plate'], scopes: ['project', 'plate'] },
@@ -430,6 +431,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       printer: selectedEntry('printer'),
       print: selectedEntry('print'),
       tooltip_defaults: { layer_height: '0.2', sparse_infill_density: '20%' },
+      project_config: { layer_height: '0.2', sparse_infill_density: '20%',
+        wipe_tower_rotation_angle: '0', ...nativeScopedConfig.project },
       bed_model: '',
       bed_texture: '',
       bed_type: {
@@ -2359,7 +2362,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const dirtyReasons = new Set<string>();
       let projectChanged = false;
       const corrections: Array<{ key: string; requested: string; effective: string }> = [];
-      const resettable = (key: string) => key !== 'extruder' && !key.includes('filament') && !key.includes('rack') && !key.includes('ams') && !key.includes('gcode');
+      const resettable = (key: string) => (key in metadata || key in printEditorOptions) &&
+        key !== 'extruder' && key !== 'wipe_tower_x' && key !== 'wipe_tower_y' &&
+        !key.includes('filament') && !key.includes('rack') && !key.includes('ams') && !key.includes('gcode');
       const clamp = (key: string, value: string): string => {
         const option = metadata[key];
         if (!option && printEditorOptions[key]) return value;
@@ -2640,7 +2645,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta = [];
       volumeMeta = [];
       instanceMeta = [];
-      nativeScopedConfig = emptyNativeScopedConfig();
+      const project = { ...nativeScopedConfig.project, wipe_tower_x: '15', wipe_tower_y: '220' };
+      nativeScopedConfig = { ...emptyNativeScopedConfig(), project };
       presetDraftRegistry = { printer: {}, filament: {} };
       printVectorOverrides = {};
       presetDraftRevision = 0;
@@ -2752,8 +2758,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta = [];
       volumeMeta = [];
       instanceMeta = [];
-      nativeScopedConfig = emptyNativeScopedConfig();
-      printVectorOverrides = {};
+      // Native Clear Model clears geometry/local scopes, retaining project
+      // settings and Process overrides. New Project owns their lifecycle reset.
+      nativeScopedConfig = { ...nativeScopedConfig, objects: {}, parts: {}, plates: {} };
       modelLoaded = false;
       if (filamentSessionState !== undefined)
         filamentSessionState.assignments = { objects: [], parts: [], modifiers: [] };
