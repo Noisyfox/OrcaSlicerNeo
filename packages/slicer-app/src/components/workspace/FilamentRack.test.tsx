@@ -94,6 +94,24 @@ describe('FilamentRack runtime interaction', () => {
     useSettingsStore.setState({ filamentCatalog: [], modifiedPresets: { printer: [], filament: [] } });
   });
 
+  it.each([
+    { flexible: false, materials: 4, nozzles: 4, visible: false },
+    { flexible: true, materials: 1, nozzles: 2, visible: false },
+    { flexible: true, materials: 2, nozzles: 2, visible: true },
+  ])('uses Orca SEMM/Bambu capability for flushing visibility: $flexible / $materials materials', async ({ flexible, materials, nozzles, visible }) => {
+    const base = makeSnapshot();
+    const snapshot = makeSnapshot({
+      slots: Array.from({ length: materials }, (_, i) => ({ ...base.slots[i % 2], slot: i + 1, logicalId: `material-${i}` })),
+      capabilities: { ...base.capabilities, flexible, nozzleCount: nozzles, minSlots: flexible ? 1 : nozzles },
+    });
+    const getFlushingVolumes = vi.fn(async () => ({ ok: false, error: 'fixture does not open the editor' }));
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot), getFlushingVolumes });
+    root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    expect(rendered.container.querySelector('[data-testid="flushing-volumes-open"]') !== null).toBe(visible);
+    expect(getFlushingVolumes).toHaveBeenCalledTimes(visible ? 1 : 0);
+  });
+
   it('highlights every slot sharing a modified source and clears the highlight after reset', async () => {
     const base = makeSnapshot();
     const initial = makeSnapshot({ slots: [base.slots[0],

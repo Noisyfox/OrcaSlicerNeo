@@ -180,6 +180,7 @@ void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/FlushVolCalc.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/FlushVolPredictor.hpp"
 
 using namespace Slic3r;
 
@@ -747,10 +748,9 @@ std::vector<std::vector<int>> min_flush_volumes_for_bundle(const PresetBundle& b
         filament_count, nozzle_count);
 }
 
-void recalculate_filament_flush(PresetBundle& bundle)
+std::vector<double> calculate_filament_flush(const PresetBundle& bundle)
 {
-    auto* matrix = bundle.project_config.option<ConfigOptionFloats>("flush_volumes_matrix", true);
-    if (matrix == nullptr) throw FilamentCommandFailure("native_validation_failure", "native flush matrix is unavailable");
+    std::vector<double> matrix;
     const std::size_t count = State::material_slot_count(bundle.project_config);
     const std::size_t matrix_dimension = bundle.filament_presets.size();
     const std::size_t nozzles = std::max(1, bundle.get_printer_extruder_count());
@@ -758,9 +758,10 @@ void recalculate_filament_flush(PresetBundle& bundle)
     if (colours == nullptr || count == 0 || matrix_dimension < count)
         throw FilamentCommandFailure("native_validation_failure", "native filament colours are unavailable");
     const auto* multi = bundle.project_config.opt<ConfigOptionStrings>("filament_multi_colour");
-    const auto* support = bundle.project_config.opt<ConfigOptionBools>("filament_is_support");
-    const auto* datasets = bundle.project_config.opt<ConfigOptionIntsNullable>("nozzle_flush_dataset");
-    const auto min_flush = min_flush_volumes_for_bundle(bundle, count, nozzles);
+    const auto full = Neo::Bridge::PresetDrafts::effective_full_config(bundle, state().preset_drafts);
+    const auto* support = full.opt<ConfigOptionBools>("filament_is_support");
+    const auto* datasets = full.opt<ConfigOptionIntsNullable>("nozzle_flush_dataset");
+    const auto min_flush = min_flush_volumes_for_config(full, count, nozzles);
     const auto colour_sets = [&]() {
         std::vector<std::vector<FlushColour>> sets;
         sets.reserve(count);
@@ -774,7 +775,7 @@ void recalculate_filament_flush(PresetBundle& bundle)
 
     // Keep Orca's native preset-sized planes. Only actual materials have
     // colours; padded preset entries do not create additional material slots.
-    matrix->values.resize(matrix_dimension * matrix_dimension * nozzles, 0.0);
+    matrix.resize(matrix_dimension * matrix_dimension * nozzles, 0.0);
     for (std::size_t nozzle = 0; nozzle < nozzles; ++nozzle) {
         const int dataset = datasets != nullptr && !datasets->values.empty()
             ? datasets->get_at(nozzle) : 0;
@@ -782,7 +783,7 @@ void recalculate_filament_flush(PresetBundle& bundle)
         for (std::size_t from = 0; from < count; ++from) {
             for (std::size_t to = 0; to < count; ++to) {
                 if (from == to) {
-                    matrix->values[nozzle * matrix_dimension * matrix_dimension + from * matrix_dimension + to] = 0.0;
+                    matrix[nozzle * matrix_dimension * matrix_dimension + from * matrix_dimension + to] = 0.0;
                     continue;
                 }
                 int flushing = 0;
@@ -800,11 +801,106 @@ void recalculate_filament_flush(PresetBundle& bundle)
                     if (from_support)
                         flushing = std::max(flushing, Slic3r::g_min_flush_volume_from_support);
                 }
-                matrix->values[nozzle * matrix_dimension * matrix_dimension + from * matrix_dimension + to] = flushing;
+                matrix[nozzle * matrix_dimension * matrix_dimension + from * matrix_dimension + to] = flushing;
             }
         }
     }
+    return matrix;
 }
+
+void recalculate_filament_flush(PresetBundle& bundle)
+{
+    bundle.project_config.option<ConfigOptionFloats>("flush_volumes_matrix", true)->values = calculate_filament_flush(bundle);
+}
+
+// Preference is host-owned, outside project history. Topology still normalizes
+// via native slot operations even when automatic prediction is disabled.
+void auto_recalculate_filament_flush(PresetBundle& bundle, int slot, bool colour_change, bool force)
+{
+    const auto policy = state().profile_config.get("auto_calculate_flush");
+    if (!force && (policy == "disabled" || (policy == "color change" && !colour_change))) return;
+    if (slot < 0) { recalculate_filament_flush(bundle); return; }
+    auto calculated = calculate_filament_flush(bundle);
+    auto* matrix = bundle.project_config.option<ConfigOptionFloats>("flush_volumes_matrix", true);
+    if (matrix->values.size() != calculated.size()) matrix->values.resize(calculated.size(), 0.0);
+    const auto n = bundle.filament_presets.size();
+    for (size_t plane = 0; plane < calculated.size() / (n * n); ++plane)
+        for (size_t from = 0; from < n; ++from)
+            for (size_t to = 0; to < n; ++to)
+                if (from == static_cast<size_t>(slot) || to == static_cast<size_t>(slot)) {
+                    const auto index = plane * n * n + from * n + to;
+                    matrix->values[index] = calculated[index];
+                }
+}
+
+void normalize_filament_flush_after_transition(PresetBundle& bundle, const DynamicPrintConfig& previous, size_t previous_dimension)
+{
+    const auto policy = state().profile_config.get("auto_calculate_flush");
+    auto values = calculate_filament_flush(bundle);
+    const auto old = config_floats(previous, "flush_volumes_matrix");
+    const auto n = bundle.filament_presets.size();
+    const auto count = State::material_slot_count(bundle.project_config);
+    const auto planes = values.size() / (n * n);
+    const auto old_planes = previous_dimension == 0 ? 0 : old.size() / (previous_dimension * previous_dimension);
+    const auto old_count = State::material_slot_count(previous);
+    const auto config_strings = [](const DynamicPrintConfig& config, const char* key) {
+        const auto* value = config.opt<ConfigOptionStrings>(key);
+        return value ? value->values : std::vector<std::string>{};
+    };
+    const auto colours = config_strings(bundle.project_config, "filament_colour");
+    const auto old_colours = config_strings(previous, "filament_colour");
+    const auto multi = config_strings(bundle.project_config, "filament_multi_colour");
+    const auto old_multi = config_strings(previous, "filament_multi_colour");
+    const auto colour_changed = [&](size_t slot) {
+        return slot >= old_colours.size() || slot >= colours.size() || old_colours[slot] != colours[slot] ||
+            (slot < multi.size() ? multi[slot] : "") != (slot < old_multi.size() ? old_multi[slot] : "");
+    };
+    if (policy == "disabled" || policy == "color change")
+        for (size_t p = 0; p < std::min(planes, old_planes); ++p)
+            for (size_t r = 0; r < std::min(count, old_count); ++r)
+                for (size_t c = 0; c < std::min(count, old_count); ++c)
+                    if (policy == "disabled" || (!colour_changed(r) && !colour_changed(c)))
+                        values[p * n * n + r * n + c] = old[p * previous_dimension * previous_dimension + r * previous_dimension + c];
+    bundle.project_config.option<ConfigOptionFloats>("flush_volumes_matrix", true)->values = std::move(values);
+    auto ratios = config_floats(previous, "flush_multiplier");
+    ratios.resize(planes, 1.0);
+    bundle.project_config.option<ConfigOptionFloats>("flush_multiplier", true)->values = std::move(ratios);
+}
+
+json flushing_volumes_snapshot(const json& request)
+{
+    const auto snapshot = Session::filament_session_snapshot_json();
+    if (!snapshot.value("ok", false)) return snapshot;
+    if (!request.is_object() || request.value("version", 0) != 1 ||
+        !request.contains("revision") || !request["revision"].is_number_unsigned() ||
+        request["revision"] != snapshot["revisions"]["session"])
+        return command_error("stale_revision", "flushing editor revision is stale");
+    const auto& bundle = state().presets;
+    const auto count = State::material_slot_count(bundle.project_config);
+    const auto n = bundle.filament_presets.size();
+    const auto planes = static_cast<size_t>(std::max(1, bundle.get_printer_extruder_count()));
+    const auto calculated = calculate_filament_flush(bundle);
+    std::vector<double> defaults(count * count * planes);
+    for (size_t p = 0; p < planes; ++p)
+        for (size_t r = 0; r < count; ++r)
+            for (size_t c = 0; c < count; ++c)
+                defaults[p * count * count + r * count + c] = calculated[p * n * n + r * n + c];
+    auto multipliers = bundle.project_config.option<ConfigOptionFloats>("flush_multiplier")->values;
+    multipliers.resize(planes, 1.0);
+    std::vector<int> minimums;
+    const auto full = Neo::Bridge::PresetDrafts::effective_full_config(bundle, state().preset_drafts);
+    const auto min_flush = min_flush_volumes_for_config(full, count, planes);
+    const auto* datasets = full.opt<ConfigOptionIntsNullable>("nozzle_flush_dataset");
+    for (size_t p = 0; p < planes; ++p) {
+        GenericFlushPredictor predictor(datasets && !datasets->values.empty() ? datasets->get_at(p) : 0);
+        minimums.push_back(std::min(*std::min_element(min_flush[p].begin(), min_flush[p].end()), predictor.get_min_flush_volume()));
+    }
+    return json{{"ok", true}, {"revision", snapshot["revisions"]["session"]},
+        {"matrix", snapshot["flushing"]["matrix"]}, {"defaults", defaults},
+        {"multipliers", multipliers}, {"minimums", minimums},
+        {"dimension", count}, {"planes", planes}, {"maximum", Slic3r::g_max_flush_volume}};
+}
+
 
 void validate_filament_candidate_components(const std::vector<std::string>& filament_presets,
                                             const DynamicPrintConfig& project,
@@ -1637,10 +1733,59 @@ json set_filament_routing_command(const json& request, const Runtime& runtime)
         // staged bundle; the assignment transaction then publishes the full
         // matrix atomically with the routing mutation.  Feature-path routing
         // does not affect flushing volumes.
-        if (!feature_selector) recalculate_filament_flush(bundle);
+        if (!feature_selector) auto_recalculate_filament_flush(bundle, -1, false);
         return json{{"kind", "routing"}, {"selector", selector}, {"slot", slot},
                     {"accepted_targets", accepted}, {"invalidate_all_plates", invalidate_all}};
     }, model_only);
+}
+
+json set_flushing_volumes_command(const json& request, const Runtime& runtime)
+{
+    RuntimeScope scope(runtime);
+    try {
+        if (state().active_history_transaction)
+            return command_error("history_transaction_active", "flushing command cannot run inside another history transaction");
+        const auto editor = flushing_volumes_snapshot(request);
+        if (!editor.value("ok", false)) return editor;
+        const auto count = editor["dimension"].get<size_t>();
+        const auto planes = editor["planes"].get<size_t>();
+        if (count < 2) return command_error("capability_rejected", "flushing requires multiple materials");
+        if (!request.contains("matrix") || !request["matrix"].is_array() ||
+            request["matrix"].size() != count * count * planes ||
+            !request.contains("multipliers") || !request["multipliers"].is_array() || request["multipliers"].size() != planes)
+            return command_error("invalid_command", "invalid flushing dimensions");
+        auto values = request["matrix"].get<std::vector<double>>();
+        auto multipliers = request["multipliers"].get<std::vector<double>>();
+        for (double value : multipliers)
+            if (!std::isfinite(value) || value < 0 || value > 3)
+                return command_error("invalid_command", "invalid flush multiplier");
+        for (size_t p = 0; p < planes; ++p)
+            for (size_t r = 0; r < count; ++r)
+                for (size_t c = 0; c < count; ++c) {
+                    auto& value = values[p * count * count + r * count + c];
+                    if (!std::isfinite(value) || value < 0 || (r == c && value != 0))
+                        return command_error("invalid_command", "invalid flushing volume");
+                    // Ratio zero preserves raw data without division by zero.
+                    if (multipliers[p] > 0) value = std::min(value, Slic3r::g_max_flush_volume / multipliers[p]);
+                }
+        if (values == editor["matrix"].get<std::vector<double>>() && multipliers == editor["multipliers"].get<std::vector<double>>()) {
+            const auto revision = editor["revision"];
+            return filament_mutation_result(json{{"kind", "flushing"}, {"history_entry_delta", 0},
+                {"revision_before", revision}, {"revision_after", revision}, {"dirty", state().history.project_modified()},
+                {"affected_plate_ids", json::array()}, {"all_plate_results_invalidated", false}});
+        }
+        return run_filament_slot_mutation(request, "Edit Flushing Volumes", false,
+            [values, multipliers, count, planes](PresetBundle& bundle, Model&, auto&, auto&, size_t) {
+                const auto n = bundle.filament_presets.size();
+                auto* matrix = bundle.project_config.option<ConfigOptionFloats>("flush_volumes_matrix", true);
+                for (size_t p = 0; p < planes; ++p)
+                    for (size_t r = 0; r < count; ++r)
+                        for (size_t c = 0; c < count; ++c)
+                            matrix->values[p * n * n + r * n + c] = values[p * count * count + r * count + c];
+                bundle.project_config.option<ConfigOptionFloats>("flush_multiplier", true)->values = multipliers;
+                return json{{"kind", "flushing"}};
+            });
+    } catch (const std::exception& e) { return command_error("invalid_command", e.what()); }
 }
 
 json select_filament_slot_preset_command(const json& request, const Runtime& runtime)
@@ -1668,7 +1813,7 @@ json select_filament_slot_preset_command(const json& request, const Runtime& run
             types->values.resize(count, "1");
             types->values[*slot] = user_override ? user_override->type : "1";
         }
-        recalculate_filament_flush(bundle);
+        auto_recalculate_filament_flush(bundle, -1, false);
         return json{{"kind", "select-preset"}, {"slot", *slot + 1}, {"preset", name}};
     });
 }
@@ -1716,7 +1861,7 @@ json set_filament_slot_colour_command(const json& request, const Runtime& runtim
             types->values.resize(count, "1");
             types->values[*slot] = colour_type;
         }
-        recalculate_filament_flush(bundle);
+        auto_recalculate_filament_flush(bundle, static_cast<int>(*slot), true);
         return json{{"kind", "set-colour"}, {"slot", *slot + 1}, {"colour", colour}};
     });
 }
@@ -1745,7 +1890,7 @@ json add_filament_command(const json& request, const Runtime& runtime)
             multi->values[count] = colour;
         }
         add_plate_filament_references(plates, bundle, count);
-        recalculate_filament_flush(bundle);
+        auto_recalculate_filament_flush(bundle, static_cast<int>(count), true, true);
         return json{{"kind", "add"}, {"slot", count + 1}};
         });
 }
@@ -1768,7 +1913,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
             remap_model_filament_references(model, *source, std::nullopt, count - 1);
             remap_plate_filament_references(plates, *source, std::nullopt, count);
             remap_native_scoped_config_filament_references(snapshot, *source, std::nullopt);
-            recalculate_filament_flush(bundle);
+            // update_num_filaments already remapped surviving flush rows and columns.
             return json{{"kind", "delete"}, {"source", *source + 1},
                         {"destination", nullptr}, {"slot_count", count - 1}};
         });
@@ -1796,7 +1941,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
         remap_model_filament_references(model, *source, replacement, count - 1);
         remap_plate_filament_references(plates, *source, replacement, count);
         remap_native_scoped_config_filament_references(snapshot, *source, replacement);
-        recalculate_filament_flush(bundle);
+        // update_num_filaments already remapped surviving flush rows and columns.
         return json{{"kind", merge ? "merge" : "delete"}, {"source", *source + 1},
                     {"destination", replacement ? json(*replacement + 1) : json(nullptr)},
                     {"slot_count", count - 1}};
@@ -2401,6 +2546,27 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_filament_routing(const char* request_js
         Slic3r::Neo::Bridge::Filament::Session::filament_command_runtime()).dump()); }
     catch (const std::exception& e) { return duplicate_json(Slic3r::Neo::Bridge::Filament::Commands::command_error("invalid_command", e.what()).dump()); }
     catch (...) { return duplicate_json(Slic3r::Neo::Bridge::Filament::Commands::command_error("invalid_command", "invalid filament routing command").dump()); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_get_flushing_volumes(const char* request_json)
+{
+    try { return duplicate_json(Commands::flushing_volumes_snapshot(json::parse(request_json)).dump()); }
+    catch (const std::exception& e) { return duplicate_json(Commands::command_error("invalid_command", e.what()).dump()); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_flushing_volumes(const char* request_json)
+{
+    try { return duplicate_json(Commands::set_flushing_volumes_command(json::parse(request_json), filament_command_runtime()).dump()); }
+    catch (const std::exception& e) { return duplicate_json(Commands::command_error("invalid_command", e.what()).dump()); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_auto_flush_policy(const char* policy)
+{
+    const std::string value = policy ? policy : "";
+    if (value != "all" && value != "color change" && value != "disabled")
+        return duplicate_json(Commands::command_error("invalid_command", "invalid auto flush policy").dump());
+    state().profile_config.set("auto_calculate_flush", value);
+    return duplicate_json(json{{"ok", true}}.dump());
 }
 
 } // extern "C"

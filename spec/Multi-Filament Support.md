@@ -8,7 +8,7 @@ closes it.
 
 **Date:** 2026-09-08
 
-**Status:** Delivered native rack, assignments, Prime Tower and history behavior.
+**Status:** Delivered native rack, assignments, flushing editor, Prime Tower and history behavior.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -419,24 +419,64 @@ as fabricated evidence when a slice result lacks a tool or palette entry.
 
 ### 10.1 Flushing-volume policy
 
-The first release does not provide a flushing-volume matrix editor or an
-All/Colour/None automatic-calculation preference. Neo always uses the native
-OrcaSlicer calculation after an input that affects flushing changes, including:
+The Material toolbar exposes **Flushing Volumes** to the left of Add/Delete
+when at least two actual materials exist and the native printer is SEMM
+(`single_extruder_multi_material`) or a Bambu vendor, matching Orca's
+`Sidebar::show_SEMM_buttons`. Neo reuses `capabilities.flexible` for this
+native condition. Fixed-material toolchangers/IDEX printers such as U1 hide
+the entry. A single-material rack has no
+material-pair flushing editor, regardless of physical nozzle count. An orange
+entry outline marks a non-default matrix or multiplier.
 
-- a slot's filament preset, material properties, or effective colour;
-- slot Add, Delete, Merge with, or renumbering; and
-- the support/raft base or support/raft interface filament selection.
+The shared React dialog edits a From-row / To-column matrix for each native
+nozzle plane. Two planes use Left/Right extruder labels; other multi-head
+printers use numbered extruders. Diagonal cells remain zero and read-only.
+Headers show the material number and shared colour swatch. The table scrolls
+inside the dialog with sticky headers, including at the 64-slot limit.
+Desktop mouse/keyboard operation is supported; mobile remains deferred.
 
-The Worker recalculates and returns the complete matrix atomically with the
-filament session. React neither derives individual values nor applies partial
-matrix edits.
+Project configuration stores the **raw** `flush_volumes_matrix` and one
+`flush_multiplier` per nozzle. Displayed cells are rounded raw volume times
+multiplier, capped at the core's maximum; explicit cell editing divides by the
+current multiplier with Orca's integer rounding. Changing a multiplier does not
+rescale the stored raw matrix. Multipliers are in [0, 3]; zero shows zero and
+disables cell editing without discarding raw values. The typical [0, 700] mm³
+text is guidance, not the allowed upper limit. The core supplies the maximum
+and suggested minimums; modified values are orange and values below the
+suggested minimum are red, without making that suggestion a hard lower bound.
 
-Opening a 3MF is not itself a flushing-input edit. Neo initially preserves the
-project's stored matrix exactly for OrcaSlicer interoperability. The first
-subsequent change to a flushing input unconditionally replaces that imported
-matrix with a complete native recalculation. Project save persists the current
-effective matrix even though Neo does not expose direct editing in this
-release.
+Opening and **Re-calculate** are read-only Worker calculations. Re-calculate
+replaces only the selected plane in the local draft and retains its multiplier.
+Cancel/Escape discard the draft. OK validates the captured session revision,
+visible dimensions, finite nonnegative volumes, zero diagonals and multipliers
+in C++. It expands actual-material rows/columns onto the native preset-sized
+planes while retaining padded entries, applies the maximum with the multiplier,
+and commits matrix and multipliers in one history operation. Rejection rolls
+back all state; stale drafts require closing and reopening. Unchanged OK adds
+no history entry and invalidates no plate result. A real edit marks the project
+dirty and invalidates all shared-configuration plate results; Undo/Redo restores
+matrix and multipliers together.
+
+Preferences provides Orca's **All / Color / None** policy, stored by the host
+outside project history and applied before restoring startup selections:
+
+- All (default) calculates after material/preset, colour, support-routing and
+  material/Printer draft input changes. A colour edit updates only that slot's
+  row and column in each plane; preset changes rebuild the full matrix.
+- Color calculates only after explicit colour edits, retaining unrelated
+  hand-edited pairs.
+- None retains hand-edited pairs after colour/material edits.
+- Adding a slot always initializes its new pairs with native calculation while
+  retaining existing pairs. Delete/Merge remap surviving rows and columns.
+  Printer/topology transitions keep dimensions legal; new planes/pairs receive
+  native defaults, and surviving pairs follow the selected calculation policy.
+
+The Worker uses effective Printer/Filament drafts, native support flags,
+colour/alpha/multicolour inputs, nozzle datasets and minimum-flush calculation.
+React performs display conversion only, never predicts flushing volumes.
+Opening a 3MF preserves its native matrix and multipliers. Subsequent changes
+follow the preference above; project save persists current native values without
+an additional Neo flushing format.
 
 ### 10.2 Prime tower controls
 
@@ -809,8 +849,10 @@ The deterministic fixture set covers at least:
   model/toolpath colours retain the representative; focused Electron and both
   real Web runtime variants verify browser storage, reload, and first/last
   endpoint editing;
-- imported custom flushing-matrix preservation followed by automatic
-  replacement after the first flushing-input edit;
+- imported custom flushing-matrix and multiplier preservation, followed by
+  policy-dependent automatic updates; read-only recalculation, raw/display
+  rounding, zero multiplier, per-nozzle independence, stale rejection, no-op OK,
+  failure rollback, Undo/Redo, 3MF round trip and H2D single-material projection;
 - Prepare-only estimated prime-tower proxies for every eligible plate,
   including native dimensions, band order and colours, read-only imported
    rotation, one-gesture history, non-current-plate selection and movement

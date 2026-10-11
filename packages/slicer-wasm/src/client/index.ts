@@ -10,7 +10,7 @@ export type {
   InitResult, FilamentCatalogItem, PresetInfo, PresetSelection, ProfileSnapshot, PrinterPicker, BedTypeCapabilities,
   FilamentColourProvenance, FilamentNativeColour, FilamentColourDisplay,
   FilamentSessionSlot, FilamentNativeMapping,
-  FilamentFlushingState, FilamentSessionCapabilities, FilamentAssignmentTarget,
+  AutoFlushPolicy, FlushingVolumesSnapshot, FlushingVolumesSnapshotResult, FlushingVolumesRequest, FilamentFlushingState, FilamentSessionCapabilities, FilamentAssignmentTarget,
   FilamentAssignmentProjection, FilamentAssignmentProjectionSet,
   FilamentSessionRevisions, FilamentSessionStatus, FilamentSessionSnapshot,
   FilamentSessionSnapshotError, FilamentSessionSnapshotResult,

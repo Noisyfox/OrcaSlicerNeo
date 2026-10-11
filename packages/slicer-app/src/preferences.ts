@@ -191,10 +191,12 @@ export async function restoreSelections(
  * compatibility, then history is reset so boot exposes one clean baseline. */
 export async function restoreBootstrapSession(
   runtime: Pick<SlicerClient, 'getProfileSnapshot' | 'selectProfile' |
-    'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack' | 'resetHistory' | 'mutateNativeScopedConfig'>,
+    'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack' | 'resetHistory' | 'mutateNativeScopedConfig' | 'setAutoFlushPolicy'>,
   preferences: UserPreferences,
   context: HistoryContext,
 ): Promise<RestoredBootstrapSession> {
+  const policy = await runtime.setAutoFlushPolicy(preferences.autoFlushPolicy ?? 'all');
+  if (!policy.ok) throw new Error(policy.error ?? 'could not configure automatic flushing');
   const restored = await restoreSelections(runtime, preferences);
   await applyRememberedFilamentRack(runtime, preferences, restored.snapshot.printer.name);
   const seeded = await seedRememberedBedType(runtime, preferences.rememberedBedTypes[restored.snapshot.printer.name] ?? null);

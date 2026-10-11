@@ -222,3 +222,13 @@ export type FilamentMutationRequest =
   | FilamentSlotDeleteRequest
   | FilamentSlotMergeRequest
   | FilamentAssignmentRequest;
+
+/** Read flushing defaults under the same FIFO used by material/project edits. */
+export function readFlushingVolumes(runtime: Pick<SlicerClient, 'getFlushingVolumes'>, revision?: number) {
+  return enqueueProjectMutationOperation(async () => {
+    const snapshot = useFilamentSessionStore.getState().snapshot;
+    if (!snapshot) return { ok: false as const, error: 'Materials are unavailable' };
+    const result = await runtime.getFlushingVolumes({ version: 1, revision: revision ?? snapshot.revisions.session });
+    return result.ok ? { ...result, slots: snapshot.slots } : result;
+  });
+}

@@ -534,3 +534,10 @@
 /* Setup uses desktop control typography and a bounded scrollable body. */
 .setup-wizard { height: min(720px, calc(100dvh - 48px)); width: min(900px, calc(100dvw - 32px)); font-size: var(--text-xs); }
 .setup-wizard [data-slot="field-label"], .setup-wizard [data-slot="input"], .setup-wizard [data-slot="dialog-description"] { font-size: var(--text-xs); }
+
+/* Flushing editor shares warning colours in light and dark themes. */
+@theme { --color-warning: #ff6f00; }
+.flushing-volume-input[data-value-state="modified"] { color: var(--color-warning); }
+.flushing-volume-input[data-value-state="warning"] { color: var(--color-destructive); }
+.flushing-volumes-button[data-modified="true"] { outline: 1px solid var(--color-warning); }
+.flushing-volume-table [data-slot="table-container"] { overflow: visible; }

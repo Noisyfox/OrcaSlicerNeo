@@ -8,6 +8,8 @@ import type {
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectNotice, ProjectOperation } from '@/stores/useProjectStore';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Field, FieldGroup, FieldLabel, FieldDescription } from '@/components/ui/field';
 import {
   Dialog,
   DialogContent,
@@ -130,21 +132,24 @@ export function ProjectPreferencesDialog({
 }: {
   open: boolean;
   preferences: UserPreferences | null;
-  onSave: (behaviour: ProjectLoadBehaviour) => Promise<void> | void;
+  onSave: (behaviour: ProjectLoadBehaviour, autoFlushPolicy: NonNullable<UserPreferences['autoFlushPolicy']>) => Promise<void> | void;
   onClose: () => void;
 }) {
   const [behaviour, setBehaviour] = useState<ProjectLoadBehaviour>('ask_when_relevant');
+  const [autoFlushPolicy, setAutoFlushPolicy] = useState<NonNullable<UserPreferences['autoFlushPolicy']>>('all');
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    if (open) setBehaviour(preferences?.projectLoadBehaviour ?? 'ask_when_relevant');
+    if (open) { setBehaviour(preferences?.projectLoadBehaviour ?? 'ask_when_relevant'); setAutoFlushPolicy(preferences?.autoFlushPolicy ?? 'all'); }
   }, [open, preferences]);
   if (!open) return null;
   const save = async () => {
     setSaving(true);
-    try { await onSave(behaviour); onClose(); } finally { setSaving(false); }
+    try { setSaveError(null); await onSave(behaviour, autoFlushPolicy); onClose(); } catch (e) { setSaveError(String(e)); } finally { setSaving(false); }
   };
   return (
     <Modal title="Preferences" testId="project-preferences-dialog">
+      {saveError && <Alert variant="destructive"><AlertDescription>{saveError}</AlertDescription></Alert>}
       <div className="flex flex-col gap-2">
         <Label htmlFor="project-load-behaviour">Project Load Behaviour</Label>
         <Select
@@ -165,6 +170,15 @@ export function ProjectPreferencesDialog({
           </SelectContent>
         </Select>
       </div>
+      <FieldGroup><Field>
+        <FieldLabel htmlFor="auto-flush-policy">Auto flush after changing…</FieldLabel>
+        <Select value={autoFlushPolicy} items={[{ value: 'all', label: 'All' }, { value: 'color change', label: 'Color' }, { value: 'disabled', label: 'None' }]}
+          onValueChange={value => setAutoFlushPolicy(value as NonNullable<UserPreferences['autoFlushPolicy']>)} disabled={saving}>
+          <SelectTrigger id="auto-flush-policy" aria-label="Auto flush after changing"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectGroup><SelectItem value="all">All</SelectItem><SelectItem value="color change">Color</SelectItem><SelectItem value="disabled">None</SelectItem></SelectGroup></SelectContent>
+        </Select>
+        <FieldDescription>All recalculates after colour or material changes; Color recalculates after colour changes; None preserves manual values. Adding a material initializes its new pairs in every mode.</FieldDescription>
+      </Field></FieldGroup>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onClose} disabled={saving} data-testid="project-preferences-cancel">Cancel</Button>
         <Button type="button" onClick={() => void save()} disabled={saving} data-testid="project-preferences-save">{saving ? 'Saving…' : 'Save'}</Button>

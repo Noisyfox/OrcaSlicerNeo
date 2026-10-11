@@ -97,7 +97,7 @@ void restore_profile_transition_state(ProfileTransitionState&& before)
     state().history_revision = before.history_revision;
 }
 
-void validate_profile_transition()
+void validate_profile_transition(const DynamicPrintConfig& previous, size_t previous_dimension)
 {
     auto& bundle = state().presets;
     if (bundle.filament_presets.empty())
@@ -113,7 +113,7 @@ void validate_profile_transition()
     for (const auto& name : bundle.filament_presets)
         if (name.empty() || bundle.filaments.find_preset(name, false, true) == nullptr)
             throw std::runtime_error("printer transition produced an incompatible filament rack");
-    Filament::Commands::recalculate_filament_flush(bundle);
+    Filament::Commands::normalize_filament_flush_after_transition(bundle, previous, previous_dimension);
     Filament::Commands::validate_filament_candidate(
         bundle, state().model, state().plate_session_plates,
         Neo::Bridge::ScopedConfig::native_scoped_config_snapshot(), true, true);
@@ -842,7 +842,7 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
             }
         }
     }
-    validate_profile_transition();
+    validate_profile_transition(before_profiles.project_config, before_profiles.filament_presets.size());
 }
 
 json select_printer_with_remembered_rack_json(const json& request)
@@ -1292,7 +1292,7 @@ const char* apply_activation()
     candidate.ams_multi_color_filment = bridge.presets.ams_multi_color_filment;
     candidate.update_multi_material_filament_presets();
     Filament::State::resize_slots_preserving_colours(candidate, static_cast<unsigned int>(Filament::State::material_slot_count(candidate.project_config)));
-    Filament::Commands::recalculate_filament_flush(candidate);
+    Filament::Commands::normalize_filament_flush_after_transition(candidate, before_profiles.project_config, before_profiles.filament_presets.size());
     rebind_activation_bundle(candidate);
     auto staged_drafts = activation_drafts(candidate);
     const auto target_printer = candidate.printers.get_selected_preset_name();
@@ -1513,7 +1513,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const 
                                                    PresetSelectCompatibleType::Always);
                 state().presets.update_multi_material_filament_presets();
             }
-            Profiles::validate_profile_transition();
+            Profiles::validate_profile_transition(before.project_config, before.filament_presets.size());
             const auto response = Profiles::preset_snapshot_json().dump();
             HistoryMetadata::advance_history_epoch(state());
             return Profiles::duplicate_json(response);

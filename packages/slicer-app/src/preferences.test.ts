@@ -242,6 +242,7 @@ describe('selection restoration', () => {
     const calls: string[] = [];
     const getRack = vi.fn(async () => { calls.push('get-rack'); return getRack.mock.calls.length === 1 ? current : finalRack; });
     const result = await restoreBootstrapSession({
+      setAutoFlushPolicy: vi.fn(async () => ({ ok: true })),
       mutateNativeScopedConfig: vi.fn(async () => { calls.push('seed-bed'); return { ok: true, nativeScopedConfig: { kind: 'full' } } as never; }),
       getProfileSnapshot: vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(resolved),
       selectProfile: vi.fn(async (kind) => { calls.push(`select-${kind}`); return resolved; }),
