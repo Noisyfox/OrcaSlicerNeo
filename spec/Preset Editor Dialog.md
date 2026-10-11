@@ -309,6 +309,13 @@ No slot identity is retained by the editor. Browsing calls the draft read API,
 does not create an overlay or history entry, and never invokes project preset
 selection, changes rack colours, or writes selection preferences.
 
+Workspace owns only the opening source, open/close state and the editing-session
+notification. The mounted dialog owns its current browsed target, draft snapshot,
+initial loading, read errors, read/mutation locks and Undo/Redo refresh. Closing
+unmounts that session, and its pending reads cannot publish into a later dialog.
+Mutations continue through the shared configuration commit helper so history,
+project projections and slice invalidation keep their existing transaction path.
+
 Each native draft snapshot includes a required `editor_candidates` projection
 of installed visible sources supported by the editor (FFF Printers and
 Filaments), including incompatible Filaments. Printer entries identify complete

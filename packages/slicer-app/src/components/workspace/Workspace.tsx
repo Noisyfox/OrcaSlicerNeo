@@ -40,16 +40,12 @@ import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 import type {
   NativeScopedConfigFullTransport,
   PlateSessionSnapshot,
-  PresetDraftMutationRequest,
-  PresetDraftMutationResult,
-  PresetDraftSnapshot,
   PresetDraftTarget,
   ProfileSnapshot,
 } from '@slicer/client';
 import { readSceneDeltaProjection } from './viewport/sceneDeltaProjection';
 import { FilamentRack } from './FilamentRack';
 import { PresetEditorDialog } from './settings/PresetEditorDialog';
-import { commitPresetDraftMutation } from './settings/configurationActions';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
@@ -162,15 +158,6 @@ export function Workspace({
   const paintingPhase = usePaintingPhase();
   const [presetEditorTarget, setPresetEditorTarget] = useState<PresetDraftTarget | null>(null);
   useEffect(() => { onEditingSessionChange?.(presetEditorTarget !== null); return () => onEditingSessionChange?.(false); }, [onEditingSessionChange, presetEditorTarget]);
-  const [presetEditorSnapshot, setPresetEditorSnapshot] = useState<PresetDraftSnapshot | null>(null);
-  const [presetEditorLoading, setPresetEditorLoading] = useState(false);
-  const [presetEditorRefreshing, setPresetEditorRefreshing] = useState(false);
-  const [presetEditorLoadError, setPresetEditorLoadError] = useState<string | null>(null);
-  const [presetEditorMutationPending, setPresetEditorMutationPending] = useState(false);
-  const presetEditorTargetRef = useRef<PresetDraftTarget | null>(null);
-  const presetEditorMutationPendingRef = useRef(false);
-  const presetEditorRefreshingRef = useRef(false);
-  const presetEditorHistoryRevisionRef = useRef<number | null>(null);
   const plateSession = usePlateSessionStore((s) => s.snapshot);
   const structure = useObjectListStore((s) => s.structure);
   const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
@@ -182,140 +169,12 @@ export function Workspace({
   const projectMutationPendingCount = useProjectStore((s) => s.projectMutationPendingCount);
   const slicerStatus = useSlicerStore((s) => s.status);
   const serialSliceBusy = isSerialSliceBusy(platform.runtime, slicerStatus);
-  const referencedPresetSlots = presetEditorTarget?.kind === 'filament'
-    ? (filamentSnapshot?.slots
-      .filter((slot) => slot.preset.name === presetEditorTarget.canonicalName)
-      .map((slot) => slot.slot) ?? [])
-    : [];
-
-  const openPresetEditor = useCallback(async (target: PresetDraftTarget) => {
+  const openPresetEditor = useCallback((target: PresetDraftTarget) => {
     if (!paintingCommandAllowed()) return;
-    if (presetEditorTargetRef.current || presetEditorMutationPendingRef.current) return;
-    const requestedTarget = { ...target };
-    presetEditorTargetRef.current = requestedTarget;
-    presetEditorHistoryRevisionRef.current = historyRestoreRevision;
-    setPresetEditorTarget(requestedTarget);
-    setPresetEditorSnapshot(null);
-    setPresetEditorLoadError(null);
-    presetEditorRefreshingRef.current = false;
-    setPresetEditorRefreshing(false);
-    setPresetEditorLoading(true);
-    try {
-      const result = await platform.runtime.getPresetDraft(requestedTarget.kind, requestedTarget.canonicalName);
-      if (presetEditorTargetRef.current !== requestedTarget) return;
-      if (result.ok) setPresetEditorSnapshot(result);
-      else setPresetEditorLoadError(result.error);
-    } catch (error) {
-      if (presetEditorTargetRef.current === requestedTarget)
-        setPresetEditorLoadError(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (presetEditorTargetRef.current === requestedTarget) setPresetEditorLoading(false);
-    }
-  }, [historyRestoreRevision, platform.runtime]);
-
-  const closePresetEditor = useCallback(() => {
-    if (presetEditorMutationPendingRef.current) return;
-    presetEditorTargetRef.current = null;
-    presetEditorHistoryRevisionRef.current = null;
-    presetEditorRefreshingRef.current = false;
-    setPresetEditorRefreshing(false);
-    setPresetEditorTarget(null);
-    setPresetEditorSnapshot(null);
-    setPresetEditorLoadError(null);
-    setPresetEditorLoading(false);
+    setPresetEditorTarget(current => current ?? { ...target });
   }, []);
+  const closePresetEditor = useCallback(() => setPresetEditorTarget(null), []);
 
-  const selectPresetEditorTarget = useCallback(async (canonicalName: string) => {
-    const previous = presetEditorTargetRef.current;
-    if (!previous || canonicalName === previous.canonicalName || presetEditorMutationPendingRef.current ||
-        presetEditorRefreshingRef.current || !paintingCommandAllowed()) return;
-    const requestedTarget = { kind: previous.kind, canonicalName };
-    presetEditorTargetRef.current = requestedTarget;
-    presetEditorRefreshingRef.current = true;
-    setPresetEditorRefreshing(true);
-    try {
-      // Browsing is read-only. Never route through project preset selection.
-      const result = await platform.runtime.getPresetDraft(previous.kind, canonicalName);
-      if (presetEditorTargetRef.current !== requestedTarget) return;
-      if (!result.ok) throw new Error(result.error);
-      setPresetEditorTarget(requestedTarget);
-      setPresetEditorSnapshot(result);
-      setPresetEditorLoadError(null);
-    } catch (error) {
-      if (presetEditorTargetRef.current !== requestedTarget) return;
-      presetEditorTargetRef.current = previous;
-      throw error;
-    } finally {
-      if (presetEditorTargetRef.current === requestedTarget || presetEditorTargetRef.current === previous) {
-        presetEditorRefreshingRef.current = false;
-        setPresetEditorRefreshing(false);
-      }
-    }
-  }, [platform.runtime]);
-
-  const mutatePresetEditorDraft = useCallback(async (request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult> => {
-    const target = presetEditorTargetRef.current;
-    if (!target || request.kind !== target.kind || request.canonicalName !== target.canonicalName) {
-      return { ok: false, errorCode: 'invalid_request', error: 'The preset editor target is no longer active.' };
-    }
-    if (presetEditorMutationPendingRef.current || presetEditorRefreshingRef.current) {
-      return { ok: false, errorCode: 'history_transaction_active', error: 'A preset editor operation is already in progress.' };
-    }
-    presetEditorMutationPendingRef.current = true;
-    setPresetEditorMutationPending(true);
-    try {
-      const result = await commitPresetDraftMutation(platform, request);
-      if (result.ok && presetEditorTargetRef.current === target) {
-        if (result.canonicalName !== target.canonicalName) {
-          const resolvedTarget = { kind: result.kind, canonicalName: result.canonicalName };
-          presetEditorTargetRef.current = resolvedTarget;
-          setPresetEditorTarget(resolvedTarget);
-        }
-        setPresetEditorSnapshot(result);
-        setPresetEditorLoadError(null);
-      }
-      return result;
-    } catch (error) {
-      return {
-        ok: false,
-        errorCode: 'runtime_failure',
-        error: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      presetEditorMutationPendingRef.current = false;
-      setPresetEditorMutationPending(false);
-    }
-  }, [platform]);
-
-  // A native Undo/Redo restores the draft registry before it publishes the
-  // history receipt. Keep an open editor as a projection of that restored
-  // registry, rather than leaving it with a superseded expected revision.
-  useEffect(() => {
-    const target = presetEditorTargetRef.current;
-    if (!target || presetEditorMutationPendingRef.current || historyRestorePhase !== 'idle' ||
-        presetEditorHistoryRevisionRef.current === historyRestoreRevision) return;
-    const restoreRevision = historyRestoreRevision;
-    presetEditorHistoryRevisionRef.current = restoreRevision;
-    presetEditorRefreshingRef.current = true;
-    setPresetEditorRefreshing(true);
-    setPresetEditorLoadError(null);
-    void platform.runtime.getPresetDraft(target.kind, target.canonicalName).then((result) => {
-      if (presetEditorTargetRef.current !== target ||
-          presetEditorHistoryRevisionRef.current !== restoreRevision) return;
-      if (result.ok) setPresetEditorSnapshot(result);
-      else setPresetEditorLoadError(result.error);
-    }).catch((error: unknown) => {
-      if (presetEditorTargetRef.current === target &&
-          presetEditorHistoryRevisionRef.current === restoreRevision)
-        setPresetEditorLoadError(error instanceof Error ? error.message : String(error));
-    }).finally(() => {
-      if (presetEditorTargetRef.current === target &&
-          presetEditorHistoryRevisionRef.current === restoreRevision) {
-        presetEditorRefreshingRef.current = false;
-        setPresetEditorRefreshing(false);
-      }
-    });
-  }, [historyRestorePhase, historyRestoreRevision, platform.runtime]);
   const glVolumes = useModelLoader();
   // Once Preview is visited, keep its projection across tab changes so the
   // hidden Slice Info sidebar retains its component and store state. Native
@@ -915,18 +774,10 @@ export function Workspace({
       </aside>
       </>
     </div>
-    <PresetEditorDialog
-      target={presetEditorTarget}
-      snapshot={presetEditorSnapshot}
-      refreshing={presetEditorRefreshing}
-      loading={presetEditorLoading}
-      loadError={presetEditorLoadError}
-      mutationPending={presetEditorMutationPending}
-      referencedFilamentSlots={referencedPresetSlots}
+    {presetEditorTarget && <PresetEditorDialog
+      initialTarget={presetEditorTarget}
       onClose={closePresetEditor}
-      onSelectPreset={selectPresetEditorTarget}
-      onMutate={mutatePresetEditorDraft}
-    />
+    />}
     </>
   );
 }

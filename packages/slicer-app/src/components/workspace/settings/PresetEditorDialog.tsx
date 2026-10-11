@@ -15,6 +15,11 @@ import type {
   PresetDraftEditorPoint,
 } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
+import { usePlatform } from '@orca/platform-contract';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
+import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
+import { commitPresetDraftMutation } from './configurationActions';
 import { Button } from '@/components/ui/button';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
 import { ColorSwatch } from '@/components/ui/color-picker';
@@ -37,6 +42,12 @@ import {
 } from './presetEditorManifests';
 
 export interface PresetEditorDialogProps {
+  /** The opening source. Subsequent browsing is owned by this mounted dialog. */
+  readonly initialTarget: PresetDraftTarget;
+  readonly onClose: () => void;
+}
+
+export interface PresetEditorDialogContentProps {
   /** One native target at a time. Pass null when there is no active editor. */
   readonly target: PresetDraftTarget | null;
   readonly snapshot: PresetDraftSnapshot | null;
@@ -249,7 +260,7 @@ function FieldValue({
   group?: PresetEditorManifestGroup;
   loading: boolean;
   mutationPending: boolean;
-  onMutate: PresetEditorDialogProps['onMutate'];
+  onMutate: PresetEditorDialogContentProps['onMutate'];
 }) {
   const label = labelFor(field, metadata);
   const binding = fieldBinding(snapshot, field.key, page?.extruderIndex);
@@ -815,7 +826,7 @@ function FieldGroup({
   snapshot: PresetDraftSnapshot;
   loading: boolean;
   mutationPending: boolean;
-  onMutate: PresetEditorDialogProps['onMutate'];
+  onMutate: PresetEditorDialogContentProps['onMutate'];
 }) {
   const titleId = `preset-editor-group-title-${page.id}-${group.id}`;
   const overridden = groupHasOverrides(snapshot, group, page?.extruderIndex);
@@ -863,7 +874,141 @@ function referencedSlotsLabel(slots: readonly number[]): string {
   return `Used by ${slotsText}. Editing this source affects those slots.`;
 }
 
-export function PresetEditorDialog({
+export function PresetEditorDialog({ initialTarget, onClose }: PresetEditorDialogProps) {
+  const platform = usePlatform();
+  const [target, setTarget] = useState(initialTarget);
+  const [snapshot, setSnapshot] = useState<PresetDraftSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [mutationPending, setMutationPending] = useState(false);
+  const targetRef = useRef<PresetDraftTarget | null>(null);
+  const mutationPendingRef = useRef(false);
+  const refreshingRef = useRef(false);
+  const historyRevisionRef = useRef<number | null>(null);
+  const historyPhase = useHistoryRestoreStore(state => state.phase);
+  const historyRevision = useHistoryRestoreStore(state => state.revision);
+  const filamentSession = useFilamentSessionStore(state => state.snapshot);
+  const referencedSlots = target.kind === 'filament'
+    ? filamentSession?.slots.filter(slot => slot.preset.name === target.canonicalName).map(slot => slot.slot) ?? []
+    : [];
+
+  useEffect(() => {
+    const requestedTarget = { ...initialTarget };
+    targetRef.current = requestedTarget;
+    historyRevisionRef.current = useHistoryRestoreStore.getState().revision;
+    setTarget(requestedTarget);
+    setSnapshot(null);
+    setLoading(true);
+    setLoadError(null);
+    void platform.runtime.getPresetDraft(requestedTarget.kind, requestedTarget.canonicalName).then(result => {
+      if (targetRef.current !== requestedTarget) return;
+      if (result.ok) setSnapshot(result);
+      else setLoadError(result.error);
+    }).catch(error => {
+      if (targetRef.current === requestedTarget) setLoadError(errorText(error));
+    }).finally(() => {
+      if (targetRef.current === requestedTarget) setLoading(false);
+    });
+    return () => { targetRef.current = null; };
+  }, [initialTarget, platform.runtime]);
+
+  const selectTarget = useCallback(async (canonicalName: string) => {
+    const previous = targetRef.current;
+    if (!previous || canonicalName === previous.canonicalName || mutationPendingRef.current ||
+        refreshingRef.current || !paintingCommandAllowed()) return;
+    const requestedTarget = { kind: previous.kind, canonicalName };
+    targetRef.current = requestedTarget;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    try {
+      // Browsing reads a source draft without changing the project selection.
+      const result = await platform.runtime.getPresetDraft(previous.kind, canonicalName);
+      if (targetRef.current !== requestedTarget) return;
+      if (!result.ok) throw new Error(result.error);
+      setTarget(requestedTarget);
+      setSnapshot(result);
+      setLoadError(null);
+    } catch (error) {
+      if (targetRef.current !== requestedTarget) return;
+      targetRef.current = previous;
+      throw error;
+    } finally {
+      if (targetRef.current === requestedTarget || targetRef.current === previous) {
+        refreshingRef.current = false;
+        setRefreshing(false);
+      }
+    }
+  }, [platform.runtime]);
+
+  const mutate = useCallback(async (request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult> => {
+    const currentTarget = targetRef.current;
+    if (!currentTarget || request.kind !== currentTarget.kind || request.canonicalName !== currentTarget.canonicalName) {
+      return { ok: false, errorCode: 'invalid_request', error: 'The preset editor target is no longer active.' };
+    }
+    if (mutationPendingRef.current || refreshingRef.current) {
+      return { ok: false, errorCode: 'history_transaction_active', error: 'A preset editor operation is already in progress.' };
+    }
+    mutationPendingRef.current = true;
+    setMutationPending(true);
+    try {
+      const result = await commitPresetDraftMutation(platform, request);
+      if (result.ok && targetRef.current === currentTarget) {
+        if (result.canonicalName !== currentTarget.canonicalName) {
+          const resolvedTarget = { kind: result.kind, canonicalName: result.canonicalName };
+          targetRef.current = resolvedTarget;
+          setTarget(resolvedTarget);
+        }
+        setSnapshot(result);
+        setLoadError(null);
+      }
+      return result;
+    } catch (error) {
+      return { ok: false, errorCode: 'runtime_failure', error: errorText(error) };
+    } finally {
+      mutationPendingRef.current = false;
+      if (targetRef.current) setMutationPending(false);
+    }
+  }, [platform]);
+
+  // Refresh the browsed source after Undo/Redo. If a read or mutation is still
+  // pending, retry once it finishes instead of losing that history revision.
+  useEffect(() => {
+    const currentTarget = targetRef.current;
+    if (!currentTarget || loading || mutationPendingRef.current || refreshingRef.current || historyPhase !== 'idle' ||
+        historyRevisionRef.current === historyRevision) return;
+    historyRevisionRef.current = historyRevision;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    setLoadError(null);
+    void platform.runtime.getPresetDraft(currentTarget.kind, currentTarget.canonicalName).then(result => {
+      if (targetRef.current !== currentTarget || historyRevisionRef.current !== historyRevision ||
+          useHistoryRestoreStore.getState().revision !== historyRevision) return;
+      if (result.ok) setSnapshot(result);
+      else setLoadError(result.error);
+    }).catch(error => {
+      if (targetRef.current === currentTarget && historyRevisionRef.current === historyRevision &&
+          useHistoryRestoreStore.getState().revision === historyRevision)
+        setLoadError(errorText(error));
+    }).finally(() => {
+      if (targetRef.current === currentTarget && historyRevisionRef.current === historyRevision) {
+        refreshingRef.current = false;
+        setRefreshing(false);
+      }
+    });
+  }, [historyPhase, historyRevision, loading, mutationPending, refreshing, platform.runtime]);
+
+  return <PresetEditorDialogContent target={target} snapshot={snapshot} loading={loading}
+    refreshing={refreshing} loadError={loadError} mutationPending={mutationPending}
+    referencedFilamentSlots={referencedSlots} onSelectPreset={selectTarget} onMutate={mutate}
+    onClose={() => {
+      if (mutationPendingRef.current) return;
+      targetRef.current = null;
+      onClose();
+    }} />;
+}
+
+export function PresetEditorDialogContent({
   target,
   snapshot,
   refreshing = false,
@@ -874,7 +1019,7 @@ export function PresetEditorDialog({
   onClose,
   onSelectPreset,
   onMutate,
-}: PresetEditorDialogProps) {
+}: PresetEditorDialogContentProps) {
   const interactionPending = loading || refreshing || mutationPending;
   const manifest = target ? manifestFor(target.kind) : null;
   const pages = useMemo(() => manifest ? pageInstances(manifest, snapshot) : [], [manifest, snapshot]);
