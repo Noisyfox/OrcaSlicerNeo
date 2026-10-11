@@ -47,14 +47,61 @@ async function openPickerProject(page: Page, app: ElectronApplication): Promise<
   await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   await page.getByTestId('file-open-project').click();
   }
+  // Loading hydrates the native profile and resets the configuration mode.
+  // Wait for the committed project identity before selecting Objects, so a
+  // slower host cannot overwrite this click with the load's Project reset.
+  await expect(page.getByTestId('titlebar-project-name')).toHaveText('picked-project');
+  await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
   await page.getByTestId('config-mode-scoped').click();
   await expect(page.getByTestId('object-list').getByRole('button', { name: 'picked-project.3mf' })).toBeVisible();
 }
 
 async function makeDirty(page: Page): Promise<void> {
+  await page.getByTestId('config-mode-scoped').click();
+  const models = page.getByTestId('object-list').getByTestId(/^object-\d+$/);
+  const previousCount = await models.count();
   await page.getByTestId('btn-add-model').click();
+  // Slice is already enabled for the opened project. Wait for the new model
+  // and the import operation to finish before issuing another command.
+  await expect(models).toHaveCount(previousCount + 1);
+  await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
 }
+
+test('a new project with parameter changes and no models can be saved', async () => {
+  const { app, savePath } = await launchProjectApp();
+  try {
+    const page = await app.firstWindow();
+    await ready(page);
+    const save = page.getByTestId('titlebar-save-project');
+    await expect(save).toBeDisabled();
+    await expect(page.getByTestId('btn-slice')).toBeDisabled();
+    await page.getByTestId('config-mode-project').click();
+    await page.getByTestId('config-page-Multi.').click();
+    const angle = page.getByTestId('config-input-wipe_tower_rotation_angle');
+    await expect(angle).toHaveValue('0');
+    await expect(page.getByTestId('config-reset-wipe_tower_rotation_angle')).toHaveCount(0);
+    await angle.fill('90');
+    await angle.press('Enter');
+    await expect(save).toBeEnabled();
+    await page.getByTestId('history-undo').click();
+    await expect(save).toBeDisabled();
+    await page.getByTestId('history-redo').click();
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('saved-project');
+    await expect(save).toBeDisabled();
+    expect(existsSync(savePath)).toBe(true);
+    expect(readFileSync(savePath).byteLength).toBeGreaterThan(0);
+    await expect(page.getByTestId('btn-slice')).toBeDisabled();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+n' : 'Control+n');
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('Untitled Project');
+    await expect(page.getByTestId('project-dirty-dialog')).toHaveCount(0);
+  } finally {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy());
+    await app.close();
+  }
+});
 
 test('New Project resets rotation and Printer/Filament session drafts', async () => {
   const { app } = await launchProjectApp();
@@ -255,8 +302,10 @@ test('Electron close requests honor Cancel then Save/Don\'t Save choices', async
       .catch((error) => { if (!page.isClosed()) throw error; });
     await Promise.all([closed, click]);
   } finally {
-    // The assertions above close the window. If a failure occurs earlier, the
-    // lifecycle bridge still lets a clean renderer answer this teardown.
+    // A failed assertion can leave a dirty window whose close confirmation
+    // would block teardown. Destroy only the test window in that case.
+    if (app.windows().some(window => !window.isClosed()))
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy());
     await app.close();
   }
 });

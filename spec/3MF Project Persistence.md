@@ -111,6 +111,19 @@
   in slicing, and are preserved on a later project save even when the current
   UI has no control for a setting. Edits through supported UI controls overlay
   those retained values.
+- Normal project reopening restores saved Print parameters, including
+  wipe-tower rotation, through the native Print preset. Global support/raft
+  filament routing is restored into its dedicated project configuration. New
+  Project discards the previous routing and restores Print parameters,
+  including rotation, to the selected system-profile baseline. Clear Scene
+  retains these settings.
+- Fresh project defaults omit Print-owned overrides, which inherit from the
+  selected Print profile. Startup and replacement loading use the same native
+  initialization policy; missing archive values do not create local overrides.
+  Ordinary Print parameters use Orca's edited Print preset and parent-diff
+  persistence path. Print scalar values equal to the preset baseline are not
+  marked modified; explicit ownership for scoped values and Print vector
+  elements retains its separate configuration contract.
 - Unrecognized, invalid, or incompatible settings follow the compatibility
   fallback policy rather than being silently discarded.
 - Embedded printer, process, and filament presets are available only for the
@@ -172,9 +185,11 @@ before a result is exported or sent.
   these commands.
 - Once the runtime is ready and no slice or project operation is running,
   New Project, Open Project, and Preferences are available. Save Project is
-  available only for a dirty session. Save Project As is available whenever
-  the current session has project content, including a clean opened project,
-  so it can create a copy immediately.
+  available only for a dirty session, including a new session with parameter
+  changes and no models. Save Project As is available whenever the current
+  session has project content or unsaved changes, including a clean opened or
+  saved project, so it can create a copy immediately. A successful save of a
+  settings-only session establishes project content even without models.
 - A successful New Project or Open Project operation selects the Prepare
   workspace. Save and Save As do not change the active workspace.
 - Selecting a `.3mf` through **Add Model** always performs geometry-only,
@@ -213,6 +228,14 @@ The first release's automated compatibility baseline covers:
 
 Cross-host end-to-end coverage verifies project open, save, dirty-state
 protection, and Web download behaviour.
+
+The real-WASM project round-trip harness audits non-default values for every
+generic Project parameter advertised by native metadata. It checks both the
+archive and the reopened effective configuration, preserves dedicated project
+metadata and support routing, and verifies the native New Project reset
+sequence. Model-bearing projects additionally cover representative Print
+parameters and wipe-tower rotation. Printer/Process extruder mapping metadata
+is internal preset structure and is not a generic Project editing target.
 
 The external fixture set is controlled by the
 [compatibility manifest](../packages/slicer-wasm/fixtures/project-compatibility/manifest.json),

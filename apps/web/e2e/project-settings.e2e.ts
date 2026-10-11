@@ -9,6 +9,18 @@ test('real Project process catalogue includes object and region defaults and edi
   await page.getByRole('button', { name: 'Search settings', exact: true }).click();
   const search = page.getByTestId('scoped-config-search');
 
+  await search.fill('Wipe tower rotation angle');
+  const rotation = page.getByTestId('config-input-wipe_tower_rotation_angle');
+  const rotationLabel = page.getByTestId('config-option-label-wipe_tower_rotation_angle');
+  const inheritedRotation = await rotation.inputValue();
+  await expect(rotationLabel).toHaveAttribute('data-local-override-highlight', 'false');
+  await rotation.fill('63');
+  await rotation.press('Enter');
+  await expect(rotationLabel).toHaveAttribute('data-local-override-highlight', 'true');
+  await page.getByTestId('config-reset-wipe_tower_rotation_angle').click();
+  await expect(rotation).toHaveValue(inheritedRotation);
+  await expect(rotationLabel).toHaveAttribute('data-local-override-highlight', 'false');
+
   // Use the actual Worker metadata rather than a mocked scope list, covering
   // representative Quality, Strength, Speed, Support and Other defaults.
   for (const [key, label] of [

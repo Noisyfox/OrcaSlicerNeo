@@ -64,31 +64,10 @@ bool is_editable_plate_override_key(const std::string& key)
 
 bool is_native_project_config_key(const std::string& key)
 {
-    // Keep this boundary aligned with PresetBundle::s_project_options in the
-    // pinned native core. Project-scoped print options outside this set belong
-    // to the edited Print preset; they are projected from its parent diff.
-    static const std::set<std::string> keys = {
-        "flush_volumes_vector",
-        "flush_volumes_matrix",
-        "filament_colour",
-        "filament_colour_type",
-        "filament_multi_colour",
-        "wipe_tower_x",
-        "wipe_tower_y",
-        "wipe_tower_rotation_angle",
-        "curr_bed_type",
-        "flush_multiplier",
-        "flush_multiplier_fast",
-        "prime_volume_mode",
-        "nozzle_volume_type",
-        "filament_map_mode",
-        "filament_map",
-        "filament_volume_map",
-        "filament_nozzle_map",
-        "has_filament_switcher",
-        "enable_filament_dynamic_map",
-    };
-    return keys.find(key) != keys.end() || is_bridge_owned_project_routing_key(key);
+    // Use Orca's ownership catalogue directly. Print options must stay in
+    // the edited Print preset so native diffs, persistence and reset agree.
+    const auto& keys = PresetBundle::project_options();
+    return std::find(keys.begin(), keys.end(), key) != keys.end() || is_bridge_owned_project_routing_key(key);
 }
 
 bool is_bridge_owned_project_routing_key(const std::string& key)
@@ -121,6 +100,8 @@ bool is_project_print_override_key(const std::string& key)
     static const std::set<std::string> profile_metadata_keys = {
         "inherits",
         "print_settings_id",
+        "print_extruder_id",
+        "print_extruder_variant",
         "filament_settings_id",
         "printer_settings_id",
         "sla_print_settings_id",

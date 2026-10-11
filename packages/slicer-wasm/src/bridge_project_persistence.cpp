@@ -122,6 +122,11 @@ json close_project_session()
     // orc_clear_model instead and intentionally retains the old positions.
     bridge_state.presets.project_config.erase("wipe_tower_x");
     bridge_state.presets.project_config.erase("wipe_tower_y");
+    // Typed filament routing belongs to the project being closed, rather
+    // than to a selected system Print preset or the remembered filament rack.
+    for (const std::string& key : bridge_state.presets.project_config.keys())
+        if (Neo::Bridge::ScopedConfig::is_bridge_owned_project_routing_key(key))
+            bridge_state.presets.project_config.erase(key);
     reset_plate_session_state();
     establish_clean_history_baseline();
 
@@ -967,25 +972,11 @@ static const char* orc_load_project_impl(const char* data, int len,
         ++state().full_preset_bundle_copy_count;
         PresetBundle candidate = state().presets;
         if (!geometry_only) {
-            // Replacement loads must start from the native Project option set,
-            // not from the previous session's edited map.  load_config_model
-            // applies the project options present in the incoming archive, so
-            // retaining keys which are absent there would make a stale
-            // filament/test fixture survive a project round trip.  Rebuild
-            // the canonical Project map from PrintConfig defaults before
-            // applying the archive; filament/rack state is handled by its
-            // dedicated native authorities below.
-            static const t_config_option_keys project_option_keys = {
-                "flush_volumes_vector", "flush_volumes_matrix",
-                "filament_colour", "filament_colour_type", "filament_multi_colour",
-                "wipe_tower_x", "wipe_tower_y", "wipe_tower_rotation_angle",
-                "curr_bed_type", "flush_multiplier", "flush_multiplier_fast",
-                "prime_volume_mode", "nozzle_volume_type", "filament_map_mode",
-                "filament_map", "filament_volume_map", "filament_nozzle_map",
-                "has_filament_switcher", "enable_filament_dynamic_map",
-            };
+            // Use the same native defaults as startup. Absent archive values
+            // must neither retain the previous project's overrides nor mask
+            // inherited Print values with synthetic defaults.
             DynamicPrintConfig clean_project_config;
-            clean_project_config.apply_only(FullPrintConfig::defaults(), project_option_keys, true);
+            clean_project_config.apply_only(FullPrintConfig::defaults(), PresetBundle::project_options());
             candidate.project_config = std::move(clean_project_config);
         }
         std::vector<std::string> requested_filament_slots;
@@ -1026,6 +1017,12 @@ static const char* orc_load_project_impl(const char* data, int len,
             // candidate preserves the transaction while also handling a
             // parentless project preset (such as Lily.3mf) exactly as Orca.
             candidate.load_config_model(project_name, imported_config, file_version);
+            // The native loader restores Print-owned routing into the edited
+            // preset. Neo's typed routing commands own these same values in
+            // project_config, which must also be restored before validation.
+            for (const std::string& key : imported_config.keys())
+                if (Neo::Bridge::ScopedConfig::is_bridge_owned_project_routing_key(key))
+                    candidate.project_config.set_key_value(key, imported_config.option(key)->clone());
             // The GUI refreshes its active preset controls after this native
             // load.  Re-run the bridge's authoritative compatibility pass so
             // stale selections from the previous project cannot survive a

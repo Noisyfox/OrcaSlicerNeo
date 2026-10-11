@@ -41,8 +41,16 @@ const historyContext = {
 };
 
 requireOk('init', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
+if (Object.hasOwn(snapshot().project, 'wipe_tower_rotation_angle'))
+  throw new Error('fresh startup advertises the default tower rotation as a local override');
 requireOk('clear model', callJson('orc_clear_model'));
 const inheritedRotation = requireOk('rotation source', callJson('orc_get_preset_snapshot')).project_config.wipe_tower_rotation_angle;
+requireOk('explicit rotation equal to inherited value', setProject('wipe_tower_rotation_angle', inheritedRotation));
+if (Object.hasOwn(snapshot().project, 'wipe_tower_rotation_angle'))
+  throw new Error('Print scalar equal to its preset baseline was marked modified');
+requireOk('reset explicit same-value rotation', resetProject('wipe_tower_rotation_angle'));
+if (Object.hasOwn(snapshot().project, 'wipe_tower_rotation_angle'))
+  throw new Error('reset did not resume inheritance after an explicit same-value rotation');
 requireOk('set tower rotation', setProject('wipe_tower_rotation_angle', '90'));
 requireOk('clear geometry preserves project rotation', callJson('orc_clear_model'));
 if (snapshot().project.wipe_tower_rotation_angle !== '90') throw new Error('Clear Model erased project rotation');
@@ -158,9 +166,14 @@ if (JSON.stringify(snapshot()) !== JSON.stringify(beforeFailureSnapshot) ||
 const beforeMetadataSnapshot = snapshot();
 const beforeMetadataSession = session();
 const beforeMetadataStatus = status();
-const metadataOverride = setProject('preferred_orientation', '1000');
-if (metadataOverride.ok || metadataOverride.error_code !== 'unsupported_reference')
-  throw new Error(`preset metadata override was accepted: ${JSON.stringify(metadataOverride)}`);
+for (const [key, value] of [['preferred_orientation', '1000'], ['print_extruder_id', '2'],
+  ['print_extruder_variant', 'invalid-variant']]) {
+  const metadataOverride = setProject(key, value);
+  if (metadataOverride.ok || metadataOverride.error_code !== 'unsupported_reference')
+    throw new Error(`preset metadata override was accepted: ${key}: ${JSON.stringify(metadataOverride)}`);
+  if ((optionMetadata[key]?.scopes ?? []).includes('project'))
+    throw new Error(`preset metadata was advertised as a Project option: ${key}`);
+}
 if (JSON.stringify(snapshot()) !== JSON.stringify(beforeMetadataSnapshot) ||
     JSON.stringify(session()) !== JSON.stringify(beforeMetadataSession) ||
     JSON.stringify(status()) !== JSON.stringify(beforeMetadataStatus))

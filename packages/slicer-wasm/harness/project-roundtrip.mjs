@@ -9,9 +9,10 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { callAsyncTask, getSliceResult, resultTarget } from './async-task-mailbox.mjs';
-import { readZipEntries } from './native-3mf-parser.mjs';
+import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
+import { mutateNativeScopedConfig, setNativeScopedConfig } from './native-scoped-command.mjs';
 
 const opts = {};
 for (let i = 2; i < argv.length; i += 2) opts[argv[i]?.replace(/^--/, '')] = argv[i + 1];
@@ -56,6 +57,119 @@ function check(label, condition, detail = '') {
 
 const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 check('initialise real module', init.ok === true, JSON.stringify(init));
+const startupScoped = callJson('orc_get_native_scoped_config', [], []).native_scoped_config.snapshot.project;
+check('fresh startup inherits tower rotation without a local override',
+  !Object.hasOwn(startupScoped, 'wipe_tower_rotation_angle'));
+
+// Exercise every generic Project parameter using the live native catalogue.
+// Rack, flushing, bed and coordinate inputs have dedicated authorities and
+// separate fixtures below; they must not be fuzzed as ordinary Print options.
+const initialProfiles = callJson('orc_get_preset_snapshot', [], []);
+const initialConfig = initialProfiles.project_config;
+const metadata = callJson('orc_get_option_metadata', [], []);
+// Native startup owns rack, purge, mapping and coordinate state. Derive that
+// set from the live snapshot rather than maintaining another option catalogue.
+const dedicatedKeys = new Set(Object.keys(startupScoped));
+
+function changedValue(definition, value) {
+  if (definition.enum_values?.length) return definition.enum_values.find(entry => entry !== value);
+  if (definition.type === 'bool') return value === '1' ? '0' : '1';
+  if (['float', 'int', 'percent', 'float_or_percent'].includes(definition.type)) {
+    const parsed = Number.parseFloat(value);
+    const previous = Number.isFinite(parsed) ? parsed : 0; // Nullable scalar: materialize a value.
+    let step = definition.type === 'int' ? 1 : 0.17;
+    if (definition.type !== 'int' && Number.isFinite(definition.min) && Number.isFinite(definition.max) && definition.max > definition.min)
+      step = Math.min(step, (definition.max - definition.min) / 3);
+    let next = previous + step;
+    if (definition.max !== undefined && next > definition.max) next = previous - step;
+    if (definition.min !== undefined && next < definition.min) return undefined;
+    return String(Number(next.toFixed(4))) + (value.endsWith('%') ? '%' : '');
+  }
+  if (definition.type === 'string') return value + ' neo persistence';
+  if (definition.type === 'strings') return 'neo-persistence';
+  if (['floats', 'ints', 'percents', 'bools', 'floats_or_percents'].includes(definition.type)) {
+    const type = definition.type === 'floats_or_percents' ? 'float_or_percent' : definition.type.slice(0, -1);
+    return value.split(',').map(entry => changedValue({ ...definition, type }, entry)).join(',');
+  }
+}
+const auditedKeys = [];
+for (const [key, definition] of Object.entries(metadata)) {
+  if (!definition.scopes?.includes('project') || dedicatedKeys.has(key)) continue;
+  const value = initialConfig[key] ?? definition.default;
+  const changed = typeof value === 'string' ? changedValue(definition, value) : undefined;
+  if (changed === undefined || changed === value) throw new Error(`Project audit has no changed fixture for ${key}`);
+  const result = setNativeScopedConfig(callJson, 'project', undefined, key, changed);
+  if (!result.ok) throw new Error(`Project audit cannot edit ${key}: ${JSON.stringify(result)}`);
+  auditedKeys.push(key);
+}
+// Keep the original regression explicit alongside the catalogue-driven audit.
+check('rotation is covered by the Project catalogue audit', auditedKeys.includes('wipe_tower_rotation_angle'));
+check('internal extruder mapping is excluded from Project editing',
+  !metadata.print_extruder_id.scopes.includes('project') && !metadata.print_extruder_variant.scopes.includes('project'));
+const projectMetadataValues = { filament_colour: '#123456', filament_multi_colour: '#123456 #ABCDEF',
+  filament_colour_type: '0', flush_multiplier: '0.67', flush_multiplier_fast: '1.57',
+  flush_volumes_vector: '151,163' };
+for (const [key, value] of Object.entries(projectMetadataValues))
+  check(`edit project metadata ${key}`, setNativeScopedConfig(callJson, 'project', undefined, key, value).ok === true);
+function setProjectSupportRouting(selector) {
+  const session = callJson('orc_get_filament_session_snapshot', [], []);
+  const routed = callJson('orc_set_filament_routing', ['string'], [JSON.stringify({
+    version: 1, revision: session.revisions.session, selector, slot: 1, targets: [{ kind: 'project' }],
+  })]);
+  check(`edit project routing ${selector}`, routed.ok === true, JSON.stringify(routed));
+}
+for (const selector of ['support-base', 'support-interface']) setProjectSupportRouting(selector);
+const expectedConfig = callJson('orc_get_preset_snapshot', [], []).project_config;
+const preservedKeys = [...auditedKeys, ...dedicatedKeys].filter(key => typeof expectedConfig[key] === 'string');
+const emptyExport = callJson('orc_export_project', [], []);
+check('export settings-only project', emptyExport.ok === true && emptyExport.objects === 0 && emptyExport.bytes_length > 4);
+if (emptyExport.ok) {
+  const emptyBytes = readAndFree(emptyExport.bytes_ptr, emptyExport.bytes_length);
+  const archiveConfig = JSON.parse(new TextDecoder().decode(
+    readZipEntries(emptyBytes).find(entry => entry.name === 'Metadata/project_settings.config').content));
+  for (const key of auditedKeys)
+    if (!Object.hasOwn(archiveConfig, key)) throw new Error(`3MF omitted Project parameter ${key}`);
+  check('rotation is saved through Orca Print preset differences',
+    String(archiveConfig.different_settings_to_system).includes('wipe_tower_rotation_angle'));
+  const emptyPtr = writeBytes(emptyBytes);
+  const emptyLoaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+    [emptyPtr, emptyBytes.length, 0, 'settings-only.3mf']);
+  Module._free(emptyPtr);
+  check('settings-only reopen retains zero models', emptyLoaded.ok === true && emptyLoaded.objects === 0);
+  const differences = preservedKeys.filter(key => emptyLoaded.preset_snapshot?.project_config?.[key] !== expectedConfig[key]);
+  check(`settings-only reopen preserves all ${auditedKeys.length} edited Project parameters`, differences.length === 0,
+    JSON.stringify(differences.map(key => ({ key, saved: expectedConfig[key], loaded: emptyLoaded.preset_snapshot?.project_config?.[key] }))));
+  const reopenedRouting = callJson('orc_get_filament_session_snapshot', [], []).routing;
+  for (const selector of ['support-base', 'support-interface'])
+    check(`settings-only reopen preserves project routing ${selector}`,
+      reopenedRouting.find(entry => entry.target === 'project' && entry.selector === selector)?.effective_slot === 1);
+}
+// Follow the same native steps as shared New Project, including restoration
+// of system selections and a reset before establishing the clean baseline.
+check('close audited project', callJson('orc_close_project', [], []).ok === true);
+for (const kind of ['printer', 'print'])
+  check(`restore system ${kind} for New Project`, callJson('orc_select_preset', ['string', 'string'], [kind, initialProfiles[kind].name]).ok === true);
+check('New Project resets Print parameters', mutateNativeScopedConfig(callJson, 'reset-all', [{ scope: 'project' }]).ok === true);
+const newConfig = callJson('orc_get_preset_snapshot', [], []).project_config;
+const resetDifferences = auditedKeys.filter(key => newConfig[key] !== initialConfig[key]);
+check('New Project restores all audited parameters to the system baseline', resetDifferences.length === 0, JSON.stringify(resetDifferences));
+const newRouting = callJson('orc_get_filament_session_snapshot', [], []).routing;
+for (const selector of ['support-base', 'support-interface'])
+  check(`New Project resets project routing ${selector}`,
+    newRouting.find(entry => entry.target === 'project' && entry.selector === selector)?.effective_slot === 0);
+for (const key of Object.keys(projectMetadataValues))
+  check(`Print reset preserves dedicated authority ${key}`, newConfig[key] === expectedConfig[key], JSON.stringify({ saved: expectedConfig[key], current: newConfig[key] }));
+const newHistory = callJson('orc_history_reset', ['string'], [JSON.stringify({
+  selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+  activePlateId: null, gizmo: null, nativeScopedConfig: {},
+})]);
+check('New Project establishes clean history', newHistory.dirty === false && newHistory.canUndo === false && newHistory.canRedo === false);
+// Check representative parameters again with model geometry in the archive.
+const modelProjectValues = { wipe_tower_rotation_angle: '90', layer_height: '0.24', wall_loops: '5',
+  prime_tower_width: '63', fuzzy_skin: 'all', fuzzy_skin_thickness: '0.42', inner_wall_speed: '123',
+  staggered_inner_seams: '1', sparse_infill_density: '37%' };
+for (const [key, value] of Object.entries(modelProjectValues))
+  check(`edit model-project ${key}`, setNativeScopedConfig(callJson, 'project', undefined, key, value).ok === true);
 
 const modelPtr = writeBytes(model);
 const added = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
@@ -68,6 +182,7 @@ const before = callJson('orc_get_model_structure', [], []);
 const beforeObject = before.objects?.[0];
 check('capture source structure', before.ok === true && beforeObject?.volumes?.length === 1,
       JSON.stringify(beforeObject));
+for (const selector of ['support-base', 'support-interface']) setProjectSupportRouting(selector);
 
 const secondPlate = callJson('orc_add_plate', [], []);
 check('create second native plate', secondPlate.ok === true && secondPlate.plates?.length === 2,
@@ -107,6 +222,10 @@ if (exported.ok) {
 
 const cleared = callJson('orc_clear_model', [], []);
 check('clear active scene before reload', cleared.ok === true, JSON.stringify(cleared));
+const clearSceneRouting = callJson('orc_get_filament_session_snapshot', [], []).routing;
+for (const selector of ['support-base', 'support-interface'])
+  check(`Clear Scene retains project routing ${selector}`,
+    clearSceneRouting.find(entry => entry.target === 'project' && entry.selector === selector)?.effective_slot === 1);
 
 if (opts['check-add-model'] === 'true') {
   const addProjectPtr = writeBytes(project);
@@ -153,6 +272,13 @@ Module._free(projectPtr);
 check('reload exported project', loaded.ok === true && loaded.mode === 'project' && loaded.objects === 2
       && loaded.compatibility === 'bambu' && loaded.project_settings_available === true,
       JSON.stringify(loaded));
+for (const [key, value] of Object.entries(modelProjectValues))
+  check(`model-project reopen preserves ${key}`, loaded.preset_snapshot?.project_config?.[key] === value,
+    JSON.stringify({ saved: value, loaded: loaded.preset_snapshot?.project_config?.[key] }));
+const modelReopenedRouting = callJson('orc_get_filament_session_snapshot', [], []).routing;
+for (const selector of ['support-base', 'support-interface'])
+  check(`model-project reopen preserves project routing ${selector}`,
+    modelReopenedRouting.find(entry => entry.target === 'project' && entry.selector === selector)?.effective_slot === 1);
 const freshHistory = callJson('orc_history_status', [], []);
 check('3MF reload starts a clean history baseline', freshHistory.ok !== false &&
       freshHistory.canUndo === false && freshHistory.canRedo === false &&
@@ -200,6 +326,41 @@ check('invalid bytes close the loaded project and retain the new empty baseline'
       && afterInvalidResult.ok !== true,
       JSON.stringify({ invalid, objects: afterInvalid.objects?.length,
         session: afterInvalidSession, result: afterInvalidResult }));
+
+// A file may omit a Print-owned project override. Loading it over an edited
+// session must clear the old value and inherit, not manufacture a default.
+const withoutRotation = readZipEntries(project);
+for (const entry of withoutRotation) {
+  if (entry.name !== 'Metadata/project_settings.config' && !entry.name.startsWith('Metadata/process_settings_')) continue;
+  const config = JSON.parse(new TextDecoder().decode(entry.content));
+  delete config.wipe_tower_rotation_angle;
+  entry.content = new TextEncoder().encode(JSON.stringify(config));
+}
+check('set stale rotation before replacement load', setNativeScopedConfig(callJson, 'project', undefined, 'wipe_tower_rotation_angle', '123').ok === true);
+const absentBytes = writeStoredZip(withoutRotation);
+const absentPtr = writeBytes(absentBytes);
+const absentLoaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+  [absentPtr, absentBytes.length, 0, 'without-rotation.3mf']);
+Module._free(absentPtr);
+check('load archive omitting rotation', absentLoaded.ok === true);
+const absentScoped = callJson('orc_get_native_scoped_config', [], []).native_scoped_config.snapshot.project;
+check('missing archive rotation inherits instead of retaining or seeding an override',
+  !Object.hasOwn(absentScoped, 'wipe_tower_rotation_angle'));
+const inherited = absentLoaded.preset_snapshot?.project_config?.wipe_tower_rotation_angle;
+check('missing archive rotation restores the Print baseline', inherited === initialConfig.wipe_tower_rotation_angle);
+check('explicitly set the inherited rotation', setNativeScopedConfig(callJson, 'project', undefined, 'wipe_tower_rotation_angle', inherited).ok === true);
+const equalExport = callJson('orc_export_project', [], []);
+check('export Print scalar at its baseline', equalExport.ok === true);
+if (equalExport.ok) {
+  const equalBytes = readAndFree(equalExport.bytes_ptr, equalExport.bytes_length);
+  const equalPtr = writeBytes(equalBytes);
+  const equalLoaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+    [equalPtr, equalBytes.length, 0, 'explicit-same-value.3mf']);
+  Module._free(equalPtr);
+  check('reopen Print scalar at its baseline', equalLoaded.ok === true);
+  check('Print scalar equal to its baseline stays unmodified after reopening',
+    !Object.hasOwn(callJson('orc_get_native_scoped_config', [], []).native_scoped_config.snapshot.project, 'wipe_tower_rotation_angle'));
+}
 
 if (failures) {
   console.error(`project round-trip failed: ${failures} check(s)`);
