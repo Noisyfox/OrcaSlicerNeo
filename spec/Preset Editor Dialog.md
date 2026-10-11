@@ -317,7 +317,12 @@ display the full canonical preset name in the trigger, entries and tooltips,
 rather than the alias used by sidebar controls. The Filament picker has
 content-sized popup width independent of its trigger, capped by the available
 viewport like the sidebar combobox. Changing targets must not clip preset names
-to a narrower trigger width. It has
+to a narrower trigger width. Both editor pickers reuse the option editor's
+Select component: the current selection is visible and focused with the same
+highlight as hover when the popup opens, using Select's built-in positioning
+and focus lifecycle rather than scrolling after the opening animation. The
+search field stays in a fixed header; only the options list scrolls.
+The Filament picker has
 two flat sections: compatible with the project's effective Printer first, then
 not compatible with that Printer. This classification uses native Printer
 compatibility, independent of the active Process and the editor target.

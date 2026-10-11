@@ -266,7 +266,12 @@ async function mount(
 
 async function click(element: Element | null) {
   if (!element) throw new Error('expected a clickable element');
-  await act(async () => { (element as HTMLElement).click(); });
+  await act(async () => {
+    if (element.getAttribute('data-slot') === 'select-item') {
+      element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    } else (element as HTMLElement).click();
+  });
 }
 
 async function changeInput(input: HTMLInputElement, value: string) {
@@ -342,17 +347,17 @@ describe('PresetEditorDialog', () => {
     await act(async () => root.render(<PlatformProvider value={platform}><PresetEditorDialog target={snapshot} snapshot={snapshot}
       onClose={vi.fn()} onMutate={vi.fn()} onSelectPreset={onSelectPreset} /></PlatformProvider>));
     await click(document.querySelector('[data-testid="preset-editor-preset"]'));
-    const groups = [...document.querySelectorAll('[data-slot="dropdown-menu-group"]')];
-    expect(groups.map(group => group.querySelector('[data-slot="dropdown-menu-label"]')?.textContent)).toEqual([
+    const groups = [...document.querySelectorAll('[data-slot="select-group"]')];
+    expect(groups.map(group => group.querySelector('[data-slot="select-label"]')?.textContent)).toEqual([
       'Compatible with project printer', 'Not compatible with project printer',
     ]);
-    expect(groups.map(group => group.querySelector('[role="menuitemradio"]')?.textContent)).toEqual([
+    expect(groups.map(group => group.querySelector('[role="option"]')?.textContent)).toEqual([
       'Modified supported', 'Modified unsupported',
     ]);
     expect(document.querySelector('[title="Modified unsupported"] .config-override-label')).not.toBeNull();
-    expect(document.querySelector('[role="menuitemradio"][title="Modified unsupported"]')?.textContent).toBe('Modified unsupported');
+    expect(document.querySelector('[role="option"][title="Modified unsupported"]')?.textContent).toBe('Modified unsupported');
     expect(document.body.textContent).not.toContain('Short alias');
-    await click(document.querySelector('[role="menuitemradio"][title="Unsupported"]'));
+    await click(document.querySelector('[role="option"][title="Unsupported"]'));
     expect(onSelectPreset).toHaveBeenCalledWith('Unsupported');
   });
 

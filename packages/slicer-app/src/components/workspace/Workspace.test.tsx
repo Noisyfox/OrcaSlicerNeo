@@ -219,7 +219,11 @@ describe('Workspace ownership', () => {
     await act(async () => (container.querySelector('[data-testid="mock-printer-edit"]') as HTMLElement).click());
     async function choose(name: string) {
       await act(async () => (document.querySelector('[data-testid="preset-editor-preset"]') as HTMLElement).click());
-      await act(async () => (document.querySelector(`[role="option"][title="${name}"]`) as HTMLElement).click());
+      await act(async () => {
+        const item = document.querySelector(`[role="option"][title="${name}"]`) as HTMLElement;
+        item.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+        item.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+      });
     }
     await choose('Printer B');
     expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer B');
