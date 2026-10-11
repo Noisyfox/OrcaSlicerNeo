@@ -6,10 +6,10 @@
 
 - The first delivery supports importing `.drc` files only.  DRC export is out
   of scope for this delivery.
-- DRC has the same user entry points as the current STL support: the existing
-  in-app **Add Model** flow in both the Electron and Web hosts.  It does not
-  add drag-and-drop import, operating-system file association, or opening a
-  DRC file from outside the application.
+- DRC uses the shared **Add Model** picker and external OS/browser file-drop
+  flow in both Electron and Web, as defined by [Model Import](Model%20Import.md).
+  Operating-system file association and external application-launch opening
+  remain outside scope; file drops do not add those capabilities.
 - An imported DRC is appended to the current plate.  It never replaces the
   existing scene.
 - A single DRC triangular mesh becomes one model object with one volume, even
@@ -24,7 +24,7 @@
   defined inside the project.  Never pass a host absolute path into shared
   state or the WASM filesystem.
 - Placement matches the current STL behaviour: centre the imported mesh on
-  the XY origin, rest it on the bed, and do not perform collision avoidance or
+  the current plate, rest it on the bed, and do not perform collision avoidance or
   automatic arrangement.  Multiple imported models may overlap.
 - Interpret DRC position values as millimetres, exactly as STL input is
   interpreted.  Preserve the source X/Y/Z axes and handedness without unit
@@ -75,118 +75,19 @@
   1.5.7 also requires the Emscripten directory in the `EMSCRIPTEN` environment
   variable while configuring.
 
-## Required validation gate
-
-- Upstream DRC input currently uses `boost::iostreams::mapped_file_source` to
-  map the staged input file before passing its bytes to Draco.  Verify that
-  this works with the Emscripten MEMFS input path before implementing the
-  feature further.
-- If that validation fails, stop work and request a new decision.  Do not
-  patch the upstream DRC implementation or introduce a replacement adapter
-  without explicit approval.
-
-## Feasibility result
-
-- The required gate passed in an isolated 2026-09-01 probe.  A wasm64 program
-  using the existing Boost `mapped_file_source` successfully read a MEMFS
-  file.  Draco 1.5.7 built as a complete static library for both serial
-  (`-m64`) and threaded (`-m64 -pthread`) configurations.
-- The unmodified upstream `Format/DRC.cpp` compiled as wasm64 against that
-  library.  An isolated link probe resolved its Draco and Boost.Iostreams
-  dependencies; its only deliberately tolerated unresolved symbols belonged
-  to the rest of libslic3r and Boost.Log, which were outside the probe.
-- Continue with the direct upstream implementation; no fallback patch or
-  replacement adapter is needed based on this validation.
-
-## Implementation plan
-
-1. **Stage Draco for both wasm64 variants.** Extend `fetch-deps.sh` and its
-   cmd-native `.bat` counterpart to download the pinned archive into
-   `.work/deps`, validate its SHA-256 before extraction, and retain no
-   downloaded source in the repository.  Add matching `build-draco-wasm64`
-   shell and cmd-native scripts, modelled on the existing oneTBB dependency
-   build.  They build the complete `draco_static` archive separately for the
-   serial and threaded variants, with `-m64` (and `-pthread` for threaded),
-   `DRACO_JS_GLUE=OFF`, and tests disabled.  The scripts stage the source
-   headers, CMake-generated `draco_features.h`, and `libdraco.a` under the
-   variant's untracked dependency directory.
-2. **Restore the upstream format in the WASM build.** In
-   `packages/slicer-wasm/CMakeLists.txt`, remove only the DRC exclusion,
-   require the staged Draco include/archive paths, add both source and
-   generated include roots to `slic3r_core`, and link `draco_static` into the
-   final module.  Remove only the DRC stand-ins from
-   `stubs/format-stubs.cpp`; retain the unrelated SVG stubs.  No submodule
-   file and no upstream `DRC.cpp` source is edited.
-3. **Preserve the selected-file name through the existing bridge.** Extend the
-   typed `SlicerClient.addModel`/Worker request and the `orc_add_model` bridge
-   call with a sanitized basename in addition to the extension.  Stage bytes
-   at `/tmp/<sanitized-basename>` (with a safe extension fallback), never a
-   host path.  This lets upstream STL and DRC naming run unchanged, while 3MF
-   keeps its project-defined names.  Keep the current temporary-model parse,
-   post-load centring/bed placement, and append-on-success sequence.
-4. **Expose the same picker capability in both hosts.** Pass the existing
-   `ModelFile.displayName` from shared scene actions to the runtime, and add
-   `drc` to the Electron model filter and Web input `accept` list.  No new
-   platform contract, picker route, host privilege, or UI surface is needed.
-   Map a returned DRC-load failure to the agreed generic UI message while
-   retaining the original bridge/Draco diagnostic in worker logs.
-5. **Add a compact, attributable fixture set and layered verification.** Store
-   the approved four Google Draco 1.5.7 fixtures with their notice.  Extend
-   the bridge smoke harness to import the three mesh fixtures, check object
-   structure, vertex/index counts and bounding boxes, check filename
-   propagation for both DRC and STL, verify DRC append/failed-import atomicity,
-   and slice one imported DRC to non-empty G-code.  Add mock-client and shared
-   action tests for the widened filename argument and generic DRC error.
-   Extend the real Electron and real Web threaded/serial Playwright flows to
-   select a DRC fixture, render it, and slice it.  Point cloud and test-time
-   truncation cover the agreed rejection paths.
-
-## Delivery sequence
-
-- Commit 1: reproducible Draco fetch/build and CMake restoration, verified by
-  a serial and threaded quick WASM build plus the existing smoke harness.
-- Commit 2: bridge/client basename propagation and both host picker filters,
-  verified by focused unit tests, typecheck, and the existing Electron mock
-  E2E.
-- Commit 3: licensed fixtures and native/real-artifact DRC coverage,
-  verified by both bridge-smoke variants, real Electron E2E, and real Web
-  threaded and serial E2E.
-- Before handoff, run the repository-required `pnpm test`, `pnpm typecheck`,
-  dual-variant quick WASM build, and desktop E2E; report every actual result.
-
-## Delivery record
-
-- Draco 1.5.7 is fetched, SHA-256 verified, and built as the complete native
-  static library for both wasm64 variants.  The WASM build now compiles the
-  unmodified upstream `Format/DRC.cpp`; no `cpp` submodule file was changed.
-- The Electron filter and Web file picker accept `.drc`.  The shared action
-  passes a selected filename basename to the typed runtime/bridge, so DRC
-  object names follow upstream while STL retains its existing behaviour.
-- `fixtures/drc/` contains the four approved official Google Draco samples,
-  their Apache-2.0 license, and exact v1.5.7 provenance.  The native DRC
-  smoke test verifies the three mesh encodings, topology/bounding boxes,
-  append semantics, atomic point-cloud/truncated-input rejection, and real
-  G-code export on both artifacts.
-- Release-gate evidence completed on 2026-09-01: dual `quick` WASM build;
-  dual artifact smoke; `pnpm test`; `pnpm typecheck`; standard Electron E2E;
-  focused real Electron DRC E2E; real Web threaded and serial DRC E2E.
-
 ## Acceptance requirements
 
-- Keep a small, representative subset of Google Draco 1.5.7 official test
-  data rather than importing its full fixture collection.  Retain one compact
-  triangular mesh with non-position attributes (`cube_att.drc`) and one mesh
-  for each supported connectivity encoding (the `edgebreaker` and
-  `sequential` `test_nm` fixtures).  Together these are the required
-  non-Orca compatibility samples.
-- Retain one official Draco point-cloud fixture as the representative
-  unsupported-input case.  Produce malformed-input coverage by truncating a
-  successful mesh fixture in the test, rather than committing another binary.
-- Include the upstream Apache-2.0 licence and precise Google Draco 1.5.7
-  provenance alongside the retained binary fixtures.
-- Successful import must prove more than absence of an error: verify expected
-  vertex and triangle counts and a tolerance-checked bounding box, then slice
-  the imported model and verify that G-code is produced.
-- Run the DRC success and rejection scenarios against real artifacts in all
-  supported hosts and variants: Electron, Web threaded wasm64, and Web serial
-  wasm64.  These are release-blocking checks.
+- Retain a small subset of Google Draco 1.5.7 official data: the triangular
+  mesh with non-position attributes (`cube_att.drc`) and the `edgebreaker`
+  and `sequential` `test_nm` meshes. These are required non-Orca compatibility
+  fixtures; do not import the entire upstream fixture collection.
+- Keep one official Draco point-cloud fixture as unsupported input. Produce
+  malformed-input coverage by truncating a successful mesh in the test rather
+  than committing another binary.
+- Keep the upstream Apache-2.0 license and precise Google Draco 1.5.7 provenance
+  alongside retained binary fixtures.
+- Successful import checks expected vertex/triangle counts and a
+  tolerance-checked bounding box, then slices the model and verifies G-code
+  output. Absence of an import error is insufficient.
+- Real Electron, Web threaded wasm64, and Web serial wasm64 must pass the DRC
+  success and rejection scenarios. These are release-blocking checks.

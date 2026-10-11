@@ -9,7 +9,7 @@
 // Exit 0 = PASS (all comparisons within tolerance); 1 = FAIL with a report.
 // Executed manually on an emsdk machine with desktop OrcaSlicer installed
 // (headless export: orca-slicer --export-gcode --output out.gcode
-//  --load profile.ini cube.stl) — see doc/2026-08-14-m3-implementation-notes.md.
+//  --load profile.ini cube.stl) — see doc/testing_guidelines.md.
 import { readFileSync } from 'node:fs';
 
 const FILAMENT_RE = /; total filament used \[mm\^3\] = ([\d.]+)/;

@@ -4,8 +4,8 @@ import { paintingMock } from './painting-mock';
 // ----------------------------------------------------------------
 // Bridge-shaped mock Emscripten module for unit tests (no emsdk).
 // Implements the ORC bridge contract exactly as bridge.cpp does for
-// real (see doc/2026-08-13-m2-implementation-plan.md Task 1) — the
-// client's tests pin this contract; Task 7 implements it in C++.
+// real (see spec/Web-Electron Shared Application Architecture.md) — the
+// client's tests pin this contract against the native bridge.
 // Also usable in the app's dev fallback worker (VITE_USE_MOCK=1).
 // ----------------------------------------------------------------
 

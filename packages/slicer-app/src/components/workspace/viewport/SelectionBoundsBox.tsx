@@ -1,7 +1,7 @@
 // The aggregate-selection bounding box, rendered like OrcaSlicer's native
 // selection box (Selection::render_bounding_box): one white bracket box around
 // the union of every selected volume, solid lines, depth-tested against the
-// model. See doc/2026-08-22-viewport-selection-box.md.
+// model. See spec/Viewport Interaction.md.
 import { useLayoutEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';

@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-02
 
-**Status:** Major architecture specification. Electron utility migration is authorized for implementation and validation; Python is not implemented.
+**Status:** Major architecture specification. Electron utility hosting and threaded NODEFS are delivered with bounded Windows validation; Python is not implemented.
 
 **Scope:** Native Python plugins for Electron, libslic3r bridging, runtime data transfer, and Web compatibility.
 
@@ -57,10 +57,6 @@ not a promise of cross-target ABI compatibility for arbitrary third-party C++ ex
 
 ## 3. Existing Code Foundations
 
-Inspection baseline: this documentation branch was created from remote main at
-`f17229e7033a70eded4764da781bfc1b3dfdb183`; the Orca submodule is pinned to
-`489cbe91840ff97aaf4d8029009d5db410f32893`.
-
 - The existing [plugin manager](../packages/slicer-wasm/cpp/src/slic3r/plugin/PluginManager.cpp)
   uses [PythonPluginBridge.cpp](../packages/slicer-wasm/cpp/src/slic3r/plugin/PythonPluginBridge.cpp)
   as the native binding entry. It depends on services from the original wxWidgets
@@ -76,13 +72,11 @@ Inspection baseline: this documentation branch was created from remote main at
   operate on persistent project state. Slicing requests send configuration and
   target information rather than resending every model.
 - [bootstrap.ts](../packages/slicer-runtime/src/bootstrap.ts) already supports
-  transport injection. At the inspection baseline, the
-  [default client entry](../packages/slicer-runtime/src/slicer/slicerClient.ts) and
-  [Worker entry](../packages/slicer-runtime/src/slicer/slicer.worker.ts) still
-  depended on browser startup. Section 12 records the subsequent host migration.
+  transport injection. Electron uses a Node Worker in a utility process; Web
+  retains its browser Worker. Section 12 defines current host behavior.
 - [CMakeLists.txt](../packages/slicer-wasm/CMakeLists.txt) declares `web,worker,node`
   environments, wasm64, and growable memory. These are prerequisites for Node
-  hosting, not evidence that the complete desktop host had already been validated.
+  hosting; the validation scope remains bounded by section 12.
 
 ## 4. Two Deployment Choices for B
 
@@ -342,7 +336,7 @@ records the authorized utility migration and its measured results.
 - Unsupported-host UI, explicit disablement, and round-trip preservation rules for Web and Electron serial mode; Python execution in these modes is excluded.
 - Native view lifetime guarantees, synchronization, and cache invalidation details.
 
-## 12. Authorized First Step: Utility Host Feasibility Validation
+## 12. Delivered Utility Host and Temporary-file Boundary
 
 This step migrates only the existing Electron slicing runtime. It adds no Python,
 plugin APIs, or other product features. Use existing real projects and fixtures to
@@ -370,8 +364,7 @@ large multi-plate projects, history and interaction performance, new process
 reload/exit checks, and Web threaded/serial compatibility. Use existing performance
 budgets and same-machine A/B measurements of startup, import, slice-to-preview,
 export, and process working sets. Summed working sets are not private or peak memory.
-Do not relax budgets to pass failing tests. Section 12.1 records the initial
-history projection timing discrepancy and subsequent reruns.
+Do not relax budgets to pass failing tests. Section 12.1 records the limits of the available validation.
 
 Test builds can set both `VITE_E2E=1` and `VITE_RUNTIME_BASELINE=1` to run the old
 browser Worker baseline; production builds do not expose this fallback. The new
@@ -380,77 +373,23 @@ existing cube fixture, while
 [utility-runtime.e2e.ts](../apps/desktop/e2e/utility-runtime.e2e.ts) checks process
 ownership and reload behavior.
 
-### 12.1 Local Measurements and Acceptance Scope (2026-10-02)
+### 12.1 Validation scope
 
-Environment: Windows x64, Electron 43.4.0, Node 24.18.1. Both hosts use the same
-existing WASM artifacts and cube fixture, with three independent launches each.
-The table reports medians. No other test suites ran concurrently, but OS background
-load was not controlled and no statistical significance analysis was performed;
-small differences do not establish a speedup. End-to-end state polling uses 20 ms
-intervals; renderer-side protocol round trips were also observed to distinguish
-test waiting costs.
+Windows x64 utility hosting was exercised with real import/slice/export,
+threaded and serial selection, project/history/painting journeys, reload and
+exit handling, and Windows packaged resource probes. Existing plate-switch
+budgets passed on the verified eleven-plate fixture. Same-machine comparison
+showed additional summed process working sets (approximately 150–165 MiB);
+these are not private memory or peak usage, and small timing differences are
+not a speedup guarantee. Cross-process results still incur copying; native
+shared-memory views were not implemented.
 
-| Metric | Browser Worker baseline | Utility | Interpretation |
-| --- | ---: | ---: | --- |
-| Process launch to Ready | 8928 ms | 8469 ms | No observed startup regression; not a speedup guarantee. |
-| Add Model to slice readiness | 237 ms | 218 ms | Similar magnitude. |
-| Slice click to GPU preview readiness | 1193 ms | 1195 ms | Essentially unchanged. |
-| Export click to file existence | 75 ms | 49 ms | Includes UI and filesystem scheduling. |
-| `slicePlate` round trip | 956 ms | 988 ms | Includes core computation, not pure IPC latency. |
-| `getSliceResult` round trip | 68 ms | 55 ms | Binary response is 1,771,608 bytes for this fixture. |
-| Summed process working sets at Ready | 1165 MiB | 1329 MiB | Approximately 164 MiB higher. |
-| Summed process working sets during preview | 1539 MiB | 1691 MiB | Approximately 152 MiB higher. |
-
-Memory figures sum Electron process working sets; they are not private memory,
-committed memory, or full-run peaks. Large cross-process results still incur
-copying. Native shared-memory optimization was not implemented in this step.
-
-The existing `big-proj.3mf` fixture contains 44,473,498 bytes, 51 objects, and 11
-plates. The existing runner verifies source identity and staged artifacts.
-Utility plate-switch timings were 111/91/85/86/86 ms in the initial run and
-140/116/116/114/119 ms in the final full suite, versus 101/86/81/82/81 ms for the
-baseline. All meet the existing 500 ms first-switch and 250 ms subsequent-switch
-budgets. System load varies across full-suite runs; their elapsed times are not
-pure IPC comparisons. Real validation includes first-plate slicing, export,
-Prime Tower, plate addition, and object movement.
-
-Completed checks:
-
-- `pnpm typecheck`: all workspaces passed.
-- After the ESM declaration fix, staging/build and Node imports of threaded/serial
-  modules in both development resources and build output passed without
-  `MODULE_TYPELESS_PACKAGE_JSON`. The forced-threaded utility lifecycle E2E rerun
-  passed. Packaged acceptance was not repeated for that small fix.
-- `pnpm test`: 1399 passed.
-- `pnpm --filter @orca/desktop test:e2e`: 45 passed, 11 skipped by host/fixture
-  conditions; skipped cases are not claimed as coverage. New utility reload,
-  process termination, and session replacement checks passed.
-- `pnpm --filter @orca/desktop test:e2e:real`: all 10 passed in the final run.
-- Forced-serial Electron real DRC and STEP import/slice/export: 2 passed.
-- `pnpm --filter @orca/desktop test:e2e:painted-facet:real`: fixture self-test, CSS
-  checks, and real painted-facet preview in Electron and Web passed.
-- The real serial six-tool painting journey passed, including native edits,
-  color updates, history, camera, and close/reopen. An outdated color-badge test
-  selector was updated for the existing label element; behavioral assertions were preserved.
-- Web threaded STEP, DRC, and profile startup failure: 3 passed. Web serial STEP
-  and DRC: 2 passed. The DRC test now dismisses the menu before clicking Preview,
-  preventing its overlay from intercepting the click; Web product behavior is unchanged.
-- Windows x64 packaged real slice/export, utility loading, missing core profiles,
-  and corrupt core profiles: 4 passed. Electron download failed with a TLS error;
-  packaging used the already installed identical release. Neither the Electron
-  version nor asar/unpacked verification was changed or skipped.
-
-Early Prime Tower history runs twice reported 2 projection reads in the undo
-window instead of 1. Diagnostic code was removed, and the original assertion was
-not relaxed. Three consecutive subsequent runs and the final full real suite
-passed. The initial timing difference has no confirmed root cause; retain it as
-a stability observation rather than claiming a fixed product defect.
-
-These results support further B2 investigation on the tested Windows environment.
-Existing interaction budgets pass; additional process memory is the main known
-performance cost. macOS/Linux packaging, prolonged stress, and arbitrary extremely
-large projects remain unverified. Utility success does not establish feasibility
-of native Python/NumPy shared views.
+An initial Prime Tower history run observed two projection reads where one
+was expected. Subsequent repeated runs passed without relaxing the assertion;
+the initial discrepancy has no confirmed root cause. Retain the stability
+check. macOS/Linux packaging, prolonged stress and arbitrary extremely large
+projects remain outside this validation. Utility success does not validate
+native Python/NumPy views or close the remaining B2 design questions.
 
 ### 12.2 Reproduction Commands
 
@@ -485,12 +424,6 @@ the test baseline variable.
 
 ### 12.3 NODEFS Temporary-file Validation (2026-10-02)
 
-Functional feasibility was validated from remote main
-`86ce9f702f9d3112565f721832baf0f05ce47925`. This extends the utility-host
-validation above to existing temporary-file workflows. Performance is excluded
-from this validation's acceptance at the user's request; the earlier utility
-migration measurements in section 12.1 remain historical evidence for that step.
-
 #### Scope
 
 Validate the existing temporary-file workflows using one shared threaded WASM artifact in Electron and Web. Electron threaded mounts a session-specific native temporary directory through NODEFS; Web and serial retain MEMFS. No Python runtime, plugin execution, or post-processing feature is included.
@@ -522,8 +455,8 @@ Source owners are
 [`bridge_model_operations.cpp`](../packages/slicer-wasm/src/bridge_model_operations.cpp),
 [`bridge_slicing_pipeline.cpp`](../packages/slicer-wasm/src/bridge_slicing_pipeline.cpp),
 [`bridge_project_persistence.cpp`](../packages/slicer-wasm/src/bridge_project_persistence.cpp),
-and the pinned upstream `STEP.cpp` / `Model.cpp`. The upstream submodule remains
-unchanged at `489cbe91840ff97aaf4d8029009d5db410f32893`.
+and the pinned upstream `STEP.cpp` / `Model.cpp`. The superproject gitlink
+owns the current native revision.
 
 Main removes the exact owned directory after the utility exits, so open native
 handles are closed first. Reloaded documents retain independent cleanup for
@@ -532,58 +465,23 @@ and directory removal. A stop requested before Electron assigns a utility PID
 is retried on `spawn`; unit tests cover immediate quit and document replacement.
 Node Worker exit terminates its utility so main can clean up.
 
-#### Compatibility evidence
+#### Compatibility and verification requirements
 
-Both variants were freshly configured and compiled in this worktree with
-Emscripten 6.0.4. Only the existing dependency archives and matching generated
-headers were reused. The final incremental builds picked up all scaffold/C++
-changes; the pinned upstream source was not edited.
+Both hosts use the same threaded WASM/data artifacts; no host-specific WASM
+compilation is required. Web's existing loader transform sanitizes unreachable
+Node JavaScript branches. Test the unmodified shared threaded outputs as well
+as the normal Web build, and assert the selected variant rather than assuming
+that a successful startup used threads.
 
-The new Web test serves the exact unmodified threaded build outputs to the
-browser and completes import, slice, GPU preview, normal export and a `/tmp`
-File Manager download. The two downloads are byte-identical. It checks that
-threading remains active and all three build artifacts were served.
-
-| Shared threaded artifact | SHA-256 |
-| --- | --- |
-| `orca_slice.js` | `47a035fa44edf75303085bdc86655e9ef8aeacceb93f400434adf66192241d5c` |
-| `orca_slice.wasm` | `1c4f43da7ce8695f23bfdc2a832059698b610eafd48100807e07f6638a91d8aa` |
-| `orca_slice.data` | `31105d0d32a3f7ba60c46851c0e6ef2138892037ec620d67d0688e593cb99169` |
-
-Electron's staged JS/WASM/data have these same hashes. The normal Web build
-already sanitizes unreachable Node branches in generated JavaScript through
-`webOnlyWasmLoader()`; that pre-existing transform remains unchanged. Its JS
-hash therefore differs, while its WASM/data hashes match. Separate normal Web
-DRC and STEP E2E tests pass in threaded and serial modes. **No host-specific
-WASM compilation or additional artifact variant is needed.**
-
-#### Verification record
-
-Commands are run from the worktree root unless stated otherwise. Environment
-variables in the host commands are build inputs, not runtime substitutes for
-staging the correct artifacts.
-
-| Check | Result |
-| --- | --- |
-| `scripts\build-windows.bat quick --variant threaded -j 6` | Passed; includes NODEFS. |
-| `scripts\build-windows.bat quick --variant serial -j 6` | Passed; no NODEFS link. |
-| `pnpm --filter @orca/profile-resources build` and `pnpm stage:assets` | Passed; 67 profile packages and both artifact variants staged. |
-| `pnpm exec node packages/slicer-wasm/harness/nodefs-bridge-smoke.mjs` | Passed; comprehensive bridge contract with actual native files, including asynchronous cancellation and superseded-result checks. |
-| `scripts\build-windows.bat smoke --variant serial` | Passed; slice, comprehensive bridge, DRC and valid/malformed STEP checks. |
-| `pnpm test` and `pnpm typecheck` | Final handoff rerun passed: 1,326 unit tests and all workspace typechecks. |
-| Electron threaded DRC/STEP E2E | Both passed. |
-| Electron native-file/lifecycle E2E | Passed; native byte equality, GPU preview, paged source lines, generation replacement, 3MF round trip, reload, utility/renderer crash, and normal quit cleanup. |
-| Web threaded E2E | Three passed: unmodified shared artifacts, normal DRC, normal STEP. |
-| Web serial E2E | Two passed: normal DRC and STEP without isolation. |
-| Electron serial E2E | Passed; real import/slice/preview/export and reload/quit retain MEMFS with an empty native session directory. |
-
-The threaded lifecycle test uses a native temp root containing spaces and
-Chinese characters. The first G-code was 287,069 bytes; after changing the
-object's layer height to 0.3, the replacement was 218,825 bytes. A 9,760-byte 3MF
-saved and reopened with that object override intact. All four session
-directories were removed. After deliberately crashing the renderer, Playwright
-cannot reuse its disconnected Page; a fresh app provides the final live-runtime
-quit check. Renderer-crash cleanup is checked before that relaunch.
+The native-file suite must compare normal export with File Manager bytes,
+exercise GPU preview and paged source lines, replace result generations,
+roundtrip 3MF settings, and cover reload, utility/renderer crash and normal
+quit cleanup. Use a native temporary path containing spaces and non-ASCII
+characters. A renderer-crash check must finish before relaunching; a
+Playwright Page disconnected by a crash cannot be reused. Serial fallback
+must keep MEMFS and leave the owned native directory empty. The dedicated
+`nodefs-bridge-smoke.mjs` covers native files, cancellation and superseded
+result checks; ordinary serial smoke covers its unchanged filesystem path.
 
 Electron build and focused checks:
 
@@ -617,10 +515,9 @@ pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwri
 
 #### Performance scope
 
-The user explicitly requested skipping performance tests. Performance is not an
-acceptance gate for this validation. Preliminary filesystem-only measurements
-had already run before that request; their local logs are retained, but no
-latency, throughput or memory-regression conclusion is used here.
+NODEFS functional validation excluded performance acceptance. No latency,
+throughput or memory-regression conclusion follows from that validation; the
+utility-host comparison in section 12.1 has its own scope.
 
 #### Limits
 

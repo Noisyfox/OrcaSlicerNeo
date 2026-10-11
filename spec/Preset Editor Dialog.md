@@ -2,9 +2,8 @@
 
 **Date:** 2026-09-23
 
-**Status:** Approved — phase-one implementation basis. Sections below record
-accepted decisions only; unresolved product decisions are discussed before they
-are added.
+**Status:** Delivered runtime editor, including indexed vector overrides;
+user preset repository management remains deferred.
 
 **Scope:** A shared React preset editor for Printer and Filament presets. It
 extends [Multi-Filament Support](Multi-Filament%20Support.md) without porting
@@ -492,27 +491,44 @@ at the pinned native-core revision `b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde`.
 Every listed field is present: generic fields are editable and specialized
 fields are read-only until their dedicated editor exists.
 
-## 5. Delivery sequence
+## 4.2 Mutation, projection and cache constraints
 
-### 5.1 Phase one: runtime editor
+- Sidebar Printer and Filament preset labels use the existing orange modified
+  color when their canonical source has a nonempty native draft overlay. Every
+  slot sharing the same Filament source highlights together. Empty drafts do
+  not highlight; reset, selection changes, project replacement, and Undo/Redo
+  refresh the projection through the existing atomic profile snapshot path.
+  The snapshot carries required modified-source lists rather than fetching
+  full editor metadata per sidebar slot. Dropdown choices and slot swatches
+  retain their existing colors.
+- Undo/Redo of a Printer transition invalidates every plate even when Process,
+  rack, and project settings remain identical. A geometry-only history restore
+  does not recalculate unchanged profile compatibility. Historical selections
+  are restored exactly before compatibility flags are refreshed.
+- Internal restore receipts require the current complete descriptor. Missing
+  fields and unknown versions are errors, not compatibility fallbacks. Native
+  history roots require their captured Printer and draft revision. Renderer
+  command context remains distinct from native-owned historical roots.
+- Native option metadata is immutable for the lifetime of the loaded module and
+  is constructed once. Source values and effective draft values remain fresh.
+- Notes-only draft changes retain one history entry and the existing all-plate
+  result invalidation contract, but do not recompute bed geometry or tower
+  placement. Reset operations use the actual changed override keys.
+- Material usage scans reuse the native painting cache on the authoritative
+  model across temporary plate-model copies. Cache validity remains governed by
+  the native segmentation timestamp; history/model replacement does not retain
+  pointers to discarded objects. Other configuration changes still recompute
+  their required placement and validity state.
+- The rollback Model copy remains necessary for atomic failure recovery;
+  do not remove it as an unvalidated performance shortcut.
+- Draft mutation receipts publish the complete committed Filament session,
+  including recalculated flushing values. Updating only the revision token on
+  the old renderer snapshot is insufficient for material configuration edits.
 
-1. Add the typed Worker/runtime contract for opening a source, reading its
-   manifest-listed option metadata and effective values, mutating/resetting
-   overrides, and returning the committed native/history projection.
-2. Implement `PresetDraftRegistry`, its history state, and the effective
-   configuration adapters in the Neo bridge. Route all current Neo
-   full-configuration consumers through those adapters.
-3. Extend the existing atomic Printer transition so it selects/reactivates a
-   Printer draft, restores and normalizes the remembered rack, commits one
-   history item, then publishes the independent remembered-rack preference.
-4. Build the explicit Printer and Filament React manifests and the single
-   modal `PresetEditorDialog`, then add the existing Picker and Filament-slot
-   Edit entry points.
-5. Reuse the current Scoped Project Configuration mutation, error, slice
-   invalidation, and Undo/Redo projection path for every accepted editor
-   command.
+No persistence migration, new file format, host-specific behavior, or mobile
+interaction is introduced. Both hosts retain their current desktop layout.
 
-### 5.2 Phase two: user preset management
+## 5. Deferred user preset management
 
 Phase two may add Save As, rename, delete, user-repository persistence, and
 preset-management surfaces. It must convert a selected runtime draft into an
