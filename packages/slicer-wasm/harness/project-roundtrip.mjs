@@ -57,6 +57,9 @@ function check(label, condition, detail = '') {
 
 const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 check('initialise real module', init.ok === true, JSON.stringify(init));
+const startupScoped = callJson('orc_get_native_scoped_config', [], []).native_scoped_config.snapshot.project;
+check('fresh startup inherits tower rotation without a local override',
+  !Object.hasOwn(startupScoped, 'wipe_tower_rotation_angle'));
 
 // Exercise every generic Project parameter using the live native catalogue.
 // Rack, flushing, bed and coordinate inputs have dedicated authorities and

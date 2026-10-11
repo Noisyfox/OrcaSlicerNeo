@@ -68,6 +68,8 @@ async function start(record, transitionFixture = false) {
     try { return JSON.parse(Module.UTF8ToString(ptr)); } finally { Module._free(ptr); }
   }
   links(record); must(call('orc_init', ['string'], [JSON.stringify({ log_level: 'error', profile_activation: record })]));
+  assert.equal(Object.hasOwn(call('orc_get_native_scoped_config').native_scoped_config.snapshot.project,
+    'wipe_tower_rotation_angle'), false, 'startup has no synthetic rotation override, including before first setup');
   return { FS, Module, call, links };
 }
 function preparation(record) { return { activation: record, remembered_filament_racks: {}, remembered_bed_types: {} }; }
@@ -173,6 +175,8 @@ const initialApplied = must(initialSetup.call('orc_apply_profile_activation'));
 assert.equal(initialApplied.configuration_changed, true, 'first-use replaces intrinsic defaults');
 assert.equal(initialApplied.profile_snapshot.printer.name, 'Compatibility Alpha 0.4 nozzle', 'first-use selects a real usable printer');
 assert.ok(initialApplied.profile_snapshot.prints.some(preset => preset.name === initialApplied.profile_snapshot.print.name), 'first-use Process belongs to compatible candidates');
+assert.equal(Object.hasOwn(initialApplied.native_scoped_config.snapshot.project, 'wipe_tower_rotation_angle'),
+  false, 'first setup activation keeps inherited rotation free of a local override');
 assert.equal(initialSetup.call('orc_history_mark_saved', ['string'], ['']).dirty, false, 'first-use checkpoint establishes a clean project');
 assert.equal(initialSetup.call('orc_history_status').canUndo, false);
 must(initialSetup.call('orc_close_setup_wizard_catalogue'));

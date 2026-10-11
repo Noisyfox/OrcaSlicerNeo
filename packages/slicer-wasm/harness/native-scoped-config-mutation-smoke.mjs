@@ -41,6 +41,8 @@ const historyContext = {
 };
 
 requireOk('init', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
+if (Object.hasOwn(snapshot().project, 'wipe_tower_rotation_angle'))
+  throw new Error('fresh startup advertises the default tower rotation as a local override');
 requireOk('clear model', callJson('orc_clear_model'));
 const inheritedRotation = requireOk('rotation source', callJson('orc_get_preset_snapshot')).project_config.wipe_tower_rotation_angle;
 requireOk('set tower rotation', setProject('wipe_tower_rotation_angle', '90'));

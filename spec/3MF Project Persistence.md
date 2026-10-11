@@ -116,6 +116,9 @@
   Project discards the previous routing and restores Print parameters,
   including rotation, to the selected system-profile baseline. Clear Scene
   retains these settings.
+- A fresh application session inherits tower rotation from the selected Print
+  profile without creating a local override from native initialization defaults.
+  Explicit edits and values restored from a project remain project-owned.
 - Unrecognized, invalid, or incompatible settings follow the compatibility
   fallback policy rather than being silently discarded.
 - Embedded printer, process, and filament presets are available only for the

@@ -79,6 +79,8 @@ test('a new project with parameter changes and no models can be saved', async ()
     await page.getByTestId('config-mode-project').click();
     await page.getByTestId('config-page-Multi.').click();
     const angle = page.getByTestId('config-input-wipe_tower_rotation_angle');
+    await expect(angle).toHaveValue('0');
+    await expect(page.getByTestId('config-reset-wipe_tower_rotation_angle')).toHaveCount(0);
     await angle.fill('90');
     await angle.press('Enter');
     await expect(save).toBeEnabled();
