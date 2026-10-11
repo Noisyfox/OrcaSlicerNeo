@@ -111,6 +111,11 @@
   in slicing, and are preserved on a later project save even when the current
   UI has no control for a setting. Edits through supported UI controls overlay
   those retained values.
+- Normal project reopening restores the saved wipe-tower rotation and global
+  support/raft filament routing into their project-owned configuration. New
+  Project discards the previous routing and restores Print parameters,
+  including rotation, to the selected system-profile baseline. Clear Scene
+  retains these settings.
 - Unrecognized, invalid, or incompatible settings follow the compatibility
   fallback policy rather than being silently discarded.
 - Embedded printer, process, and filament presets are available only for the
@@ -215,6 +220,14 @@ The first release's automated compatibility baseline covers:
 
 Cross-host end-to-end coverage verifies project open, save, dirty-state
 protection, and Web download behaviour.
+
+The real-WASM project round-trip harness audits non-default values for every
+generic Project parameter advertised by native metadata. It checks both the
+archive and the reopened effective configuration, preserves dedicated project
+metadata and support routing, and verifies the native New Project reset
+sequence. Model-bearing projects additionally cover representative Print
+parameters and wipe-tower rotation. Printer/Process extruder mapping metadata
+is internal preset structure and is not a generic Project editing target.
 
 The external fixture set is controlled by the
 [compatibility manifest](../packages/slicer-wasm/fixtures/project-compatibility/manifest.json),

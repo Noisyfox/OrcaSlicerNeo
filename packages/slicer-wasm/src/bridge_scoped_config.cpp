@@ -121,6 +121,8 @@ bool is_project_print_override_key(const std::string& key)
     static const std::set<std::string> profile_metadata_keys = {
         "inherits",
         "print_settings_id",
+        "print_extruder_id",
+        "print_extruder_variant",
         "filament_settings_id",
         "printer_settings_id",
         "sla_print_settings_id",

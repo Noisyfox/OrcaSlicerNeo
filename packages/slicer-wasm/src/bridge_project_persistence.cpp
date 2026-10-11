@@ -122,6 +122,11 @@ json close_project_session()
     // orc_clear_model instead and intentionally retains the old positions.
     bridge_state.presets.project_config.erase("wipe_tower_x");
     bridge_state.presets.project_config.erase("wipe_tower_y");
+    // Typed filament routing belongs to the project being closed, rather
+    // than to a selected system Print preset or the remembered filament rack.
+    for (const std::string& key : bridge_state.presets.project_config.keys())
+        if (Neo::Bridge::ScopedConfig::is_bridge_owned_project_routing_key(key))
+            bridge_state.presets.project_config.erase(key);
     reset_plate_session_state();
     establish_clean_history_baseline();
 
@@ -1026,6 +1031,12 @@ static const char* orc_load_project_impl(const char* data, int len,
             // candidate preserves the transaction while also handling a
             // parentless project preset (such as Lily.3mf) exactly as Orca.
             candidate.load_config_model(project_name, imported_config, file_version);
+            // The native loader restores Print-owned routing into the edited
+            // preset. Neo's typed routing commands own these same values in
+            // project_config, which must also be restored before validation.
+            for (const std::string& key : imported_config.keys())
+                if (Neo::Bridge::ScopedConfig::is_bridge_owned_project_routing_key(key))
+                    candidate.project_config.set_key_value(key, imported_config.option(key)->clone());
             // The GUI refreshes its active preset controls after this native
             // load.  Re-run the bridge's authoritative compatibility pass so
             // stale selections from the previous project cannot survive a

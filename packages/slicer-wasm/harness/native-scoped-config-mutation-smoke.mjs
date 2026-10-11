@@ -158,9 +158,14 @@ if (JSON.stringify(snapshot()) !== JSON.stringify(beforeFailureSnapshot) ||
 const beforeMetadataSnapshot = snapshot();
 const beforeMetadataSession = session();
 const beforeMetadataStatus = status();
-const metadataOverride = setProject('preferred_orientation', '1000');
-if (metadataOverride.ok || metadataOverride.error_code !== 'unsupported_reference')
-  throw new Error(`preset metadata override was accepted: ${JSON.stringify(metadataOverride)}`);
+for (const [key, value] of [['preferred_orientation', '1000'], ['print_extruder_id', '2'],
+  ['print_extruder_variant', 'invalid-variant']]) {
+  const metadataOverride = setProject(key, value);
+  if (metadataOverride.ok || metadataOverride.error_code !== 'unsupported_reference')
+    throw new Error(`preset metadata override was accepted: ${key}: ${JSON.stringify(metadataOverride)}`);
+  if ((optionMetadata[key]?.scopes ?? []).includes('project'))
+    throw new Error(`preset metadata was advertised as a Project option: ${key}`);
+}
 if (JSON.stringify(snapshot()) !== JSON.stringify(beforeMetadataSnapshot) ||
     JSON.stringify(session()) !== JSON.stringify(beforeMetadataSession) ||
     JSON.stringify(status()) !== JSON.stringify(beforeMetadataStatus))
