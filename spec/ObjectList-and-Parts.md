@@ -3,10 +3,8 @@
 **Date:** 2026-08-23
 
 **Status:** Delivered. Design and implementation complete for the first version.
-Deferred items (mesh boolean, multi-plate, undo/redo,
-painting, extruder panels) remain queued.
+Mesh booleans, layer ranges, brim points and cut connectors remain deferred.
 
-**Branch:** `dev/object-list-and-parts`
 
 ## 1. Goal
 
@@ -28,13 +26,6 @@ Use the approved thin-bridge approach:
   client / Worker boundary.
 - No wxWidgets GUI code is ported, and no mesh topology algorithms are
   reimplemented in JavaScript.
-
-Alternative rejected options:
-
-- Porting/extracting upstream `GUI_ObjectList` command logic into a WASM
-  controller: too coupled to wxWidgets, PartPlate, and UndoRedo.
-- JavaScript-side mesh split/merge plus model re-import: loses volume types,
-  configuration, transforms, painting, and 3MF metadata.
 
 ## 3. First-Version Scope
 
@@ -60,10 +51,8 @@ Alternative rejected options:
 - Split a part into parts (`ModelVolume::split`).
 - Reorder parts inside an object (`orc_reorder_volumes`).
 
-- Follow-up delivered on 2026-10-04: Add Part, Negative Part, Modifier, Support
-  Blocker and Support Enforcer as native volumes of an existing object.
-  See [Object Add Context Menus](../doc/2026-10-04-object-add-context-menu.md)
-  for primitive/file submenus and selection rules.
+- Add Part, Negative Part, Modifier, Support Blocker and Support Enforcer as
+  native volumes; section 9 defines primitive/file submenus and selection.
 
 ### 3.3 Included instance operations
 
@@ -83,10 +72,10 @@ Alternative rejected options:
 - `merge(false)` / `append_menu_item_merge_to_single_object()`: the upstream
   menu function is defined but has no call site and is not part of the
   delivered feature.
-- Multi-plate behavior.
-- Undo/redo.
-- Painting, layer ranges, brim points, cut connectors.
-- Extruder/color editing panels.
+- Layer ranges, brim points and cut connectors.
+
+Multi-plate, history, painting and preset editing are delivered under their
+respective specifications; they are not deferred by this document.
 
 ## 4. Object List Tree Shape
 
@@ -188,9 +177,7 @@ highlights its instance rows instead; a not-fully-selected object highlights its
 whole-instance rows; and a partial instance highlights only its selected volume
 rows. So a mix of a full object and a full instance highlights each at its own
 level, and the page records a per-object "row kind that last drove selection" to
-choose between the object row and the `Instances` group. See
-`doc/2026-08-23-object-list-highlight-orca.md` for the Orca cross-check and the
-one deliberate divergence (a fully-selected multi-instance object is highlighted
+choose between the object row and the `Instances` group. The deliberate divergence is (a fully-selected multi-instance object is highlighted
 as its object row, whereas Orca's `update_selections()` would otherwise list its
 instance rows).
 
@@ -198,9 +185,7 @@ Instance rows show a printable toggle. Object rows show an aggregate printable
 state that toggles every instance of that object. `auto_drop` is not exposed in
 the first version.
 
-Selection restoration after a mutation is designed to follow three rules (the
-current implementation clears selection on a mutation's mesh reload; restoring
-it by stable ID is a later refinement):
+Selection restoration follows stable native identities and the operation target:
 
 - Non-destructive operations (rename, change type, reorder, printable toggle)
   restore the previous selection by stable ID.
@@ -220,127 +205,142 @@ only positional indices.
 - Structure results expose both:
   - stable IDs for React keys and selection restoration;
   - current positional indices for operation dispatch and display.
-- Structural mutations may shift indices; after any mutation, the UI re-reads the
-  structure and mesh. Selection is currently cleared on the reload (stable-ID
-  restoration is the later refinement described above).
+- Structural mutations may shift indices. Apply the committed stable-ID scene
+  delta and refresh affected metadata before resolving positional indices.
 
 This deliberately avoids replicating upstream wxWidgets'
 `m_ui_and_3d_volume_maps`, incremental tree edits, and UI-index bookkeeping in
-React. Native OrcaSlicer uses that mapping because it keeps a live wxDataView
-tree in sync; the shared React app instead uses stable IDs plus whole-structure
-refresh.
+React. The shared application uses native identities and incremental scene
+publication, retaining unchanged geometry and GPU resources.
 
-## 8. Mutation Flow
+## 8. Mutation and publication
 
-Every structural mutation follows the same choreography:
+Every structural operation prepares the painting boundary, waits for settled
+transforms, and runs through the native history transaction. Failure to settle
+aborts the mutation. Native commit returns one SceneDelta and the authoritative
+affected plate set. The renderer requests changed descriptions and missing
+geometry, restores selection, and invalidates only affected presentations.
+Unchanged meshes and BVHs remain shared by session and native volume identity.
+Project initialization is the full-baseline path. See
+[Undo and Redo](Undo%20and%20Redo.md) and
+[Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md).
 
-1. Wait for any settled viewport transform synchronization.
-2. Call the bridge operation with stable IDs and/or current indices.
-3. The bridge mutates `Slic3r::Model` and clears/invalidates the current
-   `Print`.
-4. JS clears slice result state (`status = idle`, `resultExported = false`).
-5. JS re-reads `getModelStructure()` and `getModelMesh()`.
-6. Selection is restored by stable ID where possible, otherwise cleared.
-7. ObjectList and viewport re-render.
+Reordering uses a destination index in the final list; an index at or above
+the count appends. Part-row drag events remain isolated from object-row and
+list append handlers. Delete / Backspace applies to deduplicated native volume IDs in Volume mode;
+those shared parts disappear from every instance copy. In Instance mode it
+deletes the complete owning objects, including all their instances and volumes.
+Removing one instance is a separate instance command. Stable-ID deletion
+validates every target and rejects empty, duplicate or unknown IDs before any
+mutation; malformed requests never partially delete. Preserve the native
+last-solid-part and last-instance guards for their respective commands.
+Editable controls retain their Delete / Backspace behavior.
 
-## 9. Bridge Contract
+The current typed operation contract lives in
+[client types](../packages/slicer-wasm/src/client/types.ts) and native bridge
+implementations. There is one JSON-in/JSON-out ABI; specifications do not retain
+obsolete parallel payload examples.
 
-The following bridge contract is the implementation baseline. Existing
-index-based transform APIs remain unchanged unless a later decision extends
-them.
+## 9. Context menus, additions and filament assignment
 
-### 9.1 Structure read
+The object list and viewport share the object/part context menu. Add Part,
+Add Negative Part, Add Modifier, Add Support Blocker, and Add Support Enforcer
+appear in that order in the object menu for a single full object or a single
+full instance only. The viewport uses the object menu for complete instances;
+Object List instance rows retain the native instance-menu scope.
+Partial parts and multiple-object/instance selections do not offer them.
+Right-clicking a part row after selecting a complete instance switches to
+that part in the selected instance. A parent's geometric inclusion of a part
+does not mark the part row selected; the preservation guard uses the list's
+projected part-row selection, so selected part sets still survive right-click.
+This follows `MenuFactory::append_menu_items_add_volume` and
+`ObjectList::is_instance_or_object_selected` in the pinned Orca sources.
 
-`orc_get_model_structure()` returns:
+Each submenu offers Load..., a separator, Cube, Cylinder, Sphere, Cone, Disc,
+and Torus. Text, SVG, precise seam, and height-range editing are omitted until
+implemented. Additions use native model volumes, preserve the owning object
+and its instances, and participate in the existing project history and plate
+invalidation flow. Primitive placement follows `load_generic_subobject`;
+file placement follows `load_modifier`, including source mesh offsets.
 
-```json
-{
-  "ok": true,
-  "objects": [
-    {
-      "id": 123,
-      "index": 0,
-      "name": "Cube",
-      "printable": true,
-      "instanceCount": 2,
-      "volumes": [
-        {
-          "id": 456,
-          "index": 0,
-          "name": "Cube",
-          "type": "model_part",
-          "isSplittable": true
-        }
-      ],
-      "instances": [
-        { "id": 789, "index": 0, "printable": true },
-        { "id": 790, "index": 1, "printable": false }
-      ]
-    }
-  ]
-}
-```
+Both standalone primitives and primitive parts use Orca's shared sizing rule:
+`side = 0.1 * max(printable-area bounding-box width, height)`. This uses the
+current printer bed, not the selected object's dimensions. Disc thickness
+remains 0.2 mm; other proportions follow the native mesh builders. Existing
+objects retain their size when the printer changes. Measured Cube/Cube Part
+sizes are 25.6 mm for P1P, 18 mm for A1 mini, and 25 mm for Prusa MK4.
+The mock's fixed 20 mm geometry remains a deterministic fixture; real sizing
+is validated against both WASM variants.
 
-Volume `type` is one of:
+Change Filament becomes a submenu. It is hidden with one filament or for
+negative/support volumes. Objects and full instances assign their owning
+object; model parts and parameter modifiers retain the native assignment
+boundary. Existing model-part context-menu Default/inherit support remains available.
+Object List parameter-modifier rows also expose the filament selector, read
+native modifier assignments, and submit `parameter-modifier` targets. Default
+clears the modifier's filament override. Its row shows a neutral Default label
+and its popup selects Default using `explicitSlot == 0`, independently of the
+parent object's effective filament. Ordinary model-part row selectors offer
+only numbered filaments, matching Orca's `BitmapChoiceRenderer`; inherited
+model parts continue to display their effective slot. Mixed part and
+modifier selections use each volume's native target kind; negative and support
+volumes are excluded. Part rows omit the printable checkbox and continue to
+inherit object printability; the object row retains its printable control.
 
-```text
-model_part
-negative_volume
-parameter_modifier
-support_blocker
-support_enforcer
-```
+Auxiliary volumes follow Orca's `color_from_model_volume` rather than filament
+or paint colours: negative volumes are RGB (0.3, 0.3, 0.3) at alpha 0.4,
+parameter modifiers are yellow at alpha 0.6, support blockers are red-tinted
+and enforcers blue-tinted at alpha 0.4. Selection adds 0.25 HSL lightness while
+preserving alpha. Prepare uses front-face rendering and depth writes in the
+transparent pass, matching `GLVolumeCollection::render`. Model parts retain
+their filament/paint materials; imported segmentation does not override an
+auxiliary volume's category material. Native unprintable flags still take
+precedence over category colours.
 
-### 9.2 Operations
 
-```text
-orc_rename_object(objectId, name)
-orc_rename_volume(volumeId, name)
-orc_set_volume_type(volumeId, type)
-orc_delete_objects(objectIds[])
-orc_delete_volumes(volumeIds[])
-orc_clone_objects(objectIds[])
-orc_split_volume_to_parts(volumeId, maxExtruders, remapPaint)
-orc_split_object_to_objects(objectId, autoDrop)
-orc_merge_objects_to_multipart(objectIds[], name)
-orc_instances_to_separate_objects(objectId, instanceIds[])
-orc_add_instance(objectId)
-orc_remove_instance(objectId, instanceId)
-orc_set_object_printable(objectId, printable)
-orc_set_instance_printable(instanceId, printable)
-orc_reorder_objects(fromObjectId, toIndex)
-orc_reorder_volumes(objectId, fromVolumeId, toIndex)
-```
+Standalone Add Primitive offers Cube, Cylinder, Sphere, Cone, Disc and Torus.
+Add Handy models reads the bundled native catalogue; these are ordinary
+model additions with native naming, current-plate placement and history.
+Text/SVG gizmos remain outside the delivered menu.
 
-Simple operations return:
+Both menu surfaces share the same command and target rules. Viewport right
+drag remains pan; right click distinguishes model bodies from empty beds,
+ignoring overlay hits. See [Viewport Interaction](Viewport%20Interaction.md).
 
-```json
-{ "ok": true }
-```
+### Menu targeting and rename constraints
 
-Creating operations additionally return the generated IDs, for example
-`newObjectIds`, `newVolumeIds`, or the single created `objectId`. Every
-function returns `{ "ok": false, "error": "..." }` on failure.
+Rename is inline in Object List only; the viewport has no Rename command or
+rename modal. Renaming a single-volume object also renames its sole part;
+renaming a multipart object preserves part names. While an inline editor is
+active, neither its row nor its ancestors may start a drag. Multiple full
+objects do not expose Rename.
 
-### Bridge calling convention
+Split eligibility follows native disconnected-shell / multipart rules.
+Assemble requires at least two full objects and uses the selected set only;
+there is no empty-list Assemble menu. A printable command applies to the
+complete applicable selection, with its label derived from the clicked target.
+Row context events stop propagation; hovering preserves the current selected-row
+highlighting. Part-set preservation follows the projected-row rule above,
+not geometric inclusion in a selected parent.
 
-- One `extern "C"` function per operation.
-- JSON-in / JSON-out.
-- Every function returns either `{ "ok": true, ... }` or
-  `{ "ok": false, "error": "..." }`.
-- Multi-selection operations receive JSON arrays of IDs.
-- `ObjectID` crosses the boundary as a JSON number.
-- `orc_get_model_structure()` takes no arguments and returns the complete
-  object/part/instance tree.
+### Bundled model constraints
 
-## 10. Relationship to Other Documents
+The handy-model catalogue order is Orca Cube, OrcaSliced Combo, Orca Badge,
+Orca Tolerance Test, 3DBenchy, Cali Cat, Autodesk FDM Test, Voron Cube, Stanford
+Bunny, and Orca String Hell. The shared application owns the resource manifest;
+binary `.drc` / `.3mf` files come from the pinned native submodule and are copied
+by asset staging. Do not commit a second binary catalogue. URLs remain relative
+to the host base. Multi-file entries preserve their declared file order and
+components.
 
-- Extends `spec/Web-Electron Shared Application Architecture.md`.
-- Implements a new major milestone beyond
-  `doc/2026-08-12-electron-gui-rewrite-design.md` and the delivered vertical
-  slice.
-- The interactive behaviour and selection model follow OrcaSlicer (see
-  `doc/2026-08-23-orca-selection-mode.md`, `doc/2026-08-23-object-list-highlight-orca.md`
-  and `doc/2026-08-23-object-reorder-selection-sync.md`).
-- Linked from `spec/Grand Plan.md` (Milestone 13) and
-  `doc/high_level_dev_plan.md` (Milestone 13).
+Handy-model insertion does not invoke native auto-arrangement for the two
+multi-file entries, nor open String Hell's native preset-edit dialog. It must
+not temporarily alter profiles. Additions use the same operation admission,
+settled-transform, history and current-plate contracts as ordinary imports.
+
+## 10. Related specifications
+
+- [Multi-Plate Support](Multi-Plate%20Support.md): plate grouping and membership.
+- [Multi-Filament Support](Multi-Filament%20Support.md): native assignments and rack.
+- [Project and Scoped Configuration](Project%20and%20Scoped%20Configuration.md): settings.
+- [Model Arrangement](Model%20Arrangement.md): native placement.

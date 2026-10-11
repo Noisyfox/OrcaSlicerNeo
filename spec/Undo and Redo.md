@@ -1,8 +1,7 @@
 # Undo and Redo
 
 **Date:** 2026-09-07
-**Status:** Delivered and verified — implementation accepted 2026-09-08
-**Branch:** `dev/undo-redo-design`
+**Status:** Delivered; current timestamped history and painting integration
 
 ## 1. Goal
 
@@ -115,7 +114,7 @@ after an Undo/Redo restoration changes the current project's filament rack, Neo
 writes that resulting rack as the selected printer's last-used default for
 future new projects. The rack preference is not itself part of history and no
 other global preference is changed. See
-[`Multi-Filament Support.md`](Multi-Filament%20Support.md#103-per-printer-remembered-rack).
+[`Multi-Filament Support.md`](Multi-Filament%20Support.md#113-per-printer-remembered-rack).
 
 Native Project, Plate, `ModelObject`, and `ModelVolume` configuration are the
 canonical scoped configuration owners. The Worker publishes a disposable snapshot
@@ -209,20 +208,12 @@ and history entry per typed character. It is a deliberate shared-app
 coalescing policy; native Orca takes snapshots at individual configuration
 change callbacks and relies on its controls to determine their cadence.
 
-### 5.5 Future high-frequency gizmos
+### 5.5 Painting history
 
-The Worker transaction API reserves `coalesce`/nested-transaction capability
-for future painting, support-point, and similar high-frequency gizmos. Current
-Move/Rotate/Scale operations use ordinary gesture transactions and do not
-implement a separate gizmo history stack or UI. A future high-frequency gizmo
-may append internal changes within one outer transaction and publish one final
-semantic history entry, following Orca's `EnteringGizmo`/`GizmoAction`/
-`LeavingGizmo` compaction intent.
-
-The dormant implementation accepts an opt-in child transaction with
-`{coalesce: true, parentTransactionId}`. A child commit publishes no entry;
-the outer transaction remains the sole semantic history boundary. No paint or
-support-point UI uses this path in the current release.
+Painting uses the native editing-session navigation floor and continuous-run
+compaction specified by [Surface Painting Architecture](Surface%20Painting%20Architecture.md).
+Each stroke commits; non-paint edits remain chronological separators. Session
+closure compacts eligible runs without introducing a second history owner.
 
 ### 5.6 Save and crash-recovery boundary
 
@@ -237,6 +228,69 @@ latest-project 3MF-style autosave feature; it must not retain history frames,
 mesh references, redo branches, selection/gizmo state, or field drafts.
 
 ## 6. Core Ownership and Atomicity
+
+- The history authority is an Orca-style timestamped object-version snapshot,
+  not a replay of bridge commands and not a model-wide temporary restore
+  container. One outer semantic transaction may contain arbitrary mixtures of
+  additions, deletions, and edits to multiple objects.
+- `ModelObject`, `ModelVolume`, and `ModelInstance` retain their native
+  `ObjectID` across Undo and Redo. Objects and volumes already serialize their
+  base identity. Neo additionally records each instance ID in its object-local
+  history record and reapplies it while materializing the otherwise
+  ID-less-upstream `ModelInstance` archive. New identities continue to be
+  allocated only by native construction APIs; no sidecar ID namespace or new
+  global generator is introduced.
+- The object graph has native configuration roots: `Model` owns object and part
+  configuration, `PlateSession` owns plate configuration, and the native Project
+  config is its own exact history root. The Worker-to-React scoped snapshot is a
+  projection, not a serialized root, so no scope is serialized twice. The Project
+  root is intentionally history-tracked even though Orca keeps its
+  `PresetBundle` project configuration outside `UndoRedo`; effective Process
+  selection follows the accepted boundary in section 4. Restoring that root is exact replacement, so a key absent
+  from the historical map is erased rather than merged from live state. Filament
+  and rack history state does not duplicate Project configuration.
+- An outer transaction captures its predecessor before the first model write.
+  It commits one named snapshot and leaves the resulting topmost state
+  unarchived. The first Undo captures that topmost state only when required as
+  the Redo endpoint, matching Orca's `take_snapshot()` and lazy topmost
+  capture. Nested operations join the outer transaction. A failed transaction
+  restores its predecessor and leaves no entry.
+- A successful Save marks the active logical timestamp as the saved checkpoint
+  without serializing an unarchived topmost state. Later lazy capture preserves
+  that checkpoint. If eviction removes it, the project is conservatively dirty.
+- Restore follows Orca's reusable-object path. It is proportional to retained
+  object versions and topology changes, not to a full temporary copy of the
+  project. Same-session history corruption is an invariant failure; there is
+  no legacy-receipt, index, or whole-model compatibility fallback.
+- The recovered `PlateSession` is applied after the model and binds its members
+  directly by stable instance ID. History restore never invokes reflow,
+  auto-arrange, or prime-tower layout; stored model transforms are authoritative.
+- Mutable versions are deduplicated by native object timestamp and retained as
+  time intervals. A snapshot visits the model graph, but unchanged objects,
+  volumes, instances, plate session, and immutable mesh data reuse their prior
+  retained versions instead of being serialized again. The fixed 256 MiB
+  session budget evicts oldest retained timestamps while protecting the
+  current state and nearest usable history. Native mesh ownership is shared
+  directly; there is no legacy encoded-mesh fallback.
+- History never stores Print, G-code, preview, or other slicing output. Every
+  successful Undo or Redo returns the native-authoritative before/after
+  affected plate set and advances only those input revisions. The renderer
+  hides and cancels only those plate results; unaffected matching receipts
+  remain available. A per-plate `Print` owns its applied model, so a restore
+  that does not affect that plate does not mutate its Print or contend with
+  its slice thread. The existing tombstone owns a removed plate's Print until
+  its job reaches a terminal state.
+- Each restore yields one aggregated stable-ID renderer patch. React/Three
+  update only affected scene members and preserve untouched GPU resources;
+  only project load, Worker restart, or graphics-context loss permits full
+  scene reconstruction. The per-entry `SceneDelta` is a non-authoritative
+  acceleration record; multi-entry jumps merge its stable IDs and publish one
+  final patch, while the object-version history remains the restore authority.
+- Every visible action entry records an explicit `beforeTimestamp` and
+  `afterTimestamp`. Undo-menu navigation loads the former; Redo-menu navigation
+  loads the latter. Direct jumps never infer adjacency, replay intervening
+  commands, or apply sparse restore receipts.
+
 
 - The history core and every persisted `HistoryContext` are Worker/WASM-owned.
   React holds only the currently projected context and uncommitted gesture or
@@ -346,9 +400,9 @@ or changed objects, volumes, and instances; unchanged scene and GPU resources
 are retained. Full scene projection is reserved for project load, Worker
 restart, and graphics-context loss, never an ordinary history operation.
 
-Every renderer object, cached positional index, and asynchronous refresh result
-is associated with the active history revision/token. A result for another
-revision is discarded. Creating a new branch after Undo invalidates all
+History request revisions fence asynchronous restores. Mesh publication uses
+the settings model revision, also awaited by additive imports. Results for a
+stale owner/revision are discarded; these counters are not interchangeable. Creating a new branch after Undo invalidates all
 discarded-Redo IDs and any UI reference to them.
 
 ## 7. Resource Budget and Eviction
@@ -484,82 +538,15 @@ Elapsed time and peak-memory measurements are recorded as diagnostic baselines
 first, rather than flaky cross-hardware timing gates. Native Orca similarly
 measures history memory and calls least-recently-used release after restore.
 
-## 11. Relationship to Other Documents
 
-- Extends `spec/Web-Electron Shared Application Architecture.md`.
-- Extends `spec/3MF Project Persistence.md` with transient, project-session
-  history; saved 3MF files do not contain the undo stack.
-- Resolves the Undo/Redo deferral in `spec/ObjectList-and-Parts.md` for a
-  future implementation milestone.
-- The sequential agent-gated implementation plan is
-  `doc/2026-09-07-undo-redo-implementation-plan.md`.
-- Is tracked in `spec/Grand Plan.md` and `doc/high_level_dev_plan.md`.
+## 11. Internal contract and related specifications
 
-## 12. 2026-09-16 Stable-identity restoration correction
+Restore carries SceneDelta, mandatory affected plate IDs and an authoritative
+plate session including membership. Missing or invalid required data is an
+error. Native immutable mesh owners are the sole retained representation;
+history never falls back to sparse Move/Prime Tower receipts or encoded meshes.
+Rollback retains validated result availability without loading Preview.
 
-The prior Neo sparse-receipt implementation is superseded for model identity
-and restore semantics. This correction applies only to in-memory project
-history; saved 3MF files and internal API compatibility are explicitly out of
-scope.
-
-- The history authority is an Orca-style timestamped object-version snapshot,
-  not a replay of bridge commands and not a model-wide temporary restore
-  container. One outer semantic transaction may contain arbitrary mixtures of
-  additions, deletions, and edits to multiple objects.
-- `ModelObject`, `ModelVolume`, and `ModelInstance` retain their native
-  `ObjectID` across Undo and Redo. Objects and volumes already serialize their
-  base identity. Neo additionally records each instance ID in its object-local
-  history record and reapplies it while materializing the otherwise
-  ID-less-upstream `ModelInstance` archive. New identities continue to be
-  allocated only by native construction APIs; no sidecar ID namespace or new
-  global generator is introduced.
-- The object graph has native configuration roots: `Model` owns object and part
-  configuration, `PlateSession` owns plate configuration, and the native Project
-  config is its own exact history root. The Worker-to-React scoped snapshot is a
-  projection, not a serialized root, so no scope is serialized twice. The Project
-  root is intentionally history-tracked even though Orca keeps its
-  `PresetBundle` project configuration outside `UndoRedo`; effective Process
-  selection follows the accepted boundary in section 4. Restoring that root is exact replacement, so a key absent
-  from the historical map is erased rather than merged from live state. Filament
-  and rack history state does not duplicate Project configuration.
-- An outer transaction captures its predecessor before the first model write.
-  It commits one named snapshot and leaves the resulting topmost state
-  unarchived. The first Undo captures that topmost state only when required as
-  the Redo endpoint, matching Orca's `take_snapshot()` and lazy topmost
-  capture. Nested operations join the outer transaction. A failed transaction
-  restores its predecessor and leaves no entry.
-- A successful Save marks the active logical timestamp as the saved checkpoint
-  without serializing an unarchived topmost state. Later lazy capture preserves
-  that checkpoint. If eviction removes it, the project is conservatively dirty.
-- Restore follows Orca's reusable-object path. It is proportional to retained
-  object versions and topology changes, not to a full temporary copy of the
-  project. Same-session history corruption is an invariant failure; there is
-  no legacy-receipt, index, or whole-model compatibility fallback.
-- The recovered `PlateSession` is applied after the model and binds its members
-  directly by stable instance ID. History restore never invokes reflow,
-  auto-arrange, or prime-tower layout; stored model transforms are authoritative.
-- Mutable versions are deduplicated by native object timestamp and retained as
-  time intervals. A snapshot visits the model graph, but unchanged objects,
-  volumes, instances, plate session, and immutable mesh data reuse their prior
-  retained versions instead of being serialized again. The fixed 256 MiB
-  session budget evicts oldest retained timestamps while protecting the
-  current state and nearest usable history. Native mesh ownership is shared
-  directly; there is no legacy encoded-mesh fallback.
-- History never stores Print, G-code, preview, or other slicing output. Every
-  successful Undo or Redo returns the native-authoritative before/after
-  affected plate set and advances only those input revisions. The renderer
-  hides and cancels only those plate results; unaffected matching receipts
-  remain available. A per-plate `Print` owns its applied model, so a restore
-  that does not affect that plate does not mutate its Print or contend with
-  its slice thread. The existing tombstone owns a removed plate's Print until
-  its job reaches a terminal state.
-- Each restore yields one aggregated stable-ID renderer patch. React/Three
-  update only affected scene members and preserve untouched GPU resources;
-  only project load, Worker restart, or graphics-context loss permits full
-  scene reconstruction. The per-entry `SceneDelta` is a non-authoritative
-  acceleration record; multi-entry jumps merge its stable IDs and publish one
-  final patch, while the object-version history remains the restore authority.
-- Every visible action entry records an explicit `beforeTimestamp` and
-  `afterTimestamp`. Undo-menu navigation loads the former; Redo-menu navigation
-  loads the latter. Direct jumps never infer adjacency, replay intervening
-  commands, or apply sparse restore receipts.
+[3MF Project Persistence](3MF%20Project%20Persistence.md) defines saved inputs;
+[Surface Painting Architecture](Surface%20Painting%20Architecture.md) defines
+painting sessions; [Grand Plan](Grand%20Plan.md) tracks remaining work.

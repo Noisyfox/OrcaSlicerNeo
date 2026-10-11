@@ -33,8 +33,8 @@ release module in place.
 
 | Surface | Behavior |
 |---|---|
-| `build-windows.bat build --debug` / `bash scripts/build.sh build --debug` | dual-variant build with embedded DWARF + stage |
-| `build-windows.bat full --debug` / `bash scripts/build.sh full --debug` | cold-start path with embedded DWARF |
+| `scripts\build-windows.bat build --debug` / `bash scripts/build.sh build --debug` | dual-variant build with embedded DWARF + stage |
+| `scripts\build-windows.bat full --debug` / `bash scripts/build.sh full --debug` | cold-start path with embedded DWARF |
 | `build.bat --debug` / `./build.sh --debug` | single variant (env `WASM_THREADING`/`WASM_ARTIFACT_VARIANT` as usual) |
 | `build-wasm-dual.bat --debug` / `build-wasm-dual.sh --debug` | direct dual build |
 | `WASM_DEBUG=1` (env) | honored by `build.sh`/`build.bat` for programmatic callers; the dual builders forward via env |
@@ -50,7 +50,7 @@ Flag plumbing: `scripts/build-windows.bat` / `scripts/build.sh` (drivers) →
 
 ```bat
 REM Windows (cmd)
-build-windows.bat build --debug
+scripts\build-windows.bat build --debug
 ```
 
 ```bash
@@ -59,13 +59,15 @@ bash scripts/build.sh build --debug
 ```
 
 Artifacts land in the usual places (`packages/slicer-wasm/out/<variant>/`,
-staged by `stage-wasm.mjs` into the renderer's public dir) — same names,
+staged by `scripts/stage.mjs` into the renderer's public dir) — same names,
 same dirs, debug content inside the `.wasm`. A `--debug` build replaces the
 release module in place; a plain `build` restores release.
 
 ## Debugging in Chrome DevTools
 
-1. `pnpm --filter web dev` (or the desktop app) with the debug module staged.
+1. `pnpm --filter @orca/web dev` with the debug module staged. Electron now
+   hosts WASM in its utility Node Worker; renderer DevTools alone cannot debug
+   that module. Use the Web host for this browser-DWARF recipe.
 2. Chrome DevTools → Settings → Experiments → enable **"DWARF debugging"**.
 3. Sources panel: the C++ sources resolve via the embedded DWARF; set
    breakpoints in `bridge.cpp` / libslic3r, step, inspect locals.
@@ -96,15 +98,3 @@ node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/ou
 # 5. quick guard: on a release-configured tree, `quick --debug` fails with
 #    "configured without WASM_DEBUG - run: build --debug".
 ```
-
-## Implementation notes
-
-- `CMakeLists.txt`: `option(WASM_DEBUG ...)`; `slic3r_core` and `orca_slice`
-  compile options branch on it; the link's `-O3` is hoisted into
-  `ORCA_LINK_OPTIMIZE` (`-O0 -g` when debug); `-sASSERTIONS=1` appended under
-  `WASM_DEBUG`. `deps_core` compile options are intentionally untouched.
-- `-fexceptions` is kept in debug mode (bridge error contract; see
-  `wasm-bridge-exceptions-flag` memory / M4 probe).
-- `.bat` changes follow the cmd gotchas in
-  `doc/2026-08-15-cmd-build-pipeline.md` (CRLF, escaped parens, `shift` loops
-  at top level, `%errorlevel%` read outside paren blocks).

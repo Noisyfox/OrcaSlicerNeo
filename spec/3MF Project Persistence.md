@@ -53,8 +53,8 @@
 ## Project-save behaviour
 
 - **Save Project** writes an Orca/Bambu-compatible BBS 3MF file with the
-  `.3mf` extension. It preserves the single-plate model, object and part
-  semantics, instance layout, and eligible project settings.
+  `.3mf` extension. It preserves model, object and part semantics, plate membership/layout,
+  instance transforms, and eligible project/per-plate settings.
 - Normal project saves do not embed a slice result, G-code, or thumbnails.
   G-code export and send-to-printer remain independent operations.
 - Electron provides **Save Project** and **Save Project As…**. Save Project
@@ -141,29 +141,26 @@
   painting. Editing and the stronger four-channel edit/save/reopen/Undo/Redo
   acceptance are governed by
   [Surface Painting Architecture](Surface%20Painting%20Architecture.md#92-required-adapter-editing-and-interoperability-acceptance).
-  Adapter implementation is pending; this does not broaden the historical
-  first-release persistence boundaries below.
+  The four-channel adapter is delivered; the painting specification retains
+  its exact interoperability and verification boundaries.
 
-## First-release boundaries
+## Persistence scope
 
-- A source project with multiple plates loads all parseable model objects and
-  their stored coordinates into the application's single shared scene. Objects
-  from other source plates may therefore appear outside the active bed.
-- The application does not retain source plate membership or per-plate data.
-  Saving such a loaded project writes a single-plate project. The application
-  informs the user when the multi-plate project is first loaded and again
-  before it is saved in this flattened form.
-- 3MF files that embed G-code or a sliced-result package are unsupported in
-  the first release. The application reports that the file type is unsupported
-  and leaves the current session unchanged.
+Multi-plate projects retain plate membership, layout and native per-plate
+settings. Import/export normalization and the supported plate-count limit are
+specified in [Multi-Plate Support](Multi-Plate%20Support.md); projects are not
+flattened to one plate. Generated G-code and sliced-result packages remain
+outside the editable project format. Unsupported sliced packages are rejected
+without replacing the live session. A saved editable project must be re-sliced
+before a result is exported or sent.
 
 ## Commands and navigation
 
 - The File menu provides **New Project**, **Open Project…**, **Save Project**,
   and **Save Project As…**. **Add Model** remains an append-only geometry
   import operation and is not an alias for opening a project.
-- The Open Project picker accepts only `.3mf` files. STL, OBJ, and other mesh
-  formats continue to enter through Add Model, so selecting them cannot
+- The Open Project picker accepts only `.3mf` files. Supported model
+  formats enter through [Add Model](Model%20Import.md), so selecting them cannot
   accidentally replace the current project.
 - The application supports `Ctrl/Cmd+N`, `Ctrl/Cmd+O`, `Ctrl/Cmd+S`, and
   `Ctrl/Cmd+Shift+S` for New, Open, Save, and Save As respectively. The Web
@@ -213,47 +210,6 @@ The first release's automated compatibility baseline covers:
 Cross-host end-to-end coverage verifies project open, save, dirty-state
 protection, and Web download behaviour.
 
-### Release-gate evidence (2026-09-04)
-
-The external fixture set is controlled by
-`packages/slicer-wasm/fixtures/project-compatibility/manifest.json`. It pins
-the upstream repository, commit, path, URL, byte count, SHA-256, and AGPL-3.0
-license for OrcaSlicer, BambuStudio, and PrusaSlicer samples. Archives are
-acquired on demand by `harness/acquire-project-fixtures.mjs`; they are not
-checked into this repository. The OrcaSlicer and BambuStudio samples are
-upstream calibration geometry without embedded project presets at the pinned
-commits, so the bridge correctly reports `generic` and the harness verifies
-geometry-only fallback. A generated self-saved BBS archive is separately
-verified as `bambu` with project settings available.
-
-Release verification completed on Windows:
-
-- `node packages/slicer-wasm/harness/acquire-project-fixtures.mjs --check`:
-  pass for all three pinned archives.
-- `pnpm test`: pass (8 workspace projects; 572 tests).
-- `pnpm typecheck`: pass.
-- `scripts\\build-windows.bat quick`: pass; threaded and serial artifacts
-  rebuilt and staged.
-- `scripts\\build-windows.bat smoke`: pass for the dual-variant bridge smoke
-  suite.
-- `node packages/slicer-wasm/harness/project-roundtrip.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and
-  `node packages/slicer-wasm/harness/project-roundtrip.mjs --module packages/slicer-wasm/out/threaded/orca_slice.js`:
-  both pass, including self-save/reopen, structure retention, and
-  invalid-input atomicity.
-- `node packages/slicer-wasm/harness/project-compatibility.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and
-  `node packages/slicer-wasm/harness/project-compatibility.mjs --module packages/slicer-wasm/out/threaded/orca_slice.js`:
-  both pass for all three pinned fixtures and geometry-only fallback.
-- `pnpm --filter @orca/desktop test:e2e`: pass, 28 passed and 3 intentional
-  platform/real-runtime skips.
-- `pnpm --filter @orca/web test:e2e:threaded`: pass, 2 passed.
-- `pnpm --filter @orca/web test:e2e:serial`: pass, 2 passed. The valid run
-  was performed sequentially after an invalid concurrent invocation shared
-  the Web preview port with the threaded runner.
-
-The release gate is complete. Future CI runs should provision or acquire the
-three manifest archives, run `--check`, both real WASM variants' round-trip and
-compatibility harnesses, and both real Web E2E commands as regression coverage.
-
 ## Long-running project operations
 
 - Project open and save show stage-level progress, disable conflicting project
@@ -263,6 +219,12 @@ compatibility harnesses, and both real Web E2E commands as regression coverage.
   to a host. A cancelled or failed export, or a cancelled host save dialog,
   leaves the existing destination file unchanged and leaves the current
   project dirty.
+
+Project open and geometry-only 3MF import publish the progress dialog before
+native parsing begins, then complete only after applying the project state.
+Both use the common asynchronous-task FIFO. Main-runtime producers notify the
+consumer after committing each event; pthread producers only advance the shared
+wake. Native parsing remains on the stateful Worker.
 
 ## Persistence boundary
 

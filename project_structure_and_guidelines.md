@@ -94,6 +94,14 @@ orca-slicer-neo/
   `project_structure_and_guidelines.md` (this file).
 - Any feature/design change must be reflected in `doc/`; approved → `spec/`.
 
+The [documentation index](doc/README.md) maps topics to their current owner.
+[Grand Plan](spec/Grand%20Plan.md) is the only roadmap. Git history retains
+superseded designs and verification logs; do not retain duplicate phase notes.
+Consolidation preserves all unrevoked decisions, positive and negative
+constraints, scope, rationale and acceptance requirements. Later silence or an
+implementation gap is not a decision reversal; replace only explicitly
+superseded portions and retain unresolved qualification boundaries.
+
 ### Single-document feature record
 
 Start each feature or task with one dated, living task document. Update that
@@ -111,14 +119,13 @@ it is an independently useful, enduring operator or architecture reference.
 
 ## 4. WASM Build Guidelines
 
-See the design doc §C++/WASM Build and the spike's README iterate loop. Key rules:
+See [WASM Build and Runtime Reference](doc/2026-08-12-wasm-build-notes.md). Key rules:
 
 - **Iterate, don't panic:** the WASM build is expected to fail and be fixed via
   `TBB_HEADERS` (build.sh), `DROP_PATTERNS` (CMakeLists.txt), `stubs/`, or
   bridge signature drift fixes. Each failure class has a documented fix.
-- **wasm64 (`-sMEMORY64`)**: builds wasm64 consistently (objects, Boost,
-  link). Fallback to wasm32 + the `GCode.hpp` size_t fix only if toolchain
-  issues block wasm64.
+- **wasm64 (`-m64`)**: compile objects, dependencies and the final link for
+  wasm64 consistently. The supported fallback is serial wasm64, not wasm32.
 - **Dual-variant**: the production build produces two wasm64 variants in
   separate CMake/output trees — `threaded` (upstream oneTBB + pthreads;
   selected at runtime when the host is cross-origin isolated) and `serial`

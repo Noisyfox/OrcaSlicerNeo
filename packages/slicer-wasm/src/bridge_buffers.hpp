@@ -3,7 +3,7 @@
 // Binary buffer marshaling for the bridge: growable malloc'd buffers
 // whose storage is handed to the JS side (which _free()s it). Kept
 // separate from bridge.cpp so the layout is easy to audit against
-// the client contract (doc/2026-08-13-m2-implementation-plan.md).
+// the client contract (spec/Web-Electron Shared Application Architecture.md).
 // ----------------------------------------------------------------
 #pragma once
 

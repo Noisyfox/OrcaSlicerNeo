@@ -10,8 +10,8 @@
 product behaviour, controls, source-neutral data, and the 250,000/1,000,000
 segment performance goals. This document is the implementation-level renderer
 architecture for that specification. It does not change the existing preview
-behaviour or authorize external G-code import. The dated living implementation
-record is [`2026-09-02-gcode-preview-gpu-streaming-renderer.md`](../doc/2026-09-02-gcode-preview-gpu-streaming-renderer.md).
+behaviour or authorize external G-code import. Current layout and overlay lifetime are specified by
+[Application Shell](Application%20Shell.md).
 
 The redesign is shared by static Web and Electron, uses WebGL 2 / Three.js,
 and preserves the platform boundary: only the typed client/Worker path may

@@ -32,8 +32,8 @@ troubleshooting procedures, or test matrices here.
 1. Before any coding, read
    [`spec/Web-Electron Shared Application Architecture.md`](spec/Web-Electron%20Shared%20Application%20Architecture.md).
 2. Read the relevant approved design in `spec/` and the current dated task
-   document in `doc/`. The delivered desktop vertical slice is documented in
-   [`doc/2026-08-12-electron-gui-rewrite-design.md`](doc/2026-08-12-electron-gui-rewrite-design.md).
+   document in `doc/`. Use the
+   [documentation index](doc/README.md) to find the current topic owner.
 3. Use
    [`project_structure_and_guidelines.md`](project_structure_and_guidelines.md)
    for the repository tree, ownership boundaries, engineering constraints, and
@@ -49,9 +49,8 @@ troubleshooting procedures, or test matrices here.
    [`doc/testing_guidelines.md`](doc/testing_guidelines.md)
    when choosing verification scope. Do not infer that every feature edit
    requires the full repository matrix.
-6. Update [`doc/high_level_dev_plan.md`](doc/high_level_dev_plan.md) and
-   [`spec/Grand Plan.md`](spec/Grand%20Plan.md) only when delivered work changes
-   roadmap or milestone status, and keep them consistent.
+6. Update the single roadmap, [`spec/Grand Plan.md`](spec/Grand%20Plan.md),
+   only when delivered work changes roadmap or milestone status.
 
 Start each feature or design change with one dated, living task document in
 `doc/` and update it in place. Record only accepted behavior and decisions;

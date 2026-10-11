@@ -398,6 +398,17 @@ unsuccessful placement, or exhaustion of the plate budget remains a normal
 partial-success outcome as defined above. Distinguish those outcomes from an
 exception that prevents the operation from producing a valid result.
 
+## Source-instance identity
+
+Orca's native Arrange preserves the input polygon container order when writing
+back translations, rotations, and destination bins. It rewrites each packed
+polygon's `itemid` to packing order; an unfit polygon can retain an old value
+that duplicates a packed polygon's order. The headless adapter must associate
+results with its parallel instance records by container index, never by the
+post-solve `itemid`. The atomic publication identity and finite-value checks
+remain enforced.
+
+
 ## Accepted native-parity criteria
 
 Use a fixed Orca version, matching inputs, and matching arrangement parameters
@@ -508,189 +519,3 @@ versus WASM performance benchmark or comparative timing gate in this scope.
 Use native Orca for functional and packing-quality comparisons only. Validate
 Neo's UI responsiveness, cancellation behavior, and successful task completion;
 dedicated performance benchmarks and optimization are deferred.
-
-## Implementation stages and delivery gates
-
-Complete and verify each stage before advancing to the next. Keep independently
-testable changes in separate commits and apply the repository's
-[testing guidelines](../doc/testing_guidelines.md).
-
-1. **Build feasibility:** integrate Arrange, libnest2d, and NLopt into the WASM
-   scaffold. Build both threaded and serial variants and run a minimal real
-   arrangement in each. Keep the pinned core protected and exclude GUI code.
-   Compile the pinned NLopt release as an independent dependency, with separate
-   serial and threaded wasm64 staging prefixes under `.work/deps`. The CI
-   dependency job builds and caches both prefixes before either core build;
-   the main CMake project only imports the staged headers and static archive.
-   Include the dependency fetch/build scripts in the cache key so source,
-   checksum, or build-option changes invalidate the cache.
-2. **Headless adapter:** prepare native geometry and effective configuration,
-   collect eligible instances and plate constraints, and solve without mutating
-   the project. Verify geometry, materials, plate rules, and partial-success
-   outcomes against the accepted behavior.
-3. **Result application:** validate instance identities and results, apply the
-   complete change atomically, and integrate native history and affected-plate
-   tracking. Verify one-step Undo, failure rollback, and preserved state on
-   cancellation or rejected results.
-4. **Task coordination:** integrate progress, variant-specific cancellation,
-   editing admission, and concurrent threaded slicing. Verify that computing an
-   arrangement preserves an existing slice, application cancels only affected
-   slicing, and obsolete task output cannot overwrite current state.
-5. **Shared UI and acceptance:** connect the settings popup, plate action,
-   preferences, progress, and diagnostics. Verify the complete user flow on
-   Electron and Web, variant-specific behavior, and functional Orca parity.
-
-Resolve concrete interface, fixture, tolerance, and control details within
-these stages without weakening accepted behavior. Mobile input and mobile
-qualification remain deferred under the shared desktop application scope.
-
-This document is a peer of [Grand Plan](Grand%20Plan.md). Its arrangement item
-is delivered; cut, measure, and orientation tools remain separate work.
-
-## Implementation and acceptance record
-
-All commands below passed on the Windows acceptance host. The initial delivery workspace
-suite contains 1,345 passing tests, and all workspace typechecks pass. Parent
-acceptance independently reran the native core/adapter executables, the serial
-bridge smoke, and the real dual-host journey and reviewed the rendered output.
-
-The native adapter lives in
-[`HeadlessArrangement.cpp`](../packages/slicer-wasm/src/arrangement/HeadlessArrangement.cpp),
-with task ownership and atomic publication in
-[`bridge_arrangement.cpp`](../packages/slicer-wasm/src/bridge_arrangement.cpp).
-Only frozen polygons and configuration reach the background solver. Final
-publication updates transforms, plate membership, normalized estimated tower
-coordinates, input revisions, and history together. Existing tower positions
-remain fixed; failures restore the previous model, plate, and configuration
-state. Unaffected threaded slice jobs continue through that publication.
-
-The shared application exposes
-[`ArrangementControls.tsx`](../packages/slicer-app/src/components/workspace/arrangement/ArrangementControls.tsx),
-with host preference persistence in
-[`useArrangementStore.ts`](../packages/slicer-app/src/stores/useArrangementStore.ts).
-Editing is fenced at the rendered controls, menu, scene-interaction, project
-mutation, and Worker request boundaries. Camera navigation remains available.
-
-The reproducible acceptance commands, run from the repository root on Windows,
-are below. The standalone CMake target builds require `emsdk_env.bat` in the
-calling command environment; the acceptance host uses `D:\emsdk`.
-
-```powershell
-pnpm test
-pnpm typecheck
-cmd /c "call D:\emsdk\emsdk_env.bat >nul 2>&1 && cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_ARRANGEMENT_TEST=ON && cmake --build packages/slicer-wasm/.work/serial/build --target orca_slice -j 6"
-node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/.work/serial/build/orca_slice.js --test-injection
-scripts\build-windows.bat quick --variant both -j 6
-cmd /c "call D:\emsdk\emsdk_env.bat >nul 2>&1 && cmake --build packages\slicer-wasm\.work\serial\build --target arrangement_core_test headless_arrangement_test -j 4"
-cmd /c "call D:\emsdk\emsdk_env.bat >nul 2>&1 && cmake --build packages\slicer-wasm\.work\threaded\build --target arrangement_core_test headless_arrangement_test -j 4"
-node packages/slicer-wasm/.work/serial/build/arrangement_core_test.cjs
-node packages/slicer-wasm/.work/serial/build/headless_arrangement_test.cjs
-node packages/slicer-wasm/.work/threaded/build/arrangement_core_test.cjs
-node packages/slicer-wasm/.work/threaded/build/headless_arrangement_test.cjs
-node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
-node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
-node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js packages/slicer-wasm/fixtures/cube.stl
-node scripts/run-arrangement-e2e.mjs
-git diff --check
-```
-
-The native fixtures cover shared-bed packing, overflow, unusable inputs,
-material subsets, current-plate scope, locks, the 36-plate budget, print
-sequence, exclusions, tower estimation, and cancellation. The bridge fixture
-adds rollback, one-step Undo/Redo including added plates and tower coordinates,
-stale result rejection, and affected versus unaffected slicing.
-
-`NEO_ARRANGEMENT_TEST` defaults to OFF and compiles fault-injection state and
-execution paths only into the arrangement implementation file when enabled.
-The explicit serial test build above exercises publication rollback; normal
-smoke runs require the injection sentinel to be absent from the WASM binary
-and clearly skip injected-failure assertions. CI tests the enabled build-tree
-artifact separately and uploads only the production `out/serial` artifact.
-Normal full and quick build drivers explicitly reset the gate to OFF before
-building and staging, including when the same CMake cache previously enabled it.
-
-The real Electron serial journey covers settings, reset, saved preferences,
-both entry points, packing, Undo/Redo, and absence of Cancel during computation.
-The real Web threaded journey covers completed packing, disabled editing,
-responsive camera zoom, and cancellation with unchanged transforms/history.
-Both use freshly staged artifacts; the runner verifies their hashes. The
-20 mm cube checks allow 0.01 mm at bed/non-overlap boundaries and compare
-restored transforms to five decimal places. Native polygon union checks use a
-relative area tolerance of `1e-9`.
-
-Functional parity evidence uses the pinned native Arrange implementation and
-source-traced GUI preparation rules. Separate desktop-Orca GUI differential
-testing, cross-platform layout comparison, mobile qualification, and native
-performance profiling are not part of the recorded checks. The Linux CI
-dependency-cache path is configured but requires execution by remote CI.
-
-### Latest main integration (2026-10-03)
-
-The remote default branch is `main`; there is no remote `master`. Merge commit
-`fec2c857d72bd7fed7ff9310d385fadfa0858910` integrates main commit
-`2f25b0fe00cd66c1b2361c62c2c64042f8f7649f` without conflicts. The merge preserves
-the pinned Orca submodule and incorporates Electron's threaded NODEFS temporary
-filesystem. No production arrangement adaptation was required.
-
-After the merge, `pnpm test` passed all 1,370 tests and `pnpm typecheck` passed
-across the workspace. The dual-variant quick build and both production
-arrangement bridge smokes passed, including history, tower placement, threaded
-cancellation, stale-result rejection, and affected/unaffected concurrent slicing.
-The NODEFS bridge smoke passed against the freshly built threaded artifact.
-
-The real Electron serial and Web threaded journeys passed with the existing
-runner. The runner now also supports the following focused Electron threaded
-journey, which passed with staged artifact hashes verified:
-
-```powershell
-node scripts/run-arrangement-e2e.mjs --desktop-only --desktop-threaded
-node packages/slicer-wasm/harness/nodefs-bridge-smoke.mjs
-```
-
-Using that freshly built threaded Electron host, the NODEFS lifecycle E2E also
-passed: Unicode/space-containing temporary paths, native G-code bytes and
-preview, replacement results, project export/reopen, and session cleanup after
-reload, utility-process failure, and normal quit.
-
-```powershell
-$env:ORCA_E2E_REAL='1'
-$env:ORCA_E2E_NODEFS_EXPECT_VARIANT='threaded'
-$env:ORCA_E2E_VISIBLE='1'
-$env:CI='1'
-pnpm --filter @orca/desktop exec playwright test e2e/nodefs-runtime.e2e.ts
-```
-
-The Electron journey verifies the same settings, packing, atomic history,
-current-plate action, and saved preferences in both variants. It observes the
-editing guard during computation and expects Cancel only in threaded mode.
-The temporary-filesystem integration and its reproduction commands are defined
-in [Native Python Plugin Architecture](Native%20Python%20Plugin%20Architecture.md).
-
-### Source-instance identity correction (2026-10-03)
-
-Orca's native Arrange preserves the input polygon container order when writing
-back translations, rotations, and destination bins. It rewrites each packed
-polygon's `itemid` to packing order; an unfit polygon can retain an old value
-that duplicates a packed polygon's order. The headless adapter must associate
-results with its parallel instance records by container index, never by the
-post-solve `itemid`. The atomic publication identity and finite-value checks
-remain enforced.
-
-A synthetic small/unfit/large fixture with rotation enabled failed against the
-previous adapter and passed after this correction. The native test verifies
-source identities and each source polygon's position/rotation. The production
-bridge smoke verifies the correct unfit instance, successful publication, and
-one-step Undo/Redo of transforms and membership.
-
-The reported external 14-part helmet project reproduced `Invalid arrangement
-instance result` with Arrange all, zero spacing, rotation enabled, and multiple
-materials allowed. Both serial and threaded post-fix runs placed 13 instances and
-parked the unfit `OdHelmetFull.stl_A_A` instance; Undo/Redo restored the complete
-source transforms and membership. The external project is used only for local
-validation and is not added to repository fixtures.
-
-Post-fix validation passed: `pnpm test` (1,370 tests), `pnpm typecheck`,
-`scripts\build-windows.bat quick --variant both -j 6`, the serial
-`headless_arrangement_test.cjs`, both production `arrangement-smoke.mjs`
-journeys, and `node scripts/run-arrangement-e2e.mjs` (real Electron serial and
-Web threaded, with current staged artifact hashes verified).

@@ -12,7 +12,7 @@ multi-material painting as its first gizmo and reusable foundations for support,
 seam, and fuzzy-skin painting.
 
 This is a major architecture specification alongside [Grand Plan](Grand%20Plan.md).
-It is the single living record for this work, created directly in `spec/` at the
+It is the single architecture record for this work, created directly in `spec/` at the
 user's request. Accepted decisions below are binding; remaining measurement work
 in section 10 does not imply an unmeasured performance guarantee. Clarifications
 are folded into this document after a related group of questions has been resolved, rather
@@ -1225,7 +1225,7 @@ history/model behavior, or resource-lifetime verification in section 9.
 The [reference archive](../packages/slicer-wasm/benchmarks/painting/reference-2026-09-29/summary.json)
 contains 36 repeated measurements across Electron/Web, generated size/part/
 subdivision cases and a fixed real project. The
-[implementation record](../doc/2026-09-29-surface-painting-implementation.md)
+[benchmark runbook](../doc/2026-09-29-surface-painting-implementation.md)
 defines exact commands, artifact flags, hardware, hashes and verification scope.
 On its 5900X/RTX 3080 machine, the 143,912-triangle editing object measured
 216/263 ms p95 from release to a logical revision frame and 444/480 ms p95
@@ -1249,8 +1249,8 @@ bounded revision frame; unmatched observations are excluded from latency
 aggregates and remain visible in the raw evidence.
 
 Generated measurement JSON and gzip archives remain ignored local test artifacts
-and are excluded from the feature branch and PR. The living implementation
-record identifies their local storage path and reproduction commands.
+and are excluded from the feature branch and PR. The benchmark
+runbook identifies their local storage path and reproduction commands.
 
 This baseline retains source/native identities and the original Web bundle;
 the historical Electron bundle SHA was not captured. A later eight-sample
@@ -1260,8 +1260,8 @@ positive native counters and cleanup. These supplement the baseline without
 rewriting its provenance. The installed Orca 2.4.2 format roundtrip is
 supplemental evidence, not a pinned native performance comparison. GPU execution
 timing and numerical thresholds remain unavailable or unapproved. The living
-record identifies failed attempts, unchanged-source retries and the unresolved
-supplemental invalid-layer-height test; none is relabeled as a passing check.
+runbook retains the unresolved supplemental invalid-layer-height test and its
+evidence boundary; it is not relabeled as a passing check.
 
 ### 9.2 Required adapter editing and interoperability acceptance
 
@@ -1319,24 +1319,14 @@ selectors and picking remain authoritative; the shared application renders
 through `viewport/gizmo/painting/PaintingGizmoBase` and the independent
 `MmuPaintingGizmo`, `SupportPaintingGizmo`, `SeamPaintingGizmo` and
 `FuzzyPaintingGizmo` adapters.
-The implementation record supplies reproducible fixture/benchmark commands.
+The benchmark runbook supplies reproducible fixture/benchmark commands.
 These engineering details do not authorize changing product semantics or claiming
 measurements that have not been made. If further
 important product choices arise, clarify them interactively with pinned Orca
 behavior and source evidence, then update this specification in coherent batches.
 
-Implementation was authorized on 2026-09-29 on the current development branch.
-The [living implementation plan](../doc/2026-09-29-surface-painting-implementation.md)
-defines bounded sequential steps, each implemented and self-verified by a fresh
-subagent and independently accepted by the parent before the next step starts.
-All MMU implementation stages 01–12 passed parent code review and independent verification.
-The final record includes root tests/typechecks, both production WASM variants,
-Electron/Web real journeys, packaged-app checks, 3MF/profile compatibility and
-the measured performance baseline. Scheme B Support, Seam and Fuzzy adapters
-were approved on 2026-10-02 and passed stages 13–19 on 2026-10-03. Each stage
-used a fresh gpt-6.1-sol / medium child, followed by independent parent review,
-verification and commit before the next began. Delivery includes separate
-Orca-style toolbar entries ordered Support, Seam, Fuzzy, MMU; native four-field
-3MF roundtrips, downstream slicing, history, host/variant qualification and
-resource cleanup. Functional delivery does not close the remaining quantitative
-performance decision or resolve the separately recorded supplemental failure.
+Functional MMU delivery was accepted on 2026-09-30 and the Support/Seam/Fuzzy
+adapters on 2026-10-03. The
+[verification and benchmark runbook](../doc/2026-09-29-surface-painting-implementation.md)
+retains reproduction commands and known limitations. Functional delivery does
+not approve performance thresholds or resolve the supplemental slice failure.

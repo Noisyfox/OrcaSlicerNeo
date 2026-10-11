@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-31
 
-**Status:** Approved product behaviour; implementation design in progress.
+**Status:** Delivered shared Prepare/Preview workspace behavior.
 
 **Scope:** Split the shared application workspace into distinct Prepare and
 Preview presentations while retaining one shared sidebar and the existing
@@ -103,6 +103,12 @@ the completed validation.
 
 ## 4. Preview
 
+Model shells have their Preview opacity from the first visible WebGL frame.
+Opening Preview from hidden Home/Device first renders the Preview presentation
+while Workspace is hidden, then completes navigation after that frame. Do not
+show a cached opaque Prepare frame or temporarily hide the Canvas after the
+tab becomes visible. Canvas, camera, geometry and selection remain mounted.
+
 Preview is a G-code-inspection presentation. It still renders the loaded model,
 but in an unselected semi-transparent appearance corresponding to OrcaSlicer.
 It preserves Prepare's ordinary unselected material and per-part colours; only
@@ -144,18 +150,19 @@ slice workflow:
 - If a sidebar edit invalidates a result while Preview is active, old toolpath
   data is cleared immediately. A user may reslice through the Slice command.
   Re-selecting an already active Preview tab does not create a reslice request.
-- Invoking the existing top-toolbar Slice command from Prepare also immediately
+- Invoking the existing viewport split-action Slice command from Prepare also immediately
   changes to Preview; it uses the same single slice task and result lifecycle.
 
-There is no new viewport progress, empty-state, or error overlay. While Preview
-has no valid result (no model, slicing, invalidated result, or failure), it
-shows only the semi-transparent model; progress and errors remain exclusively
-in the existing status bar.
+Without a valid result, Preview retains the semi-transparent model and does
+not display stale toolpaths. The current split-action progress/cancellation
+surface is defined in [Application Shell](Application%20Shell.md), and per-plate
+loading, result activation and task errors follow
+[Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md).
 
 ## 6. Global Action Visibility
 
 Home and Device render no Slice, Export, Send, or Send & Print action area in
-the top toolbar. The action area remains part of the Prepare/Preview experience.
+the viewport controls. The action area remains part of the Prepare/Preview experience.
 Changing to Home or Device never cancels an in-flight slice: the shared runtime
 task continues and its status remains available when the user returns.
 
@@ -164,7 +171,7 @@ Home, Preview, and Device. Slice is enabled only in Prepare or Preview when no
 valid slice result exists. Export G-code, Send, and Send & Print are available
 in either Prepare or Preview whenever a valid result exists; they do not require
 the Preview tab. A File-menu Slice command in Prepare follows the same flow as
-the top-toolbar Slice command: it immediately enters Preview and starts the
+the viewport split-action Slice command: it immediately enters Preview and starts the
 single shared slice task.
 
 The shared `MenuStateSnapshot` carries the current `activeTab`, so the native
@@ -175,9 +182,12 @@ is not a security or correctness boundary.
 
 ## 7. Preview Feature Scope
 
-This milestone exposes the existing coloured toolpath and Layer Scrubber only.
-The richer OrcaSlicer Preview capability — legends, feature filters, move-range
-sliders, statistics, and related controls — is explicitly deferred.
+The delivered inspector includes legends, feature/action filters, layer and
+move ranges, statistics, current-move inspection and paged G-code text. Its
+read-only contract is specified by [G-code Preview v2](G-code%20Preview%20v2.md)
+and [GPU Streaming Renderer](G-code%20Preview%20GPU%20Streaming%20Renderer.md).
+[Application Shell](Application%20Shell.md) owns current sidebar/overlay layout.
+Layer-event editing remains deferred.
 
 ## 8. Implementation Architecture
 
@@ -194,7 +204,7 @@ and `useSliceResult`. Prepare and Preview consume these same long-lived scene
 and result resources, so tab switching cannot reload the model, reset the shared
 selection, or fetch the same slice result again.
 
-Workspace also owns a local, non-reactive slice coordinator. The top-toolbar
+Workspace also owns a local, non-reactive slice coordinator. The viewport split-action
 Slice action, File-menu Slice action, and an actual transition into Preview all
 use this one coordinator. It records a request before the existing slice helper
 awaits model-transform synchronization, so concurrent entry points cannot start
@@ -229,7 +239,7 @@ Shared unit/integration coverage must verify:
   selection; switching to Home/Device likewise does not unmount top-level
   pages.
 - Entering Preview with no result starts exactly one slice and changes tab
-  immediately; the top-toolbar and File-menu Slice actions do the same.
+  immediately; the viewport split-action and File-menu Slice actions do the same.
   Entering during a running slice joins it, failures remain on Preview, and an
   edit-induced invalidation clears the toolpath without navigation.
 - A slice continues while Home or Device is active and becomes available on a
