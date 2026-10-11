@@ -337,8 +337,9 @@ material count and a collapse toggle; plus and minus buttons add a slot or
 remove the last slot. Edit, Merge, and Delete are available by right-clicking a
 slot. Existing mutation capabilities and reference-impact confirmations still
 control these commands. Flushing Volumes sits at the left of the toolbar above
-material slots, with Add/Delete at the right, and is hidden for one actual
-material. Its dialog and automatic-calculation preference are owned by
+material slots, with Add/Delete at the right. It requires multiple actual
+materials and native SEMM/Bambu capability; fixed-material printers such as
+U1 hide it. Its dialog and automatic-calculation preference are owned by
 [Multi-Filament Support](Multi-Filament%20Support.md#101-flushing-volume-policy).
 Mixes and purge-mode controls remain deferred. Shared buttons use dark hover (`#343437`) and
 expanded (`#1B1B1D`)

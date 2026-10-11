@@ -143,14 +143,16 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
   const [impact, setImpact] = useState<PendingImpact>(null);
   const [flushingOpen, setFlushingOpen] = useState(false);
   const [flushModified, setFlushModified] = useState(false);
+  // Orca Sidebar::show_SEMM_buttons: SEMM/Bambu capability and >1 material.
+  const showFlushing = !!snapshot?.capabilities.flexible && snapshot.slots.length > 1;
   useEffect(() => {
-    if (!snapshot || snapshot.slots.length < 2) { setFlushModified(false); setFlushingOpen(false); return; }
+    if (!snapshot || !showFlushing) { setFlushModified(false); setFlushingOpen(false); return; }
     let active = true;
     void readFlushingVolumes(platform.runtime, snapshot.revisions.session)
       .then(result => { if (active && result.ok) setFlushModified(flushingModified(result)); })
       .catch(() => { /* A read failure is reported when the editor is opened. */ });
     return () => { active = false; };
-  }, [snapshot, platform.runtime]);
+  }, [snapshot, showFlushing, platform.runtime]);
 
   useEffect(() => {
     void load(platform.runtime);
@@ -217,7 +219,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
 
   return (
     <>
-      {flushingOpen && <FlushingVolumesDialog onClose={() => setFlushingOpen(false)} />}
+      {showFlushing && flushingOpen && <FlushingVolumesDialog onClose={() => setFlushingOpen(false)} />}
       <section data-testid="filament-rack" className="px-2 pb-2" aria-busy={pending}>
         <div className="sidebar-section-header -mx-2">
           <h2 className="sidebar-section-title">Material ({snapshot.slots.length})</h2>
@@ -228,7 +230,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
           </Button>
         </div>
         {expanded && <div className="flex h-8 items-center gap-1">
-          {snapshot.slots.length > 1 && <Button variant="secondary" size="xs" className="flushing-volumes-button"
+          {showFlushing && <Button variant="secondary" size="xs" className="flushing-volumes-button"
             data-modified={flushModified} data-testid="flushing-volumes-open" disabled={pending}
             title={flushModified ? 'Flushing volumes differ from automatic calculation' : 'Edit flushing volumes'}
             onClick={() => setFlushingOpen(true)}>Flushing Volumes</Button>}

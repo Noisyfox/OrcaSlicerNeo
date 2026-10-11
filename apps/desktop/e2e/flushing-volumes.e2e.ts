@@ -2,6 +2,7 @@ import { _electron } from './electron-fixture';
 import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receipts';
 import { expect, test } from '@playwright/test';
 import { resolve } from 'node:path';
+import { selectFixturePrinter } from './printer-selection';
 
 test('flushing editor uses the Material toolbar, keeps Cancel local and stores raw volumes once', async () => {
   const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;
@@ -77,5 +78,13 @@ test('flushing editor uses the Material toolbar, keeps Cancel local and stores r
     await page.getByTestId('file-preferences').click();
     await expect(preferences.getByRole('combobox', { name: 'Auto flush after changing' })).toContainText('None');
     await preferences.getByTestId('project-preferences-cancel').click();
+    if (process.env.ORCA_E2E_REAL === '1') {
+      await selectFixturePrinter(page, 'Snapmaker U1 0.4 nozzle');
+      await expect(page.getByTestId('filament-slot-4')).toBeVisible();
+      await expect(button).toHaveCount(0);
+      await selectFixturePrinter(page, 'Bambu Lab H2D 0.4 nozzle');
+      await page.getByTestId('filament-add').click();
+      await expect(button).toBeVisible();
+    }
   } finally { await app.close(); }
 });

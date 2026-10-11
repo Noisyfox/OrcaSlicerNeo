@@ -420,7 +420,11 @@ as fabricated evidence when a slice result lacks a tool or palette entry.
 ### 10.1 Flushing-volume policy
 
 The Material toolbar exposes **Flushing Volumes** to the left of Add/Delete
-when at least two actual materials exist. A single-material rack has no
+when at least two actual materials exist and the native printer is SEMM
+(`single_extruder_multi_material`) or a Bambu vendor, matching Orca's
+`Sidebar::show_SEMM_buttons`. Neo reuses `capabilities.flexible` for this
+native condition. Fixed-material toolchangers/IDEX printers such as U1 hide
+the entry. A single-material rack has no
 material-pair flushing editor, regardless of physical nozzle count. An orange
 entry outline marks a non-default matrix or multiplier.
 
