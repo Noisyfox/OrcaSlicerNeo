@@ -2,6 +2,7 @@ import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { ChevronDown } from 'lucide-react';
 import { SearchInput } from '@/components/ui/search-input';
+import { Separator } from '@/components/ui/separator';
 import { cn } from 'cn';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
@@ -78,7 +79,10 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
           if (event.key !== 'Escape') event.stopPropagation();
         }} /></div>
       {visibleGroups.map(({ label, ids }) => sectionBy ? <DropdownMenuGroup key={label}>
-        <DropdownMenuLabel>{label}</DropdownMenuLabel>
+        <DropdownMenuLabel className="flex items-center gap-2">
+          <span className="shrink-0">{label}</span>
+          <Separator className="min-w-8 flex-1" aria-hidden="true" />
+        </DropdownMenuLabel>
         <DropdownMenuRadioGroup value={value} onValueChange={onValue}>
           {ids.map(id => <DropdownMenuRadioItem key={id} value={id} title={entries.get(id)!.name} disabled={disabled} closeOnClick>
             <span className={cn('truncate', entries.get(id)!.modified && 'config-override-label')}>{entries.get(id)!.label}</span>
