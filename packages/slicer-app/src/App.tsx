@@ -287,10 +287,17 @@ function AppContent() {
     setFileManagerOpen(true);
     setFileManagerFocusRequest((request) => request + 1);
   }, []);
-  const savePreferences = useCallback(async (behaviour: ProjectLoadBehaviour) => {
-    const next = await updateUserPreferences(platform.preferences, current => ({ ...current, projectLoadBehaviour: behaviour }));
-    setPreferences(next);
-  }, [platform.preferences, preferences]);
+  const savePreferences = useCallback(async (behaviour: ProjectLoadBehaviour, autoFlushPolicy: NonNullable<UserPreferences['autoFlushPolicy']>) => {
+    const result = await platform.runtime.setAutoFlushPolicy(autoFlushPolicy);
+    if (!result.ok) throw new Error(result.error ?? 'Could not set automatic flushing');
+    try {
+      const next = await updateUserPreferences(platform.preferences, current => ({ ...current, projectLoadBehaviour: behaviour, autoFlushPolicy }));
+      setPreferences(next);
+    } catch (error) {
+      await platform.runtime.setAutoFlushPolicy(preferences?.autoFlushPolicy ?? 'all');
+      throw error;
+    }
+  }, [platform.preferences, platform.runtime, preferences]);
 
   const menuState = useMemo(() => buildMenuStateSnapshot({
     version: 1,

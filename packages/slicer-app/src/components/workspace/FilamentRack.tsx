@@ -9,6 +9,8 @@ import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FlushingVolumesDialog, flushingModified } from './FlushingVolumesDialog';
+import { readFlushingVolumes } from '@/stores/useFilamentSessionStore';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
 import { PresetCombobox } from './PresetCombobox';
 import {
@@ -139,6 +141,16 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
   const filamentCatalog = useSettingsStore((state) => state.filamentCatalog);
   const [expanded, setExpanded] = useState(true);
   const [impact, setImpact] = useState<PendingImpact>(null);
+  const [flushingOpen, setFlushingOpen] = useState(false);
+  const [flushModified, setFlushModified] = useState(false);
+  useEffect(() => {
+    if (!snapshot || snapshot.slots.length < 2) { setFlushModified(false); setFlushingOpen(false); return; }
+    let active = true;
+    void readFlushingVolumes(platform.runtime, snapshot.revisions.session)
+      .then(result => { if (active && result.ok) setFlushModified(flushingModified(result)); })
+      .catch(() => { /* A read failure is reported when the editor is opened. */ });
+    return () => { active = false; };
+  }, [snapshot, platform.runtime]);
 
   useEffect(() => {
     void load(platform.runtime);
@@ -205,6 +217,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
 
   return (
     <>
+      {flushingOpen && <FlushingVolumesDialog onClose={() => setFlushingOpen(false)} />}
       <section data-testid="filament-rack" className="px-2 pb-2" aria-busy={pending}>
         <div className="sidebar-section-header -mx-2">
           <h2 className="sidebar-section-title">Material ({snapshot.slots.length})</h2>
@@ -214,7 +227,12 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
             {expanded ? <ChevronDown /> : <ChevronUp />}
           </Button>
         </div>
-        {expanded && <div className="flex h-8 items-center justify-end gap-1">
+        {expanded && <div className="flex h-8 items-center gap-1">
+          {snapshot.slots.length > 1 && <Button variant="secondary" size="xs" className="flushing-volumes-button"
+            data-modified={flushModified} data-testid="flushing-volumes-open" disabled={pending}
+            title={flushModified ? 'Flushing volumes differ from automatic calculation' : 'Edit flushing volumes'}
+            onClick={() => setFlushingOpen(true)}>Flushing Volumes</Button>}
+          <span className="flex-1" />
           <Button variant="secondary" size="icon-xs" className="size-5 rounded-sm" data-testid="filament-remove"
             aria-label="Remove last filament slot" disabled={pending || !snapshot.capabilities.canDelete || snapshot.slots.length === 0}
             onClick={() => askOrRun('delete', snapshot.slots[snapshot.slots.length - 1].slot, null)}><Minus /></Button>
