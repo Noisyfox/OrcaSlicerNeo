@@ -31,8 +31,7 @@ Emscripten. It enforces:
    interface; binary data (meshes, toolpaths) crosses as heap buffers. The JS
    client in `packages/slicer-wasm/src/client/` is the only JS that touches the
    WASM module.
-4. **Maintained topic documentation:** accepted designs in `spec/`, reusable
-   engineering references in `doc/`; update existing owners as development changes them.
+4. **Documentation:** follow [Document Conventions](#3-document-conventions).
 
 ---
 
@@ -85,6 +84,9 @@ orca-slicer-neo/
 
 ## 3. Document Conventions
 
+This section is the single authority for documentation maintenance. Other
+entry points link here rather than restating its rules.
+
 - `spec/` owns accepted product behavior, architecture, and design constraints.
   The shared architecture remains the application-wide authority.
 - `doc/` owns reusable build, debugging, testing, and operational references,
@@ -136,6 +138,8 @@ decision; its presence in code or a passing test does not establish a mandate.
 Keep symbol lists, directory inventories, wire examples, command catalogues,
 and configuration values with their existing authoritative source where possible.
 Link to code, schemas, scripts, or tests instead of copying their contents.
+Use [README](README.md) and build-driver help for the command catalogue, and
+[testing guidelines](doc/testing_guidelines.md) for verification scope.
 Include exact algorithms, numeric limits, UI dimensions, or technical details
 only when they express an accepted contract or are necessary for a reusable
 procedure. Preserve existing accepted values until explicitly superseded.

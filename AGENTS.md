@@ -51,14 +51,8 @@ troubleshooting procedures, or test matrices here.
 6. Update the single roadmap, [`spec/Grand Plan.md`](spec/Grand%20Plan.md),
    only when delivered work changes roadmap or milestone status.
 
-Update the existing topic document directly when development changes its
-durable contract. Do not create a document for each task, fix, phase, or review.
-Create one only for a distinct, lasting topic with no suitable existing owner.
-Keep implementation details and execution logs in code, tests, commits, or PRs;
-do not turn incidental choices into design constraints. Preserve all unrevoked
-accepted decisions. Follow the [documentation policy](project_structure_and_guidelines.md#3-document-conventions).
-
-Write all repository documentation in English.
+For documentation changes, follow the authoritative
+[documentation policy](project_structure_and_guidelines.md#3-document-conventions).
 
 ## Working rules
 
@@ -83,7 +77,7 @@ Write all repository documentation in English.
 | `packages/slicer-wasm/src/bridge.cpp` | Preserve the narrow C++/JS ABI and run the applicable native WASM quick build. |
 | `packages/slicer-wasm/src/client/` | Keep all direct Emscripten-module access behind this typed client. |
 | `scripts/*.bat`, `packages/slicer-wasm/*.bat` | Use Windows cmd syntax and CRLF; never assume Git Bash. |
-| `doc/`, `spec/` | Update the existing topic owner; retain accepted constraints and avoid task/phase notes or duplicate authorities. |
+| `doc/`, `spec/` | Follow the [documentation policy](project_structure_and_guidelines.md#3-document-conventions). |
 
 ## Bridge and runtime invariants
 

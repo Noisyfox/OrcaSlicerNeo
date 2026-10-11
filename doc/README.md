@@ -6,27 +6,12 @@ Specifications own accepted behavior, required constraints, exclusions and open
 decisions; engineering references own build/debug/verification procedures.
 [Grand Plan](../spec/Grand%20Plan.md) is the single delivery roadmap.
 
-## Reading and maintenance rules
+## Reading and maintenance
 
-1. Start with [AGENTS](../AGENTS.md), the [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md)
-   and [repository guidelines](../project_structure_and_guidelines.md).
-2. Preserve every accepted decision not explicitly superseded, including
-   positive and negative constraints, ownership, failure behavior, scope,
-   rationale and verification requirements. Silence in a later document or an
-   implementation gap does not revoke a decision.
-3. Merge revisions into the owning topic in place. Replace only the changed
-   portion; retain unaffected conditions. Distinguish proposals, accepted
-   requirements, delivered behavior and unverified claims. Preserve unresolved
-   failures and qualification boundaries.
-4. Update the existing topic owner directly. Add a document only for a distinct,
-   lasting topic without a suitable owner, then add it to this index. Tasks,
-   fixes, reviews, and phases do not each need a document. The
-   [documentation policy](../project_structure_and_guidelines.md#3-document-conventions)
-   defines what belongs in maintained docs; working plans and execution logs
-   belong in issues, PRs, or test artifacts. Git retains earlier revisions.
-5. Keep docs in English. Use [README](../README.md) and build-driver help for
-   commands, and [testing guidelines](testing_guidelines.md) for verification
-   scope. Validate changed local links and commands plus `git diff --check`.
+Start with [AGENTS](../AGENTS.md) and the
+[shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md),
+then use the tables below to find the topic owner. Documentation updates follow
+the authoritative [documentation policy](../project_structure_and_guidelines.md#3-document-conventions).
 
 ## Product and architecture
 

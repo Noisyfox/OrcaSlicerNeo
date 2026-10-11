@@ -37,8 +37,9 @@ tools/ scripts/        dev utilities, CI scripts
 ```
 
 See [project_structure_and_guidelines.md](project_structure_and_guidelines.md) and
-[AGENTS.md](AGENTS.md) for structure and engineering conventions. Test
-frequency and focused-versus-release routing are defined by the
+[AGENTS.md](AGENTS.md) for structure and engineering conventions. Documentation
+maintenance follows the [documentation policy](project_structure_and_guidelines.md#3-document-conventions).
+Test frequency and focused-versus-release routing are defined by the
 [testing guidelines](doc/testing_guidelines.md).
 
 ## Building
