@@ -332,7 +332,7 @@ describe('PresetEditorDialog', () => {
     const snapshot: PresetDraftSnapshot = { ...base, editorCandidates: [
       { canonicalName: 'Modified supported', label: 'Modified supported', compatible: true, modified: true },
       { canonicalName: base.canonicalName, label: base.canonicalName, compatible: true, modified: false },
-      { canonicalName: 'Modified unsupported', label: 'Modified unsupported', compatible: false, modified: true },
+      { canonicalName: 'Modified unsupported', label: 'Short alias', compatible: false, modified: true },
       { canonicalName: 'Unsupported', label: 'Unsupported', compatible: false, modified: false },
     ] };
     const onSelectPreset = vi.fn(async () => {});
@@ -350,6 +350,8 @@ describe('PresetEditorDialog', () => {
       'Modified supported', 'Modified unsupported',
     ]);
     expect(document.querySelector('[title="Modified unsupported"] .config-override-label')).not.toBeNull();
+    expect(document.querySelector('[role="menuitemradio"][title="Modified unsupported"]')?.textContent).toBe('Modified unsupported');
+    expect(document.body.textContent).not.toContain('Short alias');
     await click(document.querySelector('[role="menuitemradio"][title="Unsupported"]'));
     expect(onSelectPreset).toHaveBeenCalledWith('Unsupported');
   });

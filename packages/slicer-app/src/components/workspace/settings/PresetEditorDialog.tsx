@@ -949,7 +949,7 @@ export function PresetEditorDialog({
             {snapshot && <div className="mt-2 flex min-w-64 max-w-[min(32rem,60vw)]">
               <PresetCombobox
                 items={snapshot.editorCandidates.map(candidate => ({ id: candidate.canonicalName,
-                  name: candidate.canonicalName, label: candidate.label, modified: candidate.modified }))}
+                  name: candidate.canonicalName, label: candidate.canonicalName, modified: candidate.modified }))}
                 value={target.canonicalName} modified={snapshot.modified} disabled={interactionPending || invalidFields.size > 0}
                 onValue={name => {
                   if (interactionPending || invalidFields.size > 0) return;
