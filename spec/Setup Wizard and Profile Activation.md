@@ -321,20 +321,34 @@ desktop Orca's preset-file editing and configuration-reload implementation.
 
 Confirmation first invalidates any client preparation and rebuilds `/system`
 links from the incoming printer vendors plus `OrcaFilamentLibrary` and `Custom`.
-An independent candidate bundle then uses `PresetBundle::load_presets` with a
-fresh AppConfig seeded with the current Printer. Before loading, the shared native
-Orca rule normalizes ` @System` filament activation names using the current live
-bundle's already loaded `VendorProfile::default_filaments`, preserving its
-substring match and first-loaded-vendor traversal behavior. A matching name is
-replaced by its suffix-stripped name only when a non-Custom printer vendor is
-selected; enabled Custom printers retain both names. Permanent Custom resource
-linking does not count as enabled Custom printers. Unmatched names and names
-without the exact suffix remain unchanged. The full catalogue and newly linked
-candidate vendors do not supply metadata for this step. Current JSON vendor
-loading leaves `default_filaments` empty, so this rule retains the original names
-for those bundles; it does not infer metadata from model `default_materials`.
-Native loading subsequently supplements defaults, and preferences save that
-resulting native activation record. Native loading owns visibility,
+An independent fresh candidate bundle calls the existing native
+`PresetBundle::apply_vendor_config` with overwrite enabled and no preferred new
+Printer or Filament. Its AppConfig is seeded with the current Printer; only a
+value copy of the live bundle's vendor metadata is supplied for the original
+inline pre-load ` @System` rule. No project presets or live collection pointers
+are copied. The rule preserves Orca's substring match and first-loaded-vendor
+traversal: matching suffix names become short names when a non-Custom printer
+vendor is enabled; enabled Custom printers keep both names. Permanent Custom
+resource linking does not count as enabled Custom printers. Unmatched names and
+names without the exact suffix remain unchanged. Current JSON loading leaves
+`VendorProfile::default_filaments` empty, so it does not substitute those names
+or infer metadata from model `default_materials`.
+
+Both WASM variants define `NEO_DISABLE_VENDOR_INSTALLATION`: Worker-managed links
+replace native vendor detection/copying. The API uses its single `load_presets` call.
+Normal library loading resets the candidate's copied metadata. If the optional
+library is absent, native loading may retain copied metadata; Neo accepts that
+native behavior without enforcing an extra reset or fatal-library policy.
+Only metadata was copied, so old source preset/project collections are absent.
+Desktop builds without the macro retain their original installation behavior.
+The native API owns loading/default supplementation, first active-filament
+correction against its normalized input map, and selection export to AppConfig.
+The correction map precedes model-default supplementation; it is not replaced by
+the subsequently expanded activation. Preferences save the resulting native
+activation record. Exported selections also determine whether Neo's minimal
+initial/unavailable-current fallback is needed. Existing native logs and
+exceptions provide diagnostics; preparation adds no aggregate log or
+vendor-completeness requirement. Native loading owns visibility,
 selection and default-material supplementation. Neo adds only an initial or
 unavailable-current fallback hint to choose a real Printer and resolve its
 concrete defaults through native `load_selections`; a valid current source needs

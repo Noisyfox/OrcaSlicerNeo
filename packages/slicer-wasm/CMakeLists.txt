@@ -72,6 +72,10 @@ endif()
 add_compile_definitions(ORCA_WASM_DISABLE_BBS_BACKUP_MANAGER=1)
 # MEMFS resets on each run. Neo uses source JSON only in both WASM variants.
 add_compile_definitions(NEO_DISABLE_VENDOR_CACHE=1)
+# Both Neo variants use Worker-installed /system links, never desktop copying.
+# This gate is needed only by the native vendor configuration translation unit.
+set_source_files_properties(cpp/src/libslic3r/PresetBundle.cpp PROPERTIES
+  COMPILE_DEFINITIONS NEO_DISABLE_VENDOR_INSTALLATION=1)
 if(WASM_DEBUG)
   message(STATUS "WASM debug: libslic3r + bridge at -g -O0 (embedded DWARF); deps stay -O3 without debug info")
 endif()

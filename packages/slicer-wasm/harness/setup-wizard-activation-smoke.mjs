@@ -10,7 +10,7 @@ const factory = await loadModuleFactory(resolve(process.argv[2]));
 const activation = { models: [{ vendor: 'CompatibilityFixture', model: 'Compatibility Alpha', nozzle_diameter: ['0.4'] },
   { vendor: 'ExtraFixture', model: 'extra:Compatibility Alpha', nozzle_diameter: ['0.4'] }],
   filaments: ['Alpha Explicit Filament', 'extra:Alpha Explicit Filament'] };
-async function start(record, transitionFixture = false) {
+async function start(record, transitionFixture = false, withoutLibrary = false) {
   const Module = await factory({ noInitialRun: true, print: () => {}, printErr: () => {} });
   const FS = Module.FS;
   async function copy(directory, target) {
@@ -73,10 +73,11 @@ async function start(record, transitionFixture = false) {
     const ptr = Number(Module.ccall(name, 'number', types, args));
     try { return JSON.parse(Module.UTF8ToString(ptr)); } finally { Module._free(ptr); }
   }
+  if (withoutLibrary) FS.unlink('/profiles/OrcaFilamentLibrary.json');
   links(record); must(call('orc_init', ['string'], [JSON.stringify({ log_level: 'error', profile_activation: record })]));
   assert.equal(Object.hasOwn(call('orc_get_native_scoped_config').native_scoped_config.snapshot.project,
     'wipe_tower_rotation_angle'), false, 'startup has no synthetic rotation override, including before first setup');
-  if (record) assert.equal(call('orc_get_preset_snapshot').project_config.wipe_tower_rotation_angle,
+  if (record && !withoutLibrary) assert.equal(call('orc_get_preset_snapshot').project_config.wipe_tower_rotation_angle,
     '27', 'startup uses the selected Print baseline instead of the static default');
   return { FS, Module, call, links };
 }
@@ -487,3 +488,20 @@ assert.equal(independent.configuration_changed, false);
 
 must(c('orc_close_setup_wizard_catalogue'));
 console.log('setup-wizard-transition PASS real slice retention/invalidation, retained models/variants and disabled fallback, memory/drafts/colours/bed/spatial rollback and new history baseline');
+
+
+// Optional library absence follows native loading, without a new fatal-library
+// requirement. Its retained metadata must not import old source collections.
+const missingLibrary = await start(activation, false, true);
+must(missingLibrary.call('orc_open_setup_wizard_catalogue'));
+missingLibrary.links(base);
+const missingBefore = { profiles: missingLibrary.call('orc_get_preset_snapshot'), history: missingLibrary.call('orc_history_status'),
+  model: missingLibrary.call('orc_get_model_structure') };
+const noLibraryPrepared = missingLibrary.call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation({ ...base, filaments: [] }))]);
+assert.equal(noLibraryPrepared.ok, false, 'native absent-library load cannot reuse old live source collections');
+assert.match(noLibraryPrepared.error, /no usable enabled printer/);
+assert.equal(missingLibrary.call('orc_apply_profile_activation').ok, false, 'baseline usable-printer guard prevents application');
+assert.deepEqual({ profiles: missingLibrary.call('orc_get_preset_snapshot'), history: missingLibrary.call('orc_history_status'),
+  model: missingLibrary.call('orc_get_model_structure') }, missingBefore);
+must(missingLibrary.call('orc_close_setup_wizard_catalogue'));
+console.log('vendor config preparation PASS empty/stale/defaults and absent-library native isolation');

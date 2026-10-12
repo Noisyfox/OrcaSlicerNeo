@@ -1183,18 +1183,15 @@ json prepare_activation(const json& request)
         if (!bed.is_string() || bed.get<std::string>().empty()) throw std::runtime_error("invalid remembered bed type");
     auto config = std::make_unique<AppConfig>();
     configure_activation(*config, activation);
-    // Orca evaluates this pre-load rule against the current live bundle, not
-    // the independent complete wizard catalogue or the new candidate.
-    config->set_section(AppConfig::SECTION_FILAMENTS,
-        state().presets.normalize_system_filament_activation(config->vendors(),
-            config->has_section(AppConfig::SECTION_FILAMENTS)
-                ? config->get_section(AppConfig::SECTION_FILAMENTS)
-                : std::map<std::string, std::string>()));
     config->set("presets", PRESET_PRINTER_NAME, state().presets.printers.get_selected_preset_name());
     auto bundle = std::make_unique<PresetBundle>();
-    std::string errors;
-    bundle->load_presets(*config, ForwardCompatibilitySubstitutionRule::Enable, {}, &errors, false);
-    if (!errors.empty()) BOOST_LOG_TRIVIAL(warning) << "Prepare activation: " << errors;
+    // The full native API needs only the live vendor metadata for its pre-load
+    // rule. Collections and project state belong to this independent candidate.
+    bundle->vendors = state().presets.vendors;
+    const auto target_vendors = config->vendors();
+    const auto target_filaments = config->has_section(AppConfig::SECTION_FILAMENTS)
+        ? config->get_section(AppConfig::SECTION_FILAMENTS) : std::map<std::string, std::string>();
+    bundle->apply_vendor_config(target_vendors, target_filaments, config.get(), true);
     resolve_initial_printer_fallback(*bundle, *config);
     const bool usable = std::any_of(bundle->printers.begin(), bundle->printers.end(),
         [](const Preset& preset) { return !preset.is_default && preset.is_visible; });
