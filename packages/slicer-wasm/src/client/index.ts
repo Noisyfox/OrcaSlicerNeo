@@ -78,6 +78,7 @@ export type { PaintingSessionId, PaintingStrokeId, PaintingRevision, PaintingSes
 export type * from './painting';
 
 export * from './setupWizard';
+export * from './userPresets';
 export { installProfileArchive, linkProfileVendors, safeProfilePath } from './profileFilesystem';
 
 export { configVectorElementAt } from './configElements';
