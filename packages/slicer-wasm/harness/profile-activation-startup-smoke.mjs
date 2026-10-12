@@ -19,6 +19,8 @@ async function start() {
     }
   }
   await copy(source, '/profiles'); FS.mkdirTree('/system'); FS.mkdirTree('/profiles/Unselected');
+  FS.mkdirTree('/profiles/Custom');
+  FS.writeFile('/profiles/Custom.json', JSON.stringify({ name: 'Custom', version: '1.0.0', machine_model_list: [], machine_list: [], process_list: [], filament_list: [] }));
   FS.writeFile('/profiles/Unselected.json', '{invalid excluded vendor');
   const nativeOpens = [];
   const originalOpen = FS.open;
@@ -28,9 +30,9 @@ async function start() {
     try { return JSON.parse(Module.UTF8ToString(ptr)); } finally { Module._free(ptr); }
   }
   function init(record) {
-    for (const vendor of ['CompatibilityFixture', 'OrcaFilamentLibrary', 'Unselected'])
+    for (const vendor of ['CompatibilityFixture', 'OrcaFilamentLibrary', 'Custom', 'Unselected'])
       for (const suffix of ['.json', '']) { try { FS.unlink(`/system/${vendor}${suffix}`); } catch {} }
-    for (const vendor of new Set(['OrcaFilamentLibrary', ...(record?.models.map(model => model.vendor) ?? [])])) {
+    for (const vendor of new Set(['OrcaFilamentLibrary', 'Custom', ...(record?.models.map(model => model.vendor) ?? [])])) {
       if (!FS.analyzePath(`/profiles/${vendor}.json`).exists) continue;
       FS.symlink(`/profiles/${vendor}.json`, `/system/${vendor}.json`);
       FS.symlink(`/profiles/${vendor}`, `/system/${vendor}`);
@@ -38,6 +40,8 @@ async function start() {
     nativeOpens.length = 0;
     const result = call('orc_init', ['string'], [JSON.stringify({ log_level: 'error', profile_activation: record })]);
     assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(FS.readlink('/system/Custom.json'), '/profiles/Custom.json');
+    assert.ok(nativeOpens.includes('/system/Custom.json'), 'startup scans always-linked Custom');
     assert.equal(nativeOpens.some(path => typeof path === 'string' && path.includes('Unselected')), false,
       'filament names do not cause excluded vendor parsing');
     return result;

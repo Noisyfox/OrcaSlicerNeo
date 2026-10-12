@@ -1188,20 +1188,11 @@ json prepare_activation(const json& request)
         if (!bed.is_string() || bed.get<std::string>().empty()) throw std::runtime_error("invalid remembered bed type");
     auto config = std::make_unique<AppConfig>();
     configure_activation(*config, activation);
-    std::set<std::string> vendors;
-    for (const auto& [vendor, models] : config->vendors()) vendors.insert(vendor);
-    std::vector<PresetBundle::VendorSource> sources;
-    const boost::filesystem::path root("/profiles");
-    const std::string library(PresetBundle::ORCA_FILAMENT_LIBRARY);
-    if (boost::filesystem::exists(root / (library + ".json"))) sources.push_back({library, root});
-    for (const auto& vendor : vendors)
-        if (vendor != library && boost::filesystem::exists(root / (vendor + ".json"))) sources.push_back({vendor, root});
-    auto bundle = std::make_unique<PresetBundle>();
-    const auto loaded = bundle->load_vendors(sources, ForwardCompatibilitySubstitutionRule::EnableSilent, false);
-    if (!loaded.second.empty()) BOOST_LOG_TRIVIAL(warning) << "Prepare activation: " << loaded.second;
-    bundle->normalize_compatible_presets();
     config->set("presets", PRESET_PRINTER_NAME, state().presets.printers.get_selected_preset_name());
-    bundle->load_selections(*config);
+    auto bundle = std::make_unique<PresetBundle>();
+    std::string errors;
+    bundle->load_presets(*config, ForwardCompatibilitySubstitutionRule::Enable, {}, &errors, false);
+    if (!errors.empty()) BOOST_LOG_TRIVIAL(warning) << "Prepare activation: " << errors;
     reselect_after_app_config(*bundle, *config);
     const bool usable = std::any_of(bundle->printers.begin(), bundle->printers.end(),
         [](const Preset& preset) { return !preset.is_default && preset.is_visible; });

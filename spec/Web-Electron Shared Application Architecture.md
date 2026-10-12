@@ -342,7 +342,15 @@ state; they are not global selections.
   in-memory value. Ordinary UI preference mirrors remain best effort. Setup
   must persist normalized activation before applying it, so its save failure
   keeps selection editable and its application failure retries the saved
-  preparation. There is no cross-storage rollback.
+  preparation. Before native preparation, the typed client publishes target
+  vendor links (including permanent OrcaFilamentLibrary and Custom). Preparation
+  uses an independent `PresetBundle::load_presets` with writable user-preset
+  loading and current Printer selection seeded in AppConfig. Preparation/save
+  failures leave the live project, bundle and history unchanged, but links and
+  directory/corrected/discarded preset-file side effects persist through failures
+  and cancellation; restart rebuilds links from saved activation. Apply uses the
+  prepared bundle without relinking or reparsing resources. There is no
+  cross-storage rollback.
 - `sidebarWidth`, `deviceSidebarWidth`, `switchToDeviceAfterSend`, and other
   common UI preferences are persisted in both hosts. The send-navigation
   preference defaults to `true`; older documents that lack it are migrated to

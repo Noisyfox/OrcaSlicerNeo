@@ -95,7 +95,8 @@ to be skipped and are retried on the next opening. Core failures remain fatal.
 Runtime recreation creates a fresh installer and uses persisted activation.
 Extracted MEMFS resources may remain until runtime disposal, while each opening
 rebuilds its temporary native catalogue. Downloading never changes `/system`
-links or the live project; only the accepted apply operation publishes links.
+links or the live project. Confirmation publishes target vendor links before
+native preparation.
 
 During wizard loading, show `Downloading profiles N/Total` for the packages
 pending in that invocation, excluding already successful installs. Skipped
@@ -207,7 +208,8 @@ dedicated single-page entry points in this release.
   and Filament activation. Do not add separate Printer-only or Filament-only
   entries, or management buttons beside workspace selectors.
 - A later wizard opened from the menu can be cancelled. Cancellation discards
-  its activation draft and leaves the current configuration unchanged.
+  its activation draft and leaves the live configuration unchanged; earlier
+  confirmation link and preset-file side effects persist.
 - Show first-use setup before opening files. While first-use setup is pending,
   silently discard file-open requests, including startup requests. Do not queue
   them, show a notice, or automatically retry them after setup. Introduce no
@@ -316,6 +318,18 @@ desktop Orca's preset-file editing and configuration-reload implementation.
   version as absent, using the existing preference normalization mechanism.
   Enter mandatory setup without adding backup recovery or a dedicated repair
   dialog. Preserve other preference fields that can still be read normally.
+
+Confirmation first invalidates any client preparation and rebuilds `/system`
+links from the incoming printer vendors plus `OrcaFilamentLibrary` and `Custom`.
+An independent candidate bundle then uses `PresetBundle::load_presets` with a
+fresh AppConfig seeded with the current Printer; native loading owns visibility,
+selection and default-material supplementation. Loading is writable and may
+create directories, rewrite corrected user presets or delete discarded presets;
+`.opc` caches remain disabled. Link and user-preset file side effects are not
+rolled back after preparation, save, apply failure or cancellation, including
+partial link failure. Restart reconstructs links from saved activation. The live
+project, bundle and history remain unchanged until successful application.
+The full wizard catalogue continues to use independent `load_vendors` loading.
 
 Pre-save validation/normalization, native application, and renderer publication
 must respect these save-before-apply and receipt-retry boundaries. Publish the

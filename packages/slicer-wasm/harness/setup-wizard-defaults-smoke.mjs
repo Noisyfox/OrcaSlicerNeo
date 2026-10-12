@@ -15,10 +15,10 @@ function call(name, types = [], args = []) {
 }
 function must(result) { assert.equal(result.ok, true, JSON.stringify(result)); return result; }
 function links(activation) {
-  for (const vendor of ['Creality', 'OrcaFilamentLibrary']) for (const suffix of ['', '.json']) {
+  for (const vendor of ['Creality', 'Custom', 'OrcaFilamentLibrary']) for (const suffix of ['', '.json']) {
     try { FS.unlink(`/system/${vendor}${suffix}`); } catch {}
   }
-  for (const vendor of ['OrcaFilamentLibrary', ...new Set(activation?.models.map(model => model.vendor) ?? [])]) {
+  for (const vendor of ['OrcaFilamentLibrary', 'Custom', ...new Set(activation?.models.map(model => model.vendor) ?? [])]) {
     FS.symlink(`/profiles/${vendor}.json`, `/system/${vendor}.json`);
     FS.symlink(`/profiles/${vendor}`, `/system/${vendor}`);
   }
@@ -42,8 +42,11 @@ must(call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify
 const direct = summary(); must(call('orc_add_shape', ['string', 'string'], ['Cube', 'Default comparison']));
 const directSlice = await slice();
 init(null); must(call('orc_open_setup_wizard_catalogue'));
+links(activation);
+assert.deepEqual(FS.readdir('/system').filter(name => name.endsWith('.json')).sort(), ['Creality.json', 'Custom.json', 'OrcaFilamentLibrary.json', 'blacklist.json']);
 const prepared = must(call('orc_prepare_profile_activation', ['string'], [JSON.stringify({ activation, remembered_filament_racks: {}, remembered_bed_types: {} })]));
-const saved = structuredClone(prepared.activation); links(saved); must(call('orc_apply_profile_activation'));
+assert.equal(FS.readlink('/system/Custom.json'), '/profiles/Custom.json', 'confirmation retains permanent Custom');
+must(call('orc_apply_profile_activation'));
 const wizard = summary(); must(call('orc_add_shape', ['string', 'string'], ['Cube', 'Default comparison']));
 const wizardSlice = await slice();
 assert.deepEqual(wizard, direct, 'wizard and ordinary selection must produce the same native effective defaults');
