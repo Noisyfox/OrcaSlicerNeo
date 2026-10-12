@@ -184,6 +184,19 @@ must(initialSetup.call('orc_open_setup_wizard_catalogue'));
 const systemInput = { ...base, filaments: ['Alpha Explicit Filament @System', 'No Match @System', 'Alpha Explicit Filament @System extra'] };
 const initialState = { profiles: initialSetup.call('orc_get_preset_snapshot'), history: initialSetup.call('orc_history_status'),
   model: initialSetup.call('orc_get_model_structure') };
+const emptyMaterials = { ...base, filaments: [] };
+initialSetup.links(emptyMaterials);
+const emptyPrepared = must(initialSetup.call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(emptyMaterials))])).activation;
+assert.ok(emptyPrepared.filaments.includes('Alpha Explicit Filament'), 'empty input section is supplemented by native defaults');
+assert.deepEqual({ profiles: initialSetup.call('orc_get_preset_snapshot'), history: initialSetup.call('orc_history_status'),
+  model: initialSetup.call('orc_get_model_structure') }, initialState, 'empty filament preparation leaves live state unchanged');
+initialSetup.links({ models: [], filaments: [] });
+const emptyRejected = initialSetup.call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation({ models: [], filaments: [] }))]);
+assert.equal(emptyRejected.ok, false, 'empty activation rejects without trapping');
+assert.match(emptyRejected.error, /no usable enabled printer/);
+assert.equal(initialSetup.call('orc_apply_profile_activation').ok, false, 'rejected empty preparation invalidates native candidate');
+assert.deepEqual({ profiles: initialSetup.call('orc_get_preset_snapshot'), history: initialSetup.call('orc_history_status'),
+  model: initialSetup.call('orc_get_model_structure') }, initialState);
 initialSetup.links(systemInput);
 const firstSystem = must(initialSetup.call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(systemInput))])).activation;
 for (const name of systemInput.filaments) assert.ok(firstSystem.filaments.includes(name), 'first-use metadata comes from live bundle, not catalogue');

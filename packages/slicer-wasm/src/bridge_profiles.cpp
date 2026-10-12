@@ -1187,7 +1187,9 @@ json prepare_activation(const json& request)
     // the independent complete wizard catalogue or the new candidate.
     config->set_section(AppConfig::SECTION_FILAMENTS,
         state().presets.normalize_system_filament_activation(config->vendors(),
-            config->get_section(AppConfig::SECTION_FILAMENTS)));
+            config->has_section(AppConfig::SECTION_FILAMENTS)
+                ? config->get_section(AppConfig::SECTION_FILAMENTS)
+                : std::map<std::string, std::string>()));
     config->set("presets", PRESET_PRINTER_NAME, state().presets.printers.get_selected_preset_name());
     auto bundle = std::make_unique<PresetBundle>();
     std::string errors;
