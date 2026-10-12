@@ -63,6 +63,9 @@ assert.notEqual(session.call('orc_select_preset', ['string', 'string'], ['printe
   'saved current printer cannot activate an excluded source vendor');
 initialized = session.init(activation);
 assert.equal(initialized.setupRequired, false); assert.equal(initialized.printers, 3, 'entire selected vendor parses');
+const startupProfiles = session.call('orc_get_preset_snapshot');
+assert.equal(startupProfiles.printer.name, 'Compatibility Alpha 0.4 nozzle', 'startup excludes intrinsic placeholder');
+assert.equal(startupProfiles.print.name, 'Alpha Explicit Process', 'native fallback resolves concrete default Process');
 assert.deepEqual(session.call('orc_get_preset_snapshot').printers.map(item => item.name), ['Compatibility Alpha 0.4 nozzle'],
   'only enabled model/nozzle is admitted');
 const stale = { models: [{ vendor: 'CompatibilityFixture', model: 'Removed model', nozzle_diameter: ['0.4'] },

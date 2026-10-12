@@ -323,8 +323,12 @@ Confirmation first invalidates any client preparation and rebuilds `/system`
 links from the incoming printer vendors plus `OrcaFilamentLibrary` and `Custom`.
 An independent candidate bundle then uses `PresetBundle::load_presets` with a
 fresh AppConfig seeded with the current Printer; native loading owns visibility,
-selection and default-material supplementation. Loading is writable and may
-create directories, rewrite corrected user presets or delete discarded presets;
+selection and default-material supplementation. Neo adds only an initial or
+unavailable-current fallback hint to choose a real Printer and resolve its
+concrete defaults through native `load_selections`; a valid current source needs
+no additional reselection or compatibility/rack normalization. Loading is
+writable and may create directories, rewrite corrected user presets or delete
+discarded presets;
 `.opc` caches remain disabled. Link and user-preset file side effects are not
 rolled back after preparation, save, apply failure or cancellation, including
 partial link failure. Restart reconstructs links from saved activation. The live

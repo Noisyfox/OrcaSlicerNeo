@@ -296,29 +296,24 @@ void configure_activation(AppConfig& config, const json& activation)
         config.set(AppConfig::SECTION_FILAMENTS, filament.get<std::string>(), "true");
 }
 
-void reselect_after_app_config(PresetBundle& bundle, AppConfig& config)
+void resolve_initial_printer_fallback(PresetBundle& bundle, AppConfig& config)
 {
     const std::string initial = config.get("presets", PRESET_PRINTER_NAME);
     const Preset* requested = bundle.printers.find_preset(initial, false, true);
-    bool selected = requested && !requested->is_default && requested->is_visible &&
-                    bundle.printers.select_preset_by_name(initial, true);
-    if (!selected) {
-        for (auto it = bundle.printers.lbegin();
-             it != bundle.printers.end(); ++it) {
-            if (it->is_default || !it->is_visible) continue;
-            // Orca resolves concrete Process/Filament defaults through this
-            // hint. Use it only for initial/disabled-current fallback, never
-            // for newly enabled availability while the current source is valid.
-            PresetBundle::PresetPreferences fallback;
-            fallback.printer_model_id = it->config.opt_string("printer_model");
-            fallback.printer_variant = it->config.opt_string("printer_variant");
-            config.set("presets", PRESET_PRINTER_NAME, it->name);
-            bundle.load_selections(config, fallback);
-            break;
-        }
+    // load_presets/load_selections already resolves a valid current source,
+    // including historical names, compatibility and the material rack.
+    if (requested && !requested->is_default && requested->is_visible) return;
+    for (const Preset& preset : bundle.printers) {
+        if (preset.is_default || !preset.is_visible) continue;
+        // Neo excludes intrinsic placeholders as initial/disabled-current
+        // fallback. Let Orca resolve this real printer's concrete defaults.
+        PresetBundle::PresetPreferences fallback;
+        fallback.printer_model_id = preset.config.opt_string("printer_model");
+        fallback.printer_variant = preset.config.opt_string("printer_variant");
+        config.set("presets", PRESET_PRINTER_NAME, preset.name);
+        bundle.load_selections(config, fallback);
+        break;
     }
-    bundle.update_compatible(PresetSelectCompatibleType::Always);
-    bundle.update_multi_material_filament_presets();
 }
 
 void reset_app_config()
@@ -1042,7 +1037,7 @@ const char* init_profiles(const json& activation)
     set_resources_dir("/");
     state().presets.setup_directories();
     state().presets.load_presets(state().profile_config, ForwardCompatibilitySubstitutionRule::Enable);
-    reselect_after_app_config(state().presets, state().profile_config);
+    resolve_initial_printer_fallback(state().presets, state().profile_config);
     const bool usable_printer = std::any_of(state().presets.printers.begin(), state().presets.printers.end(),
         [](const Preset& preset) { return !preset.is_default && preset.is_visible; });
     return dup_json(json{{"ok", true}, {"setupRequired", activation.is_null() || !usable_printer},
@@ -1193,7 +1188,7 @@ json prepare_activation(const json& request)
     std::string errors;
     bundle->load_presets(*config, ForwardCompatibilitySubstitutionRule::Enable, {}, &errors, false);
     if (!errors.empty()) BOOST_LOG_TRIVIAL(warning) << "Prepare activation: " << errors;
-    reselect_after_app_config(*bundle, *config);
+    resolve_initial_printer_fallback(*bundle, *config);
     const bool usable = std::any_of(bundle->printers.begin(), bundle->printers.end(),
         [](const Preset& preset) { return !preset.is_default && preset.is_visible; });
     if (!usable) throw std::runtime_error("activation has no usable enabled printer");
