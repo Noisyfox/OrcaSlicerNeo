@@ -33,6 +33,10 @@ let roundtripProfiles = ok(call('orc_get_preset_snapshot'));
 mutate('save-as', 'printer', roundtripProfiles.printer.name, { name: 'Roundtrip Printer' });
 mutate('save-as', 'print', roundtripProfiles.print.name, { name: 'Roundtrip Process' });
 mutate('save-as', 'filament', first, { name: 'Roundtrip Filament' });
+ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonical_name: 'Roundtrip Printer', key: 'printer_notes', value: 'saved notes', expected_revision: status().revision }));
+mutate('save', 'printer', 'Roundtrip Printer');
+ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'filament_diameter', value: '1.76', expected_revision: status().revision }));
+mutate('save', 'filament', 'Roundtrip Filament');
 let roundtripRack = ok(call('orc_get_filament_session_snapshot'));
 ok(request('orc_add_filament_slot', { version: 1, revision: roundtripRack.revisions.session }));
 function roundtripExport() {
@@ -62,7 +66,16 @@ function assertRoundtripIdentities() {
 }
 roundtripLoad(roundtripExport());
 assertRoundtripIdentities();
+const cleanResults = [['printer', 'Roundtrip Printer'], ['filament', 'Roundtrip Filament']].map(([kind, name]) => {
+  const clean = ok(call('orc_get_preset_draft', [kind, name]));
+  return { kind, modified: clean.modified, overrides: clean.overrides,
+    differences: Object.keys(clean.source_values).filter(key => clean.source_values[key] !== clean.effective_values[key]) };
+});
+assert.ok(cleanResults.every(result => !result.modified), JSON.stringify(cleanResults));
+assert.equal(ok(call('orc_get_preset_draft', ['printer', 'Roundtrip Printer'])).effective_values.printer_notes, 'saved notes');
+assert.ok(draft('Roundtrip Filament').effective_values.filament_diameter.split(',').every(value => value === '1.76'));
 ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonical_name: 'Roundtrip Printer', key: 'printer_notes', value: 'project notes', expected_revision: status().revision }));
+ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonical_name: 'Roundtrip Printer', key: 'thumbnails', value: '64x64/PNG', expected_revision: status().revision }));
 ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'nozzle_temperature', value: '237', expected_revision: status().revision }));
 ok(request('orc_mutate_native_scoped_config', { version: 1, operation: 'set', targets: [{ scope: 'project' }], key: 'layer_height', value: '0.27' }));
 const editedUserArchive = roundtripExport();
@@ -73,6 +86,9 @@ roundtripLoad(editedUserArchive);
 assertRoundtripIdentities();
 assert.equal(ok(call('orc_get_preset_snapshot')).project_config.layer_height, '0.27');
 assert.equal(ok(call('orc_get_preset_draft', ['printer', 'Roundtrip Printer'])).effective_values.printer_notes, 'project notes');
+assert.equal(ok(call('orc_get_preset_draft', ['printer', 'Roundtrip Printer'])).effective_values.thumbnails, '64x64/PNG');
+assert.equal(ok(call('orc_get_preset_draft', ['printer', 'Roundtrip Printer'])).modified, true);
+assert.equal(draft('Roundtrip Filament').modified, true);
 assert.ok(draft('Roundtrip Filament').effective_values.nozzle_temperature.split(',').every(value => value === '237'));
 // Durable files are unchanged by importing project overrides.
 const filesBeforeReload = new Map(disk);

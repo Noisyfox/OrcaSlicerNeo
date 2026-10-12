@@ -3,6 +3,7 @@
 // ----------------------------------------------------------------
 #include "bridge_project_persistence.hpp"
 #include "bridge_user_presets.hpp"
+#include "libslic3r/GCode/Thumbnails.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -363,6 +364,13 @@ void add_active_draft_overrides(PresetDraftRegistry& drafts,
         if (source_value != effective_value) {
             DynamicPrintConfig effective = *source_config;
             effective.set_key_value(key, effective_option.release());
+            // The archive reader upgrades legacy thumbnail syntax (implicit
+            // PNG) even when no setting changed. Compare the parsed sizes and
+            // formats before creating a project override.
+            if (key == "thumbnails" &&
+                GCodeThumbnails::make_and_check_thumbnail_list(*source_config) ==
+                GCodeThumbnails::make_and_check_thumbnail_list(effective))
+                continue;
             drafts.set(type, canonical_name, key, ConfigElements::explicit_values(effective, type, key));
         }
     }
