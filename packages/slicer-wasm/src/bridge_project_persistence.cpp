@@ -313,7 +313,8 @@ void add_active_draft_overrides(PresetDraftRegistry& drafts,
                                 const std::string& canonical_name,
                                 const DynamicPrintConfig& imported_config,
                                 const std::set<std::string>& diff_keys,
-                                const std::optional<std::size_t> filament_slot = std::nullopt)
+                                const std::optional<std::size_t> filament_slot = std::nullopt,
+                                const std::vector<std::string>* filament_sources = nullptr)
 {
     if (canonical_name.empty() || diff_keys.empty()) return;
     const DynamicPrintConfig* source_config = project_preset_source_config(
@@ -338,7 +339,24 @@ void add_active_draft_overrides(PresetDraftRegistry& drafts,
             const auto span = filament_options_with_variant.count(key) != 0
                 ? project_filament_variant_span(imported_config, *filament_slot)
                 : std::nullopt;
-            if (span && variants != nullptr &&
+            if (filament_dev_options.count(key) != 0 && filament_sources != nullptr) {
+                // Device settings contain a whole per-filament vector (AMS
+                // types/drying modes), concatenated across material slots.
+                // They are neither one value per slot nor extruder variants.
+                std::size_t offset = 0, length = 0, total = 0;
+                bool complete = true;
+                for (std::size_t index = 0; index < filament_sources->size(); ++index) {
+                    const auto* config = project_preset_source_config(
+                        collection, embedded_snapshot, (*filament_sources)[index]);
+                    const auto* values = config ? dynamic_cast<const ConfigOptionVectorBase*>(config->option(key)) : nullptr;
+                    if (!values) { complete = false; break; }
+                    if (index < *filament_slot) offset += values->size();
+                    if (index == *filament_slot) length = values->size();
+                    total += values->size();
+                }
+                if (!complete || total != imported_vector->size() || length == 0) continue;
+                effective_vector->set(imported_vector, offset, length);
+            } else if (span && variants != nullptr &&
                 imported_vector->size() == variants->values.size()) {
                 if (span->first + span->second > imported_vector->size()) continue;
                 // Multi-extruder projects flatten variant-aware Filament
@@ -417,11 +435,15 @@ void reconstruct_active_project_drafts(
             ? diff_keys[index + 1] : empty_keys;
         const std::string canonical_name = project_load_source_name(
             candidate.filaments, embedded_filaments, loaded_name, requested_name, keys);
-        add_active_draft_overrides(drafts, candidate.filaments, embedded_filaments,
-                                   Preset::TYPE_FILAMENT, canonical_name,
-                                   imported_config, keys, index);
         canonical_filament_names.push_back(canonical_name);
         loaded_filaments.push_back({loaded_name, canonical_name});
+    }
+    for (std::size_t index = 0; index < canonical_filament_names.size(); ++index) {
+        const std::set<std::string> empty_keys;
+        const auto& keys = index + 1 < diff_keys.size() ? diff_keys[index + 1] : empty_keys;
+        add_active_draft_overrides(drafts, candidate.filaments, embedded_filaments,
+                                   Preset::TYPE_FILAMENT, canonical_filament_names[index],
+                                   imported_config, keys, index, &canonical_filament_names);
     }
 
     const std::string loaded_printer_name = candidate.printers.get_selected_preset_name();

@@ -37,6 +37,19 @@ ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonica
 mutate('save', 'printer', 'Roundtrip Printer');
 ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'filament_diameter', value: '1.76', expected_revision: status().revision }));
 mutate('save', 'filament', 'Roundtrip Filament');
+// Load whole device vectors as a real preset file. Ordinary parameter edits
+// intentionally preserve the existing vector width and cannot grow these.
+const devicePreset = JSON.parse(disk.get('filament/Roundtrip Filament.json'));
+devicePreset.filament_dev_ams_drying_ams_limitations = ['1', '0'];
+devicePreset.filament_dev_ams_drying_temperature = ['31', '42', '53', '64'];
+devicePreset.filament_dev_ams_drying_time = ['5', '6', '7', '8'];
+disk.set('filament/Roundtrip Filament.json', JSON.stringify(devicePreset));
+Module.FS.writeFile('/user/default/filament/Roundtrip Filament.json', disk.get('filament/Roundtrip Filament.json'));
+ok(call('orc_init', [fixtureProfileOptions(Module)]));
+ok(call('orc_select_preset', ['printer', 'Roundtrip Printer']));
+ok(call('orc_select_preset', ['print', 'Roundtrip Process']));
+let deviceRack = ok(call('orc_get_filament_session_snapshot'));
+ok(request('orc_select_filament_slot_preset', { version: 1, revision: deviceRack.revisions.session, slot: 1, preset: 'Roundtrip Filament' }));
 let roundtripRack = ok(call('orc_get_filament_session_snapshot'));
 ok(request('orc_add_filament_slot', { version: 1, revision: roundtripRack.revisions.session }));
 function roundtripExport() {
@@ -74,9 +87,13 @@ const cleanResults = [['printer', 'Roundtrip Printer'], ['filament', 'Roundtrip 
 assert.ok(cleanResults.every(result => !result.modified), JSON.stringify(cleanResults));
 assert.equal(ok(call('orc_get_preset_draft', ['printer', 'Roundtrip Printer'])).effective_values.printer_notes, 'saved notes');
 assert.ok(draft('Roundtrip Filament').effective_values.filament_diameter.split(',').every(value => value === '1.76'));
+assert.equal(draft('Roundtrip Filament').effective_values.filament_dev_ams_drying_ams_limitations, '1;0');
+assert.equal(draft('Roundtrip Filament').effective_values.filament_dev_ams_drying_temperature, '31,42,53,64');
+assert.equal(draft('Roundtrip Filament').effective_values.filament_dev_ams_drying_time, '5,6,7,8');
 ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonical_name: 'Roundtrip Printer', key: 'printer_notes', value: 'project notes', expected_revision: status().revision }));
 ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonical_name: 'Roundtrip Printer', key: 'thumbnails', value: '64x64/PNG', expected_revision: status().revision }));
 ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'nozzle_temperature', value: '237', expected_revision: status().revision }));
+ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'filament_dev_ams_drying_ams_limitations', value: '0;1', expected_revision: status().revision }));
 ok(request('orc_mutate_native_scoped_config', { version: 1, operation: 'set', targets: [{ scope: 'project' }], key: 'layer_height', value: '0.27' }));
 const editedUserArchive = roundtripExport();
 // The library may have advanced since export; importing must keep file values.
@@ -89,6 +106,7 @@ assert.equal(ok(call('orc_get_preset_draft', ['printer', 'Roundtrip Printer'])).
 assert.equal(ok(call('orc_get_preset_draft', ['printer', 'Roundtrip Printer'])).effective_values.thumbnails, '64x64/PNG');
 assert.equal(ok(call('orc_get_preset_draft', ['printer', 'Roundtrip Printer'])).modified, true);
 assert.equal(draft('Roundtrip Filament').modified, true);
+assert.equal(draft('Roundtrip Filament').effective_values.filament_dev_ams_drying_ams_limitations, '0;1');
 assert.ok(draft('Roundtrip Filament').effective_values.nozzle_temperature.split(',').every(value => value === '237'));
 // Durable files are unchanged by importing project overrides.
 const filesBeforeReload = new Map(disk);
@@ -109,6 +127,9 @@ const missingFilament = ok(call('orc_get_filament_session_snapshot')).slots[0].p
 assert.ok(ok(call('orc_get_filament_session_snapshot')).slots.every(slot => slot.preset.is_project_embedded));
 assert.equal(ok(call('orc_user_preset_info', ['filament', missingFilament])).can_save, false);
 assert.ok(draft(missingFilament).effective_values.nozzle_temperature.split(',').every(value => value === '237'));
+assert.equal(draft(missingFilament).effective_values.filament_dev_ams_drying_ams_limitations, '0;1');
+assert.equal(draft(missingFilament).effective_values.filament_dev_ams_drying_temperature, '31,42,53,64');
+assert.equal(draft(missingFilament).effective_values.filament_dev_ams_drying_time, '5,6,7,8');
 
 console.log('user-preset-3mf PASS installed identities, project overrides, advanced saved head, multiple slots and missing-library fallback');
 process.exit(0);
