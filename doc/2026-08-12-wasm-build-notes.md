@@ -89,7 +89,7 @@ filter, and `/tmp` follows the host's NODEFS/MEMFS contract above.
 Profiles are independently built ZIP resources, not a WASM preload bundle.
 Core resources mount under `/system`; installed vendor packages live under
 `/profiles` and active vendors link into `/system`. Startup installs core,
-OrcaFilamentLibrary and activated printer vendors; Setup Wizard installs the
+OrcaFilamentLibrary, Custom and activated printer vendors; Setup Wizard installs the
 remaining catalogue in the existing runtime. Successful installs are reused.
 The `resources/info` preload remains separate. See
 [Setup Wizard](../spec/Setup%20Wizard%20and%20Profile%20Activation.md).

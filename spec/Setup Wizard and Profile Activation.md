@@ -25,11 +25,11 @@ The user has selected vendor-package loading granularity. A needed vendor is
 parsed as a whole; native visibility and compatibility determine the admitted
 workspace candidates. This feature does not introduce per-profile JSON pruning.
 
-Startup downloads and extracts only core, OrcaFilamentLibrary and vendors
+Startup downloads and extracts only core, OrcaFilamentLibrary, Custom and vendors
 explicitly identified by enabled printer models. Before opening the wizard,
 the same Worker installs remaining supplied vendor packages, then constructs
 the full native catalogue. Normal startup parses only enabled printer vendors
-and the permanent library.
+and the permanent Custom and library bundles.
 
 ## 2. Resource layout and startup
 
@@ -39,6 +39,8 @@ Use two MEMFS views of the same resources:
 /profiles/                         Installed vendor resources (complete after wizard download)
   OrcaFilamentLibrary.json
   OrcaFilamentLibrary/
+  Custom.json
+  Custom/
   <Vendor>.json
   <Vendor>/
 
@@ -46,21 +48,26 @@ Use two MEMFS views of the same resources:
   <core package contents>          Extracted here directly
   OrcaFilamentLibrary.json         -> /profiles/OrcaFilamentLibrary.json
   OrcaFilamentLibrary/             -> /profiles/OrcaFilamentLibrary/
+  Custom.json                     -> /profiles/Custom.json
+  Custom/                         -> /profiles/Custom/
   <EnabledVendor>.json            -> /profiles/<EnabledVendor>.json
   <EnabledVendor>/                -> /profiles/<EnabledVendor>/
 ```
 
 - Core resources are always present and extracted directly into `/system`.
-- `OrcaFilamentLibrary` is always present, linked into `/system`, and loaded.
-  It cannot be deselected by the wizard.
+- `OrcaFilamentLibrary` and `Custom` are always present, linked into `/system`,
+  and loaded.
+  Their resource bundles cannot be deselected by the wizard; Custom printer
+  model/nozzle visibility still follows the saved activation.
 - Other vendors are extracted into `/profiles`. Only vendors explicitly named
   by enabled printer-model records are linked into `/system`.
 - Link each vendor's root JSON and its complete resource directory. Do not
   copy or individually link each preset file.
 - The optional vendor load set comes exclusively from `models[].vendor`.
   Filament names and display manufacturers (`filament_vendor`) never select
-  additional vendor packages. `OrcaFilamentLibrary` is the permanent exception
-  to printer-derived vendor inclusion; core is always extracted directly.
+  additional vendor packages. `OrcaFilamentLibrary` and `Custom` are the permanent
+  exceptions to printer-derived vendor inclusion; core is always extracted
+  directly.
 - MEMFS belongs to the current runtime and is reset when that runtime is
   recreated. Previous application runs do not leave extracted MEMFS files.
 
@@ -78,10 +85,10 @@ its lifetime and interaction rules are defined below.
 
 Each runtime owns an installer session containing its validated manifest and
 the set of successfully extracted packages. Startup with absent activation
-installs only the two permanent packages. Unknown printer vendors are skipped
+installs only the three permanent packages. Unknown printer vendors are skipped
 when absent from the manifest; filament records never request optional vendors.
-The current manifest has no dependency schema; the existing permanent library
-dependency remains enabled without inventing additional vendor dependencies.
+The current manifest has no dependency schema; the permanent Custom bundle and
+library dependency remain enabled without inventing additional vendor dependencies.
 Wizard opening installs remaining packages; successful packages are neither
 fetched nor rewritten on subsequent openings. Failed vendor attempts continue
 to be skipped and are retried on the next opening. Core failures remain fatal.
@@ -384,7 +391,8 @@ replacing global activation settings. Neo retains that separation.
   Report normal startup, first wizard opening, repeated wizard opening, and
   WASM memory before catalogue construction, after construction, and after
   closing. Verify that startup parses only enabled vendor packages plus the
-  permanent library, and that closing releases the temporary catalogue data.
+  permanent Custom and library bundles, and that closing releases the temporary
+  catalogue data.
   Reassess optimization needs from measured results. Releasing allocations
   does not require the WASM heap's high-water capacity to shrink.
 
@@ -407,7 +415,7 @@ no cross-opening image cache or additional runtime/client/native API.
 
 The activation, JSON-only cache policy, temporary catalogue, save-before-apply,
 project/history transition and shared wizard are delivered. Startup installs
-only core, OrcaFilamentLibrary and activated printer vendors; opening the
+only core, OrcaFilamentLibrary, Custom and activated printer vendors; opening the
 catalogue installs remaining packages in the same runtime. Installation is
 serialized, validates the full manifest before writes, retains successful
 packages and retries failed vendors. Startup and catalogue progress have

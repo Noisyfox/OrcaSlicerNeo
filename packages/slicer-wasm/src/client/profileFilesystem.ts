@@ -33,7 +33,7 @@ export function installProfileArchive(module: { FS: ArchiveFilesystem }, kind: '
 export function linkProfileVendors(module: OrcaModule, activation: ProfileActivation | null): void {
   const fs = module.FS;
   mkdirParents(fs, '/system'); mkdirParents(fs, '/profiles');
-  const vendors = new Set(['OrcaFilamentLibrary', ...(activation?.models.map(model => model.vendor) ?? [])]);
+  const vendors = new Set(['OrcaFilamentLibrary', 'Custom', ...(activation?.models.map(model => model.vendor) ?? [])]);
   for (const vendor of vendors) {
     if (safeProfilePath(vendor) !== vendor || /[/:]/.test(vendor) || !vendor.trim()) throw new Error('vendor must be a profile basename');
   }
