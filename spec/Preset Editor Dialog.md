@@ -590,3 +590,9 @@ interaction is introduced. Both hosts retain their current desktop layout.
 Phase two may add Save As, rename, delete, user-repository persistence, and
 preset-management surfaces. It must convert a selected runtime draft into an
 explicit user action; phase one never performs that conversion implicitly.
+
+The design for that extension is owned by
+[User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md).
+It records immutable saved versions, head-relative dirty state and explicit
+version adoption. These are design requirements, not delivered editor behaviour;
+the current draft-overlay highlighting above remains the implementation status.
