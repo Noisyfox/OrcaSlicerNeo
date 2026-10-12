@@ -1,6 +1,6 @@
 # WASM Build and Runtime Reference
 
-**Updated:** 2026-10-11
+**Updated:** 2026-10-12
 **Status:** Current engineering reference
 **Scope:** Native build ownership, artifacts and runtime constraints.
 
@@ -35,6 +35,49 @@ Draco, OCCT/XCAF for STEP and NLopt for arrangement. Fetch/build scripts and
 CMake own exact versions, library sets and feature exclusions. When symbols
 or upstream signatures change, fix the owning source/scaffold rather than
 adding a renderer compatibility layer.
+
+## Native compile-time macro policy
+
+This policy applies to Neo adaptations inside the Orca submodule
+(`packages/slicer-wasm/cpp/`). It does not rename the scaffold's bridge, shim,
+test or profiling switches.
+
+`ORC_NEO_WASM` is the single identity macro for those adaptations. Fixed Neo
+behavior uses `#if ORC_NEO_WASM` (or `#if !ORC_NEO_WASM` for the desktop
+implementation), rather than a separate feature switch. This includes source
+JSON vendor loading, Worker-managed profile installation and backup-manager
+stubs. Neo-specific adaptations must not use `__EMSCRIPTEN__` as a substitute
+for this policy boundary.
+
+Only behavior that must be independently enabled, such as threading,
+standalone tests, fault injection or profiling, gets a separate switch. All
+Neo-owned switches introduced in the submodule use the `ORC_NEO_WASM_` prefix.
+At every submodule C++ use site,
+combine the switch with the identity macro, for example:
+
+```cpp
+#if ORC_NEO_WASM && ORC_NEO_WASM_FEATURE
+// Optional Neo implementation.
+#endif
+#if ORC_NEO_WASM && !ORC_NEO_WASM_FEATURE
+// Neo implementation with the option disabled.
+#endif
+```
+
+Configure these submodule policy macros through the scaffold's directory-wide
+`add_compile_definitions`, so every translation unit gets the same values.
+The identity macro is `1` in Neo; optional switches must be numeric `0` or `1`, so use `#if`
+rather than `#ifdef`. Do not configure macros on individual sources or targets,
+or define build switches inside submodule source files. For an optional switch,
+keep its CMake option, build-driver environment variable, CI, harnesses and
+documentation on the same name. Existing submodule adaptations are fixed policy
+and need no optional switch. There are no legacy submodule macro aliases.
+
+Toolchain and third-party contract macros retain their required names (for
+example `__EMSCRIPTEN__`, `BOOST_HAS_THREADS` and `LIBNEST2D_THREADING_tbb`).
+This policy does not rename upstream/toolchain macros or modify third-party
+headers. Native desktop builds leave `ORC_NEO_WASM` undefined (equivalent to
+zero in these `#if` conditions), preserving the desktop branches.
 
 ## Threading, shims and memory
 

@@ -65,17 +65,10 @@ if(WASM_THREADING)
 else()
   message(STATUS "WASM threading: serial TBB shim (explicit fallback)")
 endif()
-# The upstream BBS backup manager starts a native boost::thread and is not
-# part of the synchronous WASM bridge contract. Its complete implementation
-# is excluded by patch 0006 for both WASM variants; the ABI-compatible no-op
-# entry points live in stubs/backup-manager-stub.cpp.
-add_compile_definitions(ORCA_WASM_DISABLE_BBS_BACKUP_MANAGER=1)
-# MEMFS resets on each run. Neo uses source JSON only in both WASM variants.
-add_compile_definitions(NEO_DISABLE_VENDOR_CACHE=1)
-# Both Neo variants use Worker-installed /system links, never desktop copying.
-# This gate is needed only by the native vendor configuration translation unit.
-set_source_files_properties(cpp/src/libslic3r/PresetBundle.cpp PROPERTIES
-  COMPILE_DEFINITIONS NEO_DISABLE_VENDOR_INSTALLATION=1)
+# One global identity macro selects fixed Neo adaptations in the Orca submodule:
+# JSON-only vendor loading, Worker profile delivery, backup-manager stubs and
+# the headless WASM platform/thread adaptations. No per-source policy defines.
+add_compile_definitions(ORC_NEO_WASM=1)
 if(WASM_DEBUG)
   message(STATUS "WASM debug: libslic3r + bridge at -g -O0 (embedded DWARF); deps stay -O3 without debug info")
 endif()

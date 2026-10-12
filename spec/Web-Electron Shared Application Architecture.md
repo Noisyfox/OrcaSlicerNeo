@@ -349,7 +349,7 @@ state; they are not global selections.
   AppConfig. Only live vendor metadata is value-copied for the inline pre-load
   rule. Normal library loading resets it; absent-library metadata retention
   follows native behavior without copying old presets/project collections. Both variants disable native installation
-  with `NEO_DISABLE_VENDOR_INSTALLATION`; the client already manages links.
+  with `ORC_NEO_WASM`; the client already manages links.
   The API owns writable loading, first active-filament correction and selection
   export. Native logs/exceptions remain the diagnostic path. Preparation/save
   failures leave the live project, bundle and history unchanged, but links and

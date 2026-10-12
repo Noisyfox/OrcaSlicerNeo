@@ -110,7 +110,7 @@ session is actually opening, unsubscribes on cleanup and resets on completion.
 
 Disable `.opc` vendor-cache reads, generation, and cache-only vendor discovery
 through a Neo WASM compile-time macro in both serial and threaded builds.
-The policy macro is `NEO_DISABLE_VENDOR_CACHE`. Native desktop
+The policy macro is `ORC_NEO_WASM`. Native desktop
 Orca behaviour remains unaffected when the macro is absent.
 
 Ship complete source JSON profile resources; this policy does not support
@@ -334,7 +334,7 @@ names without the exact suffix remain unchanged. Current JSON loading leaves
 `VendorProfile::default_filaments` empty, so it does not substitute those names
 or infer metadata from model `default_materials`.
 
-Both WASM variants define `NEO_DISABLE_VENDOR_INSTALLATION`: Worker-managed links
+Both WASM variants define `ORC_NEO_WASM`: Worker-managed links
 replace native vendor detection/copying. The API uses its single `load_presets` call.
 Normal library loading resets the candidate's copied metadata. If the optional
 library is absent, native loading may retain copied metadata; Neo accepts that
