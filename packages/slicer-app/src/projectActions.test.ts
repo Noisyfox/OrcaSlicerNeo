@@ -15,8 +15,8 @@ const snapshot: ProfileSnapshot = {
   ok: true,
   modifiedPresets: { printer: [], filament: [] },
   printerPicker: { items: [{ id: 'project', label: 'Project printer', preset: 'Project printer' }], selectedId: 'project', variants: [], nozzleDiameters: [0.4], selectedVariant: '' },
-  printers: [{ name: 'Project printer', label: 'Project printer', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-  prints: [{ name: 'Project process', label: 'Project process', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+  printers: [{ name: 'System printer', label: 'System printer', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }, { name: 'Project printer', label: 'Project printer', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+  prints: [{ name: 'System process', label: 'System process', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }, { name: 'Project process', label: 'Project process', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   filamentCatalog: [{ name: 'Project filament', label: 'Project filament', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
   printer: { name: 'Project printer', idx: 0 }, print: { name: 'Project process', idx: 0 },
   bedType: { supportsSelection: true, defaultValue: 'Textured PEI Plate', choices: [{ value: 'Textured PEI Plate', label: 'Textured PEI Plate' }] },
@@ -448,6 +448,26 @@ describe('transactional project actions', () => {
     expect(result.status).toBe('ok'); expect(runtime.closeProject).toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', dirty: false, scope: 'system', hasContent: false });
     expect(runtime.selectProfile).toHaveBeenCalledWith('printer', 'System printer');
+  });
+
+  it.each(['printer', 'print'] as const)('New does not reselect a deleted %s snapshot after native session closure', async (kind) => {
+    const { platform, runtime } = platformFor();
+    const stale = 'Deleted user preset [snapshot 1]';
+    useSettingsStore.setState(kind === 'printer' ? { selectedPrinter: stale } : { selectedPrint: stale });
+    useProjectStore.getState().setProject({ scope: 'system', dirty: true, hasContent: true,
+      systemPresets: { printer: kind === 'printer' ? stale : snapshot.printer!.name,
+        print: kind === 'print' ? stale : snapshot.print!.name } });
+    runtime.selectProfile.mockImplementation(async (_kind?: unknown, name?: unknown) => {
+      if (name === stale) throw new Error('preset not found');
+      return snapshot;
+    });
+
+    expect((await newProject(platform, { decideDirty: () => 'dont-save' })).status).toBe('ok');
+    expect(runtime.selectProfile).not.toHaveBeenCalledWith(kind, stale);
+    expect(useProjectStore.getState().systemPresets).toEqual({ printer: snapshot.printer!.name, print: snapshot.print!.name });
+    expect(runtime.closeProject.mock.invocationCallOrder[0]).toBeLessThan(runtime.getProfileSnapshot.mock.invocationCallOrder[0]);
+    expect(useSettingsStore.getState()).toMatchObject({ selectedPrinter: snapshot.printer!.name, selectedPrint: snapshot.print!.name });
+    expect(runtime.resetHistory).toHaveBeenCalledOnce();
   });
 
   it('New preserves the current legal rack for the same system printer and creates one clean baseline', async () => {

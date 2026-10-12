@@ -111,15 +111,19 @@ async function resetHistory(runtime: Runtime): Promise<HistoryStatus> {
   return resetProjectHistory(runtime, projectedHistoryContext());
 }
 async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetSelections | null): Promise<void> {
-  if (!selections) return;
-  let resolved: Awaited<ReturnType<Runtime['getProfileSnapshot']>> | null = null;
-  for (const [kind, name] of [['printer', selections.printer], ['print', selections.print]] as const) {
-    if (!name) continue;
+  // Session closure releases snapshots and embedded presets. The remembered
+  // names belong to that old session, so validate against the native catalogue
+  // after closure rather than replaying a reference that has been removed.
+  let resolved = await runtime.getProfileSnapshot();
+  if (!resolved.ok) throw new Error(resolved.error ?? 'new project presets unavailable');
+  for (const [kind, name] of [['printer', selections?.printer], ['print', selections?.print]] as const) {
+    const candidates = kind === 'printer' ? resolved.printers : resolved.prints;
+    if (!name || !candidates?.some((preset) => preset.name === name)) continue;
     const result = await runtime.selectProfile(kind, name);
     if (!result.ok) throw new Error(result.error ?? `could not restore ${kind} preset`);
     resolved = result;
   }
-  if (resolved?.ok) useSettingsStore.getState().hydrateProfileSnapshot(resolved);
+  useSettingsStore.getState().hydrateProfileSnapshot(resolved);
 }
 async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 'open', input: ProjectInput | undefined, options: ProjectActionOptions): Promise<ProjectActionResult | null> {
   if (!paintingCommandAllowed()) return { status: 'cancelled' };

@@ -298,6 +298,13 @@ assert.equal(ok(call('orc_user_preset_info', ['filament', deletedChild])).can_sa
 ok(call('orc_history_undo'));
 assert.ok(draft(deletedChild).effective_values.nozzle_temperature.split(',').every(value => value === '241'));
 
+// Close while the deleted Filament is still active, before printer changes
+// can legitimately normalize the rack for another printer.
+assert.equal(ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name, deletedChild);
+ok(call('orc_close_project'));
+assert.equal(ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name, first);
+assert.equal(call('orc_user_preset_info', ['filament', deletedChild]).ok, false);
+
 // Printer deletion uses the same parent label and parameter baseline.
 profiles = ok(call('orc_get_preset_snapshot'));
 const printerParent = profiles.printer.name;
@@ -314,6 +321,19 @@ assert.equal(deletedPrinterDraft.editor_candidates.find(row => row.canonical_nam
 assert.equal(deletedPrinterDraft.source_values.printer_notes, printerParentDraft.source_values.printer_notes);
 assert.equal(deletedPrinterDraft.effective_values.printer_notes, 'retained notes');
 assert.equal(deletedPrinterDraft.modified, true);
+
+// New Project releases tombstones only after resolving their parent selections.
+const processBeforeBoundary = ok(call('orc_get_preset_snapshot')).print.name;
+mutate('save-as', 'print', processBeforeBoundary, { name: 'Boundary Process' });
+mutate('delete', 'print', 'Boundary Process');
+ok(call('orc_history_undo'));
+ok(call('orc_close_project'));
+const afterBoundary = ok(call('orc_get_preset_snapshot'));
+assert.equal(afterBoundary.printer.name, printerParent);
+assert.equal(afterBoundary.print.name, processBeforeBoundary);
+assert.equal(status().canUndo, false);
+assert.equal(call('orc_user_preset_info', ['printer', deletedPrinter]).ok, false);
+assert.equal(call('orc_user_preset_info', ['filament', deletedChild]).ok, false);
 
 console.log('user-presets PASS shared save dialog, self/cross overwrite, snapshots, delete, Undo/Redo, Reset, shared slots, dormant editor, Printer, Process, 3MF, name reuse, failed persistence');
 process.exit(0);

@@ -72,5 +72,30 @@ test('local user preset files survive restart and deletion Undo stays embedded',
     await expect(page.getByTestId('preset-editor-input-filament_diameter')).toHaveValue('1.77');
     await expect(page.getByTestId('preset-editor-dialog').getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0);
     await expect.poll(async () => readFile(file).then(() => false, () => true)).toBe(true);
+    await page.getByTestId('preset-editor-close').click();
+    const newProject = async () => {
+      await page.keyboard.press(process.platform === 'darwin' ? 'Meta+n' : 'Control+n');
+      await expect(page.getByTestId('project-dirty-dialog')).toBeVisible();
+      await page.getByTestId('project-dirty-dont-save').click();
+      await expect(page.getByTestId('project-dirty-dialog')).toBeHidden();
+      await expect(page.getByTestId('history-undo')).toBeDisabled();
+      await expect(page.getByTestId('titlebar-project-name')).toHaveText('Untitled Project');
+    };
+    await newProject();
+    await expect(page.getByTestId('filament-preset-1')).toHaveText(parentLabel!);
+    const processParentLabel = await page.getByTestId('process-preset-select').textContent();
+    // Process restoration must not replay the snapshot name that native
+    // closeProject just removed (Filament has a separate rack authority).
+    await page.getByRole('button', { name: 'Save as…', exact: true }).click();
+    await page.getByLabel('Preset name', { exact: true }).fill('E2E Deleted Process');
+    await page.getByRole('button', { name: 'Save preset', exact: true }).click();
+    await expect(page.getByTestId('process-preset-select')).toContainText('E2E Deleted Process');
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete preset', exact: true }).click();
+    await page.getByTestId('history-undo').click();
+    await expect(page.getByTestId('history-redo')).toBeEnabled();
+    await newProject();
+    await expect(page.getByRole('button', { name: 'Save as…', exact: true })).toBeEnabled();
+    await expect(page.getByTestId('process-preset-select')).toHaveText(processParentLabel!);
   } finally { await app.close(); }
 });

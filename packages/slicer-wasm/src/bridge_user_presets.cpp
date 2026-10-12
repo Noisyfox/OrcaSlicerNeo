@@ -248,10 +248,10 @@ void reset_session() {
     for (const auto& [key, record] : snapshots) {
         auto& c = collection(key.first);
         if (active(key.first, key.second)) {
-            const auto* head = record.deleted ? nullptr : c.find_preset(record.original, false, true);
-            std::string replacement = c.default_preset().name;
-            for (const auto& preset : c) if (!is_snapshot(key.first, preset.name) && preset.is_visible) { replacement = preset.name; break; }
-            adopt(key.first, key.second, head ? head->name : replacement);
+            // End the old version view at its saved head, or the surviving
+            // parent of a deleted source. Never pick an arbitrary catalogue row.
+            const auto* saved = baseline(key.first, key.second);
+            adopt(key.first, key.second, saved ? saved->name : c.default_preset().name);
         }
         if (auto* preset = collection(key.first).find_preset(key.second, false, true)) {
             const auto selected = c.get_selected_preset_name();

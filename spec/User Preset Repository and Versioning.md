@@ -1087,6 +1087,12 @@ one selection entry for all same-source references. Undo never reverses the
 file operation. Deleted snapshots use their nearest surviving original parent
 as comparison baseline and cannot reconnect to a later preset that reuses the name.
 
+New Project validates remembered Printer/Process selections against the native
+catalogue after closing the old session. Released snapshot or deleted user
+names are not replayed. Native closure resolves active deleted snapshots to
+their nearest surviving original parents, and other snapshots to their saved
+heads; these canonical names are remembered for the new baseline. Still-installed remembered presets are restored normally.
+
 Native project-embedded Process children keep their separate ownership. Saving
 their effective parameters preserves the saved head's parent, preventing a
 self-inheritance. Full Reset adopts the current head when still linked; partial
