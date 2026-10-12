@@ -43,6 +43,109 @@ Previously accepted constraints remain in force:
 
 ## 2. Accepted version and transition requirements
 
+### 2.0 Compact rules and operation semantics
+
+The accepted behaviour can be expressed by five core rules and the operation
+table below. Sections 2.1-2.7 clarify these rules; section 3 supplies worked
+acceptance examples, not additional per-scenario state machines. This is a
+compact restatement, not a change to the accepted product decisions or a claim
+that cloud conflict/recovery protocols have been specified.
+
+**R1 — Preserve exact versions.** Identity is library-scoped and independent of
+name. Before replacing, deleting or detaching a referenced source, retain the
+old version and its effective dependencies; migrate affected non-snapshot
+references without changing their values/edits or existing snapshots. Each
+successful overwrite has a distinct revision. Keep content while any current,
+historical, checkpoint, draft or prepared-operation reference needs it.
+
+**R2 — Undo session state, not repository effects.** History restores exact
+selected versions, values and drafts. It never rewinds saved files, resurrects
+records, changes accounts or reopens handled cloud notices. Only the successful
+session actions identified below add history; repository reconciliation and
+reference migration do not. Overwrite Save is deliberately history-neutral but
+records its post-save binding in the saved session state for later Redo. New
+history actions truncate Redo; history-neutral changes preserve it. Project
+dirty follows the project saved checkpoint.
+
+**R3 — Separate current use from historical use.** Incoming repository changes
+preserve current active effective values; inactive sources follow local head
+automatically while historical versions remain snapshots. Only an active source
+with an unresolved cloud update shows Update available and its action. Explicit
+adoption, overwrite Save or inactive automatic updating handles that event;
+Undo does not unhandle it. Local revision differences never create notices.
+All selectors obey the current active binding while its cloud update is pending;
+historical references alone do not pin normal browsing or selection.
+
+**R4 — Compare and reset against one applicable baseline.** For a linked source,
+use its latest saved local head; for a deleted source, its final pre-deletion
+saved version; for an account-detached source, its frozen pre-switch saved
+version. Native effective-parameter comparison drives dirty/diff/highlighting.
+Reset takes values from the same baseline. Partial Reset retains identity;
+full Reset also adopts head identity when still linked. Deleted/detached sources
+remain snapshots and cannot be restored by Save or Reset. Actual edits to
+transfer are recorded edits, not all differences from this comparison baseline.
+
+**R5 — Commit one coherent action.** Validate and prepare retention, persistence,
+bindings and native dependent normalization before publishing. Update, full
+Reset, Save As selection and deletion replacement affect all active references
+to that source together. Each history-producing action is one entry regardless
+of slot count; editor browsing alone does not select a project source. Cancel,
+failed validation and no-op session actions produce no history. Revalidate
+identity/head after async waits; never publish a partially applied action.
+Durable commit/recovery details remain implementation design.
+
+| Operation | Repository effect | Session effect | New project history |
+| --- | --- | --- | --- |
+| Edit / partial Reset | None | Change corresponding effective values | One if changed |
+| Overwrite Save | Save a new revision of the same identity | Adopt saved revision; resolve its pending cloud update | None |
+| Save As | Create a new identity under an unused name | Switch all active source references; otherwise editor target only | One for active-reference switching; otherwise none |
+| Explicit Update | Do not overwrite the saved head | Adopt latest head; discard edits, transfer actual edits, or cancel | One successful adoption |
+| Full Reset | None | Restore applicable baseline; adopt linked head identity; resolve pending update | One if values or identity change |
+| Manual Delete | Delete the user record | Replace active references with usable sources; otherwise advance editor target only | One for active replacement; otherwise none |
+| Incoming content update | Advance valid local head, retain old versions | Preserve active effective values; inactive sources follow head; R3 controls notice | None |
+| Incoming deletion | Remove live record, retain required snapshots/baseline | Preserve active values on Deleted snapshot | None |
+| Account switch | Select another library; delete neither library's records | Detach all outgoing current/history user references and freeze baselines | None |
+| Undo / Redo | None | Restore recorded session state, then derive current status under R3/R4 | No new entry |
+
+For an unresolved cloud update, overwrite Save still requires the accepted
+Overwrite / Save As / Cancel decision. Explicit Update with edits requires
+Discard / Transfer / Cancel and native validation. These choices select the
+transaction to run; they do not introduce another history or versioning model.
+
+The following independent scope constraints are inputs to the rules, not
+consequences of them:
+
+- Host storage and library separation remain section 1's requirements: editable
+  Electron files, shared Web behaviour, no-account default library, per-account
+  libraries, explicit external-file reads and direct application overwrites.
+- Save As needs an unused name; no direct Rename or bulk Delete. Deleted and
+  account-detached sources allow Save As only. Returning to an account does not
+  automatically reconnect its detached snapshots.
+- Manual parent deletion is blocked by user children. Parent-induced effective
+  child changes use R1/R3; remote parent deletion preserves usable child content.
+- New/Open creates a fresh project/version view; Setup Wizard keeps its accepted
+  history reset and effective-value baseline. 3MF stores ordinary Orca effective
+  configuration without Neo revision/deletion metadata; geometry-only import
+  does not replace the session.
+
+Coverage of all existing worked examples:
+
+| Worked examples | Rules and operation/scope input |
+| --- | --- |
+| 3.1-3.2: overwrite Save and repeated saves | R1, R2, R4; Overwrite Save row |
+| 3.3: manual/cloud deletion | R1-R4; distinct deletion rows |
+| 3.4-3.5: repeated cloud updates and history-only sources | R1-R3; Update/incoming-update rows |
+| 3.6: account changes | R1, R2, R4; Account switch row and detachment constraint |
+| 3.7: Save As | R1, R2, R5; Save As row and naming constraint |
+| 3.8-3.10: edited updates, outdated Save and Reset | R1-R5; confirmation choices and relevant operation rows |
+| 3.11-3.12: shared slots and Redo branches | R2, R3, R5; common action scope and history-column decisions |
+| 3.13: parent/child changes | R1, R3, R5; inheritance constraint |
+| 3.14: files, import, no-account and network loss | R1-R3; host/library constraint and incoming-update row |
+| 3.15: project/3MF boundaries | R1, R2, R4; project/interchange constraint |
+| 3.16: failures and concurrency | R1, R2, R5; protocol/recovery qualification remains explicit |
+| 3.17: profile versus project dirty | R2, R4; history-column decisions |
+| 3.18: identity reuse and retention | R1, R2, R5; naming/deletion constraints |
+
 ### 2.1 Preserve old versions before replacement
 
 Whenever a user profile is deleted or its content is updated, preserve an
