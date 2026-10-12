@@ -26,6 +26,10 @@ test('local user preset files survive restart and deletion Undo stays embedded',
     await page.getByLabel('Preset name', { exact: true }).fill('E2E Local PLA');
     await page.getByRole('button', { name: 'Save preset', exact: true }).click();
     await expect(page.getByTestId('preset-editor-title')).toHaveText('E2E Local PLA');
+    await page.getByTestId('preset-editor-preset').click();
+    await expect(page.locator('[data-slot="select-label"]').filter({ hasText: /^User presets$/ })).toBeVisible();
+    await expect(page.locator('[data-slot="select-label"]').filter({ hasText: /^System presets$/ })).toBeVisible();
+    await page.keyboard.press('Escape');
     const file = join(directory, 'user/default/filament/E2E Local PLA.json');
     await expect.poll(async () => JSON.parse(await readFile(file, 'utf8')).name).toBe('E2E Local PLA');
     await page.getByTestId('preset-editor-search').fill('filament_diameter');
@@ -54,6 +58,8 @@ test('local user preset files survive restart and deletion Undo stays embedded',
     await page.locator('#app-tab-prepare').click();
     await page.getByTestId('filament-preset-1').click();
     await page.getByPlaceholder('Search compatible presets…').fill('E2E Local PLA');
+    await expect(page.getByText('User presets', { exact: true })).toBeVisible();
+    await expect(page.getByText('System presets', { exact: true })).toHaveCount(0);
     await page.getByRole('menuitem', { name: 'Generic', exact: true }).click();
     await page.getByRole('menuitemradio', { name: 'E2E Local PLA', exact: true }).click();
     await page.getByTestId('filament-slot-1').click({ button: 'right' });
@@ -90,6 +96,12 @@ test('local user preset files survive restart and deletion Undo stays embedded',
     await page.getByLabel('Preset name', { exact: true }).fill('E2E Deleted Process');
     await page.getByRole('button', { name: 'Save preset', exact: true }).click();
     await expect(page.getByTestId('process-preset-select')).toContainText('E2E Deleted Process');
+    await page.getByTestId('process-preset-select').click();
+    await expect(page.locator('[data-slot="combobox-label"]').filter({ hasText: /^User presets$/ })).toBeVisible();
+    await expect(page.locator('[data-slot="combobox-label"]').filter({ hasText: /^System presets$/ })).toBeVisible();
+    await page.getByPlaceholder('Search presets…', { exact: true }).fill('E2E Deleted Process');
+    await expect(page.getByText('System presets', { exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
     await page.getByRole('button', { name: 'Delete preset', exact: true }).click();
     await page.getByTestId('history-undo').click();

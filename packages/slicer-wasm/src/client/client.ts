@@ -372,10 +372,10 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
         !Array.isArray(d.colors) || !d.colors.every(validHex) ||
         d.colors.length < (d.mode === 'solid' ? 1 : 2) ||
         (d.mode === 'solid' && d.colors.length !== 1)) return null;
-    if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof p.label !== 'string' || typeof p.vendor !== 'string' || typeof c.effective !== 'string' ||
+    if (typeof p.is_user !== 'boolean' || typeof p.id !== 'string' || typeof p.name !== 'string' || typeof p.label !== 'string' || typeof p.vendor !== 'string' || typeof c.effective !== 'string' ||
         (c.provenance !== 'preset' && c.provenance !== 'user')) return null;
     return { logicalId: item.logical_id as string, slot: item.slot as number,
-      preset: { id: p.id, name: p.name, label: p.label, vendor: p.vendor },
+      preset: { isUser: p.is_user, id: p.id, name: p.name, label: p.label, vendor: p.vendor },
       colour: { effective: c.effective, provenance: c.provenance,
         native: { representative: n.representative as string | null,
           multiColour: n.multi_colour as string | null, type: n.type as string | null },
@@ -1305,11 +1305,11 @@ function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
   for (const candidate of raw.editor_candidates) {
     if (!isRecord(candidate) || typeof candidate.canonical_name !== 'string' || !candidate.canonical_name ||
         typeof candidate.label !== 'string' || !candidate.label || typeof candidate.compatible !== 'boolean' ||
-        typeof candidate.modified !== 'boolean' || names.has(candidate.canonical_name))
+        typeof candidate.is_user !== 'boolean' || typeof candidate.modified !== 'boolean' || names.has(candidate.canonical_name))
       return { ok: false, error: 'invalid preset editor candidate', errorCode: 'invalid_response' };
     names.add(candidate.canonical_name);
     editorCandidates.push({ canonicalName: candidate.canonical_name, label: candidate.label,
-      compatible: candidate.compatible, modified: candidate.modified });
+      isUser: candidate.is_user, compatible: candidate.compatible, modified: candidate.modified });
   }
   if (!names.has(result.canonicalName))
     return { ok: false, error: 'preset editor target is missing from candidates', errorCode: 'invalid_response' };

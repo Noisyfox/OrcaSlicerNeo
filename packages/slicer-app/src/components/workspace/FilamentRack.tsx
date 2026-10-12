@@ -63,9 +63,10 @@ function ImpactDialog({ impact, onCancel, onConfirm }: {
   );
 }
 
-function SlotCard({ slot, presetNames, presetLabels, presetVendors, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
+function SlotCard({ slot, presetNames, presetLabels, presetVendors, userPresets, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
   slot: FilamentSessionSlot;
   presetNames: readonly string[];
+  userPresets: ReadonlySet<string>;
   presetLabels: ReadonlyMap<string, string>;
   presetVendors: ReadonlyMap<string, string>;
   mergeDestinations: readonly number[];
@@ -106,7 +107,7 @@ function SlotCard({ slot, presetNames, presetLabels, presetVendors, mergeDestina
             title={filamentSwatchTitle(slot.colour.display)}
             style={{ ...filamentSwatchStyle(slot.colour.display), color: numberColour,
               border: 0, backgroundClip: 'border-box', borderRadius: '4px 0 0 4px' }}>{slot.slot}</Button>} />
-        <PresetCombobox modified={modified} items={presetNames.map(name => ({ id: name, name, label: presetLabels.get(name)! }))}
+        <PresetCombobox modified={modified} items={presetNames.map(name => ({ id: name, name, label: presetLabels.get(name)!, isUser: userPresets.has(name) }))}
           value={slot.preset.name} onValue={onPreset} disabled={pending}
           ariaLabel={`Filament preset for slot ${slot.slot}`} testId={`filament-preset-${slot.slot}`}
           searchPlaceholder="Search compatible presets…" emptyText="No compatible preset"
@@ -162,6 +163,8 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
     () => compatiblePresetNames(snapshot, filamentCatalog.map((preset) => preset.name)),
     [filamentCatalog, snapshot],
   );
+  const userPresets = useMemo(() => new Set([...filamentCatalog.filter(preset => preset.is_user).map(preset => preset.name),
+    ...(snapshot?.slots.filter(slot => slot.preset.isUser).map(slot => slot.preset.name) ?? [])]), [filamentCatalog, snapshot]);
   const presetLabels = useMemo(() => new Map([
     ...filamentCatalog.map(preset => [preset.name, preset.label] as const),
     ...(snapshot?.slots.map(slot => [slot.preset.name, slot.preset.label] as const) ?? []),
@@ -250,7 +253,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
               slot={slot}
               presetNames={presetNames}
               presetLabels={presetLabels}
-              presetVendors={presetVendors}
+              presetVendors={presetVendors} userPresets={userPresets}
               canDelete={snapshot.capabilities.canDelete}
               canMerge={snapshot.capabilities.canMerge}
               mergeDestinations={snapshot.slots.map((entry) => entry.slot)}

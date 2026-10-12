@@ -34,7 +34,10 @@ const originalTemp = draft(first).effective_values.nozzle_temperature;
 const created = mutate('save-as', 'filament', first, { name: 'Neo Local PLA' });
 assert.equal(created.history_entry_delta, 1);
 assert.equal(created.filament_session.slots[0].preset.name, 'Neo Local PLA');
+assert.equal(created.filament_session.slots[0].preset.is_user, true);
 assert.equal(disk.has('filament/Neo Local PLA.json'), true);
+assert.equal(draft('Neo Local PLA').editor_candidates.find(row => row.canonical_name === 'Neo Local PLA').is_user, true);
+assert.equal(ok(call('orc_get_preset_snapshot')).filament_catalog.find(row => row.name === 'Neo Local PLA').is_user, true);
 assert.equal(ok(call('orc_user_preset_info', ['filament', 'Neo Local PLA'])).default_save_as_name, 'Neo Local PLA');
 let rack = ok(call('orc_get_filament_session_snapshot'));
 ok(request('orc_add_filament_slot', { version: 1, revision: rack.revisions.session }));
@@ -73,6 +76,8 @@ assert.equal(disk.has('filament/Neo Local PLA.json'), false);
 ok(call('orc_history_undo'));
 slot = ok(call('orc_get_filament_session_snapshot')).slots[0];
 assert.equal(slot.preset.label, firstPreset.label);
+assert.equal(slot.preset.is_user, false);
+assert.equal(draft(slot.preset.name).editor_candidates.find(row => row.canonical_name === slot.preset.name).is_user, false);
 assert.equal(ok(call('orc_user_preset_info', ['filament', slot.preset.name])).default_save_as_name, 'Neo Local PLA');
 assert.ok(draft(slot.preset.name).effective_values.nozzle_temperature.split(',').every(value => value === '210'));
 assert.equal(draft(slot.preset.name).source_values.nozzle_temperature, originalTemp);
@@ -154,6 +159,7 @@ ok(call('orc_history_redo'));
 profiles = ok(call('orc_get_preset_snapshot'));
 assert.equal(profiles.print.name, 'Neo Local Process');
 assert.equal(profiles.project_config.layer_height, '0.28');
+assert.equal(profiles.prints.find(row => row.name === profiles.print.name).is_user, true);
 // Partial Reset keeps the historical identity. Its diff becomes empty, so the
 // existing Reset All UI is disabled. The native full-reset command can still
 // adopt the head when invoked directly by this internal contract test.
@@ -178,6 +184,7 @@ mutate('delete', 'print', 'Neo Local Process');
 ok(call('orc_history_undo'));
 profiles = ok(call('orc_get_preset_snapshot'));
 assert.equal(profiles.prints.find(row => row.name === profiles.print.name)?.label, parentPrintLabel);
+assert.equal(profiles.prints.find(row => row.name === profiles.print.name)?.is_user, false);
 assert.equal(profiles.project_config.layer_height, '0.28');
 
 // Deleted Process differences and Reset use its system parent, not saved 0.28.
@@ -277,6 +284,7 @@ mutate('delete', 'filament', 'Child Chain');
 ok(call('orc_history_undo'));
 const deletedChild = ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name;
 assert.equal(draft(deletedChild).editor_candidates.find(row => row.canonical_name === deletedChild)?.label, 'Parent Chain');
+assert.equal(draft(deletedChild).editor_candidates.find(row => row.canonical_name === deletedChild)?.is_user, true);
 assert.ok(draft(deletedChild).source_values.nozzle_temperature.split(',').every(value => value === '231'));
 assert.ok(draft(deletedChild).effective_values.nozzle_temperature.split(',').every(value => value === '241'));
 // A surviving parent's current saved values remain the comparison baseline.
@@ -316,6 +324,7 @@ mutate('save', 'printer', 'Deleted Printer');
 mutate('delete', 'printer', 'Deleted Printer');
 ok(call('orc_history_undo'));
 const deletedPrinter = ok(call('orc_get_preset_snapshot')).printer.name;
+assert.equal(ok(call('orc_get_preset_snapshot')).printers.find(row => row.name === deletedPrinter).is_user, false);
 const deletedPrinterDraft = ok(call('orc_get_preset_draft', ['printer', deletedPrinter]));
 assert.equal(deletedPrinterDraft.editor_candidates.find(row => row.canonical_name === deletedPrinter)?.label, printerParentLabel);
 assert.equal(deletedPrinterDraft.source_values.printer_notes, printerParentDraft.source_values.printer_notes);

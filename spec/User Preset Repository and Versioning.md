@@ -1030,6 +1030,15 @@ future qualification; local coverage is recorded below.
 
 ## 12. Delivered local implementation
 
+All preset selection surfaces show labelled **User presets** followed by
+**System presets** sections: sidebar Printer/Process, Filament rack menus, and
+independent Printer/Filament editors. Existing model, vendor and compatibility
+groups remain within those sections, preserving native order within each group.
+Search hides empty sections. Native provenance supplies the classification;
+ordinary snapshots follow their saved source, deleted snapshots follow their
+surviving parent, and embedded Process copies follow their source preset.
+Labels and grouping never change canonical selection/history identities.
+
 The default library is available without an account on both hosts. Printer and
 Filament actions live in the independent preset editor; Process actions live
 beside its project selector. One Save As icon opens the Orca-style save dialog:

@@ -61,6 +61,22 @@ std::string display_label(const Preset& preset) {
     }
     return found->second.original;
 }
+bool picker_is_user(const Preset& preset) {
+    const Preset* source = &preset;
+    std::set<std::string> visited;
+    while (source && visited.insert(source->name).second) {
+        if (is_snapshot(source->type, source->name)) {
+            const auto* saved = baseline(source->type, source->name);
+            if (saved) { source = saved; continue; }
+        }
+        if (source->is_project_embedded) {
+            const auto* parent = collection(source->type).get_preset_parent(*source);
+            if (parent) { source = parent; continue; }
+        }
+        return !source->is_system && !source->is_default;
+    }
+    return false;
+}
 bool active(Preset::Type type, const std::string& name) {
     auto& bundle = state().presets;
     if (type == Preset::TYPE_FILAMENT)

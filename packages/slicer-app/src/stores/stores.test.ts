@@ -12,7 +12,7 @@ function preset(name: string, opts: Partial<PresetInfo> = {}): PresetInfo {
     name,
     label: name, vendor: '',
     is_visible: true,
-    is_default: false,
+    is_user: false, is_default: false,
     vendor_id: 'v',
     model: 'm',
     variant: '0.4',
