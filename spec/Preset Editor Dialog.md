@@ -594,5 +594,8 @@ explicit user action; phase one never performs that conversion implicitly.
 The design for that extension is owned by
 [User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md).
 It records immutable saved versions, head-relative dirty state and explicit
-version adoption. These are design requirements, not delivered editor behaviour;
+version adoption. Update notices are limited to active profiles with unresolved
+cloud updates; history-only profiles update locally while old history retains
+snapshots. Local/history differences use normal override/diff highlighting.
+These are design requirements, not delivered editor behaviour;
 the current draft-overlay highlighting above remains the implementation status.

@@ -56,12 +56,14 @@ snapshot for each successful overwrite save. Earlier snapshots must not be
 overwritten or coalesced into the latest version. Implementations may share
 immutable equal-content storage without collapsing logical version identities.
 
-A local overwrite Save immediately adopts the newly saved version, without an additional
-history entry. The option-edit history already records the changes that the
+A local overwrite Save immediately adopts the newly saved version, without an
+additional history entry. The option-edit history already records the changes that the
 user may undo. Undoing those edits never rewinds the saved repository head.
 Redo back to the saved state restores its post-save version identity as well as
-its values. If V2 is still head, this clears Update available; if V3 has since
-replaced it, Redo restores retained V2 and shows the update to V3.
+its values. Undo to an older locally saved version shows normal override/diff
+highlighting against the saved head, not Update available. A later head alone
+does not imply an update notice; section 2.4 defines the separate pending cloud
+update state.
 
 Save As requires an unused name in the target library/type namespace and creates
 a separate profile identity without modifying the original. An occupied name
@@ -76,11 +78,13 @@ For an independently browsed source unused by the current project, Save As only
 changes the editor target; it neither selects the new profile in the project
 nor creates project history.
 
-Saving from an outdated snapshot requires confirmation before overwriting the
-newer head. Offer Overwrite, Save As and Cancel. Overwrite uses the current
-effective values and preserves the outgoing newer head as well as already
+Saving while an active profile has an unresolved cloud update requires
+confirmation before overwriting that newer head. Offer Overwrite, Save As and
+Cancel. Ordinary Undo to an older locally saved version does not introduce this
+cloud-conflict prompt. Overwrite uses the current effective values and preserves
+the outgoing newer head as well as already
 retained older versions. It does not implicitly merge them. This confirmation
-concerns a known repository update, not an undetected external file edit.
+concerns a pending cloud update, not an undetected external file edit.
 
 Profile dirty state compares the session's effective profile values against the
 currently saved, non-snapshot version, not against the selected old snapshot.
@@ -134,11 +138,19 @@ and selection in place by converting it to the old-version snapshot. Show
 history cursor, or create a corresponding Redo action. Retained references are
 still migrated under section 2.1.
 
-### 2.4 Updated profile and explicit adoption
+### 2.4 Active profiles and pending cloud updates
 
-If the selected profile receives an update, retain its current version and show
-**Update available** with an adjacent Update action. Clicking Update explicitly
-adopts the latest saved version and creates the corresponding history entry.
+Only a currently active profile receiving a cloud synchronization update shows
+**Update available** with an adjacent Update action. Retain its current version
+and effective values while that update is pending. A historical reference or
+independent editor browsing alone does not make a profile active. An active
+Filament reference in any slot is sufficient; all active references share this
+update state. Local saves, local imports, external-file rereads and version
+differences discovered through history navigation do not generate cloud update
+notices.
+
+Clicking Update explicitly adopts the latest saved version and creates the
+corresponding history entry.
 Ordinary selection cannot bypass adoption; local Save and full Reset have the
 separate adoption rules in section 2.1. Preserve the displaced version as an
 immutable snapshot. Update changes all active references to this profile in
@@ -161,21 +173,26 @@ one history operation across all active references.
 Before that explicit adoption, every profile-selection surface in the current
 session must resolve this profile to its retained snapshot, rather than expose
 an ordinary selection path to the latest version. This includes selectors
-outside the surface where the update was first noticed. Undo to an older version
-also restores this session-wide selector pin and the Update available state;
-Redo can restore the adopted version. Neither navigation changes the repository
-head.
+outside the surface where the update was first noticed. Undo/Redo restores the
+recorded version and effective configuration; it never changes the repository
+head or restores a consumed update notification.
 
-A profile never used by the current session, either in active project references
-or in retained history, follows the latest head automatically and silently.
-Merely browsing it in the independent editor does not make it used and must not
-pin an obsolete version or introduce an Update button/history entry. A profile
-referenced only by history does not qualify for this exception; preserve its
-historical versions. Clicking Update for such a history-only profile in the
-independent editor updates its session version binding and creates one history
-entry without changing the project's current profile selection. Undo/Redo
-restores that binding just as for an active-profile adoption.
-Editing that records a source in history is use; it is no longer merely browsing.
+Successful explicit Update, full Reset adopting the update, or local overwrite
+Save resolves that pending cloud update. Undo back to the older version then
+shows only normal override/diff highlighting against the local saved head.
+Do not reintroduce Update available or its action merely because the selected
+snapshot is older. A subsequent new cloud update received while the profile is
+active can create a new pending notice. Automatic persistence of incoming cloud
+data is not, by itself, the user's adoption of an active profile's pending update.
+
+If the profile has no current active references, update its local repository
+version automatically and silently, including when it exists in retained
+history. Rewrite affected historical references to immutable old-version
+snapshots, retaining each frame's values and edits. History preservation does
+not pin the inactive profile in selectors: normal browsing/selection uses the
+latest local version, with no Update button or adoption history entry.
+Undo that later activates one of those old snapshots restores its old values
+but only shows override/diff against the local head, not a new update notice.
 
 Repository changes and transparent reference migration do not themselves create
 project-history entries. Explicit manual deletion, version adoption and Save As
@@ -206,10 +223,12 @@ An already deleted profile retains its final pre-deletion baseline.
 
 Block manual deletion of a parent while user child presets still inherit it,
 following Orca's existing restriction. If a parent content update changes a
-child's effective values, process the child's effective version change through
-the same used/unused rules: preserve used versions and offer adoption, or
-silently refresh a never-used child. A retained child snapshot must include
-enough dependency content to remain stable when its parent changes.
+child's effective values, preserve all historical versions and process the
+child through the same active/inactive rules. A cloud-driven change to an active
+child can offer adoption; inactive children, including history-only ones, update
+locally and silently. Local parent changes do not generate cloud update notices.
+A retained child snapshot must include enough dependency content to remain
+stable when its parent changes.
 
 If synchronization deletes a parent, preserve the child's original effective
 configuration so the child remains usable. The parent deletion must not cascade
@@ -242,9 +261,10 @@ The accepted rules distinguish three independent states:
 | Repository head | The current saved, non-snapshot version, or absence after deletion. |
 | Profile dirty | Effective parameter differences from the live head, final pre-deletion baseline, or frozen pre-switch saved baseline, as applicable. |
 
-Update available and Deleted are version/lifecycle indications, not aliases for
-dirty. An unchanged old snapshot can be dirty relative to a newer head even
-with no local overlay. Conversely an overlay can produce values equal to the
+Update available denotes an unresolved cloud update to an active profile; it is
+neither a generic version-mismatch marker nor an alias for dirty. Deleted is a
+separate lifecycle indication. An unchanged old snapshot can be dirty relative
+to a newer head even with no local overlay. Conversely an overlay can produce values equal to the
 head, making the profile clean. React cannot infer dirty from overlay presence.
 Parameter highlighting and modified-first ordering must consume native
 comparison results. UI copy remains English under the repository's current
@@ -269,9 +289,9 @@ distinct even when a row shows only their combined effective temperature.
 | A: select P@V1 | P@V1 = 200 | Effective 200; clean. |
 | B: edit temperature | P@V1 = 200 | Effective 210; dirty; one option-edit entry. |
 | Overwrite Save | P@V2 = 210 | Snapshot outgoing V1; current binding adopts V2; clean; no new entry. |
-| Undo B | P@V2 = 210 | Restore V1 snapshot at 200; dirty and Update available. |
+| Undo B | P@V2 = 210 | Restore V1 snapshot at 200; normal override/diff highlighting and dirty; no Update available. |
 | Redo B | P@V2 = 210 | Restore post-save V2 identity at 210; clean; no Update available. |
-| Head later advances to V3 = 220; repeat Undo/Redo | P@V3 = 220 | Redo still returns to retained V2 = 210, now dirty and Update available; never silently adopts V3. |
+| A new cloud V3 = 220 arrives while P is active; repeat Undo/Redo before handling it | P@V3 = 220 | Redo returns to retained V2 = 210; the new unresolved cloud event can show Update available. A mere local head difference cannot. |
 
 ### 3.2 Several saves
 
@@ -280,8 +300,8 @@ distinct even when a row shows only their combined effective temperature.
 | A | P@V1 = 200 | Initial saved version. |
 | B: edit, then Save | P@V2 = 210 | One edit entry; Save retains V1 without another entry. |
 | C: edit, then Save | P@V3 = 220 | One edit entry; Save retains V2 without rewriting existing V1 snapshots. |
-| Undo C | V2 snapshot = 210 | Head stays V3; dirty. |
-| Undo B | V1 snapshot = 200 | Head stays V3; dirty. |
+| Undo C | V2 snapshot = 210 | Head stays V3; normal override/diff and dirty; no update notice. |
+| Undo B | V1 snapshot = 200 | Head stays V3; normal override/diff and dirty; no update notice. |
 | Redo B, then C | V2 = 210, then V3 = 220 | Exact recorded bindings; finally clean at V3. |
 
 ### 3.3 Manual and synchronized deletion
@@ -299,7 +319,7 @@ Both branches compare P snapshots against its last saved 200 baseline. If the
 session had retained V1 while head V3 was deleted, the baseline would instead
 be V3's final saved values.
 
-### 3.4 Several remote updates
+### 3.4 Several cloud updates
 
 | Step | Current binding and values | Head/history |
 | --- | --- | --- |
@@ -307,23 +327,24 @@ be V3's final saved values.
 | Receive V2 = 220 | V1 snapshot = 200; Update available | Head V2; no entry. |
 | Receive V3 = 230 before adoption | Same V1 = 200 | Head V3; no entry; selectors still expose V1. |
 | Click Update | Adopt V3 = 230 | One adoption entry; do not first adopt obsolete V2. |
-| Undo adoption | V1 snapshot = 200 | Head stays V3. |
+| Undo adoption | V1 snapshot = 200; normal override/diff | Head stays V3; the handled update notice does not return. |
 | Receive V4 = 240, then Redo | V3 snapshot = 230; Update available | Redo restores recorded V3, not V4; head stays V4. |
 
 Update targets the latest validated head. If the head changes while an
 edit-resolution dialog is open, refresh the decision rather than silently
 applying a different target. Use the choices in section 2.4.
 
-### 3.5 Unused versus historical sources
+### 3.5 Active versus history-only sources
 
 | Initial situation | Event | Result |
 | --- | --- | --- |
 | P has no active/history use | Receive V2 | Catalogue follows V2 silently; no entry. |
-| Editor only browses P@V1; no active/history use | Receive V2 | Editor follows V2 silently; browsing creates no pin. |
-| Earlier history used P@V1; project now uses Q | Receive V2 | Project stays Q; retain P@V1 and show its pending update. |
-| Same history-only P | Click Update in editor | Bind P to V2 in one history entry; project stays Q. |
-| After editor Update | Undo / Redo | Restore P binding to V1 / V2 respectively; project stays Q. |
-| Editing P already created history | Receive V2 | P is used; preserve the version and edits instead of silently replacing them. |
+| Editor only browses inactive P@V1 | Receive cloud V2 | Editor follows V2 silently, even if old history used P. |
+| Earlier history used P@V1; project now uses Q | Receive cloud V2 | Local P advances to V2; rewrite old P history references to V1 snapshots; Q stays selected; no notice or new entry. |
+| Same history-only P | Browse/select P normally | Use local V2; no special Update action or update history is needed. A project selection still has its ordinary history. |
+| After that automatic update | Undo to history using P@V1 | Activate V1 snapshot with normal override/diff against V2; no update notice. |
+| That restored P is now active | Receive a new cloud V3 | Preserve the active values and offer the new pending update. |
+| Earlier editing of P created history, but no active P reference remains | Receive cloud V2 | Preserve historical values/edits in snapshots; historical use alone does not block silent local updating. |
 
 ### 3.6 Account switch with matching names
 
@@ -355,8 +376,8 @@ snapshot state. Save As never restores the original record or association.
 
 ### 3.8 Update with actual edits
 
-Start each choice from P@V1 `(temperature=200, speed=100)`, with only temperature
-edited to 210. The incoming V2 is `(220, 110)`.
+Start each choice from active P@V1 `(temperature=200, speed=100)`, with only
+temperature edited to 210. The incoming cloud V2 is `(220, 110)`.
 
 | Event/choice | Effective values and identity | History and dirty |
 | --- | --- | --- |
@@ -364,7 +385,7 @@ edited to 210. The incoming V2 is `(220, 110)`.
 | Cancel Update | Unchanged (210, 100), V1 | No entry; still Update available. |
 | Discard edits and update | V2 = (220, 110) | One entry; clean. |
 | Transfer actual edits | V2 plus temperature edit = (210, 110) | One entry; dirty; no pending version update. |
-| Undo either successful adoption | V1 plus original edit = (210, 100) | Head stays V2; Update available. |
+| Undo either successful adoption | V1 plus original edit = (210, 100) | Head stays V2; normal override/diff only; handled update notice does not return. |
 | Redo | Restore the recorded discard/transfer result | Do not recalculate the transfer against a newer head. |
 | Transfer fails native validation | Keep complete original (210, 100) state | No adoption entry or partial changes. |
 
@@ -377,7 +398,7 @@ field/index ownership, not all head-relative differences.
 
 | Step | Session | Repository/history |
 | --- | --- | --- |
-| V1 = 200; local edit = 210; receive V2 = 220 | Retain V1 plus edit at 210 | Head V2; no incoming history entry. |
+| V1 = 200 is active; local edit = 210; receive cloud V2 = 220 | Retain V1 plus edit at 210 with pending cloud update | Head V2; no incoming history entry. |
 | Save, then Cancel confirmation | Keep 210 and V1 binding | Head stays V2; no entry. |
 | Alternative: confirm Overwrite | Adopt newly saved V3 = 210 | Preserve outgoing V2 as well as retained V1; no extra Save entry. |
 | Alternative: choose Save As Q | Adopt Q = 210 for active references | P remains V2 = 220; one selection entry under section 3.7. |
@@ -387,15 +408,17 @@ field/index ownership, not all head-relative differences.
 
 ### 3.10 Partial and full Reset
 
-Start from V1 `(200, 100)` and head V2 `(220, 110)` with no local edits.
+Start from active V1 `(200, 100)` with an unresolved cloud update to V2
+`(220, 110)` and no local edits. A purely local version difference would not
+show Update available at any step.
 
 | Step | Effective values and version | Result |
 | --- | --- | --- |
 | Reset temperature | V1 snapshot plus values (220, 100) | Dirty; Update available remains. |
 | Reset speed as well | V1 snapshot plus values (220, 110) | Clean parameters but Update available remains. |
 | Full Reset preset | V2 = (220, 110), all active references | One Reset entry; latest identity adopted, Update available clears. |
-| Undo full Reset | Previous V1 binding and (220, 110) values | Clean parameters; Update available returns. |
-| Redo full Reset | Recorded V2 binding | Clean; if head has since advanced, compare with that newer head and show its update. |
+| Undo full Reset | Previous V1 binding and (220, 110) values | Clean parameters; the resolved cloud update notice does not return. |
+| Redo full Reset | Recorded V2 binding | Compare against current head; only a new unresolved cloud event can show an update notice. |
 | Alternative: detached by account switch | Reset against frozen pre-switch saved values | Keep detached identity; never reconnect or write to the old account. |
 
 A Reset that changes neither values nor identity is a no-op under the existing
@@ -407,7 +430,7 @@ Use slots `[P@V1, Q, P@V1]`; each operation row is an alternative from that stat
 
 | Event | Slot/session result | History |
 | --- | --- | --- |
-| Receive P@V2 | Both P slots remain pinned to V1; Q unchanged | None. |
+| Receive cloud P@V2 | Both P slots remain pinned to V1 with pending update; Q unchanged | None. |
 | Choose P in another picker or newly added slot | Resolve P through the same V1 binding; cannot bypass Update | Normal selection/slot action only. |
 | Update from either P slot or its editor | Both P slots adopt V2 together; Q unchanged | One adoption entry. |
 | Full Reset P | Both P slots use latest saved values and identity | One Reset entry. |
@@ -438,9 +461,9 @@ Start at B in history `A(200) -> B(210) -> C(220)`, with C available through Red
 
 | Initial state / event | Child result | History/repository consequence |
 | --- | --- | --- |
-| C inherits temperature 200 from parent R; C is used; R updates to 220 | C retains its old effective version at 200 and offers an update | No incoming history entry. |
+| C inherits temperature 200 from parent R; C is active; cloud updates R to 220 | C retains its old effective version at 200 and offers an update | No incoming history entry. |
 | Explicitly update C | C adopts effective 220 | One entry; Undo returns to retained effective 200. |
-| Alternative: C has never been used | C silently follows effective 220 | No pin or adoption entry merely from browsing. |
+| Alternative: C is inactive, including history-only use | C silently follows effective 220 locally; historical C versions become snapshots | No pending update notice or adoption entry. |
 | Alternative: C overrides temperature to 205 | Parent temperature update leaves effective C at 205 | No effective child-content update from that field. |
 | Manually delete R while user C inherits it | Reject deletion | No repository deletion or history transition. |
 | Synchronization deletes R | Preserve C's original effective configuration and all retained old C versions | Do not silently delete C or mark C Deleted solely because R disappeared. |
@@ -454,10 +477,10 @@ Each row is independent unless it explicitly describes a sequence.
 | --- | --- | --- |
 | Electron loads file P = 200; external editor writes 220 | Application still uses loaded 200 | No watcher-driven adoption or history. |
 | Before reread, application edits to 210 and saves | Application adopts 210 | Overwrite file to 210 without external-change conflict check. |
-| Instead, deliberate reread discovers 220 | Used P stays pinned to old version; unused P follows latest | Reconcile as incoming update; no automatic history entry. |
+| Instead, deliberate reread discovers 220 | Preserve required current/history snapshots; inactive P follows latest locally | No cloud update notice from an external file read; no automatic history entry. |
 | External file deleted, then application rereads | Apply missing-record/deletion reconciliation | Preserve used versions and historical reconstruction. |
 | Import a new preset | Add new library record | Do not automatically change project selection. |
-| Import confirms overwrite of existing P | Advance head through the update path | Preserve used versions; no implicit project adoption. |
+| Import confirms overwrite of existing P | Advance local head and preserve referenced old versions | No cloud update notice from a local import; no implicit project adoption. |
 | Reread identical saved content / duplicate sync acknowledgement | No new semantic transition | No duplicate history or fabricated save event. |
 | No-account Save on either host | Use default library and normal Save rules | Electron persists files; proposed Web adapter persists IndexedDB. |
 | Logged-in account loses network; edit and Save | Adopt locally saved version immediately | Local saved head is dirty baseline; cloud work remains pending. |
@@ -536,10 +559,15 @@ compatibility and effective-configuration assembly.
   reference must identify a head or an exact snapshot, never just a display
   name. The current name-only internal contract must be replaced coherently
   across producers, consumers, mocks and tests; do not add legacy fallbacks.
-- Maintain a session version binding for profiles used actively or by retained
-  history. All selectors and native implicit-resolution paths consult it.
-  Merely browsing an unused profile follows head without creating a pin.
-  History captures bindings so Undo can restore the complete pinned view.
+- Maintain version bindings for current active references and exact historical
+  snapshots. Historical use alone never pins an inactive profile's normal
+  selectors; those follow the latest local head. History navigation can restore
+  exact old versions without generating an update notice.
+- Track unresolved cloud update events separately from revision identity and
+  dirty. Acknowledging an update through successful adoption/local Save, or
+  automatic local updating of an inactive profile, is not reversed by project
+  Undo/Redo. Preserve the cause and handled state; do not derive notifications
+  from `selected_revision != head_revision` or replay old UI booleans.
 - Retain version-specific drafts. Replacing a head must not reapply an old
   sparse overlay to a different baseline. For a shared Filament version, slots
   continue sharing one source-local draft.
@@ -579,9 +607,9 @@ than a claim of delivered behaviour or implementation approval.
 | Save an independently browsed profile | Save/adopt that editor source without selecting it in the project. Shared active references, if present, remain consistent with the new saved version. |
 | Save As from system, embedded or snapshot source | Create a separate identity; switch all active source references in one selection history entry. Undo keeps the new file. For a project-unused editor source, only change the editor target, without project history. |
 | Save from a Deleted snapshot | Save As only; old identity remains deleted. |
-| Save an old snapshot while a newer head exists | Confirm Overwrite, Save As or Cancel. Overwrite preserves outgoing newer head, not only the session's older snapshot; successful Save adds no history. |
+| Save with an unresolved cloud update | Confirm Overwrite, Save As or Cancel. Overwrite preserves outgoing newer head and resolves that pending update; no extra history. An older local-history snapshot alone does not trigger the cloud warning. |
 | Import with a new identity | Add to the library without switching the current project automatically. |
-| Import over an existing user identity | Treat as a head update after normal overwrite confirmation; retain observed old versions and show updates to existing sessions. |
+| Import over an existing user identity | Treat as a local head update after normal overwrite confirmation; retain referenced old versions without generating a cloud update notice. |
 | Same JSON discovered again | A read of unchanged content is not a new save and must not manufacture snapshot events. |
 | External file change | No immediate effect. A later deliberate read reconciles it as an update/deletion; application writes may overwrite it before that read. |
 | Malformed external/imported data | Do not publish it as a valid head or destroy a previously valid session version; report parsing/validation failure. |
@@ -611,18 +639,18 @@ than a claim of delivered behaviour or implementation approval.
 | --- | --- |
 | Remote update to active profile | Preserve old version and effective values; show Update available and use pinned candidates everywhere; no new history. |
 | Update a never-used source, including a browsed-only source | Silently follow latest head; no pin, update prompt or project history caused by browsing. |
-| Update an inactive source referenced by history | Preserve referenced versions; it does not qualify as unused. |
+| Update an inactive source referenced by history | Automatically update the local head and migrate old history references to snapshots; no notification, selector pin or adoption entry. |
 | Click Update with no unsaved parameter edits | Adopt latest head for all active references in one history entry. |
 | Click Update with unsaved edits | Offer discard-and-update, transfer actual edits onto latest, and Cancel. Native validation failure aborts transfer; successful adoption is one history entry. |
-| Update clicked in an independent editor for a history-only source | Update session binding in one history entry; project selection stays unchanged. Never-used sources already follow head silently. |
+| Independently browse a history-only source | Follow the latest local head automatically; do not offer a pending-update action solely because history references old snapshots. |
 | Several head updates before adoption | Retain session pin; advertise latest head. Unobserved intermediate revisions need not become artificial project-history entries. |
-| Undo adoption | Restore old version, drafts and session-wide selector pin. Dirty compares with the current head, which Undo does not change. |
-| Redo adoption after another remote update | Restore the version originally adopted by that history entry, not whatever is newest now; show another update if necessary. |
+| Undo adoption | Restore old version and drafts; use normal override/diff against current head. Do not restore the handled update notice. |
+| Redo adoption after another cloud update | Restore the originally recorded version; show a notice only if the new cloud event remains unresolved for this active profile. If it was handled automatically while inactive, show only diff. |
 | Remote deletion while Update is being confirmed | Revalidate; cannot adopt a deleted head. Preserve session and present Deleted state. |
 | Updated Printer changes capabilities/compatibility | At explicit adoption, native normalization handles Process/rack/bed changes atomically in the same history entry. |
 | Updated Filament changes default colour | Use the accepted source-transition and actual-slot-colour policy; undo restores captured colours, not current defaults. |
 | Update causes no effective slicing-input change | Version/history semantics still apply; avoid invalidating results solely for a repository notification. Validate against existing native invalidation rules. |
-| Parent content changes effective child content | Apply the same used/unused rules to the child's effective revision: retain used versions and offer adoption; silently update never-used children. |
+| Parent content changes effective child content | Preserve historical child snapshots. A cloud-driven change can notify active children; inactive/history-only children update locally and silently. Local parent changes do not generate cloud notices. |
 
 ### 5.4 Orca reference behaviour for naming and inheritance
 
@@ -651,7 +679,7 @@ resolution must also obey the session's selected revision. Required coverage:
 | Printer model/nozzle variant resolution | No same-name/model fallback that bypasses a pending version pin. |
 | Process selector | Preserve snapshot command identity even when a project child shares its source's display row. |
 | Every Filament slot selector | Same retained revision for the same session profile; shared Update action and consistent dirty state. |
-| Independent Printer/Filament editor source picker | Browse pinned used versions without changing project selection; never-used sources silently follow latest. Refresh after save, history navigation and head changes. |
+| Independent Printer/Filament editor source picker | Preserve active source bindings without changing project selection; inactive sources follow local head even when history-used. Show Update only for an active source with a pending cloud event. |
 | Future user-preset manager, duplicate and Save As source pickers | Expose status explicitly; never use selection of a normal-looking row as implicit latest-version adoption. |
 | Remembered racks and native compatibility fallbacks | Resolve through the session binding before native validation; do not seed a newer version accidentally. |
 | Undo/Redo and direct history navigation | Restore exact snapshot and pin, then native configuration/draft/slot state. |
@@ -694,10 +722,12 @@ reconstructing Process embedded records, selecting Printer or restoring slots.
 It must not install a snapshot into the durable user repository or enqueue cloud
 writes. Native embedded cleanup must not delete still-referenced snapshots.
 
-Status is resolved against the current repository lifecycle, not restored from
-old UI booleans. A history frame captured before a later deletion still displays
-Deleted after navigation. A recorded adoption of V2 can display Update available
-after head reaches V3, without changing that frame's V2 content.
+Status is resolved against current lifecycle and pending cloud-event state, not
+restored from old UI booleans. A history frame captured before a later deletion
+still displays Deleted after navigation. A recorded V2 can show Update available
+only for a new unresolved cloud update while active; a newer local head alone
+is insufficient. Undo/Redo never resurrects an update that has already been
+handled, whether explicitly or through automatic updating of an inactive profile.
 Account-switch-detached snapshots retain their detached state and frozen
 baseline instead of resolving through whichever account happens to be active.
 
@@ -815,8 +845,13 @@ Required behavioural cases include:
   project selection/history unchanged. Project dirty follows the selection entry.
   Reject an occupied target name without file, selection or history changes.
 - Remote update/delete with active, inactive, editor-only, draft-only and
-  history-only references; multiple versions and multiple shared slots. Merely
-  browsed never-used profiles update silently; history-only ones retain versions.
+  history-only references; multiple versions and multiple shared slots. Inactive
+  history-only profiles update locally and silently while old history references
+  become snapshots; subsequent Undo shows diff only, not a handled update notice.
+- Cloud notification gating by active references and unresolved cloud events;
+  local overwrite Save, external-file reread and local import do not create such
+  notices. Undo after local Save, explicit Update or full Reset cannot resurrect
+  a handled notice. A new cloud event while active can notify again.
 - Manual deletion yields a native system-capable replacement and one history
   operation; Undo/Redo changes selection only and never recreates files/uploads.
 - Explicit Update changes all active references once; Undo/Redo restores exact
@@ -830,7 +865,7 @@ Required behavioural cases include:
 - Update dialog discard, transfer and Cancel; transfer actual edits rather than
   every head-relative difference; native validation failure leaves state intact;
   concurrent newer update, deletion or account switch while awaiting a decision.
-- Stale-snapshot Save confirms Overwrite, Save As or Cancel; successful overwrite
+- Save with a pending cloud update confirms Overwrite, Save As or Cancel; successful overwrite
   retains the outgoing newer head and adds no project-history entry.
 - Native inheritance, multi-toolhead vectors, Process ownership, rack colours,
   flushing, compatibility and bed normalization across save/update/navigation.
