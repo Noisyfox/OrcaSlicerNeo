@@ -12,7 +12,7 @@ let root: Root;
 afterEach(async () => { if (root) await act(async () => root.unmount()); document.body.innerHTML = ''; vi.clearAllMocks(); });
 async function mount(deleted = false, kind: 'filament' | 'print' = 'filament') {
   const getUserPresetInfo = vi.fn(async () => ({ ok: true, kind: 'filament', canonicalName: 'P', label: deleted ? 'P (Deleted)' : 'P',
-    canSave: !deleted, canDelete: !deleted, canReset: kind === 'print', deleted, revision: 7 }));
+    defaultSaveAsName: 'P', canSave: !deleted, canDelete: !deleted, canReset: kind === 'print', deleted, revision: 7 }));
   const platform = { runtime: { getUserPresetInfo } } as unknown as PlatformCapabilities;
   const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   await act(async () => root.render(<PlatformProvider value={platform}><UserPresetActions kind={kind} canonicalName="P" /></PlatformProvider>));
@@ -43,7 +43,9 @@ describe('user preset actions', () => {
   });
   it('keeps an occupied name editable after rejection and submits a new name', async () => {
     vi.mocked(commitUserPresetMutation).mockResolvedValueOnce({ ok: false, error: 'A preset with that name already exists' });
-    await mount(); await click('Save as…'); await name('Occupied'); await click('Save preset');
+    await mount(); await click('Save as…');
+    expect(document.querySelector('input')!.value).toBe('P');
+    await name('Occupied'); await click('Save preset');
     expect(document.body.textContent).toContain('already exists');
     expect(document.querySelector('input')!.value).toBe('Occupied');
     await name('New preset');

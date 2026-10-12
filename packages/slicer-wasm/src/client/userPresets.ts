@@ -12,6 +12,7 @@ export interface UserPresetInfo {
   kind: UserPresetKind;
   canonicalName: string;
   label: string;
+  defaultSaveAsName: string;
   canSave: boolean;
   canDelete: boolean;
   canReset: boolean;

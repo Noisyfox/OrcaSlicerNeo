@@ -1009,6 +1009,12 @@ preset only through Save As; Reset remains a session parameter operation.
 There is no local Update available state, cloud client, account transition,
 direct Rename, or bulk Delete.
 
+Save As starts with Orca's default name: `Untitled` for a built-in default,
+`<canonical name> - Copy` for a system preset, the bundle alias when available,
+or the existing user name. A trailing `.ini` is removed without regard to case.
+Session snapshots use their original user name without version/deletion markers.
+The unused-name requirement still applies when the suggested name is occupied.
+
 ### Storage and ownership
 
 - Electron keeps native Orca JSON under

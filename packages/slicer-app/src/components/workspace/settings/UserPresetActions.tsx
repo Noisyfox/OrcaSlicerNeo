@@ -65,7 +65,7 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
     <div className="flex items-center gap-1" aria-label="User preset actions">
       <TooltipFor content="Save as…" disabled={locked}>
         <Button size="icon-sm" variant="ghost" aria-label="Save as…" disabled={locked}
-          onClick={() => { setName(''); setError(null); setDialog('save-as'); }}>
+          onClick={() => { setName(info?.defaultSaveAsName ?? ''); setError(null); setDialog('save-as'); }}>
           <SaveIcon aria-hidden="true" data-icon="inline-start" />
         </Button>
       </TooltipFor>

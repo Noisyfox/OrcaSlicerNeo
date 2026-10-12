@@ -2072,9 +2072,9 @@ export function createClient(
       const m = await module();
       const raw = callJson(m, 'orc_user_preset_info', ['string', 'string'], [kind, canonicalName]);
       if (!isRecord(raw) || raw.ok !== true) return { ok: false as const, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid user preset response' };
-      if (typeof raw.label !== 'string' || typeof raw.can_save !== 'boolean' || typeof raw.can_delete !== 'boolean' || typeof raw.can_reset !== 'boolean' || typeof raw.deleted !== 'boolean' || !Number.isSafeInteger(raw.revision))
+      if (typeof raw.label !== 'string' || typeof raw.default_save_as_name !== 'string' || typeof raw.can_save !== 'boolean' || typeof raw.can_delete !== 'boolean' || typeof raw.can_reset !== 'boolean' || typeof raw.deleted !== 'boolean' || !Number.isSafeInteger(raw.revision))
         return { ok: false as const, error: 'Invalid user preset capabilities' };
-      return { ok: true as const, kind, canonicalName, label: raw.label, canSave: raw.can_save, canDelete: raw.can_delete, canReset: raw.can_reset, deleted: raw.deleted, revision: raw.revision as number };
+      return { ok: true as const, kind, canonicalName, label: raw.label, defaultSaveAsName: raw.default_save_as_name, canSave: raw.can_save, canDelete: raw.can_delete, canReset: raw.can_reset, deleted: raw.deleted, revision: raw.revision as number };
     },
 
     async mutateUserPreset(request: UserPresetRequest) {

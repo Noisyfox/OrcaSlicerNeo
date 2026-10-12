@@ -19,7 +19,9 @@ test('local user preset files survive restart and deletion Undo stays embedded',
     await page.getByTestId('filament-slot-1').click({ button: 'right' });
     await page.getByTestId('filament-edit-1').click();
     const editor = page.getByTestId('preset-editor-dialog');
+    const sourceName = await page.getByTestId('preset-editor-title').textContent();
     await editor.getByRole('button', { name: 'Save as…', exact: true }).click();
+    await expect(page.getByLabel('Preset name', { exact: true })).toHaveValue(`${sourceName} - Copy`);
     await page.getByLabel('Preset name', { exact: true }).fill('E2E Local PLA');
     await page.getByRole('button', { name: 'Save preset', exact: true }).click();
     await expect(page.getByTestId('preset-editor-title')).toHaveText('E2E Local PLA');

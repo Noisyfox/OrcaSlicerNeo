@@ -336,7 +336,19 @@ json info(Preset::Type type, const std::string& name) {
     if (!source) throw std::runtime_error("preset not found");
     const auto* head = baseline(type, source->name);
     const bool writable = head && head->is_user() && !head->is_project_embedded && !deleted(type, source->name);
+    // SavePresetDialog::Item naming rules, with session aliases resolved back
+    // to the original user name so snapshot/deletion markers stay out of files.
+    const auto snapshot = snapshots.find({type, source->name});
+    std::string save_as_name = snapshot != snapshots.end() ? snapshot->second.original :
+        source->is_default ? "Untitled" : source->is_system ? source->name + " - Copy" :
+        source->is_from_bundle() && !source->alias.empty() ? source->alias : source->name;
+    if (save_as_name.size() >= 4) {
+        auto extension = save_as_name.substr(save_as_name.size() - 4);
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char ch) { return std::tolower(ch); });
+        if (extension == ".ini") save_as_name.resize(save_as_name.size() - 4);
+    }
     return {{"ok", true}, {"kind", kind_name(type)}, {"canonical_name", name},
+        {"default_save_as_name", save_as_name},
         {"label", display_label(*source)}, {"can_save", writable}, {"can_delete", writable},
         {"can_reset", type == Preset::TYPE_PRINT && is_snapshot(type, source->name)},
         {"deleted", deleted(type, source->name)}, {"revision", state().history_revision}};

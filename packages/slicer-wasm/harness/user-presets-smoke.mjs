@@ -28,11 +28,13 @@ function mutate(action, kind, canonical_name, extra = {}, commit = true) {
 }
 ok(call('orc_init', [fixtureProfileOptions(Module)]));
 const first = ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name;
+assert.equal(ok(call('orc_user_preset_info', ['filament', first])).default_save_as_name, `${first} - Copy`);
 const originalTemp = draft(first).effective_values.nozzle_temperature;
 const created = mutate('save-as', 'filament', first, { name: 'Neo Local PLA' });
 assert.equal(created.history_entry_delta, 1);
 assert.equal(created.filament_session.slots[0].preset.name, 'Neo Local PLA');
 assert.equal(disk.has('filament/Neo Local PLA.json'), true);
+assert.equal(ok(call('orc_user_preset_info', ['filament', 'Neo Local PLA'])).default_save_as_name, 'Neo Local PLA');
 let rack = ok(call('orc_get_filament_session_snapshot'));
 ok(request('orc_add_filament_slot', { version: 1, revision: rack.revisions.session }));
 ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Neo Local PLA',
@@ -70,6 +72,7 @@ assert.equal(disk.has('filament/Neo Local PLA.json'), false);
 ok(call('orc_history_undo'));
 slot = ok(call('orc_get_filament_session_snapshot')).slots[0];
 assert.equal(slot.preset.label, 'Neo Local PLA (Deleted)');
+assert.equal(ok(call('orc_user_preset_info', ['filament', slot.preset.name])).default_save_as_name, 'Neo Local PLA');
 assert.ok(draft(slot.preset.name).effective_values.nozzle_temperature.split(',').every(value => value === '210'));
 assert.ok(draft(slot.preset.name).source_values.nozzle_temperature.split(',').every(value => value === '220'));
 const deletedInfo = ok(call('orc_user_preset_info', ['filament', slot.preset.name]));
@@ -91,10 +94,11 @@ assert.equal(request('orc_prepare_user_preset', { action: 'save-as', kind: 'fila
 let profiles = ok(call('orc_get_preset_snapshot'));
 const dormant = profiles.filament_catalog.find(row => row.name !== 'Neo Local PLA' && !row.name.includes('[snapshot')).name;
 const activeBefore = ok(call('orc_get_filament_session_snapshot')).slots.map(row => row.preset.name);
-const dormantSave = mutate('save-as', 'filament', dormant, { name: 'Dormant Local' });
+const dormantSave = mutate('save-as', 'filament', dormant, { name: 'Dormant Local.INI' });
+assert.equal(ok(call('orc_user_preset_info', ['filament', 'Dormant Local.INI'])).default_save_as_name, 'Dormant Local');
 assert.equal(dormantSave.history_entry_delta, 0);
 assert.deepEqual(dormantSave.filament_session.slots.map(row => row.preset.name), activeBefore);
-const dormantDelete = mutate('delete', 'filament', 'Dormant Local');
+const dormantDelete = mutate('delete', 'filament', 'Dormant Local.INI');
 assert.equal(dormantDelete.history_entry_delta, 0);
 assert.deepEqual(dormantDelete.filament_session.slots.map(row => row.preset.name), activeBefore);
 
