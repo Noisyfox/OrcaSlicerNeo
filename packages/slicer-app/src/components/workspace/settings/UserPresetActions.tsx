@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { SaveIcon } from 'lucide-react';
+import { SaveIcon, SquareMinusIcon } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
 import type { UserPresetInfo, UserPresetKind, UserPresetMutation, UserPresetRequest } from '@slicer/client';
 import { Button } from '@/components/ui/button';
@@ -89,7 +89,12 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
           <SaveIcon aria-hidden="true" data-icon="inline-start" />
         </Button>
       </TooltipFor>
-      {info?.canDelete && <Button size="xs" variant="ghost" disabled={locked} onClick={() => { setError(null); setDialog('delete'); }}>Delete</Button>}
+      {info?.canDelete && <TooltipFor content="Delete" disabled={locked}>
+        <Button size="icon-sm" variant="ghost" aria-label="Delete" disabled={locked}
+          onClick={() => { setError(null); setDialog('delete'); }}>
+          <SquareMinusIcon aria-hidden="true" data-icon="inline-start" />
+        </Button>
+      </TooltipFor>}
     </div>
     {error && !dialog && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     <Dialog open={dialog !== null} onOpenChange={open => { if (!open && !pending) setDialog(null); }}>
