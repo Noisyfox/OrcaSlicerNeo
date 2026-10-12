@@ -27,6 +27,7 @@
 #include "bridge_plate.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_profiles.hpp"
+#include "bridge_user_presets.hpp"
 #include "libslic3r/Exception.hpp"
 
 using namespace Slic3r;
@@ -380,13 +381,21 @@ bool resettable_key(const std::string& key)
 
 const Preset* selected_print_parent()
 {
-    return state().presets.prints.get_selected_preset_parent();
+    const auto& prints = state().presets.prints;
+    const auto& selected = prints.get_selected_preset();
+    const auto* source = selected.is_project_embedded ? prints.get_preset_parent(selected) : &selected;
+    if (source && (source->is_user() || UserPresets::is_snapshot(Preset::TYPE_PRINT, source->name)))
+        return UserPresets::baseline(Preset::TYPE_PRINT, source->name);
+    return prints.get_selected_preset_parent();
 }
 
 std::vector<std::string> edited_print_override_keys()
 {
     std::vector<std::string> result;
-    for (const std::string& key : state().presets.prints.current_different_from_parent_options(false))
+    const auto* baseline = selected_print_parent();
+    const auto keys = baseline ? state().presets.prints.get_edited_preset().config.diff(baseline->config) :
+        state().presets.prints.current_different_from_parent_options(false);
+    for (const std::string& key : keys)
         if (is_project_print_override_key(key)) result.push_back(key);
     for (const auto& [key, values] : state().presets.prints.get_edited_preset().neo_vector_overrides)
         if (std::find(result.begin(), result.end(), key) == result.end()) result.push_back(key);
@@ -423,6 +432,8 @@ void clear_edited_print_overrides(DynamicPrintConfig& candidate,
 DynamicPrintConfig print_element_source()
 {
     const auto& prints = state().presets.prints;
+    if (UserPresets::is_snapshot(Preset::TYPE_PRINT, prints.get_selected_preset_name()))
+        if (const auto* saved = selected_print_parent()) return saved->config;
     if (!prints.get_edited_preset().is_project_embedded) return prints.get_selected_preset().config;
     if (const auto* parent = selected_print_parent()) return parent->config;
     return prints.default_preset().config;
@@ -799,9 +810,8 @@ void apply_project_scoped_config_snapshot(const json& values)
     for (const std::string& key : project_candidate.keys())
         if (is_native_project_config_key(key)) project_candidate.erase(key);
 
-    DynamicPrintConfig print_candidate = state().presets.prints.get_edited_preset().config;
-    const Preset* parent = selected_print_parent();
-    clear_edited_print_overrides(print_candidate, parent, std::string{}, false);
+    // Reconstruct from the historical source, not today's dirty/reset baseline.
+    DynamicPrintConfig print_candidate = state().presets.prints.get_selected_preset().config;
     ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
     for (auto it = values.begin(); it != values.end(); ++it) {
         if (!it.value().is_string()) throw std::runtime_error("project scoped configuration values must be strings");
@@ -928,8 +938,14 @@ void restore_native_print_preset_history_state(const json& values)
 
     for (const auto& [name, record] : records) {
         auto* preset = prints.find_preset(name, false, true);
+        preset->inherits() = record.at("inherits").get<std::string>();
         const auto* parent = prints.get_preset_parent(*preset);
         const auto& source = parent ? parent->config : prints.default_preset().config;
+        // The record is a complete diff. Clear removed scalar overrides as
+        // well as vectors before replaying it; the previous live child may
+        // belong to a different retained version of the same source.
+        if (parent) for (const auto& key : source.keys())
+            if (is_project_print_override_key(key)) preset->config.set_key_value(key, source.option(key)->clone());
         for (const auto& [key, ignored] : preset->neo_vector_overrides)
             if (const auto* original = source.option(key)) preset->config.set_key_value(key, original->clone());
         ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
@@ -1240,6 +1256,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
     try {
         PlateSession::ensure_plate_session_state();
         const ScopedConfig::MutationRequest request = ScopedConfig::parse_request(request_cstr);
+        const std::string reset_target = request.operation == "reset-all" ? UserPresets::print_reset_target() : std::string{};
         ScopedConfig::validate_set_keys(request);
         if (ScopedConfig::project_request_requires_embedded_print_preset(request))
             ScopedConfig::materialize_project_print_preset(materialization);
@@ -1264,6 +1281,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                 resolved.back().project_config_changed =
                     resolved.back().project_candidate != state().presets.project_config;
                 resolved.back().print_config_changed =
+                    !reset_target.empty() ||
                     resolved.back().print_candidate != state().presets.prints.get_edited_preset().config ||
                     resolved.back().print_vector_overrides != state().presets.prints.get_edited_preset().neo_vector_overrides;
                 resolved.back().changed = resolved.back().project_config_changed ||
@@ -1347,6 +1365,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
             auto before_model = ScopedConfig::capture_model_mutation_snapshot(resolved, project_changed);
             const auto before_project_config = state().presets.project_config;
             const auto before_stored_print = state().presets.prints.get_selected_preset();
+            const auto before_print_name = state().presets.prints.get_selected_preset_name();
             const auto before_print_config = state().presets.prints.get_edited_preset().config;
             const auto before_print_vectors = state().presets.prints.get_edited_preset().neo_vector_overrides;
             const auto before_plates = state().plate_session_plates;
@@ -1361,6 +1380,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                         if (target.project_config_changed)
                             state().presets.project_config = std::move(target.project_candidate);
                         if (target.print_config_changed) {
+                            if (!reset_target.empty()) {
+                                state().presets.prints.select_preset_by_name(reset_target, true);
+                                for (const auto* key : {"inherits", "print_settings_id"})
+                                    if (const auto* value = state().presets.prints.get_selected_preset().config.option(key))
+                                        target.print_candidate.set_key_value(key, value->clone());
+                            }
                             state().presets.prints.get_edited_preset().config = std::move(target.print_candidate);
                             state().presets.prints.get_edited_preset().neo_vector_overrides = std::move(target.print_vector_overrides);
                             state().presets.prints.update_dirty();
@@ -1384,6 +1409,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                 ScopedConfig::restore_model_mutation_snapshot(before_model);
                 state().mutable_object_capture_cache.clear();
                 state().presets.project_config = before_project_config;
+                state().presets.prints.select_preset_by_name(before_print_name, true);
                 state().presets.prints.get_selected_preset() = before_stored_print;
                 state().presets.prints.get_edited_preset().config = before_print_config;
                 state().presets.prints.get_edited_preset().neo_vector_overrides = before_print_vectors;
@@ -1396,6 +1422,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                 PrimeTower::invalidate_projection_cache();
                 throw;
             }
+            if (project_changed) result["profile_snapshot"] = Profiles::preset_snapshot_json();
             // Application transactions advance the shared revision at their
             // history commit. Direct bridge callers have no enclosing
             // transaction, so the native mutation itself is the commit.

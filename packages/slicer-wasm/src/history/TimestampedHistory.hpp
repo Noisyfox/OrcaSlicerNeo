@@ -174,6 +174,12 @@ public:
     bool can_undo() const;
     bool can_redo() const;
     LogicalTimestamp current_timestamp() const;
+    // Repository revisions change references, never timeline topology. Rewrite
+    // all retained contexts (including Redo and the saved checkpoint) atomically,
+    // sharing the original model/mesh archives. Save may rebind the cursor's
+    // context without adding an entry or discarding Redo.
+    void rewrite_contexts(const std::function<Bytes(const Bytes&)>& rewrite,
+                          const Bytes* current_context = nullptr);
     // Restrict navigation to this timestamp and later; nullopt clears the floor.
     // Changes fail during an active operation or editing session, or when the
     // timestamp is unavailable.

@@ -11,7 +11,9 @@ process.parentPort.once('message', (event) => {
   if (typeof temporaryDirectory !== 'string' || temporaryDirectory.includes('\0') || !isAbsolute(temporaryDirectory)) {
     process.exit(1);
   }
-  const worker = new Worker(join(__dirname, 'slicer-worker.js'), { workerData: { temporaryDirectory } });
+  const userPresetDirectory: unknown = event.data.userPresetDirectory;
+  if (typeof userPresetDirectory !== 'string' || !isAbsolute(userPresetDirectory) || userPresetDirectory.includes('\0')) process.exit(1);
+  const worker = new Worker(join(__dirname, 'slicer-worker.js'), { workerData: { temporaryDirectory, userPresetDirectory } });
   worker.on('message', (message) => port.postMessage(message));
   worker.on('error', (error) => {
     port.postMessage({ type: 'fatal', error: error.message });

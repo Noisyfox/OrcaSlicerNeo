@@ -1467,6 +1467,39 @@ int main()
     }
     CHECK(navigation_history.current_timestamp() == navigation_cursor && !navigation_history.project_modified());
 
+    // Repository replacement rewrites only configuration references. The saved
+    // marker, Redo branch and immutable geometry retain their identities.
+    TimestampedHistory repository_history;
+    const auto p1 = roots(1, {object(1, 1, 1)}, 1, 10);
+    const auto p2 = roots(1, {object(1, 1, 1)}, 1, 20);
+    const auto p3 = roots(1, {object(1, 1, 1)}, 1, 30);
+    CHECK(repository_history.begin_operation("Edit", p1));
+    CHECK(repository_history.commit_operation(p2));
+    repository_history.mark_current_as_saved();
+    CHECK(repository_history.begin_operation("Edit again", p2));
+    CHECK(repository_history.commit_operation(p3));
+    TimestampedRestore repository_restore;
+    CHECK(repository_history.undo(p3, repository_restore));
+    const auto retained_object = repository_history.object_archive(0, 1);
+    const auto adopted_context = bytes(21);
+    repository_history.rewrite_contexts([](const Bytes& value) { return bytes(value[0] + 1); }, &adopted_context);
+    CHECK(repository_history.entries().size() == 2 && repository_history.can_redo());
+    CHECK(!repository_history.project_modified());
+    CHECK(repository_history.object_archive(0, 1) == retained_object);
+    CHECK(repository_history.undo(p2, repository_restore));
+    CHECK(repository_restore.roots.session.history_context == bytes(11));
+    CHECK(repository_history.redo(repository_restore));
+    CHECK(repository_restore.roots.session.history_context == bytes(21));
+    CHECK(repository_history.redo(repository_restore));
+    CHECK(repository_restore.roots.session.history_context == bytes(31));
+    bool rewrite_failed = false;
+    try {
+        repository_history.rewrite_contexts([](const Bytes&) -> Bytes { throw std::runtime_error("rewrite failed"); });
+    } catch (const std::runtime_error&) { rewrite_failed = true; }
+    CHECK(rewrite_failed);
+    CHECK(repository_history.undo(p3, repository_restore));
+    CHECK(repository_restore.roots.session.history_context == bytes(21));
+
     std::cout << "TimestampedHistory tests passed\n";
     return EXIT_SUCCESS;
 }

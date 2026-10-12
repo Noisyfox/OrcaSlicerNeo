@@ -1,4 +1,6 @@
 import { linkProfileVendors } from './profileFilesystem';
+import { installUserPresets, validateUserPresetPath } from './userPresets';
+import type { UserPresetStorage, UserPresetKind, UserPresetRequest, UserPresetMutation } from './userPresets';
 import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationPreparationRequest, ProfileActivationApplicationResult } from './setupWizard';
 import { createPaintingApi } from './paintingClient';
 import { decodeModelGeometry } from './modelGeometry';
@@ -296,9 +298,15 @@ function normalizeNativeScopedConfig(raw: unknown): NativeScopedConfigResultOrEr
   }
   const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
   if (!nativeScopedConfig) return { ok: false, version: 1, error: 'invalid native scoped configuration transport' };
-  const result: { ok: true; nativeScopedConfig: NativeScopedConfigTransport; plateSession?: unknown; configurationStatus?: unknown } = {
+  const result: { ok: true; nativeScopedConfig: NativeScopedConfigTransport; plateSession?: unknown; configurationStatus?: unknown; profileSnapshot?: ProfileSnapshot } = {
     ok: true, nativeScopedConfig,
   };
+  if (raw.profile_snapshot !== undefined) {
+    if (!isRecord(raw.profile_snapshot)) return { ok: false, version: 1, error: 'invalid scoped profile snapshot' };
+    const profile = normalizeProfileSnapshot(raw.profile_snapshot);
+    if (!profile.ok) return { ok: false, version: 1, error: 'invalid scoped profile snapshot' };
+    result.profileSnapshot = profile;
+  }
   if (raw.plate_session !== undefined) {
     const plateSession = normalizePlateMutationResult(raw.plate_session);
     if (!plateSession.ok) return { ok: false, version: 1, error: plateSession.error };
@@ -1690,6 +1698,7 @@ export function createClient(
   onBridgeProjectClosed?: ProjectClosedCallback,
   onRuntimeState?: (state: { threaded: boolean; serialTerminalEpoch: string }) => void,
   beforeCatalogue?: (module: OrcaModule) => Promise<void>,
+  userPresets?: UserPresetStorage,
 ): SlicerClient {
   let geometrySession = crypto.randomUUID();
   let catalogueOpening = false;
@@ -2016,8 +2025,11 @@ export function createClient(
       if (activation === undefined) throw new Error('explicit nullable activation is required');
       const m = await module();
       if (!beforeInitPromise) {
-        if (beforeInit) {
-          beforeInitPromise = beforeInit(m, activation);
+        if (beforeInit || userPresets) {
+          beforeInitPromise = (async () => {
+            await beforeInit?.(m, activation);
+            if (userPresets) await installUserPresets(m, userPresets);
+          })();
           try {
             await beforeInitPromise;
           } catch (error) {
@@ -2054,6 +2066,52 @@ export function createClient(
     async getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult> {
       const m = await module();
       return normalizeFilamentSessionResult(callJson(m, 'orc_get_filament_session_snapshot', [], []));
+    },
+
+    async getUserPresetInfo(kind: UserPresetKind, canonicalName: string) {
+      const m = await module();
+      const raw = callJson(m, 'orc_user_preset_info', ['string', 'string'], [kind, canonicalName]);
+      if (!isRecord(raw) || raw.ok !== true) return { ok: false as const, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid user preset response' };
+      if (typeof raw.label !== 'string' || typeof raw.can_save !== 'boolean' || typeof raw.can_delete !== 'boolean' || typeof raw.can_reset !== 'boolean' || typeof raw.deleted !== 'boolean' || !Number.isSafeInteger(raw.revision))
+        return { ok: false as const, error: 'Invalid user preset capabilities' };
+      return { ok: true as const, kind, canonicalName, label: raw.label, canSave: raw.can_save, canDelete: raw.can_delete, canReset: raw.can_reset, deleted: raw.deleted, revision: raw.revision as number };
+    },
+
+    async mutateUserPreset(request: UserPresetRequest) {
+      if (!userPresets) return { ok: false as const, error: 'Local user preset storage is unavailable' };
+      const m = await module();
+      const prepared = callJson(m, 'orc_prepare_user_preset', ['string'], [JSON.stringify({
+        action: request.action, kind: request.kind, canonical_name: request.canonicalName,
+        expected_revision: request.expectedRevision, ...(request.action === 'save-as' ? { name: request.name } : {}),
+      })]);
+      if (!isRecord(prepared) || prepared.ok !== true)
+        return { ok: false as const, error: isRecord(prepared) && typeof prepared.error === 'string' ? prepared.error : 'Could not prepare preset operation' };
+      const finish = (commit: boolean) => callJson(m, 'orc_finish_user_preset', ['string'], [JSON.stringify({ token: prepared.token, commit })]);
+      let durable = false;
+      try {
+        const raw = prepared.result;
+        if (!isRecord(raw) || !isRecord(raw.profile_snapshot) || !isRecord(prepared.change) || typeof prepared.change.path !== 'string' ||
+            (prepared.change.content !== null && typeof prepared.change.content !== 'string')) throw new Error('Invalid preset operation receipt');
+        validateUserPresetPath(prepared.change.path);
+        const profileSnapshot = normalizeProfileSnapshot(raw.profile_snapshot);
+        const filamentSession = normalizeFilamentSessionResult(raw.filament_session);
+        const plateSession = normalizePlateMutationResult(raw.plate_session);
+        const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
+        const historyStatus = normalizeHistoryStatus(raw.history_status);
+        if (!profileSnapshot.ok || !filamentSession.ok || !plateSession.ok || !nativeScopedConfig || nativeScopedConfig.kind !== 'full' ||
+            typeof raw.canonical_name !== 'string' || (raw.history_entry_delta !== 0 && raw.history_entry_delta !== 1))
+          throw new Error('Invalid preset operation state');
+        const result: UserPresetMutation = { ok: true, kind: request.kind, canonicalName: raw.canonical_name,
+          historyEntryDelta: raw.history_entry_delta, profileSnapshot, filamentSession, plateSession, nativeScopedConfig, historyStatus };
+        await userPresets.write({ path: prepared.change.path, content: prepared.change.content });
+        durable = true;
+        const committed = finish(true);
+        if (!isRecord(committed) || committed.ok !== true) throw new Error('Preset was saved, but the runtime failed to commit; reload the application');
+        return result;
+      } catch (error) {
+        if (!durable) finish(false);
+        return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+      }
     },
 
     async getPresetDraft(kind: PresetDraftKind, canonicalName: string): Promise<PresetDraftSnapshotResult> {

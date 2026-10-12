@@ -1,5 +1,6 @@
 import type { ProfileActivation, SetupWizardMethods } from './setupWizard';
 import type { PaintingApi } from './painting';
+import type { UserPresetMethods } from './userPresets';
 // packages/slicer-wasm/src/client/types.ts
 // ----------------------------------------------------------------
 // Shared types: the OrcaModule shape (structural Emscripten factory
@@ -328,6 +329,8 @@ export interface NativeScopedConfigResult {
   readonly ok: true;
   readonly nativeScopedConfig: NativeScopedConfigTransport;
   readonly plateSession?: PlateSessionMutation;
+  /** Present when a Project mutation changes its effective preset projection. */
+  readonly profileSnapshot?: ProfileSnapshot;
   /** Native option parse/normalization feedback for configuration commands. */
   readonly configurationStatus?: ConfigurationReadyStatus;
 }
@@ -1551,7 +1554,7 @@ export interface FilesystemEntry {
   readonly sizeBytes: number | null;
 }
 
-export interface SlicerClient extends PaintingApi, SetupWizardMethods {
+export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPresetMethods {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(activation: ProfileActivation | null): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */

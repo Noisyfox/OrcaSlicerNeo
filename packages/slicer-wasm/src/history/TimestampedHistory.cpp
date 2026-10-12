@@ -956,6 +956,22 @@ bool TimestampedHistory::can_redo() const
 }
 
 LogicalTimestamp TimestampedHistory::current_timestamp() const { return m_impl->current_timestamp; }
+
+void TimestampedHistory::rewrite_contexts(const std::function<Bytes(const Bytes&)>& rewrite,
+                                          const Bytes* current_context)
+{
+    if (m_impl->operation) throw std::logic_error("cannot rewrite history during an operation");
+    auto staged = std::make_unique<Impl>(*m_impl);
+    for (auto& [timestamp, snapshot] : staged->snapshots) {
+        const Bytes context = current_context && timestamp == staged->current_timestamp
+            ? *current_context : rewrite(*snapshot->history_context);
+        if (context == *snapshot->history_context) continue;
+        auto replacement = std::make_shared<Impl::Snapshot>(*snapshot);
+        replacement->history_context = std::make_shared<const Bytes>(context);
+        snapshot = std::move(replacement);
+    }
+    m_impl.swap(staged);
+}
 bool TimestampedHistory::set_navigation_floor(std::optional<LogicalTimestamp> timestamp)
 {
     if (m_impl->operation || m_impl->editing_session) return false;

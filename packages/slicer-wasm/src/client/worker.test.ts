@@ -42,6 +42,20 @@ function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | 
 }
 
 describe('worker protocol', () => {
+  it('excludes reads and mutations while a user preset write owns the worker', async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const { workerClient } = setup(async op => { if (op === 'mutateUserPreset') { entered(); await held; } });
+    const save = workerClient.mutateUserPreset({ action: 'save', kind: 'filament', canonicalName: 'P', expectedRevision: 0 });
+    await started;
+    await expect(workerClient.getProfileSnapshot()).rejects.toThrow('user preset write is in progress');
+    await expect(workerClient.undoHistory()).rejects.toThrow('user preset write is in progress');
+    release();
+    await save;
+    await expect(workerClient.getProfileSnapshot()).resolves.toMatchObject({ ok: true });
+  });
   it('transports typed Print vectors and indexed mutations through the shared Worker boundary', async () => {
     const { workerClient } = setup();
     await workerClient.init(MOCK_PROFILE_ACTIVATION);

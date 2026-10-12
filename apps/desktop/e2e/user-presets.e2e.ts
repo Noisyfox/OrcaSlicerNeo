@@ -1,0 +1,53 @@
+import { _electron } from './electron-fixture';
+import { expect, test } from '@playwright/test';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+test('local user preset files survive restart and deletion Undo stays embedded', async () => {
+  test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires the real native preset writer');
+  const directory = await mkdtemp(join(tmpdir(), 'orca-local-presets-e2e-'));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: join(directory, 'preferences.json') } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const launch = () => _electron.launch({ args: ['.', `--user-data-dir=${directory}`], cwd: resolve(__dirname, '..'), env });
+  let app = await launch();
+  try {
+    expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(directory);
+    let page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('filament-slot-1').click({ button: 'right' });
+    await page.getByTestId('filament-edit-1').click();
+    const editor = page.getByTestId('preset-editor-dialog');
+    await editor.getByRole('button', { name: 'Save as…', exact: true }).click();
+    await page.getByLabel('Preset name', { exact: true }).fill('E2E Local PLA');
+    await page.getByRole('button', { name: 'Save preset', exact: true }).click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText('E2E Local PLA');
+    const file = join(directory, 'user/default/filament/E2E Local PLA.json');
+    await expect.poll(async () => JSON.parse(await readFile(file, 'utf8')).name).toBe('E2E Local PLA');
+    await page.getByTestId('preset-editor-search').fill('filament_diameter');
+    const input = page.getByTestId('preset-editor-input-filament_diameter');
+    await input.fill('1.76'); await input.press('Enter');
+    await editor.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(async () => JSON.parse(await readFile(file, 'utf8')).filament_diameter).toEqual(['1.76']);
+    await page.getByTestId('preset-editor-close').click();
+    await app.close(); app = await launch(); page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('filament-preset-1').click();
+    await page.getByPlaceholder('Search compatible presets…').fill('E2E Local PLA');
+    await page.getByRole('menuitem', { name: 'Generic', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'E2E Local PLA', exact: true }).click();
+    await page.getByTestId('filament-slot-1').click({ button: 'right' });
+    await page.getByTestId('filament-edit-1').click();
+    await page.getByTestId('preset-editor-search').fill('filament_diameter');
+    await expect(page.getByTestId('preset-editor-input-filament_diameter')).toHaveValue('1.76');
+    await page.getByTestId('preset-editor-dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete preset', exact: true }).click();
+    await expect.poll(async () => readFile(file).then(() => false, () => true)).toBe(true);
+    await page.getByTestId('preset-editor-close').click();
+    await page.getByTestId('history-undo').click();
+    await expect(page.getByTestId('filament-preset-1')).toContainText('E2E Local PLA (Deleted)');
+    await expect.poll(async () => readFile(file).then(() => false, () => true)).toBe(true);
+  } finally { await app.close(); }
+});

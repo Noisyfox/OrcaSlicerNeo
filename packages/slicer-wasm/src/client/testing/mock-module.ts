@@ -2517,6 +2517,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         native_scoped_config: nativeScopedConfigAffectedTransport(targets),
         configuration_status: { state: 'ready', corrections, warnings: [], errors: [] } };
       if (mutation) result.plate_session = mutation;
+      if (mutation && projectChanged) result.profile_snapshot = snapshot();
       return result;
     },
     orc_revalidate_native_scoped_config() {
@@ -2537,6 +2538,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_get_preset_snapshot() {
       return snapshot();
+    },
+    orc_user_preset_info(kind: string, canonicalName: string) {
+      return { ok: true, kind, canonical_name: canonicalName, label: canonicalName,
+        can_save: false, can_delete: false, can_reset: false, deleted: false, revision: historyRevision };
+    },
+    orc_prepare_user_preset(_request: string) {
+      return { ok: false, error: 'User preset persistence requires the real slicer runtime' };
+    },
+    orc_finish_user_preset(_request: string) {
+      return { ok: false, error: 'No user preset transaction is pending' };
     },
     orc_get_preset_draft(kind: string, canonicalName: string) {
       if (kind !== 'printer' && kind !== 'filament')
@@ -3514,6 +3525,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_select_printer_with_remembered_rack: { ret: 'number', args: ['string'] },
     orc_set_toolhead_diameter: { ret: 'number', args: ['string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
+    orc_user_preset_info: { ret: 'number', args: ['string', 'string'] },
+    orc_prepare_user_preset: { ret: 'number', args: ['string'] },
+    orc_finish_user_preset: { ret: 'number', args: ['string'] },
     orc_get_preset_draft: { ret: 'number', args: ['string', 'string'] },
     orc_mutate_preset_draft: { ret: 'number', args: ['string'] },
     orc_get_option_metadata: { ret: 'number', args: [] },

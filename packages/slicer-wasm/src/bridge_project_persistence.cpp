@@ -2,6 +2,7 @@
 // Project archive persistence for the Neo WASM bridge.
 // ----------------------------------------------------------------
 #include "bridge_project_persistence.hpp"
+#include "bridge_user_presets.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -118,6 +119,7 @@ json close_project_session()
     bridge_state.model = Model{};
     bridge_state.pending_membership_instance_ids.clear();
     bridge_state.presets.reset_project_embedded_presets();
+    Neo::Bridge::UserPresets::reset_session();
     // A replacement project owns new plate coordinates. Clear Scene uses
     // orc_clear_model instead and intentionally retains the old positions.
     bridge_state.presets.project_config.erase("wipe_tower_x");
@@ -1390,7 +1392,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         // standard BBS exporter enumerates embedded presets; no private
         // archive metadata is needed for this owner boundary.
         Neo::Bridge::ScopedConfig::sync_project_print_preset_storage();
-        params.project_presets = state().presets.get_current_project_embedded_presets();
+        const auto native_embedded = state().presets.get_current_project_embedded_presets();
+        std::vector<std::unique_ptr<Preset>> owned_native_embedded;
+        for (auto* preset : native_embedded) owned_native_embedded.emplace_back(preset);
+        auto exported_presets = Neo::Bridge::UserPresets::export_presets(config, native_embedded);
+        for (auto& preset : exported_presets) params.project_presets.push_back(&preset);
         params.config = &config;
         params.strategy = SaveStrategy::ShareMesh |
                           SaveStrategy::Zip64 | SaveStrategy::Silence |

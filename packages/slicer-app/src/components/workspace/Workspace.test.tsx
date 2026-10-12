@@ -189,7 +189,7 @@ describe('Workspace ownership', () => {
     });
     expect(runtime.getPresetDraft).toHaveBeenCalledOnce();
     expect(document.querySelectorAll('[data-testid="preset-editor-dialog"]')).toHaveLength(1);
-    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A');
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A canonical');
 
     await act(async () => {
       (container.querySelector('[data-testid="mock-filament-edit"]') as HTMLButtonElement).click();
@@ -197,7 +197,7 @@ describe('Workspace ownership', () => {
     });
     expect(runtime.getPresetDraft).toHaveBeenCalledOnce();
     expect(document.querySelectorAll('[data-testid="preset-editor-dialog"]')).toHaveLength(1);
-    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A');
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A canonical');
   });
 
   it('browses Printer sources independently and retains the previous editor when a read fails', async () => {

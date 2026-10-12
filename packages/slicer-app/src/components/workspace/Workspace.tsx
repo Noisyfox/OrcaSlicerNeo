@@ -373,7 +373,7 @@ export function Workspace({
           projection.volumes.forEach((volume) => { if (!retained.has(volume)) volume.dispose(); });
           return;
         }
-        if (impact.profileSelection || impact.presetDrafts) {
+        if (profileSnapshot || impact.profileSelection || impact.presetDrafts) {
           if (!profileSnapshot)
             throw new Error('history profile restore is missing its native profile snapshot');
           const configurationMode = useSettingsStore.getState().configurationMode;

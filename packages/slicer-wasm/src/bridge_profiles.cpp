@@ -31,6 +31,7 @@
 #include "bridge_plate.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_preset_drafts.hpp"
+#include "bridge_user_presets.hpp"
 #include "bridge_scoped_config.hpp"
 #include "bridge_slicing_pipeline.hpp"
 
@@ -40,7 +41,7 @@ namespace Slic3r::Neo::Bridge::Profiles {
 
 std::string preset_display_label(const Preset& preset)
 {
-    return preset.alias.empty() ? preset.name : preset.alias;
+    return UserPresets::display_label(preset);
 }
 
 namespace {
@@ -363,7 +364,7 @@ json preset_candidates_json(const PresetCollection& collection, bool require_com
         collection.get_selected_idx() != size_t(-1) ? &collection.get_selected_preset() : nullptr;
     const Preset* selected_source = selected_print ? print_picker_source(*selected_print, collection) : nullptr;
     for (auto it = collection.begin(); it != collection.end(); ++it) {
-        if (!it->is_visible || (require_compatible && !it->is_compatible)) continue;
+        if (!it->is_visible || !UserPresets::picker_visible(*it) || (require_compatible && !it->is_compatible)) continue;
         if (collection.type() == Preset::TYPE_PRINT && print_picker_source(*it, collection) != &*it)
             continue;
         if (selected_print && selected_print != selected_source && selected_source == &*it) {
@@ -579,14 +580,14 @@ json printer_picker_json(const DynamicPrintConfig& effective)
     std::map<std::string, size_t> indices;
     std::string selected_id;
     for (const auto& preset : bundle.printers) {
-        if (!preset.is_visible) continue;
+        if (!preset.is_visible || !UserPresets::picker_visible(preset)) continue;
         const std::string model = preset.config.opt_string("printer_model");
         const bool grouped = preset.is_system && !preset.is_project_embedded && !model.empty();
         const std::string id = grouped
             ? json::array({"model", preset.vendor ? preset.vendor->id : "", model}).dump()
             : json::array({"preset", preset.name}).dump();
         auto [it, inserted] = indices.emplace(id, groups.size());
-        if (inserted) groups.push_back({id, grouped ? model : preset.name, grouped, {}});
+        if (inserted) groups.push_back({id, grouped ? model : preset_display_label(preset), grouped, {}});
         groups[it->second].presets.push_back(&preset);
         if (preset.name == selected.name) selected_id = id;
     }
@@ -674,8 +675,10 @@ json preset_snapshot_json()
     const PresetCollection* collections[] = {&state().presets.printers, &state().presets.filaments};
     for (const auto* collection : collections)
         for (const auto& preset : *collection)
-            if (const auto* overrides = state().preset_drafts.find(collection->type(), preset.name);
-                overrides && !overrides->empty())
+            if ((state().preset_drafts.find(collection->type(), preset.name) ||
+                 UserPresets::is_snapshot(collection->type(), preset.name)) &&
+                UserPresets::modified(collection->type(), preset.name,
+                PresetDrafts::effective_preset_config(state().presets, state().preset_drafts, collection->type(), preset.name)))
                 modified_presets[collection->type() == Preset::TYPE_PRINTER ? "printer" : "filament"].push_back(preset.name);
     return json{{"ok", true},
                 {"modified_presets", std::move(modified_presets)},
@@ -1250,7 +1253,7 @@ const char* apply_activation()
     for (const PresetCollection* previous : std::initializer_list<const PresetCollection*>{
             &bridge.presets.printers, &bridge.presets.prints, &bridge.presets.filaments}) {
         for (const Preset& source : *previous) {
-            if (!source.is_project_embedded) continue;
+            if (!source.is_project_embedded && !UserPresets::is_snapshot(source.type, source.name)) continue;
             auto& collection = source.type == Preset::TYPE_PRINTER ? candidate.printers :
                 source.type == Preset::TYPE_FILAMENT ? candidate.filaments : candidate.prints;
             Preset& imported = collection.load_preset(source.file, source.name, source.config, false, source.version);

@@ -5,6 +5,7 @@ import { validateUserPresetPath } from '../../../../packages/slicer-wasm/src/cli
 import { writeFileAtomically } from '../main/atomicFile';
 
 const kinds = ['machine', 'filament', 'process'] as const;
+const folders = kinds.flatMap(kind => [kind, `${kind}/base`]);
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 
 /** Trusted main-process path. Never accept a renderer-supplied directory. */
@@ -12,7 +13,7 @@ export function createDesktopUserPresetStorage(directory: string): UserPresetSto
   if (!isAbsolute(directory) || directory.includes('\0')) throw new Error('User preset directory must be absolute');
   const ensureDirectories = async () => {
     await mkdir(directory, { recursive: true });
-    for (const path of [directory, ...kinds.map(kind => join(directory, kind))]) {
+    for (const path of [directory, ...folders.map(kind => join(directory, kind))]) {
       await mkdir(path, { recursive: true });
       if ((await lstat(path)).isSymbolicLink()) throw new Error('User preset directories cannot be symbolic links');
     }
@@ -21,7 +22,7 @@ export function createDesktopUserPresetStorage(directory: string): UserPresetSto
     async load() {
       await ensureDirectories();
       const files = [];
-      for (const kind of kinds) {
+      for (const kind of folders) {
         for (const entry of await readdir(join(directory, kind), { withFileTypes: true })) {
           if (!entry.name.endsWith('.json')) continue;
           if (!entry.isFile()) throw new Error(`User preset is not a regular file: ${entry.name}`);

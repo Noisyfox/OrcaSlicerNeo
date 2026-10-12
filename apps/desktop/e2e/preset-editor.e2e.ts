@@ -79,9 +79,12 @@ test('independent preset browsing preserves project choices and both Filament dr
     await optionsList.evaluate(element => { element.scrollTop = 0; });
     expect((await presetSearch.boundingBox())!.y).toBeCloseTo(searchTop, 1);
     await presetSearch.fill(target);
-    await expect(editorPopup.getByRole('option')).toHaveCount(1);
+    // Native root names can also prefix many printer-specific descendants.
+    await expect(editorPopup.getByRole('option').and(page.getByTitle(target, { exact: true }))).toBeVisible();
+    expect(await editorPopup.getByRole('option').evaluateAll((options, query) =>
+      options.every(option => option.getAttribute('title')?.toLocaleLowerCase().includes(query)), target.toLocaleLowerCase())).toBe(true);
     await presetSearch.press('ArrowDown');
-    await expect(editorPopup.getByRole('option')).toBeFocused();
+    await expect(editorPopup.getByRole('option').first()).toBeFocused();
     await presetSearch.fill('');
     if (!REAL) {
       // The popup accommodates names and is at least as wide as the fixed trigger.

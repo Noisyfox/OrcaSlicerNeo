@@ -23,6 +23,7 @@ import { projectHistoryStatus, runProjectMutationOperation } from '../actions/hi
 import { loadRememberedFilamentRackFromRepository, publishRememberedFilamentRack, loadRememberedBedTypeFromRepository, publishRememberedBedType } from '@/preferences';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import { PresetCombobox, type PresetComboItem } from '../PresetCombobox';
+import { UserPresetActions } from './UserPresetActions';
 import type { PrinterTransitionSuccess } from '@orca/slicer-runtime';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 
@@ -355,7 +356,10 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
       <ScopedConfigurationPanel
         bedTypeDisabled={controlsDisabled}
         sceneInteraction={sceneInteraction}
-        projectContent={<PresetRow compact modified={false} label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />}
+        projectContent={<div className="flex flex-col gap-1">
+          <PresetRow compact modified={false} label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />
+          <UserPresetActions kind="print" canonicalName={selectedPrint} disabled={controlsDisabled} onPendingChange={setPresetTransitionPending} />
+        </div>}
         scopedContent={<ObjectList sceneInteraction={sceneInteraction} />}
         platesContent={platesContent}
         platesToolbar={sceneInteraction && <PlateToolbar sceneInteraction={sceneInteraction} />}

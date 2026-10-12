@@ -30,6 +30,7 @@
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_state.hpp"
+#include "bridge_user_presets.hpp"
 
 #include <boost/log/trivial.hpp>
 
@@ -104,6 +105,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
             log_level = opts["log_level"].get<std::string>();
         wasm_log::init_with_level(log_level);
 
+        Slic3r::Neo::Bridge::UserPresets::reset_session();
         state().preset_drafts.clear();
         state().dormant_preset_drafts.clear();
         state().preset_draft_revision = 0;

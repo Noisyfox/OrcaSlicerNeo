@@ -2,9 +2,10 @@
 
 **Date:** 2026-10-12
 
-**Status:** Design only; not implemented. Sections 1-3 record accepted product
-requirements. Proposed extensions and unresolved decisions are explicitly
-labelled and do not constitute implementation approval.
+**Status:** Local management implemented for the default library. Account
+libraries, synchronization and cloud update notices remain design only.
+Sections 1-3 record accepted product requirements; section 12 describes the
+delivered local subset and its verification boundaries.
 
 **Scope:** Printer, Filament and Process user presets in the shared Electron
 and Web application, including local repositories, account separation,
@@ -18,8 +19,8 @@ owns independent source browsing and runtime drafts;
 [Scoped Configuration](Project%20and%20Scoped%20Configuration.md) owns Process
 editing. [Undo and Redo](Undo%20and%20Redo.md) and
 [3MF Project Persistence](3MF%20Project%20Persistence.md) own project history
-and interchange. This document defines their proposed user-repository extension,
-not a claim that repository or cloud features are already delivered.
+and interchange. This document defines their user-repository extension;
+cloud-specific requirements do not imply delivered cloud functionality.
 
 Previously accepted constraints remain in force:
 
@@ -913,19 +914,20 @@ intact.
 
 ## 10. Implementation boundaries still requiring design
 
-The version-transition questions are resolved in sections 1-3. This does not
-approve an implementation or settle every repository/cloud integration detail.
-Before implementing the dependent areas, complete the following designs:
+The version-transition questions are resolved in sections 1-3, and section 12
+records the authorized local implementation. Before adding cloud integration,
+complete the following designs:
 
-- Stable local/cloud identity mapping, durable revision metadata, atomic file
-  and IndexedDB commits, and recovery after interrupted publication.
+- Stable local/cloud identity mapping, durable cloud revision metadata, and
+  recovery across interrupted multi-record cloud reconciliation. Local
+  single-file and IndexedDB commits are described in section 12.
 - Cloud conflict reconciliation and first-login migration UX, including any
   explicit copying from the default library and target-name collisions. Account
   switching itself must continue to detach references as section 2.5 requires.
 - Native persistence for children whose parent was deleted remotely, preserving
   their effective values without assuming a missing parent will become available.
-- The history-root migration mechanism, dependency retention and resource
-  accounting across current, historical and saved-checkpoint references.
+- Incremental snapshot garbage collection and resource accounting beyond the
+  delivered session-boundary retention policy.
 
 These are implementation work areas, not permission to change the accepted
 transition behaviour. Any newly exposed product choice needs explicit review.
@@ -993,5 +995,82 @@ Required behavioural cases include:
 
 Shared logic is verified at the lowest useful layer; host-specific persistence
 requires Electron/Web coverage and the common bridge requires both WASM variants
-at the appropriate handoff gate. This design document does not claim any of
-those product checks have run or passed.
+at the appropriate handoff gate. The complete cloud matrix above remains
+future qualification; local coverage is recorded below.
+
+## 12. Delivered local implementation
+
+The default library is available without an account on both hosts. Printer and
+Filament actions live in the independent preset editor; Process actions live
+beside its project selector. Save overwrites a writable user preset; Save As
+requires an unused name; Delete operates on one user preset and rejects parents
+with remaining user children. System and Deleted sources can write a library
+preset only through Save As; Reset remains a session parameter operation.
+There is no local Update available state, cloud client, account transition,
+direct Rename, or bulk Delete.
+
+### Storage and ownership
+
+- Electron keeps native Orca JSON under
+  `app.getPath('userData')/user/default/{machine,filament,process}`;
+  native detached base profiles use each type's `base` subdirectory. Files may
+  be edited directly. Startup reads them; no watcher or external-change check
+  runs during the session, and application Save overwrites the current file.
+- Web stores the same relative paths and JSON in IndexedDB database
+  `orca-user-presets`, store `default`. Availability is subject to the browser's
+  storage lifetime; this feature does not implement an offline application shell.
+- The runtime injects host storage into the typed client/Worker. Native code
+  owns names, inheritance, effective values, saved diffs, compatibility and
+  session transitions. No application code accesses Emscripten or host paths.
+- Only saved JSON is durable. Snapshot aliases and deleted baselines are native
+  session state, released at a New/Open boundary. They never become library
+  files or Neo-specific 3MF metadata. Session retention currently lasts until
+  that boundary; it is not a claim of incremental snapshot garbage collection.
+
+### Commit and history
+
+The native prepare operation stages a complete rollback state and the intended
+single-file change. The typed client validates the reply before persistence.
+Electron replaces a file through a same-directory temporary file and rename;
+Web uses one IndexedDB write transaction. The Worker excludes competing requests
+until native commit or rollback. A rejected/failed write restores the previous
+native library, drafts, current selection and history without a new entry.
+The file commit is authoritative across a process exit; a new runtime loads it
+at startup. No cross-process library locking or cross-session notification is
+introduced.
+
+Replacing a saved version retains its effective configuration and redirects
+historical references to that version. The saved baseline remains independently
+addressable for dirty and Reset. History context rewrites share existing model
+archives and preserve the saved marker and Redo branch. Overwrite Save rebinds
+the current state without another entry; active Save As and Delete each produce
+one selection entry for all same-source references. Undo never reverses the
+file operation. Deleted snapshots retain their final saved comparison baseline
+and cannot reconnect to a later preset that reuses the name.
+
+Native project-embedded Process children keep their separate ownership. Saving
+their effective parameters preserves the saved head's parent, preventing a
+self-inheritance. Full Reset adopts the current head when still linked; partial
+Reset changes values only. Export writes ordinary Orca embedded configurations
+with clean project names and effective values.
+
+### Verification entry points
+
+- `pnpm test` and `pnpm typecheck` cover the shared contract, Worker admission,
+  write failure rollback, storage adapters and UI actions.
+- `scripts\build-windows.bat quick --variant threaded -j 8` and the corresponding
+  `--variant serial` command build the common native boundary.
+- `node packages/slicer-wasm/harness/user-presets-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js`
+  exercises real native Save/Save As/Delete, historical identities, Reset,
+  shared slots, independent browsing, inheritance and 3MF. Substitute
+  `out/serial/orca_slice.js` for serial qualification.
+- The standalone `TimestampedHistory.test.cpp` verifies atomic context rewriting,
+  saved markers, retained Redo and shared geometry archives.
+- `apps/desktop/e2e/user-presets.e2e.ts` uses real WASM and an isolated user-data
+  directory for file writes, restart, deletion and Undo. It requires the staged
+  real desktop build and `ORCA_E2E_REAL=1`.
+- `apps/web/e2e/user-presets.e2e.ts` uses real WASM and browser IndexedDB across a
+  reload. It runs through the existing Web Playwright configuration.
+
+These focused tests do not constitute the full release matrix, a cloud sync
+qualification, or a multiple-process write arbitration guarantee.

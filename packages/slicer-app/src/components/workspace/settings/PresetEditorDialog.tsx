@@ -1,4 +1,5 @@
 import { configVectorElementAt as vectorAt } from '@slicer/client';
+import { UserPresetActions } from './UserPresetActions';
 import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import type {
@@ -48,6 +49,7 @@ export interface PresetEditorDialogProps {
 }
 
 export interface PresetEditorDialogContentProps {
+  readonly userPresetActions?: import('react').ReactNode;
   /** One native target at a time. Pass null when there is no active editor. */
   readonly target: PresetDraftTarget | null;
   readonly snapshot: PresetDraftSnapshot | null;
@@ -910,7 +912,14 @@ export function PresetEditorDialog({ initialTarget, onClose }: PresetEditorDialo
     setLoadError(null);
     void platform.runtime.getPresetDraft(requestedTarget.kind, requestedTarget.canonicalName).then(result => {
       if (targetRef.current !== requestedTarget) return;
-      if (result.ok) setSnapshot(result);
+      if (result.ok) {
+        setSnapshot(result);
+        if (result.canonicalName !== requestedTarget.canonicalName) {
+          const next = { kind: result.kind, canonicalName: result.canonicalName };
+          targetRef.current = next; setTarget(next);
+          setLoading(false);
+        }
+      }
       else setLoadError(result.error);
     }).catch(error => {
       if (targetRef.current === requestedTarget) setLoadError(errorText(error));
@@ -991,7 +1000,14 @@ export function PresetEditorDialog({ initialTarget, onClose }: PresetEditorDialo
     void platform.runtime.getPresetDraft(currentTarget.kind, currentTarget.canonicalName).then(result => {
       if (targetRef.current !== currentTarget || historyRevisionRef.current !== historyRevision ||
           useHistoryRestoreStore.getState().revision !== historyRevision) return;
-      if (result.ok) setSnapshot(result);
+      if (result.ok) {
+        setSnapshot(result);
+        if (result.canonicalName !== currentTarget.canonicalName) {
+          const next = { kind: result.kind, canonicalName: result.canonicalName };
+          targetRef.current = next; setTarget(next);
+          refreshingRef.current = false; setRefreshing(false);
+        }
+      }
       else setLoadError(result.error);
     }).catch(error => {
       if (targetRef.current === currentTarget && historyRevisionRef.current === historyRevision &&
@@ -1006,6 +1022,19 @@ export function PresetEditorDialog({ initialTarget, onClose }: PresetEditorDialo
   }, [historyPhase, historyRevision, loading, mutationPending, refreshing, platform.runtime]);
 
   return <PresetEditorDialogContent target={target} snapshot={snapshot} loading={loading}
+    userPresetActions={<UserPresetActions kind={target.kind} canonicalName={target.canonicalName}
+      disabled={loading || refreshing || mutationPending || historyPhase !== 'idle'}
+      onPendingChange={value => { mutationPendingRef.current = value; setMutationPending(value); }}
+      onCommitted={async result => {
+        const next = { kind: target.kind, canonicalName: result.canonicalName };
+        targetRef.current = next;
+        setTarget(next);
+        const refreshed = await platform.runtime.getPresetDraft(next.kind, next.canonicalName);
+        if (targetRef.current !== next) return;
+        if (!refreshed.ok) throw new Error(refreshed.error);
+        setSnapshot(refreshed);
+        setLoadError(null);
+      }} />}
     refreshing={refreshing} loadError={loadError} mutationPending={mutationPending}
     referencedFilamentSlots={referencedSlots} onSelectPreset={selectTarget} onMutate={mutate}
     onClose={() => {
@@ -1016,6 +1045,7 @@ export function PresetEditorDialog({ initialTarget, onClose }: PresetEditorDialo
 }
 
 export function PresetEditorDialogContent({
+  userPresetActions,
   target,
   snapshot,
   refreshing = false,
@@ -1093,13 +1123,14 @@ export function PresetEditorDialogContent({
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4">
           <div className="min-w-0">
             <DialogTitle id="preset-editor-title" data-testid="preset-editor-title" className="truncate text-lg">
-              {target.canonicalName}
+              {snapshot?.editorCandidates.find(candidate => candidate.canonicalName === target.canonicalName)?.label ?? target.canonicalName}
             </DialogTitle>
             <DialogDescription className="mt-1">
               {target.kind === 'printer' ? 'Printer preset' : 'Filament preset'}
             </DialogDescription>
           </div>
           <div className="flex items-center gap-2">
+            {userPresetActions}
             {snapshot?.modified && <span
               data-testid="preset-editor-project-draft"
               className="rounded border px-2 py-1 text-xs"
@@ -1128,7 +1159,7 @@ export function PresetEditorDialogContent({
             <PresetCombobox
               mode="select"
               items={snapshot.editorCandidates.map(candidate => ({ id: candidate.canonicalName,
-                name: candidate.canonicalName, label: candidate.canonicalName, modified: candidate.modified }))}
+                name: candidate.canonicalName, label: candidate.label, modified: candidate.modified }))}
               value={target.canonicalName} modified={snapshot.modified} disabled={interactionPending || invalidFields.size > 0}
               onValue={name => {
                 if (interactionPending || invalidFields.size > 0) return;

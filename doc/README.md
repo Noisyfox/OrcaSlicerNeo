@@ -30,7 +30,7 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Plates and native slicing/results | [Multi-Plate](../spec/Multi-Plate%20Support.md), [Per-Plate Print](../spec/Per-Plate%20Print%20Architecture.md) |
 | Rack, assignments and Prime Towers | [Multi-Filament](../spec/Multi-Filament%20Support.md) |
 | Profiles and activation | [Setup Wizard](../spec/Setup%20Wizard%20and%20Profile%20Activation.md), [Profile Compatibility](../spec/Profile%20Compatibility%20and%20Preset%20Selection.md) |
-| User preset repositories and immutable versions (design) | [User Preset Repository and Versioning](../spec/User%20Preset%20Repository%20and%20Versioning.md) |
+| Local user presets and immutable versions; cloud design | [User Preset Repository and Versioning](../spec/User%20Preset%20Repository%20and%20Versioning.md) |
 | Configuration ownership and editors | [Scoped Configuration](../spec/Project%20and%20Scoped%20Configuration.md), [Preset Editor](../spec/Preset%20Editor%20Dialog.md) |
 | Painting and painted rendering | [Surface Painting](../spec/Surface%20Painting%20Architecture.md), [Painted Facets](../spec/Painted%20Facet%20Model%20Rendering.md) |
 | Colour editing | [Reusable Color Picker](../spec/Reusable%20Color%20Picker.md) |

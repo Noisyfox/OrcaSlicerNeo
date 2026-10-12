@@ -128,7 +128,7 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
     ok: true,
     kind,
     canonicalName: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical',
-    editorCandidates: [{ canonicalName: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical', label: 'Preset', compatible: true, modified: options.modified ?? false }],
+    editorCandidates: [{ canonicalName: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical', label: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical', compatible: true, modified: options.modified ?? false }],
     draftExists: options.draftExists ?? true,
     modified: options.modified ?? false,
     overrides: options.modified ? (kind === 'printer' ? { printable_height: '245' } : { filament_flow_ratio: [{value: 0.92}, null] }) : {},
@@ -340,7 +340,7 @@ describe('PresetEditorDialogContent', () => {
     const snapshot: PresetDraftSnapshot = { ...base, editorCandidates: [
       { canonicalName: 'Modified supported', label: 'Modified supported', compatible: true, modified: true },
       { canonicalName: base.canonicalName, label: base.canonicalName, compatible: true, modified: false },
-      { canonicalName: 'Modified unsupported', label: 'Short alias', compatible: false, modified: true },
+      { canonicalName: 'Modified unsupported', label: 'Modified unsupported', compatible: false, modified: true },
       { canonicalName: 'Unsupported', label: 'Unsupported', compatible: false, modified: false },
     ] };
     const onSelectPreset = vi.fn(async () => {});

@@ -101,6 +101,20 @@ function presetReceipt(allPlateResultsInvalidated: true): Extract<PresetDraftMut
 }
 
 describe('commitScopedConfigurationMutation', () => {
+  it('publishes the adopted Process head and values when Reset removes the entire diff', async () => {
+    const profileSnapshot = { ...presetReceipt(true).profileSnapshot,
+      print: { name: 'Latest Process', idx: 0 }, project_config: { layer_height: '0.28' } };
+    const full = { ...baseline, revision: 1, snapshot: { project: {}, objects: {}, parts: {}, plates: {} } };
+    const platform = { runtime: { ...historyProjectionRuntime, runProjectHistoryTransaction,
+      mutateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: affected('project', {}), plateSession: mutation, profileSnapshot })),
+      getNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: full })),
+    } } as unknown as PlatformCapabilities;
+    useSettingsStore.setState({ baseValues: { layer_height: '0.2' }, selectedPrint: 'Old snapshot' });
+    await commitScopedConfigurationMutation(platform, { version: 1, operation: 'reset-all', targets: [{ scope: 'project' }] });
+    expect(useSettingsStore.getState().selectedPrint).toBe('Latest Process');
+    expect(useSettingsStore.getState().values.layer_height).toBe('0.28');
+    expect(useSettingsStore.getState().nativeScopedConfig.project).toEqual({});
+  });
   beforeEach(() => {
     useProjectStore.getState().reset();
     useSlicerStore.getState().clearPlateResults();

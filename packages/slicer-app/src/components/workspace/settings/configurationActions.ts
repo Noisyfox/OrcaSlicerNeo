@@ -25,6 +25,33 @@ import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 
 let configurationMutationQueue: Promise<void> = Promise.resolve();
 
+export function commitUserPresetMutation(platform: PlatformCapabilities, request: import('@slicer/client').UserPresetRequest) {
+  const task = configurationMutationQueue.then(() => runProjectMutationOperation(async () => {
+    if (!paintingCommandAllowed()) return { ok: false as const, error: 'Finish the current editing operation first' };
+    const result = await platform.runtime.mutateUserPreset(request);
+    if (!result.ok) return result;
+    unstable_batchedUpdates(() => {
+      projectHistoryStatus(result.historyStatus);
+      const settings = useSettingsStore.getState();
+      const mode = settings.configurationMode;
+      settings.hydrateProfileSnapshot(result.profileSnapshot);
+      settings.setConfigurationMode(mode);
+      settings.applyNativeScopedConfigTransport(result.nativeScopedConfig);
+      useFilamentSessionStore.getState().publish(result.filamentSession);
+      applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
+      usePlateSessionStore.getState().setSnapshot(result.plateSession);
+      const project = useProjectStore.getState();
+      const selections = { printer: result.profileSnapshot.printer.name, print: result.profileSnapshot.print.name };
+      project.setProject(project.scope === 'project' ? { projectPresets: selections } : { systemPresets: selections });
+      project.recordPlateMutation(result.plateSession);
+      invalidateAfterSharedConfigurationMutation(result.plateSession.affectedPlateIds ?? [], platform.runtime, true);
+    });
+    return result;
+  }));
+  configurationMutationQueue = task.then(() => undefined, () => undefined);
+  return task;
+}
+
 type ConfigurationMutationResult = PlateSessionMutationResult | {
   ok: true;
   unchanged: true;
@@ -45,6 +72,7 @@ async function commitScopedConfigurationMutationNow(
 ): Promise<PlateSessionMutation | null> {
   let mutation: ConfigurationMutationResult | undefined;
   let previousBed: string | undefined;
+  let profileSnapshot: import('@slicer/client').ProfileSnapshot | undefined;
   try {
     const history = await runProjectHistoryMutation<ConfigurationMutationResult>(
       platform.runtime,
@@ -56,12 +84,22 @@ async function commitScopedConfigurationMutationNow(
         if (result.configurationStatus?.state === 'ready' && result.configurationStatus.errors.length > 0)
           throw new Error(result.configurationStatus.errors.join('; '));
         if (!result.plateSession) return { ok: true, unchanged: true, nativeScopedConfig: result.nativeScopedConfig };
+        profileSnapshot = result.profileSnapshot;
         return { ...result.plateSession, nativeScopedConfig: result.nativeScopedConfig };
       },
       null,
       {
         publish: async (published, status) => {
           if (!published.ok || 'unchanged' in published) return;
+          if (profileSnapshot) {
+            const settings = useSettingsStore.getState();
+            const mode = settings.configurationMode;
+            settings.hydrateProfileSnapshot(profileSnapshot);
+            settings.setConfigurationMode(mode);
+            const project = useProjectStore.getState();
+            const selections = { printer: profileSnapshot.printer.name, print: profileSnapshot.print.name };
+            project.setProject(project.scope === 'project' ? { projectPresets: selections } : { systemPresets: selections });
+          }
           if (status?.nativeScopedConfig) {
             const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(status.nativeScopedConfig);
             if (outcome === 'refresh-required') {

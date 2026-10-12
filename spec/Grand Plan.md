@@ -1,6 +1,6 @@
 # Grand Plan
 
-**Updated:** 2026-10-11
+**Updated:** 2026-10-12
 **Scope:** Current delivery status and remaining product work.
 
 This is the single roadmap. Topic specifications own behavior; engineering
@@ -20,7 +20,7 @@ Consolidation does not constitute a new release qualification.
 | Project persistence (M15) | Explicit compatible 3MF open/save, dirty protection and geometry fallback; delivered and release-verified in its original milestone. [3MF](3MF%20Project%20Persistence.md). No autosave or saved slicing outputs. |
 | History (M16) | Timestamped stable-object history, atomic restoration, input-only snapshots and painting-session integration. [Undo/Redo](Undo%20and%20Redo.md). |
 | Plates and materials (M17–M18) | Multi-plate editing, per-plate Print/results, native rack/mapping/colour semantics, per-nozzle flushing-volume editing with All/Color/None preferences, and Prime Towers. [Multi-Plate](Multi-Plate%20Support.md), [Multi-Filament](Multi-Filament%20Support.md), [Per-Plate Print](Per-Plate%20Print%20Architecture.md). |
-| Configuration (M19) | Native Project/Plate/Object/Part configuration and generic search/editing. [Scoped Configuration](Project%20and%20Scoped%20Configuration.md). Runtime Printer/Filament drafts and indexed vectors are in [Preset Editor](Preset%20Editor%20Dialog.md); specialized editors/user repositories are not implied. |
+| Configuration (M19) | Native Project/Plate/Object/Part configuration and generic search/editing. [Scoped Configuration](Project%20and%20Scoped%20Configuration.md). Printer/Filament drafts and indexed vectors are in [Preset Editor](Preset%20Editor%20Dialog.md). [User Presets](User%20Preset%20Repository%20and%20Versioning.md) adds local Save/Save As/Delete, host persistence and historical snapshots; cloud synchronization remains deferred. |
 | Painting (M20) | Six MMU tools plus Support, Seam and Fuzzy adapters, native persistence, history and downstream slicing. [Surface Painting](Surface%20Painting%20Architecture.md). Functional delivery is complete; numerical performance thresholds remain unapproved. |
 | Preview | Sole native libvgcode SegmentTemplate GPU backend, layer/move controls, read-only schemes, analysis and source-text navigation. [Preview v2](G-code%20Preview%20v2.md), [GPU renderer](G-code%20Preview%20GPU%20Streaming%20Renderer.md). |
 | Arrangement | Native Arrange all/current plate, constraints, atomic history, progress and cancellation. [Model Arrangement](Model%20Arrangement.md). |
@@ -35,8 +35,9 @@ Consolidation does not constitute a new release qualification.
 - Painting requires reviewed numeric performance thresholds and a comparable
   pinned-native/GPU timing baseline. The separately recorded invalid-layer-height
   abort remains unresolved; see the [benchmark runbook](../doc/2026-09-29-surface-painting-implementation.md).
-- Preset Save As/rename/delete/repository persistence and dedicated specialized
-  field editors remain deferred. Ordinary runtime editing is delivered.
+- Dedicated specialized field editors remain deferred. Local preset management
+  is delivered; direct identity-preserving rename and bulk deletion are excluded
+  by the accepted user-preset scope.
 - External G-code import, result-mutating preview actions, additional metric
   schemes and richer analysis remain beyond delivered read-only preview.
 - Cut/measure/orient tools, mesh booleans/hollowing/advanced cut, calibration
