@@ -6,10 +6,10 @@ import { createClient, createMockModule, MOCK_PROFILE_ACTIVATION } from '@slicer
 
 const initial: UserPreferences = { version: 1, rememberedBedTypes: {}, selectedProfiles: {},
   ui: { switchToDeviceAfterSend: true } };
-async function fixture() {
+async function fixture(firstUse = false) {
   const module = createMockModule();
   const runtime = createClient(async () => module);
-  await runtime.init(MOCK_PROFILE_ACTIVATION);
+  await runtime.init(firstUse ? null : MOCK_PROFILE_ACTIVATION);
   await runtime.openSetupWizardCatalogue();
   let saved = structuredClone(initial);
   const events: string[] = [];
@@ -89,13 +89,19 @@ describe('save-before-apply setup completion', () => {
     expect(f.repository.save).not.toHaveBeenCalled(); expect(f.runtime.applyProfileActivation).not.toHaveBeenCalled();
   });
 
-  it('save failure preserves the live session and filesystem links', async () => {
-    const f = await fixture();
-    const before = { profiles: await f.runtime.getProfileSnapshot(), history: await f.runtime.getHistoryStatus(), system: f.module.FS.readdir('/system') };
+  it('save failure preserves the live session while target links survive cancellation', async () => {
+    const f = await fixture(true);
+    const before = { profiles: await f.runtime.getProfileSnapshot(), history: await f.runtime.getHistoryStatus(), filaments: await f.runtime.getFilamentSessionSnapshot(), model: await f.runtime.getModelStructure() };
+    const linksBefore = f.module.FS.readdir('/system');
     f.repository.save = vi.fn(async () => { throw new Error('disk unavailable'); });
     expect(await completeSetupWizard(f.runtime, f.repository, MOCK_PROFILE_ACTIVATION)).toMatchObject({ ok: false, phase: 'save', error: 'disk unavailable' });
     expect(f.runtime.applyProfileActivation).not.toHaveBeenCalled();
-    expect({ profiles: await f.runtime.getProfileSnapshot(), history: await f.runtime.getHistoryStatus(), system: f.module.FS.readdir('/system') }).toEqual(before);
+    expect({ profiles: await f.runtime.getProfileSnapshot(), history: await f.runtime.getHistoryStatus(), filaments: await f.runtime.getFilamentSessionSnapshot(), model: await f.runtime.getModelStructure() }).toEqual(before);
+    const targetLinks = f.module.FS.readdir('/system');
+    expect(targetLinks).not.toEqual(linksBefore);
+    await f.runtime.closeSetupWizardCatalogue();
+    expect(f.module.FS.readdir('/system')).toEqual(targetLinks);
+    expect(f.saved().profileActivation).toBeUndefined();
   });
 
   it('application failure retains the saved record and retries without another save', async () => {

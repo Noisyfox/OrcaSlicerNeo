@@ -95,7 +95,8 @@ to be skipped and are retried on the next opening. Core failures remain fatal.
 Runtime recreation creates a fresh installer and uses persisted activation.
 Extracted MEMFS resources may remain until runtime disposal, while each opening
 rebuilds its temporary native catalogue. Downloading never changes `/system`
-links or the live project; only the accepted apply operation publishes links.
+links or the live project. Confirmation publishes target vendor links before
+native preparation.
 
 During wizard loading, show `Downloading profiles N/Total` for the packages
 pending in that invocation, excluding already successful installs. Skipped
@@ -109,7 +110,7 @@ session is actually opening, unsubscribes on cleanup and resets on completion.
 
 Disable `.opc` vendor-cache reads, generation, and cache-only vendor discovery
 through a Neo WASM compile-time macro in both serial and threaded builds.
-The policy macro is `NEO_DISABLE_VENDOR_CACHE`. Native desktop
+The policy macro is `ORC_NEO_WASM`. Native desktop
 Orca behaviour remains unaffected when the macro is absent.
 
 Ship complete source JSON profile resources; this policy does not support
@@ -207,7 +208,8 @@ dedicated single-page entry points in this release.
   and Filament activation. Do not add separate Printer-only or Filament-only
   entries, or management buttons beside workspace selectors.
 - A later wizard opened from the menu can be cancelled. Cancellation discards
-  its activation draft and leaves the current configuration unchanged.
+  its activation draft and leaves the live configuration unchanged; earlier
+  confirmation link and preset-file side effects persist.
 - Show first-use setup before opening files. While first-use setup is pending,
   silently discard file-open requests, including startup requests. Do not queue
   them, show a notice, or automatically retry them after setup. Introduce no
@@ -316,6 +318,48 @@ desktop Orca's preset-file editing and configuration-reload implementation.
   version as absent, using the existing preference normalization mechanism.
   Enter mandatory setup without adding backup recovery or a dedicated repair
   dialog. Preserve other preference fields that can still be read normally.
+
+Confirmation first invalidates any client preparation and rebuilds `/system`
+links from the incoming printer vendors plus `OrcaFilamentLibrary` and `Custom`.
+An independent fresh candidate bundle calls the existing native
+`PresetBundle::apply_vendor_config` with overwrite enabled and no preferred new
+Printer or Filament. Its AppConfig is seeded with the current Printer; only a
+value copy of the live bundle's vendor metadata is supplied for the original
+inline pre-load ` @System` rule. No project presets or live collection pointers
+are copied. The rule preserves Orca's substring match and first-loaded-vendor
+traversal: matching suffix names become short names when a non-Custom printer
+vendor is enabled; enabled Custom printers keep both names. Permanent Custom
+resource linking does not count as enabled Custom printers. Unmatched names and
+names without the exact suffix remain unchanged. Current JSON loading leaves
+`VendorProfile::default_filaments` empty, so it does not substitute those names
+or infer metadata from model `default_materials`.
+
+Both WASM variants define `ORC_NEO_WASM`: Worker-managed links
+replace native vendor detection/copying. The API uses its single `load_presets` call.
+Normal library loading resets the candidate's copied metadata. If the optional
+library is absent, native loading may retain copied metadata; Neo accepts that
+native behavior without enforcing an extra reset or fatal-library policy.
+Only metadata was copied, so old source preset/project collections are absent.
+Desktop builds without the macro retain their original installation behavior.
+The native API owns loading/default supplementation, first active-filament
+correction against its normalized input map, and selection export to AppConfig.
+The correction map precedes model-default supplementation; it is not replaced by
+the subsequently expanded activation. Preferences save the resulting native
+activation record. Exported selections also determine whether Neo's minimal
+initial/unavailable-current fallback is needed. Existing native logs and
+exceptions provide diagnostics; preparation adds no aggregate log or
+vendor-completeness requirement. Native loading owns visibility,
+selection and default-material supplementation. Neo adds only an initial or
+unavailable-current fallback hint to choose a real Printer and resolve its
+concrete defaults through native `load_selections`; a valid current source needs
+no additional reselection or compatibility/rack normalization. Loading is
+writable and may create directories, rewrite corrected user presets or delete
+discarded presets;
+`.opc` caches remain disabled. Link and user-preset file side effects are not
+rolled back after preparation, save, apply failure or cancellation, including
+partial link failure. Restart reconstructs links from saved activation. The live
+project, bundle and history remain unchanged until successful application.
+The full wizard catalogue continues to use independent `load_vendors` loading.
 
 Pre-save validation/normalization, native application, and renderer publication
 must respect these save-before-apply and receipt-retry boundaries. Publish the

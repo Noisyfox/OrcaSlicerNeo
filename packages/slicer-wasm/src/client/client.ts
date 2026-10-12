@@ -2316,7 +2316,9 @@ export function createClient(
     async prepareProfileActivation(request: ProfileActivationPreparationRequest): Promise<ProfileActivationPreparationResult> {
       if (catalogueOpening) throw new Error('setup_catalogue_loading');
       preparedActivation = null;
-      const result = callJson(await module(), 'orc_prepare_profile_activation', ['string'], [JSON.stringify({ activation: request.activation, remembered_bed_types: request.rememberedBedTypes,
+      const m = await module();
+      linkProfileVendors(m, request.activation);
+      const result = callJson(m, 'orc_prepare_profile_activation', ['string'], [JSON.stringify({ activation: request.activation, remembered_bed_types: request.rememberedBedTypes,
         remembered_filament_racks: Object.fromEntries(Object.entries(request.rememberedFilamentRacks).map(([printer, rack]) => [printer, {
           version: rack.version, slots: rack.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
             representative: native.representative, multi_colour: native.multiColour, type: native.type,
@@ -2329,7 +2331,6 @@ export function createClient(
       if (catalogueOpening) throw new Error('setup_catalogue_loading');
       if (!preparedActivation) throw new Error('activation is not prepared');
       const m = await module();
-      linkProfileVendors(m, preparedActivation);
       const raw = callJson(m, 'orc_apply_profile_activation', [], []) as Record<string, unknown>;
       if (raw.ok !== true) return raw as unknown as ProfileActivationApplicationResult;
       const profiles = normalizeProfileSnapshot(raw.profile_snapshot as Record<string, unknown>);

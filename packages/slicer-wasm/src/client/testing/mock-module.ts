@@ -214,7 +214,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   // The mock host skips archive downloads; seed its own source fixture roots.
   makeDirectory('/profiles');
-  for (const vendor of ['OrcaFilamentLibrary', 'bambulab']) {
+  for (const vendor of ['OrcaFilamentLibrary', 'Custom', 'bambulab']) {
     makeDirectory(`/profiles/${vendor}`);
     writeFilesystemFile(`/profiles/${vendor}.json`, new TextEncoder().encode('{}'));
   }

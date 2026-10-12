@@ -168,6 +168,14 @@ rather than adding a verification diary to the maintained document.
 
 See [WASM Build and Runtime Reference](doc/2026-08-12-wasm-build-notes.md). Key rules:
 
+- **Orca submodule compile-time policy:** use the global `ORC_NEO_WASM` identity
+  macro for fixed Neo adaptations in `packages/slicer-wasm/cpp/`. Optional
+  submodule switches use `ORC_NEO_WASM_*` and are checked together
+  with the identity macro. Follow the reference's
+  [macro policy](doc/2026-08-12-wasm-build-notes.md#native-compile-time-macro-policy)
+  for naming, numeric values and global configuration. This policy does not
+  rename bridge, shim, test or profiling switches outside the submodule.
+
 - **Iterate, don't panic:** the WASM build is expected to fail and be fixed via
   `TBB_HEADERS` (build.sh), `DROP_PATTERNS` (CMakeLists.txt), `stubs/`, or
   bridge signature drift fixes. Each failure class has a documented fix.

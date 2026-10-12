@@ -103,32 +103,56 @@ describe('temporary setup catalogue', () => {
     await expect(client.closeSetupWizardCatalogue()).rejects.toThrow('module unavailable');
   });
 
-  it('keeps preparation outside filesystem publication, retains it for apply retry, and invalidates it on failed reprepare/close', async () => {
+  it('publishes target links before prepare and retains native apply eligibility only after successful preparation', async () => {
     const module = createMockModule();
     const client = createClient(async () => module);
-    await client.init(MOCK_PROFILE_ACTIVATION);
+    await client.init(null);
     await client.openSetupWizardCatalogue();
-    const before = { profiles: await client.getProfileSnapshot(), history: await client.getHistoryStatus(),
-      model: await client.getModelStructure(), links: module.FS.readdir('/system') };
-    expect((await client.prepareProfileActivation({ activation: MOCK_PROFILE_ACTIVATION, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).ok).toBe(true);
-    expect({ profiles: await client.getProfileSnapshot(), history: await client.getHistoryStatus(),
-      model: await client.getModelStructure(), links: module.FS.readdir('/system') }).toEqual(before);
+    const live = async () => ({ profiles: await client.getProfileSnapshot(), history: await client.getHistoryStatus(),
+      model: await client.getModelStructure(), filaments: await client.getFilamentSessionSnapshot() });
+    const before = await live();
+    const nativeCall = module.ccall;
+    module.ccall = ((name: string, ...args: any[]) => {
+      if (name === 'orc_prepare_profile_activation') {
+        expect(module.FS.readdir('/system')).toContain('bambulab.json');
+        expect(module.FS.readdir('/system')).toContain('Custom.json');
+      }
+      return (nativeCall as (...args: any[]) => any)(name, ...args);
+    }) as typeof module.ccall;
+    const linksBefore = module.FS.readdir('/system');
+    const prepare = (activation = MOCK_PROFILE_ACTIVATION) => client.prepareProfileActivation({ activation,
+      rememberedFilamentRacks: {}, rememberedBedTypes: {} });
+    expect((await prepare()).ok).toBe(true);
+    expect(module.FS.readdir('/system')).not.toEqual(linksBefore);
+    expect(await live()).toEqual(before);
+    const targetLinks = module.FS.readdir('/system');
+    module.ccall = ((name: string, ...args: any[]) => {
+      if (name === 'orc_apply_profile_activation') throw new Error('apply rejected');
+      return (nativeCall as (...args: any[]) => any)(name, ...args);
+    }) as typeof module.ccall;
+    await expect(client.applyProfileActivation()).rejects.toThrow('apply rejected');
+    expect(await live()).toEqual(before);
+    module.ccall = nativeCall;
     const symlink = module.FS.symlink;
     module.FS.symlink = () => { throw new Error('link failed'); };
-    await expect(client.applyProfileActivation()).rejects.toThrow('link failed');
-    expect(await client.getProfileSnapshot()).toEqual(before.profiles);
-    expect(await client.getHistoryStatus()).toEqual(before.history);
-    module.FS.symlink = symlink;
-    const applied = await client.applyProfileActivation();
+    const applied = await client.applyProfileActivation(); // Apply does not relink.
     expect(applied.ok).toBe(true);
     if (!applied.ok) throw new Error(applied.error);
     expect(applied.profileSnapshot).toEqual(await client.getProfileSnapshot());
     expect(applied.filamentSession).toEqual(await client.getFilamentSessionSnapshot());
     expect(applied.historyStatus).toEqual(await client.getHistoryStatus());
-    expect((await client.prepareProfileActivation({ activation: { models: [], filaments: [] }, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).ok).toBe(false);
+    await expect(prepare()).rejects.toThrow('link failed');
     await expect(client.applyProfileActivation()).rejects.toThrow('activation is not prepared');
-    expect((await client.prepareProfileActivation({ activation: MOCK_PROFILE_ACTIVATION, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).ok).toBe(true);
+    module.FS.symlink = symlink;
+    expect((await prepare()).ok).toBe(true);
+    const beforeRejected = await live();
+    expect((await prepare({ models: [], filaments: [] })).ok).toBe(false);
+    expect(await live()).toEqual(beforeRejected);
+    await expect(client.applyProfileActivation()).rejects.toThrow('activation is not prepared');
+    expect(module.FS.readdir('/system')).not.toEqual(targetLinks);
+    const rejectedLinks = module.FS.readdir('/system');
     await client.closeSetupWizardCatalogue();
+    expect(module.FS.readdir('/system')).toEqual(rejectedLinks);
     await expect(client.applyProfileActivation()).rejects.toThrow('activation is not prepared');
   });
 

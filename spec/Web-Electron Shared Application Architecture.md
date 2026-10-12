@@ -342,7 +342,21 @@ state; they are not global selections.
   in-memory value. Ordinary UI preference mirrors remain best effort. Setup
   must persist normalized activation before applying it, so its save failure
   keeps selection editable and its application failure retries the saved
-  preparation. There is no cross-storage rollback.
+  preparation. Before native preparation, the typed client publishes target
+  vendor links (including permanent OrcaFilamentLibrary and Custom). Preparation
+  uses a fresh candidate `PresetBundle::apply_vendor_config`, preserving its
+  existing interface, with overwrite enabled and current Printer seeded in
+  AppConfig. Only live vendor metadata is value-copied for the inline pre-load
+  rule. Normal library loading resets it; absent-library metadata retention
+  follows native behavior without copying old presets/project collections. Both variants disable native installation
+  with `ORC_NEO_WASM`; the client already manages links.
+  The API owns writable loading, first active-filament correction and selection
+  export. Native logs/exceptions remain the diagnostic path. Preparation/save
+  failures leave the live project, bundle and history unchanged, but links and
+  directory/corrected/discarded preset-file side effects persist through failures
+  and cancellation; restart rebuilds links from saved activation. Apply uses the
+  prepared bundle without relinking or reparsing resources. There is no
+  cross-storage rollback.
 - `sidebarWidth`, `deviceSidebarWidth`, `switchToDeviceAfterSend`, and other
   common UI preferences are persisted in both hosts. The send-navigation
   preference defaults to `true`; older documents that lack it are migrated to
