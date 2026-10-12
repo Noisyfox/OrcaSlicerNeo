@@ -3,6 +3,7 @@
 #include "nlohmann/json.hpp"
 
 namespace Slic3r::Neo::Bridge::UserPresets {
+bool deleted(Preset::Type type, const std::string& name);
 bool is_snapshot(Preset::Type type, const std::string& name);
 const Preset* baseline(Preset::Type type, const std::string& name);
 std::string display_label(const Preset& preset);

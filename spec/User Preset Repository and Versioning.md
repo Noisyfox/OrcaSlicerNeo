@@ -78,9 +78,9 @@ All selectors obey the current active binding while its cloud update is pending;
 historical references alone do not pin normal browsing or selection.
 
 **R4 — Compare and reset against one applicable baseline.** For a linked source,
-use its latest saved local head; for a deleted source, its final pre-deletion
-saved version; for an account-detached source, its frozen pre-switch saved
-version. Native effective-parameter comparison drives dirty/diff/highlighting.
+use its latest saved local head; for a deleted source, its nearest surviving
+original parent/ancestor; for an account-detached source, its frozen pre-switch
+saved version. Native effective-parameter comparison drives dirty/diff/highlighting.
 Reset takes values from the same baseline. Partial Reset retains identity;
 full Reset also adopts head identity when still linked. Deleted/detached sources
 remain snapshots and cannot be restored by Save or Reset. Actual edits to
@@ -199,19 +199,21 @@ concerns a pending cloud update, not an undetected external file edit.
 
 Profile dirty state compares the session's effective profile values against the
 currently saved, non-snapshot version, not against the selected old snapshot.
-For a deleted profile, compare against its last saved version immediately before
-deletion. The Deleted indication is independent of dirty state. This profile
-comparison does not replace the existing project-file saved-checkpoint rules.
+For a deleted profile, compare against its nearest surviving original parent.
+If that parent is deleted, continue up the retained inheritance chain; a later
+same-name preset is a different identity. The list displays that parent
+preset while preserving the snapshot identity and effective values internally.
+This profile comparison does not replace the existing project-file saved-checkpoint rules.
 Account-switch snapshots use the frozen baseline defined in section 2.5.
 
 Field, category and preset Reset use the latest saved version as their value
-baseline, or the last saved pre-deletion version when the profile is deleted.
+baseline, or the nearest surviving parent when the profile is deleted.
 Reset must not obtain obsolete values from the selected old snapshot merely
 because it remains the session source. Field/category Reset only resets the
 corresponding values. Full Reset preset also adopts the latest saved version
 identity and clears Update available, in one Reset history entry. For a deleted
 profile, full Reset keeps snapshot identity and Deleted status while restoring
-the final saved values; it cannot recreate the repository record.
+the parent values; it cannot recreate the repository record.
 Full Reset acts on every active reference to the profile in the session,
 including shared Filament slots, as that single history operation. Invocation
 from the independent editor does not select an otherwise unused profile in the
@@ -226,8 +228,8 @@ snapshot/version identity with equal values does not enable the button.
 
 A successful explicit Delete action switches to the next available profile and
 creates a corresponding project-history entry. Undo returns to the previous
-profile's snapshot, labelled **Deleted**. Undo must not restore the deleted
-configuration file or republish the profile to the account. Redo restores the
+profile's snapshot, displayed under its surviving parent preset name. Undo must
+not restore the deleted configuration file or republish the profile to the account. Redo restores the
 replacement selection, not another repository deletion. A system-profile
 replacement is always available by product design; the transition must use
 native availability/compatibility rules rather than invent an empty state or a
@@ -333,7 +335,7 @@ version at the time of the switch. Saving offers only Save As into the current
 library. Switching back to the original account does not automatically restore
 the association. This frozen comparison baseline is distinct from an ordinary
 old-version snapshot that still compares against its active library's live head.
-An already deleted profile retains its final pre-deletion baseline.
+An already deleted profile retains its surviving-parent baseline.
 
 ### 2.6 Inherited user profiles
 
@@ -375,7 +377,7 @@ The accepted rules distinguish three independent states:
 | --- | --- |
 | Selected version | The immutable content plus session edits currently used by the project/editor. |
 | Repository head | The current saved, non-snapshot version, or absence after deletion. |
-| Profile dirty | Effective parameter differences from the live head, final pre-deletion baseline, or frozen pre-switch saved baseline, as applicable. |
+| Profile dirty | Effective parameter differences from the live head, surviving-parent baseline, or frozen pre-switch saved baseline, as applicable. |
 
 Update available denotes an unresolved cloud update to an active profile; it is
 neither a generic version-mismatch marker nor an alias for dirty. Deleted is a
@@ -431,9 +433,20 @@ distinct even when a row shows only their combined effective temperature.
 | Undo | Undo deletion returns to Deleted P at 210. | Undo option edit B returns to Deleted P at 200. |
 | Redo | Select Q; do not repeat repository deletion. | Restore Deleted P at 210; do not recreate its file. |
 
-Both branches compare P snapshots against its last saved 200 baseline. If the
-session had retained V1 while head V3 was deleted, the baseline would instead
-be V3's final saved values.
+Both branches compare P snapshots against the surviving parent, regardless of
+which P version was selected or last saved. Lists show that parent preset name;
+the distinct historical P values remain unchanged.
+
+For an inheritance chain `P -> R -> S` (S is a system preset):
+
+| Event | Selected values and list label | Diff / Reset baseline |
+| --- | --- | --- |
+| Delete P; Undo its replacement | Preserve historical P values; display R | Current saved R |
+| R is saved with new values | Preserve P snapshot values and identity; display R | New saved R |
+| Delete R while P snapshot is active | Preserve P snapshot values and identity; display S | S |
+| Create another user preset named R | P snapshot still displays S | S; no reassociation |
+| Full Reset | Retain P snapshot identity; use baseline values | No parameter diff; Reset is disabled |
+| Undo Reset | Restore the previous P values | Recompute against the surviving ancestor |
 
 ### 3.4 Several cloud updates
 
@@ -473,7 +486,7 @@ applying a different target. Use the choices in section 2.4.
 | Switch B -> A | Keep detached snapshot at 210 | No automatic reassociation; Save As only. |
 | Alternative: network disconnect without account switch | Keep current account and ordinary references | No detachment or frozen-baseline transition merely from network loss. |
 
-Snapshots already marked Deleted retain that state and their pre-deletion
+Snapshots already marked Deleted retain that state and their surviving-parent
 baseline. Merely becoming detached must not produce a Deleted indication.
 
 ### 3.7 Save As and project dirty
@@ -518,9 +531,9 @@ field/index ownership, not all head-relative differences.
 | Save, then Cancel confirmation | Keep 210 and V1 binding | Head stays V2; no entry. |
 | Alternative: confirm Overwrite | Adopt newly saved V3 = 210 | Preserve outgoing V2 as well as retained V1; no extra Save entry. |
 | Alternative: choose Save As Q | Adopt Q = 210 for active references | P remains V2 = 220; one selection entry under section 3.7. |
-| Separate branch: head V3 = 230 is deleted while current still uses V1 = 200 | V1 snapshot remains 200, now Deleted | Compare dirty against final saved V3 = 230, not V1. |
-| Full Reset in that deleted branch | Snapshot effective 230, still Deleted | Clean against final 230; one Reset entry; P file remains absent. |
-| Undo Reset | Deleted snapshot effective 200 | Dirty against final 230; no resurrection. |
+| Separate branch: head V3 = 230 is deleted while current still uses V1 = 200 | V1 snapshot remains 200, now Deleted | Compare dirty against surviving parent R, not V3 or V1. |
+| Full Reset in that deleted branch | Snapshot effective R, still internally Deleted | Clean against R; one Reset entry; P file remains absent. |
+| Undo Reset | Deleted snapshot effective 200 | Dirty against R; no resurrection. |
 
 ### 3.10 Partial and full Reset
 
@@ -608,7 +621,7 @@ is still part of cloud reconciliation design, not specified by file overwrite.
 
 | Step/event | Effective values and identity | History/lifecycle result |
 | --- | --- | --- |
-| Current Deleted P has saved baseline 200 and draft value 210 | Effective 210 | Existing session history remains available. |
+| Current Deleted P has parent baseline 200 and draft value 210 | Effective 210 | Existing session history remains available. |
 | Export 3MF | Archive effective 210 using normal Orca format | No Neo revision ID, Deleted marker or entire Undo timeline. |
 | Reopen that 3MF, even with an installed same-name P = 240 | Restore effective 210 through ordinary embedded handling | Fresh project/history baseline; no automatic reassociation by name. |
 | New Project or replace with another project | Initialize new version-selection view | Previous project pins/history do not carry over. |
@@ -641,7 +654,7 @@ transitions, not a completed cloud protocol or recovery design.
 | Undo to saved project state using 200 while head remains 210 | True | Clean at the saved project checkpoint. |
 | Save As Q with equal values and switch active references | False for Q | Dirty because the selection change has one history entry. |
 | Undo that Save As selection | Compare restored source against its applicable baseline | Return to the prior checkpoint if otherwise unchanged; Q file remains. |
-| Incoming deletion of unchanged active P | False against its final saved baseline | No new project-history change solely from deletion. |
+| Incoming deletion of unchanged active P | True only when values differ from its surviving parent | No new project-history change solely from deletion. |
 | Account switch with unchanged effective values | Compare against frozen pre-switch saved baseline | No new project-history change solely from detachment. |
 
 ### 3.18 Identity reuse, retention and remaining combinations
@@ -690,9 +703,11 @@ compatibility and effective-configuration assembly.
 - Preserve enough old native content and dependency information to reconstruct
   the version independently of later parent updates or deletions. A snapshot
   containing only a name and delta against a mutable parent is insufficient.
-- Separate the last saved pre-deletion baseline from an older selected
-  snapshot. If V3 is deleted while the session uses V1, dirty compares V1's
-  effective values against V3, not against V1.
+- Retain each snapshot's original ancestor chain before flattening its native
+  inheritance. Deletion compares effective values with the nearest surviving
+  ancestor; remove deleted ancestors from that chain to prevent name reuse
+  from reconnecting unrelated records. Fall back to the native default when
+  no recorded ancestor remains available.
 - Retain the last saved baseline when an account switch detaches a reference.
   Do not reuse a later head from another library or silently reconnect it after
   switching back. Detached, deleted and outdated are distinct lifecycle states.
@@ -729,8 +744,8 @@ than a claim of delivered behaviour or implementation approval.
 | Same JSON discovered again | A read of unchanged content is not a new save and must not manufacture snapshot events. |
 | External file change | No immediate effect. A later deliberate read reconciles it as an update/deletion; application writes may overwrite it before that read. |
 | Malformed external/imported data | Do not publish it as a valid head or destroy a previously valid session version; report parsing/validation failure. |
-| Field/category Reset on old version | Copy corresponding fields from current head, or final pre-deletion baseline; keep unrelated values and version pin. |
-| Full Reset preset on old version | Restore latest saved values and adopt latest identity for all active references in one Reset history entry; clear Update available. A Deleted snapshot stays Deleted and uses the final pre-deletion baseline. |
+| Field/category Reset on old version | Copy corresponding fields from current head, or surviving-parent baseline; keep unrelated values and version pin. |
+| Full Reset preset on old version | Restore latest saved values and adopt latest identity for all active references in one Reset history entry; clear Update available. A Deleted snapshot stays Deleted and uses the surviving-parent baseline. |
 | Reset a snapshot detached by account switch | Use its frozen saved baseline, retaining detached identity; do not reconnect or write to the previous account. |
 
 ### 5.2 Delete and identity changes
@@ -840,7 +855,8 @@ writes. Native embedded cleanup must not delete still-referenced snapshots.
 
 Status is resolved against current lifecycle and pending cloud-event state, not
 restored from old UI booleans. A history frame captured before a later deletion
-still displays Deleted after navigation. A recorded V2 can show Update available
+still retains Deleted identity after navigation and displays its surviving
+parent name. A recorded V2 can show Update available
 only for a new unresolved cloud update while active; a newer local head alone
 is insufficient. Undo/Redo never resurrects an update that has already been
 handled, whether explicitly or through automatic updating of an inactive profile.
@@ -854,7 +870,7 @@ history is evicted. Pending cloud deletion retry and project-history retention
 have different release conditions.
 
 Profile dirty is recalculated against the applicable baseline after navigation:
-live head, final pre-deletion version, or frozen pre-switch saved version.
+live head, surviving parent version, or frozen pre-switch saved version.
 Historical UI dirty booleans must not override that comparison. Project-file
 dirty remains owned by the saved history checkpoint: transparent migration and
 overwrite Save preserve it; manual active deletion, Save As selection switching
@@ -976,7 +992,7 @@ Required behavioural cases include:
 - Explicit Update changes all active references once; Undo/Redo restores exact
   version pins in every picker; intervening cloud updates do not change a
   recorded Redo target.
-- Dirty/highlight/order computed against latest head; final pre-deletion
+- Dirty/highlight/order computed against latest head; surviving parent
   baseline; empty overlays that are dirty and nonempty overlays that are clean;
   field/category Reset retains pins; full Reset adopts latest identity in one
   history entry across all active references; deleted full Reset does not
@@ -1045,8 +1061,8 @@ be saved into another user identity, but its old record/association is not resto
 - The runtime injects host storage into the typed client/Worker. Native code
   owns names, inheritance, effective values, saved diffs, compatibility and
   session transitions. No application code accesses Emscripten or host paths.
-- Only saved JSON is durable. Snapshot aliases and deleted baselines are native
-  session state, released at a New/Open boundary. They never become library
+- Only saved JSON is durable. Snapshot aliases and retained ancestor chains are
+  native session state, released at a New/Open boundary. They never become library
   files or Neo-specific 3MF metadata. Session retention currently lasts until
   that boundary; it is not a claim of incremental snapshot garbage collection.
 
@@ -1068,8 +1084,8 @@ addressable for dirty and Reset. History context rewrites share existing model
 archives and preserve the saved marker and Redo branch. Overwrite Save rebinds
 the current state without another entry; active Save As and Delete each produce
 one selection entry for all same-source references. Undo never reverses the
-file operation. Deleted snapshots retain their final saved comparison baseline
-and cannot reconnect to a later preset that reuses the name.
+file operation. Deleted snapshots use their nearest surviving original parent
+as comparison baseline and cannot reconnect to a later preset that reuses the name.
 
 Native project-embedded Process children keep their separate ownership. Saving
 their effective parameters preserves the saved head's parent, preventing a

@@ -16,6 +16,7 @@ test('local user preset files survive restart and deletion Undo stays embedded',
     let page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
     await page.locator('#app-tab-prepare').click();
+    const parentLabel = await page.getByTestId('filament-preset-1').textContent();
     await page.getByTestId('filament-slot-1').click({ button: 'right' });
     await page.getByTestId('filament-edit-1').click();
     const editor = page.getByTestId('preset-editor-dialog');
@@ -64,7 +65,12 @@ test('local user preset files survive restart and deletion Undo stays embedded',
     await expect.poll(async () => readFile(file).then(() => false, () => true)).toBe(true);
     await page.getByTestId('preset-editor-close').click();
     await page.getByTestId('history-undo').click();
-    await expect(page.getByTestId('filament-preset-1')).toContainText('E2E Local PLA (Deleted)');
+    await expect(page.getByTestId('filament-preset-1')).toHaveText(parentLabel!);
+    await page.getByTestId('filament-slot-1').click({ button: 'right' });
+    await page.getByTestId('filament-edit-1').click();
+    await page.getByTestId('preset-editor-search').fill('filament_diameter');
+    await expect(page.getByTestId('preset-editor-input-filament_diameter')).toHaveValue('1.77');
+    await expect(page.getByTestId('preset-editor-dialog').getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0);
     await expect.poll(async () => readFile(file).then(() => false, () => true)).toBe(true);
   } finally { await app.close(); }
 });

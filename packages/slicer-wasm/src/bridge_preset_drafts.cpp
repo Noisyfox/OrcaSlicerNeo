@@ -614,7 +614,7 @@ json mutate_draft_json(const json& request)
         else if (action == "reset-preset") {
             state().preset_drafts.erase_preset(type, canonical_name);
             if (UserPresets::is_snapshot(type, canonical_name) && saved_baseline) {
-                if (saved_baseline->name != canonical_name &&
+                if (!UserPresets::deleted(type, canonical_name) && saved_baseline->name != canonical_name &&
                     find_preset_source(state().presets, type, saved_baseline->name) == saved_baseline) {
                     result_name = saved_baseline->name;
                     UserPresets::adopt(type, canonical_name, result_name);

@@ -19,8 +19,9 @@ using json = nlohmann::json;
 using Key = std::pair<Preset::Type, std::string>;
 struct Snapshot {
     std::string original;
-    // Once deleted, the final saved baseline stays frozen even if the name is reused.
-    std::optional<Preset> deleted_baseline;
+    // Preserve the original inheritance chain before flattening native snapshots.
+    std::vector<std::string> ancestors;
+    bool deleted = false;
 };
 static std::map<Key, Snapshot> snapshots;
 static std::uint64_t next_snapshot = 1;
@@ -45,13 +46,20 @@ bool is_snapshot(Preset::Type type, const std::string& name) { return snapshots.
 const Preset* baseline(Preset::Type type, const std::string& name) {
     const auto found = snapshots.find({type, name});
     if (found == snapshots.end()) return collection(type).find_preset(name, false, true);
-    return found->second.deleted_baseline ? &*found->second.deleted_baseline :
-        collection(type).find_preset(found->second.original, false, true);
+    auto& c = collection(type);
+    if (!found->second.deleted) return c.find_preset(found->second.original, false, true);
+    for (const auto& name : found->second.ancestors)
+        if (const auto* parent = c.find_preset(name, false, true)) return parent;
+    return &c.default_preset();
 }
 std::string display_label(const Preset& preset) {
     const auto found = snapshots.find({preset.type, preset.name});
     if (found == snapshots.end()) return preset.alias.empty() ? preset.name : preset.alias;
-    return found->second.original + (found->second.deleted_baseline ? " (Deleted)" : "");
+    if (found->second.deleted) {
+        const auto* parent = baseline(preset.type, preset.name);
+        return parent->alias.empty() ? parent->name : parent->alias;
+    }
+    return found->second.original;
 }
 bool active(Preset::Type type, const std::string& name) {
     auto& bundle = state().presets;
@@ -63,16 +71,16 @@ bool active(Preset::Type type, const std::string& name) {
 bool picker_visible(const Preset& preset) {
     if (is_snapshot(preset.type, preset.name)) return active(preset.type, preset.name);
     for (const auto& [key, record] : snapshots)
-        if (key.first == preset.type && record.original == preset.name && !record.deleted_baseline && active(key.first, key.second)) return false;
+        if (key.first == preset.type && record.original == preset.name && !record.deleted && active(key.first, key.second)) return false;
     return true;
 }
 std::string view_name(Preset::Type type, const std::string& name) {
     const auto record = snapshots.find({type, name});
-    if (record != snapshots.end() && record->second.deleted_baseline) return name;
+    if (record != snapshots.end() && record->second.deleted) return name;
     const std::string original = record == snapshots.end() ? name : record->second.original;
     if (active(type, original)) return original;
     for (const auto& [key, snapshot] : snapshots)
-        if (key.first == type && snapshot.original == original && !snapshot.deleted_baseline && active(type, key.second)) return key.second;
+        if (key.first == type && snapshot.original == original && !snapshot.deleted && active(type, key.second)) return key.second;
     return name;
 }
 std::string print_reset_target() {
@@ -80,7 +88,7 @@ std::string print_reset_target() {
     const auto& selected = c.get_selected_preset();
     const auto name = selected.is_project_embedded ? selected.inherits() : selected.name;
     const auto record = snapshots.find({Preset::TYPE_PRINT, name});
-    return record != snapshots.end() && !record->second.deleted_baseline ? record->second.original : std::string{};
+    return record != snapshots.end() && !record->second.deleted ? record->second.original : std::string{};
 }
 bool modified(Preset::Type type, const std::string& name, const DynamicPrintConfig& effective) {
     const auto* saved = baseline(type, name);
@@ -143,10 +151,16 @@ std::string retain(Preset::Type type, const std::string& name) {
     copy.name = frozen;
     // Keep the stable system ancestor for Orca's printer compatibility rules.
     // All effective options are copied, so mutable user ancestors are severed.
+    std::vector<std::string> ancestors;
     const Preset* ancestor = c.get_preset_parent(*source);
-    std::set<std::string> visited;
-    while (ancestor && !ancestor->is_system && visited.insert(ancestor->name).second)
+    const Preset* system_ancestor = nullptr;
+    std::set<std::string> visited{source->name};
+    while (ancestor && visited.insert(ancestor->name).second) {
+        ancestors.push_back(ancestor->name);
+        if (ancestor->is_system) { system_ancestor = ancestor; break; }
         ancestor = c.get_preset_parent(*ancestor);
+    }
+    ancestor = system_ancestor;
     copy.inherits() = ancestor && ancestor->is_system ? ancestor->name : std::string{};
     copy.neo_vector_overrides.clear();
     copy.file.clear();
@@ -158,7 +172,7 @@ std::string retain(Preset::Type type, const std::string& name) {
     copy.is_visible = true;
     auto& stored = c.load_preset("", frozen, copy.config, false);
     stored = std::move(copy);
-    snapshots.emplace(Key{type, frozen}, Snapshot{name, {}});
+    snapshots.emplace(Key{type, frozen}, Snapshot{name, std::move(ancestors), false});
     state().history.rewrite_contexts([&](const History::Bytes& bytes) {
         auto value = json::parse(std::string(bytes.begin(), bytes.end()));
         rename_context(value, type, name, frozen);
@@ -234,7 +248,7 @@ void reset_session() {
     for (const auto& [key, record] : snapshots) {
         auto& c = collection(key.first);
         if (active(key.first, key.second)) {
-            const auto* head = record.deleted_baseline ? nullptr : c.find_preset(record.original, false, true);
+            const auto* head = record.deleted ? nullptr : c.find_preset(record.original, false, true);
             std::string replacement = c.default_preset().name;
             for (const auto& preset : c) if (!is_snapshot(key.first, preset.name) && preset.is_visible) { replacement = preset.name; break; }
             adopt(key.first, key.second, head ? head->name : replacement);
@@ -329,7 +343,7 @@ const Preset* source_for(Preset::Type type, const std::string& name) {
 }
 bool deleted(Preset::Type type, const std::string& name) {
     const auto found = snapshots.find({type, name});
-    return found != snapshots.end() && found->second.deleted_baseline.has_value();
+    return found != snapshots.end() && found->second.deleted;
 }
 json info(Preset::Type type, const std::string& name) {
     const auto* source = source_for(type, name);
@@ -476,9 +490,13 @@ json prepare(const json& request) {
             target_active_name = retained;
         }
         if (remove) {
-            for (auto& [key, record] : snapshots)
-                if (key.first == type && record.original == target && !record.deleted_baseline)
-                    record.deleted_baseline = *head;
+            for (auto& [key, record] : snapshots) {
+                if (key.first != type) continue;
+                if (record.original == target) record.deleted = true;
+                // A later same-name creation is a different parent identity.
+                auto& chain = record.ancestors;
+                chain.erase(std::remove(chain.begin(), chain.end(), target), chain.end());
+            }
             // If Undo already selected an older version, retain that version's
             // effective values, not the newer head that is being deleted.
             if (is_snapshot(type, from)) retained = from;
