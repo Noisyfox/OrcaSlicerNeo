@@ -154,7 +154,7 @@ describe('portable runtime bootstrap', () => {
         if (message.type === 'request' && message.op === 'getFilamentSessionSnapshot') {
           receive({ type: 'response', id: message.id, ok: true, result: {
             ok: true, version: 1,
-            slots: [{ slot: 1, preset: { isUser: false, id: 'Generic PLA', name: 'Generic PLA', label: 'Generic PLA', vendor: '' },
+            slots: [{ slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'Generic PLA', name: 'Generic PLA', label: 'Generic PLA', vendor: '' },
               colour: { effective: '#F2754E', provenance: 'preset' } }],
             mappings: { filament: [1], volume: [0], nozzle: [0], filament2: [0], physicalExtruder: [0] },
             flushing: { matrix: [0], vector: [], matrixDimension: 1, source: 'native' },
@@ -172,7 +172,7 @@ describe('portable runtime bootstrap', () => {
       capabilities: { webgl2: true, wasm64: true, threadedWasm: false },
     });
     await expect(runtime.getFilamentSessionSnapshot()).resolves.toMatchObject({
-      ok: true, version: 1, slots: [{ slot: 1, preset: { isUser: false, id: 'Generic PLA' } }],
+      ok: true, version: 1, slots: [{ slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'Generic PLA' } }],
       mappings: { physicalExtruder: [0] }, flushing: { matrixDimension: 1 },
     });
   });
@@ -180,7 +180,7 @@ describe('portable runtime bootstrap', () => {
   it('keeps the filament-session wire contract identical for serial and threaded hosts', async () => {
     const wireSnapshot = {
       ok: true, version: 1,
-      slots: [{ slot: 1, preset: { isUser: false, id: 'Generic PLA', name: 'Generic PLA', label: 'Generic PLA', vendor: '' },
+      slots: [{ slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'Generic PLA', name: 'Generic PLA', label: 'Generic PLA', vendor: '' },
         colour: { effective: '#F2754E', provenance: 'preset' } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
       flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' },

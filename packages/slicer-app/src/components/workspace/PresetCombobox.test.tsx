@@ -8,12 +8,13 @@ if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value:
 let root: Root;
 afterEach(async () => { if (root) await act(async () => root.unmount()); document.body.innerHTML = ''; });
 
-it.each(['combobox', 'select', 'vendor'] as const)('keeps user/system sections and native identities while searching %s', async mode => {
+it.each(['combobox', 'select', 'vendor'] as const)('keeps project/user/system sections and native identities while searching %s', async mode => {
   const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   const onValue = vi.fn();
   await act(async () => root.render(<PresetCombobox mode={mode === 'select' ? 'select' : 'combobox'}
-    items={[{ id: 'sys', name: 'System canonical', label: 'System PLA', isUser: false },
-      { id: 'user', name: 'User canonical', label: 'User PLA', isUser: true }]}
+    items={[{ id: 'sys', name: 'System canonical', label: 'System PLA', isProjectEmbedded: false, isUser: false },
+      { id: 'user', name: 'User canonical', label: 'User PLA', isProjectEmbedded: false, isUser: true },
+      { id: 'embedded', name: 'Embedded canonical', label: 'Project PLA', isProjectEmbedded: true, isUser: true }]}
     value="sys" onValue={onValue} disabled={false} modified={false} ariaLabel="Preset"
     searchPlaceholder="Search presets" emptyText="No presets"
     groupBy={mode === 'vendor' ? () => 'Generic' : undefined}
@@ -21,8 +22,8 @@ it.each(['combobox', 'select', 'vendor'] as const)('keeps user/system sections a
   await act(async () => { (document.querySelector('[aria-label="Preset"]') as HTMLElement).click(); });
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
   const headings = () => [...document.querySelectorAll('[data-slot$="label"]')]
-    .map(node => node.textContent).filter(text => text === 'User presets' || text === 'System presets');
-  expect(headings()).toEqual(['User presets', 'System presets']);
+    .map(node => node.textContent).filter(text => text === 'Project-inside presets' || text === 'User presets' || text === 'System presets');
+  expect(headings()).toEqual(['Project-inside presets', 'User presets', 'System presets']);
   const input = document.querySelector<HTMLInputElement>('input[placeholder="Search presets"]')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'User PLA');

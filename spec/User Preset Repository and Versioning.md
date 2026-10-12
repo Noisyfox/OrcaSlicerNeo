@@ -364,9 +364,13 @@ authorize silently adopting newer values over the project's effective values.
 
 3MF uses Orca's existing format to preserve active effective configurations.
 Do not add Neo-specific revision identities, snapshot provenance or Deleted
-markers. Reopening follows the ordinary embedded-profile path; it does not
-reconstruct the old session's MVCC history or reconnect user presets merely
-because their names match installed records. Geometry-only import does not
+markers. Ordinary saved user presets retain their canonical names and follow
+Orca's installed-preset matching on reopen, with project parameter overrides
+preserved. The archive carries their configuration for embedded fallback when
+the user preset is missing. Historical snapshots are not exported; an active
+snapshot contributes only its effective configuration under an ordinary
+embedded identity, never its MVCC identity or history. Such frozen embedded
+records do not reconnect to the original user name. Geometry-only import does not
 start a new project or replace its version-selection view.
 
 ## 3. Observable state and examples
@@ -817,7 +821,7 @@ resolution must also obey the session's selected revision. Required coverage:
 | Startup and New/Open Project | Establish a new version-selection view; restore opened project values without carrying over the previous project's pins. |
 | Account switches | Convert all outgoing current/history user-preset references to snapshots; preserve effective values, history and account scope. Use frozen saved baseline and Save As only; no automatic reassociation when returning. |
 | Setup Wizard | Keep existing history-clear behaviour and establish a baseline from current effective parameters. |
-| 3MF load | Restore effective values through ordinary embedded handling, without Neo version/deletion metadata or same-name user-library reassociation. |
+| 3MF load | Match ordinary saved user identities through Orca's loader; preserve project overrides and use embedded fallback for missing presets. Frozen active snapshot configurations do not reconnect to the original user name. No history or Neo version/deletion metadata is stored. |
 
 Update controls must work with pointer and keyboard and expose accessible state
 and action names. Disabled/mutation states must prevent duplicate adoption. Both
@@ -1019,7 +1023,8 @@ Required behavioural cases include:
 - 3MF effective-value round trip, geometry-only import and session-boundary
   transitions: New/Open starts a fresh version view; Setup Wizard resets history
   using current effective values; reopened 3MF has no Neo revision/deletion
-  metadata or automatic same-name user-library association.
+  metadata or historical snapshots. Ordinary saved user identities reconnect
+  through Orca's loader; active frozen configurations retain embedded handling.
 - Failed validation/write/publication, duplicate cloud changes, interrupted
   commit recovery and stale responses. No partially published history or head.
 
@@ -1030,13 +1035,14 @@ future qualification; local coverage is recorded below.
 
 ## 12. Delivered local implementation
 
-All preset selection surfaces show labelled **User presets** followed by
-**System presets** sections: sidebar Printer/Process, Filament rack menus, and
+All preset selection surfaces show labelled **Project-inside presets**, then
+**User presets**, then **System presets** sections: sidebar Printer/Process, Filament rack menus, and
 independent Printer/Filament editors. Existing model, vendor and compatibility
 groups remain within those sections, preserving native order within each group.
 Search hides empty sections. Native provenance supplies the classification;
-ordinary snapshots follow their saved source, deleted snapshots follow their
-surviving parent, and embedded Process copies follow their source preset.
+ordinary snapshots follow their saved source and deleted snapshots follow their
+surviving parent. Actual project embedded presets appear in Project-inside presets;
+temporary snapshot descendants keep their source classification.
 Labels and grouping never change canonical selection/history identities.
 
 The default library is available without an account on both hosts. Printer and

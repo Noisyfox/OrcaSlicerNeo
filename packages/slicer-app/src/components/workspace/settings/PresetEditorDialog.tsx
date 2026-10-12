@@ -1158,7 +1158,7 @@ export function PresetEditorDialogContent({
             <div className="flex w-[min(32rem,60vw)] max-w-full">
             <PresetCombobox
               mode="select"
-              items={snapshot.editorCandidates.map(candidate => ({ id: candidate.canonicalName, isUser: candidate.isUser,
+              items={snapshot.editorCandidates.map(candidate => ({ id: candidate.canonicalName, isProjectEmbedded: candidate.isProjectEmbedded, isUser: candidate.isUser,
                 name: candidate.canonicalName, label: candidate.label, modified: candidate.modified }))}
               value={target.canonicalName} modified={snapshot.modified} disabled={interactionPending || invalidFields.size > 0}
               onValue={name => {

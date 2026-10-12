@@ -342,6 +342,7 @@ json editor_candidates_json(const Preset::Type type, const std::string& canonica
             collection.get_preset_with_vendor_profile(preset), printer_profile);
         candidates.push_back(json{{"canonical_name", preset.name},
             {"is_user", UserPresets::picker_is_user(preset)},
+            {"is_project_embedded", UserPresets::picker_is_project_embedded(preset)},
             {"label", UserPresets::is_snapshot(type, preset.name) ? Profiles::preset_display_label(preset) : preset.name},
             {"compatible", compatible}, {"modified", (overrides || UserPresets::is_snapshot(type, preset.name)) && UserPresets::modified(type, preset.name,
                 effective_preset_config(bundle, state().preset_drafts, type, preset.name))}});

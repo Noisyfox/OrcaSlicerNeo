@@ -77,6 +77,10 @@ bool picker_is_user(const Preset& preset) {
     }
     return false;
 }
+bool picker_is_project_embedded(const Preset& preset) {
+    return preset.is_project_embedded && !is_snapshot(preset.type, preset.name) &&
+        !is_snapshot(preset.type, preset.inherits());
+}
 bool active(Preset::Type type, const std::string& name) {
     auto& bundle = state().presets;
     if (type == Preset::TYPE_FILAMENT)
@@ -294,9 +298,11 @@ std::vector<Preset> export_presets(DynamicPrintConfig& config, const std::vector
         auto found = names.find({type, name});
         if (found != names.end()) return found->second;
         const std::string original = record != snapshots.end() ? record->second.original : local_child ? parent->name : name;
-        std::string clean = original + " (Project)";
-        for (unsigned suffix = 2; collection(type).find_preset(clean, false, true) ||
-            std::any_of(names.begin(), names.end(), [&](const auto& pair) { return pair.first.first == type && pair.second == clean; }); ++suffix)
+        // Ordinary saved users retain Orca's source identity on interchange.
+        // Only retained MVCC versions must avoid reconnecting to a saved head.
+        std::string clean = record == snapshots.end() ? original : original + " (Project)";
+        for (unsigned suffix = 2; record != snapshots.end() && (collection(type).find_preset(clean, false, true) ||
+            std::any_of(names.begin(), names.end(), [&](const auto& pair) { return pair.first.first == type && pair.second == clean; })); ++suffix)
             clean = original + " (Project " + std::to_string(suffix) + ")";
         names[{type, name}] = clean;
         Preset copy = *source;
@@ -325,7 +331,8 @@ std::vector<Preset> export_presets(DynamicPrintConfig& config, const std::vector
     for (const auto* preset : embedded) {
         if (names.count({preset->type, preset->name})) continue;
         // Inactive snapshot descendants are history, not project export inputs.
-        if (is_snapshot(preset->type, preset->inherits())) continue;
+        if (is_snapshot(preset->type, preset->name) ||
+            is_snapshot(preset->type, preset->inherits())) continue;
         result.push_back(*preset);
     }
     auto& diff = config.option<ConfigOptionStrings>("different_settings_to_system", true)->values;

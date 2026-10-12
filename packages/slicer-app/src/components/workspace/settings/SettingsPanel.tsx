@@ -244,7 +244,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
               compact
               label="Printer"
               modified={printerModified}
-              items={printerPicker.items.map(item => ({ id: item.id, name: item.preset, label: item.label, isUser: printers.find(preset => preset.name === item.preset)?.is_user === true }))}
+              items={printerPicker.items.map(item => ({ id: item.id, name: item.preset, label: item.label, isProjectEmbedded: printers.find(preset => preset.name === item.preset)?.is_project_embedded === true, isUser: printers.find(preset => preset.name === item.preset)?.is_user === true }))}
               value={printerPicker.selectedId}
               onValue={(id) => {
                 const target = printerPicker.items.find(item => item.id === id);
@@ -358,7 +358,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
         bedTypeDisabled={controlsDisabled}
         sceneInteraction={sceneInteraction}
         projectContent={<div className="flex min-w-0 items-center gap-1">
-          <PresetRow compact modified={false} label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label, isUser: preset.is_user }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />
+          <PresetRow compact modified={false} label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label, isProjectEmbedded: preset.is_project_embedded, isUser: preset.is_user }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />
           <UserPresetActions kind="print" canonicalName={selectedPrint} disabled={controlsDisabled} onPendingChange={setPresetTransitionPending} />
         </div>}
         scopedContent={<ObjectList sceneInteraction={sceneInteraction} />}

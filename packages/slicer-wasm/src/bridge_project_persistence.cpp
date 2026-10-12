@@ -271,9 +271,15 @@ std::string project_load_source_name(PresetCollection& collection,
         return loaded_name;
 
     const Preset* loaded = collection.find_preset(loaded_name, false, true);
-    if (loaded == nullptr || !loaded->is_project_embedded ||
-        loaded->inherits() != requested_name ||
-        collection.find_preset(requested_name, false, true) == nullptr)
+    const Preset* requested = collection.find_preset(requested_name, false, true);
+    if (loaded == nullptr || !loaded->is_project_embedded || requested == nullptr)
+        return loaded_name;
+    // Later Filament slots can materialize a temporary child of the user's
+    // system ancestor. The archive's requested ID still names the installed
+    // user source; reconstruct its project overrides instead of selecting
+    // that temporary child. Real archive embedded identities stay separate.
+    const bool installed_user = requested->is_user() && !requested->is_project_embedded;
+    if (!installed_user && loaded->inherits() != requested_name)
         return loaded_name;
 
     // The native loader may materialize a temporary @Project child for an

@@ -18,6 +18,7 @@ import {
 export interface PresetComboItem {
   id: string;
   isUser: boolean;
+  isProjectEmbedded: boolean;
   /** Complete canonical profile name, also used for tooltips. */
   name: string;
   /** Native display label (model or alias). */
@@ -49,9 +50,9 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
   const [search, setSearch] = useState('');
   const entries = new Map(items.map(item => [item.id, item]));
   const query = search.toLocaleLowerCase();
-  const sections = [true, false].map(isUser => ({
-    label: isUser ? 'User presets' : 'System presets',
-    items: items.filter(item => item.isUser === isUser).map(item => item.id),
+  const sections = ['project', 'user', 'system'].map(origin => ({
+    label: origin === 'project' ? 'Project-inside presets' : origin === 'user' ? 'User presets' : 'System presets',
+    items: items.filter(item => (item.isProjectEmbedded ? 'project' : item.isUser ? 'user' : 'system') === origin).map(item => item.id),
   })).filter(section => section.items.length > 0);
   const visibleSections = sections.map(section => ({ ...section,
     items: section.items.filter(id => entries.get(id)!.label.toLocaleLowerCase().includes(query)),

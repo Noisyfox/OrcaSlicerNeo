@@ -8,6 +8,7 @@ bool is_snapshot(Preset::Type type, const std::string& name);
 const Preset* baseline(Preset::Type type, const std::string& name);
 std::string display_label(const Preset& preset);
 bool picker_is_user(const Preset& preset);
+bool picker_is_project_embedded(const Preset& preset);
 bool picker_visible(const Preset& preset);
 std::string view_name(Preset::Type type, const std::string& name);
 std::string print_reset_target();

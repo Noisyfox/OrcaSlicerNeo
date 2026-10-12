@@ -367,6 +367,7 @@ export interface FilamentCatalogItem {
   is_default: boolean;
   /** Native picker classification, including snapshot/embedded source resolution. */
   is_user: boolean;
+  is_project_embedded: boolean;
   /** vendor id, empty when the preset has no vendor profile */
   vendor_id: string;
   model: string;
@@ -552,6 +553,7 @@ export type ConfigEditorSnapshotResult = ConfigEditorSnapshot | PresetDraftError
 
 export interface PresetEditorCandidate {
   readonly isUser: boolean;
+  readonly isProjectEmbedded: boolean;
   readonly canonicalName: string;
   readonly label: string;
   /** Compatibility with the project's effective Printer, independent of editor target. */
@@ -1233,7 +1235,7 @@ export interface FilamentSessionSlot {
   /** Opaque runtime identity restored with native history, never persisted to 3MF. */
   readonly logicalId: string;
   readonly slot: number;
-  readonly preset: { readonly isUser: boolean; readonly id: string; readonly name: string; readonly label: string; readonly vendor: string };
+  readonly preset: { readonly isUser: boolean; readonly isProjectEmbedded: boolean; readonly id: string; readonly name: string; readonly label: string; readonly vendor: string };
   readonly colour: {
     readonly effective: string;
     readonly provenance: FilamentColourProvenance;

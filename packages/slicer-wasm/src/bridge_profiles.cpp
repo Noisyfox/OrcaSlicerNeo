@@ -333,7 +333,8 @@ json preset_entry_json(const Preset& preset, const PresetCollection& collection,
                {"vendor", preset.type == Preset::TYPE_FILAMENT ? preset.config.opt_string("filament_vendor", 0) : ""},
                {"is_visible", preset.is_visible},
                {"is_default", preset.is_default},
-               {"is_user", UserPresets::picker_is_user(preset)}};
+               {"is_user", UserPresets::picker_is_user(preset)},
+               {"is_project_embedded", UserPresets::picker_is_project_embedded(preset)}};
     if (include_selection)
         entry["selected"] = preset.name == collection.get_selected_preset_name();
     entry["vendor_id"] = preset.vendor ? preset.vendor->id : "";
