@@ -181,6 +181,16 @@ console.log('setup activation smoke OK: validation, target defaults/stale record
 const base = { models: [activation.models[0]], filaments: ['Alpha Explicit Filament', 'Generic PLA @System'] };
 const initialSetup = await start(null, true);
 must(initialSetup.call('orc_open_setup_wizard_catalogue'));
+const systemInput = { ...base, filaments: ['Alpha Explicit Filament @System', 'No Match @System', 'Alpha Explicit Filament @System extra'] };
+const initialState = { profiles: initialSetup.call('orc_get_preset_snapshot'), history: initialSetup.call('orc_history_status'),
+  model: initialSetup.call('orc_get_model_structure') };
+initialSetup.links(systemInput);
+const firstSystem = must(initialSetup.call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(systemInput))])).activation;
+for (const name of systemInput.filaments) assert.ok(firstSystem.filaments.includes(name), 'first-use metadata comes from live bundle, not catalogue');
+assert.ok(firstSystem.filaments.includes('Alpha Explicit Filament'), 'native model defaults supplement the normalized record');
+assert.deepEqual({ profiles: initialSetup.call('orc_get_preset_snapshot'), history: initialSetup.call('orc_history_status'),
+  model: initialSetup.call('orc_get_model_structure') }, initialState, 'normalization/preparation leaves live state unchanged');
+
 initialSetup.links(base);
 must(initialSetup.call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(base))]));
 const initialApplied = must(initialSetup.call('orc_apply_profile_activation'));
@@ -200,6 +210,13 @@ must(cc('orc_add_shape', ['string', 'string'], ['Cube', 'Clean candidate cube'])
 assert.equal(cc('orc_history_mark_saved', ['string'], [JSON.stringify(context)]).dirty, false);
 const candidateBefore = must(cc('orc_get_preset_snapshot'));
 must(cc('orc_open_setup_wizard_catalogue'));
+cleanCandidates.links(systemInput);
+const loadedSystem = must(cc('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(systemInput))])).activation;
+assert.deepEqual(loadedSystem, firstSystem, 'JSON vendor metadata has no default_filaments even after startup');
+const repeatedSystem = must(cc('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(systemInput))])).activation;
+assert.deepEqual(repeatedSystem, loadedSystem, 'repeated preparation uses unchanged live metadata');
+assert.deepEqual(must(cc('orc_get_preset_snapshot')), candidateBefore);
+
 const addedMaterial = { ...base, filaments: [...base.filaments, 'Generic PLA @Compatibility Alpha'] };
 cleanCandidates.links(addedMaterial);
 must(cc('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(addedMaterial))]));
@@ -220,6 +237,11 @@ const anotherVendor = { ...cleanModelRecord, models: [...cleanModelRecord.models
 cleanCandidates.links(anotherVendor);
 must(cc('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(anotherVendor))]));
 const cleanVendor = must(cc('orc_apply_profile_activation'));
+const newVendorSystem = { ...anotherVendor, filaments: ['extra:Alpha Explicit Filament @System'] };
+cleanCandidates.links(newVendorSystem);
+const newVendorPrepared = must(cc('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(newVendorSystem))])).activation;
+assert.ok(newVendorPrepared.filaments.includes('extra:Alpha Explicit Filament @System'), 'new target metadata does not broaden the exact JSON rule');
+
 assert.equal(cleanVendor.profile_snapshot.printer.name, candidateBefore.printer.name);
 assert.ok(cleanVendor.profile_snapshot.printers.some(preset => preset.name === 'extra:Compatibility Alpha 0.4 nozzle'),
   'load_presets admits the newly linked vendor without selecting its Printer');

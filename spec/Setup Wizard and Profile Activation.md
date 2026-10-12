@@ -322,7 +322,19 @@ desktop Orca's preset-file editing and configuration-reload implementation.
 Confirmation first invalidates any client preparation and rebuilds `/system`
 links from the incoming printer vendors plus `OrcaFilamentLibrary` and `Custom`.
 An independent candidate bundle then uses `PresetBundle::load_presets` with a
-fresh AppConfig seeded with the current Printer; native loading owns visibility,
+fresh AppConfig seeded with the current Printer. Before loading, the shared native
+Orca rule normalizes ` @System` filament activation names using the current live
+bundle's already loaded `VendorProfile::default_filaments`, preserving its
+substring match and first-loaded-vendor traversal behavior. A matching name is
+replaced by its suffix-stripped name only when a non-Custom printer vendor is
+selected; enabled Custom printers retain both names. Permanent Custom resource
+linking does not count as enabled Custom printers. Unmatched names and names
+without the exact suffix remain unchanged. The full catalogue and newly linked
+candidate vendors do not supply metadata for this step. Current JSON vendor
+loading leaves `default_filaments` empty, so this rule retains the original names
+for those bundles; it does not infer metadata from model `default_materials`.
+Native loading subsequently supplements defaults, and preferences save that
+resulting native activation record. Native loading owns visibility,
 selection and default-material supplementation. Neo adds only an initial or
 unavailable-current fallback hint to choose a real Printer and resolve its
 concrete defaults through native `load_selections`; a valid current source needs
