@@ -40,7 +40,7 @@ ok(request('orc_add_filament_slot', { version: 1, revision: rack.revisions.sessi
 ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Neo Local PLA',
   key: 'nozzle_temperature', value: '210', expected_revision: status().revision }));
 const beforeSave = status();
-const saved = mutate('save', 'filament', 'Neo Local PLA');
+const saved = mutate('save-as', 'filament', 'Neo Local PLA', { name: 'Neo Local PLA' });
 assert.equal(saved.history_entry_delta, 0);
 assert.equal(status().undoEntries.length, beforeSave.undoEntries.length);
 assert.equal(draft('Neo Local PLA').modified, false);
@@ -88,7 +88,7 @@ const beforeFailed = status();
 mutate('save-as', 'filament', 'Neo Local PLA', { name: 'Failed Save' }, false);
 assert.deepEqual(status(), beforeFailed);
 assert.equal(call('orc_user_preset_info', ['filament', 'Failed Save']).ok, false);
-assert.equal(request('orc_prepare_user_preset', { action: 'save-as', kind: 'filament', canonical_name: 'Neo Local PLA', name: 'Neo Local PLA', expected_revision: status().revision }).ok, false);
+assert.equal(request('orc_prepare_user_preset', { action: 'save-as', kind: 'filament', canonical_name: 'Neo Local PLA', name: first, confirm_overwrite: true, expected_revision: status().revision }).ok, false);
 
 // An independent editor can save/delete a dormant source without changing the project.
 let profiles = ok(call('orc_get_preset_snapshot'));
@@ -195,5 +195,49 @@ assert.ok(draft(imported).effective_values.nozzle_temperature.split(',').every(v
 profiles = ok(call('orc_get_preset_snapshot'));
 assert.equal(ok(call('orc_get_preset_draft', ['printer', profiles.printer.name])).effective_values.printer_notes, 'local printer');
 assert.equal(ok(call('orc_user_preset_info', ['print', profiles.print.name])).can_save, false);
-console.log('user-presets PASS save-as, overwrite, snapshots, delete, Undo/Redo, Reset, shared slots, dormant editor, Printer, Process, 3MF, name reuse, failed persistence');
+// The shared dialog can overwrite another user destination. Both active
+// sources adopt the destination; Undo retains its old version, never its file.
+ok(call('orc_init', [fixtureProfileOptions(Module)]));
+mutate('save-as', 'filament', first, { name: 'Overwrite Source' });
+ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Overwrite Source', key: 'nozzle_temperature', value: '210', expected_revision: status().revision }));
+mutate('save-as', 'filament', 'Overwrite Source', { name: 'Overwrite Source' });
+mutate('save-as', 'filament', 'Overwrite Source', { name: 'Overwrite Target' });
+ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Overwrite Target', key: 'nozzle_temperature', value: '240', expected_revision: status().revision }));
+mutate('save', 'filament', 'Overwrite Target');
+let overwriteRack = ok(call('orc_get_filament_session_snapshot'));
+ok(request('orc_add_filament_slot', { version: 1, revision: overwriteRack.revisions.session }));
+overwriteRack = ok(call('orc_get_filament_session_snapshot'));
+ok(request('orc_select_filament_slot_preset', { version: 1, revision: overwriteRack.revisions.session, slot: overwriteRack.slots.length, preset: 'Overwrite Source' }));
+const overwriteBefore = ok(call('orc_get_filament_session_snapshot'));
+const targetFileBefore = disk.get('filament/Overwrite Target.json');
+assert.equal(request('orc_prepare_user_preset', { action: 'save-as', kind: 'filament', canonical_name: 'Overwrite Source', name: 'Overwrite Target', expected_revision: status().revision }).ok, false);
+const abortedOverwrite = mutate('save-as', 'filament', 'Overwrite Source', { name: 'Overwrite Target', confirm_overwrite: true }, false);
+assert.deepEqual(ok(call('orc_get_filament_session_snapshot')), overwriteBefore);
+assert.equal(disk.get('filament/Overwrite Target.json'), targetFileBefore);
+const crossSaved = mutate('save-as', 'filament', 'Overwrite Source', { name: 'Overwrite Target', confirm_overwrite: true });
+assert.equal(crossSaved.history_entry_delta, 1);
+assert.ok(crossSaved.filament_session.slots.every(row => row.preset.name === 'Overwrite Target'));
+assert.ok(draft('Overwrite Target').effective_values.nozzle_temperature.split(',').every(value => value === '210'));
+ok(call('orc_history_undo'));
+overwriteRack = ok(call('orc_get_filament_session_snapshot'));
+assert.match(overwriteRack.slots[0].preset.name, /snapshot/);
+assert.ok(draft(overwriteRack.slots[0].preset.name).effective_values.nozzle_temperature.split(',').every(value => value === '240'));
+assert.equal(overwriteRack.slots.at(-1).preset.name, 'Overwrite Source');
+ok(call('orc_history_redo'));
+assert.ok(ok(call('orc_get_filament_session_snapshot')).slots.every(row => row.preset.name === 'Overwrite Target'));
+// Saving a child over its parent retains the active child version and cannot
+// create a self-inheritance cycle in the durable destination.
+overwriteRack = ok(call('orc_get_filament_session_snapshot'));
+ok(request('orc_select_filament_slot_preset', { version: 1, revision: overwriteRack.revisions.session, slot: 1, preset: 'Local Child' }));
+const parentOverwrite = mutate('save-as', 'filament', 'Local Child', { name: 'Neo Local PLA', confirm_overwrite: true });
+assert.equal(parentOverwrite.history_entry_delta, 1);
+assert.equal(parentOverwrite.filament_session.slots[0].preset.name, 'Neo Local PLA');
+const parentFile = [...disk].find(([path]) => path.endsWith('/Neo Local PLA.json'));
+assert.ok(parentFile, 'the destination may be stored in the native base subdirectory');
+assert.notEqual(JSON.parse(parentFile[1]).inherits, 'Neo Local PLA');
+ok(call('orc_history_undo'));
+assert.match(ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name, /snapshot/);
+ok(call('orc_history_redo'));
+assert.equal(ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name, 'Neo Local PLA');
+console.log('user-presets PASS shared save dialog, self/cross overwrite, snapshots, delete, Undo/Redo, Reset, shared slots, dormant editor, Printer, Process, 3MF, name reuse, failed persistence');
 process.exit(0);

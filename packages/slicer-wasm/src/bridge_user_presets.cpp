@@ -349,6 +349,7 @@ json info(Preset::Type type, const std::string& name) {
     }
     return {{"ok", true}, {"kind", kind_name(type)}, {"canonical_name", name},
         {"default_save_as_name", save_as_name},
+        {"overwrite_name", writable ? json(head->name) : json(nullptr)}, {"compatible", source->is_compatible},
         {"label", display_label(*source)}, {"can_save", writable}, {"can_delete", writable},
         {"can_reset", type == Preset::TYPE_PRINT && is_snapshot(type, source->name)},
         {"deleted", deleted(type, source->name)}, {"revision", state().history_revision}};
@@ -375,25 +376,33 @@ json prepare(const json& request) {
     Preset source = *source_ptr;
     const std::string from = source.name;
     const std::string action = request.at("action").get<std::string>();
-    const bool save_as = action == "save-as";
     const bool remove = action == "delete";
-    if (!save_as && !remove && action != "save") throw std::runtime_error("invalid user preset action");
+    if (action != "save-as" && !remove && action != "save") throw std::runtime_error("invalid user preset action");
     const auto capabilities = info(type, requested);
-    if (!save_as && !capabilities.at("can_save").get<bool>()) throw std::runtime_error("This preset can only be saved as a new preset");
+    if (action != "save-as" && !capabilities.at("can_save").get<bool>()) throw std::runtime_error("This preset can only be saved as a new preset");
     const Preset* baseline_head = baseline(type, from);
     const std::optional<Preset> saved_head = baseline_head ? std::optional<Preset>(*baseline_head) : std::nullopt;
     const Preset* head = saved_head ? &*saved_head : nullptr;
-    const std::string target = save_as ? request.at("name").get<std::string>() : head->name;
+    const std::string target = action == "save-as" ? request.at("name").get<std::string>() : head->name;
+    const bool save_as = action == "save-as" &&
+        (!capabilities.at("can_save").get<bool>() || target != head->name);
     validate_name(target);
+    std::optional<Preset> destination;
     if (save_as) {
         std::string lower = target;
         std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char ch) { return std::tolower(ch); });
         for (const auto& preset : c) {
             std::string other = preset.name;
             std::transform(other.begin(), other.end(), other.begin(), [](unsigned char ch) { return std::tolower(ch); });
-            if (other == lower) throw std::runtime_error("A preset with that name already exists");
+            if (other != lower) continue;
+            if (preset.name != target) throw std::runtime_error("A preset with that name already exists with different capitalization");
+            if (!preset.is_user() || preset.is_project_embedded || is_snapshot(type, preset.name))
+                throw std::runtime_error("Overwriting this preset is not allowed");
+            if (!request.value("confirm_overwrite", false)) throw std::runtime_error("Confirm overwriting the existing user preset");
+            destination = preset;
         }
     }
+    if (!save_as) destination = *head;
     if (remove) for (const auto& preset : c)
         if (preset.is_user() && !preset.is_project_embedded && preset.inherits() == target)
             throw std::runtime_error("Delete the dependent user presets first");
@@ -406,19 +415,34 @@ json prepare(const json& request) {
     // A Process draft is an embedded child of the saved head. Copy its
     // effective values, but never overwrite the head with a self-inheritance.
     if (!save_as) candidate.inherits() = head->inherits();
+    // Overwriting an ancestor from its child must not create self-inheritance
+    // or a cycle. Full effective values preserve the source configuration.
+    if (destination && save_as) {
+        auto parent = candidate.inherits();
+        std::set<std::string> visited;
+        while (!parent.empty() && visited.insert(parent).second) {
+            if (parent == target) { candidate.inherits() = destination->inherits(); break; }
+            const auto* preset = c.find_preset(parent, false, true);
+            parent = preset ? preset->inherits() : std::string{};
+        }
+    }
     if (is_snapshot(type, from)) {
         candidate.name = target;
         candidate.is_external = false;
         candidate.is_project_embedded = false;
     }
     const bool was_active = active(type, from);
+    std::string source_active_name = from;
+    std::string target_active_name = destination ? view_name(type, target) : target;
+    const bool target_was_active = destination && active(type, target_active_name);
+    const bool affects_project = was_active || target_was_active;
     auto transaction = std::make_unique<Pending>();
     std::string result_name = target;
     try {
         std::string retained;
-        const std::string path = save_as ? "" : head->file;
+        const std::string path = destination ? destination->file : std::string{};
         std::vector<std::string> descendants;
-        if (!save_as && !remove) {
+        if (destination && !remove) {
             std::set<std::string> parents{target};
             for (bool added = true; added;) {
                 added = false;
@@ -433,6 +457,7 @@ json prepare(const json& request) {
                 const auto frozen = retain(type, name);
                 if (selected) {
                     adopt(type, name, frozen);
+                    if (source_active_name == name) source_active_name = frozen;
                     if (type == Preset::TYPE_PRINT) c.get_edited_preset().config = edited;
                     if (const auto* draft = state().preset_drafts.find(type, name))
                         for (const auto& [key, value] : *draft) state().preset_drafts.set(type, frozen, key, value);
@@ -440,7 +465,16 @@ json prepare(const json& request) {
                 }
             }
         }
-        if (!save_as) retained = retain(type, target);
+        if (destination) retained = retain(type, target);
+        if (save_as && target_was_active && target_active_name == target) {
+            const auto edited = c.get_edited_preset().config;
+            adopt(type, target, retained);
+            if (type == Preset::TYPE_PRINT) c.get_edited_preset().config = edited;
+            if (const auto* draft = state().preset_drafts.find(type, target))
+                for (const auto& [key, value] : *draft) state().preset_drafts.set(type, retained, key, value);
+            state().preset_drafts.erase_preset(type, target);
+            target_active_name = retained;
+        }
         if (remove) {
             for (auto& [key, record] : snapshots)
                 if (key.first == type && record.original == target && !record.deleted_baseline)
@@ -481,8 +515,8 @@ json prepare(const json& request) {
             change = {{"path", repository_path(path)}, {"content", nullptr}};
             transaction->delete_file = path;
         } else {
-            const bool detach = save_as && is_snapshot(type, from);
-            transaction->watch(save_as ? c.path_from_name(target, detach) : path);
+            const bool detach = !destination && save_as && is_snapshot(type, from);
+            transaction->watch(destination ? path : c.path_from_name(target, detach));
             c.save_current_preset(target, detach, false, &candidate);
             for (const auto& name : descendants) {
                 auto* child = c.find_preset(name, false, true);
@@ -495,19 +529,22 @@ json prepare(const json& request) {
             std::ostringstream content; content << input.rdbuf();
             change = {{"path", repository_path(saved->file)}, {"content", content.str()}};
             if (was_active) {
-                adopt(type, from, target);
+                adopt(type, source_active_name, target);
                 if (type == Preset::TYPE_PRINT) c.select_preset_by_name(target, true);
             }
+            if (save_as && target_was_active) adopt(type, target_active_name, target);
             state().preset_drafts.erase_preset(type, from);
+            state().preset_drafts.erase_preset(type, source_active_name);
+            if (save_as && target_was_active) state().preset_drafts.erase_preset(type, target_active_name);
             state().preset_drafts.erase_preset(type, target);
         }
         // Native compatibility and bed normalization are part of the one action.
-        if (was_active) {
+        if (affects_project) {
             state().presets.update_compatible(PresetSelectCompatibleType::Always);
             state().presets.update_multi_material_filament_presets();
             Profiles::normalize_bed_types(type == Preset::TYPE_PRINTER);
         }
-        const auto plate = was_active ? PlateSession::shared_configuration_mutation_snapshot() : PlateSession::plate_session_snapshot_json();
+        const auto plate = affects_project ? PlateSession::shared_configuration_mutation_snapshot() : PlateSession::plate_session_snapshot_json();
         ++state().preset_draft_revision;
         const auto after = context();
         if (history_entry) {

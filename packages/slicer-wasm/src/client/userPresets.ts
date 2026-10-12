@@ -13,6 +13,8 @@ export interface UserPresetInfo {
   canonicalName: string;
   label: string;
   defaultSaveAsName: string;
+  overwriteName: string | null;
+  compatible: boolean;
   canSave: boolean;
   canDelete: boolean;
   canReset: boolean;
@@ -23,7 +25,7 @@ export type UserPresetRequest = {
   kind: UserPresetKind;
   canonicalName: string;
   expectedRevision: number;
-} & ({ action: 'save' | 'delete' } | { action: 'save-as'; name: string });
+} & ({ action: 'save' | 'delete' } | { action: 'save-as'; name: string; confirmOverwrite?: boolean });
 export interface UserPresetMutation {
   ok: true;
   kind: UserPresetKind;

@@ -2072,9 +2072,9 @@ export function createClient(
       const m = await module();
       const raw = callJson(m, 'orc_user_preset_info', ['string', 'string'], [kind, canonicalName]);
       if (!isRecord(raw) || raw.ok !== true) return { ok: false as const, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid user preset response' };
-      if (typeof raw.label !== 'string' || typeof raw.default_save_as_name !== 'string' || typeof raw.can_save !== 'boolean' || typeof raw.can_delete !== 'boolean' || typeof raw.can_reset !== 'boolean' || typeof raw.deleted !== 'boolean' || !Number.isSafeInteger(raw.revision))
+      if (typeof raw.label !== 'string' || typeof raw.default_save_as_name !== 'string' || (raw.overwrite_name !== null && typeof raw.overwrite_name !== 'string') || typeof raw.compatible !== 'boolean' || typeof raw.can_save !== 'boolean' || typeof raw.can_delete !== 'boolean' || typeof raw.can_reset !== 'boolean' || typeof raw.deleted !== 'boolean' || !Number.isSafeInteger(raw.revision))
         return { ok: false as const, error: 'Invalid user preset capabilities' };
-      return { ok: true as const, kind, canonicalName, label: raw.label, defaultSaveAsName: raw.default_save_as_name, canSave: raw.can_save, canDelete: raw.can_delete, canReset: raw.can_reset, deleted: raw.deleted, revision: raw.revision as number };
+      return { ok: true as const, kind, canonicalName, label: raw.label, defaultSaveAsName: raw.default_save_as_name, overwriteName: raw.overwrite_name, compatible: raw.compatible, canSave: raw.can_save, canDelete: raw.can_delete, canReset: raw.can_reset, deleted: raw.deleted, revision: raw.revision as number };
     },
 
     async mutateUserPreset(request: UserPresetRequest) {
@@ -2082,7 +2082,7 @@ export function createClient(
       const m = await module();
       const prepared = callJson(m, 'orc_prepare_user_preset', ['string'], [JSON.stringify({
         action: request.action, kind: request.kind, canonical_name: request.canonicalName,
-        expected_revision: request.expectedRevision, ...(request.action === 'save-as' ? { name: request.name } : {}),
+        expected_revision: request.expectedRevision, ...(request.action === 'save-as' ? { name: request.name, confirm_overwrite: request.confirmOverwrite === true } : {}),
       })]);
       if (!isRecord(prepared) || prepared.ok !== true)
         return { ok: false as const, error: isRecord(prepared) && typeof prepared.error === 'string' ? prepared.error : 'Could not prepare preset operation' };

@@ -22,6 +22,7 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
   const [dialog, setDialog] = useState<'save-as' | 'delete' | null>(null);
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [overwriteTarget, setOverwriteTarget] = useState<UserPresetInfo | null>(null);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const inputId = useId();
@@ -38,6 +39,17 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
     return () => { current = false; };
   }, [platform.runtime, kind, canonicalName, revision, pending]);
 
+  useEffect(() => {
+    let current = true;
+    setOverwriteTarget(null);
+    if (dialog === 'save-as' && name && name !== info?.overwriteName) {
+      void platform.runtime.getUserPresetInfo(kind, name).then(result => {
+        if (current && result.ok && result.overwriteName === name) setOverwriteTarget(result);
+      }).catch(() => { /* Submission performs authoritative validation. */ });
+    }
+    return () => { current = false; };
+  }, [platform.runtime, kind, name, dialog, info?.overwriteName, revision]);
+
   const submit = async (action: UserPresetRequest['action'] | 'reset-preset') => {
     if (pendingRef.current || disabled) return;
     pendingRef.current = true;
@@ -52,8 +64,20 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
         await commitScopedConfigurationMutation(platform, { version: 1, operation: 'reset-all', targets: [{ scope: 'project' }] });
         return;
       }
+      let confirmOverwrite = false;
+      if (action === 'save-as' && name !== fresh.overwriteName) {
+        const destination = await platform.runtime.getUserPresetInfo(kind, name);
+        if (destination.ok && destination.overwriteName === name) {
+          // Fast Enter must not commit before the asynchronous warning appeared.
+          if (overwriteTarget?.overwriteName !== name || overwriteTarget.compatible !== destination.compatible) {
+            setOverwriteTarget(destination);
+            return;
+          }
+          confirmOverwrite = true;
+        }
+      }
       const result = await commitUserPresetMutation(platform, { action, kind, canonicalName,
-        expectedRevision: fresh.revision, ...(action === 'save-as' ? { action: 'save-as', name } : {}) } as UserPresetRequest);
+        expectedRevision: fresh.revision, ...(action === 'save-as' ? { action: 'save-as', name, confirmOverwrite } : {}) } as UserPresetRequest);
       if (!result.ok) throw new Error(result.error);
       await onCommitted?.(result);
       setDialog(null);
@@ -69,7 +93,6 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
           <SaveIcon aria-hidden="true" data-icon="inline-start" />
         </Button>
       </TooltipFor>
-      {info?.canSave && <Button size="xs" variant="outline" disabled={locked} onClick={() => void submit('save')}>Save</Button>}
       {info?.canDelete && <Button size="xs" variant="ghost" disabled={locked} onClick={() => { setError(null); setDialog('delete'); }}>Delete</Button>}
       {kind === 'print' && info?.canReset && <Button size="xs" variant="outline" disabled={locked} onClick={() => void submit('reset-preset')}>Reset preset</Button>}
     </div>
@@ -79,13 +102,17 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
         <DialogTitle>{dialog === 'delete' ? 'Delete user preset' : 'Save preset as'}</DialogTitle>
         <DialogDescription>{dialog === 'delete'
           ? `Delete “${info?.label ?? canonicalName}”? Undo can restore its project settings, but will not restore the preset file.`
-          : 'Choose an unused name for the new user preset.'}</DialogDescription>
+          : 'Keep the user preset name to save changes, or choose another name to save a copy.'}</DialogDescription>
         <form onSubmit={event => { event.preventDefault(); if (dialog) void submit(dialog); }} className="flex flex-col gap-4">
           {dialog === 'save-as' && <FieldGroup><Field data-invalid={!!error}>
             <FieldLabel htmlFor={inputId}>Preset name</FieldLabel>
             <Input id={inputId} autoFocus value={name} disabled={pending} aria-invalid={!!error}
               onChange={event => setName(event.target.value)} />
           </Field></FieldGroup>}
+          {dialog === 'save-as' && overwriteTarget && <Alert><AlertDescription>
+            Preset “{name}” already exists{overwriteTarget.compatible ? '' : ' and is incompatible with the current printer'}.
+            Saving will overwrite this preset.
+          </AlertDescription></Alert>}
           {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={pending} onClick={() => setDialog(null)}>Cancel</Button>

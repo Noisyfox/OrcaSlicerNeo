@@ -587,7 +587,9 @@ interaction is introduced. Both hosts retain their current desktop layout.
 
 ## 5. Local user preset management
 
-Save, Save As and Delete are explicit actions in the independent editor.
+Save As and Delete are explicit actions in the independent editor. The Save As
+icon opens one naming dialog: retaining the writable user name overwrites it;
+a new name creates a copy; another user name shows an overwrite warning.
 Saving an inactive browsed source never selects it in the project. Active
 Save As switches all same-source slots together with one history entry;
 overwrite Save adopts the new saved version without another history entry.

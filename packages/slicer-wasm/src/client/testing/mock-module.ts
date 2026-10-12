@@ -2542,6 +2542,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_user_preset_info(kind: string, canonicalName: string) {
       return { ok: true, kind, canonical_name: canonicalName, label: canonicalName,
         default_save_as_name: `${canonicalName} - Copy`,
+        overwrite_name: null, compatible: true,
         can_save: false, can_delete: false, can_reset: false, deleted: false, revision: historyRevision };
     },
     orc_prepare_user_preset(_request: string) {

@@ -99,7 +99,8 @@ Durable commit/recovery details remain implementation design.
 | --- | --- | --- | --- |
 | Edit / partial Reset | None | Change corresponding effective values | One if changed |
 | Overwrite Save | Save a new revision of the same identity | Adopt saved revision; resolve its pending cloud update | None |
-| Save As | Create a new identity under an unused name | Switch all active source references; otherwise editor target only | One for active-reference switching; otherwise none |
+| Save dialog, original user name | Overwrite the same identity | Adopt saved head | None |
+| Save dialog, another name | Create a new identity or confirm overwriting another user identity | Switch all active source references; adopt destination for its active references too | One for active source switching; otherwise none |
 | Explicit Update | Do not overwrite the saved head | Adopt latest head; discard edits, transfer actual edits, or cancel | One successful adoption |
 | Full Reset | None | Restore applicable baseline; adopt linked head identity; resolve pending update | One if values or identity change |
 | Manual Delete | Delete the user record | Replace active references with usable sources; otherwise advance editor target only | One for active replacement; otherwise none |
@@ -119,7 +120,9 @@ consequences of them:
 - Host storage and library separation remain section 1's requirements: editable
   Electron files, shared Web behaviour, no-account default library, per-account
   libraries, explicit external-file reads and direct application overwrites.
-- Save As needs an unused name; no direct Rename or bulk Delete. Deleted and
+- The Save As dialog accepts the original writable name, a new name, or a
+  confirmed existing user target; system/bundle targets cannot be overwritten.
+  There is no direct Rename or bulk Delete. Deleted and
   account-detached sources allow Save As only. Returning to an account does not
   automatically reconnect its detached snapshots.
 - Manual parent deletion is blocked by user children. Parent-induced effective
@@ -169,18 +172,22 @@ highlighting against the saved head, not Update available. A later head alone
 does not imply an update notice; section 2.4 defines the separate pending cloud
 update state.
 
-Save As requires an unused name in the target library/type namespace and creates
-a separate profile identity without modifying the original. An occupied name
-is rejected before writing, switching references or creating history; Save As
-does not offer target overwrite. Overwrite Save remains a separate operation.
-All active references to the source switch to the new profile together in one
+The single Save As dialog follows Orca's naming workflow. Keeping the original
+writable user name performs overwrite Save with no additional history. A new
+name creates a separate identity without modifying the source. An existing user
+target shows an overwrite warning, including incompatible-printer status;
+confirmation replaces that target while preserving its old effective versions
+and history references as snapshots. System and bundle targets are protected.
+All active references to the source switch to the destination together in one
 project-history entry. The entry represents selection switching, not creation
 of the durable record: Undo returns to the original references but keeps the
 new file, and Redo selects the new profile again without creating another file.
 This selection change participates in normal project-file dirty tracking.
-For an independently browsed source unused by the current project, Save As only
-changes the editor target; it neither selects the new profile in the project
-nor creates project history.
+For an independently browsed source unused by the current project, changing the
+name only switches the editor target and creates no project history. If an
+existing destination is already active, its references adopt the saved version;
+all affected histories preserve the prior destination as snapshots. The source
+does not become selected in the project.
 
 Saving while an active profile has an unresolved cloud update requires
 confirmation before overwriting that newer head. Offer Overwrite, Save As and
@@ -473,7 +480,7 @@ baseline. Merely becoming detached must not produce a Deleted indication.
 | Undo selection | Original P references | Q file remains; return to the saved checkpoint if nothing else changed. |
 | Redo selection | Q references | No second Q file; project dirty again. |
 | Alternative: source P was only independently browsed | Editor target becomes Q; project references unchanged | Create Q without project history or project dirty change from selection. |
-| Alternative: target name Q is already occupied | Keep original references and editor target | Reject Save As; neither file is overwritten; no history entry. |
+| Alternative: Q is an existing user preset | Show overwrite warning | Confirm: retain old Q snapshots, overwrite Q, adopt Q for active P and Q references, one source-switch history. Cancel: no changes. |
 
 If P was Deleted or detached by an account switch, Undo returns to that same
 snapshot state. Save As never restores the original record or association.
@@ -641,7 +648,7 @@ transitions, not a completed cloud protocol or recovery design.
 | History entries are evicted | Release their references, not still-live snapshots or dependency baselines. |
 | Explicitly save unchanged values again | A successful overwrite is a separate saved revision/snapshot event; equal bytes may share immutable storage. |
 | Repeated cloud delete / acknowledgement of local delete | Reconciliation is idempotent; do not create extra history, restore files or duplicate snapshots. |
-| Save As targets a name that already exists | Reject it; require an unused name. Keep files, selection and history unchanged. |
+| Save dialog targets an existing name | Original writable user name: overwrite with no extra history. Another user target: warn and require confirmation. System/bundle target: reject without file, selection or history changes. |
 | User wants to delete a parent and its children | No bulk Delete in this phase. Delete children individually, then the parent; each successful active-reference replacement has its own history entry. |
 | Multiple application sessions edit the same library | Each session must retain its own observed versions when it learns of a change; cross-session notification and write arbitration remain implementation design. |
 
@@ -709,7 +716,7 @@ than a claim of delivered behaviour or implementation approval.
 | Repeated saves | Distinct logical snapshot per successful overwrite save; prior snapshots untouched. |
 | Overwrite Save while cursor is before existing Redo | Saving is not a new project operation and must not erase Redo; migrate its references as well. A preceding actual option edit still has normal Redo-truncation semantics. |
 | Save an independently browsed profile | Save/adopt that editor source without selecting it in the project. Shared active references, if present, remain consistent with the new saved version. |
-| Save As from system, embedded or snapshot source | Create a separate identity; switch all active source references in one selection history entry. Undo keeps the new file. For a project-unused editor source, only change the editor target, without project history. |
+| Save As from system, embedded or snapshot source | Create or explicitly adopt a separate user identity; switch all active source references in one selection history entry. Undo leaves durable files unchanged. For a project-unused editor source, only change the editor target, without project history; an already-active overwritten destination adopts the saved version. |
 | Save from a Deleted snapshot | Save As only; old identity remains deleted. |
 | Save with an unresolved cloud update | Confirm Overwrite, Save As or Cancel. Overwrite preserves outgoing newer head and resolves that pending update; no extra history. An older local-history snapshot alone does not trigger the cloud warning. |
 | Import with a new identity | Add to the library without switching the current project automatically. |
@@ -948,7 +955,9 @@ Required behavioural cases include:
 - Save As creates a distinct identity and one history entry for switching active
   references; Undo leaves the created file intact. Editor-only Save As leaves
   project selection/history unchanged. Project dirty follows the selection entry.
-  Reject an occupied target name without file, selection or history changes.
+  Original-name submission performs overwrite Save. Another existing user target
+  requires a visible warning and confirmation, preserves target snapshots and
+  adopts all active destination references; protected targets remain unchanged.
 - Remote update/delete with active, inactive, editor-only, draft-only and
   history-only references; multiple versions and multiple shared slots. Inactive
   history-only profiles update locally and silently while old history references
@@ -1002,8 +1011,10 @@ future qualification; local coverage is recorded below.
 
 The default library is available without an account on both hosts. Printer and
 Filament actions live in the independent preset editor; Process actions live
-beside its project selector. Save overwrites a writable user preset; Save As
-requires an unused name; Delete operates on one user preset and rejects parents
+beside its project selector. One Save As icon opens the Orca-style save dialog:
+the original user name overwrites, a new name creates a copy, and another existing
+user name requires an overwrite warning and confirmation. There is no separate
+Save button. Delete operates on one user preset and rejects parents
 with remaining user children. System and Deleted sources can write a library
 preset only through Save As; Reset remains a session parameter operation.
 There is no local Update available state, cloud client, account transition,
@@ -1013,7 +1024,8 @@ Save As starts with Orca's default name: `Untitled` for a built-in default,
 `<canonical name> - Copy` for a system preset, the bundle alias when available,
 or the existing user name. A trailing `.ini` is removed without regard to case.
 Session snapshots use their original user name without version/deletion markers.
-The unused-name requirement still applies when the suggested name is occupied.
+System/bundle destinations remain protected. A deleted or detached snapshot may
+be saved into another user identity, but its old record/association is not restored.
 
 ### Storage and ownership
 
