@@ -63,7 +63,10 @@ Redo back to the saved state restores its post-save version identity as well as
 its values. If V2 is still head, this clears Update available; if V3 has since
 replaced it, Redo restores retained V2 and shows the update to V3.
 
-Save As creates a separate profile identity without modifying the original.
+Save As requires an unused name in the target library/type namespace and creates
+a separate profile identity without modifying the original. An occupied name
+is rejected before writing, switching references or creating history; Save As
+does not offer target overwrite. Overwrite Save remains a separate operation.
 All active references to the source switch to the new profile together in one
 project-history entry. The entry represents selection switching, not creation
 of the durable record: Undo returns to the original references but keeps the
@@ -118,6 +121,10 @@ undergo snapshot migration.
 A deleted snapshot only offers Save As to create a new user profile. Ordinary
 Save must not recreate its deleted repository record. Undo/Redo likewise never
 recreates its file or enqueues an upload.
+
+This phase provides only individual Delete actions, not bulk deletion. User
+children must be removed individually before deleting their parent; no batch
+selection bypasses the parent-dependency protection.
 
 ### 2.3 Deletion received through synchronization
 
@@ -341,6 +348,7 @@ baseline. Merely becoming detached must not produce a Deleted indication.
 | Undo selection | Original P references | Q file remains; return to the saved checkpoint if nothing else changed. |
 | Redo selection | Q references | No second Q file; project dirty again. |
 | Alternative: source P was only independently browsed | Editor target becomes Q; project references unchanged | Create Q without project history or project dirty change from selection. |
+| Alternative: target name Q is already occupied | Keep original references and editor target | Reject Save As; neither file is overwritten; no history entry. |
 
 If P was Deleted or detached by an account switch, Undo returns to that same
 snapshot state. Save As never restores the original record or association.
@@ -506,13 +514,14 @@ transitions, not a completed cloud protocol or recovery design.
 | History entries are evicted | Release their references, not still-live snapshots or dependency baselines. |
 | Explicitly save unchanged values again | A successful overwrite is a separate saved revision/snapshot event; equal bytes may share immutable storage. |
 | Repeated cloud delete / acknowledgement of local delete | Reconciliation is idempotent; do not create extra history, restore files or duplicate snapshots. |
-| Save As targets a name that already exists | This is a target-overwrite collision, not the new-identity sequence in section 3.7; the complete collision/active-reference policy needs review. |
-| Bulk deletion includes a parent and its children | Individual parent-deletion protection is accepted; batch dependency ordering/allowed selection needs explicit design. |
+| Save As targets a name that already exists | Reject it; require an unused name. Keep files, selection and history unchanged. |
+| User wants to delete a parent and its children | No bulk Delete in this phase. Delete children individually, then the parent; each successful active-reference replacement has its own history entry. |
 | Multiple application sessions edit the same library | Each session must retain its own observed versions when it learns of a change; cross-session notification and write arbitration remain implementation design. |
 
 These cases cover the accepted transition classes and critical event orderings.
 Unbounded permutations of concurrent events reduce to validated, serialized
-transitions, but unresolved collision policies must not be inferred from that.
+transitions; the cloud conflict and cross-session implementation designs remain
+separate from these accepted user operations.
 
 ## 4. Proposed version model and ownership
 
@@ -591,7 +600,7 @@ than a claim of delivered behaviour or implementation approval.
 | Remote deletion with active edits | Preserve current effective values and drafts on the Deleted snapshot; do not transfer them to another profile. |
 | Remote deletion with an existing Redo branch | Preserve the branch, migrating affected references; do not create a deletion entry. |
 | Repeated remote deletion / local-delete acknowledgement | Idempotent repository reconciliation; no duplicate snapshot, history or UI transition. |
-| Delete several profiles together | Stage the complete set before choosing surviving replacements; do not temporarily select another member of the deletion batch. One explicit user action should publish one composite history entry. |
+| Delete several profiles | No bulk Delete in this phase; use separate individual actions, each obeying dependency protection and the active/editor-only history rule. |
 | Delete a parent still used by user children | Block manual deletion. If synchronization deletes the parent, preserve each child's original effective configuration and its reconstructable historical versions. |
 | Change a preset's name | Save As creates a separate identity and retains the original. No direct Rename action; deleting the original is a separate explicit operation. |
 | Recreate an old name | New identity/incarnation; historical Deleted snapshots do not automatically reconnect or become writable. |
@@ -804,6 +813,7 @@ Required behavioural cases include:
 - Save As creates a distinct identity and one history entry for switching active
   references; Undo leaves the created file intact. Editor-only Save As leaves
   project selection/history unchanged. Project dirty follows the selection entry.
+  Reject an occupied target name without file, selection or history changes.
 - Remote update/delete with active, inactive, editor-only, draft-only and
   history-only references; multiple versions and multiple shared slots. Merely
   browsed never-used profiles update silently; history-only ones retain versions.
@@ -827,7 +837,8 @@ Required behavioural cases include:
 - Reused names/cloud identifiers never reconnect old Deleted snapshots;
   Save As leaves the original record intact and creates a separate identity;
   manual parent deletion is blocked, parent updates version affected children,
-  and remote parent deletion preserves usable child configurations.
+  and remote parent deletion preserves usable child configurations. No bulk
+  Delete surface is introduced; children must be deleted individually first.
 - Current and uncaptured history roots, both navigation directions, saved
   checkpoint, direct history jumps, history eviction and retained snapshot
   lifetime. No geometry archive duplication from reference migration.
