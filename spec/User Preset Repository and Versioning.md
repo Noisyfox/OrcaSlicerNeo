@@ -37,6 +37,9 @@ Previously accepted constraints remain in force:
   selection; subsequent native writes must target the saved preset explicitly.
   Browsing or saving an independently edited source must not implicitly change
   project selections or bind the editor to a Filament slot.
+- Follow Orca's naming workflow: provide Save As and Delete, without adding an
+  identity-preserving direct Rename action. A new-name save creates a separate
+  user profile; it does not delete the original automatically.
 
 ## 2. Accepted version and transition requirements
 
@@ -57,17 +60,31 @@ A local Save immediately adopts the newly saved version, without an additional
 history entry. The option-edit history already records the changes that the
 user may undo. Undoing those edits never rewinds the saved repository head.
 
+Saving from an outdated snapshot requires confirmation before overwriting the
+newer head. Offer Overwrite, Save As and Cancel. Overwrite uses the current
+effective values and preserves the outgoing newer head as well as already
+retained older versions. It does not implicitly merge them. This confirmation
+concerns a known repository update, not an undetected external file edit.
+
 Profile dirty state compares the session's effective profile values against the
 currently saved, non-snapshot version, not against the selected old snapshot.
 For a deleted profile, compare against its last saved version immediately before
 deletion. The Deleted indication is independent of dirty state. This profile
 comparison does not replace the existing project-file saved-checkpoint rules.
+Account-switch snapshots use the frozen baseline defined in section 2.5.
 
 Field, category and preset Reset use the latest saved version as their value
 baseline, or the last saved pre-deletion version when the profile is deleted.
 Reset must not obtain obsolete values from the selected old snapshot merely
-because it remains the session source. Reset and version adoption are separate
-operations; the exact scope of full Reset adoption is an open decision below.
+because it remains the session source. Field/category Reset only resets the
+corresponding values. Full Reset preset also adopts the latest saved version
+identity and clears Update available, in one Reset history entry. For a deleted
+profile, full Reset keeps snapshot identity and Deleted status while restoring
+the final saved values; it cannot recreate the repository record.
+Full Reset acts on every active reference to the profile in the session,
+including shared Filament slots, as that single history operation. Invocation
+from the independent editor does not select an otherwise unused profile in the
+project.
 
 ### 2.2 Manual deletion
 
@@ -100,15 +117,26 @@ still migrated under section 2.1.
 ### 2.4 Updated profile and explicit adoption
 
 If the selected profile receives an update, retain its current version and show
-**Update available** with an adjacent Update action. Only an explicit Update
-action selects the latest saved version and creates the corresponding history
-entry. Preserve the displaced version as an immutable snapshot. Update changes
-all active references to this profile in the session together, including every
-Filament slot sharing it, as one history operation.
+**Update available** with an adjacent Update action. Clicking Update explicitly
+adopts the latest saved version and creates the corresponding history entry.
+Ordinary selection cannot bypass adoption; local Save and full Reset have the
+separate adoption rules in section 2.1. Preserve the displaced version as an
+immutable snapshot. Update changes all active references to this profile in
+the session together, including every Filament slot sharing it, as one history
+operation.
 
-When there are unsaved parameter edits, ask the user what to do before adopting
-the update. Neither discarding nor rebasing edits is an automatic default; the
-precise choices remain to be confirmed. Cancelling must leave the session intact.
+When there are unsaved parameter edits, offer three choices:
+
+- Discard edits and update: use the latest saved values.
+- Keep edits and transfer to latest: actual user-edited fields take precedence;
+  all other fields use the latest saved values. Native validation must succeed
+  before publication; failure stops the update and preserves the session.
+- Cancel: leave the session intact.
+
+Head-relative dirty differences alone are not user edits to transfer. Native
+field/index ownership and the recorded draft edits determine the transfer set.
+Successful adoption, including transferred edits and native normalization, is
+one history operation across all active references.
 
 Before that explicit adoption, every profile-selection surface in the current
 session must resolve this profile to its retained snapshot, rather than expose
@@ -118,9 +146,71 @@ also restores this session-wide selector pin and the Update available state;
 Redo can restore the adopted version. Neither navigation changes the repository
 head.
 
+A profile never used by the current session, either in active project references
+or in retained history, follows the latest head automatically and silently.
+Merely browsing it in the independent editor does not make it used and must not
+pin an obsolete version or introduce an Update button/history entry. A profile
+referenced only by history does not qualify for this exception; preserve its
+historical versions. Clicking Update for such a history-only profile in the
+independent editor updates its session version binding and creates one history
+entry without changing the project's current profile selection. Undo/Redo
+restores that binding just as for an active-profile adoption.
+Editing that records a source in history is use; it is no longer merely browsing.
+
 Repository changes and transparent reference migration do not themselves create
 project-history entries. Explicit manual deletion and explicit adoption are the
 project actions described above.
+
+### 2.5 Account switches
+
+On an account switch, convert **all** current user-preset references and all
+user-preset references in retained history from the outgoing library to
+snapshots, even if an identically named or otherwise matching preset exists in
+the incoming library. Preserve references already bound to snapshots and each
+reference's exact effective values and edits. Migrate both Undo and Redo sides,
+not only the current project selection or records missing from the new library.
+
+This is transparent reference migration, with no new project-history entry or
+implicit selection of the incoming account's presets. Switching accounts does
+not delete outgoing records and must not label them Deleted merely because
+their library is inactive. Network loss alone is not an account switch.
+
+For these detached snapshots, dirty uses the owning library's last saved
+version at the time of the switch. Saving offers only Save As into the current
+library. Switching back to the original account does not automatically restore
+the association. This frozen comparison baseline is distinct from an ordinary
+old-version snapshot that still compares against its active library's live head.
+An already deleted profile retains its final pre-deletion baseline.
+
+### 2.6 Inherited user profiles
+
+Block manual deletion of a parent while user child presets still inherit it,
+following Orca's existing restriction. If a parent content update changes a
+child's effective values, process the child's effective version change through
+the same used/unused rules: preserve used versions and offer adoption, or
+silently refresh a never-used child. A retained child snapshot must include
+enough dependency content to remain stable when its parent changes.
+
+If synchronization deletes a parent, preserve the child's original effective
+configuration so the child remains usable. The parent deletion must not cascade
+into silently deleting or changing child configurations. How to persist the
+child's now-missing dependency is an implementation choice subject to native
+serialization and the accepted effective-value preservation requirement.
+
+### 2.7 Project boundaries and 3MF
+
+New Project and Open Project establish a new session version-selection view.
+Do not carry the previous project's pins into the new project. Successful Setup
+Wizard activation retains its existing history-clear rule and establishes a
+new baseline from the current effective parameters. These boundaries do not
+authorize silently adopting newer values over the project's effective values.
+
+3MF uses Orca's existing format to preserve active effective configurations.
+Do not add Neo-specific revision identities, snapshot provenance or Deleted
+markers. Reopening follows the ordinary embedded-profile path; it does not
+reconstruct the old session's MVCC history or reconnect user presets merely
+because their names match installed records. Geometry-only import does not
+start a new project or replace its version-selection view.
 
 ## 3. Observable state and examples
 
@@ -130,7 +220,7 @@ The accepted rules distinguish three independent states:
 | --- | --- |
 | Selected version | The immutable content plus session edits currently used by the project/editor. |
 | Repository head | The current saved, non-snapshot version, or absence after deletion. |
-| Profile dirty | Effective parameter differences from the repository head, or the final pre-deletion baseline. |
+| Profile dirty | Effective parameter differences from the live head, final pre-deletion baseline, or frozen pre-switch saved baseline, as applicable. |
 
 Update available and Deleted are version/lifecycle indications, not aliases for
 dirty. An unchanged old snapshot can be dirty relative to a newer head even
@@ -180,7 +270,22 @@ offer the session's V1 for that identity. Update targets the latest validated
 head at commit time, not an obsolete version captured when the button appeared.
 If the head changes while an edit-resolution dialog is open, the operation must
 revalidate and refresh the decision rather than silently apply a different
-target. The exact conflict-dialog choices are pending section 10.
+target. Use the edit-resolution choices in section 2.4.
+
+### 3.5 Unused versus historical sources
+
+An editor that only browses unused P at V1 silently shows V2 when P updates.
+There is no project-history entry or version pin just from browsing. If retained
+history used P at V1, updating the repository must preserve that historical V1,
+even when P is not currently selected. Undo must not resolve that frame to V2.
+
+### 3.6 Account switch with matching names
+
+Account A and account B can both contain a preset named P. Switching A -> B
+retains A's active and historical P versions as snapshots; none becomes B's P
+through name matching. Actual Deleted status, if already applicable, survives.
+Returning to A does not automatically reconnect these snapshots. Their Save As
+action creates a new user identity in the currently active library.
 
 ## 4. Proposed version model and ownership
 
@@ -195,9 +300,10 @@ compatibility and effective-configuration assembly.
   reference must identify a head or an exact snapshot, never just a display
   name. The current name-only internal contract must be replaced coherently
   across producers, consumers, mocks and tests; do not add legacy fallbacks.
-- Maintain a session version binding for each encountered profile. All
-  selectors and native implicit-resolution paths consult it. History captures
-  these bindings so Undo can restore the complete pinned view.
+- Maintain a session version binding for profiles used actively or by retained
+  history. All selectors and native implicit-resolution paths consult it.
+  Merely browsing an unused profile follows head without creating a pin.
+  History captures bindings so Undo can restore the complete pinned view.
 - Retain version-specific drafts. Replacing a head must not reapply an old
   sparse overlay to a different baseline. For a shared Filament version, slots
   continue sharing one source-local draft.
@@ -207,6 +313,9 @@ compatibility and effective-configuration assembly.
 - Separate the last saved pre-deletion baseline from an older selected
   snapshot. If V3 is deleted while the session uses V1, dirty compares V1's
   effective values against V3, not against V1.
+- Retain the last saved baseline when an account switch detaches a reference.
+  Do not reuse a later head from another library or silently reconnect it after
+  switching back. Detached, deleted and outdated are distinct lifecycle states.
 - Use a separate synchronization deletion record and a retained content
   snapshot. A server deletion acknowledgement can clear retry work without
   freeing data still referenced by the session or history.
@@ -219,9 +328,9 @@ row. No UI parses status suffixes out of profile names.
 
 ## 5. Scenario coverage
 
-Rows marked Pending require the decision in section 10. Other extensions in
-this section are proposed consequences of the accepted rules, rather than a
-claim of delivered behaviour.
+This matrix applies the accepted rules to related scenarios. Handling not
+explicitly established in sections 1-3 remains a proposed consequence, rather
+than a claim of delivered behaviour or implementation approval.
 
 ### 5.1 Saving, editing and importing
 
@@ -234,13 +343,15 @@ claim of delivered behaviour.
 | Save an independently browsed profile | Save/adopt that editor source without selecting it in the project. Shared active references, if present, remain consistent with the new saved version. |
 | Save As from system, embedded or snapshot source | Create a separate user identity using native serialization; do not install or overwrite the original source implicitly. Post-save selection needs the existing independent-editor boundary. |
 | Save from a Deleted snapshot | Save As only; old identity remains deleted. |
-| Save an old snapshot while a newer head exists | Pending D3: explicit overwrite versus additional overwrite confirmation. Preserve outgoing head, not only the session's older snapshot. |
+| Save an old snapshot while a newer head exists | Confirm Overwrite, Save As or Cancel. Overwrite preserves outgoing newer head, not only the session's older snapshot; successful Save adds no history. |
 | Import with a new identity | Add to the library without switching the current project automatically. |
 | Import over an existing user identity | Treat as a head update after normal overwrite confirmation; retain observed old versions and show updates to existing sessions. |
 | Same JSON discovered again | A read of unchanged content is not a new save and must not manufacture snapshot events. |
 | External file change | No immediate effect. A later deliberate read reconciles it as an update/deletion; application writes may overwrite it before that read. |
 | Malformed external/imported data | Do not publish it as a valid head or destroy a previously valid session version; report parsing/validation failure. |
-| Field/category Reset on old version | Copy the selected fields from current head, or final pre-deletion baseline. Keep unrelated values. Full Reset binding is Pending D4. |
+| Field/category Reset on old version | Copy corresponding fields from current head, or final pre-deletion baseline; keep unrelated values and version pin. |
+| Full Reset preset on old version | Restore latest saved values and adopt latest identity for all active references in one Reset history entry; clear Update available. A Deleted snapshot stays Deleted and uses the final pre-deletion baseline. |
+| Reset a snapshot detached by account switch | Use its frozen saved baseline, retaining detached identity; do not reconnect or write to the previous account. |
 
 ### 5.2 Delete and identity changes
 
@@ -254,8 +365,8 @@ claim of delivered behaviour.
 | Remote deletion with an existing Redo branch | Preserve the branch, migrating affected references; do not create a deletion entry. |
 | Repeated remote deletion / local-delete acknowledgement | Idempotent repository reconciliation; no duplicate snapshot, history or UI transition. |
 | Delete several profiles together | Stage the complete set before choosing surviving replacements; do not temporarily select another member of the deletion batch. One explicit user action should publish one composite history entry. |
-| Delete a parent still used by user children | Pending D5: child dependency policy; snapshot reconstruction must remain possible regardless. |
-| Rename | Pending D5: retain stable identity; update name-based native dependencies coherently. Never conflate rename with unconditionally deleting an unrelated same-name record. |
+| Delete a parent still used by user children | Block manual deletion. If synchronization deletes the parent, preserve each child's original effective configuration and its reconstructable historical versions. |
+| Change a preset's name | Save As creates a separate identity and retains the original. No direct Rename action; deleting the original is a separate explicit operation. |
 | Recreate an old name | New identity/incarnation; historical Deleted snapshots do not automatically reconnect or become writable. |
 
 ### 5.3 Update and adoption
@@ -263,10 +374,11 @@ claim of delivered behaviour.
 | Scenario | Required result or proposed handling |
 | --- | --- |
 | Remote update to active profile | Preserve old version and effective values; show Update available and use pinned candidates everywhere; no new history. |
-| Update an inactive source referenced by history or drafts | Preserve referenced versions. An unvisited, unreferenced new source may be introduced at the current head. |
+| Update a never-used source, including a browsed-only source | Silently follow latest head; no pin, update prompt or project history caused by browsing. |
+| Update an inactive source referenced by history | Preserve referenced versions; it does not qualify as unused. |
 | Click Update with no unsaved parameter edits | Adopt latest head for all active references in one history entry. |
-| Click Update with unsaved edits | Ask user; cancel is side-effect free. Exact alternatives are Pending D1. |
-| Update clicked in an independent editor for a project-unused source | Pending D2: browsing independence versus the requirement that explicit Update creates history. |
+| Click Update with unsaved edits | Offer discard-and-update, transfer actual edits onto latest, and Cancel. Native validation failure aborts transfer; successful adoption is one history entry. |
+| Update clicked in an independent editor for a history-only source | Update session binding in one history entry; project selection stays unchanged. Never-used sources already follow head silently. |
 | Several head updates before adoption | Retain session pin; advertise latest head. Unobserved intermediate revisions need not become artificial project-history entries. |
 | Undo adoption | Restore old version, drafts and session-wide selector pin. Dirty compares with the current head, which Undo does not change. |
 | Redo adoption after another remote update | Restore the version originally adopted by that history entry, not whatever is newest now; show another update if necessary. |
@@ -274,7 +386,23 @@ claim of delivered behaviour.
 | Updated Printer changes capabilities/compatibility | At explicit adoption, native normalization handles Process/rack/bed changes atomically in the same history entry. |
 | Updated Filament changes default colour | Use the accepted source-transition and actual-slot-colour policy; undo restores captured colours, not current defaults. |
 | Update causes no effective slicing-input change | Version/history semantics still apply; avoid invalidating results solely for a repository notification. Validate against existing native invalidation rules. |
-| Parent content changes effective child content | Pending D5: derived-version notification/adoption policy; never silently mutate a retained snapshot. |
+| Parent content changes effective child content | Apply the same used/unused rules to the child's effective revision: retain used versions and offer adoption; silently update never-used children. |
+
+### 5.4 Orca reference behaviour for naming and inheritance
+
+The checked native [save entry](../packages/slicer-wasm/cpp/src/slic3r/GUI/Tab.cpp)
+uses `SavePresetDialog` and calls `PresetCollection::save_current_preset`.
+The [collection implementation](../packages/slicer-wasm/cpp/src/libslic3r/Preset.cpp)
+overwrites an existing writable target or inserts a new preset under a new name,
+clearing its cloud setting ID and preserving the original preset. Changing the
+name in this dialog is therefore Save As, not an identity-preserving rename of
+an ordinary Printer, Filament or Process preset. Neo follows this workflow and
+does not add a direct Rename action.
+
+The same native GUI rejects manual deletion when another preset inherits the
+target. Neo adopts this restriction. Its additional parent-induced child
+versioning and cloud-deletion preservation rules are defined in section 2.6;
+native reload alone cannot preserve this document's version pins.
 
 ## 6. Every selection and restoration path
 
@@ -287,13 +415,14 @@ resolution must also obey the session's selected revision. Required coverage:
 | Printer model/nozzle variant resolution | No same-name/model fallback that bypasses a pending version pin. |
 | Process selector | Preserve snapshot command identity even when a project child shares its source's display row. |
 | Every Filament slot selector | Same retained revision for the same session profile; shared Update action and consistent dirty state. |
-| Independent Printer/Filament editor source picker | Browse pinned versions without changing project selection; refresh after save, history navigation and head changes. |
+| Independent Printer/Filament editor source picker | Browse pinned used versions without changing project selection; never-used sources silently follow latest. Refresh after save, history navigation and head changes. |
 | Future user-preset manager, duplicate and Save As source pickers | Expose status explicitly; never use selection of a normal-looking row as implicit latest-version adoption. |
 | Remembered racks and native compatibility fallbacks | Resolve through the session binding before native validation; do not seed a newer version accidentally. |
 | Undo/Redo and direct history navigation | Restore exact snapshot and pin, then native configuration/draft/slot state. |
-| Startup, New/Open Project and account switches | Explicit lifecycle boundary; Pending D6, not an accidental renderer reset. |
-| Setup Wizard | Existing activation/history-reset policy remains separate; Pending D6 for retained version bindings across that reset. |
-| 3MF load | Preserve archived effective values without installing user presets; Pending D7 for version identity and update indications. |
+| Startup and New/Open Project | Establish a new version-selection view; restore opened project values without carrying over the previous project's pins. |
+| Account switches | Convert all outgoing current/history user-preset references to snapshots; preserve effective values, history and account scope. Use frozen saved baseline and Save As only; no automatic reassociation when returning. |
+| Setup Wizard | Keep existing history-clear behaviour and establish a baseline from current effective parameters. |
+| 3MF load | Restore effective values through ordinary embedded handling, without Neo version/deletion metadata or same-name user-library reassociation. |
 
 Update controls must work with pointer and keyboard and expose accessible state
 and action names. Disabled/mutation states must prevent duplicate adoption. Both
@@ -331,6 +460,8 @@ Status is resolved against the current repository lifecycle, not restored from
 old UI booleans. A history frame captured before a later deletion still displays
 Deleted after navigation. A recorded adoption of V2 can display Update available
 after head reaches V3, without changing that frame's V2 content.
+Account-switch-detached snapshots retain their detached state and frozen
+baseline instead of resolving through whichever account happens to be active.
 
 Do not evict a snapshot independently while any retained frame, live selection,
 draft or in-flight prepared operation needs it. Account for retained content in
@@ -338,10 +469,11 @@ the history resource budget; share immutable payloads and release references as
 history is evicted. Pending cloud deletion retry and project-history retention
 have different release conditions.
 
-Profile dirty is recalculated against the live head after navigation. Historical
-UI dirty booleans must not override that comparison. Project-file dirty remains
-owned by the saved history checkpoint: transparent migration and Save preserve
-it; manual active deletion and explicit project Update are normal history
+Profile dirty is recalculated against the applicable baseline after navigation:
+live head, final pre-deletion version, or frozen pre-switch saved version.
+Historical UI dirty booleans must not override that comparison. Project-file
+dirty remains owned by the saved history checkpoint: transparent migration and
+Save preserve it; manual active deletion and explicit project Update are normal history
 operations. The existing specification must explicitly allow reference migration
 without pretending it is a new project operation.
 
@@ -354,8 +486,9 @@ state or the complete assembled project as a user profile.
 
 Persist saved user content, synchronization baselines and pending operations
 reliably. Session snapshots and undo history do not become a new global preset
-library. A restart is not assumed to persist the Undo/Redo timeline. Exact
-snapshot lifetime across New/Open Project is Pending D6.
+library. A restart is not assumed to persist the Undo/Redo timeline. New/Open
+Project creates a fresh version-selection view; release old session snapshots
+only once their history, draft and in-flight operation owners have released them.
 
 Cloud updates use version-aware reconciliation; the external-file overwrite
 rule does not remove cloud concurrency checks. A response acknowledges only the
@@ -365,8 +498,10 @@ retries must not duplicate history or cause a local-delete acknowledgement to
 resurrect a profile. Login failure and network loss leave the active local
 library usable without switching identities.
 
-Switching accounts is not cloud deletion. Preserve needed old-library content
-for the project/history, but do not enqueue deletion against the old account.
+Switching accounts is not cloud deletion. Convert all outgoing-library current
+and historical user-preset references to snapshots under section 2.5, rather
+than retaining only records missing from the incoming library. Do not enqueue
+deletion against the old account or silently adopt matching incoming presets.
 Late replies must remain scoped to their originating account and session.
 First-login copying from `default`, name collisions and whether to switch a
 currently used copied preset need explicit migration UX before implementation.
@@ -374,9 +509,10 @@ currently used copied preset need explicit migration UX before implementation.
 3MF export must preserve active effective Printer, Filament and Process values,
 including snapshot-backed selections, through the normal embedded-profile path.
 It must not export the whole history or install snapshots into the recipient's
-library. Secure-export exclusions remain unchanged. Exact cross-session
-provenance, status labels and matching against an installed newer head are
-Pending D7. Geometry-only import leaves this project's version bindings intact.
+library. Secure-export exclusions remain unchanged. Do not persist Neo-specific
+revision identity or Deleted markers, or re-associate by matching user-preset
+names on reopen. Geometry-only import leaves this project's version bindings
+intact.
 
 ## 9. Atomicity and integration constraints
 
@@ -403,20 +539,24 @@ Pending D7. Geometry-only import leaves this project's version bindings intact.
   updates, community bundle subscriptions or the Setup Wizard's system-profile
   activation semantics.
 
-## 10. Open product decisions
+## 10. Implementation boundaries still requiring design
 
-The following recommendations are **not accepted requirements**. Resolve them
-before dependent implementation; unrelated documented work can proceed.
+The version-transition questions are resolved in sections 1-3. This does not
+approve an implementation or settle every repository/cloud integration detail.
+Before implementing the dependent areas, complete the following designs:
 
-| ID | Decision | Proposed direction / alternatives |
-| --- | --- | --- |
-| D1 | Update with unsaved edits | Offer discard-and-update, transfer edits onto latest, and Cancel; optionally Save As first. If transfer is supported, decide per-key conflict handling and vector/dependency validation. The accepted requirement is to ask, not silently choose. |
-| D2 | Update an editor-only profile | Keep project selection unchanged. Decide whether this editor-only adoption creates project history or behaves like browsing; the accepted active-profile Update rule must not accidentally switch the project. |
-| D3 | Save from an outdated but not deleted snapshot | Decide whether Save explicitly overwrites the latest head with current effective values, or asks for confirmation/Save As. Preserve newer outgoing head and avoid implicit merge. |
-| D4 | Reset preset on an old snapshot | Field/category reset uses head values while retaining unaffected fields. Decide whether full Reset also adopts head identity and clears Update available, or retains the old pin with clean values. |
-| D5 | Rename and inherited user profiles | Decide whether rename is a version update requiring adoption; whether manual parent deletion is blocked while user children exist; and whether a parent update creates effective child revisions and Update available indications. |
-| D6 | Session boundaries | Recommend New/Open Project initializes a new version-binding view while a loaded 3MF preserves its values. Decide whether pins survive switching projects, successful Setup Wizard activation, and account switch. |
-| D7 | 3MF provenance across sessions/devices | Decide whether archives preserve stable user identity/version/deleted status or reopen as ordinary embedded profiles with only effective values. Determine when a newer installed head is offered without same-name rebinding. |
+- Stable local/cloud identity mapping, durable revision metadata, atomic file
+  and IndexedDB commits, and recovery after interrupted publication.
+- Cloud conflict reconciliation and first-login migration UX, including any
+  explicit copying from the default library and target-name collisions. Account
+  switching itself must continue to detach references as section 2.5 requires.
+- Native persistence for children whose parent was deleted remotely, preserving
+  their effective values without assuming a missing parent will become available.
+- The history-root migration mechanism, dependency retention and resource
+  accounting across current, historical and saved-checkpoint references.
+
+These are implementation work areas, not permission to change the accepted
+transition behaviour. Any newly exposed product choice needs explicit review.
 
 ## 11. Acceptance coverage
 
@@ -431,7 +571,8 @@ Required behavioural cases include:
   no history; option Undo restores old content but leaves the latest file and
   cloud head intact; existing Redo survives Save.
 - Remote update/delete with active, inactive, editor-only, draft-only and
-  history-only references; multiple versions and multiple shared slots.
+  history-only references; multiple versions and multiple shared slots. Merely
+  browsed never-used profiles update silently; history-only ones retain versions.
 - Manual deletion yields a native system-capable replacement and one history
   operation; Undo/Redo changes selection only and never recreates files/uploads.
 - Explicit Update changes all active references once; Undo/Redo restores exact
@@ -439,18 +580,31 @@ Required behavioural cases include:
   recorded Redo target.
 - Dirty/highlight/order computed against latest head; final pre-deletion
   baseline; empty overlays that are dirty and nonempty overlays that are clean;
-  field/category/full reset according to D4.
-- Update dialog cancel and all choices resolved under D1; concurrent newer
-  update, deletion or account switch while awaiting a decision.
+  field/category Reset retains pins; full Reset adopts latest identity in one
+  history entry across all active references; deleted full Reset does not
+  recreate the record.
+- Update dialog discard, transfer and Cancel; transfer actual edits rather than
+  every head-relative difference; native validation failure leaves state intact;
+  concurrent newer update, deletion or account switch while awaiting a decision.
+- Stale-snapshot Save confirms Overwrite, Save As or Cancel; successful overwrite
+  retains the outgoing newer head and adds no project-history entry.
 - Native inheritance, multi-toolhead vectors, Process ownership, rack colours,
   flushing, compatibility and bed normalization across save/update/navigation.
 - Reused names/cloud identifiers never reconnect old Deleted snapshots;
-  dependency and rename cases resolved under D5.
+  Save As leaves the original record intact and creates a separate identity;
+  manual parent deletion is blocked, parent updates version affected children,
+  and remote parent deletion preserves usable child configurations.
 - Current and uncaptured history roots, both navigation directions, saved
   checkpoint, direct history jumps, history eviction and retained snapshot
   lifetime. No geometry archive duplication from reference migration.
-- 3MF effective-value round trip, geometry-only import and cross-account
-  scenarios resolved under D6/D7.
+- Account switch migrates all current/history user references, including both
+  history directions and same-name incoming profiles; it adds no history and
+  implies neither deletion nor upload. Compare against the frozen saved baseline,
+  offer Save As only, and do not automatically reattach on return to that account.
+- 3MF effective-value round trip, geometry-only import and session-boundary
+  transitions: New/Open starts a fresh version view; Setup Wizard resets history
+  using current effective values; reopened 3MF has no Neo revision/deletion
+  metadata or automatic same-name user-library association.
 - Failed validation/write/publication, duplicate cloud changes, interrupted
   commit recovery and stale responses. No partially published history or head.
 
