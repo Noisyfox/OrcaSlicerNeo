@@ -152,8 +152,9 @@ ok(call('orc_history_redo'));
 profiles = ok(call('orc_get_preset_snapshot'));
 assert.equal(profiles.print.name, 'Neo Local Process');
 assert.equal(profiles.project_config.layer_height, '0.28');
-// Partial Reset keeps the historical identity; full Reset then adopts the
-// head even though all effective parameters already equal that head.
+// Partial Reset keeps the historical identity. Its diff becomes empty, so the
+// existing Reset All UI is disabled. The native full-reset command can still
+// adopt the head when invoked directly by this internal contract test.
 ok(call('orc_history_undo'));
 let tx = ok(call('orc_history_begin', ['Reset field', 'project', JSON.stringify(historyContext), '']));
 ok(request('orc_mutate_native_scoped_config', { version: 1, operation: 'reset', targets: [{ scope: 'project' }], key: 'layer_height' }));
@@ -162,6 +163,7 @@ profiles = ok(call('orc_get_preset_snapshot'));
 assert.notEqual(profiles.print.name, 'Neo Local Process');
 assert.equal(profiles.project_config.layer_height, '0.28');
 assert.equal(ok(call('orc_user_preset_info', ['print', profiles.print.name])).can_reset, true);
+assert.equal(Object.hasOwn(ok(call('orc_get_native_scoped_config')).native_scoped_config.snapshot.project, 'layer_height'), false);
 tx = ok(call('orc_history_begin', ['Reset preset', 'project', JSON.stringify(historyContext), '']));
 ok(request('orc_mutate_native_scoped_config', { version: 1, operation: 'reset-all', targets: [{ scope: 'project' }] }));
 call('orc_history_commit', [tx.transactionId, JSON.stringify(historyContext)]);

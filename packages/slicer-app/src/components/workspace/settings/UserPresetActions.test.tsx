@@ -4,8 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { UserPresetActions } from './UserPresetActions';
-import { commitUserPresetMutation, commitScopedConfigurationMutation, waitForConfigurationMutations } from './configurationActions';
-vi.mock('./configurationActions', () => ({ commitUserPresetMutation: vi.fn(), commitScopedConfigurationMutation: vi.fn(), waitForConfigurationMutations: vi.fn(async () => {}) }));
+import { commitUserPresetMutation, waitForConfigurationMutations } from './configurationActions';
+vi.mock('./configurationActions', () => ({ commitUserPresetMutation: vi.fn(), waitForConfigurationMutations: vi.fn(async () => {}) }));
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
 if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
 let root: Root;
@@ -30,11 +30,9 @@ async function name(value: string) {
   });
 }
 describe('user preset actions', () => {
-  it('lets Process snapshots adopt the head even when the parameter diff is empty', async () => {
-    await mount(false, 'print'); await click('Reset preset');
-    expect(commitScopedConfigurationMutation).toHaveBeenCalledWith(expect.anything(), {
-      version: 1, operation: 'reset-all', targets: [{ scope: 'project' }],
-    });
+  it('does not add a separate Reset preset button for Process snapshots', async () => {
+    await mount(false, 'print');
+    expect(button('Reset preset')).toBeUndefined();
     expect(commitUserPresetMutation).not.toHaveBeenCalled();
   });
   it('only offers Save as for a deleted snapshot', async () => {

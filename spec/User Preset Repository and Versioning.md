@@ -217,6 +217,11 @@ including shared Filament slots, as that single history operation. Invocation
 from the independent editor does not select an otherwise unused profile in the
 project.
 
+The existing Reset All icon is the Process reset entry; no additional Reset
+preset button is shown beside the preset selector. It is enabled only for
+actual parameter differences against the applicable saved baseline. A different
+snapshot/version identity with equal values does not enable the button.
+
 ### 2.2 Manual deletion
 
 A successful explicit Delete action switches to the next available profile and

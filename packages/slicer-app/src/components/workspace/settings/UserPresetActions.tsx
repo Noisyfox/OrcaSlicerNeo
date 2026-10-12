@@ -9,7 +9,7 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from '@/components/ui/dialog';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
-import { waitForConfigurationMutations, commitUserPresetMutation, commitScopedConfigurationMutation } from './configurationActions';
+import { waitForConfigurationMutations, commitUserPresetMutation } from './configurationActions';
 
 export function UserPresetActions({ kind, canonicalName, disabled = false, onPendingChange, onCommitted }: {
   kind: UserPresetKind; canonicalName: string; disabled?: boolean;
@@ -50,7 +50,7 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
     return () => { current = false; };
   }, [platform.runtime, kind, name, dialog, info?.overwriteName, revision]);
 
-  const submit = async (action: UserPresetRequest['action'] | 'reset-preset') => {
+  const submit = async (action: 'save-as' | 'delete') => {
     if (pendingRef.current || disabled) return;
     pendingRef.current = true;
     setPending(true); onPendingChange?.(true); setError(null);
@@ -60,10 +60,6 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
       await waitForConfigurationMutations();
       const fresh = await platform.runtime.getUserPresetInfo(kind, canonicalName);
       if (!fresh.ok) throw new Error(fresh.error);
-      if (action === 'reset-preset') {
-        await commitScopedConfigurationMutation(platform, { version: 1, operation: 'reset-all', targets: [{ scope: 'project' }] });
-        return;
-      }
       let confirmOverwrite = false;
       if (action === 'save-as' && name !== fresh.overwriteName) {
         const destination = await platform.runtime.getUserPresetInfo(kind, name);
@@ -94,7 +90,6 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
         </Button>
       </TooltipFor>
       {info?.canDelete && <Button size="xs" variant="ghost" disabled={locked} onClick={() => { setError(null); setDialog('delete'); }}>Delete</Button>}
-      {kind === 'print' && info?.canReset && <Button size="xs" variant="outline" disabled={locked} onClick={() => void submit('reset-preset')}>Reset preset</Button>}
     </div>
     {error && !dialog && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
     <Dialog open={dialog !== null} onOpenChange={open => { if (!open && !pending) setDialog(null); }}>
