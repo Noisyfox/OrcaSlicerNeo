@@ -1130,7 +1130,6 @@ export function PresetEditorDialogContent({
             </DialogDescription>
           </div>
           <div className="flex items-center gap-2">
-            {userPresetActions}
             {snapshot?.modified && <span
               data-testid="preset-editor-project-draft"
               className="rounded border px-2 py-1 text-xs"
@@ -1155,7 +1154,8 @@ export function PresetEditorDialogContent({
               <XIcon aria-hidden="true" />
             </Button>
           </div>
-          {snapshot && <div className="col-span-2 mt-2 flex w-[min(32rem,60vw)] max-w-full">
+          {snapshot && <div className="col-span-2 mt-2 flex min-w-0 flex-wrap items-center gap-1">
+            <div className="flex w-[min(32rem,60vw)] max-w-full">
             <PresetCombobox
               mode="select"
               items={snapshot.editorCandidates.map(candidate => ({ id: candidate.canonicalName,
@@ -1170,6 +1170,8 @@ export function PresetEditorDialogContent({
               sectionBy={target.kind === 'filament' ? item => compatibleNames.has(item.id)
                 ? 'Compatible with project printer' : 'Not compatible with project printer' : undefined}
             />
+            </div>
+            {userPresetActions}
           </div>}
           {target.kind === 'filament' && <p
             data-testid="preset-editor-slot-reference"

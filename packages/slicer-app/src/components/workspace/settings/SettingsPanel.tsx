@@ -356,7 +356,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
       <ScopedConfigurationPanel
         bedTypeDisabled={controlsDisabled}
         sceneInteraction={sceneInteraction}
-        projectContent={<div className="flex flex-col gap-1">
+        projectContent={<div className="flex min-w-0 items-center gap-1">
           <PresetRow compact modified={false} label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />
           <UserPresetActions kind="print" canonicalName={selectedPrint} disabled={controlsDisabled} onPendingChange={setPresetTransitionPending} />
         </div>}
@@ -386,7 +386,7 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
   testId?: string;
 }) {
   if (items.length === 0) return null;
-  return <div className={cn(compact ? "min-w-0" : "flex flex-col gap-1 py-1")}>
+  return <div className={cn(compact ? "min-w-0 flex-1" : "flex flex-col gap-1 py-1")}>
     <Label className={compact ? "sr-only" : "text-xs text-muted-foreground"}>{label}</Label>
     <PresetCombobox items={items} value={value} onValue={onValue} disabled={disabled} modified={modified}
       ariaLabel={label} testId={testId} searchPlaceholder="Search presets…" emptyText="No matching presets"

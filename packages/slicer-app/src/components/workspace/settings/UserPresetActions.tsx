@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { SaveIcon } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
 import type { UserPresetInfo, UserPresetKind, UserPresetMutation, UserPresetRequest } from '@slicer/client';
 import { Button } from '@/components/ui/button';
+import { TooltipFor } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -61,8 +63,13 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
   const locked = disabled || pending || !info;
   return <>
     <div className="flex items-center gap-1" aria-label="User preset actions">
+      <TooltipFor content="Save as…" disabled={locked}>
+        <Button size="icon-sm" variant="ghost" aria-label="Save as…" disabled={locked}
+          onClick={() => { setName(''); setError(null); setDialog('save-as'); }}>
+          <SaveIcon aria-hidden="true" data-icon="inline-start" />
+        </Button>
+      </TooltipFor>
       {info?.canSave && <Button size="xs" variant="outline" disabled={locked} onClick={() => void submit('save')}>Save</Button>}
-      <Button size="xs" variant="outline" disabled={locked} onClick={() => { setName(''); setError(null); setDialog('save-as'); }}>Save as…</Button>
       {info?.canDelete && <Button size="xs" variant="ghost" disabled={locked} onClick={() => { setError(null); setDialog('delete'); }}>Delete</Button>}
       {kind === 'print' && info?.canReset && <Button size="xs" variant="outline" disabled={locked} onClick={() => void submit('reset-preset')}>Reset preset</Button>}
     </div>

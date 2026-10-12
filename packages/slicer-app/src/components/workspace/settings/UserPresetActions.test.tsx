@@ -18,7 +18,8 @@ async function mount(deleted = false, kind: 'filament' | 'print' = 'filament') {
   await act(async () => root.render(<PlatformProvider value={platform}><UserPresetActions kind={kind} canonicalName="P" /></PlatformProvider>));
   return getUserPresetInfo;
 }
-const button = (label: string) => [...document.querySelectorAll('button')].find(node => node.textContent === label)!;
+const button = (label: string) => [...document.querySelectorAll('button')].find(node =>
+  (node.getAttribute('aria-label') ?? node.textContent) === label)!;
 async function click(label: string) { await act(async () => button(label).click()); }
 async function name(value: string) {
   const input = document.querySelector('input')!;
