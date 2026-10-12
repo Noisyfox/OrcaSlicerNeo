@@ -502,8 +502,9 @@ The planned
 [user preset versioning extension](User%20Preset%20Repository%20and%20Versioning.md)
 separately defines profile dirty comparison and transparent migration of preset
 references to immutable snapshots. That design preserves project checkpoints,
-adds history for manual active-profile deletion and explicit version adoption,
-and adds no history for preset Save or incoming synchronization. It is not yet
+adds history for manual active-profile deletion, explicit version adoption and
+Save As selection switching, and adds no history for overwrite preset Save or
+incoming synchronization. It is not yet
 implemented and does not redefine project dirty as profile dirty.
 
 ## 9. History Navigation UI and Shortcuts

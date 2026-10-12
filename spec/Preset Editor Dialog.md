@@ -587,7 +587,7 @@ interaction is introduced. Both hosts retain their current desktop layout.
 
 ## 5. Deferred user preset management
 
-Phase two may add Save As, rename, delete, user-repository persistence, and
+Phase two may add Save As, delete, user-repository persistence, and
 preset-management surfaces. It must convert a selected runtime draft into an
 explicit user action; phase one never performs that conversion implicitly.
 

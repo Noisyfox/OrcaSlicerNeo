@@ -56,9 +56,22 @@ snapshot for each successful overwrite save. Earlier snapshots must not be
 overwritten or coalesced into the latest version. Implementations may share
 immutable equal-content storage without collapsing logical version identities.
 
-A local Save immediately adopts the newly saved version, without an additional
+A local overwrite Save immediately adopts the newly saved version, without an additional
 history entry. The option-edit history already records the changes that the
 user may undo. Undoing those edits never rewinds the saved repository head.
+Redo back to the saved state restores its post-save version identity as well as
+its values. If V2 is still head, this clears Update available; if V3 has since
+replaced it, Redo restores retained V2 and shows the update to V3.
+
+Save As creates a separate profile identity without modifying the original.
+All active references to the source switch to the new profile together in one
+project-history entry. The entry represents selection switching, not creation
+of the durable record: Undo returns to the original references but keeps the
+new file, and Redo selects the new profile again without creating another file.
+This selection change participates in normal project-file dirty tracking.
+For an independently browsed source unused by the current project, Save As only
+changes the editor target; it neither selects the new profile in the project
+nor creates project history.
 
 Saving from an outdated snapshot requires confirmation before overwriting the
 newer head. Offer Overwrite, Save As and Cancel. Overwrite uses the current
@@ -158,8 +171,8 @@ restores that binding just as for an active-profile adoption.
 Editing that records a source in history is use; it is no longer merely browsing.
 
 Repository changes and transparent reference migration do not themselves create
-project-history entries. Explicit manual deletion and explicit adoption are the
-project actions described above.
+project-history entries. Explicit manual deletion, version adoption and Save As
+selection switching are the project actions described above.
 
 ### 2.5 Account switches
 
@@ -237,55 +250,269 @@ The update dialog's detection of actual unsaved edits must not be implemented
 as a blind test of head-relative dirty: a retained old version can differ from
 head without the user having edited it.
 
-### 3.1 Local save followed by Undo
+### 3.1 Local overwrite save followed by Undo
 
-1. Head V1 has temperature 200. An option edit changes the session value to 210
-   and creates history entry E1.
-2. Save preserves V1, publishes head V2 at 210, migrates references to V1, and
-   immediately adopts V2. No E2 is created. Profile dirty becomes false.
-3. Undo E1 restores the appropriate old snapshot and value 200. Head V2 stays
-   at 210; profile dirty becomes true and the old session version is updateable.
-4. Redo restores value 210 and the corresponding version pin. The configuration
-   file and synchronization queue are unaffected by either navigation.
+Each table is an independent sequence. V1/V2 are revisions of the same identity
+P; Save As creates a different identity Q. Dirty below means profile parameter
+dirty, not project-file dirty. Snapshot values and editable overlays remain
+distinct even when a row shows only their combined effective temperature.
+
+| Step | Repository | Session and history |
+| --- | --- | --- |
+| A: select P@V1 | P@V1 = 200 | Effective 200; clean. |
+| B: edit temperature | P@V1 = 200 | Effective 210; dirty; one option-edit entry. |
+| Overwrite Save | P@V2 = 210 | Snapshot outgoing V1; current binding adopts V2; clean; no new entry. |
+| Undo B | P@V2 = 210 | Restore V1 snapshot at 200; dirty and Update available. |
+| Redo B | P@V2 = 210 | Restore post-save V2 identity at 210; clean; no Update available. |
+| Head later advances to V3 = 220; repeat Undo/Redo | P@V3 = 220 | Redo still returns to retained V2 = 210, now dirty and Update available; never silently adopts V3. |
 
 ### 3.2 Several saves
 
-Saving V1 -> V2 -> V3 preserves distinct old-version snapshots. A history item
-already bound to V1 must stay bound to V1 when V2 is replaced. Only references
-still bound to the outgoing head are migrated. Undo must not make V1 resolve to
-V2 simply because both have the same display name.
+| Step | Effective values and version | Repository/history effect |
+| --- | --- | --- |
+| A | P@V1 = 200 | Initial saved version. |
+| B: edit, then Save | P@V2 = 210 | One edit entry; Save retains V1 without another entry. |
+| C: edit, then Save | P@V3 = 220 | One edit entry; Save retains V2 without rewriting existing V1 snapshots. |
+| Undo C | V2 snapshot = 210 | Head stays V3; dirty. |
+| Undo B | V1 snapshot = 200 | Head stays V3; dirty. |
+| Redo B, then C | V2 = 210, then V3 = 220 | Exact recorded bindings; finally clean at V3. |
 
 ### 3.3 Manual and synchronized deletion
 
-Manual deletion of active P selects Q and creates one history entry. Undo
-selects P's Deleted snapshot and Redo selects Q. P remains absent on disk and
-in the cloud throughout navigation. Synchronization deleting active P keeps P's
-effective values as a Deleted snapshot, with no added history entry or new
-Redo operation. Pre-existing Redo entries are retained and migrated.
+| Step | Manual deletion branch | Synchronization deletion branch |
+| --- | --- | --- |
+| A | P saved at 200 | P saved at 200 |
+| B: edit | P effective 210 | P effective 210 |
+| Delete P | Select usable Q; one new history entry. | Stay on P snapshot, effective 210; no new entry. |
+| History migration | A/B retain P snapshots and their distinct effective values. | Same; existing Redo is preserved. |
+| Undo | Undo deletion returns to Deleted P at 210. | Undo option edit B returns to Deleted P at 200. |
+| Redo | Select Q; do not repeat repository deletion. | Restore Deleted P at 210; do not recreate its file. |
+
+Both branches compare P snapshots against its last saved 200 baseline. If the
+session had retained V1 while head V3 was deleted, the baseline would instead
+be V3's final saved values.
 
 ### 3.4 Several remote updates
 
-When a session remains on V1 while head advances V2 -> V3, selectors continue to
-offer the session's V1 for that identity. Update targets the latest validated
-head at commit time, not an obsolete version captured when the button appeared.
-If the head changes while an edit-resolution dialog is open, the operation must
-revalidate and refresh the decision rather than silently apply a different
-target. Use the edit-resolution choices in section 2.4.
+| Step | Current binding and values | Head/history |
+| --- | --- | --- |
+| Select P@V1 | V1 = 200 | Head V1. |
+| Receive V2 = 220 | V1 snapshot = 200; Update available | Head V2; no entry. |
+| Receive V3 = 230 before adoption | Same V1 = 200 | Head V3; no entry; selectors still expose V1. |
+| Click Update | Adopt V3 = 230 | One adoption entry; do not first adopt obsolete V2. |
+| Undo adoption | V1 snapshot = 200 | Head stays V3. |
+| Receive V4 = 240, then Redo | V3 snapshot = 230; Update available | Redo restores recorded V3, not V4; head stays V4. |
+
+Update targets the latest validated head. If the head changes while an
+edit-resolution dialog is open, refresh the decision rather than silently
+applying a different target. Use the choices in section 2.4.
 
 ### 3.5 Unused versus historical sources
 
-An editor that only browses unused P at V1 silently shows V2 when P updates.
-There is no project-history entry or version pin just from browsing. If retained
-history used P at V1, updating the repository must preserve that historical V1,
-even when P is not currently selected. Undo must not resolve that frame to V2.
+| Initial situation | Event | Result |
+| --- | --- | --- |
+| P has no active/history use | Receive V2 | Catalogue follows V2 silently; no entry. |
+| Editor only browses P@V1; no active/history use | Receive V2 | Editor follows V2 silently; browsing creates no pin. |
+| Earlier history used P@V1; project now uses Q | Receive V2 | Project stays Q; retain P@V1 and show its pending update. |
+| Same history-only P | Click Update in editor | Bind P to V2 in one history entry; project stays Q. |
+| After editor Update | Undo / Redo | Restore P binding to V1 / V2 respectively; project stays Q. |
+| Editing P already created history | Receive V2 | P is used; preserve the version and edits instead of silently replacing them. |
 
 ### 3.6 Account switch with matching names
 
-Account A and account B can both contain a preset named P. Switching A -> B
-retains A's active and historical P versions as snapshots; none becomes B's P
-through name matching. Actual Deleted status, if already applicable, survives.
-Returning to A does not automatically reconnect these snapshots. Their Save As
-action creates a new user identity in the currently active library.
+| Step | Current/history references | Dirty baseline and repository |
+| --- | --- | --- |
+| A owns P; last saved value 220; current value 210 | A's P; histories can include older 200/210 versions | Compare against A's saved 220. |
+| Switch A -> B, where B also has P = 240 | Convert all A user references on both sides of the history cursor to detached snapshots; current stays 210 | Freeze baseline at 220; neither account's P is deleted. |
+| Undo to old value 200 | A snapshot = 200 | Compare against frozen 220, never B's 240. |
+| Redo to 210 | A snapshot = 210 | Frozen 220; no account change or upload. |
+| Switch B -> A | Keep detached snapshot at 210 | No automatic reassociation; Save As only. |
+| Alternative: network disconnect without account switch | Keep current account and ordinary references | No detachment or frozen-baseline transition merely from network loss. |
+
+Snapshots already marked Deleted retain that state and their pre-deletion
+baseline. Merely becoming detached must not produce a Deleted indication.
+
+### 3.7 Save As and project dirty
+
+| Step | Current references | Repository/history result |
+| --- | --- | --- |
+| Save project using P | P; project clean | Saved project checkpoint. |
+| Save As Q without parameter edits | All active P references become Q | P and Q both exist; one selection history entry; project dirty, Q parameters clean. |
+| Undo selection | Original P references | Q file remains; return to the saved checkpoint if nothing else changed. |
+| Redo selection | Q references | No second Q file; project dirty again. |
+| Alternative: source P was only independently browsed | Editor target becomes Q; project references unchanged | Create Q without project history or project dirty change from selection. |
+
+If P was Deleted or detached by an account switch, Undo returns to that same
+snapshot state. Save As never restores the original record or association.
+
+### 3.8 Update with actual edits
+
+Start each choice from P@V1 `(temperature=200, speed=100)`, with only temperature
+edited to 210. The incoming V2 is `(220, 110)`.
+
+| Event/choice | Effective values and identity | History and dirty |
+| --- | --- | --- |
+| Receive V2 | V1 snapshot plus edit = (210, 100) | No entry; dirty against (220, 110). |
+| Cancel Update | Unchanged (210, 100), V1 | No entry; still Update available. |
+| Discard edits and update | V2 = (220, 110) | One entry; clean. |
+| Transfer actual edits | V2 plus temperature edit = (210, 110) | One entry; dirty; no pending version update. |
+| Undo either successful adoption | V1 plus original edit = (210, 100) | Head stays V2; Update available. |
+| Redo | Restore the recorded discard/transfer result | Do not recalculate the transfer against a newer head. |
+| Transfer fails native validation | Keep complete original (210, 100) state | No adoption entry or partial changes. |
+
+With no actual edits, an old version differing from head is dirty but needs no
+edit-conflict prompt. Conversely edits may happen to equal the new head, making
+dirty false while version adoption is still pending. Transfer must use edited
+field/index ownership, not all head-relative differences.
+
+### 3.9 Outdated Save and final deletion baseline
+
+| Step | Session | Repository/history |
+| --- | --- | --- |
+| V1 = 200; local edit = 210; receive V2 = 220 | Retain V1 plus edit at 210 | Head V2; no incoming history entry. |
+| Save, then Cancel confirmation | Keep 210 and V1 binding | Head stays V2; no entry. |
+| Alternative: confirm Overwrite | Adopt newly saved V3 = 210 | Preserve outgoing V2 as well as retained V1; no extra Save entry. |
+| Alternative: choose Save As Q | Adopt Q = 210 for active references | P remains V2 = 220; one selection entry under section 3.7. |
+| Separate branch: head V3 = 230 is deleted while current still uses V1 = 200 | V1 snapshot remains 200, now Deleted | Compare dirty against final saved V3 = 230, not V1. |
+| Full Reset in that deleted branch | Snapshot effective 230, still Deleted | Clean against final 230; one Reset entry; P file remains absent. |
+| Undo Reset | Deleted snapshot effective 200 | Dirty against final 230; no resurrection. |
+
+### 3.10 Partial and full Reset
+
+Start from V1 `(200, 100)` and head V2 `(220, 110)` with no local edits.
+
+| Step | Effective values and version | Result |
+| --- | --- | --- |
+| Reset temperature | V1 snapshot plus values (220, 100) | Dirty; Update available remains. |
+| Reset speed as well | V1 snapshot plus values (220, 110) | Clean parameters but Update available remains. |
+| Full Reset preset | V2 = (220, 110), all active references | One Reset entry; latest identity adopted, Update available clears. |
+| Undo full Reset | Previous V1 binding and (220, 110) values | Clean parameters; Update available returns. |
+| Redo full Reset | Recorded V2 binding | Clean; if head has since advanced, compare with that newer head and show its update. |
+| Alternative: detached by account switch | Reset against frozen pre-switch saved values | Keep detached identity; never reconnect or write to the old account. |
+
+A Reset that changes neither values nor identity is a no-op under the existing
+history contract; full Reset of a clean old snapshot still changes identity.
+
+### 3.11 Shared references and all selectors
+
+Use slots `[P@V1, Q, P@V1]`; each operation row is an alternative from that state.
+
+| Event | Slot/session result | History |
+| --- | --- | --- |
+| Receive P@V2 | Both P slots remain pinned to V1; Q unchanged | None. |
+| Choose P in another picker or newly added slot | Resolve P through the same V1 binding; cannot bypass Update | Normal selection/slot action only. |
+| Update from either P slot or its editor | Both P slots adopt V2 together; Q unchanged | One adoption entry. |
+| Full Reset P | Both P slots use latest saved values and identity | One Reset entry. |
+| Overwrite Save P | Both active P references adopt saved version | No extra Save entry. |
+| Save As R from P | Both P slots switch to R; Q unchanged | One selection entry. |
+| Manually delete P | Replace both P references coherently with usable sources | One deletion-selection entry. |
+| Receive deletion of P | Both remain on Deleted snapshots at their prior effective values | None. |
+
+Printer adoption includes native dependent Process/rack/bed normalization in
+the same transaction; undo restores the recorded configuration and slot colours.
+Independent editor browsing alone never selects a source for the project.
+
+### 3.12 Redo branches and unrelated history
+
+Start at B in history `A(200) -> B(210) -> C(220)`, with C available through Redo.
+
+| Event at B | Redo branch | Subsequent navigation |
+| --- | --- | --- |
+| Incoming head update | Keep C; migrate outgoing-head references | Redo C restores recorded 220 and version, not latest head. |
+| Incoming deletion | Keep C; migrate references to Deleted snapshots | Redo C yields Deleted P at 220. |
+| Successful overwrite Save | Keep C; migrate references; update current B's saved binding | Redo C still restores its recorded values; does not save 220 automatically. |
+| Account switch | Keep C; detach all relevant references | Redo C stays a snapshot from the old library. |
+| Explicit Update, changed Reset, manual active deletion or Save As selection | Commit a new project action and discard old C | Undo/Redo now traverse the new branch. |
+| Cancelled/failed action or pure browsing | Keep C | No successful mutation was committed. |
+| A history item changes geometry but also captures P | Migrate its P reference too | Geometry and entry labels/timestamps remain unchanged. |
+
+### 3.13 Parent and child sequences
+
+| Initial state / event | Child result | History/repository consequence |
+| --- | --- | --- |
+| C inherits temperature 200 from parent R; C is used; R updates to 220 | C retains its old effective version at 200 and offers an update | No incoming history entry. |
+| Explicitly update C | C adopts effective 220 | One entry; Undo returns to retained effective 200. |
+| Alternative: C has never been used | C silently follows effective 220 | No pin or adoption entry merely from browsing. |
+| Alternative: C overrides temperature to 205 | Parent temperature update leaves effective C at 205 | No effective child-content update from that field. |
+| Manually delete R while user C inherits it | Reject deletion | No repository deletion or history transition. |
+| Synchronization deletes R | Preserve C's original effective configuration and all retained old C versions | Do not silently delete C or mark C Deleted solely because R disappeared. |
+| A batch changes both parent and child | Validate/preserve the complete dependency set before publishing | No observable half-updated inheritance chain. |
+
+### 3.14 Files, imports and no-account usage
+
+Each row is independent unless it explicitly describes a sequence.
+
+| Sequence/event | Visible result | Persistence/history |
+| --- | --- | --- |
+| Electron loads file P = 200; external editor writes 220 | Application still uses loaded 200 | No watcher-driven adoption or history. |
+| Before reread, application edits to 210 and saves | Application adopts 210 | Overwrite file to 210 without external-change conflict check. |
+| Instead, deliberate reread discovers 220 | Used P stays pinned to old version; unused P follows latest | Reconcile as incoming update; no automatic history entry. |
+| External file deleted, then application rereads | Apply missing-record/deletion reconciliation | Preserve used versions and historical reconstruction. |
+| Import a new preset | Add new library record | Do not automatically change project selection. |
+| Import confirms overwrite of existing P | Advance head through the update path | Preserve used versions; no implicit project adoption. |
+| Reread identical saved content / duplicate sync acknowledgement | No new semantic transition | No duplicate history or fabricated save event. |
+| No-account Save on either host | Use default library and normal Save rules | Electron persists files; proposed Web adapter persists IndexedDB. |
+| Logged-in account loses network; edit and Save | Adopt locally saved version immediately | Local saved head is dirty baseline; cloud work remains pending. |
+
+The policy for conflicting queued local changes versus remote updates/deletion
+is still part of cloud reconciliation design, not specified by file overwrite.
+
+### 3.15 Project boundaries and 3MF sequences
+
+| Step/event | Effective values and identity | History/lifecycle result |
+| --- | --- | --- |
+| Current Deleted P has saved baseline 200 and draft value 210 | Effective 210 | Existing session history remains available. |
+| Export 3MF | Archive effective 210 using normal Orca format | No Neo revision ID, Deleted marker or entire Undo timeline. |
+| Reopen that 3MF, even with an installed same-name P = 240 | Restore effective 210 through ordinary embedded handling | Fresh project/history baseline; no automatic reassociation by name. |
+| New Project or replace with another project | Initialize new version-selection view | Previous project pins/history do not carry over. |
+| Import geometry only | Keep current preset values and bindings | Normal geometry-import history; no new preset session. |
+| Successful Setup Wizard activation | Establish baseline from current effective parameters | Keep existing history-clear behaviour; do not silently adopt newer head values. |
+| Restart | Load durable library content through the host adapter | No promise of persisting the previous session's Undo/Redo stack. |
+
+### 3.16 Failure and concurrent-event handling
+
+These rows are proposed implementation consequences of the accepted atomic
+transitions, not a completed cloud protocol or recovery design.
+
+| Sequence/event | Required visible boundary | History consequence |
+| --- | --- | --- |
+| Update dialog targets V2; V3 arrives | Refresh/revalidate the decision; do not silently substitute a different target | No adoption until successful commit. |
+| Update dialog is open; P is deleted | Retain effective state as Deleted; no update to a missing head | Deletion itself adds no entry. |
+| Save/Update dialog is open; account changes | Reject stale-library operation or restart it against explicit new context | No accidental write or selection in another account. |
+| Native transfer validation fails | Preserve old values, drafts and binding | No partial adoption entry. |
+| File/IndexedDB write fails | Do not report successful Save or clear dirty | No completed Save/version event. |
+| Duplicate Update activation | Serialize/revalidate; do not adopt the same target twice | No duplicate entry for one completed transition. |
+| Local save V2 is uploading; V3 is saved before acknowledgement | Acknowledge only V2; V3 remains pending | No rollback to V2 and no new project history from acknowledgement. |
+| Crash between durable commit and runtime publication | Recover a coherent committed or previous state | Exact recovery protocol remains to be designed. |
+
+### 3.17 Parameter dirty versus project dirty
+
+| Sequence | Profile parameter dirty | Project-file dirty |
+| --- | --- | --- |
+| Save project using P@V1 = 200, then receive head V2 = 220 | True at retained 200 | Unchanged: incoming update/reference migration does not move saved checkpoint. |
+| Edit to 210, then overwrite Save P | False after saving 210 | Still changed relative to saved project; preset Save is not Save Project. |
+| Undo to saved project state using 200 while head remains 210 | True | Clean at the saved project checkpoint. |
+| Save As Q with equal values and switch active references | False for Q | Dirty because the selection change has one history entry. |
+| Undo that Save As selection | Compare restored source against its applicable baseline | Return to the prior checkpoint if otherwise unchanged; Q file remains. |
+| Incoming deletion of unchanged active P | False against its final saved baseline | No new project-history change solely from deletion. |
+| Account switch with unchanged effective values | Compare against frozen pre-switch saved baseline | No new project-history change solely from detachment. |
+
+### 3.18 Identity reuse, retention and remaining combinations
+
+| Event | Result / qualification |
+| --- | --- |
+| Delete P, then create another preset with the same name | New identity; old history stays Deleted and must not bind to the new record. |
+| A preserved version is only on the Redo side | Keep it until no remaining history/session/checkpoint owner needs it. |
+| History entries are evicted | Release their references, not still-live snapshots or dependency baselines. |
+| Explicitly save unchanged values again | A successful overwrite is a separate saved revision/snapshot event; equal bytes may share immutable storage. |
+| Repeated cloud delete / acknowledgement of local delete | Reconciliation is idempotent; do not create extra history, restore files or duplicate snapshots. |
+| Save As targets a name that already exists | This is a target-overwrite collision, not the new-identity sequence in section 3.7; the complete collision/active-reference policy needs review. |
+| Bulk deletion includes a parent and its children | Individual parent-deletion protection is accepted; batch dependency ordering/allowed selection needs explicit design. |
+| Multiple application sessions edit the same library | Each session must retain its own observed versions when it learns of a change; cross-session notification and write arbitration remain implementation design. |
+
+These cases cover the accepted transition classes and critical event orderings.
+Unbounded permutations of concurrent events reduce to validated, serialized
+transitions, but unresolved collision policies must not be inferred from that.
 
 ## 4. Proposed version model and ownership
 
@@ -339,9 +566,9 @@ than a claim of delivered behaviour or implementation approval.
 | Edit an option without saving | Existing option history and version-specific draft behaviour; repository head unchanged. |
 | Save current user profile | Snapshot outgoing saved version, migrate non-snapshot history references, write/adopt new head; no extra history. |
 | Repeated saves | Distinct logical snapshot per successful overwrite save; prior snapshots untouched. |
-| Save while cursor is before existing Redo | Saving is not a new project operation and must not erase Redo; migrate its references as well. A preceding actual option edit still has normal Redo-truncation semantics. |
+| Overwrite Save while cursor is before existing Redo | Saving is not a new project operation and must not erase Redo; migrate its references as well. A preceding actual option edit still has normal Redo-truncation semantics. |
 | Save an independently browsed profile | Save/adopt that editor source without selecting it in the project. Shared active references, if present, remain consistent with the new saved version. |
-| Save As from system, embedded or snapshot source | Create a separate user identity using native serialization; do not install or overwrite the original source implicitly. Post-save selection needs the existing independent-editor boundary. |
+| Save As from system, embedded or snapshot source | Create a separate identity; switch all active source references in one selection history entry. Undo keeps the new file. For a project-unused editor source, only change the editor target, without project history. |
 | Save from a Deleted snapshot | Save As only; old identity remains deleted. |
 | Save an old snapshot while a newer head exists | Confirm Overwrite, Save As or Cancel. Overwrite preserves outgoing newer head, not only the session's older snapshot; successful Save adds no history. |
 | Import with a new identity | Add to the library without switching the current project automatically. |
@@ -441,7 +668,9 @@ Proposed migration order:
    bound to snapshots and each frame's distinct overrides/effective values.
 4. Stage the repository change and corresponding live projection. Manual
    active deletion/adoption also stages its single project-history entry;
-   transparent migration and Save do not.
+   transparent migration and overwrite Save do not. Save As selection switching
+   is also one project-history operation; creation of its durable file is not
+   reversed by history.
 5. Publish coherently or retain recoverable state on failure. Never expose
    history references to a snapshot that has not been retained successfully.
 
@@ -473,7 +702,8 @@ Profile dirty is recalculated against the applicable baseline after navigation:
 live head, final pre-deletion version, or frozen pre-switch saved version.
 Historical UI dirty booleans must not override that comparison. Project-file
 dirty remains owned by the saved history checkpoint: transparent migration and
-Save preserve it; manual active deletion and explicit project Update are normal history
+overwrite Save preserve it; manual active deletion, Save As selection switching
+and explicit project Update are normal history
 operations. The existing specification must explicitly allow reference migration
 without pretending it is a new project operation.
 
@@ -567,9 +797,13 @@ Required behavioural cases include:
 - Independent local/default and account libraries on both hosts; restart
   persistence; no-account usage; external edit ignored until read; direct
   application overwrite without external conflict prompts.
-- Printer, Filament and Process local Save; repeated saved versions; Save adds
+- Printer, Filament and Process overwrite Save; repeated saved versions; Save adds
   no history; option Undo restores old content but leaves the latest file and
-  cloud head intact; existing Redo survives Save.
+  cloud head intact; existing Redo survives Save. Redo to a saved state restores
+  its post-save revision identity, even if a newer revision now exists.
+- Save As creates a distinct identity and one history entry for switching active
+  references; Undo leaves the created file intact. Editor-only Save As leaves
+  project selection/history unchanged. Project dirty follows the selection entry.
 - Remote update/delete with active, inactive, editor-only, draft-only and
   history-only references; multiple versions and multiple shared slots. Merely
   browsed never-used profiles update silently; history-only ones retain versions.
