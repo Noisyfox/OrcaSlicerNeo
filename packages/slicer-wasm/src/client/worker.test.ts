@@ -3,6 +3,9 @@ import { describe, it, expect } from 'vitest';
 import { createMockModule } from './testing/mock-module';
 import { createWorkerClient, startWorker, type WorkerMessage, type WorkerTransport } from './worker';
 
+const presetContext = { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] },
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 // A transport that runs the worker side in-process (same-thread) so the
 // protocol is testable without a real Worker. The real worker entry uses
 // postMessage; here a Channel fans every message out to both sides
@@ -48,7 +51,7 @@ describe('worker protocol', () => {
     const held = new Promise<void>(resolve => { release = resolve; });
     const started = new Promise<void>(resolve => { entered = resolve; });
     const { workerClient } = setup(async op => { if (op === 'mutateUserPreset') { entered(); await held; } });
-    const save = workerClient.mutateUserPreset({ action: 'save', kind: 'filament', canonicalName: 'P', expectedRevision: 0 });
+    const save = workerClient.mutateUserPreset({ action: 'save', kind: 'filament', canonicalName: 'P', expectedRevision: 0 }, presetContext);
     await started;
     await expect(workerClient.getProfileSnapshot()).rejects.toThrow('user preset write is in progress');
     await expect(workerClient.undoHistory()).rejects.toThrow('user preset write is in progress');
@@ -258,7 +261,7 @@ describe('worker protocol', () => {
     if (!draft.ok) throw new Error('expected printer source');
     expect(draft.optionMetadata.nozzle_temperature?.category).toBe('Temperature');
     const result = await workerClient.mutatePresetDraft({ kind: 'printer', canonicalName: draft.canonicalName,
-      action: 'set', expectedRevision: draft.revision, key: 'nozzle_temperature', value: '225' });
+      action: 'set', expectedRevision: draft.revision, key: 'nozzle_temperature', value: '225' }, presetContext);
     expect(result).toMatchObject({ ok: true, historyEntryDelta: 1, allPlateResultsInvalidated: true,
       effectiveValues: { nozzle_temperature: '225' } });
     expect(workerClient.getHistoryDiagnostics().worker.mutation.count).toBe(1);
@@ -300,7 +303,7 @@ describe('worker protocol', () => {
       targets: [{ scope: 'project' }], key: 'layer_height', value: '0.2' }))
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.mutatePresetDraft({ kind: 'printer', canonicalName: 'Bambu Lab X1 Carbon 0.4 nozzle',
-      action: 'reset-preset', expectedRevision: 0 }))
+      action: 'reset-preset', expectedRevision: 0 }, presetContext))
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.cloneObjects([1]))
       .resolves.toMatchObject({ error: 'slice_busy' });

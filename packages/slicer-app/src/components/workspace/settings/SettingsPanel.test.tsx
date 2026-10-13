@@ -287,7 +287,7 @@ describe('SettingsPanel preset transitions', () => {
     await act(async () => (container.querySelector('[data-testid="preset-edit-printer"]') as HTMLElement).click());
     expect(edit).toHaveBeenCalledWith('Old Printer');
     await selectOption(container, 'preset-select', 'New Printer Model');
-    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', null, null);
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', null, null, expect.objectContaining({ gizmo: null }));
     expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('New Printer');
     expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.6');
   });
@@ -334,7 +334,7 @@ describe('SettingsPanel preset transitions', () => {
       option!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
       option!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
     });
-    expect(runtime.setToolheadDiameter).toHaveBeenCalledWith(1, 0.6, 0);
+    expect(runtime.setToolheadDiameter).toHaveBeenCalledWith(1, 0.6, 0, expect.objectContaining({ gizmo: null }));
     expect(useSettingsStore.getState().values.nozzle_diameter).toBe('0.4,0.6,0.4,0.4');
     expect(container.querySelector('[data-testid="toolhead-diameter-select"]')?.textContent).toContain('0.6');
   });
@@ -389,7 +389,7 @@ describe('SettingsPanel preset transitions', () => {
     for (const id of ['preset-select', 'nozzle-variant-select', 'process-preset-select', 'global-bed-type-select'])
       expect((container.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => { finish(printerTransition(profile)); await pending; });
-    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledExactlyOnceWith('Mixed Profile', null, null);
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledExactlyOnceWith('Mixed Profile', null, null, expect.objectContaining({ gizmo: null }));
     expect(runtime.selectProfile).not.toHaveBeenCalled();
     expect(preferences.selectedProfiles.printer).toBe('Mixed Profile');
     expect(useSettingsStore.getState().selectedPrinter).toBe('Mixed Profile');
@@ -640,7 +640,7 @@ describe('SettingsPanel preset transitions', () => {
 
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', {
       version: 1, slots: [{ preset: 'Resolved Filament', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }],
-    }, 'Textured PEI Plate');
+    }, 'Textured PEI Plate', expect.objectContaining({ gizmo: null }));
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledOnce();
     expect(runtime.applyRememberedFilamentRack).not.toHaveBeenCalled();
     expect(runtime.markSharedConfigurationMutation).not.toHaveBeenCalled();

@@ -7,10 +7,15 @@ import { useSlicerStore } from '@/stores/useSlicerStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+import { useObjectListStore } from '../objectList/useObjectListStore';
+import { SceneInteractionController } from '../viewport/SceneInteractionController';
+import type { GLVolume } from '../viewport/GLVolume';
+import { runProjectMutationOperation } from '../actions/historyMutation';
 import {
   commitScopedConfigurationMutation,
   commitGlobalBedType,
   commitPresetDraftMutation,
+  commitUserPresetMutation,
   invalidateAfterSharedConfigurationMutation,
   waitForConfigurationMutations,
 } from './configurationActions';
@@ -320,6 +325,45 @@ describe('commitPresetDraftMutation', () => {
     useSettingsStore.getState().resetNativeScopedConfig();
   });
 
+  it.each(['draft', 'save-as', 'delete'] as const)('samples renderer selection and gizmo inside the shared FIFO for %s', async action => {
+    const originalObjectList = useObjectListStore.getState();
+    const volumes = [0, 1].map(index => ({ id: `volume-${index}`,
+      buffer: { objectIdx: 0, volumeIdx: index, instanceIdx: 0 } })) as GLVolume[];
+    const scene = new SceneInteractionController(() => volumes);
+    useObjectListStore.setState({ structure: [{ id: 42, index: 0, name: 'Cube', printable: true,
+      instanceCount: 1, volumes: [{ id: 51, index: 0 }, { id: 52, index: 1 }],
+      instances: [{ id: 61, index: 0 }] }] as never,
+      projection: { objectIds: new Set([999]), volumeIds: new Set(), instanceIds: new Set() },
+      highlightLevel: {} });
+    scene.selection.replaceIds(['volume-0']);
+    scene.setSelectionMode('volume');
+    scene.toggleGizmo('move');
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const blocker = runProjectMutationOperation(() => held);
+    const mutate = vi.fn(async () => ({ ok: false as const, error: 'test rejection' }));
+    const platform = { runtime: { mutatePresetDraft: mutate, mutateUserPreset: mutate } } as unknown as PlatformCapabilities;
+    const pending = action === 'draft'
+      ? commitPresetDraftMutation(platform, request, scene)
+      : commitUserPresetMutation(platform, action === 'save-as'
+        ? { action, kind: 'printer', canonicalName: 'Independently browsed Printer', expectedRevision: 1, name: 'Copy' }
+        : { action, kind: 'printer', canonicalName: 'Independently browsed Printer', expectedRevision: 1 }, scene);
+    await Promise.resolve();
+    expect(mutate).not.toHaveBeenCalled();
+    // UI-only changes do not advance native history. The queued mutation must
+    // sample these, rather than its enqueue-time or Object List cached state.
+    scene.selection.replaceIds(['volume-1']);
+    scene.toggleGizmo('rotate');
+    release();
+    await blocker;
+    await pending;
+    expect(mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      selection: { mode: 'part', objectIds: [], partIds: [52], instanceIds: [] },
+      gizmo: { type: 'rotate' },
+    }));
+    useObjectListStore.setState(originalObjectList);
+  });
+
   it('publishes one native success receipt and honors its all-results invalidation flag', async () => {
     const receipt = presetReceipt(true);
     const mutatePresetDraft = vi.fn(async () => receipt);
@@ -339,10 +383,10 @@ describe('commitPresetDraftMutation', () => {
     useSettingsStore.getState().setConfigurationMode('scoped');
     useFilamentSessionStore.setState({ snapshot: { revisions: { session: 1, project: 1, plates: {} } } as never });
 
-    await expect(commitPresetDraftMutation(platform, request)).resolves.toBe(receipt);
+    await expect(commitPresetDraftMutation(platform, request, null)).resolves.toBe(receipt);
 
     expect(mutatePresetDraft).toHaveBeenCalledOnce();
-    expect(mutatePresetDraft).toHaveBeenCalledWith(request);
+    expect(mutatePresetDraft).toHaveBeenCalledWith(request, expect.objectContaining({ selection: expect.any(Object), gizmo: null }));
     expect(runProjectHistoryTransaction).not.toHaveBeenCalled();
     expect(useHistoryNavigationStore.getState().status).toBe(receipt.historyStatus);
     expect(useProjectStore.getState()).toMatchObject({ dirty: true, plateInputRevisions: { 'plate-1': 12, 'plate-2': 18 },
@@ -377,7 +421,7 @@ describe('commitPresetDraftMutation', () => {
     useSlicerStore.getState().setActiveSliceTarget({ plateId: 'plate-1', inputRevision: 1 });
     useSlicerStore.getState().setError('existing message');
 
-    await expect(commitPresetDraftMutation(platform, request)).resolves.toBe(stale);
+    await expect(commitPresetDraftMutation(platform, request, null)).resolves.toBe(stale);
 
     expect(mutatePresetDraft).toHaveBeenCalledOnce();
     expect(runProjectHistoryTransaction).not.toHaveBeenCalled();

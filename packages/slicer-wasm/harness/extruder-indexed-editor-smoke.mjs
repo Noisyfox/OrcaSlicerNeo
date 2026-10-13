@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages, fixtureProfileOptions } from './profile-installer.mjs';
 
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 const root = resolve(import.meta.dirname, '../../..');
 const factory = await loadModuleFactory(resolve(process.argv[2] ?? `${root}/packages/slicer-wasm/out/serial/orca_slice.js`));
 const Module = await factory({ noInitialRun: true, print: () => {}, printErr: () => {} });
@@ -13,11 +15,23 @@ function call(name, types = [], args = []) {
 }
 const must = result => { assert.equal(result.ok, true, JSON.stringify(result)); return result; };
 must(call('orc_init', ['string'], [fixtureProfileOptions(Module)]));
+must(call('orc_add_shape', ['string', 'string'], ['Cube', 'toolhead context']));
+assert.equal(call('orc_history_reset', ['string'], [JSON.stringify(editingContext)]).canUndo, false);
+const selectedObject = must(call('orc_get_model_structure')).objects[0];
+editingContext.selection = { mode: 'instance', objectIds: [], partIds: [], instanceIds: [selectedObject.instances[0].id] };
+editingContext.gizmo = { type: 'scale' };
+function restoreContext(command) {
+  const restored = must(call(command));
+  assert.deepEqual(restored.context.selection, editingContext.selection);
+  assert.deepEqual(restored.context.gizmo, editingContext.gizmo);
+}
 let printer = 'Snapmaker U1 (0.4+0.6 nozzle)';
-must(call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({ printer, remembered_rack: null, remembered_bed_type: null })]));
+must(call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({ history_context: editingContext, printer, remembered_rack: null, remembered_bed_type: null })]));
+restoreContext('orc_history_undo');
+restoreContext('orc_history_redo');
 const read = () => must(call('orc_get_preset_draft', ['string', 'string'], ['printer', printer]));
 function mutate(body, accept = true) {
-  const result = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ kind: 'printer', canonical_name: printer,
+  const result = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext, kind: 'printer', canonical_name: printer,
     expected_revision: read().revision, ...body })]);
   if (accept) {
     must(result); assert.equal(result.history_entry_delta, 1); assert.equal(result.all_plate_results_invalidated, true);
@@ -36,7 +50,7 @@ assert.deepEqual(values('max_layer_height'), [0.32, 0.32, 0.48, 0.48]);
 
 // The sidebar Multi. command and editor must agree after restoring a diameter.
 function diameter(value) {
-  return must(call('orc_set_toolhead_diameter', ['string'], [JSON.stringify({
+  return must(call('orc_set_toolhead_diameter', ['string'], [JSON.stringify({ history_context: editingContext,
     index: 2, diameter: value, expected_revision: read().revision,
   })]));
 }
@@ -48,10 +62,10 @@ assert.equal(read().modified, true, 'writing the source diameter retains its exp
 assert.deepEqual(read().overrides.nozzle_diameter, [null, null, {value: 0.6}, null]);
 assert.deepEqual(read().editor_vectors.nozzle_diameter.override_values, [null, null, {value: 0.6}, null]);
 assert.ok(diameterRestored.profile_snapshot.modified_presets.printer.includes(printer));
-must(call('orc_history_undo'));
+restoreContext('orc_history_undo');
 assert.equal(read().modified, true);
 assert.equal(values('nozzle_diameter')[2], 0.4);
-must(call('orc_history_redo'));
+restoreContext('orc_history_redo');
 assert.equal(read().modified, true);
 assert.equal(values('nozzle_diameter')[2], 0.6);
 const diameterReset = mutate({ action: 'reset-field', key: 'nozzle_diameter', index: 2 });
@@ -125,7 +139,7 @@ assert.equal(values('retraction_length')[0], 1.1, 'category reset preserves the 
 assert.equal(values('retraction_length')[2], 0.8);
 assert.deepEqual(values('extruder_offset')[2], initial.editor_vectors.extruder_offset.source_values[2]);
 assert.deepEqual(values('extruder_printable_area'), [], 'reset removes a semantically empty overlay');
-must(call('orc_history_undo')); // Native default context restores indexed drafts.
+must(call('orc_history_undo')); // Native history restores indexed drafts.
 assert.deepEqual(values('extruder_printable_area')[2], polygon);
 must(call('orc_history_redo'));
 assert.deepEqual(values('extruder_printable_area'), []);
@@ -133,7 +147,11 @@ assert.deepEqual(values('extruder_printable_area'), []);
 // A diameter combination matching another canonical profile must publish that
 // source and its vectors in the same single-history mutation receipt.
 set('nozzle_diameter', 'float', 2, 0.4);
+restoreContext('orc_history_undo');
+restoreContext('orc_history_redo');
 set('nozzle_diameter', 'float', 3, 0.4);
+restoreContext('orc_history_undo');
+restoreContext('orc_history_redo');
 assert.equal(printer, 'Snapmaker U1 (0.4 nozzle)');
 assert.deepEqual(values('nozzle_diameter'), [0.4, 0.4, 0.4, 0.4]);
 
@@ -144,7 +162,7 @@ assert.equal(initial.editor_vectors.machine_max_speed_e.index_count, 16);
 const filament = 'Generic PLA @System';
 const readFilament = () => must(call('orc_get_preset_draft', ['string', 'string'], ['filament', filament]));
 function filamentMutate(body, accept = true) {
-  const result = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ kind: 'filament', canonical_name: filament,
+  const result = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext, kind: 'filament', canonical_name: filament,
     expected_revision: readFilament().revision, ...body })]);
   return accept ? must(result) : result;
 }

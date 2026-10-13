@@ -18,6 +18,7 @@ import type {
 import { PresetEditorDialog, PresetEditorDialogContent } from './PresetEditorDialog';
 import { commitPresetDraftMutation } from './configurationActions';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
+import { SceneInteractionController } from '../viewport/SceneInteractionController';
 vi.mock('./configurationActions', () => ({ commitPresetDraftMutation: vi.fn() }));
 import {
   FILAMENT_PRESET_EDITOR_MANIFEST,
@@ -1132,11 +1133,12 @@ describe('PresetEditorDialog session ownership', () => {
     const container = document.createElement('div'); document.body.append(container);
     const root = createRoot(container); roots.push(root);
     const initialTarget = { kind: base.kind, canonicalName: base.canonicalName };
+    const sceneInteraction = new SceneInteractionController(() => []);
     const render = () => act(async () => root.render(<PlatformProvider value={platform}>
-      <PresetEditorDialog initialTarget={initialTarget} onClose={onClose} />
+      <PresetEditorDialog sceneInteraction={sceneInteraction} initialTarget={initialTarget} onClose={onClose} />
     </PlatformProvider>));
     await render();
-    return { root, render, platform, onClose, base };
+    return { root, render, platform, onClose, base, sceneInteraction };
   }
 
   async function choose(name: string) {
@@ -1196,7 +1198,7 @@ describe('PresetEditorDialog session ownership', () => {
   it('owns mutation locks, canonical target resolution and deferred history refresh', async () => {
     const base = snapshotFor('printer');
     const getDraft = vi.fn().mockResolvedValue({ ...base });
-    const { onClose, platform } = await mountSession(getDraft);
+    const { onClose, platform, sceneInteraction } = await mountSession(getDraft);
     let resolveMutation!: (value: PresetDraftMutationResult) => void;
     let submitted!: PresetDraftMutationRequest;
     vi.mocked(commitPresetDraftMutation).mockImplementation(async (_platform, request) => {
@@ -1208,7 +1210,7 @@ describe('PresetEditorDialog session ownership', () => {
     await changeInput(height, '245'); await press(height, 'Enter');
     expect(commitPresetDraftMutation).toHaveBeenCalledWith(platform, expect.objectContaining({
       kind: 'printer', canonicalName: base.canonicalName, key: 'printable_height', value: '245',
-    }));
+    }), sceneInteraction);
     expect((document.querySelector('[data-testid="preset-editor-preset"]') as HTMLButtonElement).disabled).toBe(true);
     await click(document.querySelector('[data-testid="preset-editor-close"]'));
     expect(onClose).not.toHaveBeenCalled();

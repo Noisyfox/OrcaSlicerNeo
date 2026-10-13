@@ -37,6 +37,6 @@ describe('profile resource activation', () => {
     const snapshot = await client.getProfileSnapshot();
     expect(snapshot.ok && snapshot.printers).toEqual([]);
     expect(await client.selectProfile('printer', 'Bambu Lab X1 Carbon 0.4 nozzle')).toMatchObject({ error: expect.any(String) });
-    expect(await client.selectPrinterWithRememberedRack('Bambu Lab X1 Carbon 0.4 nozzle', null, null)).toMatchObject({ ok: false });
+    expect(await client.selectPrinterWithRememberedRack('Bambu Lab X1 Carbon 0.4 nozzle', null, null, { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} })).toMatchObject({ ok: false });
   });
 });

@@ -20,15 +20,17 @@ import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { projectHistoryStatus, runProjectHistoryMutation, runProjectMutationOperation } from '../actions/historyMutation';
+import { historyContextForStructure, projectHistoryStatus, runProjectHistoryMutation, runProjectMutationOperation } from '../actions/historyMutation';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 
 let configurationMutationQueue: Promise<void> = Promise.resolve();
 
-export function commitUserPresetMutation(platform: PlatformCapabilities, request: import('@slicer/client').UserPresetRequest) {
+export function commitUserPresetMutation(platform: PlatformCapabilities, request: import('@slicer/client').UserPresetRequest,
+  sceneInteraction: SceneInteractionController | null) {
   const task = configurationMutationQueue.then(() => runProjectMutationOperation(async () => {
     if (!paintingCommandAllowed()) return { ok: false as const, error: 'Finish the current editing operation first' };
-    const result = await platform.runtime.mutateUserPreset(request);
+    const result = await platform.runtime.mutateUserPreset(request, historyContextForStructure(sceneInteraction));
     if (!result.ok) return result;
     unstable_batchedUpdates(() => {
       projectHistoryStatus(result.historyStatus);
@@ -161,6 +163,7 @@ export function commitScopedConfigurationMutation(
 async function commitPresetDraftMutationNow(
   platform: PlatformCapabilities,
   request: PresetDraftMutationRequest,
+  sceneInteraction: SceneInteractionController | null,
 ): Promise<PresetDraftMutationResult> {
   return runProjectMutationOperation(async () => {
     const currentHistory = useHistoryNavigationStore.getState().status;
@@ -173,7 +176,7 @@ async function commitPresetDraftMutationNow(
       };
     }
 
-    const result = await platform.runtime.mutatePresetDraft(request);
+    const result = await platform.runtime.mutatePresetDraft(request, historyContextForStructure(sceneInteraction));
     if (!result.ok) return result;
 
     projectHistoryStatus(result.historyStatus);
@@ -210,9 +213,10 @@ async function commitPresetDraftMutationNow(
 export function commitPresetDraftMutation(
   platform: PlatformCapabilities,
   request: PresetDraftMutationRequest,
+  sceneInteraction: SceneInteractionController | null,
 ): Promise<PresetDraftMutationResult> {
   if (!paintingCommandAllowed()) return Promise.resolve({ ok: false, error: 'Painting command is busy', errorCode: 'invalid_request', revision: request.expectedRevision });
-  const task = configurationMutationQueue.then(() => commitPresetDraftMutationNow(platform, request));
+  const task = configurationMutationQueue.then(() => commitPresetDraftMutationNow(platform, request, sceneInteraction));
   configurationMutationQueue = task.then(() => undefined, () => undefined);
   return task;
 }

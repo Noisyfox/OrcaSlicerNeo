@@ -8,6 +8,8 @@ import { createNodeProfileSource, installProfilePackages } from './profile-insta
 import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 const modulePath = process.argv[2];
 if (!modulePath) throw new Error('usage: node harness/prime-tower-slice-settings-smoke.mjs <module.js>');
 const root = resolve(import.meta.dirname, '../../..');
@@ -100,14 +102,14 @@ function assertMotionMatchesPreview(motion, projection) {
 }
 
 must(callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
-must(request('orc_select_printer_with_remembered_rack', { printer: 'DeltaMaker 2 0.35 nozzle',
+must(request('orc_select_printer_with_remembered_rack', { history_context: editingContext, printer: 'DeltaMaker 2 0.35 nozzle',
   remembered_bed_type: null, remembered_rack: { version: 1, slots: [
     { preset: 'Generic PLA @DeltaMaker', colour: '#FF0000', native: { representative: '#FF0000', multi_colour: '#FF0000', type: '1' } },
     { preset: 'Generic PLA @DeltaMaker', colour: '#00FF00', native: { representative: '#00FF00', multi_colour: '#00FF00', type: '1' } },
   ] } }));
 // Enable a multi-material attachment in the native Printer draft for slicing.
 const printerDraft = must(callJson('orc_get_preset_draft', ['string', 'string'], ['printer', 'DeltaMaker 2 0.35 nozzle']));
-must(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer',
+must(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'printer',
   canonical_name: 'DeltaMaker 2 0.35 nozzle', expected_revision: printerDraft.revision,
   key: 'single_extruder_multi_material', value: '1' }));
 set('enable_prime_tower', '1'); set('timelapse_type', '0');

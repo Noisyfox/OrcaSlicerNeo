@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { createClient } from './client';
 import { createMockModule } from './testing/mock-module';
 
+const presetContext = { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] },
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 describe('user preset durable transaction', () => {
   function fixture(write = vi.fn(async () => {}), malformed = false) {
     const module = createMockModule();
@@ -11,8 +14,10 @@ describe('user preset durable transaction', () => {
       try { return JSON.parse(module.UTF8ToString(pointer)); } finally { module._free(pointer); }
     };
     const finishes: boolean[] = [];
+    const preparations: unknown[] = [];
     module.ccall = (name, result, types, args) => {
       if (name !== 'orc_prepare_user_preset' && name !== 'orc_finish_user_preset') return original(name, result, types, args);
+      if (name === 'orc_prepare_user_preset') preparations.push(JSON.parse(String(args[0])));
       const value = name === 'orc_prepare_user_preset' ? {
         ok: true, token: 7, change: { path: 'filament/Local.json', content: '{}' },
         result: { canonical_name: 'Local', history_entry_delta: 1,
@@ -27,15 +32,22 @@ describe('user preset durable transaction', () => {
       module.HEAPU8.set(bytes, pointer);
       return pointer;
     };
-    return { finishes, write, client: createClient(async () => module, undefined, undefined, undefined, undefined, undefined,
+    return { finishes, preparations, write, client: createClient(async () => module, undefined, undefined, undefined, undefined, undefined,
       { load: async () => [], write }) };
   }
   const request = { action: 'save-as', kind: 'filament', canonicalName: 'Source', name: 'Local', expectedRevision: 0 } as const;
+  it.each(['save-as', 'delete'] as const)('passes the current renderer context to native %s preparation', async action => {
+    const f = fixture();
+    const context = { ...presetContext, selection: { mode: 'part' as const, objectIds: [], partIds: [51], instanceIds: [61] },
+      gizmo: { type: 'rotate' } };
+    await f.client.mutateUserPreset({ ...request, action }, context);
+    expect(f.preparations).toEqual([expect.objectContaining({ action, history_context: context })]);
+  });
   it('publishes only after the durable write completes', async () => {
     let release!: () => void;
     const pending = new Promise<void>(resolve => { release = resolve; });
     const f = fixture(vi.fn(() => pending));
-    const operation = f.client.mutateUserPreset(request);
+    const operation = f.client.mutateUserPreset(request, presetContext);
     await vi.waitFor(() => expect(f.write).toHaveBeenCalledOnce());
     expect(f.finishes).toEqual([]);
     release();
@@ -44,12 +56,12 @@ describe('user preset durable transaction', () => {
   });
   it('aborts native state when storage fails', async () => {
     const f = fixture(vi.fn(async () => { throw new Error('Disk full'); }));
-    expect(await f.client.mutateUserPreset(request)).toMatchObject({ ok: false, error: 'Disk full' });
+    expect(await f.client.mutateUserPreset(request, presetContext)).toMatchObject({ ok: false, error: 'Disk full' });
     expect(f.finishes).toEqual([false]);
   });
   it('validates the receipt before writing any file', async () => {
     const f = fixture(undefined, true);
-    expect(await f.client.mutateUserPreset(request)).toMatchObject({ ok: false });
+    expect(await f.client.mutateUserPreset(request, presetContext)).toMatchObject({ ok: false });
     expect(f.write).not.toHaveBeenCalled();
     expect(f.finishes).toEqual([false]);
   });

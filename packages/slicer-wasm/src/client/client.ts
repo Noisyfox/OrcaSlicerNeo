@@ -2077,12 +2077,13 @@ export function createClient(
       return { ok: true as const, kind, canonicalName, label: raw.label, defaultSaveAsName: raw.default_save_as_name, overwriteName: raw.overwrite_name, compatible: raw.compatible, canSave: raw.can_save, canDelete: raw.can_delete, canReset: raw.can_reset, deleted: raw.deleted, revision: raw.revision as number };
     },
 
-    async mutateUserPreset(request: UserPresetRequest) {
+    async mutateUserPreset(request: UserPresetRequest, context: HistoryContext) {
       if (!userPresets) return { ok: false as const, error: 'Local user preset storage is unavailable' };
       const m = await module();
       const prepared = callJson(m, 'orc_prepare_user_preset', ['string'], [JSON.stringify({
         action: request.action, kind: request.kind, canonical_name: request.canonicalName,
-        expected_revision: request.expectedRevision, ...(request.action === 'save-as' ? { name: request.name, confirm_overwrite: request.confirmOverwrite === true } : {}),
+        expected_revision: request.expectedRevision, history_context: context,
+        ...(request.action === 'save-as' ? { name: request.name, confirm_overwrite: request.confirmOverwrite === true } : {}),
       })]);
       if (!isRecord(prepared) || prepared.ok !== true)
         return { ok: false as const, error: isRecord(prepared) && typeof prepared.error === 'string' ? prepared.error : 'Could not prepare preset operation' };
@@ -2121,13 +2122,14 @@ export function createClient(
       );
     },
 
-    async mutatePresetDraft(request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult> {
+    async mutatePresetDraft(request: PresetDraftMutationRequest, context: HistoryContext): Promise<PresetDraftMutationResult> {
       const m = await module();
       const payload: Record<string, unknown> = {
         action: request.action,
         kind: request.kind,
         canonical_name: request.canonicalName,
         expected_revision: request.expectedRevision,
+        history_context: context,
       };
       if (request.action === 'set' || request.action === 'reset-field') payload.key = request.key;
       if (request.action === 'set') payload.value = request.value;
@@ -2415,12 +2417,14 @@ export function createClient(
     async selectPrinterWithRememberedRack(
       printer: string, rememberedRack: RememberedFilamentRackPreference | null,
       rememberedBedType: string | null,
+      context: HistoryContext,
     ): Promise<PrinterTransitionResult> {
       if (rememberedRack === undefined || rememberedBedType === undefined)
         return { ok: false, errorCode: 'invalid_request', error: 'Explicit nullable rack and bed memory are required' };
       const m = await module();
       const request = {
         printer,
+        history_context: context,
         remembered_bed_type: rememberedBedType,
         remembered_rack: rememberedRack === null ? null : {
           version: rememberedRack.version,
@@ -2435,10 +2439,10 @@ export function createClient(
       );
     },
 
-    async setToolheadDiameter(index: number, diameter: number, expectedRevision: number): Promise<PrinterTransitionResult> {
+    async setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: HistoryContext): Promise<PrinterTransitionResult> {
       const m = await module();
       return normalizePrinterTransition(callJson(m, 'orc_set_toolhead_diameter', ['string'],
-        [JSON.stringify({ index, diameter, expected_revision: expectedRevision })]), 'set-toolhead-diameter');
+        [JSON.stringify({ index, diameter, expected_revision: expectedRevision, history_context: context })]), 'set-toolhead-diameter');
     },
 
     async getOptionMetadata(): Promise<OptionMetadata> {

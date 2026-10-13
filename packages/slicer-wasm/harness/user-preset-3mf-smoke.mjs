@@ -4,6 +4,8 @@ import { loadModuleFactory } from './run-slice.mjs';
 import { fixtureProfileOptions, createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { readZipEntries } from './native-3mf-parser.mjs';
 
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 const modulePath = process.argv[2];
 if (!modulePath) throw new Error('usage: node user-presets-smoke.mjs <orca_slice.js>');
 const Module = await (await loadModuleFactory(resolve(modulePath)))({ noInitialRun: true, print: () => {}, printErr: () => {} });
@@ -18,7 +20,7 @@ const status = () => call('orc_history_status');
 const draft = name => ok(call('orc_get_preset_draft', ['filament', name]));
 const disk = new Map();
 function mutate(action, kind, canonical_name, extra = {}, commit = true) {
-  const prepared = ok(request('orc_prepare_user_preset', { action, kind, canonical_name, expected_revision: status().revision, ...extra }));
+  const prepared = ok(request('orc_prepare_user_preset', { history_context: editingContext, action, kind, canonical_name, expected_revision: status().revision, ...extra }));
   if (commit) {
     if (prepared.change.content === null) disk.delete(prepared.change.path);
     else disk.set(prepared.change.path, prepared.change.content);
@@ -33,9 +35,9 @@ let roundtripProfiles = ok(call('orc_get_preset_snapshot'));
 mutate('save-as', 'printer', roundtripProfiles.printer.name, { name: 'Roundtrip Printer' });
 mutate('save-as', 'print', roundtripProfiles.print.name, { name: 'Roundtrip Process' });
 mutate('save-as', 'filament', first, { name: 'Roundtrip Filament' });
-ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonical_name: 'Roundtrip Printer', key: 'printer_notes', value: 'saved notes', expected_revision: status().revision }));
+ok(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'printer', canonical_name: 'Roundtrip Printer', key: 'printer_notes', value: 'saved notes', expected_revision: status().revision }));
 mutate('save', 'printer', 'Roundtrip Printer');
-ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'filament_diameter', value: '1.76', expected_revision: status().revision }));
+ok(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'filament_diameter', value: '1.76', expected_revision: status().revision }));
 mutate('save', 'filament', 'Roundtrip Filament');
 // Load whole device vectors as a real preset file. Ordinary parameter edits
 // intentionally preserve the existing vector width and cannot grow these.
@@ -90,14 +92,14 @@ assert.ok(draft('Roundtrip Filament').effective_values.filament_diameter.split('
 assert.equal(draft('Roundtrip Filament').effective_values.filament_dev_ams_drying_ams_limitations, '1;0');
 assert.equal(draft('Roundtrip Filament').effective_values.filament_dev_ams_drying_temperature, '31,42,53,64');
 assert.equal(draft('Roundtrip Filament').effective_values.filament_dev_ams_drying_time, '5,6,7,8');
-ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonical_name: 'Roundtrip Printer', key: 'printer_notes', value: 'project notes', expected_revision: status().revision }));
-ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonical_name: 'Roundtrip Printer', key: 'thumbnails', value: '64x64/PNG', expected_revision: status().revision }));
-ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'nozzle_temperature', value: '237', expected_revision: status().revision }));
-ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'filament_dev_ams_drying_ams_limitations', value: '0;1', expected_revision: status().revision }));
+ok(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'printer', canonical_name: 'Roundtrip Printer', key: 'printer_notes', value: 'project notes', expected_revision: status().revision }));
+ok(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'printer', canonical_name: 'Roundtrip Printer', key: 'thumbnails', value: '64x64/PNG', expected_revision: status().revision }));
+ok(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'nozzle_temperature', value: '237', expected_revision: status().revision }));
+ok(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'filament_dev_ams_drying_ams_limitations', value: '0;1', expected_revision: status().revision }));
 ok(request('orc_mutate_native_scoped_config', { version: 1, operation: 'set', targets: [{ scope: 'project' }], key: 'layer_height', value: '0.27' }));
 const editedUserArchive = roundtripExport();
 // The library may have advanced since export; importing must keep file values.
-ok(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'nozzle_temperature', value: '245', expected_revision: status().revision }));
+ok(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'filament', canonical_name: 'Roundtrip Filament', key: 'nozzle_temperature', value: '245', expected_revision: status().revision }));
 mutate('save', 'filament', 'Roundtrip Filament');
 roundtripLoad(editedUserArchive);
 assertRoundtripIdentities();

@@ -32,6 +32,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
 import { PresetCombobox } from '../PresetCombobox';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { optionTooltip } from './optionTooltip';
 import {
   FILAMENT_PRESET_EDITOR_MANIFEST,
@@ -45,6 +46,7 @@ import {
 export interface PresetEditorDialogProps {
   /** The opening source. Subsequent browsing is owned by this mounted dialog. */
   readonly initialTarget: PresetDraftTarget;
+  readonly sceneInteraction: SceneInteractionController | null;
   readonly onClose: () => void;
 }
 
@@ -883,7 +885,7 @@ function referencedSlotsLabel(slots: readonly number[]): string {
   return `Used by ${slotsText}. Editing this source affects those slots.`;
 }
 
-export function PresetEditorDialog({ initialTarget, onClose }: PresetEditorDialogProps) {
+export function PresetEditorDialog({ initialTarget, sceneInteraction, onClose }: PresetEditorDialogProps) {
   const platform = usePlatform();
   const [target, setTarget] = useState(initialTarget);
   const [snapshot, setSnapshot] = useState<PresetDraftSnapshot | null>(null);
@@ -968,7 +970,7 @@ export function PresetEditorDialog({ initialTarget, onClose }: PresetEditorDialo
     mutationPendingRef.current = true;
     setMutationPending(true);
     try {
-      const result = await commitPresetDraftMutation(platform, request);
+      const result = await commitPresetDraftMutation(platform, request, sceneInteraction);
       if (result.ok && targetRef.current === currentTarget) {
         if (result.canonicalName !== currentTarget.canonicalName) {
           const resolvedTarget = { kind: result.kind, canonicalName: result.canonicalName };
@@ -985,7 +987,7 @@ export function PresetEditorDialog({ initialTarget, onClose }: PresetEditorDialo
       mutationPendingRef.current = false;
       if (targetRef.current) setMutationPending(false);
     }
-  }, [platform]);
+  }, [platform, sceneInteraction]);
 
   // Refresh the browsed source after Undo/Redo. If a read or mutation is still
   // pending, retry once it finishes instead of losing that history revision.
@@ -1023,6 +1025,7 @@ export function PresetEditorDialog({ initialTarget, onClose }: PresetEditorDialo
 
   return <PresetEditorDialogContent target={target} snapshot={snapshot} loading={loading}
     userPresetActions={<UserPresetActions kind={target.kind} canonicalName={target.canonicalName}
+      sceneInteraction={sceneInteraction}
       disabled={loading || refreshing || mutationPending || historyPhase !== 'idle'}
       onPendingChange={value => { mutationPendingRef.current = value; setMutationPending(value); }}
       onCommitted={async result => {

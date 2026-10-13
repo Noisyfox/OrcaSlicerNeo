@@ -142,7 +142,9 @@ History::Bytes encode(const json& value) {
     const auto text = value.dump();
     return {text.begin(), text.end()};
 }
-json context() { return HistoryRuntime::default_history_context(HistoryRuntime::runtime()); }
+json context(const json& editing_context) {
+    return HistoryRuntime::canonical_history_context(HistoryRuntime::runtime(), editing_context);
+}
 std::string repository_path(std::string path) {
     while (path.rfind("//", 0) == 0) path.erase(0, 1);
     const std::string root = "/user/default/";
@@ -401,6 +403,8 @@ void validate_name(const std::string& name) {
 }
 
 json prepare(const json& request) {
+    const auto editing_context = HistoryMetadata::parse_history_context(
+        request.at("history_context").dump().c_str());
     if (pending || state().active_history_transaction || state().history.operation_active())
         throw std::runtime_error("Finish the current operation first");
     if (request.at("expected_revision").get<std::uint64_t>() != state().history_revision)
@@ -533,7 +537,7 @@ json prepare(const json& request) {
             if (type == Preset::TYPE_PRINT && was_active) c.get_edited_preset().config = candidate.config;
         }
         const bool history_entry = was_active && (save_as || remove);
-        const auto before = context();
+        const auto before = context(editing_context);
         if (history_entry && !HistoryMetadata::begin_timestamped_operation(state(), save_as ? "Save preset as" : "Delete preset", before))
             throw std::runtime_error("could not begin preset history");
 
@@ -587,7 +591,7 @@ json prepare(const json& request) {
         }
         const auto plate = affects_project ? PlateSession::shared_configuration_mutation_snapshot() : PlateSession::plate_session_snapshot_json();
         ++state().preset_draft_revision;
-        const auto after = context();
+        const auto after = context(editing_context);
         if (history_entry) {
             if (!HistoryMetadata::commit_timestamped_operation(state(), after)) throw std::runtime_error("could not commit preset history");
         } else {

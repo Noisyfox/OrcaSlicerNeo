@@ -19,7 +19,7 @@ import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
+import { historyContextForStructure, projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
 import { loadRememberedFilamentRackFromRepository, publishRememberedFilamentRack, loadRememberedBedTypeFromRepository, publishRememberedBedType } from '@/preferences';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import { PresetCombobox, type PresetComboItem } from '../PresetCombobox';
@@ -84,7 +84,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
     setPresetTransitionPending(true);
     try {
       await runProjectMutationOperation(async () => {
-        const transition = await platform.runtime.setToolheadDiameter(activeToolhead, Number(value), history.revision);
+        const transition = await platform.runtime.setToolheadDiameter(activeToolhead, Number(value), history.revision,
+          historyContextForStructure(sceneInteraction));
         if (!transition.ok) throw new Error(transition.error);
         publishPrinterTransition(transition);
         await rememberPrinterTransition(transition);
@@ -175,7 +176,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             platform.preferences, name,
           );
           const rememberedBed = await loadRememberedBedTypeFromRepository(platform.preferences, name);
-          const transition = await platform.runtime.selectPrinterWithRememberedRack(name, rememberedRack, rememberedBed);
+          const transition = await platform.runtime.selectPrinterWithRememberedRack(name, rememberedRack, rememberedBed,
+            historyContextForStructure(sceneInteraction));
           if (!transition.ok) throw new Error(transition.error ?? 'Printer transition failed');
 
           publishPrinterTransition(transition);
@@ -359,7 +361,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
         sceneInteraction={sceneInteraction}
         projectContent={<div className="flex min-w-0 items-center gap-1">
           <PresetRow compact modified={false} label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label, isProjectEmbedded: preset.is_project_embedded, isUser: preset.is_user }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />
-          <UserPresetActions kind="print" canonicalName={selectedPrint} disabled={controlsDisabled} onPendingChange={setPresetTransitionPending} />
+          <UserPresetActions kind="print" canonicalName={selectedPrint} sceneInteraction={sceneInteraction}
+            disabled={controlsDisabled} onPendingChange={setPresetTransitionPending} />
         </div>}
         scopedContent={<ObjectList sceneInteraction={sceneInteraction} />}
         platesContent={platesContent}

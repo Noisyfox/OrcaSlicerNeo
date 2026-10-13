@@ -16,7 +16,7 @@ async function mount(deleted = false, kind: 'filament' | 'print' = 'filament') {
     canSave: !deleted, canDelete: !deleted, canReset: kind === 'print', deleted, revision: 7 }));
   const platform = { runtime: { getUserPresetInfo } } as unknown as PlatformCapabilities;
   const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-  await act(async () => root.render(<PlatformProvider value={platform}><UserPresetActions kind={kind} canonicalName="P" /></PlatformProvider>));
+  await act(async () => root.render(<PlatformProvider value={platform}><UserPresetActions sceneInteraction={null} kind={kind} canonicalName="P" /></PlatformProvider>));
   return getUserPresetInfo;
 }
 const button = (label: string) => [...document.querySelectorAll('button')].find(node =>
@@ -52,7 +52,7 @@ describe('user preset actions', () => {
     await click('Save preset');
     expect(commitUserPresetMutation).toHaveBeenLastCalledWith(expect.anything(), {
       action: 'save-as', kind: 'filament', canonicalName: 'P', expectedRevision: 7, name: 'New preset', confirmOverwrite: false,
-    });
+    }, null);
     expect(document.querySelector('input')).toBeNull();
   });
   it('saves the original name through the dialog without a separate Save button', async () => {
@@ -61,7 +61,7 @@ describe('user preset actions', () => {
     await click('Save as…'); await click('Save preset');
     expect(commitUserPresetMutation).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       action: 'save-as', name: 'P', confirmOverwrite: false,
-    }));
+    }), null);
   });
   it('warns before overwriting another incompatible user preset', async () => {
     vi.mocked(commitUserPresetMutation).mockResolvedValue({ ok: true, canonicalName: 'Q' } as never);
@@ -75,7 +75,7 @@ describe('user preset actions', () => {
     await click('Save preset');
     expect(commitUserPresetMutation).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       action: 'save-as', name: 'Q', confirmOverwrite: true,
-    }));
+    }), null);
   });
   it('does not overwrite when Enter precedes the target warning', async () => {
     vi.mocked(commitUserPresetMutation).mockResolvedValue({ ok: true, canonicalName: 'Q' } as never);
@@ -89,7 +89,7 @@ describe('user preset actions', () => {
     expect(document.body.textContent).toContain('Saving will overwrite this preset');
     expect(commitUserPresetMutation).not.toHaveBeenCalled();
     await click('Save preset');
-    expect(commitUserPresetMutation).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ confirmOverwrite: true }));
+    expect(commitUserPresetMutation).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ confirmOverwrite: true }), null);
   });
   it('confirms deletion and waits for pending option edits before reading the revision', async () => {
     vi.mocked(commitUserPresetMutation).mockResolvedValue({ ok: true, canonicalName: 'System' } as never);
@@ -98,6 +98,6 @@ describe('user preset actions', () => {
     await click('Delete preset');
     expect(waitForConfigurationMutations).toHaveBeenCalledOnce();
     expect(info).toHaveBeenCalled();
-    expect(commitUserPresetMutation).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'delete', expectedRevision: 7 }));
+    expect(commitUserPresetMutation).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'delete', expectedRevision: 7 }), null);
   });
 });

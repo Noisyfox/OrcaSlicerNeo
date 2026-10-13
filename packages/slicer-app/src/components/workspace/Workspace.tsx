@@ -776,6 +776,7 @@ export function Workspace({
     </div>
     {presetEditorTarget && <PresetEditorDialog
       initialTarget={presetEditorTarget}
+      sceneInteraction={sceneInteraction}
       onClose={closePresetEditor}
     />}
     </>

@@ -39,7 +39,7 @@ export interface UserPresetMutation {
 }
 export interface UserPresetMethods {
   getUserPresetInfo(kind: UserPresetKind, canonicalName: string): Promise<UserPresetInfo | import('./types').PresetDraftError>;
-  mutateUserPreset(request: UserPresetRequest): Promise<UserPresetMutation | import('./types').PresetDraftError>;
+  mutateUserPreset(request: UserPresetRequest, context: import('./history').HistoryContext): Promise<UserPresetMutation | import('./types').PresetDraftError>;
 }
 
 export async function installUserPresets(module: import('./types').OrcaModule, storage: UserPresetStorage): Promise<void> {

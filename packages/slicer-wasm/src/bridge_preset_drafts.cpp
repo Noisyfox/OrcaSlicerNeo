@@ -434,6 +434,8 @@ json mutate_draft_json(const json& request)
 {
     if (!request.is_object())
         return command_error("invalid_request", "invalid preset draft request");
+    const auto editing_context = HistoryMetadata::parse_history_context(
+        request.at("history_context").dump().c_str());
     if (state().active_history_transaction)
         return command_error("history_transaction_active", "preset draft command cannot run inside another history transaction");
     if (state().history_disabled)
@@ -561,8 +563,8 @@ json mutate_draft_json(const json& request)
     const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
     const auto before_live_context = state().history_live_context;
     const std::uint64_t revision_before = state().history_revision;
-    const auto before_context = HistoryMetadata::default_history_context(
-        state(), PlateSession::plate_session_snapshot_json(),
+    const auto before_context = HistoryMetadata::canonical_history_context(
+        state(), editing_context, PlateSession::plate_session_snapshot_json(),
         Filament::State::history_state_json(state().presets));
     if (!HistoryMetadata::begin_timestamped_operation(state(), "Edit " + canonical_name, before_context))
         return command_error("native_validation_failure", "could not capture preset draft history predecessor");
@@ -653,8 +655,9 @@ json mutate_draft_json(const json& request)
             : PlateSession::configuration_mutation_snapshot(
                 PlateSession::all_plate_ids(), {"shared-configuration"}, json::array());
         ++state().preset_draft_revision;
-        json after_context = HistoryMetadata::default_history_context(
-            state(), plate_session, Filament::State::history_state_json(state().presets));
+        json after_context = HistoryMetadata::canonical_history_context(
+            state(), editing_context, plate_session,
+            Filament::State::history_state_json(state().presets));
         after_context["presetDraftRegistry"] = state().preset_drafts.snapshot_json();
         after_context["presetDraftRevision"] = state().preset_draft_revision;
 
@@ -734,6 +737,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_preset_draft(const char* request_cst
     using namespace Slic3r::Neo::Bridge;
     try {
         const json request = request_cstr && *request_cstr ? json::parse(request_cstr) : json::object();
+        const auto editing_context = HistoryMetadata::parse_history_context(
+            request.at("history_context").dump().c_str());
         // Reuse the toolhead transaction for editor diameter changes. Its
         // internal draft write calls mutate_draft_json directly, avoiding recursion.
         if (request.value("kind", "") == "printer" && request.value("action", "") == "set-element" &&
@@ -744,7 +749,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_preset_draft(const char* request_cst
             const auto* nozzles = config.opt<ConfigOptionFloats>("nozzle_diameter");
             if (nozzles && nozzles->size() > 1) {
                 auto transition = Profiles::set_toolhead_diameter_json({{"index", request["index"]},
-                    {"diameter", request["value"]}, {"expected_revision", request.value("expected_revision", json())}});
+                    {"diameter", request["value"]}, {"expected_revision", request.value("expected_revision", json())},
+                    {"history_context", editing_context}});
                 if (!transition.value("ok", false) || transition.contains("canonical_name"))
                     return duplicate_json(transition.dump());
                 auto result = PresetDrafts::get_draft_json(Preset::TYPE_PRINTER,

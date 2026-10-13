@@ -10,9 +10,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from '@/components/ui/dialog';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
 import { waitForConfigurationMutations, commitUserPresetMutation } from './configurationActions';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 
-export function UserPresetActions({ kind, canonicalName, disabled = false, onPendingChange, onCommitted }: {
+export function UserPresetActions({ kind, canonicalName, sceneInteraction, disabled = false, onPendingChange, onCommitted }: {
   kind: UserPresetKind; canonicalName: string; disabled?: boolean;
+  sceneInteraction: SceneInteractionController | null;
   onPendingChange?: (pending: boolean) => void;
   onCommitted?: (result: UserPresetMutation) => Promise<void> | void;
 }) {
@@ -73,7 +75,8 @@ export function UserPresetActions({ kind, canonicalName, disabled = false, onPen
         }
       }
       const result = await commitUserPresetMutation(platform, { action, kind, canonicalName,
-        expectedRevision: fresh.revision, ...(action === 'save-as' ? { action: 'save-as', name, confirmOverwrite } : {}) } as UserPresetRequest);
+        expectedRevision: fresh.revision, ...(action === 'save-as' ? { action: 'save-as', name, confirmOverwrite } : {}) } as UserPresetRequest,
+        sceneInteraction);
       if (!result.ok) throw new Error(result.error);
       await onCommitted?.(result);
       setDialog(null);

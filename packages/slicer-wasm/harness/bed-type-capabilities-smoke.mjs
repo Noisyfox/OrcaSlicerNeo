@@ -6,6 +6,8 @@ import { resolve } from 'node:path';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 const moduleArg = process.argv[2];
 if (!moduleArg) throw new Error('usage: bed-type-capabilities-smoke.mjs <module.js>');
 const repoRoot = resolve(import.meta.dirname, '../../..');
@@ -23,7 +25,7 @@ function select(name) { return must(call('orc_select_preset', ['string', 'string
 function snapshot() { return must(call('orc_get_preset_snapshot')); }
 function setDraft(printer, key, value) {
   const draft = must(call('orc_get_preset_draft', ['string', 'string'], ['printer', printer]));
-  return must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({
+  return must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext,
     action: 'set', kind: 'printer', canonical_name: printer,
     expected_revision: draft.revision, key, value,
   })]));

@@ -847,6 +847,8 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
 
 json select_printer_with_remembered_rack_json(const json& request)
 {
+    const auto editing_context = HistoryMetadata::parse_history_context(
+        request.at("history_context").dump().c_str());
     if (!request.is_object() ||
         !request.contains("printer") || !request["printer"].is_string() ||
         request["printer"].get<std::string>().empty())
@@ -885,8 +887,8 @@ json select_printer_with_remembered_rack_json(const json& request)
     const auto before_current_plate = bridge.current_plate_id;
     const auto before_lifecycle = bridge.plate_runtime_registry.capture_lifecycle();
     const auto before_live_context = bridge.history_live_context;
-    const auto before_history_context = HistoryMetadata::default_history_context(
-        bridge, PlateSession::plate_session_snapshot_json(),
+    const auto before_history_context = HistoryMetadata::canonical_history_context(
+        bridge, editing_context, PlateSession::plate_session_snapshot_json(),
         Filament::State::history_state_json(bundle));
 
     bool history_started = false;
@@ -935,8 +937,8 @@ json select_printer_with_remembered_rack_json(const json& request)
             filament_snapshot = Filament::Session::filament_session_snapshot_json();
             if (!filament_snapshot.value("ok", false))
                 throw std::runtime_error(filament_snapshot.value("error", "invalid filament rack after Printer transition"));
-            after_context = HistoryMetadata::default_history_context(
-                bridge, plate_session, Filament::State::history_state_json(bundle));
+            after_context = HistoryMetadata::canonical_history_context(
+                bridge, editing_context, plate_session, Filament::State::history_state_json(bundle));
         }
 
         if (!HistoryMetadata::commit_timestamped_operation(bridge, after_context)) {
@@ -975,6 +977,8 @@ json select_printer_with_remembered_rack_json(const json& request)
 
 json set_toolhead_diameter_json(const json& request)
 {
+    const auto editing_context = HistoryMetadata::parse_history_context(
+        request.at("history_context").dump().c_str());
     auto& bridge = state();
     auto& bundle = bridge.presets;
     if (!request.is_object() || !request.contains("index") || !request["index"].is_number_unsigned() ||
@@ -1018,12 +1022,12 @@ json set_toolhead_diameter_json(const json& request)
     json result;
     if (target && target->name != selected.name) {
         result = select_printer_with_remembered_rack_json({{"printer", target->name},
-            {"remembered_rack", nullptr}, {"remembered_bed_type", nullptr}});
+            {"remembered_rack", nullptr}, {"remembered_bed_type", nullptr}, {"history_context", editing_context}});
     } else {
         result = PresetDrafts::mutate_draft_json({{"kind", "printer"},
             {"canonical_name", selected.name}, {"action", "set-element"},
             {"key", "nozzle_diameter"}, {"scalar_type", "float"}, {"index", index},
-            {"value", diameter}, {"expected_revision", bridge.history_revision}});
+            {"value", diameter}, {"expected_revision", bridge.history_revision}, {"history_context", editing_context}});
         if (result.value("ok", false))
             result["mutation"] = {{"history_entry_delta", result.at("history_entry_delta")},
                 {"revision_before", result.at("revision_before")}, {"revision_after", result.at("revision_after")},

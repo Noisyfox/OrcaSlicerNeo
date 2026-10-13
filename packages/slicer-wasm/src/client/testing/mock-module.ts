@@ -744,6 +744,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (historyTransaction) return fail('history_transaction_active', 'preset draft command cannot run inside another history transaction');
     if (!Number.isSafeInteger(request.expected_revision) || request.expected_revision !== historyRevision)
       return fail('stale_revision', 'preset draft revision is stale');
+    try { validateHistoryContext(request.history_context); }
+    catch { return fail('invalid_request', 'invalid history context'); }
     const kind = request.kind as 'printer' | 'filament';
     const sourceValues = presetSourceValues(kind, request.canonical_name);
     if (!sourceValues) return fail('preset_not_found', `preset not found: ${request.canonical_name}`);
@@ -804,12 +806,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     }
 
     const beforeState = captureHistoryState();
-    const beforeContext = nativePresetDraftHistoryContext();
+    const beforeContext = { ...nativePresetDraftHistoryContext(),
+      selection: clone(request.history_context.selection), gizmo: clone(request.history_context.gizmo) };
     if (historyEntries.length === 0) {
       historyEntries.push({ ...beforeState, id: 'entry-0', label: '', category: 'project', context: clone(beforeContext) });
       historyCursor = 0;
       savedHistoryCursor = 0;
-    }
+    } else historyEntries[historyCursor].context = clone(beforeContext);
     const revisionBefore = historyRevision;
     const canonicalName = request.canonical_name as string;
     if (action === 'set') {
@@ -857,7 +860,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       savedHistoryCheckpointEvicted = true;
     historyEntries.splice(historyCursor + 1);
     historyRevision += 1;
-    const context = nativePresetDraftHistoryContext();
+    const context = { ...nativePresetDraftHistoryContext(),
+      selection: clone(request.history_context.selection), gizmo: clone(request.history_context.gizmo) };
     historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
       label: `Edit ${canonicalName}`, category: 'project', context: clone(context) });
     historyCursor = historyEntries.length - 1;
@@ -2603,7 +2607,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // Real profile-combination matching is owned by the C++ bridge.
       const result = mutatePresetDraft(JSON.stringify({ kind: 'printer', canonical_name: selected.printer,
         action: 'set-element', key: 'nozzle_diameter', scalar_type: 'float', index: request.index,
-        value: request.diameter, expected_revision: request.expected_revision })) as any;
+        value: request.diameter, expected_revision: request.expected_revision,
+        history_context: request.history_context })) as any;
       if (result.ok) result.mutation = { kind: 'set-toolhead-diameter', history_entry_delta: 1,
         revision_before: result.revision_before, revision_after: result.revision_after, dirty: result.dirty,
         all_plate_results_invalidated: true, affected_plate_ids: result.affected_plate_ids };
@@ -2613,6 +2618,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       let request: any;
       try { request = JSON.parse(requestJson); }
       catch { return { ok: false, error_code: 'invalid_request', error: 'invalid Printer transition request' }; }
+      try { validateHistoryContext(request.history_context); }
+      catch { return { ok: false, error_code: 'invalid_request', error: 'invalid history context' }; }
       if (typeof request?.printer !== 'string' || !request.printer)
         return { ok: false, error_code: 'invalid_request', error: 'invalid Printer transition request' };
       if (!Object.hasOwn(request, 'remembered_rack') || !Object.hasOwn(request, 'remembered_bed_type') ||
@@ -2626,6 +2633,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
             request.remembered_rack.slots.some((item: any) => !rememberedSlotColour(item))))
         return { ok: false, error_code: 'invalid_request', error: 'remembered filament rack is invalid' };
       const before = historyRevision;
+      const beforeContext = { ...nativePresetDraftHistoryContext(),
+        selection: clone(request.history_context.selection), gizmo: clone(request.history_context.gizmo) };
+      if (historyEntries.length === 0) {
+        historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(beforeContext) });
+        historyCursor = 0;
+        savedHistoryCursor = 0;
+      } else historyEntries[historyCursor].context = clone(beforeContext);
       selected.printer = request.printer;
       if (!resolveAfterPrinterChange())
         return { ok: false, error_code: 'native_validation_failure', error: 'no compatible Process preset available' };
@@ -2658,13 +2672,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       historyRevision += 1;
       current.revisions = { ...current.revisions, session: historyRevision, project: historyRevision };
       filamentSessionState = current;
-      const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-        activePlateId: currentPlateId || null, gizmo: null, nativeScopedConfig: clone(nativeScopedConfig) };
-      if (historyEntries.length === 0) {
-        historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(context) });
-        historyCursor = 0;
-        savedHistoryCursor = 0;
-      }
+      const context = { ...nativePresetDraftHistoryContext(),
+        selection: clone(request.history_context.selection), gizmo: clone(request.history_context.gizmo) };
       historyEntries.splice(historyCursor + 1);
       historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
         label: 'Select Printer', category: 'project', context: clone(context) });

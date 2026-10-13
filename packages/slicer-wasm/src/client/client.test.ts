@@ -10,6 +10,9 @@ import { writeBytes } from './heap';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
 import type { ModelTransform, VolumeType } from './types';
 
+const presetContext = { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] },
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 function makeClient() {
   return createClient(async () => createMockModule());
 }
@@ -1139,7 +1142,7 @@ describe('SlicerClient bridge contract', () => {
     const client = createClient(async () => module);
     const before = await client.getProfileSnapshot();
     const history = await client.getHistoryStatus();
-    const request: Record<string, unknown> = { printer: 'Bambu Lab P1S 0.4 nozzle', remembered_rack: null, remembered_bed_type: null };
+    const request: Record<string, unknown> = { printer: 'Bambu Lab P1S 0.4 nozzle', remembered_rack: null, remembered_bed_type: null, history_context: presetContext };
     delete request[field];
     const pointer = Number(module.ccall('orc_select_printer_with_remembered_rack', 'number', ['string'], [JSON.stringify(request)]));
     expect(JSON.parse(module.UTF8ToString(pointer))).toMatchObject({ ok: false, error_code: 'invalid_request' });
@@ -1151,8 +1154,8 @@ describe('SlicerClient bridge contract', () => {
     const client = makeClient();
     const legacyCall = client.selectPrinterWithRememberedRack as unknown as (printer: string, rack: null) => ReturnType<typeof client.selectPrinterWithRememberedRack>;
     expect(await legacyCall('Bambu Lab P1S 0.4 nozzle', null)).toMatchObject({ ok: false, errorCode: 'invalid_request' });
-    expect(await client.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', undefined as never, null)).toMatchObject({ ok: false, errorCode: 'invalid_request' });
-    expect(await client.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', null, null)).toMatchObject({ ok: true });
+    expect(await client.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', undefined as never, null, presetContext)).toMatchObject({ ok: false, errorCode: 'invalid_request' });
+    expect(await client.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', null, null, presetContext)).toMatchObject({ ok: true });
   });
 
   it('selectPrinterWithRememberedRack returns one complete native commit receipt', async () => {
@@ -1160,7 +1163,7 @@ describe('SlicerClient bridge contract', () => {
     const before = await c.getHistoryStatus();
     const result = await c.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', {
       version: 1, slots: [{ preset: 'Bambu PLA Basic @BBL P1S', colour: '#123456', native: { representative: '#123456', multiColour: '#123456', type: '1' } }],
-    }, 'High Temp Plate');
+    }, 'High Temp Plate', presetContext);
     expect(result).toMatchObject({
       ok: true,
       profileSnapshot: { printer: { name: 'Bambu Lab P1S 0.4 nozzle' }, print: { name: '0.20mm Standard @BBL P1S' } },
@@ -1193,7 +1196,7 @@ describe('SlicerClient bridge contract', () => {
     expect(await c.getFilamentSessionSnapshot()).toEqual(rackBefore);
     expect(await c.getHistoryStatus()).toEqual(historyBefore);
     const edit = await c.mutatePresetDraft({ kind: 'filament', canonicalName: target,
-      expectedRevision: first.revision, action: 'set', key: 'filament_flow_ratio', value: '0.91' });
+      expectedRevision: first.revision, action: 'set', key: 'filament_flow_ratio', value: '0.91' }, presetContext);
     if (!edit.ok) throw new Error(edit.error);
     const incompatible = edit.editorCandidates.filter(p => !p.compatible);
     expect(incompatible[0]).toMatchObject({ canonicalName: target, modified: true });
@@ -1203,7 +1206,7 @@ describe('SlicerClient bridge contract', () => {
     const back = await c.getPresetDraft('filament', target);
     expect(back).toMatchObject({ effectiveValues: { filament_flow_ratio: '[0.91,0.91]' } });
     const reset = await c.mutatePresetDraft({ kind: 'filament', canonicalName: target,
-      expectedRevision: edit.revision, action: 'reset-preset' });
+      expectedRevision: edit.revision, action: 'reset-preset' }, presetContext);
     if (!reset.ok) throw new Error(reset.error);
     expect(reset.editorCandidates.find(p => p.canonicalName === target)?.modified).toBe(false);
   });
@@ -1246,7 +1249,7 @@ describe('SlicerClient bridge contract', () => {
       optionMetadata: { filament_flow_ratio: { type: 'floats', category: 'Filament' } } });
     if (!opened.ok) throw new Error('expected draft source');
     const set = await c.mutatePresetDraft({ kind: 'filament', canonicalName: opened.canonicalName,
-      action: 'set', expectedRevision: opened.revision, key: 'filament_flow_ratio', value: '0.92' });
+      action: 'set', expectedRevision: opened.revision, key: 'filament_flow_ratio', value: '0.92' }, presetContext);
     expect(set).toMatchObject({ ok: true, modified: true, effectiveValues: { filament_flow_ratio: '[0.92,0.92]' },
       profileSnapshot: { modifiedPresets: { filament: ['Generic PLA @System'] } },
       historyEntryDelta: 1, allPlateResultsInvalidated: true });
@@ -1323,7 +1326,7 @@ describe('SlicerClient bridge contract', () => {
     if (!draft.ok) throw new Error('expected preset draft');
     await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
       action: 'set-element', expectedRevision: draft.revision, key: 'filament_flow_ratio',
-      scalarType: 'float', index: 0, value: 1.25 });
+      scalarType: 'float', index: 0, value: 1.25 }, presetContext);
     expect(elementRequest).toMatchObject({ action: 'set-element', scalar_type: 'float',
       index: 0, value: 1.25 });
   });
@@ -1347,7 +1350,7 @@ describe('SlicerClient bridge contract', () => {
     if (!draft.ok) throw new Error(draft.error);
     // Indexed Filament reset preserves the requested element at the boundary.
     const reset = await client.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
-      action: 'reset-field', key: 'filament_flow_ratio', index: 0, expectedRevision: draft.revision });
+      action: 'reset-field', key: 'filament_flow_ratio', index: 0, expectedRevision: draft.revision }, presetContext);
     expect(resetRequest).toMatchObject({ action: 'reset-field', key: 'filament_flow_ratio', index: 0 });
     expect(reset).toMatchObject({ ok: true });
   });
@@ -1380,7 +1383,7 @@ describe('SlicerClient bridge contract', () => {
 
     const element = await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
       action: 'set-element', expectedRevision: draft.revision, key: 'filament_flow_ratio',
-      scalarType: 'float', index: 0, value: 1.25 });
+      scalarType: 'float', index: 0, value: 1.25 }, presetContext);
     expect(element).toMatchObject({ ok: true, sourceValues: { filament_flow_ratio: '[1,1]' },
       effectiveValues: { filament_flow_ratio: '[1.25,1]' }, overrides: { filament_flow_ratio: [{value: 1.25}, null] },
       editorBindings: { filament_flow_ratio: { elementCount: 2, sourceValue: 1, effectiveValue: 1.25 } } });
@@ -1388,14 +1391,14 @@ describe('SlicerClient bridge contract', () => {
 
     const script = await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
       action: 'set-element', expectedRevision: element.revisionAfter, key: 'filament_start_gcode',
-      scalarType: 'string', index: 0, value: 'G28\nM104 S205\n' });
+      scalarType: 'string', index: 0, value: 'G28\nM104 S205\n' }, presetContext);
     expect(script).toMatchObject({ ok: true, effectiveValues: { filament_start_gcode: '["G28\\nM104 S205\\n"]' },
       editorBindings: { filament_start_gcode: { effectiveValue: 'G28\nM104 S205\n' } } });
     if (!script.ok) throw new Error('expected committed script element mutation');
 
     const reset = await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
       action: 'reset-category', expectedRevision: script.revisionAfter,
-      keys: ['filament_flow_ratio', 'filament_start_gcode'] });
+      keys: ['filament_flow_ratio', 'filament_start_gcode'] }, presetContext);
     expect(reset).toMatchObject({ ok: true, effectiveValues: {
       filament_flow_ratio: '[1,1]', filament_start_gcode: '["G28\\n"]',
     }, editorBindings: {
@@ -1412,7 +1415,7 @@ describe('SlicerClient bridge contract', () => {
       const draft = await client.getPresetDraft('filament', source.canonicalName);
       if (!draft.ok) throw new Error('expected draft');
       const result = await client.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
-        action: 'set-element', expectedRevision: draft.revision, key, scalarType: 'float', index, value });
+        action: 'set-element', expectedRevision: draft.revision, key, scalarType: 'float', index, value }, presetContext);
       if (!result.ok) throw new Error(result.error);
       return result;
     };
@@ -1432,7 +1435,7 @@ describe('SlicerClient bridge contract', () => {
     expect(replayed).toMatchObject({ modified: true, overrides: { filament_flow_ratio: [{value: 1}, {value: 1}] } });
     if (!replayed.ok) throw new Error('expected restored draft');
     const reset = await client.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
-      action: 'reset-field', key: 'filament_flow_ratio', index: 0, expectedRevision: replayed.revision });
+      action: 'reset-field', key: 'filament_flow_ratio', index: 0, expectedRevision: replayed.revision }, presetContext);
     expect(reset).toMatchObject({ modified: true, draftExists: true,
       overrides: {filament_flow_ratio: [null, {value: 1}]},
       editorVectors: {filament_flow_ratio: {overrideValues: [null, {value: 1}]}} });
@@ -1445,7 +1448,7 @@ describe('SlicerClient bridge contract', () => {
     const replay = await client.getPresetDraft('filament', source.canonicalName);
     if (!replay.ok) throw new Error('expected replay');
     const finalReset = await client.mutatePresetDraft({kind: 'filament', canonicalName: source.canonicalName,
-      action: 'reset-field', key: 'filament_flow_ratio', index: 1, expectedRevision: replay.revision});
+      action: 'reset-field', key: 'filament_flow_ratio', index: 1, expectedRevision: replay.revision}, presetContext);
     expect(finalReset).toMatchObject({modified: false, draftExists: true, overrides: {}});
   });
 
@@ -1455,13 +1458,13 @@ describe('SlicerClient bridge contract', () => {
     if (!source.ok) throw new Error(source.error);
     const written = await client.mutatePresetDraft({kind: 'filament', canonicalName: source.canonicalName,
       action: 'set-element', key: 'filament_retract_lift_enforce', scalarType: 'enum', index: 0,
-      value: null, expectedRevision: source.revision});
+      value: null, expectedRevision: source.revision}, presetContext);
     expect(written).toMatchObject({ok: true, modified: true,
       overrides: {filament_retract_lift_enforce: [{value: null}]},
       editorVectors: {filament_retract_lift_enforce: {effectiveValues: [null], overrideValues: [{value: null}]}}});
     if (!written.ok) throw new Error(written.error);
     const reset = await client.mutatePresetDraft({kind: 'filament', canonicalName: source.canonicalName,
-      action: 'reset-field', key: 'filament_retract_lift_enforce', index: 0, expectedRevision: written.revision});
+      action: 'reset-field', key: 'filament_retract_lift_enforce', index: 0, expectedRevision: written.revision}, presetContext);
     expect(reset).toMatchObject({ok: true, modified: false, overrides: {},
       editorVectors: {filament_retract_lift_enforce: {effectiveValues: [null], overrideValues: [null]}}});
     await client.undoHistory();
@@ -1523,7 +1526,7 @@ describe('SlicerClient bridge contract', () => {
     const draft = await c.getPresetDraft('filament', 'Generic PLA @System');
     if (!draft.ok) throw new Error('expected draft');
     await expect(c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
-      action: 'set', expectedRevision: draft.revision, key: 'filament_flow_ratio', value: '0.92' }))
+      action: 'set', expectedRevision: draft.revision, key: 'filament_flow_ratio', value: '0.92' }, presetContext))
       .resolves.toMatchObject({ ok: false, errorCode: 'invalid_response' });
   });
 
@@ -1545,7 +1548,7 @@ describe('SlicerClient bridge contract', () => {
     let expectedRevision = draft.revision;
     for (const action of actions) {
       const result = await c.mutatePresetDraft({ kind: 'printer', canonicalName: draft.canonicalName,
-        expectedRevision, ...action } as Parameters<typeof c.mutatePresetDraft>[0]);
+        expectedRevision, ...action } as Parameters<typeof c.mutatePresetDraft>[0], presetContext);
       expect(result).toMatchObject({ ok: true, historyEntryDelta: 1, revisionBefore: expectedRevision });
       if (!result.ok) throw new Error('expected accepted preset draft operation');
       expect(result.revisionAfter).toBe(result.historyStatus.revision);
@@ -1568,10 +1571,10 @@ describe('SlicerClient bridge contract', () => {
     const beforePlates = await c.getPlateSessionSnapshot();
     if (!beforePlates.ok) throw new Error('expected plate session snapshot');
     const stale = await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
-      action: 'set', expectedRevision: draft.revision - 1, key: 'filament_flow_ratio', value: '0.9' });
+      action: 'set', expectedRevision: draft.revision - 1, key: 'filament_flow_ratio', value: '0.9' }, presetContext);
     expect(stale).toMatchObject({ ok: false, errorCode: 'stale_revision' });
     const invalid = await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
-      action: 'set', expectedRevision: draft.revision, key: 'unsupported_key', value: '0.9' });
+      action: 'set', expectedRevision: draft.revision, key: 'unsupported_key', value: '0.9' }, presetContext);
     expect(invalid).toMatchObject({ ok: false, errorCode: 'unsupported_option' });
     expect(await c.getHistoryStatus()).toMatchObject({ revision: beforeStatus.revision, cursor: beforeStatus.cursor,
       undoEntries: beforeStatus.undoEntries });
@@ -1582,16 +1585,23 @@ describe('SlicerClient bridge contract', () => {
   it('undo and redo restore the native draft snapshot and invalidate every plate', async () => {
     const c = makeClient();
     await c.init(MOCK_PROFILE_ACTIVATION);
+    await c.addModel(new Uint8Array([1]), 'stl');
+    const model = await c.getModelStructure();
+    if (!model.ok) throw new Error('expected model');
+    const context = { ...presetContext,
+      selection: { mode: 'instance' as const, objectIds: [], partIds: [], instanceIds: [model.objects![0].instances[0].id] },
+      gizmo: { type: 'rotate' } };
     const source = await c.getPresetDraft('filament', 'Generic PLA @System');
     if (!source.ok) throw new Error('expected filament source');
     const edited = await c.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
       action: 'set-element', expectedRevision: source.revision, key: 'filament_flow_ratio',
-      scalarType: 'float', index: 0, value: 0.88 });
+      scalarType: 'float', index: 0, value: 0.88 }, context);
     if (!edited.ok) throw new Error('expected accepted draft edit');
     const beforeUndo = await c.getPlateSessionSnapshot();
     if (!beforeUndo.ok) throw new Error('expected plate session snapshot before undo');
     const undone = await c.undoHistory();
     expect(undone).toMatchObject({ ok: true, impact: { presetDrafts: true } });
+    expect(undone).toMatchObject({ context: { selection: context.selection, gizmo: context.gizmo } });
     expect(await c.getPresetDraft('filament', source.canonicalName)).toMatchObject({
       ok: true, draftExists: false, effectiveValues: { filament_flow_ratio: '[1,1]' },
     });
@@ -1601,6 +1611,7 @@ describe('SlicerClient bridge contract', () => {
       expect(afterUndo.inputRevisions?.[plate.plateId]).toBeGreaterThan(beforeUndo.inputRevisions?.[plate.plateId] ?? -1);
     const redone = await c.redoHistory();
     expect(redone).toMatchObject({ ok: true, impact: { presetDrafts: true } });
+    expect(redone).toMatchObject({ context: { selection: context.selection, gizmo: context.gizmo } });
     expect(await c.getPresetDraft('filament', source.canonicalName)).toMatchObject({
       ok: true, draftExists: true, effectiveValues: { filament_flow_ratio: '[0.88,1]' },
       editorBindings: { filament_flow_ratio: { effectiveValue: 0.88, elementCount: 2 } },

@@ -1570,7 +1570,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   /** Open/read native source+effective values and metadata for one canonical preset identity. */
   getPresetDraft(kind: PresetDraftKind, canonicalName: string): Promise<PresetDraftSnapshotResult>;
   /** Apply one history-backed draft operation; reset-category receives its explicit field set. */
-  mutatePresetDraft(request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult>;
+  mutatePresetDraft(request: PresetDraftMutationRequest, context: import('./history').HistoryContext): Promise<PresetDraftMutationResult>;
   selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError>;
   setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;
   addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;
@@ -1714,11 +1714,12 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
    * committed Worker snapshot, history entry and all-plate invalidation. */
   selectPrinterWithRememberedRack(
     printer: string, rememberedRack: RememberedFilamentRackPreference | null,
-      rememberedBedType: string | null,
+    rememberedBedType: string | null,
+    context: import('./history').HistoryContext,
   ): Promise<PrinterTransitionResult>;
   /** Match the complete ordered nozzle vector, or edit only this toolhead's
    * Printer draft. Commits exactly one history entry with an atomic receipt. */
-  setToolheadDiameter(index: number, diameter: number, expectedRevision: number): Promise<PrinterTransitionResult>;
+  setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
   arrange(request: ArrangementRequest, onProgress?: (percent: number, text: string) => void): Promise<ArrangementResult>;
   cancelArrangement(): Promise<{ ok: true } | { ok: false; error: string }>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
