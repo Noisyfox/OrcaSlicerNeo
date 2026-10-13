@@ -11,6 +11,6 @@ export function projectHistoryStatus(status: HistoryStatus): HistoryStatus {
   const current = useHistoryNavigationStore.getState().status;
   if (current && status.revision < current.revision) return current;
   useHistoryNavigationStore.getState().setStatus(status);
-  useProjectStore.getState().setProject({ dirty: status.dirty, dirtyReasons: [] });
+  useProjectStore.setState({ dirty: status.dirty });
   return status;
 }

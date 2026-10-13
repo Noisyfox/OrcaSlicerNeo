@@ -12,7 +12,6 @@ import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { projectSelection } from '../objectList/projection';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
-import { useProjectStore } from '@/stores/useProjectStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { projectFilamentPlateInputRevisions, refreshFilamentSession } from '@/stores/useFilamentSessionStore';
@@ -393,13 +392,11 @@ export function restoreProjectHistory(
 
 export async function readProjectHistoryStatus(
   runtime: Pick<SlicerRuntime, 'getHistoryStatus'>,
-  clearLegacyReasons = false,
 ): Promise<HistoryStatus | null> {
   return enqueueProjectMutationOperation(async () => {
     try {
       const status = await runtime.getHistoryStatus();
       const projected = projectHistoryStatus(status);
-      if (clearLegacyReasons) useProjectStore.getState().setProject({ dirtyReasons: [] });
       return projected;
     } catch { return null; }
   });

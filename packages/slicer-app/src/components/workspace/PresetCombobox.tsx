@@ -8,15 +8,17 @@ import { cn } from 'cn';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
-  DropdownMenuRadioGroup, DropdownMenuRadioItem,
+  DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuGroup, DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import {
   Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem,
-  ComboboxList, ComboboxTrigger, ComboboxValue,
+  ComboboxList, ComboboxTrigger, ComboboxValue, ComboboxGroup, ComboboxLabel, ComboboxCollection,
 } from '@/components/ui/combobox';
 
 export interface PresetComboItem {
   id: string;
+  isUser: boolean;
+  isProjectEmbedded: boolean;
   /** Complete canonical profile name, also used for tooltips. */
   name: string;
   /** Native display label (model or alias). */
@@ -47,22 +49,29 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
 }) {
   const [search, setSearch] = useState('');
   const entries = new Map(items.map(item => [item.id, item]));
-  const groups = new Map<string, string[]>();
-  if (sectionBy || groupBy) for (const item of items) {
-    const label = (sectionBy ?? groupBy)!(item);
-    if (!groups.has(label)) groups.set(label, []);
-    groups.get(label)!.push(item.id);
-  }
+  const query = search.toLocaleLowerCase();
+  const sections = ['project', 'user', 'system'].map(origin => ({
+    label: origin === 'project' ? 'Project-inside presets' : origin === 'user' ? 'User presets' : 'System presets',
+    items: items.filter(item => (item.isProjectEmbedded ? 'project' : item.isUser ? 'user' : 'system') === origin).map(item => item.id),
+  })).filter(section => section.items.length > 0);
+  const visibleSections = sections.map(section => ({ ...section,
+    items: section.items.filter(id => entries.get(id)!.label.toLocaleLowerCase().includes(query)),
+  })).filter(section => section.items.length > 0);
+  const groupItems = (ids: readonly string[], by?: (item: PresetComboItem) => string) => {
+    const groups = new Map<string, string[]>();
+    for (const id of ids) {
+      const label = by?.(entries.get(id)!) ?? '';
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label)!.push(id);
+    }
+    return [...groups].map(([label, ids]) => ({ label, ids }));
+  };
+  const heading = (label: string) => <><span className="shrink-0">{label}</span>
+    <Separator className="min-w-8 flex-1" aria-hidden="true" /></>;
   const renderItem = (id: string) => <ComboboxItem key={id} value={id} title={entries.get(id)!.name}>
     <span className={cn(entries.get(id)!.modified && 'config-override-label')}>{entries.get(id)!.label}</span>
   </ComboboxItem>;
-  const query = search.toLocaleLowerCase();
-  const visibleGroups = [...groups].map(([label, ids]) => ({ label,
-    ids: ids.filter(id => entries.get(id)!.label.toLocaleLowerCase().includes(query)),
-  })).filter(group => group.ids.length > 0);
   if (mode === 'select') {
-    const sections = sectionBy ? visibleGroups : [{ label: '', ids: items
-      .filter(item => item.label.toLocaleLowerCase().includes(query)).map(item => item.id) }];
     return <Select value={value || null} onValueChange={id => id !== null && onValue(id)}
       items={items.map(item => ({ value: item.id, label: item.label }))} disabled={disabled}
       onOpenChange={open => { if (!open) setSearch(''); }}>
@@ -86,18 +95,18 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
             }
             if (event.key !== 'Escape') event.stopPropagation();
           }} /></div>}>
-        {sections.map(({ label, ids }) => <SelectGroup key={label}>
-          {label && <SelectLabel className="flex items-center gap-2">
-            <span className="shrink-0">{label}</span>
-            <Separator className="min-w-8 flex-1" aria-hidden="true" />
-          </SelectLabel>}
-          {ids.map(id => <SelectItem key={id} value={id} title={entries.get(id)!.name}>
-            <span className={cn('truncate', entries.get(id)!.modified && 'config-override-label')}>
-              {entries.get(id)!.label}
-            </span>
-          </SelectItem>)}
+        {visibleSections.map(section => <SelectGroup key={section.label}>
+          <SelectLabel className="flex items-center gap-2">{heading(section.label)}</SelectLabel>
+          {groupItems(section.items, sectionBy).map(({ label, ids }) => <SelectGroup key={label}>
+            {label && <SelectLabel>{label}</SelectLabel>}
+            {ids.map(id => <SelectItem key={id} value={id} title={entries.get(id)!.name}>
+              <span className={cn('truncate', entries.get(id)!.modified && 'config-override-label')}>
+                {entries.get(id)!.label}
+              </span>
+            </SelectItem>)}
+          </SelectGroup>)}
         </SelectGroup>)}
-        {sections.every(section => section.ids.length === 0) &&
+        {visibleSections.length === 0 &&
           <div className="px-2 py-1 text-xs text-muted-foreground">{emptyText}</div>}
       </SelectContent>
     </Select>;
@@ -123,7 +132,9 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
           if (event.key !== 'Escape') event.stopPropagation();
         }} /></div>
       <div data-slot="preset-menu-list" className="min-h-0 overflow-y-auto">
-      {visibleGroups.map(({ label, ids }) => <DropdownMenuSub key={label}>
+      {visibleSections.map(section => <DropdownMenuGroup key={section.label}>
+        <DropdownMenuLabel className="flex items-center gap-2">{heading(section.label)}</DropdownMenuLabel>
+        {groupItems(section.items, groupBy).map(({ label, ids }) => <DropdownMenuSub key={label}>
           <DropdownMenuSubTrigger>{label}</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-w-[min(32rem,calc(100vw-1rem))]" aria-label={label}>
             <DropdownMenuRadioGroup value={value} onValueChange={onValue}>
@@ -133,14 +144,15 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
             </DropdownMenuRadioGroup>
           </DropdownMenuSubContent>
         </DropdownMenuSub>)}
-      {visibleGroups.length === 0 &&
+      </DropdownMenuGroup>)}
+      {visibleSections.length === 0 &&
         <div className="px-2 py-1 text-xs text-muted-foreground">{emptyText}</div>}
       </div>
     </DropdownMenuContent>
   </DropdownMenu>;
   return <Combobox inputValue={search} onInputValueChange={setSearch}
     value={value || null} onValueChange={id => id !== null && onValue(id)}
-    items={items.map(item => item.id)} itemToStringLabel={id => entries.get(id)!.label}
+    items={sections} itemToStringLabel={(id: string) => entries.get(id)!.label}
     disabled={disabled}>
     <div className="flex min-w-0 flex-1 gap-1">
       {leading}
@@ -155,7 +167,12 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
       <ComboboxInput placeholder={searchPlaceholder} showTrigger={false}
         searchValue={search} onClearSearch={() => setSearch('')} />
       {/* Collection children render Base UI's filtered items, not the full catalogue. */}
-      <ComboboxList>{renderItem}</ComboboxList>
+      <ComboboxList>{(section: { label: string; items: string[] }) =>
+        <ComboboxGroup key={section.label} items={section.items}>
+          <ComboboxLabel className="flex items-center gap-2">{heading(section.label)}</ComboboxLabel>
+          <ComboboxCollection>{renderItem}</ComboboxCollection>
+        </ComboboxGroup>}
+      </ComboboxList>
       <ComboboxEmpty>{emptyText}</ComboboxEmpty>
     </ComboboxContent>
   </Combobox>;

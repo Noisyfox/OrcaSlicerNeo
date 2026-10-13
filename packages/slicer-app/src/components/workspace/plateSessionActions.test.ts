@@ -37,7 +37,7 @@ describe('plate selection actions', () => {
     usePlateSessionStore.getState().setSnapshot(plateA);
     const clearSelection = vi.fn();
     const getPlateSessionSnapshot = vi.fn();
-    useProjectStore.getState().setProject({ hasContent: true, dirty: false, dirtyReasons: [] });
+    useProjectStore.setState({ hasContent: true, dirty: false });
     const platform = platformFor(plateB);
     (platform.runtime as unknown as { getPlateSessionSnapshot: typeof getPlateSessionSnapshot }).getPlateSessionSnapshot = getPlateSessionSnapshot;
 
@@ -49,7 +49,7 @@ describe('plate selection actions', () => {
       currentPlateId: 'b', plates: plateA.plates, inputRevisions: plateA.inputRevisions,
     });
     expect(getPlateSessionSnapshot).not.toHaveBeenCalled();
-    expect(useProjectStore.getState()).toMatchObject({ hasContent: true, dirty: false, dirtyReasons: [] });
+    expect(useProjectStore.getState()).toMatchObject({ hasContent: true, dirty: false });
   });
 
   it('clears locally without a runtime call for the current plate, and preserves selection when switching fails', async () => {

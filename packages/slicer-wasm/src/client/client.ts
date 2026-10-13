@@ -1,4 +1,6 @@
 import { linkProfileVendors } from './profileFilesystem';
+import { installUserPresets, validateUserPresetPath } from './userPresets';
+import type { UserPresetStorage, UserPresetKind, UserPresetRequest, UserPresetMutation } from './userPresets';
 import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationPreparationRequest, ProfileActivationApplicationResult } from './setupWizard';
 import { createPaintingApi } from './paintingClient';
 import { decodeModelGeometry } from './modelGeometry';
@@ -21,7 +23,7 @@ import type {
   NativeScopedConfigMutationRequest,
   NativeScopedConfigTransport, NativeScopedConfigFullTransport, NativeScopedConfigTargetReplacement,
   ConfigurationStatus,
-  ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
+  ModelMutationResult, ModelPlateSessionMutation, ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, ModelScenePatchResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
   ExportGcodeRequest, ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
@@ -296,9 +298,15 @@ function normalizeNativeScopedConfig(raw: unknown): NativeScopedConfigResultOrEr
   }
   const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
   if (!nativeScopedConfig) return { ok: false, version: 1, error: 'invalid native scoped configuration transport' };
-  const result: { ok: true; nativeScopedConfig: NativeScopedConfigTransport; plateSession?: unknown; configurationStatus?: unknown } = {
+  const result: { ok: true; nativeScopedConfig: NativeScopedConfigTransport; plateSession?: unknown; configurationStatus?: unknown; profileSnapshot?: ProfileSnapshot } = {
     ok: true, nativeScopedConfig,
   };
+  if (raw.profile_snapshot !== undefined) {
+    if (!isRecord(raw.profile_snapshot)) return { ok: false, version: 1, error: 'invalid scoped profile snapshot' };
+    const profile = normalizeProfileSnapshot(raw.profile_snapshot);
+    if (!profile.ok) return { ok: false, version: 1, error: 'invalid scoped profile snapshot' };
+    result.profileSnapshot = profile;
+  }
   if (raw.plate_session !== undefined) {
     const plateSession = normalizePlateMutationResult(raw.plate_session);
     if (!plateSession.ok) return { ok: false, version: 1, error: plateSession.error };
@@ -364,10 +372,10 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
         !Array.isArray(d.colors) || !d.colors.every(validHex) ||
         d.colors.length < (d.mode === 'solid' ? 1 : 2) ||
         (d.mode === 'solid' && d.colors.length !== 1)) return null;
-    if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof p.label !== 'string' || typeof p.vendor !== 'string' || typeof c.effective !== 'string' ||
+    if (typeof p.is_project_embedded !== 'boolean' || typeof p.is_user !== 'boolean' || typeof p.id !== 'string' || typeof p.name !== 'string' || typeof p.label !== 'string' || typeof p.vendor !== 'string' || typeof c.effective !== 'string' ||
         (c.provenance !== 'preset' && c.provenance !== 'user')) return null;
     return { logicalId: item.logical_id as string, slot: item.slot as number,
-      preset: { id: p.id, name: p.name, label: p.label, vendor: p.vendor },
+      preset: { isProjectEmbedded: p.is_project_embedded, isUser: p.is_user, id: p.id, name: p.name, label: p.label, vendor: p.vendor },
       colour: { effective: c.effective, provenance: c.provenance,
         native: { representative: n.representative as string | null,
           multiColour: n.multi_colour as string | null, type: n.type as string | null },
@@ -1297,11 +1305,11 @@ function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
   for (const candidate of raw.editor_candidates) {
     if (!isRecord(candidate) || typeof candidate.canonical_name !== 'string' || !candidate.canonical_name ||
         typeof candidate.label !== 'string' || !candidate.label || typeof candidate.compatible !== 'boolean' ||
-        typeof candidate.modified !== 'boolean' || names.has(candidate.canonical_name))
+        typeof candidate.is_project_embedded !== 'boolean' || typeof candidate.is_user !== 'boolean' || typeof candidate.modified !== 'boolean' || names.has(candidate.canonical_name))
       return { ok: false, error: 'invalid preset editor candidate', errorCode: 'invalid_response' };
     names.add(candidate.canonical_name);
     editorCandidates.push({ canonicalName: candidate.canonical_name, label: candidate.label,
-      compatible: candidate.compatible, modified: candidate.modified });
+      isProjectEmbedded: candidate.is_project_embedded, isUser: candidate.is_user, compatible: candidate.compatible, modified: candidate.modified });
   }
   if (!names.has(result.canonicalName))
     return { ok: false, error: 'preset editor target is missing from candidates', errorCode: 'invalid_response' };
@@ -1395,60 +1403,63 @@ function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-rem
   };
 }
 
+/** Model writes always carry the full native plate invalidation receipt. */
+function normalizeModelPlateMutation(raw: unknown): ModelPlateSessionMutation | { ok: false; error: string } {
+  const result = normalizePlateMutationResult(raw);
+  if (!result.ok) return { ok: false, error: result.error ?? 'invalid model plate mutation response' };
+  const { inputRevisions, affectedPlateIdsBefore, affectedPlateIdsAfter, affectedPlateIds, dirtyReasons, nativeScopedConfig } = result;
+  if (!inputRevisions || !affectedPlateIdsBefore || !affectedPlateIdsAfter || !affectedPlateIds || !dirtyReasons ||
+      !nativeScopedConfig || nativeScopedConfig.kind !== 'full' || !isRecord(raw) || !isRecord(raw.input_revisions) ||
+      Object.values(raw.input_revisions).some(revision => normalizeCount(revision) === null) ||
+      result.plates.some(plate => !(plate.plateId in inputRevisions)))
+    return { ok: false, error: 'incomplete model plate mutation response' };
+  return { ...result, inputRevisions, affectedPlateIdsBefore, affectedPlateIdsAfter, affectedPlateIds, dirtyReasons, nativeScopedConfig };
+}
+
+function modelCounts(value: Record<string, unknown>, ...keys: string[]): boolean {
+  return keys.every(key => normalizeCount(value[key]) !== null);
+}
+
+function modelIds(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every(id => normalizeCount(id) !== null && id > 0);
+}
+
+function modelStructure(value: unknown): boolean {
+  return Array.isArray(value) && value.every(object => isRecord(object) &&
+    modelCounts(object, 'id', 'index', 'instanceCount') && object.id !== 0 && typeof object.name === 'string' &&
+    typeof object.printable === 'boolean' && Array.isArray(object.volumes) && object.volumes.every(volume =>
+      isRecord(volume) && modelCounts(volume, 'id', 'index') && volume.id !== 0 && typeof volume.name === 'string' &&
+      ['model_part', 'negative_volume', 'parameter_modifier', 'support_blocker', 'support_enforcer'].includes(volume.type as string) &&
+      typeof volume.isSplittable === 'boolean') &&
+    Array.isArray(object.instances) && object.instanceCount === object.instances.length && object.instances.every(instance =>
+      isRecord(instance) && modelCounts(instance, 'id', 'index') && instance.id !== 0 && typeof instance.printable === 'boolean'));
+}
+
+/** Validate the success envelope before exposing any model or plate state. */
+function normalizeStructuralResult<T extends ModelMutationResult>(
+  raw: unknown,
+  validDetails: (value: Record<string, unknown>) => boolean = () => true,
+): T {
+  if (!isRecord(raw)) return { ok: false, error: 'invalid model mutation response' } as T;
+  if (raw.ok !== true)
+    return { ok: false, error: typeof raw.error === 'string' ? raw.error : 'model mutation failed' } as T;
+  const plateSession = normalizeModelPlateMutation(raw.plate_session);
+  if (!plateSession.ok) return plateSession as T;
+  if (!validDetails(raw)) return { ok: false, error: 'invalid model mutation details' } as T;
+  const { plate_session: _plateSession, ...details } = raw;
+  return { ...details, ok: true, plateSession } as T;
+}
+
 function normalizeLoadModelResult(raw: unknown): LoadModelResult {
-  if (!raw || typeof raw !== 'object') return { ok: false, objects: 0, instances: 0, error: 'invalid model mutation response' };
-  const value = raw as Record<string, unknown>;
-  if (value.ok !== true) return { ok: false, objects: 0, instances: 0, error: typeof value.error === 'string' ? value.error : 'model mutation failed' };
-  const objects = normalizeCount(value.objects ?? 0);
-  const instances = normalizeCount(value.instances ?? 0);
-  if (objects === null || instances === null) {
-    return { ok: false, objects: 0, instances: 0, error: 'invalid model mutation counts' };
-  }
-  const nested = value.plate_session;
-  const plateSession = nested ? normalizePlateMutationResult(nested) : undefined;
-  return { ok: true, objects, instances,
-    ...(plateSession?.ok ? { plateSession } : {}) };
+  return normalizeStructuralResult<LoadModelResult>(raw, value => modelCounts(value, 'objects', 'instances'));
 }
 
 function normalizeDeleteResult(raw: unknown): DeleteObjectsResult & DeleteVolumesResult {
-  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid model mutation response' };
-  const value = raw as Record<string, unknown>;
-  if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'model mutation failed' };
-  const nested = value.plate_session;
-  const plateSession = nested ? normalizePlateMutationResult(nested) : undefined;
-  return { ok: true, objects: Number(value.objects ?? 0), deleted: Number(value.deleted ?? 0),
-    ...(plateSession?.ok ? { plateSession } : {}) };
-}
-
-/** Normalize structural model mutations that carry the native plate receipt.
- * Structural operations must publish the same authoritative plate/session
- * snapshot as deletes/imports so the application can reject stale slice
- * results without maintaining an old-to-new renderer mapping. */
-function normalizeStructuralResult<T extends { ok: boolean }>(raw: unknown): T {
-  if (!raw || typeof raw !== 'object')
-    return { ok: false, error: 'invalid model mutation response' } as unknown as T;
-  const value = raw as Record<string, unknown>;
-  if (value.ok !== true)
-    return { ...value, ok: false,
-      error: typeof value.error === 'string' ? value.error : 'model mutation failed' } as unknown as T;
-  let plateSession: PlateSessionMutation | undefined;
-  if (value.plate_session !== undefined) {
-    const normalized = normalizePlateMutationResult(value.plate_session);
-    if (!normalized.ok)
-      return { ok: false, error: normalized.error ?? 'invalid plate mutation response' } as unknown as T;
-    plateSession = normalized;
-  }
-  const { plate_session: _plateSession, ...rest } = value;
-  return { ...rest, ...(plateSession ? { plateSession } : {}) } as T;
+  return normalizeStructuralResult<DeleteObjectsResult>(raw, value => modelCounts(value, 'objects', 'deleted'));
 }
 
 function normalizeClearResult(raw: unknown): ClearModelResult {
-  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid model mutation response' };
-  const value = raw as Record<string, unknown>;
-  if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'model mutation failed' };
-  const nested = value.plate_session;
-  const plateSession = nested ? normalizePlateMutationResult(nested) : undefined;
-  return { ok: true, ...(plateSession?.ok ? { plateSession } : {}) };
+  return normalizeStructuralResult<ClearModelResult>(raw);
 }
 
 function historyFailure(raw: unknown, fallback: string): never {
@@ -1690,6 +1701,7 @@ export function createClient(
   onBridgeProjectClosed?: ProjectClosedCallback,
   onRuntimeState?: (state: { threaded: boolean; serialTerminalEpoch: string }) => void,
   beforeCatalogue?: (module: OrcaModule) => Promise<void>,
+  userPresets?: UserPresetStorage,
 ): SlicerClient {
   let geometrySession = crypto.randomUUID();
   let catalogueOpening = false;
@@ -2016,8 +2028,11 @@ export function createClient(
       if (activation === undefined) throw new Error('explicit nullable activation is required');
       const m = await module();
       if (!beforeInitPromise) {
-        if (beforeInit) {
-          beforeInitPromise = beforeInit(m, activation);
+        if (beforeInit || userPresets) {
+          beforeInitPromise = (async () => {
+            await beforeInit?.(m, activation);
+            if (userPresets) await installUserPresets(m, userPresets);
+          })();
           try {
             await beforeInitPromise;
           } catch (error) {
@@ -2056,6 +2071,53 @@ export function createClient(
       return normalizeFilamentSessionResult(callJson(m, 'orc_get_filament_session_snapshot', [], []));
     },
 
+    async getUserPresetInfo(kind: UserPresetKind, canonicalName: string) {
+      const m = await module();
+      const raw = callJson(m, 'orc_user_preset_info', ['string', 'string'], [kind, canonicalName]);
+      if (!isRecord(raw) || raw.ok !== true) return { ok: false as const, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid user preset response' };
+      if (typeof raw.label !== 'string' || typeof raw.default_save_as_name !== 'string' || (raw.overwrite_name !== null && typeof raw.overwrite_name !== 'string') || typeof raw.compatible !== 'boolean' || typeof raw.can_save !== 'boolean' || typeof raw.can_delete !== 'boolean' || typeof raw.can_reset !== 'boolean' || typeof raw.deleted !== 'boolean' || !Number.isSafeInteger(raw.revision))
+        return { ok: false as const, error: 'Invalid user preset capabilities' };
+      return { ok: true as const, kind, canonicalName, label: raw.label, defaultSaveAsName: raw.default_save_as_name, overwriteName: raw.overwrite_name, compatible: raw.compatible, canSave: raw.can_save, canDelete: raw.can_delete, canReset: raw.can_reset, deleted: raw.deleted, revision: raw.revision as number };
+    },
+
+    async mutateUserPreset(request: UserPresetRequest, context: HistoryContext) {
+      if (!userPresets) return { ok: false as const, error: 'Local user preset storage is unavailable' };
+      const m = await module();
+      const prepared = callJson(m, 'orc_prepare_user_preset', ['string'], [JSON.stringify({
+        action: request.action, kind: request.kind, canonical_name: request.canonicalName,
+        expected_revision: request.expectedRevision, history_context: context,
+        ...(request.action === 'save-as' ? { name: request.name, confirm_overwrite: request.confirmOverwrite === true } : {}),
+      })]);
+      if (!isRecord(prepared) || prepared.ok !== true)
+        return { ok: false as const, error: isRecord(prepared) && typeof prepared.error === 'string' ? prepared.error : 'Could not prepare preset operation' };
+      const finish = (commit: boolean) => callJson(m, 'orc_finish_user_preset', ['string'], [JSON.stringify({ token: prepared.token, commit })]);
+      let durable = false;
+      try {
+        const raw = prepared.result;
+        if (!isRecord(raw) || !isRecord(raw.profile_snapshot) || !isRecord(prepared.change) || typeof prepared.change.path !== 'string' ||
+            (prepared.change.content !== null && typeof prepared.change.content !== 'string')) throw new Error('Invalid preset operation receipt');
+        validateUserPresetPath(prepared.change.path);
+        const profileSnapshot = normalizeProfileSnapshot(raw.profile_snapshot);
+        const filamentSession = normalizeFilamentSessionResult(raw.filament_session);
+        const plateSession = normalizePlateMutationResult(raw.plate_session);
+        const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
+        const historyStatus = normalizeHistoryStatus(raw.history_status);
+        if (!profileSnapshot.ok || !filamentSession.ok || !plateSession.ok || !nativeScopedConfig || nativeScopedConfig.kind !== 'full' ||
+            typeof raw.canonical_name !== 'string' || (raw.history_entry_delta !== 0 && raw.history_entry_delta !== 1))
+          throw new Error('Invalid preset operation state');
+        const result: UserPresetMutation = { ok: true, kind: request.kind, canonicalName: raw.canonical_name,
+          historyEntryDelta: raw.history_entry_delta, profileSnapshot, filamentSession, plateSession, nativeScopedConfig, historyStatus };
+        await userPresets.write({ path: prepared.change.path, content: prepared.change.content });
+        durable = true;
+        const committed = finish(true);
+        if (!isRecord(committed) || committed.ok !== true) throw new Error('Preset was saved, but the runtime failed to commit; reload the application');
+        return result;
+      } catch (error) {
+        if (!durable) finish(false);
+        return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+
     async getPresetDraft(kind: PresetDraftKind, canonicalName: string): Promise<PresetDraftSnapshotResult> {
       const m = await module();
       return normalizePresetDraftSnapshot(
@@ -2063,13 +2125,14 @@ export function createClient(
       );
     },
 
-    async mutatePresetDraft(request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult> {
+    async mutatePresetDraft(request: PresetDraftMutationRequest, context: HistoryContext): Promise<PresetDraftMutationResult> {
       const m = await module();
       const payload: Record<string, unknown> = {
         action: request.action,
         kind: request.kind,
         canonical_name: request.canonicalName,
         expected_revision: request.expectedRevision,
+        history_context: context,
       };
       if (request.action === 'set' || request.action === 'reset-field') payload.key = request.key;
       if (request.action === 'set') payload.value = request.value;
@@ -2357,12 +2420,14 @@ export function createClient(
     async selectPrinterWithRememberedRack(
       printer: string, rememberedRack: RememberedFilamentRackPreference | null,
       rememberedBedType: string | null,
+      context: HistoryContext,
     ): Promise<PrinterTransitionResult> {
       if (rememberedRack === undefined || rememberedBedType === undefined)
         return { ok: false, errorCode: 'invalid_request', error: 'Explicit nullable rack and bed memory are required' };
       const m = await module();
       const request = {
         printer,
+        history_context: context,
         remembered_bed_type: rememberedBedType,
         remembered_rack: rememberedRack === null ? null : {
           version: rememberedRack.version,
@@ -2377,10 +2442,10 @@ export function createClient(
       );
     },
 
-    async setToolheadDiameter(index: number, diameter: number, expectedRevision: number): Promise<PrinterTransitionResult> {
+    async setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: HistoryContext): Promise<PrinterTransitionResult> {
       const m = await module();
       return normalizePrinterTransition(callJson(m, 'orc_set_toolhead_diameter', ['string'],
-        [JSON.stringify({ index, diameter, expected_revision: expectedRevision })]), 'set-toolhead-diameter');
+        [JSON.stringify({ index, diameter, expected_revision: expectedRevision, history_context: context })]), 'set-toolhead-diameter');
     },
 
     async getOptionMetadata(): Promise<OptionMetadata> {
@@ -2577,7 +2642,7 @@ export function createClient(
       const ptr = bytes ? writeBytes(m, bytes) : 0;
       try {
         return normalizeStructuralResult<AddVolumeResult>(callJson(m, 'orc_add_volume',
-          ['string', 'pointer', 'number'], [JSON.stringify(request), ptr, bytes?.length ?? 0]));
+          ['string', 'pointer', 'number'], [JSON.stringify(request), ptr, bytes?.length ?? 0]), value => modelCounts(value, 'volumeId') && value.volumeId !== 0);
       } finally {
         if (bytes) m._free(ptr);
       }
@@ -2669,48 +2734,48 @@ export function createClient(
     async cloneObjects(objectIds: number[]): Promise<CloneObjectsResult> {
       const m = await module();
       return normalizeStructuralResult<CloneObjectsResult>(callJson(m, 'orc_clone_objects', ['string'],
-                      [JSON.stringify(objectIds)]));
+                      [JSON.stringify(objectIds)]), value => modelIds(value.newObjectIds) && modelCounts(value, 'objects'));
     },
 
     async reorderObjects(fromObjectId: number, toIndex: number): Promise<ReorderStructureResult> {
       const m = await module();
       return normalizeStructuralResult<ReorderStructureResult>(callJson(m, 'orc_reorder_objects', ['number', 'number'],
-                      [fromObjectId, toIndex]));
+                      [fromObjectId, toIndex]), value => modelStructure(value.objects));
     },
 
     async reorderVolumes(objectId: number, fromVolumeId: number, toIndex: number): Promise<ReorderStructureResult> {
       const m = await module();
       return normalizeStructuralResult<ReorderStructureResult>(callJson(m, 'orc_reorder_volumes', ['number', 'number', 'number'],
-                      [objectId, fromVolumeId, toIndex]));
+                      [objectId, fromVolumeId, toIndex]), value => modelStructure(value.objects));
     },
 
     async splitVolumeToParts(volumeId: number, maxExtruders = 1, remapPaint = false): Promise<SplitVolumeResult> {
       const m = await module();
       return normalizeStructuralResult<SplitVolumeResult>(callJson(m, 'orc_split_volume_to_parts', ['number', 'number', 'number'],
-                      [volumeId, maxExtruders, remapPaint ? 1 : 0]));
+                      [volumeId, maxExtruders, remapPaint ? 1 : 0]), value => modelCounts(value, 'parts') && modelIds(value.newVolumeIds) && modelStructure(value.objects));
     },
 
     async splitObjectToObjects(objectId: number, autoDrop = false): Promise<SplitObjectResult> {
       const m = await module();
       return normalizeStructuralResult<SplitObjectResult>(callJson(m, 'orc_split_object_to_objects', ['number', 'number'],
-                      [objectId, autoDrop ? 1 : 0]));
+                      [objectId, autoDrop ? 1 : 0]), value => modelIds(value.newObjectIds) && modelCounts(value, 'objects'));
     },
 
     async mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult> {
       const m = await module();
       return normalizeStructuralResult<MergeObjectsResult>(callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
-                      [JSON.stringify(objectIds), name]));
+                      [JSON.stringify(objectIds), name]), value => modelCounts(value, 'objectId', 'objects') && value.objectId !== 0);
     },
 
     async separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult> {
       const m = await module();
       return normalizeStructuralResult<SeparateInstancesResult>(callJson(m, 'orc_instances_to_separate_objects', ['number', 'string'],
-                      [objectId, JSON.stringify(instanceIds)]));
+                      [objectId, JSON.stringify(instanceIds)]), value => modelIds(value.newObjectIds) && modelCounts(value, 'objects'));
     },
 
     async addInstance(objectId: number): Promise<AddInstanceResult> {
       const m = await module();
-      return normalizeStructuralResult<AddInstanceResult>(callJson(m, 'orc_add_instance', ['number'], [objectId]));
+      return normalizeStructuralResult<AddInstanceResult>(callJson(m, 'orc_add_instance', ['number'], [objectId]), value => modelCounts(value, 'objectId', 'instanceId') && value.objectId !== 0 && value.instanceId !== 0);
     },
 
     async removeInstance(objectId: number, instanceId: number): Promise<RemoveInstanceResult> {
@@ -2731,21 +2796,21 @@ export function createClient(
                       [volumeId, name]) as MutationResult;
     },
 
-    async setVolumeType(volumeId: number, type: VolumeType): Promise<MutationResult> {
+    async setVolumeType(volumeId: number, type: VolumeType): Promise<ModelMutationResult> {
       const m = await module();
-      return normalizeStructuralResult<MutationResult>(callJson(m, 'orc_set_volume_type', ['number', 'string'],
+      return normalizeStructuralResult<ModelMutationResult>(callJson(m, 'orc_set_volume_type', ['number', 'string'],
                       [volumeId, type]));
     },
 
-    async setObjectPrintable(objectId: number, printable: boolean): Promise<MutationResult> {
+    async setObjectPrintable(objectId: number, printable: boolean): Promise<ModelMutationResult> {
       const m = await module();
-      return normalizeStructuralResult<MutationResult>(callJson(m, 'orc_set_object_printable', ['number', 'number'],
+      return normalizeStructuralResult<ModelMutationResult>(callJson(m, 'orc_set_object_printable', ['number', 'number'],
                       [objectId, printable ? 1 : 0]));
     },
 
-    async setInstancePrintable(instanceId: number, printable: boolean): Promise<MutationResult> {
+    async setInstancePrintable(instanceId: number, printable: boolean): Promise<ModelMutationResult> {
       const m = await module();
-      return normalizeStructuralResult<MutationResult>(callJson(m, 'orc_set_instance_printable', ['number', 'number'],
+      return normalizeStructuralResult<ModelMutationResult>(callJson(m, 'orc_set_instance_printable', ['number', 'number'],
                       [instanceId, printable ? 1 : 0]));
     },
 

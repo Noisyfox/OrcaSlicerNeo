@@ -130,6 +130,12 @@
   lifetime of the opened project. The application restores their project
   selection when applicable, but never installs them into system profiles or
   global preferences.
+- Saved user presets retain their source names on export. Reopening matches
+  installed user presets through Orca's loader while preserving project
+  overrides; missing user presets use the archived configuration as embedded
+  fallback. History snapshots and Neo revision markers are not serialized.
+  Actual embedded presets appear first in a Project-inside presets section in
+  every preset selector, ahead of User presets and System presets.
 - Project preset selections and edits are project-scoped and are saved with
   that project. Opening a project does not overwrite the user's last-used
   system-profile preference. Leaving the project restores that global

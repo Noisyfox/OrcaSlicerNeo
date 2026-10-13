@@ -55,7 +55,7 @@ describe('object list structural actions', () => {
     vi.mocked(waitForSettledModelTransforms).mockReset();
     vi.mocked(waitForSettledModelTransforms).mockResolvedValue({ ok: true });
     useObjectListStore.setState({ structure: [], loaded: false, expanded: {}, projection: { objectIds: new Set(), volumeIds: new Set(), instanceIds: new Set() } });
-    useSlicerStore.setState({ status: 'done', resultExported: true, error: 'stale', layers: 40 });
+    useSlicerStore.setState({ status: 'done', resultExported: true, error: 'stale', maxLayer: 39 });
     useSettingsStore.setState({ modelLoaded: true, modelRevision: 3 });
   });
 

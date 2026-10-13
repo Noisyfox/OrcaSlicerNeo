@@ -1,3 +1,6 @@
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { createClient } from '@slicer/client';
+import { createMockModule } from '../../../../../slicer-wasm/src/client/testing/mock-module';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
@@ -18,10 +21,13 @@ const structure = {
   }],
 };
 
+const cleared = await createClient(async () => createMockModule()).clearModel();
+if (!cleared.ok) throw new Error(cleared.error);
+
 function makeRuntime(): SlicerRuntime {
   return {
-    deleteObjects: vi.fn(async () => ({ ok: true, objects: 0, deleted: 1 })),
-    deleteVolumes: vi.fn(async () => ({ ok: true, objects: 1, deleted: 1 })),
+    deleteObjects: vi.fn(async () => ({ ok: true, objects: 0, deleted: 1, plateSession: cleared.plateSession })),
+    deleteVolumes: vi.fn(async () => ({ ok: true, objects: 1, deleted: 1, plateSession: cleared.plateSession })),
     getModelStructure: vi.fn(async () => structure),
     getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
     getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
@@ -31,7 +37,7 @@ function makeRuntime(): SlicerRuntime {
       _before: unknown,
       mutation: (transactionId: string) => Promise<T>,
       _after: unknown | (() => unknown | Promise<unknown>),
-    ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: {} as never })),
+    ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: { revision: 1, dirty: true } as never })),
   } as unknown as SlicerRuntime;
 }
 
@@ -48,7 +54,7 @@ function makeScene(withIndex: { objectIdx: number; volumeIdx: number; instanceId
 
 describe('deleteSelection', () => {
   beforeEach(() => {
-    useSlicerStore.setState({ status: 'done', resultExported: true, error: 'stale', layers: 40 });
+    useSlicerStore.setState({ status: 'done', resultExported: true, error: 'stale', maxLayer: 39 });
     useSettingsStore.setState({ modelLoaded: true, modelRevision: 3 });
     useProjectStore.getState().reset();
   });
@@ -105,7 +111,7 @@ describe('deleteSelection', () => {
     expect(useSlicerStore.getState().error).toContain('last solid part');
   });
 
-  it('records bridge revisions and reasons from a successful delete', async () => {
+  it('publishes native plate revisions and Worker dirty status after deletion', async () => {
     const runtime = makeRuntime();
     (runtime.deleteObjects as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
@@ -121,9 +127,8 @@ describe('deleteSelection', () => {
     await deleteSelection(runtime, scene);
     expect(useProjectStore.getState()).toMatchObject({
       dirty: true,
-      dirtyReasons: ['model-delete'],
-      plateInputRevisions: { 'plate-1': 5 },
     });
+    expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-1': 5 });
   });
 
   it('fails closed when the selection no longer maps to the model', async () => {

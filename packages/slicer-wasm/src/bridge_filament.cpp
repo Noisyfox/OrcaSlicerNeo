@@ -3,6 +3,7 @@
 #include "bridge_history.hpp"
 #include "bridge_preset_drafts.hpp"
 #include "bridge_profiles.hpp"
+#include "bridge_user_presets.hpp"
 
 #include <algorithm>
 #include <array>
@@ -2103,7 +2104,7 @@ json filament_session_snapshot_json()
         slots.push_back({
             {"slot", i + 1},
             {"logical_id", slot_ids[i]},
-            {"preset", {{"id", name}, {"name", name}, {"label", source ? Profiles::preset_display_label(*source) : name}, {"vendor", vendor}}},
+            {"preset", {{"id", name}, {"is_project_embedded", source && UserPresets::picker_is_project_embedded(*source)}, {"is_user", source && UserPresets::picker_is_user(*source)}, {"name", name}, {"label", source ? Profiles::preset_display_label(*source) : name}, {"vendor", vendor}}},
             {"colour", {{"effective", colours[i]}, {"provenance", preset_equivalent ? "preset" : "user"},
                         {"native", {{"representative", native_value(project_colours)},
                                     {"multi_colour", multi}, {"type", type}}},

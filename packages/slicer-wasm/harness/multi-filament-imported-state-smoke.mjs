@@ -11,6 +11,8 @@ import { createNodeProfileSource, installProfilePackages } from './profile-insta
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 const options = {};
 for (let index = 2; index < argv.length; index += 2)
   options[argv[index]?.replace(/^--/, '')] = argv[index + 1];
@@ -217,13 +219,13 @@ if (options['memory-only'] === 'true') {
   assert.equal(restored.ok, true, JSON.stringify(restored));
   assert.deepEqual(native(), original, 'native remembered apply retains all raw colour fields');
   const printer = callJson('orc_get_preset_snapshot').printer.name;
-  const rejectedPrinter = request('orc_select_printer_with_remembered_rack', {
+  const rejectedPrinter = request('orc_select_printer_with_remembered_rack', { history_context: editingContext,
     printer, remembered_rack: { version: 1, slots: slots.map(({ native: _native, ...slot }) => slot) },
     remembered_bed_type: null,
   });
   assert.equal(rejectedPrinter.error_code, 'invalid_request', 'Printer transition also requires complete internal metadata');
   assert.deepEqual(native(), original, 'invalid Printer transition does not mutate raw colours');
-  const switched = request('orc_select_printer_with_remembered_rack', {
+  const switched = request('orc_select_printer_with_remembered_rack', { history_context: editingContext,
     printer, remembered_rack: { version: 1, slots }, remembered_bed_type: null,
   });
   assert.equal(switched.ok, true, JSON.stringify(switched));
@@ -386,7 +388,7 @@ if (options['lifecycle-only'] === 'true') {
   undo(original, 'Undo Merge again restores imported entries');
 
   const currentPrinter = callJson('orc_get_preset_snapshot').printer.name;
-  const transitioned = request('orc_select_printer_with_remembered_rack', {
+  const transitioned = request('orc_select_printer_with_remembered_rack', { history_context: editingContext,
     printer: currentPrinter, remembered_rack: null, remembered_bed_type: null,
   });
   assert.equal(transitioned.ok, true, JSON.stringify(transitioned));

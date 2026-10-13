@@ -30,7 +30,6 @@ export async function publishSetupWizardApplication(platform: PlatformCapabiliti
   }
   applyPlateSessionTransforms({ instanceTransforms: result.plateSession.instanceTransforms ?? [] }, glVolumeCollection.volumes);
   usePlateSessionStore.getState().setSnapshot(result.plateSession);
-  useProjectStore.getState().recordPlateMutation(result.plateSession);
   useSettingsStore.getState().hydrateProfileSnapshot(result.profileSnapshot);
   useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
   useFilamentSessionStore.getState().publish(result.filamentSession);

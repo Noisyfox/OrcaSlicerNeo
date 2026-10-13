@@ -1,5 +1,6 @@
 import type { ProfileActivation, SetupWizardMethods } from './setupWizard';
 import type { PaintingApi } from './painting';
+import type { UserPresetMethods } from './userPresets';
 // packages/slicer-wasm/src/client/types.ts
 // ----------------------------------------------------------------
 // Shared types: the OrcaModule shape (structural Emscripten factory
@@ -328,6 +329,8 @@ export interface NativeScopedConfigResult {
   readonly ok: true;
   readonly nativeScopedConfig: NativeScopedConfigTransport;
   readonly plateSession?: PlateSessionMutation;
+  /** Present when a Project mutation changes its effective preset projection. */
+  readonly profileSnapshot?: ProfileSnapshot;
   /** Native option parse/normalization feedback for configuration commands. */
   readonly configurationStatus?: ConfigurationReadyStatus;
 }
@@ -362,6 +365,9 @@ export interface FilamentCatalogItem {
   /** Real preset visibility result from the bundled profile state. */
   is_visible: boolean;
   is_default: boolean;
+  /** Native picker classification, including snapshot/embedded source resolution. */
+  is_user: boolean;
+  is_project_embedded: boolean;
   /** vendor id, empty when the preset has no vendor profile */
   vendor_id: string;
   model: string;
@@ -546,6 +552,8 @@ export interface ConfigEditorSnapshot {
 export type ConfigEditorSnapshotResult = ConfigEditorSnapshot | PresetDraftError;
 
 export interface PresetEditorCandidate {
+  readonly isUser: boolean;
+  readonly isProjectEmbedded: boolean;
   readonly canonicalName: string;
   readonly label: string;
   /** Compatibility with the project's effective Printer, independent of editor target. */
@@ -617,19 +625,17 @@ export interface PresetDraftMutationSuccess extends PresetDraftSnapshot {
 
 export type PresetDraftMutationResult = PresetDraftMutationSuccess | PresetDraftError;
 
-export interface LoadModelResult {
-  ok: boolean;
-  objects: number;
-  instances: number;
-  error?: string;
-  plateSession?: PlateSessionMutation;
-}
+/** Complete native receipt for model edits, including successful no-op edits. */
+export type ModelPlateSessionMutation = PlateSessionMutation & Required<PlateMutationImpact> & {
+  nativeScopedConfig: NativeScopedConfigFullTransport;
+};
 
-export interface ClearModelResult {
-  ok: boolean;
-  error?: string;
-  plateSession?: PlateSessionMutation;
-}
+export type ModelMutationResult<T extends object = object> =
+  | ({ ok: true; error?: never; plateSession: ModelPlateSessionMutation } & T)
+  | ({ ok: false; error: string; plateSession?: never } & { [K in keyof T]?: never });
+
+export type LoadModelResult = ModelMutationResult<{ objects: number; instances: number }>;
+export type ClearModelResult = ModelMutationResult;
 
 export type ProjectLoadMode = 'project' | 'geometry-only';
 
@@ -789,111 +795,23 @@ export interface ModelScenePatchResult {
   error?: string;
 }
 
-export interface DeleteObjectsResult {
-  ok: boolean;
-  /** Remaining object count after the delete. */
-  objects?: number;
-  /** Number of objects actually removed (duplicates are ignored). */
-  deleted?: number;
-  error?: string;
-  plateSession?: PlateSessionMutation;
-}
-
-/** Multi-delete of parts by stable ObjectID. */
-export interface DeleteVolumesResult {
-  ok: boolean;
-  /** Remaining object count after the delete. */
-  objects?: number;
-  /** Number of volumes actually removed (duplicates are ignored). */
-  deleted?: number;
-  error?: string;
-  plateSession?: PlateSessionMutation;
-}
-
-/** Clone result: the freshly minted stable ObjectIDs of the clones. */
-export interface CloneObjectsResult {
-  ok: boolean;
-  newObjectIds: number[];
-  /** Object count after cloning. */
-  objects?: number;
-  /** Native plate input/revision receipt for the structural operation. */
-  plateSession?: PlateSessionMutation;
-  error?: string;
-}
-
-/** Reorder operations return the current structure in the same shape as getModelStructure. */
-export interface ReorderStructureResult {
-  ok: boolean;
-  objects: ModelObjectStructure[];
-  /** Native plate input/revision receipt when the reorder invalidates inputs. */
-  plateSession?: PlateSessionMutation;
-  error?: string;
-}
-
-/** Split-to-parts result: the freshly generated volume IDs + current structure. */
-export interface SplitVolumeResult {
-  ok: boolean;
-  /** Number of parts produced (1 means the volume was not split). */
-  parts?: number;
-  /** Generated volume IDs; the original volumeId is now stale. */
-  newVolumeIds?: number[];
-  /** Current structure after the split. */
-  objects?: ModelObjectStructure[];
-  /** Native plate input/revision receipt for the derived volumes. */
-  plateSession?: PlateSessionMutation;
-  error?: string;
-}
-
-/** Split-object-to-objects result: the freshly generated object IDs. */
-export interface SplitObjectResult {
-  ok: boolean;
-  newObjectIds: number[];
-  /** Object count after splitting. */
-  objects?: number;
-  /** Native plate input/revision receipt for the derived objects. */
-  plateSession?: PlateSessionMutation;
-  error?: string;
-}
-
-/** Assemble result: the newly created multipart object's stable ID. */
-export interface MergeObjectsResult {
-  ok: boolean;
-  objectId?: number;
-  /** Object count after assembling. */
-  objects?: number;
-  /** Native plate input/revision receipt for the assembled object. */
-  plateSession?: PlateSessionMutation;
-  error?: string;
-}
-
-/** Separate-instances result: the newly created per-instance object IDs. */
-export interface SeparateInstancesResult {
-  ok: boolean;
-  newObjectIds: number[];
-  /** Object count after separating. */
-  objects?: number;
-  /** Native plate input/revision receipt for the derived objects. */
-  plateSession?: PlateSessionMutation;
-  error?: string;
-}
-
-/** Add-instance result: the freshly minted stable instance ID. */
-export interface AddInstanceResult {
-  ok: boolean;
-  objectId?: number;
-  instanceId?: number;
-  /** Native plate input/revision receipt for the added instance. */
-  plateSession?: PlateSessionMutation;
-  error?: string;
-}
-
-/** Remove-instance result. */
-export interface RemoveInstanceResult {
-  ok: boolean;
-  /** Native plate input/revision receipt for the removed instance. */
-  plateSession?: PlateSessionMutation;
-  error?: string;
-}
+/** Remaining object count and number of objects actually removed. */
+export type DeleteObjectsResult = ModelMutationResult<{ objects: number; deleted: number }>;
+/** Remaining object count and number of volumes actually removed. */
+export type DeleteVolumesResult = ModelMutationResult<{ objects: number; deleted: number }>;
+/** Fresh stable IDs and total object count after cloning. */
+export type CloneObjectsResult = ModelMutationResult<{ newObjectIds: number[]; objects: number }>;
+/** Current structure, including for a reorder that leaves the order unchanged. */
+export type ReorderStructureResult = ModelMutationResult<{ objects: ModelObjectStructure[] }>;
+/** A successful unsplit volume reports one part and no generated IDs. */
+export type SplitVolumeResult = ModelMutationResult<{
+  parts: number; newVolumeIds: number[]; objects: ModelObjectStructure[];
+}>;
+export type SplitObjectResult = ModelMutationResult<{ newObjectIds: number[]; objects: number }>;
+export type MergeObjectsResult = ModelMutationResult<{ objectId: number; objects: number }>;
+export type SeparateInstancesResult = ModelMutationResult<{ newObjectIds: number[]; objects: number }>;
+export type AddInstanceResult = ModelMutationResult<{ objectId: number; instanceId: number }>;
+export type RemoveInstanceResult = ModelMutationResult;
 
 /** Simple success/error payload returned by non-destructive metadata mutations. */
 export interface MutationResult {
@@ -909,7 +827,7 @@ export type AddVolumeRequest = {
   instanceId: number;
   volumeType: VolumeType;
 } & ({ shape: string } | { ext: string; name: string });
-export interface AddVolumeResult extends MutationResult { volumeId?: number }
+export type AddVolumeResult = ModelMutationResult<{ volumeId: number }>;
 
 /** Volume kinds as reported by the bridge structure read (spec §9.1). */
 export type VolumeType =
@@ -1227,7 +1145,7 @@ export interface FilamentSessionSlot {
   /** Opaque runtime identity restored with native history, never persisted to 3MF. */
   readonly logicalId: string;
   readonly slot: number;
-  readonly preset: { readonly id: string; readonly name: string; readonly label: string; readonly vendor: string };
+  readonly preset: { readonly isUser: boolean; readonly isProjectEmbedded: boolean; readonly id: string; readonly name: string; readonly label: string; readonly vendor: string };
   readonly colour: {
     readonly effective: string;
     readonly provenance: FilamentColourProvenance;
@@ -1551,7 +1469,7 @@ export interface FilesystemEntry {
   readonly sizeBytes: number | null;
 }
 
-export interface SlicerClient extends PaintingApi, SetupWizardMethods {
+export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPresetMethods {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(activation: ProfileActivation | null): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */
@@ -1562,7 +1480,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods {
   /** Open/read native source+effective values and metadata for one canonical preset identity. */
   getPresetDraft(kind: PresetDraftKind, canonicalName: string): Promise<PresetDraftSnapshotResult>;
   /** Apply one history-backed draft operation; reset-category receives its explicit field set. */
-  mutatePresetDraft(request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult>;
+  mutatePresetDraft(request: PresetDraftMutationRequest, context: import('./history').HistoryContext): Promise<PresetDraftMutationResult>;
   selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError>;
   setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;
   addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;
@@ -1693,11 +1611,11 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods {
   /** Rename a specific part (volume) by its stable ObjectID. */
   renameVolume(volumeId: number, name: string): Promise<MutationResult>;
   /** Change a part's type among the spec's VolumeType strings. */
-  setVolumeType(volumeId: number, type: VolumeType): Promise<MutationResult>;
+  setVolumeType(volumeId: number, type: VolumeType): Promise<ModelMutationResult>;
   /** Toggle the object-level printable gate and every one of its instances. */
-  setObjectPrintable(objectId: number, printable: boolean): Promise<MutationResult>;
+  setObjectPrintable(objectId: number, printable: boolean): Promise<ModelMutationResult>;
   /** Toggle a single instance's printable state by its stable ObjectID. */
-  setInstancePrintable(instanceId: number, printable: boolean): Promise<MutationResult>;
+  setInstancePrintable(instanceId: number, printable: boolean): Promise<ModelMutationResult>;
   /** Select a printer or process profile and return the final atomic
    * compatibility state. Filament selection is owned by the multi-filament
    * session/rack commands. */
@@ -1706,11 +1624,12 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods {
    * committed Worker snapshot, history entry and all-plate invalidation. */
   selectPrinterWithRememberedRack(
     printer: string, rememberedRack: RememberedFilamentRackPreference | null,
-      rememberedBedType: string | null,
+    rememberedBedType: string | null,
+    context: import('./history').HistoryContext,
   ): Promise<PrinterTransitionResult>;
   /** Match the complete ordered nozzle vector, or edit only this toolhead's
    * Printer draft. Commits exactly one history entry with an atomic receipt. */
-  setToolheadDiameter(index: number, diameter: number, expectedRevision: number): Promise<PrinterTransitionResult>;
+  setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
   arrange(request: ArrangementRequest, onProgress?: (percent: number, text: string) => void): Promise<ArrangementResult>;
   cancelArrangement(): Promise<{ ok: true } | { ok: false; error: string }>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;

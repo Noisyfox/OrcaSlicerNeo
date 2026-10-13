@@ -154,7 +154,7 @@ function effectiveNote(draft, mode) {
 
 function makeMutation(Module, mode, presetName, action, key, value) {
   const status = callJson(Module, 'orc_history_status');
-  const body = {
+  const body = { history_context: { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} },
     version: 1,
     action: action ?? (mode === 'current' ? 'set-element' : 'set'),
     kind: 'filament',

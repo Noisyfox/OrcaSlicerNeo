@@ -20,10 +20,38 @@ import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { projectHistoryStatus, runProjectHistoryMutation, runProjectMutationOperation } from '../actions/historyMutation';
+import { historyContextForStructure, projectHistoryStatus, runProjectHistoryMutation, runProjectMutationOperation } from '../actions/historyMutation';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 
 let configurationMutationQueue: Promise<void> = Promise.resolve();
+
+export function commitUserPresetMutation(platform: PlatformCapabilities, request: import('@slicer/client').UserPresetRequest,
+  sceneInteraction: SceneInteractionController | null) {
+  const task = configurationMutationQueue.then(() => runProjectMutationOperation(async () => {
+    if (!paintingCommandAllowed()) return { ok: false as const, error: 'Finish the current editing operation first' };
+    const result = await platform.runtime.mutateUserPreset(request, historyContextForStructure(sceneInteraction));
+    if (!result.ok) return result;
+    unstable_batchedUpdates(() => {
+      projectHistoryStatus(result.historyStatus);
+      const settings = useSettingsStore.getState();
+      const mode = settings.configurationMode;
+      settings.hydrateProfileSnapshot(result.profileSnapshot);
+      settings.setConfigurationMode(mode);
+      settings.applyNativeScopedConfigTransport(result.nativeScopedConfig);
+      useFilamentSessionStore.getState().publish(result.filamentSession);
+      applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
+      usePlateSessionStore.getState().setSnapshot(result.plateSession);
+      const project = useProjectStore.getState();
+      const selections = { printer: result.profileSnapshot.printer.name, print: result.profileSnapshot.print.name };
+      project.setProject(project.scope === 'project' ? { projectPresets: selections } : { systemPresets: selections });
+      invalidateAfterSharedConfigurationMutation(result.plateSession.affectedPlateIds ?? [], platform.runtime, true);
+    });
+    return result;
+  }));
+  configurationMutationQueue = task.then(() => undefined, () => undefined);
+  return task;
+}
 
 type ConfigurationMutationResult = PlateSessionMutationResult | {
   ok: true;
@@ -45,6 +73,7 @@ async function commitScopedConfigurationMutationNow(
 ): Promise<PlateSessionMutation | null> {
   let mutation: ConfigurationMutationResult | undefined;
   let previousBed: string | undefined;
+  let profileSnapshot: import('@slicer/client').ProfileSnapshot | undefined;
   try {
     const history = await runProjectHistoryMutation<ConfigurationMutationResult>(
       platform.runtime,
@@ -56,12 +85,22 @@ async function commitScopedConfigurationMutationNow(
         if (result.configurationStatus?.state === 'ready' && result.configurationStatus.errors.length > 0)
           throw new Error(result.configurationStatus.errors.join('; '));
         if (!result.plateSession) return { ok: true, unchanged: true, nativeScopedConfig: result.nativeScopedConfig };
+        profileSnapshot = result.profileSnapshot;
         return { ...result.plateSession, nativeScopedConfig: result.nativeScopedConfig };
       },
       null,
       {
         publish: async (published, status) => {
           if (!published.ok || 'unchanged' in published) return;
+          if (profileSnapshot) {
+            const settings = useSettingsStore.getState();
+            const mode = settings.configurationMode;
+            settings.hydrateProfileSnapshot(profileSnapshot);
+            settings.setConfigurationMode(mode);
+            const project = useProjectStore.getState();
+            const selections = { printer: profileSnapshot.printer.name, print: profileSnapshot.print.name };
+            project.setProject(project.scope === 'project' ? { projectPresets: selections } : { systemPresets: selections });
+          }
           if (status?.nativeScopedConfig) {
             const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(status.nativeScopedConfig);
             if (outcome === 'refresh-required') {
@@ -76,7 +115,6 @@ async function commitScopedConfigurationMutationNow(
           invalidateAfterSharedConfigurationMutation(published.affectedPlateIds, platform.runtime);
           applyPlateSessionTransforms(published, glVolumeCollection.volumes);
           usePlateSessionStore.getState().setSnapshot(published);
-          useProjectStore.getState().recordPlateMutation(published);
           if (request.targets.some(target => target.scope === 'project') &&
               useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type !== previousBed) {
             const settings = useSettingsStore.getState();
@@ -123,6 +161,7 @@ export function commitScopedConfigurationMutation(
 async function commitPresetDraftMutationNow(
   platform: PlatformCapabilities,
   request: PresetDraftMutationRequest,
+  sceneInteraction: SceneInteractionController | null,
 ): Promise<PresetDraftMutationResult> {
   return runProjectMutationOperation(async () => {
     const currentHistory = useHistoryNavigationStore.getState().status;
@@ -135,7 +174,7 @@ async function commitPresetDraftMutationNow(
       };
     }
 
-    const result = await platform.runtime.mutatePresetDraft(request);
+    const result = await platform.runtime.mutatePresetDraft(request, historyContextForStructure(sceneInteraction));
     if (!result.ok) return result;
 
     projectHistoryStatus(result.historyStatus);
@@ -155,7 +194,6 @@ async function commitPresetDraftMutationNow(
       const selections = { printer: result.profileSnapshot.printer.name, print: result.profileSnapshot.print.name };
       project.setProject(project.scope === 'project'
         ? { projectPresets: selections } : { systemPresets: selections });
-      project.recordPlateMutation(result.plateSession);
       invalidateAfterSharedConfigurationMutation(
         result.affectedPlateIds,
         platform.runtime,
@@ -172,9 +210,10 @@ async function commitPresetDraftMutationNow(
 export function commitPresetDraftMutation(
   platform: PlatformCapabilities,
   request: PresetDraftMutationRequest,
+  sceneInteraction: SceneInteractionController | null,
 ): Promise<PresetDraftMutationResult> {
   if (!paintingCommandAllowed()) return Promise.resolve({ ok: false, error: 'Painting command is busy', errorCode: 'invalid_request', revision: request.expectedRevision });
-  const task = configurationMutationQueue.then(() => commitPresetDraftMutationNow(platform, request));
+  const task = configurationMutationQueue.then(() => commitPresetDraftMutationNow(platform, request, sceneInteraction));
   configurationMutationQueue = task.then(() => undefined, () => undefined);
   return task;
 }
@@ -191,7 +230,6 @@ export async function applyPresetConfigurationMutation(platform: PlatformCapabil
   }
   applyPlateSessionTransforms(result, glVolumeCollection.volumes);
   usePlateSessionStore.getState().setSnapshot(result);
-  useProjectStore.getState().recordPlateMutation(result);
   return result;
 }
 
@@ -246,7 +284,6 @@ export async function selectProcessPreset(platform: PlatformCapabilities, name: 
       settings.applyNativeScopedConfigTransport(result.nativeScopedConfig);
       applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
       usePlateSessionStore.getState().setSnapshot(result.plateSession);
-      useProjectStore.getState().recordPlateMutation(result.plateSession);
       invalidateAffectedPlateResults(platform.runtime, result.plateSession.affectedPlateIds ?? []);
     },
   });

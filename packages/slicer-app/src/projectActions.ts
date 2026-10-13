@@ -68,7 +68,11 @@ function currentPresets(): ProjectPresetSelections {
 export function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
   const notices: ProjectNotice[] = [];
   const fallback = compatibilityFallback(load); if (fallback) notices.push({ kind: 'compatibility-fallback', message: fallback });
-  if (load.embeddedPresetWarnings?.present) notices.push({ kind: 'embedded-presets', message: 'This project contains embedded preset settings that may differ from system presets.', details: load.embeddedPresetWarnings });
+  const warning = load.embeddedPresetWarnings;
+  // Archive preset records are not warnings. Orca's native validation owns
+  // the safety decision, including projects using installed user presets.
+  if (warning?.requiresConfirmation) notices.push({ kind: 'embedded-presets', message: 'This project contains embedded preset settings that may differ from system presets.', details: warning });
+  else if (warning?.filamentSlotChanges?.length) notices.push({ kind: 'compatibility-fallback', message: 'Some filament slots were changed while loading this project.', details: warning });
   if (load.bedTypeNormalization) notices.push({ kind: 'bed-type-normalization', message: `Unsupported build plate settings were adjusted to the loaded printer: ${load.bedTypeNormalization.globalChanged ? 'global bed reset to its native default; ' : ''}${load.bedTypeNormalization.removedPlateOverrideIds.length} local override(s) reset to inheritance.`, details: load.bedTypeNormalization });
   return notices;
 }
@@ -97,29 +101,32 @@ function projectedHistoryContext(): HistoryContext {
   };
 }
 async function currentHistoryStatus(runtime: Runtime): Promise<HistoryStatus> {
-  const status = await readProjectHistoryStatus(runtime, false);
+  const status = await readProjectHistoryStatus(runtime);
   if (!status) throw new Error('project history status read failed');
   return status;
 }
 /** Read the Worker checkpoint state for lifecycle guards. */
 export async function projectDirtyStatus(platform: PlatformCapabilities): Promise<boolean> {
-  const projectedBeforeQuery = useProjectStore.getState();
   const status = await currentHistoryStatus(runtimeOf(platform));
-  return status.dirty || projectedBeforeQuery.dirtyReasons.length > 0;
+  return status.dirty;
 }
 async function resetHistory(runtime: Runtime): Promise<HistoryStatus> {
   return resetProjectHistory(runtime, projectedHistoryContext());
 }
 async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetSelections | null): Promise<void> {
-  if (!selections) return;
-  let resolved: Awaited<ReturnType<Runtime['getProfileSnapshot']>> | null = null;
-  for (const [kind, name] of [['printer', selections.printer], ['print', selections.print]] as const) {
-    if (!name) continue;
+  // Session closure releases snapshots and embedded presets. The remembered
+  // names belong to that old session, so validate against the native catalogue
+  // after closure rather than replaying a reference that has been removed.
+  let resolved = await runtime.getProfileSnapshot();
+  if (!resolved.ok) throw new Error(resolved.error ?? 'new project presets unavailable');
+  for (const [kind, name] of [['printer', selections?.printer], ['print', selections?.print]] as const) {
+    const candidates = kind === 'printer' ? resolved.printers : resolved.prints;
+    if (!name || !candidates?.some((preset) => preset.name === name)) continue;
     const result = await runtime.selectProfile(kind, name);
     if (!result.ok) throw new Error(result.error ?? `could not restore ${kind} preset`);
     resolved = result;
   }
-  if (resolved?.ok) useSettingsStore.getState().hydrateProfileSnapshot(resolved);
+  useSettingsStore.getState().hydrateProfileSnapshot(resolved);
 }
 async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 'open', input: ProjectInput | undefined, options: ProjectActionOptions): Promise<ProjectActionResult | null> {
   if (!paintingCommandAllowed()) return { status: 'cancelled' };
@@ -159,8 +166,8 @@ async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean):
         setOperation(saved.status === 'cancelled' ? 'cancelled' : 'failed');
         return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error);
       }
-      const history = await markSaved();
-      useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(saved.displayName), projectFileName: saved.displayName, hasContent: true, dirty: history.dirty, dirtyReasons: [], location: saved.location });
+      await markSaved();
+      useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(saved.displayName), projectFileName: saved.displayName, hasContent: true, location: saved.location });
       setOperation('completed', 100);
       return { status: 'ok' };
     } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
@@ -237,9 +244,7 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
           const notices = [...existing.notices, ...incomingNotices.filter((notice) => !existing.notices.some((current) => current.kind === notice.kind))];
           if (published.plateSession) {
             usePlateSessionStore.getState().setSnapshot(published.plateSession);
-            useProjectStore.getState().recordPlateMutation(published.plateSession);
           }
-          else useProjectStore.getState().markDirty('model-import');
           useProjectStore.getState().setProject({ hasContent: true, notices, scope: existing.scope });
         },
       },
@@ -317,7 +322,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     projectHistoryStatus(history);
     const filament = await refreshFilamentSession(runtime);
     if (!filament.ok) throw new Error(filament.error ?? 'project load filament session refresh failed');
-    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), projectFileName: input.displayName, location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
+    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), projectFileName: input.displayName, location: input.location, hasContent: true, scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
     setOperation('completed', 100);
     return {
       status: 'ok',

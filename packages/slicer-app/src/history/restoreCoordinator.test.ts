@@ -110,7 +110,7 @@ describe('history restore coordinator', () => {
   });
 
   it('keeps the old projection on retryable Worker restore failure', async () => {
-    useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
+    useProjectStore.setState({ dirty: true });
     const refreshModel = vi.fn(async () => undefined);
     const failed: RestoreResult = { ok: false, error: {
       code: 'restore-failed', message: 'invalid staged model', retryable: true,
@@ -124,7 +124,7 @@ describe('history restore coordinator', () => {
     expect(refreshModel).not.toHaveBeenCalled();
     expect(useHistoryRestoreStore.getState().error).toBe('invalid staged model');
     expect(useHistoryRestoreStore.getState().phase).toBe('idle');
-    expect(useProjectStore.getState()).toMatchObject({ dirty: true, dirtyReasons: ['model-transform'] });
+    expect(useProjectStore.getState()).toMatchObject({ dirty: true });
   });
 
   it('rejects a direct serial restore without clearing the live slice or requesting cancellation', async () => {
@@ -160,12 +160,12 @@ describe('history restore coordinator', () => {
       refreshModel: vi.fn(async () => undefined),
     });
 
-    useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
+    useProjectStore.setState({ dirty: true });
     await expect(coordinator.restore('undo')).resolves.toBe(true);
-    expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [] });
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false });
 
     await expect(coordinator.restore('redo')).resolves.toBe(true);
-    expect(useProjectStore.getState()).toMatchObject({ dirty: true, dirtyReasons: [] });
+    expect(useProjectStore.getState()).toMatchObject({ dirty: true });
   });
 
   it('keeps the restoring phase until the asynchronous projection barrier settles', async () => {

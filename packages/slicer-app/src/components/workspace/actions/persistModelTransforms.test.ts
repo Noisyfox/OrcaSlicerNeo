@@ -1,3 +1,4 @@
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useProjectStore } from '@/stores/useProjectStore';
@@ -14,7 +15,7 @@ vi.mock('./syncModelTransforms', () => ({
 describe('persistSettledModelTransforms', () => {
   beforeEach(() => {
     useSlicerStore.setState({
-      status: 'done', progress: 100, layers: 80, error: null, resultExported: true,
+      status: 'done', progress: 100, maxLayer: 79, error: null, resultExported: true,
     });
     syncModelTransforms.mockReset();
     useProjectStore.getState().reset();
@@ -27,7 +28,7 @@ describe('persistSettledModelTransforms', () => {
     const slicer = useSlicerStore.getState();
     expect(slicer.status).toBe('idle');
     expect(slicer.resultExported).toBe(false);
-    expect(slicer.layers).toBe(0);
+    expect(slicer.maxLayer).toBe(-1);
     expect(slicer.progress).toBe(0);
   });
 
@@ -38,7 +39,7 @@ describe('persistSettledModelTransforms', () => {
     expect(useSlicerStore.getState().status).toBe('done');
   });
 
-  it('records bridge revisions and reasons from a committed transform', async () => {
+  it('projects native plate revisions without changing the history checkpoint', async () => {
     syncModelTransforms.mockResolvedValue({
       ok: true,
       plateSession: {
@@ -49,9 +50,8 @@ describe('persistSettledModelTransforms', () => {
     });
     await persistSettledModelTransforms({} as never);
     expect(useProjectStore.getState()).toMatchObject({
-      dirty: true,
-      dirtyReasons: ['model-transform'],
-      plateInputRevisions: { 'plate-1': 4, 'plate-2': 1 },
+      dirty: false,
     });
+    expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-1': 4, 'plate-2': 1 });
   });
 });

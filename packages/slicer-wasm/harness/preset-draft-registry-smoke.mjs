@@ -9,6 +9,8 @@ import { createNodeProfileSource, installProfilePackages } from './profile-insta
 import { readZipEntries, replaceEntry } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 const opts = {};
 for (let index = 2; index < argv.length; index += 2)
   opts[argv[index]?.replace(/^--/, '')] = argv[index + 1];
@@ -41,7 +43,7 @@ function historyStatus() {
 function mutateDraft(action, kind, canonicalName, fields = {}) {
   const beforeSnapshot = callJson('orc_get_preset_snapshot');
   const originalRows = kind === 'printer' ? beforeSnapshot.printers : beforeSnapshot.filament_catalog;
-  const result = request('orc_mutate_preset_draft', {
+  const result = request('orc_mutate_preset_draft', { history_context: editingContext,
     action, kind, canonical_name: canonicalName,
     expected_revision: historyStatus().revision, ...fields,
   });
@@ -200,13 +202,13 @@ assert.deepEqual(independentSourceDraft.overrides, { filament_max_volumetric_spe
 
 const platesBeforeRejected = callJson('orc_get_plate_session_snapshot');
 const historyBeforeRejected = historyStatus();
-const stale = request('orc_mutate_preset_draft', {
+const stale = request('orc_mutate_preset_draft', { history_context: editingContext,
   action: 'set', kind: 'filament', canonical_name: firstSource,
   expected_revision: staleRevision, key: 'filament_max_volumetric_speed', value: '99',
 });
 assert.equal(stale.ok, false);
 assert.equal(stale.error_code, 'stale_revision');
-const invalid = request('orc_mutate_preset_draft', {
+const invalid = request('orc_mutate_preset_draft', { history_context: editingContext,
   action: 'set', kind: 'filament', canonical_name: firstSource,
   expected_revision: historyStatus().revision, key: 'not_a_preset_option', value: '99',
 });
@@ -302,7 +304,7 @@ for (const key of ['filament_ramming_parameters', 'volumetric_speed_coefficients
 
 function rejectDraftElement(fields, expectedCode) {
   const beforeHistory = historyStatus();
-  const rejected = request('orc_mutate_preset_draft', {
+  const rejected = request('orc_mutate_preset_draft', { history_context: editingContext,
     action: 'set-element', kind: 'filament', canonical_name: genericPlaSource,
     expected_revision: beforeHistory.revision, ...fields,
   });

@@ -3,7 +3,6 @@ import type { ArrangementRequest } from '@slicer/client';
 import { useArrangementStore, loadArrangementPreferences } from '@/stores/useArrangementStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
-import { useProjectStore } from '@/stores/useProjectStore';
 import { applyPlateSessionResponse } from '../plateSessionActions';
 import { historyContextForStructure, publishNativeOperationHistory, runProjectMutationOperation } from './historyMutation';
 import { closePaintingForCommand, paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
@@ -33,7 +32,6 @@ export async function arrangeModels(platform: PlatformCapabilities, scene: Scene
         }, (progress, message) => useArrangementStore.setState({ progress, message: message || 'Arranging models…' }));
         if (result.ok && result.changed) {
           if (!applyPlateSessionResponse(platform, result.plateSession)) throw new Error('Could not publish arrangement');
-          useProjectStore.getState().recordPlateMutation(result.plateSession);
           await publishNativeOperationHistory(platform.runtime, lease, result.plateSession.inputRevisions);
           scene.notifyTransformsChanged();
         }

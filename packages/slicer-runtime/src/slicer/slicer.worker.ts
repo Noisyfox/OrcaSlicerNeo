@@ -1,9 +1,11 @@
 import { startSlicerHost } from './workerHost';
+import { createBrowserUserPresetStorage } from '../userPresetStorage';
 import { createFetchProfileSource, resolveDeploymentBase, resolveProfileBaseUrl } from '../profiles';
 import type { OrcaModule, WorkerMessage } from '@slicer/client';
 
 const base = resolveDeploymentBase(import.meta.env.BASE_URL, String(import.meta.url));
 startSlicerHost({
+  userPresets: createBrowserUserPresetStorage(),
   threaded: typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated
     && typeof SharedArrayBuffer === 'function' && typeof Atomics === 'object',
   async load(variant) {

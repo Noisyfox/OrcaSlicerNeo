@@ -7,6 +7,8 @@ import { createNodeProfileSource, installProfilePackages } from './profile-insta
 import { setNativeScopedConfig, resetNativeScopedConfig, mutateNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 const moduleArg = process.argv[2];
 if (!moduleArg) throw new Error('usage: bed-type-lifecycle-smoke.mjs <module.js>');
 const Module = await (await loadModuleFactory(resolve(moduleArg)))({ noInitialRun: true, print: () => {}, printErr: () => {} });
@@ -29,11 +31,11 @@ function commit(transaction) {
   assert.equal(result.error, undefined, JSON.stringify(result)); return result;
 }
 function set(scope, id, value) { return must(setNativeScopedConfig(call, scope, id, 'curr_bed_type', value)); }
-function transition(printer) { return must(request('orc_select_printer_with_remembered_rack', { printer, remembered_bed_type: null, remembered_rack: null })); }
+function transition(printer) { return must(request('orc_select_printer_with_remembered_rack', { history_context: editingContext, printer, remembered_bed_type: null, remembered_rack: null })); }
 function draft(key, value) {
   const printer = profiles().printer.name;
   const source = must(call('orc_get_preset_draft', ['string', 'string'], ['printer', printer]));
-  return must(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonical_name: printer,
+  return must(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'printer', canonical_name: printer,
     expected_revision: source.revision, key, value }));
 }
 const receipts = new Map();

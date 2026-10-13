@@ -15,8 +15,8 @@ function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): Filamen
   return {
     ok: true, version: 1,
     slots: [
-      { logicalId: 'filament-1', slot: 1, preset: { id: 'pla', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } },
-      { logicalId: 'filament-2', slot: 2, preset: { id: 'petg', name: 'PETG', label: 'PETG', vendor: '' }, colour: { effective: '#445566', provenance: 'user', native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid' as const, colors: ['#445566'] } } },
+      { logicalId: 'filament-1', slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'pla', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } },
+      { logicalId: 'filament-2', slot: 2, preset: { isProjectEmbedded: false, isUser: false, id: 'petg', name: 'PETG', label: 'PETG', vendor: '' }, colour: { effective: '#445566', provenance: 'user', native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid' as const, colors: ['#445566'] } } },
     ],
     mappings: { filament: [1, 2], volume: [0, 0], nozzle: [1, 2], filament2: [1, 2], physicalExtruder: [0] },
     flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
@@ -131,13 +131,27 @@ describe('FilamentRack runtime interaction', () => {
     expect(highlighted(2)).toBeNull();
   });
 
+  it.each(['user', 'project'])('groups an active %s source missing from the compatible catalogue using slot provenance', async origin => {
+    const initial = makeSnapshot();
+    const retained = { ...initial, slots: initial.slots.map((slot, index) => ({ ...slot,
+      preset: { ...slot.preset, isUser: index === 0, isProjectEmbedded: origin === 'project' && index === 0 } })) };
+    useFilamentSessionStore.setState({ snapshot: retained });
+    useSettingsStore.setState({ filamentCatalog: [] });
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => retained) }); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { (rendered.container.querySelector('[data-testid="filament-preset-1"]') as HTMLElement).click(); });
+    const headings = [...document.querySelectorAll('[data-slot="dropdown-menu-label"]')].map(node => node.textContent);
+    expect(headings).toEqual([origin === 'project' ? 'Project-inside presets' : 'User presets', 'System presets']);
+  });
+
   it('displays native aliases while distinct canonical names remain selectable and visible in tooltips', async () => {
     const initial = makeSnapshot({ slots: makeSnapshot().slots.map(slot => ({ ...slot, preset: {
+      isProjectEmbedded: false, isUser: false,
       id: `Generic PLA @Printer${slot.slot}`, name: `Generic PLA @Printer${slot.slot}`, label: 'Generic PLA', vendor: slot.slot === 1 ? 'Bambu Lab' : 'Generic',
     } })) });
     useFilamentSessionStore.setState({ snapshot: initial });
     const catalog = initial.slots.map(slot => ({
-      name: slot.preset.name, label: 'Generic PLA', vendor: slot.preset.vendor, is_visible: true, is_default: false, vendor_id: 'same-resource-bundle', model: '', variant: '',
+      name: slot.preset.name, label: 'Generic PLA', vendor: slot.preset.vendor, is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: 'same-resource-bundle', model: '', variant: '',
     }));
     useSettingsStore.setState({ filamentCatalog: [...catalog,
       { ...catalog[0], name: 'Other PLA @Printer1', label: 'Other PLA', vendor: 'eSun' },
@@ -253,7 +267,7 @@ describe('FilamentRack runtime interaction', () => {
   it('dispatches Add and renders the complete returned snapshot, not an optimistic slot', async () => {
     const initial = makeSnapshot();
     const returned = makeSnapshot({
-      slots: [...initial.slots, { logicalId: 'filament-3', slot: 3, preset: { id: 'abs', name: 'ABS', label: 'ABS', vendor: '' }, colour: { effective: '#778899', provenance: 'preset', native: { representative: '#778899', multiColour: '#778899', type: '1' }, display: { mode: 'solid' as const, colors: ['#778899'] } } }],
+      slots: [...initial.slots, { logicalId: 'filament-3', slot: 3, preset: { isProjectEmbedded: false, isUser: false, id: 'abs', name: 'ABS', label: 'ABS', vendor: '' }, colour: { effective: '#778899', provenance: 'preset', native: { representative: '#778899', multiColour: '#778899', type: '1' }, display: { mode: 'solid' as const, colors: ['#778899'] } } }],
       revisions: { ...initial.revisions, session: 5 },
     });
     const add = vi.fn(async () => mutation(returned));

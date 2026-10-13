@@ -7,6 +7,8 @@ import { callAsyncTask, getSliceResult, exportGcode } from './async-task-mailbox
 import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
+
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 const moduleArg = process.argv[2];
 if (!moduleArg) throw new Error('usage: bed-type-memory-smoke.mjs <module.js>');
 const Module = await (await loadModuleFactory(resolve(moduleArg)))({ noInitialRun: true, print: () => {}, printErr: console.error });
@@ -18,7 +20,7 @@ function call(name, types = [], args = []) {
 function request(name, body) { return call(name, ['string'], [JSON.stringify(body)]); }
 function must(result) { assert.equal(result.ok, true, JSON.stringify(result)); return result; }
 function config() { return must(call('orc_get_native_scoped_config')).native_scoped_config.snapshot.project.curr_bed_type; }
-function transition(printer, bed) { return must(request('orc_select_printer_with_remembered_rack', { printer, remembered_rack: null, remembered_bed_type: bed })); }
+function transition(printer, bed) { return must(request('orc_select_printer_with_remembered_rack', { history_context: editingContext, printer, remembered_rack: null, remembered_bed_type: bed })); }
 function reset() { return call('orc_history_reset', ['string'], [JSON.stringify({ selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} })]); }
 function pass(label) { console.log(`bed-memory PASS ${label}`); }
 must(call('orc_init', ['string'], [fixtureProfileOptions(Module)]));
@@ -30,7 +32,7 @@ assert.ok(u1, 'bundled U1 printer available');
 for (const omitted of ['remembered_rack', 'remembered_bed_type']) {
   const beforeProfile = call('orc_get_preset_snapshot');
   const beforeHistory = call('orc_history_status');
-  const requestBody = { printer: A, remembered_rack: null, remembered_bed_type: null };
+  const requestBody = { history_context: editingContext, printer: A, remembered_rack: null, remembered_bed_type: null };
   delete requestBody[omitted];
   assert.equal(request('orc_select_printer_with_remembered_rack', requestBody).error_code, 'invalid_request');
   assert.deepEqual(call('orc_get_preset_snapshot'), beforeProfile);
@@ -59,20 +61,20 @@ assert.notEqual(config(), 'Engineering Plate');
 pass('missing, stale and model-excluded memory use native supported default');
 transition(u1, 'Engineering Plate');
 let source = must(call('orc_get_preset_draft', ['string', 'string'], ['printer', u1]));
-must(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonical_name: u1, expected_revision: source.revision, key: 'support_multi_bed_types', value: '0' }));
+must(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'printer', canonical_name: u1, expected_revision: source.revision, key: 'support_multi_bed_types', value: '0' }));
 const single = transition(u1, 'Engineering Plate');
 assert.equal(single.profile_snapshot.bed_type.supports_selection, false);
 assert.equal(config(), 'Textured PEI Plate');
 pass('single-bed effective printer draft ignores incompatible memory');
 source = must(call('orc_get_preset_draft', ['string', 'string'], ['printer', u1]));
-must(request('orc_mutate_preset_draft', { action: 'set', kind: 'printer', canonical_name: u1, expected_revision: source.revision, key: 'support_multi_bed_types', value: '1' }));
+must(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'printer', canonical_name: u1, expected_revision: source.revision, key: 'support_multi_bed_types', value: '1' }));
 transition(u1, 'Engineering Plate');
 must(call('orc_add_shape', ['string', 'string'], ['Cube', 'Remembered bed project priority']));
 const plate = must(call('orc_get_plate_session_snapshot')).current_plate_id;
 const filament = must(call('orc_get_filament_session_snapshot')).slots[0].preset.name;
 for (const [key, value] of Object.entries({ hot_plate_temp_initial_layer: '58', hot_plate_temp: '51', textured_plate_temp_initial_layer: '67', textured_plate_temp: '62' })) {
   const draft = must(call('orc_get_preset_draft', ['string', 'string'], ['filament', filament]));
-  must(request('orc_mutate_preset_draft', { action: 'set', kind: 'filament', canonical_name: filament, expected_revision: draft.revision, key, value }));
+  must(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'filament', canonical_name: filament, expected_revision: draft.revision, key, value }));
 }
 async function sliceBed(bed) {
   must(setNativeScopedConfig(call, 'project', undefined, 'curr_bed_type', bed));

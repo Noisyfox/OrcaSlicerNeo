@@ -2,6 +2,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createDesktopUserPresetStorage } from './userPresetStorage';
 import { startSlicerHost } from '../../../../packages/slicer-runtime/src/slicer/workerHost';
 import type { OrcaModule, WorkerMessage } from '../../../../packages/slicer-wasm/src/client';
 
@@ -18,6 +19,7 @@ const assets = (import.meta.env.DEV
   : join(__dirname, '../renderer')).replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
 
 startSlicerHost({
+  userPresets: createDesktopUserPresetStorage(workerData.userPresetDirectory),
   threaded: typeof SharedArrayBuffer === 'function' && typeof Atomics === 'object',
   nativeTemporaryDirectory: temporaryDirectory,
   async load(variant) {

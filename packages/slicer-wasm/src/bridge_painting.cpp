@@ -12,6 +12,7 @@
 #include "bridge_filament.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
+#include "bridge_user_presets.hpp"
 
 namespace {
 using namespace Slic3r::Neo::Bridge;
@@ -527,6 +528,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
                 context["plateSession"]["input_revisions"] = PlateSession::plate_revisions_json();
                 auto after = HistoryMetadata::capture_history_roots(state(), context);
                 Sessions::complete(*candidate);
+                const bool had_redo = state().history.can_redo();
                 if (!state().history.commit_operation(after, nullptr, [&](const auto& history) {
                     auto result = receipt(*candidate);
                     result["committed"] = true; result["changedPartIds"] = changed;
@@ -540,6 +542,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
                 started = false;
                 state().history_live_context.swap(context);
                 HistoryMetadata::advance_history_epoch(state());
+                UserPresets::collect_discarded_redo_snapshots(had_redo);
                 // MMU and support painting affect material/support use. Seam
                 // and fuzzy alter slicing but retain material-use summaries.
                 // Evict only after the history response has been prepared, so

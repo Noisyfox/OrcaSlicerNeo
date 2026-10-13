@@ -19,10 +19,11 @@ import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
+import { historyContextForStructure, projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
 import { loadRememberedFilamentRackFromRepository, publishRememberedFilamentRack, loadRememberedBedTypeFromRepository, publishRememberedBedType } from '@/preferences';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import { PresetCombobox, type PresetComboItem } from '../PresetCombobox';
+import { UserPresetActions } from './UserPresetActions';
 import type { PrinterTransitionSuccess } from '@orca/slicer-runtime';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 
@@ -39,6 +40,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   const printerPicker = useSettingsStore((s) => s.printerPicker);
   const nozzleDiameter = useSettingsStore((s) => s.values.nozzle_diameter);
   const nozzleVolumeType = useSettingsStore((s) => s.values.nozzle_volume_type);
+  const printers = useSettingsStore((s) => s.printers);
   const prints = useSettingsStore((s) => s.prints);
   const selectedPrinter = useSettingsStore((s) => s.selectedPrinter);
   const printerModified = useSettingsStore((s) => s.modifiedPresets.printer.includes(s.selectedPrinter));
@@ -82,7 +84,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
     setPresetTransitionPending(true);
     try {
       await runProjectMutationOperation(async () => {
-        const transition = await platform.runtime.setToolheadDiameter(activeToolhead, Number(value), history.revision);
+        const transition = await platform.runtime.setToolheadDiameter(activeToolhead, Number(value), history.revision,
+          historyContextForStructure(sceneInteraction));
         if (!transition.ok) throw new Error(transition.error);
         publishPrinterTransition(transition);
         await rememberPrinterTransition(transition);
@@ -125,10 +128,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
           print: transition.profileSnapshot.print.name,
         };
         project.setProject(project.scope === 'project'
-          ? { projectPresets: selections, dirty: status.dirty, dirtyReasons: [],
-              plateInputRevisions: transition.plateSession.inputRevisions ?? {} }
-          : { systemPresets: selections, dirty: status.dirty, dirtyReasons: [],
-              plateInputRevisions: transition.plateSession.inputRevisions ?? {} });
+          ? { projectPresets: selections } : { systemPresets: selections });
         invalidateAfterSharedConfigurationMutation(
           transition.mutation.affectedPlateIds, platform.runtime,
           transition.mutation.allPlateResultsInvalidated,
@@ -173,7 +173,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             platform.preferences, name,
           );
           const rememberedBed = await loadRememberedBedTypeFromRepository(platform.preferences, name);
-          const transition = await platform.runtime.selectPrinterWithRememberedRack(name, rememberedRack, rememberedBed);
+          const transition = await platform.runtime.selectPrinterWithRememberedRack(name, rememberedRack, rememberedBed,
+            historyContextForStructure(sceneInteraction));
           if (!transition.ok) throw new Error(transition.error ?? 'Printer transition failed');
 
           publishPrinterTransition(transition);
@@ -242,7 +243,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
               compact
               label="Printer"
               modified={printerModified}
-              items={printerPicker.items.map(item => ({ id: item.id, name: item.preset, label: item.label }))}
+              items={printerPicker.items.map(item => ({ id: item.id, name: item.preset, label: item.label, isProjectEmbedded: printers.find(preset => preset.name === item.preset)?.is_project_embedded === true, isUser: printers.find(preset => preset.name === item.preset)?.is_user === true }))}
               value={printerPicker.selectedId}
               onValue={(id) => {
                 const target = printerPicker.items.find(item => item.id === id);
@@ -355,7 +356,11 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
       <ScopedConfigurationPanel
         bedTypeDisabled={controlsDisabled}
         sceneInteraction={sceneInteraction}
-        projectContent={<PresetRow compact modified={false} label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />}
+        projectContent={<div className="flex min-w-0 items-center gap-1">
+          <PresetRow compact modified={false} label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label, isProjectEmbedded: preset.is_project_embedded, isUser: preset.is_user }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />
+          <UserPresetActions kind="print" canonicalName={selectedPrint} sceneInteraction={sceneInteraction}
+            disabled={controlsDisabled} onPendingChange={setPresetTransitionPending} />
+        </div>}
         scopedContent={<ObjectList sceneInteraction={sceneInteraction} />}
         platesContent={platesContent}
         platesToolbar={sceneInteraction && <PlateToolbar sceneInteraction={sceneInteraction} />}
@@ -382,7 +387,7 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
   testId?: string;
 }) {
   if (items.length === 0) return null;
-  return <div className={cn(compact ? "min-w-0" : "flex flex-col gap-1 py-1")}>
+  return <div className={cn(compact ? "min-w-0 flex-1" : "flex flex-col gap-1 py-1")}>
     <Label className={compact ? "sr-only" : "text-xs text-muted-foreground"}>{label}</Label>
     <PresetCombobox items={items} value={value} onValue={onValue} disabled={disabled} modified={modified}
       ariaLabel={label} testId={testId} searchPlaceholder="Search presets…" emptyText="No matching presets"

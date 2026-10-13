@@ -30,6 +30,7 @@
 #include "bridge_scoped_config.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_preset_drafts.hpp"
+#include "bridge_user_presets.hpp"
 #include "bridge_profiles.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "history/InstanceIdentity.hpp"
@@ -537,7 +538,7 @@ json restore_timestamped_result(const Runtime& runtime,
         Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
         profile_selection_changed = before_printer_name != bundle.printers.get_selected_preset_name() ||
             before_print_name != bundle.prints.get_selected_preset_name();
-        if (profile_selection_changed || preset_drafts_changed)
+        if (profile_selection_changed || preset_drafts_changed || filament_changed)
             restored_profile_snapshot = Neo::Bridge::Profiles::preset_snapshot_json();
         // A history restore publishes only the plates whose native input
         // changed. Project/filament roots fan out to every plate; model
@@ -815,7 +816,7 @@ json restore_timestamped_result(const Runtime& runtime,
                                 {"presetDrafts", preset_drafts_changed},
                                 {"profileSelection", profile_selection_changed},
                                 {"primeTower", true}, {"preview", "all"}}}};
-        if (profile_selection_changed || preset_drafts_changed)
+        if (profile_selection_changed || preset_drafts_changed || filament_changed)
             result["profile_snapshot"] = std::move(restored_profile_snapshot);
         Neo::Bridge::Performance::record("history_restore", {
             {"model_staging_deserialization", restore_timings.model_staging_deserialization_ms},
@@ -1674,10 +1675,12 @@ bool commit_timestamped_operation(BridgeState& state, const json& after_context)
     auto painting = state.painting.prepare_reconcile(state.model);
     auto context = after_context;
     auto successor = capture_history_roots(state, context);
+    const bool had_redo = state.history.can_redo();
     if (!state.history.commit_operation(successor)) return false;
     if (painting) state.painting.publish(std::move(painting));
     state.history_live_context.swap(context);
     advance_history_epoch(state);
+    UserPresets::collect_discarded_redo_snapshots(had_redo);
     return true;
 }
 
@@ -1902,6 +1905,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const double commit_started_at = Neo::Bridge::Performance::now_ms();
         Neo::History::SceneDelta committed_delta;
         auto painting = state().painting.prepare_reconcile(state().model);
+        const bool had_redo = state().history.can_redo();
         if (!state().history.commit_operation(after_roots, &committed_delta)) return error_json("history commit rejected");
         if (painting) state().painting.publish(std::move(painting));
         HistoryMetadata::advance_history_epoch(state());
@@ -1912,6 +1916,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const double commit_finished_at = Neo::Bridge::Performance::now_ms();
         state().active_history_transaction.reset();
         state().nested_history_transactions.clear();
+        UserPresets::collect_discarded_redo_snapshots(had_redo);
         Neo::Bridge::Performance::Timings commit_stages{
             {"history_store", commit_finished_at - commit_started_at},
             {"total", Neo::Bridge::Performance::now_ms() - profile_started_at},
@@ -2182,6 +2187,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_session_close(const char* request_j
         Neo::Bridge::PaintingBridge::settle_dependencies();
         OwnedJsonResponse response(nullptr, &std::free);
         const std::uint64_t next_revision = state().history_revision + 1;
+        const bool had_redo = state().history.can_redo();
         if (!state().history.close_editing_session(session_id, std::move(label),
             [&](const History::TimestampedHistory& candidate) {
                 response = prepare_json_response(json{{"ok", true},
@@ -2191,6 +2197,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_session_close(const char* request_j
 
         state().painting.reset();
         HistoryMetadata::advance_history_epoch(state());
+        UserPresets::collect_discarded_redo_snapshots(had_redo);
         return response.release();
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }

@@ -6,8 +6,11 @@ import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-cont
 import type { ClientSliceResult } from '@slicer/client';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { StatusBar } from '@/components/layout/StatusBar';
 import { useSliceResult, type ToolpathGeometry } from './useSliceResult';
 import { lastMovePosition } from './previewSemantics';
+
+vi.mock('@/components/layout/MemoryIndicator', () => ({ MemoryIndicator: () => null }));
 
 function PreviewProbe({ enabled = true, onToolpath }: {
   enabled?: boolean;
@@ -17,7 +20,7 @@ function PreviewProbe({ enabled = true, onToolpath }: {
   useEffect(() => {
     if (toolpath) onToolpath?.(toolpath);
   }, [onToolpath, toolpath]);
-  return <output data-testid="projection-status">{projectionStatus}</output>;
+  return <><StatusBar /><output data-testid="projection-status">{projectionStatus}</output></>;
 }
 
 const receipt = { plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '17' };
@@ -76,8 +79,8 @@ describe('useSliceResult', () => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
     useSlicerStore.setState({
-      status: 'idle', progress: 0, layers: 0, error: null, resultExported: false,
-      sliceTarget: null, plateResults: {}, activeSliceTarget: null, layer: 0, maxLayer: 0,
+      status: 'idle', progress: 0, error: null, resultExported: false,
+      sliceTarget: null, plateResults: {}, activeSliceTarget: null, layer: 0, maxLayer: -1,
     });
     usePlateSessionStore.getState().reset();
   });
@@ -99,6 +102,50 @@ describe('useSliceResult', () => {
     });
     expect(container.querySelector('[data-testid="projection-status"]')?.textContent).toBe('needs-slicing');
     expect(runtime.getSliceResult).not.toHaveBeenCalled();
+    expect(container.textContent).not.toMatch(/\d+ layers/);
+  });
+
+  it.each([0, 1, 4])('displays the loaded %i-layer result and clears its count with the projection', async (layers) => {
+    const result = arcSliceResult();
+    result.layers = layers;
+    if (layers === 0) {
+      result.toolpath = {
+        ...result.toolpath, segmentCount: 0,
+        starts: new Float32Array(), ends: new Float32Array(), layerIds: new Uint32Array(),
+        moveOrders: new Uint32Array(), gcodeIds: new Uint32Array(), features: new Uint32Array(),
+        moveTypes: new Uint8Array(), extrusionRoles: new Uint16Array(), extruderIds: new Uint8Array(),
+        colorPrintIds: new Uint8Array(), widths: new Float32Array(), heights: new Float32Array(),
+      };
+      result.metadata.layerRanges = [];
+    } else {
+      result.toolpath.layerIds.fill(layers - 1);
+      result.metadata.layerRanges[0].id = layers - 1;
+    }
+    let resolveResult!: (value: ClientSliceResult) => void;
+    const runtime = { getSliceResult: vi.fn(() => new Promise<ClientSliceResult>((resolve) => { resolveResult = resolve; })) };
+    const platform = { runtime, chrome: { kind: 'desktop' } } as unknown as PlatformCapabilities;
+    usePlateSessionStore.getState().setSnapshot({
+      instances: [], ok: true, version: 1, currentPlateId: 'plate-1',
+      plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
+      inputRevisions: { 'plate-1': 1 },
+    });
+    useSlicerStore.getState().setPlateResult(receipt, [], {});
+    useSlicerStore.getState().activatePlateResult('plate-1', 1);
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><PreviewProbe /></PlatformProvider>); });
+    expect(container.querySelector('[data-testid="projection-status"]')?.textContent).toBe('loading');
+    expect(container.textContent).not.toMatch(/\d+ layers/);
+
+    await act(async () => { resolveResult(result); });
+    expect(container.querySelector('[data-testid="projection-status"]')?.textContent).toBe('ready');
+    if (layers > 0) expect(container.textContent).toContain(`${layers} layers`);
+    else expect(container.textContent).not.toMatch(/\d+ layers/);
+    expect(useSlicerStore.getState().layer).toBe(Math.max(0, layers - 1));
+
+    await act(async () => { useSlicerStore.getState().clearPlateResults(); });
+    expect(container.textContent).not.toMatch(/\d+ layers/);
   });
 
   it('reloads restored availability only when the user re-enters Preview', async () => {
@@ -136,6 +183,7 @@ describe('useSliceResult', () => {
 
     expect(container.querySelector('[data-testid="projection-status"]')?.textContent).toBe('needs-slicing');
     expect(runtime.getSliceResult).toHaveBeenCalledTimes(1);
+    expect(container.textContent).not.toMatch(/\d+ layers/);
 
     await act(async () => {
       root?.render(<PlatformProvider value={platform}><PreviewProbe /></PlatformProvider>);
@@ -194,6 +242,7 @@ describe('useSliceResult', () => {
     });
 
     expect(useSlicerStore.getState()).toMatchObject({ status: 'done', error: null });
+    expect(container.textContent).not.toMatch(/\d+ layers/);
     expect(runtime.getSliceResult).toHaveBeenCalledWith(receipt);
     expect(consoleError).toHaveBeenCalled();
   });
@@ -275,6 +324,7 @@ describe('useSliceResult', () => {
       root?.render(<PlatformProvider value={platform}><PreviewProbe onToolpath={onToolpath} /></PlatformProvider>);
     });
     await vi.waitFor(() => expect(runtime.getSliceResult).toHaveBeenCalledWith(oldReceipt));
+    expect(container.textContent).not.toMatch(/\d+ layers/);
 
     await act(async () => {
       usePlateSessionStore.getState().setSnapshot(plate('plate-2'));
@@ -282,6 +332,7 @@ describe('useSliceResult', () => {
     });
     await vi.waitFor(() => expect(onToolpath).toHaveBeenCalledOnce());
     expect(onToolpath.mock.lastCall?.[0].ends.at(-3)).toBe(99);
+    expect(container.textContent).toContain('1 layers');
 
     await act(async () => { resolveOld(arcSliceResult(oldReceipt, 7)); });
     expect(onToolpath).toHaveBeenCalledOnce();

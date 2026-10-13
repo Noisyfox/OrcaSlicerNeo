@@ -6,19 +6,18 @@ import {
   type MutationOutcome,
 } from './actions';
 import { runProjectHistoryMutation } from '../actions/historyMutation';
-import type { PlateSessionMutation } from '@slicer/client';
+import type { ModelMutationResult } from '@slicer/client';
 
-type StructuralMutation = { ok: boolean; error?: string; plateSession?: PlateSessionMutation };
+type StructuralMutation = ModelMutationResult;
 
 async function runStructuralHistory(
   runtime: SlicerRuntime,
   label: string,
   mutation: () => Promise<StructuralMutation>,
-  dirtyReason: 'model-delete' | 'model-structure' = 'model-structure',
 ): Promise<StructuralMutation> {
   const history = await runProjectHistoryMutation(runtime, label, mutation, null, {
     publish: async (result) => {
-      if (result.ok) await refreshAfterModelMutation(runtime, result.plateSession, dirtyReason);
+      if (result.ok) await refreshAfterModelMutation(runtime, result.plateSession);
     },
   });
   return history.result;
@@ -30,7 +29,7 @@ export async function deleteObjectsInList(runtime: SlicerRuntime, objectIds: num
   if (!await beforePaintingTopologyChange({ objects: objectIds })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
-  const r = await runStructuralHistory(runtime, 'Delete Objects', () => runtime.deleteObjects(objectIds), 'model-delete');
+  const r = await runStructuralHistory(runtime, 'Delete Objects', () => runtime.deleteObjects(objectIds));
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true };
 }
@@ -39,7 +38,7 @@ export async function deleteVolumeInList(runtime: SlicerRuntime, volumeId: numbe
   if (!await beforePaintingTopologyChange({ parts: [volumeId] })) return { ok: false };
   const prepared = await prepareObjectListMutation();
   if (!prepared.ok) return prepared;
-  const r = await runStructuralHistory(runtime, 'Delete Part', () => runtime.deleteVolumes([volumeId]), 'model-delete');
+  const r = await runStructuralHistory(runtime, 'Delete Part', () => runtime.deleteVolumes([volumeId]));
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true };
 }

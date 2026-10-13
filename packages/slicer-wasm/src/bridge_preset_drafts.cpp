@@ -23,6 +23,7 @@
 #include "bridge_plate.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_profiles.hpp"
+#include "bridge_user_presets.hpp"
 #include "bridge_scoped_config.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -333,14 +334,18 @@ json editor_candidates_json(const Preset::Type type, const std::string& canonica
     const auto printer_profile = bundle.printers.get_preset_with_vendor_profile(printer);
     json candidates = json::array();
     for (const Preset& preset : collection.get_presets()) {
+        if (!UserPresets::picker_visible(preset) && preset.name != canonical_name) continue;
         if ((!preset.is_visible || preset.is_default) && preset.name != canonical_name) continue;
         if (type == Preset::TYPE_PRINTER && preset.printer_technology() != ptFFF) continue;
         const auto* overrides = state().preset_drafts.find(type, preset.name);
         const bool compatible = type == Preset::TYPE_PRINTER || is_compatible_with_printer(
             collection.get_preset_with_vendor_profile(preset), printer_profile);
         candidates.push_back(json{{"canonical_name", preset.name},
-            {"label", type == Preset::TYPE_PRINTER ? preset.name : Profiles::preset_display_label(preset)},
-            {"compatible", compatible}, {"modified", overrides != nullptr && !overrides->empty()}});
+            {"is_user", UserPresets::picker_is_user(preset)},
+            {"is_project_embedded", UserPresets::picker_is_project_embedded(preset)},
+            {"label", UserPresets::is_snapshot(type, preset.name) ? Profiles::preset_display_label(preset) : preset.name},
+            {"compatible", compatible}, {"modified", (overrides || UserPresets::is_snapshot(type, preset.name)) && UserPresets::modified(type, preset.name,
+                effective_preset_config(bundle, state().preset_drafts, type, preset.name))}});
     }
     std::stable_sort(candidates.begin(), candidates.end(), [](const json& a, const json& b) {
         if (a.at("compatible") != b.at("compatible")) return a.at("compatible").get<bool>();
@@ -351,6 +356,8 @@ json editor_candidates_json(const Preset::Type type, const std::string& canonica
 
 json get_draft_json(const Preset::Type type, const std::string& canonical_name)
 {
+    const auto visible_name = UserPresets::view_name(type, canonical_name);
+    if (visible_name != canonical_name) return get_draft_json(type, visible_name);
     const Preset* source = find_preset_source(state().presets, type, canonical_name);
     if (source == nullptr)
         return json{{"ok", false}, {"error_code", "preset_not_found"},
@@ -359,7 +366,7 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
     Preset effective = *source;
     apply_draft(effective, state().preset_drafts);
     const auto* overrides = state().preset_drafts.find(type, canonical_name);
-    const json override_values = overrides == nullptr ? json::object() : json(*overrides);
+    json override_values = overrides == nullptr ? json::object() : json(*overrides);
     const json& all_metadata = Profiles::option_metadata_json();
     json source_metadata = json::object();
     const auto& collection = type == Preset::TYPE_PRINTER ? state().presets.printers : state().presets.filaments;
@@ -372,14 +379,31 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
                 if (const ConfigOption* option = parent->config.option(key))
                     source_metadata[key]["tooltip_default"] = option->serialize();
         }
-    editor_vectors = ConfigElements::vectors_json(source->config, effective.config, type, override_values);
+    const auto* baseline = UserPresets::baseline(type, canonical_name);
+    const auto& baseline_config = baseline ? baseline->config : source->config;
+    if (UserPresets::is_snapshot(type, canonical_name) ||
+        (!source->is_system && !source->is_default && !source->is_external)) {
+        override_values = json::object();
+        for (const auto& key : effective.config.diff(baseline_config)) {
+            if (key == "inherits" || key == "printer_settings_id" || key == "filament_settings_id") continue;
+            auto values = ConfigElements::explicit_values(effective.config, type, key);
+            if (values.is_array()) {
+                const auto saved = ConfigElements::explicit_values(baseline_config, type, key, values.size());
+                for (size_t i = 0; i < values.size(); ++i)
+                    if (values[i] == saved[i]) values[i] = nullptr;
+                if (!ConfigElements::has_override(values)) continue;
+            }
+            override_values[key] = std::move(values);
+        }
+    }
+    editor_vectors = ConfigElements::vectors_json(baseline_config, effective.config, type, override_values);
     return json{{"ok", true}, {"kind", kind_name(type)},
                 {"canonical_name", source->name},
-                {"draft_exists", overrides != nullptr},
-                {"modified", overrides != nullptr && !overrides->empty()},
+                {"draft_exists", overrides != nullptr || UserPresets::is_snapshot(type, canonical_name)},
+                {"modified", UserPresets::modified(type, canonical_name, effective.config)},
                 {"editor_candidates", editor_candidates_json(type, canonical_name)},
                 {"overrides", override_values},
-                {"source_values", config_values_json(source->config)},
+                {"source_values", config_values_json(baseline_config)},
                 {"effective_values", config_values_json(effective.config)},
                 {"option_metadata", std::move(source_metadata)},
                 {"editor_vectors", std::move(editor_vectors)},
@@ -410,6 +434,8 @@ json mutate_draft_json(const json& request)
 {
     if (!request.is_object())
         return command_error("invalid_request", "invalid preset draft request");
+    const auto editing_context = HistoryMetadata::parse_history_context(
+        request.at("history_context").dump().c_str());
     if (state().active_history_transaction)
         return command_error("history_transaction_active", "preset draft command cannot run inside another history transaction");
     if (state().history_disabled)
@@ -432,6 +458,8 @@ json mutate_draft_json(const json& request)
     const Preset* source = find_preset_source(state().presets, type, canonical_name);
     if (source == nullptr)
         return command_error("preset_not_found", "preset not found: " + canonical_name);
+    const auto* saved_baseline = UserPresets::baseline(type, canonical_name);
+    const auto& baseline_config = saved_baseline ? saved_baseline->config : source->config;
 
     std::string key;
     json override_value;
@@ -503,13 +531,21 @@ json mutate_draft_json(const json& request)
         for (const auto& reset_key : keys) {
             const auto* overrides = state().preset_drafts.find(type, canonical_name);
             const json current = overrides && overrides->count(reset_key) ? overrides->at(reset_key) : json(nullptr);
-            const auto result = ConfigElements::reset_override(effective, source->config, type, reset_key, current, index);
+            const auto result = ConfigElements::reset_override(effective, baseline_config, type, reset_key, current, index);
             if (result.is_object()) return result;
-            indexed_resets[reset_key] = result;
+            // Snapshot overrides are stored relative to the frozen source,
+            // while Reset reads the latest saved head. Preserve the other
+            // elements instead of turning a cleared override into a full reset.
+            indexed_resets[reset_key] = UserPresets::is_snapshot(type, canonical_name)
+                ? ConfigElements::explicit_values(effective, type, reset_key) : result;
         }
     }
 
     const auto before_drafts = state().preset_drafts;
+    const auto before_printer_name = state().presets.printers.get_selected_preset_name();
+    const auto before_filament_names = state().presets.filament_presets;
+    const auto before_filament_name = state().presets.filaments.get_selected_preset_name();
+    std::string result_name = canonical_name;
     const auto before_bed_capabilities = type == Preset::TYPE_PRINTER &&
         canonical_name == state().presets.printers.get_selected_preset_name()
         ? std::optional<Profiles::BedTypeCapabilities>{Profiles::selected_printer_bed_type_capabilities()}
@@ -527,8 +563,8 @@ json mutate_draft_json(const json& request)
     const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
     const auto before_live_context = state().history_live_context;
     const std::uint64_t revision_before = state().history_revision;
-    const auto before_context = HistoryMetadata::default_history_context(
-        state(), PlateSession::plate_session_snapshot_json(),
+    const auto before_context = HistoryMetadata::canonical_history_context(
+        state(), editing_context, PlateSession::plate_session_snapshot_json(),
         Filament::State::history_state_json(state().presets));
     if (!HistoryMetadata::begin_timestamped_operation(state(), "Edit " + canonical_name, before_context))
         return command_error("native_validation_failure", "could not capture preset draft history predecessor");
@@ -543,6 +579,9 @@ json mutate_draft_json(const json& request)
         }
         if (!mutated) return;
         state().preset_drafts = before_drafts;
+        state().presets.printers.select_preset_by_name(before_printer_name, true);
+        state().presets.filaments.select_preset_by_name(before_filament_name, true);
+        state().presets.filament_presets = before_filament_names;
         state().preset_draft_revision = before_draft_revision;
         state().presets.project_config = before_project_config;
         state().model = before_model;
@@ -571,14 +610,29 @@ json mutate_draft_json(const json& request)
                 const auto found = indexed_resets.find(reset_key);
                 if (found != indexed_resets.end() && !found->second.is_null())
                     state().preset_drafts.set(type, canonical_name, reset_key, found->second);
+                else if (UserPresets::is_snapshot(type, canonical_name))
+                    state().preset_drafts.set(type, canonical_name, reset_key,
+                        ConfigElements::explicit_values(baseline_config, type, reset_key));
                 else state().preset_drafts.erase_field(type, canonical_name, reset_key);
             }
-        else if (action == "reset-preset")
+        else if (action == "reset-preset") {
             state().preset_drafts.erase_preset(type, canonical_name);
+            if (UserPresets::is_snapshot(type, canonical_name) && saved_baseline) {
+                if (!UserPresets::deleted(type, canonical_name) && saved_baseline->name != canonical_name &&
+                    find_preset_source(state().presets, type, saved_baseline->name) == saved_baseline) {
+                    result_name = saved_baseline->name;
+                    UserPresets::adopt(type, canonical_name, result_name);
+                    state().preset_drafts.erase_preset(type, result_name);
+                } else for (const auto& key : baseline_config.diff(source->config))
+                    if (key != "inherits" && key != "printer_settings_id" && key != "filament_settings_id")
+                        state().preset_drafts.set(type, canonical_name, key,
+                            ConfigElements::explicit_values(baseline_config, type, key));
+            }
+        }
 
         // Material drafts feed the native minimum-flush calculation. Rebuild
         // the project-owned matrix before the common all-plate mutation path.
-        const bool refresh_geometry = geometry_inputs_changed(
+        const bool refresh_geometry = result_name != canonical_name || geometry_inputs_changed(
             before_drafts.find(type, canonical_name), state().preset_drafts.find(type, canonical_name));
         auto& bundle = state().presets;
         if (refresh_geometry && (type == Preset::TYPE_FILAMENT || type == Preset::TYPE_PRINTER) &&
@@ -601,15 +655,16 @@ json mutate_draft_json(const json& request)
             : PlateSession::configuration_mutation_snapshot(
                 PlateSession::all_plate_ids(), {"shared-configuration"}, json::array());
         ++state().preset_draft_revision;
-        json after_context = HistoryMetadata::default_history_context(
-            state(), plate_session, Filament::State::history_state_json(state().presets));
+        json after_context = HistoryMetadata::canonical_history_context(
+            state(), editing_context, plate_session,
+            Filament::State::history_state_json(state().presets));
         after_context["presetDraftRegistry"] = state().preset_drafts.snapshot_json();
         after_context["presetDraftRevision"] = state().preset_draft_revision;
 
         // Stage every snapshot that can fail before the history commit. The
         // reply then publishes the exact committed revision without leaving a
         // mutation behind if snapshot construction rejects native state.
-        json result = get_draft_json(type, canonical_name);
+        json result = get_draft_json(type, result_name);
         if (!result.value("ok", false))
             throw std::runtime_error("committed preset draft could not be read back");
         const json native_config = ScopedConfig::native_scoped_config_full_transport(revision_before + 1);
@@ -682,6 +737,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_preset_draft(const char* request_cst
     using namespace Slic3r::Neo::Bridge;
     try {
         const json request = request_cstr && *request_cstr ? json::parse(request_cstr) : json::object();
+        const auto editing_context = HistoryMetadata::parse_history_context(
+            request.at("history_context").dump().c_str());
         // Reuse the toolhead transaction for editor diameter changes. Its
         // internal draft write calls mutate_draft_json directly, avoiding recursion.
         if (request.value("kind", "") == "printer" && request.value("action", "") == "set-element" &&
@@ -692,7 +749,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_preset_draft(const char* request_cst
             const auto* nozzles = config.opt<ConfigOptionFloats>("nozzle_diameter");
             if (nozzles && nozzles->size() > 1) {
                 auto transition = Profiles::set_toolhead_diameter_json({{"index", request["index"]},
-                    {"diameter", request["value"]}, {"expected_revision", request.value("expected_revision", json())}});
+                    {"diameter", request["value"]}, {"expected_revision", request.value("expected_revision", json())},
+                    {"history_context", editing_context}});
                 if (!transition.value("ok", false) || transition.contains("canonical_name"))
                     return duplicate_json(transition.dump());
                 auto result = PresetDrafts::get_draft_json(Preset::TYPE_PRINTER,

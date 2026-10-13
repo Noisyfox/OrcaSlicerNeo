@@ -8,7 +8,7 @@ import { TooltipFor } from '@/components/ui/tooltip';
 export function StatusBar() {
   const status = useSlicerStore((s) => s.status);
   const progress = useSlicerStore((s) => s.progress);
-  const layers = useSlicerStore((s) => s.layers);
+  const layers = useSlicerStore((s) => Math.max(0, s.maxLayer + 1));
   const error = useSlicerStore((s) => s.error);
   const platform = usePlatform();
 

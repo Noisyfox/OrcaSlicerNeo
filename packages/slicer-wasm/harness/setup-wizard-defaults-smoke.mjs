@@ -4,6 +4,8 @@ import { loadModuleFactory } from './run-slice.mjs';
 import { installProfilePackages, createNodeProfileSource } from './profile-installer.mjs';
 import { callAsyncTask, exportGcode } from './async-task-mailbox.mjs';
 
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 if (!process.argv[2]) throw new Error('usage: node setup-wizard-defaults-smoke.mjs <module.js>');
 const factory = await loadModuleFactory(resolve(process.argv[2]));
 const Module = await factory({ noInitialRun: true, print: () => {}, printErr: () => {} });
@@ -38,7 +40,7 @@ async function slice() {
 const activation = { models: [{ vendor: 'Creality', model: 'Creality Ender-3', nozzle_diameter: ['0.2', '0.4', '0.6', '0.8'] }],
   filaments: ['Generic PLA @System'] };
 init(activation);
-must(call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({ printer: 'Creality Ender-3 0.2 nozzle', remembered_rack: null, remembered_bed_type: null })]));
+must(call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({ history_context: editingContext, printer: 'Creality Ender-3 0.2 nozzle', remembered_rack: null, remembered_bed_type: null })]));
 const direct = summary(); must(call('orc_add_shape', ['string', 'string'], ['Cube', 'Default comparison']));
 const directSlice = await slice();
 init(null); must(call('orc_open_setup_wizard_catalogue'));
@@ -52,7 +54,7 @@ const wizardSlice = await slice();
 assert.deepEqual(wizard, direct, 'wizard and ordinary selection must produce the same native effective defaults');
 assert.equal(wizardSlice.error, directSlice.error);
 assert.equal(wizardSlice.error, 'Line width too small');
-must(call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({ printer: 'Creality Ender-3 0.4 nozzle', remembered_rack: null, remembered_bed_type: null })]));
+must(call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({ history_context: editingContext, printer: 'Creality Ender-3 0.4 nozzle', remembered_rack: null, remembered_bed_type: null })]));
 const usable = summary(), sliced = must(await slice());
 const exported = must(exportGcode(call, { receipt: sliced.receipt, filenameBase: '' }));
 const gcode = FS.readFile(exported.path, { encoding: 'utf8' });

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { join } from 'node:path';
 import type { BrowserWindow } from 'electron';
 
 const mocks = vi.hoisted(() => ({ fork: vi.fn(), temporaryDirectory: vi.fn(), ipc: undefined as unknown }));
@@ -7,6 +8,7 @@ vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   mocks.ipc = new EventEmitter();
   return {
+    app: { getPath: () => 'C:\\OrcaNeoUserData' },
     ipcMain: mocks.ipc,
     utilityProcess: { fork: mocks.fork },
     MessageChannelMain: class { port1 = {}; port2 = {}; },
@@ -54,7 +56,7 @@ describe('window-owned slicer process', () => {
     expect(children).toHaveLength(1);
     expect(children[0].postMessage).toHaveBeenCalledOnce();
     expect(children[0].postMessage).toHaveBeenCalledWith(
-      { type: 'connect', temporaryDirectory: directories[0].path }, [expect.any(Object)],
+      { type: 'connect', temporaryDirectory: directories[0].path, userPresetDirectory: join('C:\\OrcaNeoUserData', 'user', 'default') }, [expect.any(Object)],
     );
     expect(frame.postMessage).toHaveBeenCalledWith(Ipc.slicerPort, null, [expect.any(Object)]);
     expect(directories[0].remove).not.toHaveBeenCalled();

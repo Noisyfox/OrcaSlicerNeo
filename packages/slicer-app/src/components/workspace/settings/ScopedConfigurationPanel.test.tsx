@@ -277,7 +277,9 @@ describe('scoped field drafts', () => {
     expect(container.querySelector('[data-testid="config-option-label-layer_height"]')).toBeNull();
     expect(button('config-category-toggle-Quality / Layer height').getAttribute('data-local-override-highlight')).toBe('true');
     expect(await resetDisabled('Quality / Layer height', 'Quality')).toBe(false);
-    await act(async () => useSettingsStore.setState({ nativeScopedConfig: {
+    // A historical preset identity alone cannot enable Reset All. Native
+    // project overrides contain only actual differences from the saved head.
+    await act(async () => useSettingsStore.setState({ selectedPrint: 'P [snapshot 1]', nativeScopedConfig: {
       project: {}, plates: {}, parts: {}, objects: { '42': { wall_loops: '3' } },
     } }));
     expect(button('config-category-toggle-Quality / Layer height').getAttribute('data-local-override-highlight')).toBe('false');

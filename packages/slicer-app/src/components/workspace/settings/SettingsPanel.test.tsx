@@ -22,7 +22,7 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, con
 if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
 
 function preset(name: string, isVisible = true): PresetInfo {
-  return { name, label: name, vendor: '', is_visible: isVisible, is_default: false, vendor_id: '', model: '', variant: '', selected: false };
+  return { name, label: name, vendor: '', is_visible: isVisible, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: false };
 }
 
 const initialSnapshot: ProfileSnapshot = {
@@ -59,7 +59,7 @@ const resolvedSnapshot: ProfileSnapshot = {
 
 const resolvedRack: FilamentSessionSnapshot = {
   ok: true, version: 1,
-  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'Resolved Filament', name: 'Resolved Filament', label: 'Resolved Filament', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+  slots: [{ logicalId: 'filament-1', slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'Resolved Filament', name: 'Resolved Filament', label: 'Resolved Filament', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
   mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
   flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' },
   capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },
@@ -124,7 +124,7 @@ function resetStores() {
       configurationMode: 'project',
   });
   useSlicerStore.setState({
-    status: 'done', progress: 100, layers: 80, error: 'previous failure',
+    status: 'done', progress: 100, error: 'previous failure',
     resultExported: true, layer: 40, maxLayer: 79,
   });
 }
@@ -287,7 +287,7 @@ describe('SettingsPanel preset transitions', () => {
     await act(async () => (container.querySelector('[data-testid="preset-edit-printer"]') as HTMLElement).click());
     expect(edit).toHaveBeenCalledWith('Old Printer');
     await selectOption(container, 'preset-select', 'New Printer Model');
-    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', null, null);
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', null, null, expect.objectContaining({ gizmo: null }));
     expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('New Printer');
     expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.6');
   });
@@ -334,7 +334,7 @@ describe('SettingsPanel preset transitions', () => {
       option!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
       option!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
     });
-    expect(runtime.setToolheadDiameter).toHaveBeenCalledWith(1, 0.6, 0);
+    expect(runtime.setToolheadDiameter).toHaveBeenCalledWith(1, 0.6, 0, expect.objectContaining({ gizmo: null }));
     expect(useSettingsStore.getState().values.nozzle_diameter).toBe('0.4,0.6,0.4,0.4');
     expect(container.querySelector('[data-testid="toolhead-diameter-select"]')?.textContent).toContain('0.6');
   });
@@ -389,7 +389,7 @@ describe('SettingsPanel preset transitions', () => {
     for (const id of ['preset-select', 'nozzle-variant-select', 'process-preset-select', 'global-bed-type-select'])
       expect((container.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => { finish(printerTransition(profile)); await pending; });
-    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledExactlyOnceWith('Mixed Profile', null, null);
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledExactlyOnceWith('Mixed Profile', null, null, expect.objectContaining({ gizmo: null }));
     expect(runtime.selectProfile).not.toHaveBeenCalled();
     expect(preferences.selectedProfiles.printer).toBe('Mixed Profile');
     expect(useSettingsStore.getState().selectedPrinter).toBe('Mixed Profile');
@@ -578,13 +578,12 @@ describe('SettingsPanel preset transitions', () => {
     expect(useHistoryNavigationStore.getState().status).toMatchObject({ revision: 1, undoLabel: 'Select Printer' });
     expect(useProjectStore.getState()).toMatchObject({
       dirty: true,
-      dirtyReasons: [],
-      plateInputRevisions: { 'plate-1': 1 },
     });
+    expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-1': 1 });
     expect(slicerUpdates).toBe(1);
     expect(useSlicerStore.getState()).toMatchObject({
-      status: 'idle', progress: 0, layers: 0, error: null,
-      resultExported: false, layer: 0, maxLayer: 0,
+      status: 'idle', progress: 0, error: null,
+      resultExported: false, layer: 0, maxLayer: -1,
     });
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
       selectedProfiles: { printer: 'New Printer', print: 'Resolved Process' },
@@ -640,7 +639,7 @@ describe('SettingsPanel preset transitions', () => {
 
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', {
       version: 1, slots: [{ preset: 'Resolved Filament', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }],
-    }, 'Textured PEI Plate');
+    }, 'Textured PEI Plate', expect.objectContaining({ gizmo: null }));
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledOnce();
     expect(runtime.applyRememberedFilamentRack).not.toHaveBeenCalled();
     expect(runtime.markSharedConfigurationMutation).not.toHaveBeenCalled();

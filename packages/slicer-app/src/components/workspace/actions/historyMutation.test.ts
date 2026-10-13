@@ -61,7 +61,7 @@ describe('structural history transaction boundary', () => {
       instances: [],
       ok: true, version: 1, currentPlateId: 'plate-a', plates: [{ plateId: 'plate-a', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
     });
-    useProjectStore.getState().setProject({ dirty: false, dirtyReasons: [] });
+    useProjectStore.setState({ dirty: false });
     useHistoryNavigationStore.getState().reset();
   });
 
@@ -136,18 +136,18 @@ describe('structural history transaction boundary', () => {
   it('projects the Worker checkpoint after an aborted transaction', async () => {
     const runtime = {
       runProjectHistoryTransaction: vi.fn(async () => { throw new Error('mutation failed'); }),
-      getHistoryStatus: vi.fn(async () => ({ ...status, dirty: false, dirtyReasons: undefined })),
+      getHistoryStatus: vi.fn(async () => ({ ...status, dirty: false })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
       getModelScenePatch: vi.fn(),
     getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
       getPlateSessionSnapshot: vi.fn(async () => ({ instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
     };
-    useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
+    useProjectStore.setState({ dirty: true });
 
     const response = await runProjectHistoryMutation(runtime, 'Clear Scene', async () => ({ ok: true }));
 
     expect(response.result).toEqual({ ok: false, error: 'mutation failed' });
-    expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [] });
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false });
   });
 
   it('filters deleted stable IDs and reads the authoritative active plate for after-context', async () => {
@@ -200,7 +200,6 @@ describe('structural history transaction boundary', () => {
     const runtime = transactionRuntime();
     await syncHistoryStatus(runtime);
     expect(useProjectStore.getState().dirty).toBe(true);
-    expect(useProjectStore.getState().dirtyReasons).toEqual([]);
   });
 
   it('does not let a delayed older status overwrite an atomic move checkpoint', () => {

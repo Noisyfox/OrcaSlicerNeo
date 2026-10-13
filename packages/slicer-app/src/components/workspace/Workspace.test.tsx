@@ -164,7 +164,7 @@ describe('Workspace ownership', () => {
         version: 1 as const,
         kind,
         canonicalName: `${canonicalName} canonical`,
-        editorCandidates: [{ canonicalName, label: canonicalName, compatible: true, modified: false }],
+        editorCandidates: [{ canonicalName, label: canonicalName, isProjectEmbedded: false, isUser: false, compatible: true, modified: false }],
         draftExists: false,
         modified: false,
         overrides: {},
@@ -189,7 +189,7 @@ describe('Workspace ownership', () => {
     });
     expect(runtime.getPresetDraft).toHaveBeenCalledOnce();
     expect(document.querySelectorAll('[data-testid="preset-editor-dialog"]')).toHaveLength(1);
-    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A');
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A canonical');
 
     await act(async () => {
       (container.querySelector('[data-testid="mock-filament-edit"]') as HTMLButtonElement).click();
@@ -197,12 +197,12 @@ describe('Workspace ownership', () => {
     });
     expect(runtime.getPresetDraft).toHaveBeenCalledOnce();
     expect(document.querySelectorAll('[data-testid="preset-editor-dialog"]')).toHaveLength(1);
-    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A');
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A canonical');
   });
 
   it('browses Printer sources independently and retains the previous editor when a read fails', async () => {
     const candidates = ['Printer A', 'Printer B', 'Printer Broken'].map(canonicalName => ({
-      canonicalName, label: canonicalName, compatible: true, modified: false,
+      canonicalName, label: canonicalName, isProjectEmbedded: false, isUser: false, compatible: true, modified: false,
     }));
     const runtime = {
       getPresetDraft: vi.fn(async (kind: 'printer' | 'filament', canonicalName: string) => canonicalName === 'Printer Broken'
@@ -245,7 +245,7 @@ describe('Workspace ownership', () => {
       version: 1 as const,
       kind,
       canonicalName,
-      editorCandidates: [{ canonicalName, label: canonicalName, compatible: true, modified: revision === 1 }],
+      editorCandidates: [{ canonicalName, label: canonicalName, isProjectEmbedded: false, isUser: false, compatible: true, modified: revision === 1 }],
       draftExists: revision === 1,
       modified: revision === 1,
       overrides: revision === 1 ? { printable_height: height } : {},

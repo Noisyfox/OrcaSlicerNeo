@@ -9,6 +9,8 @@ import { promisify } from 'node:util';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 const moduleArg = process.argv[2];
 if (!moduleArg) throw new Error('usage: node harness/printer-picker-smoke.mjs <out/serial/orca_slice.js>');
 const root = await mkdtemp(join(tmpdir(), 'orca-printer-picker-'));
@@ -49,7 +51,7 @@ try {
   assert.equal(call('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
   const snapshot = () => call('orc_get_preset_snapshot');
   const select = name => {
-    const receipt = call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({
+    const receipt = call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({ history_context: editingContext,
       printer: name, remembered_rack: null, remembered_bed_type: null,
     })]);
     assert.equal(receipt.ok, true, JSON.stringify(receipt));
@@ -77,7 +79,7 @@ try {
   assert.equal(current.printer_picker.items.find(item => item.label === 'Compatibility Beta').preset,
     'Compatibility Beta 0.4 nozzle', 'missing named variant uses native name-ordered fallback');
   const before = snapshot();
-  const rejected = call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({
+  const rejected = call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({ history_context: editingContext,
     printer: 'missing', remembered_rack: null, remembered_bed_type: null,
   })]);
   assert.equal(rejected.ok, false);
@@ -85,7 +87,7 @@ try {
   current = select('Compatibility Alpha 0.4 nozzle');
   const draft = call('orc_get_preset_draft', ['string', 'string'], ['printer', current.printer.name]);
   assert.equal(draft.ok, true, JSON.stringify(draft));
-  const customized = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({
+  const customized = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext,
     action: 'set', kind: 'printer', canonical_name: current.printer.name,
     expected_revision: draft.revision, key: 'nozzle_diameter', value: '0.5',
   })]);
@@ -96,7 +98,7 @@ try {
   assert.deepEqual(customizedPicker.variants, current.printer_picker.variants,
     'physical nozzle edits cannot add phantom or disabled profile variants');
   const setDiameter = (index, diameter, revision) => call('orc_set_toolhead_diameter', ['string'],
-    [JSON.stringify({ index, diameter, expected_revision: revision })]);
+    [JSON.stringify({ history_context: editingContext, index, diameter, expected_revision: revision })]);
   const singleHead = snapshot();
   assert.equal(setDiameter(1, 0.5, customized.revision_after).ok, false);
   assert.deepEqual(snapshot(), singleHead, 'editing a second head cannot resize a single-head profile');

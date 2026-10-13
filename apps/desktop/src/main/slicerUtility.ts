@@ -1,4 +1,4 @@
-import { ipcMain, MessageChannelMain, utilityProcess, type BrowserWindow, type UtilityProcess } from 'electron';
+import { app, ipcMain, MessageChannelMain, utilityProcess, type BrowserWindow, type UtilityProcess } from 'electron';
 import { join } from 'node:path';
 import { Ipc } from '../shared/ipc';
 import { createSlicerTemporaryDirectory } from './slicerTemporaryDirectory';
@@ -82,7 +82,8 @@ export function attachSlicerUtility(win: BrowserWindow): void {
     });
     try {
       const { port1, port2 } = new MessageChannelMain();
-      host.postMessage({ type: 'connect', temporaryDirectory: temporaryDirectory.path }, [port1]);
+      host.postMessage({ type: 'connect', temporaryDirectory: temporaryDirectory.path,
+        userPresetDirectory: join(app.getPath('userData'), 'user', 'default') }, [port1]);
       event.senderFrame.postMessage(Ipc.slicerPort, null, [port2]);
     } catch (error) {
       stop();

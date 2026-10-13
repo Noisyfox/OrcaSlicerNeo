@@ -62,6 +62,7 @@ const setupWizardOperations = new Set([
   'openSetupWizardCatalogue', 'closeSetupWizardCatalogue', 'prepareProfileActivation', 'applyProfileActivation',
 ]);
 const restrictedWhileSerialSlicing = new Set([
+  'getUserPresetInfo', 'mutateUserPreset',
   'arrange', 'reorderPlates',
   ...setupWizardOperations,
   ...paintingOperations,
@@ -156,6 +157,7 @@ export function startWorker(
   beforeInit?: (module: import('./types').OrcaModule, activation: import('./setupWizard').ProfileActivation | null) => Promise<void>,
   beforeRequest?: (op: string, args: unknown[]) => Promise<void> | void,
   beforeCatalogue?: (module: import('./types').OrcaModule) => Promise<void>,
+  userPresets?: import('./userPresets').UserPresetStorage,
 ): void {
   const client = createClient(moduleFactory, (pct, text) => {
     post({ type: 'progress', percent: pct, text });
@@ -163,7 +165,7 @@ export function startWorker(
     post({ type: 'project-closed', plateSession });
   }, (runtimeState) => {
     post({ type: 'runtime-state', ...runtimeState });
-  }, beforeCatalogue);
+  }, beforeCatalogue, userPresets);
 
   // The default remains one writer.  A coalesced child may be nested under
   // the active writer and is popped only after its commit/abort.
@@ -174,6 +176,7 @@ export function startWorker(
   let historyTransitionInFlight = false;
   let arrangementActive = false;
   let catalogueOpening = false;
+  let presetWriteActive = false;
   const historyTransactionStartedAts: number[] = [];
 
   onMessage(async (msg) => {
@@ -187,7 +190,15 @@ export function startWorker(
     let ownsTransactionStart = false;
     let ownsArrangement = false;
     let ownsCatalogueOpen = false;
+    let ownsPresetWrite = false;
     try {
+      if (presetWriteActive) throw new Error('user preset write is in progress');
+      if (op === 'mutateUserPreset') {
+        if (historyTransitionInFlight || transactionStarting || activeTransactionIds.length || arrangementActive || catalogueOpening)
+          throw new Error('Finish the current operation before saving presets');
+        presetWriteActive = true;
+        ownsPresetWrite = true;
+      }
       const callArgs = args ?? [];
       if (setupWizardOperations.has(op) && catalogueOpening)
         throw new Error('setup_catalogue_loading');
@@ -277,6 +288,7 @@ export function startWorker(
       if (ownsTransactionStart) transactionStarting = false;
       post({ type: 'response', id, ok: false, result: undefined, error: String(err) });
     } finally {
+      if (ownsPresetWrite) presetWriteActive = false;
       if (ownsCatalogueOpen) catalogueOpening = false;
       if (ownsArrangement) arrangementActive = false;
       if (ownsTransition) historyTransitionInFlight = false;

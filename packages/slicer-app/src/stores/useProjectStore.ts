@@ -33,16 +33,6 @@ export interface ProjectOperation {
   cancellable: boolean;
 }
 
-export type ProjectDirtyReason =
-  | 'plate-structure'
-  | 'model-import'
-  | 'model-delete'
-  | 'model-clear'
-  | 'model-transform'
-  | 'model-structure'
-  | 'shared-configuration'
-  | (string & {});
-
 export interface ProjectSessionState {
   /** Base name only; host paths never enter this store. */
   projectName: string;
@@ -56,31 +46,16 @@ export interface ProjectSessionState {
    * not completed yet. Revision-fenced filament commands must not overtake
    * them. */
   projectMutationPendingCount: number;
-  /** Synchronous UI projection of Worker HistoryStatus.dirty when history is available. */
+  /** Synchronous UI projection of Worker HistoryStatus.dirty. */
   dirty: boolean;
-  /** Legacy mutation reasons for the pre-history editing surface; lifecycle
-   * guards must query Worker HistoryStatus and history-backed flows clear this. */
-  dirtyReasons: readonly ProjectDirtyReason[];
-  /** Runtime-only plate input generations used by later result ownership. */
-  plateInputRevisions: Readonly<Record<string, number>>;
   scope: ProjectPresetScope;
   systemPresets: ProjectPresetSelections | null;
   projectPresets: ProjectPresetSelections | null;
   notices: ProjectNotice[];
   operation: ProjectOperation;
-  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'projectFileName' | 'location' | 'hasContent' | 'dirty' | 'dirtyReasons' | 'plateInputRevisions' | 'scope' | 'systemPresets' | 'projectPresets' | 'notices'>>) => void;
+  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'projectFileName' | 'location' | 'hasContent' | 'scope' | 'systemPresets' | 'projectPresets' | 'notices'>>) => void;
   beginProjectMutation: () => void;
   endProjectMutation: () => void;
-  /** Compatibility projection for ordinary edits not yet migrated to history. */
-  markDirty: (reason?: ProjectDirtyReason) => void;
-  /** Advance every known plate input for one shared configuration commit. */
-  recordSharedConfigurationMutation: () => void;
-  /** Compatibility projection; Worker history remains authoritative for lifecycle state. */
-  recordPlateMutation: (mutation: {
-    inputRevisions?: Readonly<Record<string, number>>;
-    dirtyReasons?: readonly string[];
-  }) => void;
-  markClean: () => void;
   setOperation: (operation: Partial<ProjectOperation> & Pick<ProjectOperation, 'phase'>) => void;
   resetOperation: () => void;
   reset: () => void;
@@ -90,15 +65,13 @@ export const DEFAULT_PROJECT_PRESETS: ProjectPresetSelections = {
   printer: '', print: '',
 };
 
-const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'beginProjectMutation' | 'endProjectMutation' | 'markDirty' | 'recordSharedConfigurationMutation' | 'recordPlateMutation' | 'markClean' | 'setOperation' | 'resetOperation' | 'reset'> => ({
+const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'beginProjectMutation' | 'endProjectMutation' | 'setOperation' | 'resetOperation' | 'reset'> => ({
   projectName: 'Untitled',
   projectFileName: null,
   location: undefined,
   hasContent: false,
   projectMutationPendingCount: 0,
   dirty: false,
-  dirtyReasons: [],
-  plateInputRevisions: {},
   scope: 'system',
   systemPresets: null,
   projectPresets: null,
@@ -111,28 +84,6 @@ export const useProjectStore = create<ProjectSessionState>((set) => ({
   setProject: (value) => set(value),
   beginProjectMutation: () => set((state) => ({ projectMutationPendingCount: state.projectMutationPendingCount + 1 })),
   endProjectMutation: () => set((state) => ({ projectMutationPendingCount: Math.max(0, state.projectMutationPendingCount - 1) })),
-  markDirty: (reason) => set((state) => ({
-    dirty: true,
-    ...(reason && !state.dirtyReasons.includes(reason) ? { dirtyReasons: [...state.dirtyReasons, reason] } : {}),
-  })),
-  recordSharedConfigurationMutation: () => set((state) => ({
-    dirty: true,
-    dirtyReasons: state.dirtyReasons.includes('shared-configuration')
-      ? state.dirtyReasons
-      : [...state.dirtyReasons, 'shared-configuration'],
-    plateInputRevisions: Object.fromEntries(
-      Object.entries(state.plateInputRevisions).map(([plateId, revision]) => [plateId, revision + 1]),
-    ),
-  })),
-  recordPlateMutation: (mutation) => set((state) => {
-    const reasons = mutation.dirtyReasons ?? [];
-    return {
-      dirty: reasons.length > 0 ? true : state.dirty,
-      ...(mutation.inputRevisions ? { plateInputRevisions: { ...mutation.inputRevisions } } : {}),
-      ...(reasons.length > 0 ? { dirtyReasons: [...new Set([...state.dirtyReasons, ...reasons as ProjectDirtyReason[]])] } : {}),
-    };
-  }),
-  markClean: () => set({ dirty: false, dirtyReasons: [] }),
   setOperation: (operation) => set((state) => ({
     operation: {
       ...state.operation,

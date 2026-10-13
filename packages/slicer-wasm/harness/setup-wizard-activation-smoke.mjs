@@ -5,6 +5,8 @@ import { loadModuleFactory } from './run-slice.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { callAsyncTask, getSliceResult, exportGcode } from './async-task-mailbox.mjs';
 import { setNativeScopedConfig } from './native-scoped-command.mjs';
+
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 if (!process.argv[2]) throw new Error('usage: node setup-wizard-activation-smoke.mjs <module.js>');
 const factory = await loadModuleFactory(resolve(process.argv[2]));
 const activation = { models: [{ vendor: 'CompatibilityFixture', model: 'Compatibility Alpha', nozzle_diameter: ['0.4'] },
@@ -96,7 +98,7 @@ function snapshot() { return { profiles: call('orc_get_preset_snapshot'), filame
   config: call('orc_get_native_scoped_config'), history: call('orc_history_status'), model: call('orc_get_model_structure'),
   plates: call('orc_get_plate_session_snapshot'), links: FS.readdir('/system').sort().map(name => [name, name === '.' || name === '..' ? '' : FS.readlink(`/system/${name}`)]) }; }
 const dormantSource = 'extra:Compatibility Alpha 0.4 nozzle';
-must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ action: 'set', kind: 'printer',
+must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext, action: 'set', kind: 'printer',
   canonical_name: dormantSource, expected_revision: call('orc_history_status').revision,
   key: 'printer_notes', value: 'retained dormant notes' })]));
 const draftBefore = call('orc_get_preset_draft', ['string', 'string'], ['printer', dormantSource]);
@@ -295,7 +297,7 @@ const stateSnapshot = () => ({ profiles: profiles(), rack: rack(), plates: plate
 const prep = (record, memory = {}) => { detailed.links(record); return req('orc_prepare_profile_activation', { activation: record,
   remembered_filament_racks: memory.racks ?? {}, remembered_bed_types: memory.beds ?? {} }); };
 const apply = () => must(c('orc_apply_profile_activation'));
-const draft = (kind, canonical_name, key, value) => must(req('orc_mutate_preset_draft', {
+const draft = (kind, canonical_name, key, value) => must(req('orc_mutate_preset_draft', { history_context: editingContext,
   action: 'set', kind, canonical_name, key, value, expected_revision: c('orc_history_status').revision }));
 const A = 'Compatibility Alpha 0.4 nozzle', B = 'Compatibility Beta 0.4 nozzle';
 must(c('orc_add_shape', ['string', 'string'], ['Cube', 'Plate A cube']));

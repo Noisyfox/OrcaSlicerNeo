@@ -10,6 +10,8 @@ import { loadModuleFactory } from './run-slice.mjs';
 import { resetNativeScopedConfig, setNativeScopedConfig } from './native-scoped-command.mjs';
 import { readZipEntries, replaceEntry } from './native-3mf-parser.mjs';
 
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 const [moduleArg] = argv.slice(2);
 if (!moduleArg) throw new Error('usage: node native-project-preset-history-smoke.mjs <out/orca_slice.js>');
 const repoRoot = resolve(import.meta.dirname, '../../..');
@@ -148,7 +150,7 @@ const filamentBefore = requireOk('read Filament draft', callJson('orc_get_preset
   ['string', 'string'], ['filament', filamentSource]));
 const soluble = filamentBefore.effective_values.filament_soluble === '1' ? '0' : '1';
 const filamentEdit = requireOk('edit filament_soluble', callJson('orc_mutate_preset_draft', ['string'],
-  [JSON.stringify({ action: 'set', kind: 'filament', canonical_name: filamentSource,
+  [JSON.stringify({ history_context: editingContext, action: 'set', kind: 'filament', canonical_name: filamentSource,
     expected_revision: callJson('orc_history_status').revision, key: 'filament_soluble', value: soluble })]));
 check('Filament edit changes the active source', filamentEdit.history_entry_delta === 1 &&
   callJson('orc_get_preset_draft', ['string', 'string'], ['filament', filamentSource])

@@ -6,7 +6,7 @@ import { paintingCommandAllowed, closePaintingForCommand } from '../viewport/giz
 // them, so they live here once.
 import type { ModelFile, PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
-import type { PlateSessionMutation } from '@slicer/client';
+import type { ModelMutationResult, ModelPlateSessionMutation } from '@slicer/client';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useProjectStore } from '@/stores/useProjectStore';
@@ -33,7 +33,7 @@ async function commitAddedImpl(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
   displayName: string,
-  add: () => Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>,
+  add: () => Promise<ModelMutationResult>,
 ): Promise<void> {
   // A just-finished gesture persists its settled state on release. Wait for
   // that commit before the additive import refreshes the collection.
@@ -60,13 +60,9 @@ async function commitAddedImpl(
       sceneInteraction?.resetForModel();
       await waitForGLVolumeRevision(useSettingsStore.getState().modelRevision);
       useProjectStore.getState().setProject({ hasContent: true });
-      if (r.plateSession) {
-        const previousPlateSession = usePlateSessionStore.getState().snapshot;
-        usePlateSessionStore.getState().setSnapshot(r.plateSession);
-        applyPlateResultMutation(r.plateSession, previousPlateSession);
-        useProjectStore.getState().recordPlateMutation(r.plateSession);
-      }
-      else useProjectStore.getState().markDirty('model-import');
+      const previousPlateSession = usePlateSessionStore.getState().snapshot;
+      usePlateSessionStore.getState().setSnapshot(r.plateSession);
+      applyPlateResultMutation(r.plateSession, previousPlateSession);
       slicer.setError(null);
     },
   });
@@ -77,7 +73,7 @@ async function commitAdded(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
   displayName: string,
-  add: () => Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>,
+  add: () => Promise<ModelMutationResult>,
 ): Promise<void> {
   await commitAddedImpl(platform, sceneInteraction, displayName, add);
 }
@@ -241,14 +237,14 @@ export async function addHandyModel(
       bytes: await fetchHandyModelFile(displayName),
     })));
     await commitAdded(platform, sceneInteraction, model.label, async () => {
-      let plateSession: PlateSessionMutation | undefined;
+      let plateSession: ModelPlateSessionMutation | undefined;
       for (const file of files) {
         const ext = (file.displayName.split('.').pop() ?? '').toLowerCase();
         const result = await platform.runtime.addModel(file.bytes, ext, file.displayName);
         if (!result.ok) return result;
-        plateSession = result.plateSession ?? plateSession;
+        plateSession = result.plateSession;
       }
-      return { ok: true, plateSession };
+      return plateSession ? { ok: true, plateSession } : { ok: false, error: 'handy model has no source files' };
     });
     onModelAdded?.();
     return true;
@@ -313,13 +309,9 @@ export async function clearScene(
         applyPlateSessionTransforms(r.plateSession, glVolumeCollection.volumes);
         resetSceneState(sceneInteraction);
         useProjectStore.getState().setProject({ hasContent: false });
-        if (r.plateSession) {
-          const previousPlateSession = usePlateSessionStore.getState().snapshot;
-          usePlateSessionStore.getState().setSnapshot(r.plateSession);
-          applyPlateResultMutation(r.plateSession, previousPlateSession);
-          useProjectStore.getState().recordPlateMutation(r.plateSession);
-        }
-        else useProjectStore.getState().markDirty('model-clear');
+        const previousPlateSession = usePlateSessionStore.getState().snapshot;
+        usePlateSessionStore.getState().setSnapshot(r.plateSession);
+        applyPlateResultMutation(r.plateSession, previousPlateSession);
         sceneInteraction?.resetForModel();
         slicer.setError(null);
       },

@@ -15,9 +15,9 @@ const snapshot: ProfileSnapshot = {
   ok: true,
   modifiedPresets: { printer: [], filament: [] },
   printerPicker: { items: [{ id: 'project', label: 'Project printer', preset: 'Project printer' }], selectedId: 'project', variants: [], nozzleDiameters: [0.4], selectedVariant: '' },
-  printers: [{ name: 'Project printer', label: 'Project printer', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-  prints: [{ name: 'Project process', label: 'Project process', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-  filamentCatalog: [{ name: 'Project filament', label: 'Project filament', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
+  printers: [{ name: 'System printer', label: 'System printer', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: false }, { name: 'Project printer', label: 'Project printer', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+  prints: [{ name: 'System process', label: 'System process', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: false }, { name: 'Project process', label: 'Project process', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+  filamentCatalog: [{ name: 'Project filament', label: 'Project filament', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '' }],
   printer: { name: 'Project printer', idx: 0 }, print: { name: 'Project process', idx: 0 },
   bedType: { supportsSelection: true, defaultValue: 'Textured PEI Plate', choices: [{ value: 'Textured PEI Plate', label: 'Textured PEI Plate' }] },
 };
@@ -47,7 +47,7 @@ const loadedHistoryStatus = {
 function filamentSnapshot(revision: number): FilamentSessionSnapshot {
   return {
     ok: true, version: 1,
-    slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'pla', name: `PLA ${revision}`, label: `PLA ${revision}`, vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+    slots: [{ logicalId: 'filament-1', slot: 1, preset: { isProjectEmbedded: false, isUser: false, id: 'pla', name: `PLA ${revision}`, label: `PLA ${revision}`, vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
     mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
     flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
     capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -57,6 +57,7 @@ function filamentSnapshot(revision: number): FilamentSessionSnapshot {
   };
 }
 function platformFor(load: Partial<ProjectLoadResult> = {}) {
+  let nativeHistory = { ...loadedHistoryStatus };
   const runtime = {
     loadProject: vi.fn(async (_bytes: Uint8Array, _mode?: string, _displayName?: string, _onProgress?: unknown,
       onProjectClosed?: (plateSession: PlateSessionMutation) => void) => {
@@ -77,9 +78,9 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
     selectProfile: vi.fn(async () => snapshot),
     getFilamentSessionSnapshot: vi.fn(async () => filamentSnapshot(0)),
     applyRememberedFilamentRack: vi.fn(async () => filamentSnapshot(1)),
-    getHistoryStatus: vi.fn(async () => ({ dirty: useProjectStore.getState().dirty } as never)),
-    markHistorySaved: vi.fn(async () => ({ dirty: false } as never)),
-    resetHistory: vi.fn(async () => ({ dirty: false } as never)),
+    getHistoryStatus: vi.fn(async () => nativeHistory),
+    markHistorySaved: vi.fn(async () => (nativeHistory = { ...nativeHistory, dirty: false })),
+    resetHistory: vi.fn(async () => (nativeHistory = { ...loadedHistoryStatus, revision: nativeHistory.revision + 1 })),
     cancel: vi.fn(async () => ({ ok: true })),
     runProjectHistoryTransaction: vi.fn(async <T>(
       _label: string,
@@ -87,7 +88,11 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
       _before: unknown,
       mutation: (transactionId: string) => Promise<T>,
       _after: unknown | (() => unknown | Promise<unknown>),
-    ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: {} as never })),
+    ) => {
+      const result = await mutation('tx-1');
+      nativeHistory = { ...nativeHistory, dirty: true, revision: nativeHistory.revision + 1 };
+      return { sceneDelta: null, result, status: nativeHistory };
+    }),
   };
   const projects = {
     open: vi.fn(async () => ({ status: 'ok' as const, input })),
@@ -190,6 +195,7 @@ describe('transactional project actions', () => {
 
   beforeEach(() => {
     useProjectStore.getState().reset();
+    useHistoryNavigationStore.getState().reset();
     usePlateSessionStore.getState().reset();
     glVolumeCollection.clear();
     useSettingsStore.setState({ modelLoaded: false, selectedPrinter: 'System printer', selectedPrint: 'System process', values: {} });
@@ -219,7 +225,7 @@ describe('transactional project actions', () => {
   it('replaces the project after explicit open even when settings fallback is needed', async () => {
     const { platform } = platformFor({ compatibility: 'generic', projectSettingsAvailable: false });
     useSettingsStore.setState({ modelLoaded: true });
-    useProjectStore.getState().setProject({ dirty: true, hasContent: true });
+    useProjectStore.setState({ dirty: true, hasContent: true });
     const result = await openProject(platform, { loadBehaviour: 'load_all', decideDirty: () => 'dont-save' });
     expect(result.status).toBe('ok');
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', dirty: false, scope: 'project', hasContent: true });
@@ -266,10 +272,32 @@ describe('transactional project actions', () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(runtime.loadProject).toHaveBeenCalledTimes(1);
     expect(runtime.closeProject).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().notices).toEqual([]);
+  });
+
+  it('reopens installed user Printer and Filament presets without a notice or confirmation', async () => {
+    const userSnapshot: ProfileSnapshot = {
+      ...snapshot,
+      printers: snapshot.printers.map(preset => preset.selected ? { ...preset, is_user: true } : preset),
+      filamentCatalog: snapshot.filamentCatalog.map(preset => ({ ...preset, is_user: true })),
+    };
+    const { platform, runtime } = platformFor({
+      presetSnapshot: userSnapshot,
+      embeddedPresetWarnings: { present: true, count: 2, printerCount: 1, processCount: 0, filamentCount: 1,
+        modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false,
+        requiresConfirmation: false, filamentSlotChanges: [] },
+    });
+    const confirm = vi.fn(() => true);
+    const opened = await openProject(platform, { loadBehaviour: 'load_all', confirmProjectLoad: confirm });
+    expect(opened.status).toBe('ok');
+    expect(confirm).not.toHaveBeenCalled();
+    expect(runtime.closeProject).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().selectedPrinter).toBe(userSnapshot.printer.name);
+    expect(useProjectStore.getState().notices).toEqual([]);
   });
 
   it('shows post-close warning confirmation and leaves the fresh empty session on rejection', async () => {
-    useProjectStore.getState().setProject({ projectName: 'Prior', hasContent: true, dirty: true });
+    useProjectStore.setState({ projectName: 'Prior', hasContent: true, dirty: true });
     const result: ProjectLoadResult = { bedTypeNormalization: null, ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
       embeddedPresetWarnings: { present: true, count: 1, printerCount: 1, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: true, filamentSlotChanges: [{ slot: 1, before: 'A', after: 'B', reason: 'native-compatibility' }] } };
     const { platform, runtime } = platformFor(result);
@@ -288,7 +316,7 @@ describe('transactional project actions', () => {
     expect((await openProject(thrown.platform, { loadBehaviour: 'load_all', confirmProjectLoad: () => { throw confirmationError; } })).status).toBe('failed');
     expect(thrown.runtime.closeProject).toHaveBeenCalledTimes(1);
 
-    useProjectStore.getState().setProject({ projectName: 'Prior', hasContent: true, dirty: false });
+    useProjectStore.setState({ projectName: 'Prior', hasContent: true, dirty: false });
     const failed = platformFor({ ok: false, error: 'load failed', objects: 0, instances: 0 });
     const failedResultAction = await openProject(failed.platform, { loadBehaviour: 'load_all' });
     expect(failedResultAction.status).toBe('failed');
@@ -380,7 +408,7 @@ describe('transactional project actions', () => {
     const { platform, projects } = platformFor();
     const oldLocation = {} as NonNullable<ProjectInput['location']>;
     const newLocation = {} as NonNullable<ProjectInput['location']>;
-    useProjectStore.getState().setProject({ projectName: 'Old', projectFileName: 'Old.3mf', location: oldLocation, hasContent: true, dirty: true });
+    useProjectStore.setState({ projectName: 'Old', projectFileName: 'Old.3mf', location: oldLocation, hasContent: true, dirty: true });
     const hostSave = asCopy ? projects.saveAs : projects.save;
     hostSave.mockResolvedValue({ status: 'ok', displayName: 'Chosen.Name.3MF', location: newLocation });
     expect((await (asCopy ? saveProjectAs : saveProject)(platform)).status).toBe('ok');
@@ -391,7 +419,7 @@ describe('transactional project actions', () => {
 
   it.each([saveProject, saveProjectAs])('saves a parameter-only dirty project and allows a clean copy', async (save) => {
     const { platform, runtime, projects } = platformFor();
-    useProjectStore.getState().setProject({ hasContent: false, dirty: true });
+    useProjectStore.setState({ hasContent: false, dirty: true });
     expect((await save(platform)).status).toBe('ok');
     expect(runtime.exportProject).toHaveBeenCalledOnce();
     expect(runtime.markHistorySaved).toHaveBeenCalledOnce();
@@ -402,7 +430,7 @@ describe('transactional project actions', () => {
 
   it('cancelled saving of a parameter-only project retains its unsaved changes', async () => {
     const { platform, runtime, projects } = platformFor();
-    useProjectStore.getState().setProject({ hasContent: false, dirty: true });
+    useProjectStore.setState({ hasContent: false, dirty: true });
     projects.save.mockResolvedValue({ status: 'cancelled' } as never);
     expect((await saveProject(platform)).status).toBe('cancelled');
     expect(runtime.markHistorySaved).not.toHaveBeenCalled();
@@ -411,7 +439,7 @@ describe('transactional project actions', () => {
 
   it('first Web save establishes filename identity without an overwrite location', async () => {
     const { platform, projects } = platformFor();
-    useProjectStore.getState().setProject({ hasContent: true, dirty: true });
+    useProjectStore.setState({ hasContent: true, dirty: true });
     projects.save.mockResolvedValue({ status: 'ok', displayName: 'Untitled.3mf', location: undefined });
     expect((await saveProject(platform)).status).toBe('ok');
     expect(useProjectStore.getState()).toMatchObject({ projectFileName: 'Untitled.3mf', projectName: 'Untitled', location: undefined });
@@ -430,7 +458,7 @@ describe('transactional project actions', () => {
   it('cancelled/failed saves leave the clean baseline and dirty state untouched', async () => {
     const cancelled = platformFor(); cancelled.projects.save.mockResolvedValue({ status: 'cancelled' } as never);
     const location = {} as NonNullable<ProjectInput['location']>;
-    useProjectStore.getState().setProject({ hasContent: true, dirty: true, projectName: 'Robot', projectFileName: 'Robot.3mf', location });
+    useProjectStore.setState({ hasContent: true, dirty: true, projectName: 'Robot', projectFileName: 'Robot.3mf', location });
     expect((await saveProject(cancelled.platform)).status).toBe('cancelled');
     expect(useProjectStore.getState().dirty).toBe(true);
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', projectFileName: 'Robot.3mf', location });
@@ -443,11 +471,32 @@ describe('transactional project actions', () => {
 
   it('Save then New restores the saved global preset selection', async () => {
     const { platform, runtime } = platformFor();
-    useProjectStore.getState().setProject({ hasContent: true, dirty: true, scope: 'project', systemPresets: { printer: 'System printer', print: 'System process' } });
+    runtime.getHistoryStatus.mockResolvedValue({ ...loadedHistoryStatus, dirty: true });
+    useProjectStore.setState({ hasContent: true, dirty: true, scope: 'project', systemPresets: { printer: 'System printer', print: 'System process' } });
     const result = await newProject(platform, { decideDirty: () => 'save' });
     expect(result.status).toBe('ok'); expect(runtime.closeProject).toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', dirty: false, scope: 'system', hasContent: false });
     expect(runtime.selectProfile).toHaveBeenCalledWith('printer', 'System printer');
+  });
+
+  it.each(['printer', 'print'] as const)('New does not reselect a deleted %s snapshot after native session closure', async (kind) => {
+    const { platform, runtime } = platformFor();
+    const stale = 'Deleted user preset [snapshot 1]';
+    useSettingsStore.setState(kind === 'printer' ? { selectedPrinter: stale } : { selectedPrint: stale });
+    useProjectStore.setState({ scope: 'system', dirty: true, hasContent: true,
+      systemPresets: { printer: kind === 'printer' ? stale : snapshot.printer!.name,
+        print: kind === 'print' ? stale : snapshot.print!.name } });
+    runtime.selectProfile.mockImplementation(async (_kind?: unknown, name?: unknown) => {
+      if (name === stale) throw new Error('preset not found');
+      return snapshot;
+    });
+
+    expect((await newProject(platform, { decideDirty: () => 'dont-save' })).status).toBe('ok');
+    expect(runtime.selectProfile).not.toHaveBeenCalledWith(kind, stale);
+    expect(useProjectStore.getState().systemPresets).toEqual({ printer: snapshot.printer!.name, print: snapshot.print!.name });
+    expect(runtime.closeProject.mock.invocationCallOrder[0]).toBeLessThan(runtime.getProfileSnapshot.mock.invocationCallOrder[0]);
+    expect(useSettingsStore.getState()).toMatchObject({ selectedPrinter: snapshot.printer!.name, selectedPrint: snapshot.print!.name });
+    expect(runtime.resetHistory).toHaveBeenCalledOnce();
   });
 
   it('New preserves the current legal rack for the same system printer and creates one clean baseline', async () => {
@@ -455,7 +504,7 @@ describe('transactional project actions', () => {
     const currentRack = filamentSnapshot(7);
     runtime.getFilamentSessionSnapshot.mockResolvedValue(currentRack);
     useFilamentSessionStore.setState({ snapshot: currentRack, rejected: null });
-    useProjectStore.getState().setProject({ scope: 'system', systemPresets: { printer: 'System printer', print: 'System process' }, dirty: true, hasContent: true });
+    useProjectStore.setState({ scope: 'system', systemPresets: { printer: 'System printer', print: 'System process' }, dirty: true, hasContent: true });
 
     const result = await newProject(platform, { decideDirty: () => 'dont-save' });
 
@@ -465,7 +514,7 @@ describe('transactional project actions', () => {
     expect(runtime.resetHistory.mock.invocationCallOrder[0])
       .toBeLessThan(runtime.getFilamentSessionSnapshot.mock.invocationCallOrder[0]);
     expect(useFilamentSessionStore.getState().snapshot).toBe(currentRack);
-    expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [], scope: 'system', hasContent: false });
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false, scope: 'system', hasContent: false });
   });
 
   it('New applies the target system printer rack before the clean baseline when leaving another project printer', async () => {
@@ -474,13 +523,13 @@ describe('transactional project actions', () => {
       printer: { name: 'System printer', idx: 1 }, print: { name: 'System process', idx: 1 } };
     runtime.selectProfile.mockResolvedValue(systemSnapshot);
     const beforeRack = filamentSnapshot(5);
-    const targetRack = { ...filamentSnapshot(6), slots: [{ ...filamentSnapshot(6).slots[0], preset: { id: 'system-pla', name: 'System PLA', label: 'System PLA', vendor: '' } }] };
+    const targetRack = { ...filamentSnapshot(6), slots: [{ ...filamentSnapshot(6).slots[0], preset: { isProjectEmbedded: false, isUser: false, id: 'system-pla', name: 'System PLA', label: 'System PLA', vendor: '' } }] };
     runtime.getFilamentSessionSnapshot.mockResolvedValueOnce(beforeRack).mockResolvedValue(targetRack);
     runtime.applyRememberedFilamentRack.mockResolvedValue(targetRack);
     preferences.load.mockResolvedValue({ version: 1, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true },
       rememberedFilamentRacks: { 'System printer': { version: 1, slots: [{ preset: 'System PLA', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }] } } } as UserPreferences);
     useSettingsStore.setState({ selectedPrinter: 'Project printer', selectedPrint: 'Project process' });
-    useProjectStore.getState().setProject({ scope: 'project', systemPresets: { printer: 'System printer', print: 'System process' }, hasContent: true, dirty: true });
+    useProjectStore.setState({ scope: 'project', systemPresets: { printer: 'System printer', print: 'System process' }, hasContent: true, dirty: true });
 
     const result = await newProject(platform, { decideDirty: () => 'dont-save' });
 
@@ -492,7 +541,7 @@ describe('transactional project actions', () => {
     expect(runtime.resetHistory.mock.invocationCallOrder[0])
       .toBeLessThan(runtime.getFilamentSessionSnapshot.mock.invocationCallOrder.at(-1)!);
     expect(useFilamentSessionStore.getState().snapshot).toBe(targetRack);
-    expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [], scope: 'system', hasContent: false });
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false, scope: 'system', hasContent: false });
   });
 
   it('New clears the renderer projection and resets a multi-plate session after runtime success', async () => {
@@ -555,10 +604,11 @@ describe('transactional project actions', () => {
 
   it('does not clear the renderer projection when the dirty gate is cancelled', async () => {
     const { platform, runtime } = platformFor();
+    runtime.getHistoryStatus.mockResolvedValue({ ...loadedHistoryStatus, dirty: true });
     const dispose = vi.fn();
     glVolumeCollection.volumes = [{ dispose } as never];
     const resetForModel = vi.fn();
-    useProjectStore.getState().setProject({ dirty: true, hasContent: true });
+    useProjectStore.setState({ dirty: true, hasContent: true });
     useSettingsStore.setState({ modelLoaded: true });
 
     const result = await newProject(platform, { decideDirty: () => 'cancel', sceneResetTarget: { resetForModel } });
@@ -570,22 +620,16 @@ describe('transactional project actions', () => {
     expect(useSettingsStore.getState().modelLoaded).toBe(true);
   });
 
-  it('uses Worker history dirty status as the lifecycle gate authority', async () => {
+  it.each([false, true])('uses Worker dirty=%s as the lifecycle gate authority over a stale UI projection', async dirty => {
     const { platform, runtime } = platformFor();
-    const status = {
-      canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0,
-      savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false, bytesUsed: 0,
-      byteBudget: 256 * 1024 * 1024, disabled: false, activeTransactionId: null, revision: 1,
-    } as const;
-    const getHistoryStatus = vi.fn(async () => status);
-    (runtime as unknown as { getHistoryStatus: typeof getHistoryStatus }).getHistoryStatus = getHistoryStatus;
+    runtime.getHistoryStatus.mockResolvedValue({ ...loadedHistoryStatus, dirty });
     const decideDirty = vi.fn(() => 'cancel' as const);
-    useProjectStore.getState().setProject({ dirty: true, hasContent: true });
+    useProjectStore.setState({ dirty: !dirty, hasContent: true });
     const result = await newProject(platform, { decideDirty });
-    expect(result.status).toBe('ok');
-    expect(getHistoryStatus).toHaveBeenCalledOnce();
-    expect(decideDirty).not.toHaveBeenCalled();
-    expect(useProjectStore.getState().dirty).toBe(false);
+    expect(result.status).toBe(dirty ? 'cancelled' : 'ok');
+    expect(runtime.getHistoryStatus).toHaveBeenCalledOnce();
+    expect(decideDirty).toHaveBeenCalledTimes(dirty ? 1 : 0);
+    expect(useProjectStore.getState().dirty).toBe(dirty);
   });
 
   it('sorts a batch, asks only for the first 3MF, then appends every remainder', async () => {
@@ -654,4 +698,29 @@ it('reports native imported bed correction', () => {
   const notices = noticesFor({ ok: true, objects: 1, instances: 1, bedTypeNormalization: { globalChanged: true, removedPlateOverrideIds: ['plate-1'] } });
   expect(notices).toEqual([expect.objectContaining({ kind: 'bed-type-normalization', message: expect.stringContaining('1 local override(s)') })]);
 
+});
+
+describe('native project preset notices', () => {
+  const cleanWarning: NonNullable<ProjectLoadResult['embeddedPresetWarnings']> = {
+    present: true, count: 2, printerCount: 1, processCount: 0, filamentCount: 1,
+    modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false,
+    requiresConfirmation: false, filamentSlotChanges: [],
+  };
+
+  it.each(['modifiedPrinterGcode', 'modifiedFilamentGcode', 'missingSystemPreset'] as const)(
+    'retains the native safety warning for %s even without embedded archive records', flag => {
+      const warning = { ...cleanWarning, present: false, count: 0, [flag]: true, requiresConfirmation: true };
+      expect(noticesFor({ ok: true, bedTypeNormalization: null, objects: 0, instances: 0, embeddedPresetWarnings: warning }))
+        .toEqual([expect.objectContaining({ kind: 'embedded-presets', details: warning })]);
+    },
+  );
+
+  it('reports native filament replacements without implying unsafe embedded presets', () => {
+    const warning: NonNullable<ProjectLoadResult['embeddedPresetWarnings']> = { ...cleanWarning, filamentSlotChanges: [
+      { slot: 1, before: 'Missing PLA', after: 'Generic PLA', reason: 'native-compatibility' },
+    ] };
+    expect(noticesFor({ ok: true, bedTypeNormalization: null, objects: 0, instances: 0, embeddedPresetWarnings: warning }))
+      .toEqual([expect.objectContaining({ kind: 'compatibility-fallback',
+        message: 'Some filament slots were changed while loading this project.', details: warning })]);
+  });
 });

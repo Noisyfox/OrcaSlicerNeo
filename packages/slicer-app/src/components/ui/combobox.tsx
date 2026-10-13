@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/input-group"
 
 const Combobox = ComboboxPrimitive.Root
+const ComboboxCollection = ComboboxPrimitive.Collection
 
 function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props) {
   return <ComboboxPrimitive.Value data-slot="combobox-value" {...props} />
@@ -236,6 +237,7 @@ export {
   ComboboxList,
   ComboboxItem,
   ComboboxGroup,
+  ComboboxCollection,
   ComboboxLabel,
   ComboboxEmpty,
   ComboboxSeparator,

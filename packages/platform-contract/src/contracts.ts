@@ -298,10 +298,6 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
         const item = slot as { preset?: unknown; colour?: unknown; native?: unknown };
         if (typeof item.preset !== 'string' || !item.preset || typeof item.colour !== 'string' ||
             !/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(item.colour)) return null;
-        // Previously saved racks had only a HEX colour. Upgrade that durable
-        // format once at the host boundary; native commands stay strict.
-        if (item.native === undefined) return { preset: item.preset, colour: item.colour,
-          native: { representative: item.colour, multiColour: item.colour, type: '1' } };
         if (!item.native || typeof item.native !== 'object' || Array.isArray(item.native)) return null;
         const native = item.native as Record<string, unknown>;
         if (!(['representative', 'multiColour', 'type'] as const).every((key) =>

@@ -25,6 +25,7 @@ if (envLogLevel) {
 }
 
 export interface SlicerWorkerHost {
+  userPresets?: import('@slicer/client').UserPresetStorage;
   threaded: boolean;
   /** Trusted host setup; never supplied by renderer requests. Serial uses MEMFS. */
   nativeTemporaryDirectory?: string;
@@ -83,5 +84,5 @@ export function startSlicerHost(host: SlicerWorkerHost): void {
       try { await installSession(module).installCatalogue(); }
       finally { host.post({ type: 'startup-progress', phase: 'catalogue', text: 'Loading profiles…' }); }
     }
-  });
+  }, host.userPresets);
 }

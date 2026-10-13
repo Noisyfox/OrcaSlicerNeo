@@ -6,7 +6,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Menu, Search } from 'lucide-react';
 import { usePlateListViewStore } from '@/stores/usePlateListViewStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
-import { useProjectStore } from '@/stores/useProjectStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { ArrangeCurrentPlateButton } from './arrangement/ArrangementControls';
 import { runProjectHistoryMutation } from './actions/historyMutation';
@@ -36,7 +35,7 @@ export function PlateToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
           return { structure: 'preserved', activePlateId: result.currentPlateId };
         },
         publish: async (result) => {
-          if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+          applyPlateSessionResponse(platform, result);
         },
       });
     } catch (error) {
@@ -52,7 +51,7 @@ export function PlateToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
     try {
       await runProjectHistoryMutation(platform.runtime, 'Delete Plate', () => platform.runtime.deletePlate(plateSession.currentPlateId), null, {
         publish: async (result) => {
-          if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+          applyPlateSessionResponse(platform, result);
         },
       });
     } catch (error) {

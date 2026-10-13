@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-23
 
-**Status:** Delivered runtime editor, including indexed vector overrides;
-user preset repository management remains deferred.
+**Status:** Delivered runtime editor, including indexed vector overrides and
+explicit local user-preset actions. Cloud synchronization remains deferred.
 
 **Scope:** A shared React preset editor for Printer and Filament presets. It
 extends [Multi-Filament Support](Multi-Filament%20Support.md) without porting
@@ -109,8 +109,8 @@ effective preset configuration nor retains an independent draft copy.
 
 System, external, and project-embedded Printer and Filament presets are all
 eligible editor sources in phase one. An edit of a project-embedded source
-creates the same runtime overlay and never rewrites its embedded source record
-or offers Save As / user-preset management. Its current effective values follow
+creates the same runtime overlay and never implicitly rewrites its embedded
+source record. Explicit Save As can create a local user preset. Effective values follow
 the ordinary project persistence path described in section 2.3.
 
 ### 2.3 Session lifetime and 3MF reconstruction
@@ -121,8 +121,8 @@ identity, or source-to-draft map. It saves the normal current source selections
 and their effective configuration, including the modification-difference
 information used by Orca's ordinary project-config load path. Loading
 reconstructs the currently active Printer and Filament drafts from those saved
-effective values; drafts are not written into the user preset repository in
-phase one.
+effective values. Draft edits alone do not write the user preset repository;
+only the explicit Save or Save As action does so.
 
 On load, Neo uses the ordinary project-difference metadata and imported
 effective configuration to reconstruct sparse overlays only for the active
@@ -585,8 +585,22 @@ fields are read-only until their dedicated editor exists.
 No persistence migration, new file format, host-specific behavior, or mobile
 interaction is introduced. Both hosts retain their current desktop layout.
 
-## 5. Deferred user preset management
+## 5. Local user preset management
 
-Phase two may add Save As, rename, delete, user-repository persistence, and
-preset-management surfaces. It must convert a selected runtime draft into an
-explicit user action; phase one never performs that conversion implicitly.
+Save As and Delete are explicit actions in the independent editor. The Save As
+icon opens one naming dialog: retaining the writable user name overwrites it;
+a new name creates a copy; another user name shows an overwrite warning.
+Saving an inactive browsed source never selects it in the project. Active
+Save As switches all same-source slots together with one history entry;
+overwrite Save adopts the new saved version without another history entry.
+Deleted versions expose Save As only. See the repository specification for
+history-neutral version retention, baseline comparison and Reset semantics.
+
+The behaviour and host persistence contract are owned by
+[User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md).
+It records immutable saved versions, head-relative dirty state and explicit
+version adoption. Update notices are limited to active profiles with unresolved
+cloud updates; history-only profiles update locally while old history retains
+snapshots. Local/history differences use normal override/diff highlighting.
+Local persistence and version retention are delivered. Cloud notices and account
+separation remain design requirements for a future synchronization phase.

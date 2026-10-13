@@ -11,6 +11,8 @@ import { loadModuleFactory } from './run-slice.mjs';
 import { buildIndependentReader3mf } from './multi-filament-fixture-builder.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 
+const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+
 const [moduleArg] = argv.slice(2);
 if (!moduleArg) throw new Error('usage: node harness/native-printer-transition-smoke.mjs <out/serial/orca_slice.js>');
 const repoRoot = resolve(import.meta.dirname, '../../..');
@@ -58,7 +60,7 @@ function resetHistory() {
   return callJson('orc_history_reset', ['string'], [JSON.stringify(historyContext())]);
 }
 function transition(printer, slots) {
-  return request('orc_select_printer_with_remembered_rack', {
+  return request('orc_select_printer_with_remembered_rack', { history_context: editingContext,
     printer,
     remembered_bed_type: null, remembered_rack: slots ? { version: 1, slots } : null,
   });
@@ -68,7 +70,7 @@ function solidSlot(preset, colour) {
 }
 function setDraft(kind, canonicalName, key, value) {
   const source = draft(kind, canonicalName);
-  const result = request('orc_mutate_preset_draft', {
+  const result = request('orc_mutate_preset_draft', { history_context: editingContext,
     action: 'set', kind, canonical_name: canonicalName,
     expected_revision: source.revision, key, value,
   });

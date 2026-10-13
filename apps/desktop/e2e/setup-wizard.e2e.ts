@@ -190,7 +190,8 @@ test('mandatory setup, keyboard/file gates, defaults, visible bulk and menu canc
   const dir = mkdtempSync(join(tmpdir(), 'orca-setup-e2e-')), preferences = join(dir, 'preferences.json');
   // Explicit absence exercises production first-use, including obsolete saved selection/rack.
   writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: { printer: 'Retired Printer' }, ui: {},
-    rememberedFilamentRacks: { 'Retired Printer': { version: 1, slots: [{ preset: 'Retired PLA', colour: '#123456' }] } } }));
+    rememberedFilamentRacks: { 'Retired Printer': { version: 1, slots: [{ preset: 'Retired PLA', colour: '#123456',
+      native: { representative: '#123456', multiColour: '#123456', type: '1' } }] } } }));
   const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_FIRST_USE: '1', ORCA_E2E_PREFERENCES: preferences } as Record<string,string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });

@@ -1,16 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities } from '@orca/platform-contract';
-import type { HistoryStatus, PresetDraftMutationRequest, PresetDraftMutationResult } from '@slicer/client';
+import type { HistoryStatus, PresetDraftMutationRequest, PresetDraftMutationResult, RestoreResult, UserPresetMutation } from '@slicer/client';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+import { useObjectListStore } from '../objectList/useObjectListStore';
+import { SceneInteractionController } from '../viewport/SceneInteractionController';
+import type { GLVolume } from '../viewport/GLVolume';
+import { restoreProjectHistory, runProjectMutationOperation } from '../actions/historyMutation';
 import {
   commitScopedConfigurationMutation,
   commitGlobalBedType,
   commitPresetDraftMutation,
+  commitUserPresetMutation,
   invalidateAfterSharedConfigurationMutation,
   waitForConfigurationMutations,
 } from './configurationActions';
@@ -47,7 +52,7 @@ function runProjectHistoryTransaction<T>(
   _after: unknown | (() => unknown | Promise<unknown>),
 ): Promise<{ result: T; status: { revision: number; nativeScopedConfig?: unknown } }> {
   return mutationCallback('tx-1').then((result) => ({ sceneDelta: null, result, status: {
-    revision: 1,
+    ...presetHistoryStatus(1), dirty: !('unchanged' in (result as object)),
     nativeScopedConfig: (result as unknown as { nativeScopedConfig?: unknown }).nativeScopedConfig,
   } }));
 }
@@ -101,8 +106,23 @@ function presetReceipt(allPlateResultsInvalidated: true): Extract<PresetDraftMut
 }
 
 describe('commitScopedConfigurationMutation', () => {
+  it('publishes the adopted Process head and values when Reset removes the entire diff', async () => {
+    const profileSnapshot = { ...presetReceipt(true).profileSnapshot,
+      print: { name: 'Latest Process', idx: 0 }, project_config: { layer_height: '0.28' } };
+    const full = { ...baseline, revision: 1, snapshot: { project: {}, objects: {}, parts: {}, plates: {} } };
+    const platform = { runtime: { ...historyProjectionRuntime, runProjectHistoryTransaction,
+      mutateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: affected('project', {}), plateSession: mutation, profileSnapshot })),
+      getNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: full })),
+    } } as unknown as PlatformCapabilities;
+    useSettingsStore.setState({ baseValues: { layer_height: '0.2' }, selectedPrint: 'Old snapshot' });
+    await commitScopedConfigurationMutation(platform, { version: 1, operation: 'reset-all', targets: [{ scope: 'project' }] });
+    expect(useSettingsStore.getState().selectedPrint).toBe('Latest Process');
+    expect(useSettingsStore.getState().values.layer_height).toBe('0.28');
+    expect(useSettingsStore.getState().nativeScopedConfig.project).toEqual({});
+  });
   beforeEach(() => {
     useProjectStore.getState().reset();
+    useHistoryNavigationStore.getState().reset();
     useSlicerStore.getState().clearPlateResults();
     useSlicerStore.setState({ error: null });
     useSettingsStore.getState().resetNativeScopedConfig();
@@ -123,9 +143,8 @@ describe('commitScopedConfigurationMutation', () => {
     expect(useSettingsStore.getState().values.layer_height).toBe('0.3');
     expect(useProjectStore.getState()).toMatchObject({
       dirty: true,
-      dirtyReasons: ['shared-configuration'],
-      plateInputRevisions: { 'plate-1': 9 },
     });
+    expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-1': 9 });
   });
 
   it('surfaces a rejected bridge transaction without dirtying the store', async () => {
@@ -133,7 +152,7 @@ describe('commitScopedConfigurationMutation', () => {
     const platform = { runtime: { ...historyProjectionRuntime, mutateNativeScopedConfig, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     await expect(commitScopedConfigurationMutation(platform, { version: 1, operation: 'set',
       targets: [{ scope: 'project' }], key: 'layer_height', value: '0.3' })).rejects.toThrow('bridge rejected');
-    expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [], plateInputRevisions: {} });
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false });
     expect(useSlicerStore.getState().error).toBe('bridge rejected');
   });
 
@@ -150,7 +169,7 @@ describe('commitScopedConfigurationMutation', () => {
     expect(mutateNativeScopedConfig).toHaveBeenCalledWith({ version: 1, operation: 'set',
       targets: [{ scope: 'project' }], key: 'prime_tower_width', value: 'invalid' });
     expect(useSettingsStore.getState().nativeScopedConfig.project.prime_tower_width).toBe('20');
-    expect(useProjectStore.getState().plateInputRevisions).toEqual({ 'plate-1': 9 });
+    expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-1': 9 });
   });
 
   it('invalidates only the native affected plate for a scoped model override', async () => {
@@ -283,7 +302,6 @@ describe('commitScopedConfigurationMutation', () => {
       expect(noOp).toHaveBeenCalledOnce();
       expect(invalidate).not.toHaveBeenCalled();
       expect(refresh).not.toHaveBeenCalled();
-      expect(useProjectStore.getState().dirtyReasons).toEqual([]);
       expect(useSlicerStore.getState().error).toBeNull();
     } finally { invalidate.mockRestore(); }
   });
@@ -306,6 +324,97 @@ describe('commitPresetDraftMutation', () => {
     useSettingsStore.getState().resetNativeScopedConfig();
   });
 
+  it.each(['draft', 'save-as', 'delete'] as const)('samples renderer selection and gizmo inside the shared FIFO for %s', async action => {
+    const originalObjectList = useObjectListStore.getState();
+    const volumes = [0, 1].map(index => ({ id: `volume-${index}`,
+      buffer: { objectIdx: 0, volumeIdx: index, instanceIdx: 0 } })) as GLVolume[];
+    const scene = new SceneInteractionController(() => volumes);
+    useObjectListStore.setState({ structure: [{ id: 42, index: 0, name: 'Cube', printable: true,
+      instanceCount: 1, volumes: [{ id: 51, index: 0 }, { id: 52, index: 1 }],
+      instances: [{ id: 61, index: 0 }] }] as never,
+      projection: { objectIds: new Set([999]), volumeIds: new Set(), instanceIds: new Set() },
+      highlightLevel: {} });
+    scene.selection.replaceIds(['volume-0']);
+    scene.setSelectionMode('volume');
+    scene.toggleGizmo('move');
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const blocker = runProjectMutationOperation(() => held);
+    const mutate = vi.fn(async () => ({ ok: false as const, error: 'test rejection' }));
+    const platform = { runtime: { mutatePresetDraft: mutate, mutateUserPreset: mutate } } as unknown as PlatformCapabilities;
+    const pending = action === 'draft'
+      ? commitPresetDraftMutation(platform, request, scene)
+      : commitUserPresetMutation(platform, action === 'save-as'
+        ? { action, kind: 'printer', canonicalName: 'Independently browsed Printer', expectedRevision: 1, name: 'Copy' }
+        : { action, kind: 'printer', canonicalName: 'Independently browsed Printer', expectedRevision: 1 }, scene);
+    await Promise.resolve();
+    expect(mutate).not.toHaveBeenCalled();
+    // UI-only changes do not advance native history. The queued mutation must
+    // sample these, rather than its enqueue-time or Object List cached state.
+    scene.selection.replaceIds(['volume-1']);
+    scene.toggleGizmo('rotate');
+    release();
+    await blocker;
+    await pending;
+    expect(mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      selection: { mode: 'part', objectIds: [], partIds: [52], instanceIds: [] },
+      gizmo: { type: 'rotate' },
+    }));
+    useObjectListStore.setState(originalObjectList);
+  });
+
+  it('keeps overwrite Save history-neutral before and after Undo to the saved checkpoint', async () => {
+    const cleanStatus: HistoryStatus = {
+      ...presetHistoryStatus(1), cursor: 0, savedCheckpoint: 0, dirty: false,
+      canUndo: false, undoEntries: [],
+    };
+    const overwrite: UserPresetMutation = { ...presetReceipt(true), historyEntryDelta: 0, historyStatus: cleanStatus };
+    const draft = presetReceipt(true);
+    const restored: Extract<RestoreResult, { ok: true }> = {
+      ok: true, status: { ...cleanStatus, revision: 3, canRedo: true,
+        redoEntries: [{ id: 'entry-1', label: 'Edit Preset', category: 'project' }] },
+      context: { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+        activePlateId: 'plate-1', gizmo: null, plateSession: overwrite.plateSession, nativeScopedConfig: {} },
+      nativeScopedConfig: overwrite.nativeScopedConfig,
+      impact: { version: 1, model: 'none', plateSession: true, filamentRack: false,
+        presetDrafts: true, profileSelection: false, nativeScopedConfig: true,
+        selectionContext: true, primeTower: false, preview: 'all' },
+      affectedPlateIds: ['plate-1', 'plate-2'],
+      sceneDelta: { version: 1, objectIds: [], volumeIds: [], instanceIds: [], plateIds: ['plate-1', 'plate-2'], objectOrder: [] },
+    };
+    const runtime = {
+      ...historyProjectionRuntime,
+      mutateUserPreset: vi.fn(async () => overwrite),
+      mutatePresetDraft: vi.fn(async () => draft),
+      undoHistory: vi.fn(async () => restored), redoHistory: vi.fn(), jumpHistory: vi.fn(),
+    };
+    const platform = { runtime } as unknown as PlatformCapabilities;
+    const save = { action: 'save' as const, kind: 'printer' as const, canonicalName: 'Printer A', expectedRevision: 1 };
+    useSlicerStore.getState().setPlateResult({ plateId: 'plate-1', inputStamp: 1,
+      resultGeneration: 'saved', sliceTaskId: 'saved' }, [], {});
+
+    await commitUserPresetMutation(platform, save, null);
+    // Plate invalidation and input revisions are separate from project history.
+    expect(overwrite.plateSession.dirtyReasons).toEqual(['shared-configuration']);
+    expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-1': 12, 'plate-2': 18 });
+    expect(useSlicerStore.getState().plateResults).toEqual({});
+    expect(useProjectStore.getState().dirty).toBe(false);
+
+    await commitPresetDraftMutation(platform, request, null);
+    expect(useProjectStore.getState().dirty).toBe(true);
+    runtime.mutateUserPreset.mockResolvedValue({ ...overwrite, historyStatus: draft.historyStatus });
+    await commitUserPresetMutation(platform, save, null);
+    expect(useProjectStore.getState().dirty).toBe(true);
+
+    await expect(restoreProjectHistory(platform.runtime, 'undo')).resolves.toBe(restored);
+    expect(runtime.undoHistory).toHaveBeenCalledOnce();
+    expect(useProjectStore.getState().dirty).toBe(false);
+    runtime.mutateUserPreset.mockResolvedValue({ ...overwrite, historyStatus: restored.status });
+    await commitUserPresetMutation(platform, save, null);
+    expect(useProjectStore.getState().dirty).toBe(false);
+    expect(useHistoryNavigationStore.getState().status).toBe(restored.status);
+  });
+
   it('publishes one native success receipt and honors its all-results invalidation flag', async () => {
     const receipt = presetReceipt(true);
     const mutatePresetDraft = vi.fn(async () => receipt);
@@ -325,14 +434,14 @@ describe('commitPresetDraftMutation', () => {
     useSettingsStore.getState().setConfigurationMode('scoped');
     useFilamentSessionStore.setState({ snapshot: { revisions: { session: 1, project: 1, plates: {} } } as never });
 
-    await expect(commitPresetDraftMutation(platform, request)).resolves.toBe(receipt);
+    await expect(commitPresetDraftMutation(platform, request, null)).resolves.toBe(receipt);
 
     expect(mutatePresetDraft).toHaveBeenCalledOnce();
-    expect(mutatePresetDraft).toHaveBeenCalledWith(request);
+    expect(mutatePresetDraft).toHaveBeenCalledWith(request, expect.objectContaining({ selection: expect.any(Object), gizmo: null }));
     expect(runProjectHistoryTransaction).not.toHaveBeenCalled();
     expect(useHistoryNavigationStore.getState().status).toBe(receipt.historyStatus);
-    expect(useProjectStore.getState()).toMatchObject({ dirty: true, plateInputRevisions: { 'plate-1': 12, 'plate-2': 18 },
-      systemPresets: { printer: 'Printer A', print: 'Process' } });
+    expect(useProjectStore.getState()).toMatchObject({ dirty: true, systemPresets: { printer: 'Printer A', print: 'Process' } });
+    expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-1': 12, 'plate-2': 18 });
     expect(usePlateSessionStore.getState().snapshot).toBe(receipt.plateSession);
     expect(useFilamentSessionStore.getState().snapshot).toBe(receipt.filamentSession);
     expect(useSettingsStore.getState().nativeScopedConfig.project.printable_height).toBe('250');
@@ -363,12 +472,12 @@ describe('commitPresetDraftMutation', () => {
     useSlicerStore.getState().setActiveSliceTarget({ plateId: 'plate-1', inputRevision: 1 });
     useSlicerStore.getState().setError('existing message');
 
-    await expect(commitPresetDraftMutation(platform, request)).resolves.toBe(stale);
+    await expect(commitPresetDraftMutation(platform, request, null)).resolves.toBe(stale);
 
     expect(mutatePresetDraft).toHaveBeenCalledOnce();
     expect(runProjectHistoryTransaction).not.toHaveBeenCalled();
     expect(useHistoryNavigationStore.getState().status).toBe(initialHistory);
-    expect(useProjectStore.getState()).toMatchObject({ dirty: false, plateInputRevisions: {} });
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false });
     expect(usePlateSessionStore.getState().snapshot).toBe(mutation);
     expect(useSettingsStore.getState().nativeScopedConfigRevision).toBeNull();
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-1']);
@@ -397,7 +506,7 @@ describe('global bed preference publication', () => {
     slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '2', sliceTaskId: '2' }, [], {});
     slicer.setPlateResult({ plateId: 'plate-3', inputStamp: 1, resultGeneration: '3', sliceTaskId: '3' }, [], {});
     slicer.activatePlateResult('plate-1', 1);
-    useSlicerStore.setState({ activeSliceTarget: null, layers: 8, maxLayer: 7, layer: 4,
+    useSlicerStore.setState({ activeSliceTarget: null, maxLayer: 7, layer: 4,
       preview: { ...useSlicerStore.getState().preview, resultId: 7, maxMove: 100, visibleLayerEnd: 7 } });
     useSettingsStore.setState({ nativeScopedConfig: { ...baseline.snapshot,
       project: { curr_bed_type: 'High Temp Plate' },
@@ -420,7 +529,7 @@ describe('global bed preference publication', () => {
       expect(state.sliceTarget).toBeNull();
       expect(state.preview.resultId).toBeNull();
       expect(state.preview.maxMove).toBe(0);
-      expect(state.layers).toBe(0);
+      expect(state.maxLayer).toBe(-1);
       expect(state.status).toBe('idle');
       expect(host.runtime.cancel).not.toHaveBeenCalled();
     } finally { release(); await committing; }
