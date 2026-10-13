@@ -319,7 +319,11 @@ interface UserPreferences {
   };
   rememberedFilamentRacks?: Record<string, {
     version: 1;
-    slots: Array<{ preset: string; colour: string }>;
+    slots: Array<{
+      preset: string;
+      colour: string;
+      native: { representative: string | null; multiColour: string | null; type: string | null };
+    }>;
   }>;
   ui: {
     sidebarWidth?: number;

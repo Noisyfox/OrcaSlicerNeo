@@ -58,18 +58,30 @@ describe('user preferences', () => {
 
   it('keeps only valid printer-namespaced remembered racks', () => {
     const normalized = normalizeUserPreferences({ version: 1, rememberedFilamentRacks: {
-      'Printer A': { version: 1, slots: [{ preset: 'PLA', colour: '#112233' }] },
+      'Printer A': { version: 1, slots: [{ preset: 'PLA', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }] },
       'Printer D': { version: 1, slots: [{ preset: 'PLA', colour: '#11223388', native: { representative: '#not-hex', multiColour: '#ff000088 #00ff00aa', type: 'future' } }] },
       'Printer E': { version: 1, slots: [{ preset: 'PLA', colour: '#112233', native: { representative: null, multiColour: null, type: null } }] },
       'Printer F': { version: 1, slots: [{ preset: 'PLA', colour: '#112233', native: { representative: '#112233', multiColour: '#223344' } }] },
-      'Printer B': { version: 1, slots: [{ preset: '', colour: '#112233' }] },
-      'Printer C': { version: 2, slots: [{ preset: 'PLA', colour: '#112233' }] },
+      'Printer B': { version: 1, slots: [{ preset: '', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }] },
+      'Printer C': { version: 2, slots: [{ preset: 'PLA', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }] },
     } });
     expect(normalized.rememberedFilamentRacks).toEqual({
       'Printer A': { version: 1, slots: [{ preset: 'PLA', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }] },
       'Printer D': { version: 1, slots: [{ preset: 'PLA', colour: '#11223388', native: { representative: '#not-hex', multiColour: '#ff000088 #00ff00aa', type: 'future' } }] },
       'Printer E': { version: 1, slots: [{ preset: 'PLA', colour: '#112233', native: { representative: null, multiColour: null, type: null } }] },
     });
+  });
+
+  it('discards a whole rack with missing native metadata without discarding other preferences', () => {
+    const normalized = normalizeUserPreferences({ version: 1, selectedProfiles: { printer: 'Printer A' }, rememberedFilamentRacks: {
+      'Printer A': { version: 1, slots: [
+        { preset: 'PLA', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } },
+        { preset: 'PETG', colour: '#445566' },
+      ] },
+    } });
+    expect(normalized.rememberedFilamentRacks).toBeUndefined();
+    expect(normalized.selectedProfiles).toEqual({ printer: 'Printer A' });
+    expect(normalized.ui.switchToDeviceAfterSend).toBe(true);
   });
 
   it('keeps a complete finite G-code window geometry and rejects malformed values', () => {

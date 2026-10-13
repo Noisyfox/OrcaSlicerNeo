@@ -113,9 +113,10 @@ colour, and each slot's raw native representative, multi-colour list, and
 colour type (including unknown strings and null entries). A raw null entry
 is retained in the preference; restoring to a full native slot array uses
 the effective colour for a missing representative, that representative for
-a missing multi-colour list, and solid type `1` for a missing type. Existing
-stored racks with only a HEX colour normalize to these solid native fields at
-the preference boundary. Internal rack commands require the complete fields.
+a missing multi-colour list, and solid type `1` for a missing type. Stored racks
+with absent or incomplete native metadata are discarded at the preference
+boundary; old HEX-only racks are not migrated. Internal rack commands require
+the complete fields.
 The rack never records a Preset Editor runtime draft or its overrides. Restoring a
 remembered rack is always followed by native compatibility normalization. A
 compatible restored source is retained; a missing or incompatible source is
