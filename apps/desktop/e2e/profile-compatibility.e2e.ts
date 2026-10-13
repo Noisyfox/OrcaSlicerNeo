@@ -8,6 +8,8 @@ import { expect, test, type ElectronApplication, type Page } from '@playwright/t
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { clickPlateControl, expectCurrentPlate } from './plate-controls.helpers';
+import { selectFixturePrinter } from './printer-selection';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
@@ -32,6 +34,56 @@ async function optionNames(page: Page, triggerTestId: string): Promise<string[]>
   await expect(popup).toBeHidden();
   return names;
 }
+
+test('profile changes preserve the camera on unchanged beds and frame resized beds around the current plate', async () => {
+  const app = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await page.locator('#app-tab-prepare').click();
+    await clickPlateControl(page, 'add-plate');
+    await expectCurrentPlate(page, 'Plate 2', 2);
+    await expect.poll(() => page.evaluate(() => Boolean(
+      (window as any).__orcaE2e?.cameraState?.(),
+    ))).toBe(true);
+
+    const readCamera = () => page.evaluate(() => {
+      const state = (window as any).__orcaE2e.cameraState();
+      const round = (values: number[]) => values.map((value) => Math.round(value * 1e6) / 1e6);
+      return { position: round(state.position), quaternion: round(state.quaternion), target: round(state.target) };
+    });
+    // Establish a distinct orbit/pan/zoom through the existing scene probe.
+    await page.evaluate(() => (window as any).__orcaE2e.setCameraView([620, -500, 420], [410, -190, 0]));
+    const before = await readCamera();
+    await page.getByTestId('process-preset-select').click();
+    await page.locator('[data-slot="combobox-content"]')
+      .getByRole('option', { name: '0.16mm Optimal @BBL X1C', exact: true }).click();
+    await expect(page.getByTestId('process-preset-select')).toContainText('0.16mm Optimal');
+    await expect(page.getByTestId('process-preset-select')).toBeEnabled();
+    await expectCurrentPlate(page, 'Plate 2', 2);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(await readCamera()).toEqual(before);
+
+    await selectFixturePrinter(page, 'Bambu Lab P1S 0.4 nozzle');
+    await expectCurrentPlate(page, 'Plate 2', 2);
+    await expect.poll(async () => {
+      const current = await page.evaluate(() =>
+        (window as any).__orcaE2e.bedPlateStates().find((plate: { current: boolean }) => plate.current),
+      );
+      const camera = await readCamera();
+      return current && {
+        currentPlateOffset: current.position[0] > 0,
+        centerError: [
+          camera.target[0] - current.position[0] - (current.bounds.minX + current.bounds.maxX) / 2,
+          camera.target[1] - current.position[1] - (current.bounds.minY + current.bounds.maxY) / 2,
+          camera.target[2],
+        ],
+      };
+    }).toEqual({ currentPlateOffset: true, centerError: [0, 0, 0] });
+  } finally {
+    await app.close();
+  }
+});
 
 test('printer transitions atomically replace the Process picker while the Filament rack remains authoritative', async () => {
   test.setTimeout(120_000);

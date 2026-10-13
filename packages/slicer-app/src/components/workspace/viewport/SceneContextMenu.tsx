@@ -66,16 +66,17 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
     startX: number;
     startY: number;
     dragged: boolean;
+    released: boolean;
+    contextMenu: MouseEvent | null;
   } | null>(null);
 
   const closeMenu = useCallback(() => {
     setMenuOpen(false);
   }, []);
 
-  // The ContextMenuTrigger owns native right-click anchoring and only opens on
-  // the contextmenu gesture, so OrbitControls can still use right-drag for
-  // panning. Resolve the hit at the same point so a body click opens the
-  // object menu and preserves the existing selection behavior.
+  // The ContextMenuTrigger owns right-click anchoring. An early contextmenu
+  // event is deferred until release so it cannot interrupt camera panning.
+  // Resolve the hit at the click point to preserve object selection behavior.
   const handleContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     const state = sceneStateRef.current;
@@ -133,18 +134,21 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
   }, [sceneInteraction, sceneStateRef]);
 
   const handlePointerDownCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    rightGestureRef.current = null;
     if (event.button !== 2) return;
     rightGestureRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       dragged: false,
+      released: false,
+      contextMenu: null,
     };
   }, []);
 
   const handlePointerMoveCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const gesture = rightGestureRef.current;
-    if (!gesture || gesture.pointerId !== event.pointerId || gesture.dragged) return;
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.dragged || gesture.released) return;
     const dx = event.clientX - gesture.startX;
     const dy = event.clientY - gesture.startY;
     if (dx * dx + dy * dy > RIGHT_DRAG_THRESHOLD_PX * RIGHT_DRAG_THRESHOLD_PX) {
@@ -154,19 +158,49 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
 
   const handleContextMenuCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     const gesture = rightGestureRef.current;
-    rightGestureRef.current = null;
-    if (gesture?.dragged) {
-      // Base UI opens from the contextmenu event. A right-drag is a camera
-      // gesture, so stop this event before the trigger's opening handler sees it.
+    if (gesture && (!gesture.released || gesture.dragged)) {
+      // Some hosts send contextmenu on press, others after release. Keep the
+      // gesture alive and suppress both the native menu and Base UI opening.
       event.preventDefault();
       event.stopPropagation();
+      if (!gesture.released) gesture.contextMenu = event.nativeEvent;
+      return;
     }
+    rightGestureRef.current = null;
+  }, []);
+
+  const handlePointerUpCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = rightGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || event.button !== 2) return;
+    const dx = event.clientX - gesture.startX;
+    const dy = event.clientY - gesture.startY;
+    gesture.dragged ||= dx * dx + dy * dy > RIGHT_DRAG_THRESHOLD_PX * RIGHT_DRAG_THRESHOLD_PX;
+    gesture.released = true;
+    const pending = gesture.contextMenu;
+    gesture.contextMenu = null;
+    if (!pending || gesture.dragged) return;
+    // Replay only a completed click through the trigger, retaining its native
+    // anchoring behavior. Finish pointerup propagation before opening the menu.
+    queueMicrotask(() => {
+      if (rightGestureRef.current !== gesture || gesture.dragged) return;
+      const target = pending.target;
+      if (!(target instanceof Element) || !target.isConnected) return;
+      target.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, composed: true, button: 2,
+        clientX: pending.clientX, clientY: pending.clientY,
+        screenX: pending.screenX, screenY: pending.screenY,
+        ctrlKey: pending.ctrlKey, shiftKey: pending.shiftKey,
+        altKey: pending.altKey, metaKey: pending.metaKey,
+      }));
+    });
   }, []);
 
   const handlePointerCancelCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (rightGestureRef.current?.pointerId === event.pointerId) {
-      rightGestureRef.current = null;
-    }
+    const gesture = rightGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.released) return;
+    gesture.dragged = true;
+    gesture.released = true;
+    gesture.contextMenu = null;
   }, []);
 
   const handleClearScene = useCallback(() => {
@@ -207,7 +241,9 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
         className="absolute inset-0 pointer-events-none"
         onPointerDownCapture={handlePointerDownCapture}
         onPointerMoveCapture={handlePointerMoveCapture}
+        onPointerUpCapture={handlePointerUpCapture}
         onPointerCancelCapture={handlePointerCancelCapture}
+        onLostPointerCapture={handlePointerCancelCapture}
         onContextMenuCapture={handleContextMenuCapture}
         onContextMenu={handleContextMenu}
       >

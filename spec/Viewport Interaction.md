@@ -145,9 +145,11 @@ owns affected-result invalidation.
 ## Context menus and output modes
 
 Viewport and Object List menus use shared shadcn Context Menu primitives.
-Right-drag beyond 4 CSS pixels pans and suppresses the following contextmenu
-event. A body click selects the appropriate target and opens its object/part
-menu; empty space opens model-import/primitive commands. The native host menu
+Right-drag beyond 4 CSS pixels pans and suppresses context menus. Right-button
+clicks open only after release, whether the host sends `contextmenu` on press
+or release; cancelled gestures never open a menu. A body click selects the
+appropriate target and opens its object/part menu; empty space opens
+model-import/primitive commands. The native host menu
 is suppressed outside editable controls and the shared menu surface.
 
 [Workspace Prepare and Preview Modes](Workspace%20Prepare%20and%20Preview%20Modes.md)

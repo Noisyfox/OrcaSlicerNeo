@@ -43,7 +43,7 @@ declare const __ORCA_E2E__: boolean;
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
-// CameraFraming below reapplies the same framing for the selected profile.
+// CameraFraming applies it when the printable-area bounds change.
 const CAMERA_DISTANCE = 450;
 const CAMERA_DISTANCE_PER_BED_MM = CAMERA_DISTANCE / BED_SIZE;
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [
@@ -433,8 +433,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             // main.tsx before the Canvas mounts — so no per-camera up wiring
             // here. The launch view looks at the plate center with X horizontal
             // and the plate at 45° to the screen plane (DEFAULT_CAMERA_POSITION
-            // above); CameraFraming below keeps that framing in sync with the
-            // active printer profile.
+            // above); CameraFraming updates it around the current plate when
+            // the printable-area bounds change.
             // OrbitControls in three r185 takes its orbit axis from camera.up.
             camera={{ position: DEFAULT_CAMERA_POSITION, fov: 45 }}
             dpr={[1, 2]}
@@ -554,7 +554,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   );
 }
 
-/** Keep the initial view centered and scaled to the active printer profile. */
+/** Initialize or resize framing around the current plate, retaining ordinary navigation. */
 function CameraFraming({
   bounds,
   mode,
@@ -571,15 +571,23 @@ function CameraFraming({
     target: THREE.Vector3;
     update: () => void;
   } | undefined);
+  const appliedFramingRef = useRef<{ key: string; camera: typeof camera; controls: typeof controls } | null>(null);
   const appliedPreviewFrameTokenRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // Profile snapshots replace arrays even when the bed is unchanged. Only
+    // changed framing dimensions may overwrite the user's orbit/pan/zoom.
+    const key = [bounds.width, bounds.depth, bounds.centerX, bounds.centerY].join(',');
+    const applied = appliedFramingRef.current;
+    if (applied?.key === key && applied.camera === camera && applied.controls === controls) return;
+    const plate = plateSession?.plates.find((candidate) => candidate.plateId === plateSession.currentPlateId);
+    const origin = plate?.origin ?? [0, 0, 0];
     const distance = Math.max(300, Math.max(bounds.width, bounds.depth) * CAMERA_DISTANCE_PER_BED_MM);
-    const target = new THREE.Vector3(bounds.centerX, bounds.centerY, 0);
+    const target = new THREE.Vector3(origin[0] + bounds.centerX, origin[1] + bounds.centerY, origin[2]);
     camera.position.set(
-      bounds.centerX,
-      bounds.centerY - distance / Math.SQRT2,
-      distance / Math.SQRT2,
+      target.x,
+      target.y - distance / Math.SQRT2,
+      target.z + distance / Math.SQRT2,
     );
     camera.lookAt(target);
     camera.updateProjectionMatrix();
@@ -587,7 +595,8 @@ function CameraFraming({
       controls.target.copy(target);
       controls.update();
     }
-  }, [bounds, camera, controls]);
+    appliedFramingRef.current = { key, camera, controls };
+  }, [bounds, camera, controls, plateSession]);
 
   useEffect(() => {
     if (mode !== 'preview' || !previewFrameRequest || appliedPreviewFrameTokenRef.current === previewFrameRequest.token) return;

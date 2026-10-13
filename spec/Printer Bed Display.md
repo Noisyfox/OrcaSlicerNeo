@@ -15,8 +15,10 @@ printer profile.
   the slicer. If the profile data is unavailable or invalid, it uses the
   existing 220 mm square fallback.
 - The grid and initial camera framing use the profile's bounding dimensions.
-- Changing the printer profile updates the displayed build plate and camera
-  framing together with the atomic profile snapshot.
+- Profile changes update the displayed build plate with the atomic profile
+  snapshot. When printable-area bounding dimensions or center change, camera
+  framing uses the current plate's origin. Printer or Process switches with
+  unchanged bounds preserve camera position, direction, and zoom.
 - No host-specific API or duplicate printer-size table is introduced.
 
 ## Printer bed models and artwork
