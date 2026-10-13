@@ -76,7 +76,6 @@ export async function prepareObjectListMutation(): Promise<MutationOutcome> {
 export async function refreshAfterModelMutation(
   runtime: SlicerRuntime,
   plateSession?: PlateSessionMutation,
-  dirtyReason: 'model-delete' | 'model-structure' = 'model-structure',
 ): Promise<void> {
   const slicer = useSlicerStore.getState();
   slicer.setStatus('idle');
@@ -96,9 +95,6 @@ export async function refreshAfterModelMutation(
     const previousPlateSession = usePlateSessionStore.getState().snapshot;
     usePlateSessionStore.getState().setSnapshot(plateSession);
     applyPlateResultMutation(plateSession, previousPlateSession);
-    useProjectStore.getState().recordPlateMutation(plateSession);
-  } else {
-    useProjectStore.getState().markDirty(dirtyReason);
   }
   const structure = useObjectListStore.getState().structure;
   if (structure.length === 0) {

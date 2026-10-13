@@ -45,7 +45,6 @@ export function commitUserPresetMutation(platform: PlatformCapabilities, request
       const project = useProjectStore.getState();
       const selections = { printer: result.profileSnapshot.printer.name, print: result.profileSnapshot.print.name };
       project.setProject(project.scope === 'project' ? { projectPresets: selections } : { systemPresets: selections });
-      project.recordPlateMutation(result.plateSession);
       invalidateAfterSharedConfigurationMutation(result.plateSession.affectedPlateIds ?? [], platform.runtime, true);
     });
     return result;
@@ -116,7 +115,6 @@ async function commitScopedConfigurationMutationNow(
           invalidateAfterSharedConfigurationMutation(published.affectedPlateIds, platform.runtime);
           applyPlateSessionTransforms(published, glVolumeCollection.volumes);
           usePlateSessionStore.getState().setSnapshot(published);
-          useProjectStore.getState().recordPlateMutation(published);
           if (request.targets.some(target => target.scope === 'project') &&
               useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type !== previousBed) {
             const settings = useSettingsStore.getState();
@@ -196,7 +194,6 @@ async function commitPresetDraftMutationNow(
       const selections = { printer: result.profileSnapshot.printer.name, print: result.profileSnapshot.print.name };
       project.setProject(project.scope === 'project'
         ? { projectPresets: selections } : { systemPresets: selections });
-      project.recordPlateMutation(result.plateSession);
       invalidateAfterSharedConfigurationMutation(
         result.affectedPlateIds,
         platform.runtime,
@@ -233,7 +230,6 @@ export async function applyPresetConfigurationMutation(platform: PlatformCapabil
   }
   applyPlateSessionTransforms(result, glVolumeCollection.volumes);
   usePlateSessionStore.getState().setSnapshot(result);
-  useProjectStore.getState().recordPlateMutation(result);
   return result;
 }
 
@@ -288,7 +284,6 @@ export async function selectProcessPreset(platform: PlatformCapabilities, name: 
       settings.applyNativeScopedConfigTransport(result.nativeScopedConfig);
       applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
       usePlateSessionStore.getState().setSnapshot(result.plateSession);
-      useProjectStore.getState().recordPlateMutation(result.plateSession);
       invalidateAffectedPlateResults(platform.runtime, result.plateSession.affectedPlateIds ?? []);
     },
   });

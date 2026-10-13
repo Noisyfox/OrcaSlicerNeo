@@ -128,10 +128,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
           print: transition.profileSnapshot.print.name,
         };
         project.setProject(project.scope === 'project'
-          ? { projectPresets: selections, dirty: status.dirty, dirtyReasons: [],
-              plateInputRevisions: transition.plateSession.inputRevisions ?? {} }
-          : { systemPresets: selections, dirty: status.dirty, dirtyReasons: [],
-              plateInputRevisions: transition.plateSession.inputRevisions ?? {} });
+          ? { projectPresets: selections } : { systemPresets: selections });
         invalidateAfterSharedConfigurationMutation(
           transition.mutation.affectedPlateIds, platform.runtime,
           transition.mutation.allPlateResultsInvalidated,

@@ -43,7 +43,7 @@ describe('setup authoritative receipt publication', () => {
   it('candidate-only keeps a clean existing project and exact result receipts clean', async () => {
     const f = await fixture(); f.result.configurationChanged = false;
     f.result.historyStatus = { ...f.result.historyStatus, dirty: false };
-    useProjectStore.getState().setProject({ dirty: false, hasContent: true });
+    useProjectStore.setState({ dirty: false, hasContent: true });
     const markSaved = vi.spyOn(f.platform.runtime, 'markHistorySaved');
     await publishSetupWizardApplication(f.platform, f.result, 'existing-project');
     expect(markSaved).not.toHaveBeenCalled();
@@ -55,7 +55,7 @@ describe('setup authoritative receipt publication', () => {
   it('candidate-only clears history while retaining exact dirty, slices, preview and export receipt identity', async () => {
     const f = await fixture(); f.result.configurationChanged = false;
     f.result.historyStatus = { ...f.result.historyStatus, dirty: true, canUndo: false, canRedo: false };
-    useProjectStore.getState().setProject({ dirty: true, hasContent: true, projectName: 'Retained', scope: 'project' });
+    useProjectStore.setState({ dirty: true, hasContent: true, projectName: 'Retained', scope: 'project' });
     await publishSetupWizardApplication(f.platform, f.result, 'existing-project');
     expect(useSlicerStore.getState().plateResults).toBe(f.plateResults);
     expect(useSlicerStore.getState().preview).toBe(f.preview);

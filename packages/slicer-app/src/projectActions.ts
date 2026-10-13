@@ -97,15 +97,14 @@ function projectedHistoryContext(): HistoryContext {
   };
 }
 async function currentHistoryStatus(runtime: Runtime): Promise<HistoryStatus> {
-  const status = await readProjectHistoryStatus(runtime, false);
+  const status = await readProjectHistoryStatus(runtime);
   if (!status) throw new Error('project history status read failed');
   return status;
 }
 /** Read the Worker checkpoint state for lifecycle guards. */
 export async function projectDirtyStatus(platform: PlatformCapabilities): Promise<boolean> {
-  const projectedBeforeQuery = useProjectStore.getState();
   const status = await currentHistoryStatus(runtimeOf(platform));
-  return status.dirty || projectedBeforeQuery.dirtyReasons.length > 0;
+  return status.dirty;
 }
 async function resetHistory(runtime: Runtime): Promise<HistoryStatus> {
   return resetProjectHistory(runtime, projectedHistoryContext());
@@ -163,8 +162,8 @@ async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean):
         setOperation(saved.status === 'cancelled' ? 'cancelled' : 'failed');
         return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error);
       }
-      const history = await markSaved();
-      useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(saved.displayName), projectFileName: saved.displayName, hasContent: true, dirty: history.dirty, dirtyReasons: [], location: saved.location });
+      await markSaved();
+      useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(saved.displayName), projectFileName: saved.displayName, hasContent: true, location: saved.location });
       setOperation('completed', 100);
       return { status: 'ok' };
     } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
@@ -241,9 +240,7 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
           const notices = [...existing.notices, ...incomingNotices.filter((notice) => !existing.notices.some((current) => current.kind === notice.kind))];
           if (published.plateSession) {
             usePlateSessionStore.getState().setSnapshot(published.plateSession);
-            useProjectStore.getState().recordPlateMutation(published.plateSession);
           }
-          else useProjectStore.getState().markDirty('model-import');
           useProjectStore.getState().setProject({ hasContent: true, notices, scope: existing.scope });
         },
       },
@@ -321,7 +318,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     projectHistoryStatus(history);
     const filament = await refreshFilamentSession(runtime);
     if (!filament.ok) throw new Error(filament.error ?? 'project load filament session refresh failed');
-    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), projectFileName: input.displayName, location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
+    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), projectFileName: input.displayName, location: input.location, hasContent: true, scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
     setOperation('completed', 100);
     return {
       status: 'ok',

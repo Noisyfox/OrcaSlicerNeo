@@ -37,7 +37,7 @@ afterEach(() => {
   useFilamentSessionStore.getState().reset();
   usePlateSessionStore.getState().reset();
   useHistoryNavigationStore.getState().setStatus(null);
-  useProjectStore.getState().setProject({ dirty: false, dirtyReasons: [] });
+  useProjectStore.setState({ dirty: false });
   glVolumeCollection.clear();
   useObjectListStore.getState().clear();
 });

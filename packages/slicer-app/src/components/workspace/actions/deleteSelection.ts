@@ -99,7 +99,6 @@ export async function deleteSelection(
         const previousPlateSession = usePlateSessionStore.getState().snapshot;
         usePlateSessionStore.getState().setSnapshot(published.plateSession);
         applyPlateResultMutation(published.plateSession, previousPlateSession);
-        useProjectStore.getState().recordPlateMutation(published.plateSession);
       },
     });
     result = history.result;

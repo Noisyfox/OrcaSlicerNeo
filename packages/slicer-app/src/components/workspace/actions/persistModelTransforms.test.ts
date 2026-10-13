@@ -1,3 +1,4 @@
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useProjectStore } from '@/stores/useProjectStore';
@@ -38,7 +39,7 @@ describe('persistSettledModelTransforms', () => {
     expect(useSlicerStore.getState().status).toBe('done');
   });
 
-  it('records bridge revisions and reasons from a committed transform', async () => {
+  it('projects native plate revisions without changing the history checkpoint', async () => {
     syncModelTransforms.mockResolvedValue({
       ok: true,
       plateSession: {
@@ -49,9 +50,8 @@ describe('persistSettledModelTransforms', () => {
     });
     await persistSettledModelTransforms({} as never);
     expect(useProjectStore.getState()).toMatchObject({
-      dirty: true,
-      dirtyReasons: ['model-transform'],
-      plateInputRevisions: { 'plate-1': 4, 'plate-2': 1 },
+      dirty: false,
     });
+    expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-1': 4, 'plate-2': 1 });
   });
 });

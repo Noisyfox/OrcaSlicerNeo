@@ -578,9 +578,8 @@ describe('SettingsPanel preset transitions', () => {
     expect(useHistoryNavigationStore.getState().status).toMatchObject({ revision: 1, undoLabel: 'Select Printer' });
     expect(useProjectStore.getState()).toMatchObject({
       dirty: true,
-      dirtyReasons: [],
-      plateInputRevisions: { 'plate-1': 1 },
     });
+    expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-1': 1 });
     expect(slicerUpdates).toBe(1);
     expect(useSlicerStore.getState()).toMatchObject({
       status: 'idle', progress: 0, error: null,

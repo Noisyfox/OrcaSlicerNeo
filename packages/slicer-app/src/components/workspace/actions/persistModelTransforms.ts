@@ -3,7 +3,6 @@ import type { PlateSessionMutation } from '@slicer/client';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
 import { useSlicerStore } from '@/stores/useSlicerStore';
-import { useProjectStore } from '@/stores/useProjectStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { applyPlateSessionTransforms, syncModelTransforms } from './syncModelTransforms';
 
@@ -30,9 +29,7 @@ export function applySettledTransformSyncResult(result: SyncResult): void {
     const previousPlateSession = usePlateSessionStore.getState().snapshot;
     usePlateSessionStore.getState().setSnapshot(result.plateSession);
     applyPlateResultMutation(result.plateSession, previousPlateSession);
-    useProjectStore.getState().recordPlateMutation(result.plateSession);
   }
-  else useProjectStore.getState().markDirty('model-transform');
 }
 
 // Legacy settle synchronization is retained for the defensive pre-slice

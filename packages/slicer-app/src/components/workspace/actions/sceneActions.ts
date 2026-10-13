@@ -63,7 +63,6 @@ async function commitAddedImpl(
       const previousPlateSession = usePlateSessionStore.getState().snapshot;
       usePlateSessionStore.getState().setSnapshot(r.plateSession);
       applyPlateResultMutation(r.plateSession, previousPlateSession);
-      useProjectStore.getState().recordPlateMutation(r.plateSession);
       slicer.setError(null);
     },
   });
@@ -313,7 +312,6 @@ export async function clearScene(
         const previousPlateSession = usePlateSessionStore.getState().snapshot;
         usePlateSessionStore.getState().setSnapshot(r.plateSession);
         applyPlateResultMutation(r.plateSession, previousPlateSession);
-        useProjectStore.getState().recordPlateMutation(r.plateSession);
         sceneInteraction?.resetForModel();
         slicer.setError(null);
       },

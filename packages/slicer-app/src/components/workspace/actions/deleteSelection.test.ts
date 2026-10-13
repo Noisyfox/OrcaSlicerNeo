@@ -1,3 +1,4 @@
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { createClient } from '@slicer/client';
 import { createMockModule } from '../../../../../slicer-wasm/src/client/testing/mock-module';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,7 +37,7 @@ function makeRuntime(): SlicerRuntime {
       _before: unknown,
       mutation: (transactionId: string) => Promise<T>,
       _after: unknown | (() => unknown | Promise<unknown>),
-    ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: {} as never })),
+    ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: { revision: 1, dirty: true } as never })),
   } as unknown as SlicerRuntime;
 }
 
@@ -110,7 +111,7 @@ describe('deleteSelection', () => {
     expect(useSlicerStore.getState().error).toContain('last solid part');
   });
 
-  it('records bridge revisions and reasons from a successful delete', async () => {
+  it('publishes native plate revisions and Worker dirty status after deletion', async () => {
     const runtime = makeRuntime();
     (runtime.deleteObjects as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
@@ -126,9 +127,8 @@ describe('deleteSelection', () => {
     await deleteSelection(runtime, scene);
     expect(useProjectStore.getState()).toMatchObject({
       dirty: true,
-      dirtyReasons: ['model-delete'],
-      plateInputRevisions: { 'plate-1': 5 },
     });
+    expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-1': 5 });
   });
 
   it('fails closed when the selection no longer maps to the model', async () => {

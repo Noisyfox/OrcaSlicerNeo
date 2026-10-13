@@ -4,7 +4,6 @@ import type { PlateSessionMutationResult, PlateSessionSnapshotResult, PrimeTower
 import { glVolumeCollection } from './viewport/GLVolume';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
-import { useProjectStore } from '@/stores/useProjectStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
@@ -117,9 +116,4 @@ export async function selectPlateSessionAndClearSelection(
   const selected = await selectPlateSession(platform, plateId);
   if (selected) clearSelection();
   return selected;
-}
-
-/** Structural mutations retain the existing project dirty-state semantics. */
-export function recordPlateMutation(result: PlateSessionMutationResult): void {
-  if (result.ok) useProjectStore.getState().recordPlateMutation(result);
 }
