@@ -82,7 +82,7 @@ export async function refreshAfterModelMutation(
   slicer.setStatus('idle');
   slicer.setResultExported(false);
   slicer.setError(null);
-  slicer.setLayers(0);
+  slicer.resetPreviewState();
   if (plateSession) {
     invalidateAffectedPlateResults(runtime, plateSession.affectedPlateIds ?? []);
     if (plateSession.nativeScopedConfig) {

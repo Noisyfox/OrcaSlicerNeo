@@ -66,16 +66,16 @@ describe('useSlicerStore', () => {
     const s = useSlicerStore.getState();
     expect(s.status).toBe('idle');
     expect(s.progress).toBe(0);
-    expect(s.layers).toBe(0);
+    expect(s.maxLayer).toBe(-1);
     expect(s.error).toBeNull();
     expect(s.resultExported).toBe(false);
 
     s.setStatus('slicing');
     s.setProgress(42);
-    s.setLayers(80);
+    s.setPreviewBounds(79, 0);
     expect(useSlicerStore.getState().status).toBe('slicing');
     expect(useSlicerStore.getState().progress).toBe(42);
-    expect(useSlicerStore.getState().layers).toBe(80);
+    expect(useSlicerStore.getState().maxLayer).toBe(79);
 
     s.setError('boom');
     expect(useSlicerStore.getState().error).toBe('boom');

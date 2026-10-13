@@ -54,10 +54,6 @@ export function useSliceResult(enabled = true) {
   const sliceTarget = useSlicerStore((s) => s.sliceTarget);
   const plateResults = useSlicerStore((s) => s.plateResults);
   const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
-  const layers = useSlicerStore((s) => s.layers);
-  const setLayers = useSlicerStore((s) => s.setLayers);
-  const setMaxLayer = useSlicerStore((s) => s.setMaxLayer);
-  const setLayer = useSlicerStore((s) => s.setLayer);
   const setPreviewBounds = useSlicerStore((s) => s.setPreviewBounds);
   const resetPreviewState = useSlicerStore((s) => s.resetPreviewState);
   const activeResult = currentPlateId && sliceTarget?.plateId === currentPlateId
@@ -73,15 +69,11 @@ export function useSliceResult(enabled = true) {
     setProjection(null);
     if (!enabled || status !== 'done' || !expectedReceipt || expectedReceipt.plateId !== currentPlateId) {
       setProjectionStatus('needs-slicing');
-      setLayer(0);
-      setMaxLayer(0);
       resetPreviewState();
       return;
     }
     const requestedReceipt = expectedReceipt;
     setProjectionStatus('loading');
-    setLayer(0);
-    setMaxLayer(0);
     resetPreviewState();
     let cancelled = false;
     (async () => {
@@ -115,11 +107,9 @@ export function useSliceResult(enabled = true) {
         const result = { ...r, toolpath: { ...r.toolpath, moveOrders } };
         setProjection({ receipt: requestedReceipt, result });
         setProjectionStatus('ready');
-        setLayers(r.layers);
-        setMaxLayer(Math.max(0, r.layers - 1));
         const activeLayer = Math.max(0, r.layers - 1);
         const maxMove = maxMoveOrderForLayer({ ...result.toolpath, metadata: r.metadata }, activeLayer);
-        setPreviewBounds(Math.max(0, r.layers - 1), maxMove, r.metadata.resultId);
+        setPreviewBounds(r.layers - 1, maxMove, r.metadata.resultId);
       } catch (err) {
         if (cancelled || projectionEpoch.current !== epoch) return;
         // Projection failure is local and retryable from the retained native
@@ -130,8 +120,8 @@ export function useSliceResult(enabled = true) {
     })();
     return () => { cancelled = true; };
   }, [currentPlateId, expectedReceipt?.inputStamp, expectedReceipt?.plateId,
-    enabled, expectedReceipt?.resultGeneration, expectedReceipt?.sliceTaskId, resetPreviewState, setLayers, setMaxLayer,
-    setLayer, setPreviewBounds, status]);
+    enabled, expectedReceipt?.resultGeneration, expectedReceipt?.sliceTaskId, resetPreviewState,
+    setPreviewBounds, status]);
 
   const result = projection && sameReceipt(projection.receipt, expectedReceipt) &&
       enabled && currentPlateId === projection.receipt.plateId && status === 'done'

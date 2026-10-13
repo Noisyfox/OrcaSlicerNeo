@@ -124,7 +124,7 @@ function resetStores() {
       configurationMode: 'project',
   });
   useSlicerStore.setState({
-    status: 'done', progress: 100, layers: 80, error: 'previous failure',
+    status: 'done', progress: 100, error: 'previous failure',
     resultExported: true, layer: 40, maxLayer: 79,
   });
 }
@@ -583,8 +583,8 @@ describe('SettingsPanel preset transitions', () => {
     });
     expect(slicerUpdates).toBe(1);
     expect(useSlicerStore.getState()).toMatchObject({
-      status: 'idle', progress: 0, layers: 0, error: null,
-      resultExported: false, layer: 0, maxLayer: 0,
+      status: 'idle', progress: 0, error: null,
+      resultExported: false, layer: 0, maxLayer: -1,
     });
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
       selectedProfiles: { printer: 'New Printer', print: 'Resolved Process' },

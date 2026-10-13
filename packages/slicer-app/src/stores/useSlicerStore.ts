@@ -62,7 +62,6 @@ interface SlicerState {
   progress: number;
   progressText: string;
   plateFailures: Readonly<Record<string, PlateSliceFailure>>;
-  layers: number;
   error: string | null;
   /** A completed slice remains dirty until its G-code is saved by the host. */
   resultExported: boolean;
@@ -73,6 +72,7 @@ interface SlicerState {
   /** The one job allowed to run at a time. */
   activeSliceTarget: PlateOperationTarget | null;
   layer: number; // scrubber position (0-based, default = max)
+  /** Inclusive preview layer bound; -1 means no loaded layers. */
   maxLayer: number;
   preview: PreviewState;
   showGcodeText: boolean;
@@ -81,7 +81,6 @@ interface SlicerState {
   setProgress: (p: number) => void;
   setProgressText: (text: string) => void;
   setPlateFailure: (target: PlateOperationTarget, error: string) => void;
-  setLayers: (n: number) => void;
   setError: (e: string | null) => void;
   setLayer: (n: number) => void;
   setMaxLayer: (n: number) => void;
@@ -113,7 +112,6 @@ interface SlicerState {
 export const useSlicerStore = create<SlicerState>((set) => ({
   status: 'idle',
   progress: 0,
-  layers: 0,
   error: null,
   resultExported: false,
   sliceTarget: null,
@@ -122,7 +120,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   progressText: '',
   plateFailures: {},
   layer: 0,
-  maxLayer: 0,
+  maxLayer: -1,
   preview: DEFAULT_PREVIEW_STATE,
   showGcodeText: false,
   setShowGcodeText: (showGcodeText) => set({ showGcodeText }),
@@ -130,7 +128,6 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   setProgress: (progress) => set({ progress }),
   setProgressText: (progressText) => set({ progressText }),
   setPlateFailure: (target, error) => set(state => ({ plateFailures: { ...state.plateFailures, [target.plateId]: { target, error } } })),
-  setLayers: (layers) => set({ layers }),
   setError: (error) => set({ error }),
   setLayer: (layer) => set((state) => ({
     layer,
@@ -166,11 +163,10 @@ export const useSlicerStore = create<SlicerState>((set) => ({
           sliceTarget: null,
           status: 'idle' as const,
           progress: 0,
-          layers: 0,
           error: null,
           resultExported: false,
           layer: 0,
-          maxLayer: 0,
+          maxLayer: -1,
           preview: resetPreviewProjection(state.preview),
         };
       }
@@ -182,9 +178,8 @@ export const useSlicerStore = create<SlicerState>((set) => ({
         // The current plate projection materializes asynchronously. Releasing
         // these bounds here prevents a switched plate from inheriting the prior
         // projection's scrubber while its payload is in flight.
-        layers: 0,
         layer: 0,
-        maxLayer: 0,
+        maxLayer: -1,
         preview: resetPreviewProjection(state.preview),
         error: cached.warnings.length ? `[Warning] ${cached.warnings.join('; ')}` : null,
         resultExported: false,
@@ -208,11 +203,10 @@ export const useSlicerStore = create<SlicerState>((set) => ({
         sliceTarget: null,
         status: 'idle' as const,
         progress: 0,
-        layers: 0,
         error: null,
         resultExported: false,
         layer: 0,
-        maxLayer: 0,
+        maxLayer: -1,
         preview: resetPreviewProjection(state.preview),
       } : {}),
       ...(slicingAffected && !currentAffected ? {
@@ -233,19 +227,21 @@ export const useSlicerStore = create<SlicerState>((set) => ({
         sliceTarget: null,
         status: 'idle' as const,
         progress: 0,
-        layers: 0,
         error: null,
         resultExported: false,
         layer: 0,
-        maxLayer: 0,
+        maxLayer: -1,
         preview: resetPreviewProjection(state.preview),
       } : {}),
     };
   }),
-  clearPlateResults: () => set({ plateResults: {}, plateFailures: {}, progressText: '', sliceTarget: null, activeSliceTarget: null }),
+  clearPlateResults: () => set((state) => ({
+    plateResults: {}, plateFailures: {}, progressText: '', sliceTarget: null, activeSliceTarget: null,
+    layer: 0, maxLayer: -1, preview: resetPreviewProjection(state.preview),
+  })),
   setPreviewBounds: (maxLayer, maxMove, resultId = null) => set((state) => ({
     maxLayer,
-    layer: maxLayer,
+    layer: Math.max(0, maxLayer),
     preview: {
       ...resetPreviewProjection(state.preview),
       visibleLayerStart: state.preview.singleLayer ? Math.max(0, maxLayer) : 0,
@@ -254,8 +250,6 @@ export const useSlicerStore = create<SlicerState>((set) => ({
       maxMove: Math.max(0, maxMove),
       resultId,
     },
-    // Keep this field synchronized for older callers that still read layers.
-    layers: Math.max(0, maxLayer + 1),
     error: state.error,
   })),
   setPreviewLayerRange: ([first, last], activeLayerMaxMove) => set((state) => {
@@ -353,14 +347,12 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   resetPreviewState: () => set((state) => ({
     layer: 0,
     preview: resetPreviewProjection(state.preview),
-    maxLayer: 0,
-    layers: 0,
+    maxLayer: -1,
     error: state.error,
   })),
   invalidateSliceResult: () => set((state) => ({
     status: 'idle',
     progress: 0,
-    layers: 0,
     error: null,
     resultExported: false,
     sliceTarget: null,
@@ -369,7 +361,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     progressText: '',
     activeSliceTarget: null,
     layer: 0,
-    maxLayer: 0,
+    maxLayer: -1,
     preview: resetPreviewProjection(state.preview),
   })),
 }));

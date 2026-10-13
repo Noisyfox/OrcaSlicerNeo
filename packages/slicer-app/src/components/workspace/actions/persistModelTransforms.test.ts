@@ -14,7 +14,7 @@ vi.mock('./syncModelTransforms', () => ({
 describe('persistSettledModelTransforms', () => {
   beforeEach(() => {
     useSlicerStore.setState({
-      status: 'done', progress: 100, layers: 80, error: null, resultExported: true,
+      status: 'done', progress: 100, maxLayer: 79, error: null, resultExported: true,
     });
     syncModelTransforms.mockReset();
     useProjectStore.getState().reset();
@@ -27,7 +27,7 @@ describe('persistSettledModelTransforms', () => {
     const slicer = useSlicerStore.getState();
     expect(slicer.status).toBe('idle');
     expect(slicer.resultExported).toBe(false);
-    expect(slicer.layers).toBe(0);
+    expect(slicer.maxLayer).toBe(-1);
     expect(slicer.progress).toBe(0);
   });
 

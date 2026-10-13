@@ -53,7 +53,7 @@ function makeScene(withIndex: { objectIdx: number; volumeIdx: number; instanceId
 
 describe('deleteSelection', () => {
   beforeEach(() => {
-    useSlicerStore.setState({ status: 'done', resultExported: true, error: 'stale', layers: 40 });
+    useSlicerStore.setState({ status: 'done', resultExported: true, error: 'stale', maxLayer: 39 });
     useSettingsStore.setState({ modelLoaded: true, modelRevision: 3 });
     useProjectStore.getState().reset();
   });

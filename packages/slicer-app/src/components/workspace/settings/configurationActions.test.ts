@@ -455,7 +455,7 @@ describe('global bed preference publication', () => {
     slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '2', sliceTaskId: '2' }, [], {});
     slicer.setPlateResult({ plateId: 'plate-3', inputStamp: 1, resultGeneration: '3', sliceTaskId: '3' }, [], {});
     slicer.activatePlateResult('plate-1', 1);
-    useSlicerStore.setState({ activeSliceTarget: null, layers: 8, maxLayer: 7, layer: 4,
+    useSlicerStore.setState({ activeSliceTarget: null, maxLayer: 7, layer: 4,
       preview: { ...useSlicerStore.getState().preview, resultId: 7, maxMove: 100, visibleLayerEnd: 7 } });
     useSettingsStore.setState({ nativeScopedConfig: { ...baseline.snapshot,
       project: { curr_bed_type: 'High Temp Plate' },
@@ -478,7 +478,7 @@ describe('global bed preference publication', () => {
       expect(state.sliceTarget).toBeNull();
       expect(state.preview.resultId).toBeNull();
       expect(state.preview.maxMove).toBe(0);
-      expect(state.layers).toBe(0);
+      expect(state.maxLayer).toBe(-1);
       expect(state.status).toBe('idle');
       expect(host.runtime.cancel).not.toHaveBeenCalled();
     } finally { release(); await committing; }

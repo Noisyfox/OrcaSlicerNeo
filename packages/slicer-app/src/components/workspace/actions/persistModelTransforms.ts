@@ -24,7 +24,7 @@ export function applySettledTransformSyncResult(result: SyncResult): void {
   slicer.setStatus('idle');
   slicer.setResultExported(false);
   slicer.setError(null);
-  slicer.setLayers(0);
+  slicer.resetPreviewState();
   slicer.setProgress(0);
   if (result.plateSession) {
     const previousPlateSession = usePlateSessionStore.getState().snapshot;
