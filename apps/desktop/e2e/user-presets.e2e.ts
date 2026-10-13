@@ -25,6 +25,10 @@ test('reopening a 3MF using an installed user preset shows no preset warning', a
     await expect(page.getByTestId('preset-editor-title')).toHaveText('Same User PLA');
     await expect.poll(async () => JSON.parse(await readFile(join(directory, 'user/default/filament/Same User PLA.json'), 'utf8')).name).toBe('Same User PLA');
     await page.getByTestId('preset-editor-close').click();
+    // Orca's multi-filament validation consumes the preset diff metadata.
+    // One slot alone does not expose an exporter that marks every key dirty.
+    await page.getByTestId('filament-add').click();
+    await expect(page.getByTestId('filament-preset-2')).toHaveText('Same User PLA');
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+s' : 'Control+Shift+s');
     await expect(page.getByTestId('titlebar-project-name')).toHaveText('same-user');
     await expect(page.getByTestId('titlebar-save-project')).toBeDisabled();
@@ -44,6 +48,7 @@ test('reopening a 3MF using an installed user preset shows no preset warning', a
     });
     await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
     await expect(page.getByTestId('filament-preset-1')).toHaveText('Same User PLA');
+    await expect(page.getByTestId('filament-preset-2')).toHaveText('Same User PLA');
     await expect(page.getByTestId('project-load-confirmation-dialog')).toHaveCount(0);
     await expect(page.getByTestId('project-notice-dialog')).toHaveCount(0);
   } finally {

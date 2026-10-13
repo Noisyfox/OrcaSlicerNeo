@@ -209,7 +209,11 @@ for (const entry of readZipEntries(bytes).filter(entry => /Metadata\/.+\.(config
 const ptr = Module._malloc(bytes.length);
 Module.HEAPU8.set(bytes, ptr);
 try {
-  ok(call('orc_load_project', [Number(ptr), bytes.length, 0, 'local.3mf'], ['pointer', 'number', 'number', 'string']));
+  const loaded = ok(call('orc_load_project', [Number(ptr), bytes.length, 0, 'local.3mf'], ['pointer', 'number', 'number', 'string']));
+  // This fixture also has a deleted ancestor, which can legitimately require
+  // confirmation. Export must not invent a separate modified-G-code warning.
+  assert.equal(loaded.embedded_preset_warnings.modified_filament_gcode, false);
+  assert.equal(loaded.embedded_preset_warnings.modified_printer_gcode, false);
 }
 finally { Module._free(ptr); }
 assert.equal(ok(call('orc_get_preset_snapshot')).project_config.layer_height, '0.28');

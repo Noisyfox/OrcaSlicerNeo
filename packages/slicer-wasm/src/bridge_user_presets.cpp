@@ -400,7 +400,18 @@ std::vector<Preset> export_presets(DynamicPrintConfig& config, const std::vector
             return value.type == type && value.name == found->second;
         });
         if (preset == result.end()) return;
-        diff[index] = escape_strings_cstyle(preset->config.keys());
+        // Orca interprets this list as actual differences, including its
+        // modified-G-code safety check. Listing every frozen option falsely
+        // marks unchanged user presets as unsafe in multi-filament projects.
+        const auto* parent = collection(type).find_preset(preset->inherits(), false, true);
+        static const std::set<std::string> identity_keys = {
+            "inherits", "print_settings_id", "filament_settings_id", "printer_settings_id"
+        };
+        // Match PresetBundle::full_config's parent-diff filtering, including
+        // optional keys. A parentless version still needs its full values.
+        const auto keys = parent ? PresetCollection::dirty_options_without_option_list(
+            &*preset, parent, identity_keys, false) : preset->config.keys();
+        diff[index] = escape_strings_cstyle(keys);
         inherits[index] = preset->inherits();
     };
     mark_frozen(Preset::TYPE_PRINT, state().presets.prints.get_selected_preset_name(), 0);

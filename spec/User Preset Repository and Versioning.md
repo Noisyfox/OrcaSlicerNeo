@@ -1129,6 +1129,10 @@ their effective parameters preserves the saved head's parent, preventing a
 self-inheritance. Full Reset adopts the current head when still linked; partial
 Reset changes values only. Export writes ordinary Orca embedded configurations
 with clean project names and effective values.
+For presets with a resolvable parent, exported `different_settings_to_system`
+lists actual parent differences; unchanged G-code is never marked modified
+merely to retain a user or historical preset's values. Parentless versions
+retain their full values and still follow Orca's missing-preset warning.
 
 ### Verification entry points
 
@@ -1153,6 +1157,9 @@ with clean project names and effective values.
   The standalone `preset_runtime_erase_test` verifies catalogue removal preserves
   selection, edited configuration and saved dirty comparison and rejects unsafe
   targets. Both native test targets require `NEO_PROJECT_HISTORY_TEST=1`.
+- `node packages/slicer-wasm/harness/user-preset-project-warnings-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
+  verifies accurate parent-diff metadata for two-slot H2D user presets, silent
+  clean reopening, and preservation of real parameter edits and G-code warnings.
 - `apps/desktop/e2e/user-presets.e2e.ts` uses real WASM and an isolated user-data
   directory for file writes, restart, deletion and Undo. It requires the staged
   real desktop build and `ORCA_E2E_REAL=1`.
