@@ -25,6 +25,8 @@ struct Snapshot {
 };
 static std::map<Key, Snapshot> snapshots;
 static std::uint64_t next_snapshot = 1;
+// Includes the local prepare owner before it is published as `pending`.
+static unsigned repository_rollback_owners = 0;
 
 PresetCollection& collection(Preset::Type type) {
     auto& bundle = state().presets;
@@ -208,6 +210,7 @@ std::string retain(Preset::Type type, const std::string& name) {
 // persistence transaction. The Worker excludes every competing command while
 // the host commits the single JSON file.
 struct Pending {
+    const bool had_redo = state().history.can_redo();
     std::map<std::string, std::optional<std::string>> files;
     std::string delete_file;
     void watch(const std::string& file) {
@@ -235,7 +238,9 @@ struct Pending {
     std::uint64_t draft_revision = state().preset_draft_revision;
     History::TimestampedHistory::NavigationPublication publication = state().history.stage_navigation();
     bool accepted = false;
+    Pending() { ++repository_rollback_owners; }
     ~Pending() {
+        --repository_rollback_owners;
         if (accepted) return;
         state().presets = presets;
         state().preset_drafts = drafts;
@@ -264,6 +269,73 @@ struct Pending {
 };
 static std::unique_ptr<Pending> pending;
 static std::uint64_t token = 0;
+
+void collect_discarded_redo_snapshots(bool had_redo) noexcept {
+    if (!had_redo || snapshots.empty() || repository_rollback_owners ||
+        state().history.operation_active() || state().history.can_redo()) return;
+    // Mark completely before sweeping. Allocation/decoding failure retains all
+    // versions; collection must never turn an already published edit into an
+    // error or partially remove a still-referenced version.
+    try {
+        std::set<Key> reachable;
+        std::vector<Key> work;
+        auto root = [&](Preset::Type type, const std::string& name) {
+            if (!name.empty() && reachable.emplace(type, name).second) work.emplace_back(type, name);
+        };
+        auto drafts = [&](const json& registry) {
+            for (const auto& entry : registry.at("entries"))
+                root(kind(entry.at("kind").get<std::string>()), entry.at("canonical_name").get<std::string>());
+        };
+        auto context_roots = [&](const json& value) {
+            if (value.contains("nativePrinterPreset"))
+                root(Preset::TYPE_PRINTER, value.at("nativePrinterPreset").at("selected").get<std::string>());
+            if (value.contains("filamentState"))
+                for (const auto& name : value.at("filamentState").at("filament_presets"))
+                    root(Preset::TYPE_FILAMENT, name.get<std::string>());
+            if (value.contains("nativePrintPreset")) {
+                const auto& print = value.at("nativePrintPreset");
+                root(Preset::TYPE_PRINT, print.at("selected").get<std::string>());
+                for (const auto& preset : print.at("project_embedded_presets"))
+                    root(Preset::TYPE_PRINT, preset.at("inherits").get<std::string>());
+            }
+            if (value.contains("presetDraftRegistry")) drafts(value.at("presetDraftRegistry"));
+        };
+        state().history.visit_contexts([&](const History::Bytes& bytes) {
+            context_roots(json::parse(std::string(bytes.begin(), bytes.end())));
+        });
+        context_roots(state().history_live_context);
+        drafts(state().preset_drafts.snapshot_json());
+        for (const auto type : {Preset::TYPE_PRINTER, Preset::TYPE_FILAMENT, Preset::TYPE_PRINT}) {
+            const auto& c = collection(type);
+            root(type, c.get_selected_preset_name());
+            root(type, c.get_edited_preset().inherits());
+            // Embedded presets can outlive their selection. Their parents are
+            // still needed for restoration, reset and 3MF export.
+            for (const auto& preset : c.get_presets())
+                if (!is_snapshot(type, preset.name)) root(type, preset.inherits());
+        }
+        for (const auto& name : state().presets.filament_presets) root(Preset::TYPE_FILAMENT, name);
+        for (size_t i = 0; i < work.size(); ++i) {
+            const auto key = work[i];
+            if (const auto* preset = collection(key.first).find_preset(key.second, false, true))
+                root(key.first, preset->inherits());
+            const auto retained = snapshots.find(key);
+            if (retained != snapshots.end()) {
+                root(key.first, retained->second.original);
+                for (const auto& ancestor : retained->second.ancestors) root(key.first, ancestor);
+            }
+        }
+        // Everything below is allocation-free. Erasing a runtime preset keeps
+        // the collection's selected index and edited/saved copies intact.
+        for (auto it = snapshots.begin(); it != snapshots.end();) {
+            if (!reachable.count(it->first) && collection(it->first.first).erase_runtime_preset(it->first.second))
+                it = snapshots.erase(it);
+            else ++it;
+        }
+    } catch (...) {
+        // Retry at the next branch discard (or release at the session boundary).
+    }
+}
 
 void reset_session() {
     if (pending) throw std::runtime_error("user preset write is pending");
@@ -640,7 +712,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_finish_user_preset(const char* request) {
             UserPresets::pending->accepted = true;
             SlicingPipeline::invalidate_preview_source();
         }
+        const bool collect = UserPresets::pending->accepted && UserPresets::pending->had_redo;
         UserPresets::pending.reset();
+        UserPresets::collect_discarded_redo_snapshots(collect);
         return Profiles::duplicate_json("{\"ok\":true}");
     } catch (const std::exception& error) { return Profiles::duplicate_json(nlohmann::json{{"ok", false}, {"error", error.what()}}.dump()); }
 }

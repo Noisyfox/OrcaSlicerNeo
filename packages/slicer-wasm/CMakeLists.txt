@@ -421,6 +421,12 @@ if(NEO_PAINTING_PROFILE)
 endif()
 if(NEO_PROJECT_HISTORY_TEST)
   target_compile_definitions(orca_slice PRIVATE NEO_PROJECT_HISTORY_TEST=1)
+  add_executable(preset_runtime_erase_test "${CMAKE_CURRENT_SOURCE_DIR}/src/PresetRuntimeErase.test.cpp")
+  target_compile_options(preset_runtime_erase_test PRIVATE -fexceptions)
+  target_link_options(preset_runtime_erase_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
+    -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+  target_link_libraries(preset_runtime_erase_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
+  set_target_properties(preset_runtime_erase_test PROPERTIES SUFFIX ".cjs")
   add_executable(plate_runtime_registry_test
     "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.test.cpp")
@@ -504,6 +510,8 @@ target_link_libraries(orca_slice PRIVATE
   "${OCCT_ROOT}/lib/libfreetype.a"
 )
 if(NEO_PROJECT_HISTORY_TEST)
+  target_link_libraries(preset_runtime_erase_test PRIVATE
+    -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group "${OCCT_ROOT}/lib/libfreetype.a")
   target_link_libraries(history_mesh_capture_test PRIVATE
     -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
     "${OCCT_ROOT}/lib/libfreetype.a"
@@ -524,6 +532,7 @@ endif()
 if(WASM_THREADING)
   target_link_libraries(orca_slice PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
   if(NEO_PROJECT_HISTORY_TEST)
+    target_link_libraries(preset_runtime_erase_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
     target_link_libraries(history_mesh_capture_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
     target_link_libraries(history_instance_identity_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
     target_link_libraries(painting_session_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
@@ -538,6 +547,7 @@ file(GLOB BOOST_ARCHIVES "${BOOST_INCLUDE}/stage-wasm64/lib/libboost_*.a")
 if(BOOST_ARCHIVES)
   target_link_libraries(orca_slice PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
   if(NEO_PROJECT_HISTORY_TEST)
+    target_link_libraries(preset_runtime_erase_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
     target_link_libraries(history_mesh_capture_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
     target_link_libraries(history_instance_identity_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
     target_link_libraries(painting_session_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)

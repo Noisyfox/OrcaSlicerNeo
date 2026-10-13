@@ -972,6 +972,14 @@ void TimestampedHistory::rewrite_contexts(const std::function<Bytes(const Bytes&
     }
     m_impl.swap(staged);
 }
+void TimestampedHistory::visit_contexts(const std::function<void(const Bytes&)>& visit) const
+{
+    for (const auto& [timestamp, snapshot] : m_impl->snapshots)
+        visit(*snapshot->history_context);
+    if (m_impl->operation && m_impl->operation->prior_snapshot)
+        visit(*m_impl->operation->prior_snapshot->history_context);
+}
+
 bool TimestampedHistory::set_navigation_floor(std::optional<LogicalTimestamp> timestamp)
 {
     if (m_impl->operation || m_impl->editing_session) return false;

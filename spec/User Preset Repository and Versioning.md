@@ -958,8 +958,8 @@ complete the following designs:
   switching itself must continue to detach references as section 2.5 requires.
 - Native persistence for children whose parent was deleted remotely, preserving
   their effective values without assuming a missing parent will become available.
-- Incremental snapshot garbage collection and resource accounting beyond the
-  delivered session-boundary retention policy.
+- Snapshot collection on other history eviction paths and per-snapshot resource
+  accounting beyond the delivered Redo-branch and session-boundary collection.
 
 These are implementation work areas, not permission to change the accepted
 transition behaviour. Any newly exposed product choice needs explicit review.
@@ -1016,6 +1016,9 @@ Required behavioural cases include:
 - Current and uncaptured history roots, both navigation directions, saved
   checkpoint, direct history jumps, history eviction and retained snapshot
   lifetime. No geometry archive duplication from reference migration.
+  Successful branch replacement releases snapshots reachable only from discarded
+  Redo; shared versions remain usable through Undo/Redo. Failed validation,
+  no-op, cancelled edits and failed persistence retain that branch and its roots.
 - Account switch migrates all current/history user references, including both
   history directions and same-name incoming profiles; it adds no history and
   implies neither deletion nor upload. Compare against the frozen saved baseline,
@@ -1077,9 +1080,18 @@ be saved into another user identity, but its old record/association is not resto
   owns names, inheritance, effective values, saved diffs, compatibility and
   session transitions. No application code accesses Emscripten or host paths.
 - Only saved JSON is durable. Snapshot aliases and retained ancestor chains are
-  native session state, released at a New/Open boundary. They never become library
-  files or Neo-specific 3MF metadata. Session retention currently lasts until
-  that boundary; it is not a claim of incremental snapshot garbage collection.
+  native session state. After a successful new edit discards Redo, native code
+  releases unreachable snapshots from both the version map and preset catalogue.
+  Roots include current selections and edited parents, all retained history
+  contexts, source-local drafts (including dormant entries), embedded inheritance
+  chains and retained snapshot baselines/ancestors. The uncaptured live history
+  top is rooted separately. Repository prepare defers collection until successful
+  durable finish has released its rollback owner; failure, cancellation and
+  no-op edits preserve Redo and its versions. Marking finishes before any removal;
+  if marking cannot allocate or decode a root, it conservatively retains all
+  snapshots until a later branch discard or session boundary. Other eviction
+  paths do not trigger collection yet. New/Open releases the remaining session
+  versions. Snapshots never become library files or Neo-specific 3MF metadata.
 
 ### Commit and history
 
@@ -1125,7 +1137,13 @@ with clean project names and effective values.
   shared slots, independent browsing, inheritance and 3MF. Substitute
   `out/serial/orca_slice.js` for serial qualification.
 - The standalone `TimestampedHistory.test.cpp` verifies atomic context rewriting,
-  saved markers, retained Redo and shared geometry archives.
+  saved markers, retained Redo, root enumeration and shared geometry archives.
+- `node packages/slicer-wasm/harness/preset-snapshot-gc-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
+  verifies actual native snapshot removal after branch replacement, retained
+  shared/embedded/draft roots, and failure/cancellation/no-op/persistence rollback.
+  The standalone `preset_runtime_erase_test` verifies catalogue removal preserves
+  selection, edited configuration and saved dirty comparison and rejects unsafe
+  targets. Both native test targets require `NEO_PROJECT_HISTORY_TEST=1`.
 - `apps/desktop/e2e/user-presets.e2e.ts` uses real WASM and an isolated user-data
   directory for file writes, restart, deletion and Undo. It requires the staged
   real desktop build and `ORCA_E2E_REAL=1`.

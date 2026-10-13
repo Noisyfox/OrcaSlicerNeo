@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
@@ -1499,6 +1500,23 @@ int main()
     CHECK(rewrite_failed);
     CHECK(repository_history.undo(p3, repository_restore));
     CHECK(repository_restore.roots.session.history_context == bytes(21));
+
+    // Root enumeration includes Redo and the predecessor needed by abort, but
+    // drops abandoned branch contexts only after a successful new commit.
+    auto retained_contexts = [&] {
+        std::set<Bytes> result;
+        repository_history.visit_contexts([&](const Bytes& value) { result.insert(value); });
+        return result;
+    };
+    CHECK(retained_contexts() == std::set<Bytes>({bytes(11), bytes(21), bytes(31)}));
+    CHECK(repository_history.begin_operation("Cancelled branch", p2));
+    CHECK(retained_contexts().count(bytes(21)) == 1);
+    CHECK(retained_contexts().count(bytes(20)) == 1);
+    CHECK(repository_history.abort_operation());
+    CHECK(retained_contexts() == std::set<Bytes>({bytes(11), bytes(21), bytes(31)}));
+    CHECK(repository_history.begin_operation("New branch", p2));
+    CHECK(repository_history.commit_operation(p3));
+    CHECK(retained_contexts() == std::set<Bytes>({bytes(11), bytes(20)}));
 
     std::cout << "TimestampedHistory tests passed\n";
     return EXIT_SUCCESS;

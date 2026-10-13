@@ -180,6 +180,10 @@ public:
     // context without adding an entry or discarding Redo.
     void rewrite_contexts(const std::function<Bytes(const Bytes&)>& rewrite,
                           const Bytes* current_context = nullptr);
+    // Visit retained contexts, including the active operation's rollback root.
+    // The uncaptured live top and any NavigationPublication backup belong to
+    // the caller and must be rooted separately. The visitor must not mutate us.
+    void visit_contexts(const std::function<void(const Bytes&)>& visit) const;
     // Restrict navigation to this timestamp and later; nullopt clears the floor.
     // Changes fail during an active operation or editing session, or when the
     // timestamp is unavailable.

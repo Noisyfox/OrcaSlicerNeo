@@ -14,6 +14,9 @@ std::string view_name(Preset::Type type, const std::string& name);
 std::string print_reset_target();
 bool modified(Preset::Type type, const std::string& name, const DynamicPrintConfig& effective);
 void reset_session();
+// Call after a successful publication which may have discarded Redo. Pending
+// repository rollback owners defer collection until their durable finish.
+void collect_discarded_redo_snapshots(bool had_redo) noexcept;
 // Rebind all active references, including the shared draft owner.
 void adopt(Preset::Type type, const std::string& from, const std::string& to);
 // Standard embedded copies for 3MF; session snapshot names never cross this boundary.
