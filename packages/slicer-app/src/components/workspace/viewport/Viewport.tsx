@@ -6,6 +6,7 @@ import { Canvas, events as createPointerEvents, useFrame, useThree, type RootSta
 import { OrbitControls, GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
 import { BED_SIZE, getPrintableAreaBounds, normalizePrintableArea, type PrintableAreaBounds } from './BedPlate';
 import { Scene } from './Scene';
+import { CameraFraming } from './CameraFraming';
 import { LayerScrubber } from './LayerScrubber';
 import { GizmoToolbar } from './GizmoToolbar';
 import { ArrangementPanel } from '../arrangement/ArrangementControls';
@@ -43,9 +44,8 @@ declare const __ORCA_E2E__: boolean;
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
-// CameraFraming below reapplies the same framing for the selected profile.
+// CameraFraming applies it when the printable-area bounds change.
 const CAMERA_DISTANCE = 450;
-const CAMERA_DISTANCE_PER_BED_MM = CAMERA_DISTANCE / BED_SIZE;
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [
   BED_SIZE / 2,
   BED_SIZE / 2 - CAMERA_DISTANCE / Math.SQRT2,
@@ -433,8 +433,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             // main.tsx before the Canvas mounts — so no per-camera up wiring
             // here. The launch view looks at the plate center with X horizontal
             // and the plate at 45° to the screen plane (DEFAULT_CAMERA_POSITION
-            // above); CameraFraming below keeps that framing in sync with the
-            // active printer profile.
+            // above); CameraFraming updates it around the current plate when
+            // the printable-area bounds change.
             // OrbitControls in three r185 takes its orbit axis from camera.up.
             camera={{ position: DEFAULT_CAMERA_POSITION, fov: 45 }}
             dpr={[1, 2]}
@@ -552,66 +552,6 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       </div>
     </div>
   );
-}
-
-/** Keep the initial view centered and scaled to the active printer profile. */
-function CameraFraming({
-  bounds,
-  mode,
-  plateSession,
-  previewFrameRequest,
-}: {
-  bounds: PrintableAreaBounds;
-  mode: 'prepare' | 'preview';
-  plateSession?: PlateSessionSnapshot | null;
-  previewFrameRequest?: { plateId: string; token: number } | null;
-}) {
-  const camera = useThree((state) => state.camera);
-  const controls = useThree((state) => state.controls as unknown as {
-    target: THREE.Vector3;
-    update: () => void;
-  } | undefined);
-  const appliedPreviewFrameTokenRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const distance = Math.max(300, Math.max(bounds.width, bounds.depth) * CAMERA_DISTANCE_PER_BED_MM);
-    const target = new THREE.Vector3(bounds.centerX, bounds.centerY, 0);
-    camera.position.set(
-      bounds.centerX,
-      bounds.centerY - distance / Math.SQRT2,
-      distance / Math.SQRT2,
-    );
-    camera.lookAt(target);
-    camera.updateProjectionMatrix();
-    if (controls) {
-      controls.target.copy(target);
-      controls.update();
-    }
-  }, [bounds, camera, controls]);
-
-  useEffect(() => {
-    if (mode !== 'preview' || !previewFrameRequest || appliedPreviewFrameTokenRef.current === previewFrameRequest.token) return;
-    const plate = plateSession?.plates.find((candidate) => candidate.plateId === previewFrameRequest.plateId);
-    if (!plate) return;
-
-    const target = new THREE.Vector3(
-      plate.origin[0] + bounds.centerX,
-      plate.origin[1] + bounds.centerY,
-      plate.origin[2],
-    );
-    const previousTarget = controls?.target?.clone() ?? new THREE.Vector3(bounds.centerX, bounds.centerY, 0);
-    const cameraOffset = camera.position.clone().sub(previousTarget);
-    camera.position.copy(target).add(cameraOffset);
-    camera.lookAt(target);
-    camera.updateProjectionMatrix();
-    if (controls) {
-      controls.target.copy(target);
-      controls.update();
-    }
-    appliedPreviewFrameTokenRef.current = previewFrameRequest.token;
-  }, [bounds, camera, controls, mode, plateSession, previewFrameRequest]);
-
-  return null;
 }
 
 /** Keep the complete visible multi-plate scene inside the perspective range. */
