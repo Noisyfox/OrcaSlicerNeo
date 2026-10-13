@@ -1,4 +1,5 @@
 #include "bridge_user_presets.hpp"
+#include "PresetContextRenames.hpp"
 #include "bridge_state.hpp"
 #include "bridge_profiles.hpp"
 #include "bridge_history.hpp"
@@ -127,23 +128,6 @@ bool modified(Preset::Type type, const std::string& name, const DynamicPrintConf
     return false;
 }
 
-void rename_context(json& context, Preset::Type type, const std::string& from, const std::string& to) {
-    auto replace = [&](json& value) { if (value.is_string() && value == from) value = to; };
-    if (type == Preset::TYPE_PRINTER && context.contains("nativePrinterPreset")) replace(context["nativePrinterPreset"]["selected"]);
-    if (type == Preset::TYPE_FILAMENT && context.contains("filamentState"))
-        for (auto& name : context["filamentState"]["filament_presets"]) replace(name);
-    if (type == Preset::TYPE_PRINT && context.contains("nativePrintPreset")) {
-        replace(context["nativePrintPreset"]["selected"]);
-        for (auto& preset : context["nativePrintPreset"]["project_embedded_presets"]) replace(preset["inherits"]);
-    }
-    if (context.contains("presetDraftRegistry"))
-        for (auto& entry : context["presetDraftRegistry"]["entries"])
-            if (entry["kind"] == kind_name(type)) replace(entry["canonical_name"]);
-}
-History::Bytes encode(const json& value) {
-    const auto text = value.dump();
-    return {text.begin(), text.end()};
-}
 json context(const json& editing_context) {
     return HistoryRuntime::canonical_history_context(HistoryRuntime::runtime(), editing_context);
 }
@@ -163,7 +147,7 @@ void adopt(Preset::Type type, const std::string& from, const std::string& to) {
     } else if (active(type, from)) c.select_preset_by_name(to, true);
 }
 
-std::string retain(Preset::Type type, const std::string& name) {
+std::string retain(Preset::Type type, const std::string& name, PresetContextRenames& renames) {
     auto& c = collection(type);
     const auto* source = c.find_preset(name, false, true);
     if (!source) throw std::runtime_error("preset source is unavailable");
@@ -197,11 +181,7 @@ std::string retain(Preset::Type type, const std::string& name) {
     auto& stored = c.load_preset("", frozen, copy.config, false);
     stored = std::move(copy);
     snapshots.emplace(Key{type, frozen}, Snapshot{name, std::move(ancestors), false});
-    state().history.rewrite_contexts([&](const History::Bytes& bytes) {
-        auto value = json::parse(std::string(bytes.begin(), bytes.end()));
-        rename_context(value, type, name, frozen);
-        return encode(value);
-    });
+    renames.add(kind_name(type), name, frozen);
     return frozen;
 }
 
@@ -552,6 +532,7 @@ json prepare(const json& request) {
     auto transaction = std::make_unique<Pending>();
     std::string result_name = target;
     try {
+        PresetContextRenames renames;
         std::string retained;
         const std::string path = destination ? destination->file : std::string{};
         std::vector<std::string> descendants;
@@ -567,7 +548,7 @@ json prepare(const json& request) {
             for (const auto& name : descendants) {
                 const bool selected = active(type, name);
                 const auto edited = c.get_edited_preset().config;
-                const auto frozen = retain(type, name);
+                const auto frozen = retain(type, name, renames);
                 if (selected) {
                     adopt(type, name, frozen);
                     if (source_active_name == name) source_active_name = frozen;
@@ -578,7 +559,7 @@ json prepare(const json& request) {
                 }
             }
         }
-        if (destination) retained = retain(type, target);
+        if (destination) retained = retain(type, target, renames);
         if (save_as && target_was_active && target_active_name == target) {
             const auto edited = c.get_edited_preset().config;
             adopt(type, target, retained);
@@ -609,6 +590,10 @@ json prepare(const json& request) {
             if (type == Preset::TYPE_PRINT && was_active) c.get_edited_preset().config = candidate.config;
         }
         const bool history_entry = was_active && (save_as || remove);
+        // Historical before roots must be frozen before the new operation
+        // captures its live predecessor. A history-neutral Save can combine
+        // migration with the post-save current binding below instead.
+        if (history_entry) renames.publish(state().history);
         const auto before = context(editing_context);
         if (history_entry && !HistoryMetadata::begin_timestamped_operation(state(), save_as ? "Save preset as" : "Delete preset", before))
             throw std::runtime_error("could not begin preset history");
@@ -667,8 +652,8 @@ json prepare(const json& request) {
         if (history_entry) {
             if (!HistoryMetadata::commit_timestamped_operation(state(), after)) throw std::runtime_error("could not commit preset history");
         } else {
-            const auto current = encode(after);
-            state().history.rewrite_contexts([](const History::Bytes& bytes) { return bytes; }, &current);
+            const auto current = JsonContextCodec::encode(after);
+            renames.publish(state().history, &current);
             state().history_live_context = after;
             HistoryMetadata::advance_history_epoch(state());
         }

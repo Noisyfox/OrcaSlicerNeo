@@ -175,7 +175,8 @@ public:
     bool can_redo() const;
     LogicalTimestamp current_timestamp() const;
     // Repository revisions change references, never timeline topology. Rewrite
-    // all retained contexts (including Redo and the saved checkpoint) atomically,
+    // all retained contexts (including Redo, the saved checkpoint and an active
+    // operation's separate rollback root) atomically,
     // sharing the original model/mesh archives. Save may rebind the cursor's
     // context without adding an entry or discarding Redo.
     void rewrite_contexts(const std::function<Bytes(const Bytes&)>& rewrite,

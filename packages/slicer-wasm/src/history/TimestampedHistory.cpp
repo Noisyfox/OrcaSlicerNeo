@@ -960,16 +960,24 @@ LogicalTimestamp TimestampedHistory::current_timestamp() const { return m_impl->
 void TimestampedHistory::rewrite_contexts(const std::function<Bytes(const Bytes&)>& rewrite,
                                           const Bytes* current_context)
 {
-    if (m_impl->operation) throw std::logic_error("cannot rewrite history during an operation");
     auto staged = std::make_unique<Impl>(*m_impl);
-    for (auto& [timestamp, snapshot] : staged->snapshots) {
-        const Bytes context = current_context && timestamp == staged->current_timestamp
-            ? *current_context : rewrite(*snapshot->history_context);
-        if (context == *snapshot->history_context) continue;
+    auto replace_context = [](std::shared_ptr<Impl::Snapshot>& snapshot, const Bytes& context) {
+        if (context == *snapshot->history_context) return;
         auto replacement = std::make_shared<Impl::Snapshot>(*snapshot);
         replacement->history_context = std::make_shared<const Bytes>(context);
         snapshot = std::move(replacement);
+    };
+    for (auto& [timestamp, snapshot] : staged->snapshots) {
+        const Bytes context = current_context && timestamp == staged->current_timestamp
+            ? *current_context : rewrite(*snapshot->history_context);
+        replace_context(snapshot, context);
     }
+    // begin_operation may have refreshed the cursor context while retaining
+    // its older snapshot for abort. That separate rollback root must migrate
+    // too, so abort cannot resurrect references to replaced repository heads.
+    if (staged->operation && staged->operation->prior_snapshot)
+        replace_context(staged->operation->prior_snapshot,
+                        rewrite(*staged->operation->prior_snapshot->history_context));
     m_impl.swap(staged);
 }
 void TimestampedHistory::visit_contexts(const std::function<void(const Bytes&)>& visit) const

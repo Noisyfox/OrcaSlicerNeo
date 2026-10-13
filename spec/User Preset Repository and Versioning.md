@@ -1107,8 +1107,12 @@ introduced.
 
 Replacing a saved version retains its effective configuration and redirects
 historical references to that version. The saved baseline remains independently
-addressable for dirty and Reset. History context rewrites share existing model
-archives and preserve the saved marker and Redo branch. Overwrite Save rebinds
+addressable for dirty and Reset. Repository mutations compose all source
+rebindings in their original order before rewriting retained contexts in one
+atomic pass, including an active operation's rollback root. History-neutral
+Save includes its post-save current binding in that publication. Context
+rewrites share existing model archives and preserve the saved marker and Redo
+branch. Overwrite Save rebinds
 the current state without another entry; active Save As and Delete each produce
 one selection entry for all same-source references. Undo never reverses the
 file operation. Deleted snapshots use their nearest surviving original parent
@@ -1137,7 +1141,12 @@ with clean project names and effective values.
   shared slots, independent browsing, inheritance and 3MF. Substitute
   `out/serial/orca_slice.js` for serial qualification.
 - The standalone `TimestampedHistory.test.cpp` verifies atomic context rewriting,
-  saved markers, retained Redo, root enumeration and shared geometry archives.
+  ordered batch equivalence, one decode/encode per rewritten context, saved
+  markers, retained Redo, active rollback roots and shared geometry archives.
+- `node packages/slicer-wasm/harness/preset-context-batch-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
+  verifies multi-source/multi-level inheritance migration, current drafts,
+  retained Undo/Redo, saved checkpoints and persistence rollback against real
+  WASM. Substitute the threaded artifact for variant qualification.
 - `node packages/slicer-wasm/harness/preset-snapshot-gc-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
   verifies actual native snapshot removal after branch replacement, retained
   shared/embedded/draft roots, and failure/cancellation/no-op/persistence rollback.

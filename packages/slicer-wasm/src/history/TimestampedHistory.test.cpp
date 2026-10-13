@@ -1,4 +1,5 @@
 #include "TimestampedHistory.hpp"
+#include "../PresetContextRenames.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -117,8 +118,155 @@ static bool commit_history(TimestampedHistory& history, std::string label,
     return history.begin_operation(std::move(label), before, kind) && history.commit_operation(after);
 }
 
+namespace {
+using Slic3r::Neo::Bridge::UserPresets::JsonContextCodec;
+using Slic3r::Neo::Bridge::UserPresets::PresetContextRenames;
+using json = nlohmann::json;
+
+struct CountingContextCodec {
+    static inline std::size_t decoded = 0;
+    static inline std::size_t encoded = 0;
+    static inline std::function<void()> on_decode;
+    static json decode(const Bytes& bytes) {
+        ++decoded;
+        if (on_decode) on_decode();
+        return JsonContextCodec::decode(bytes);
+    }
+    static Bytes encode(const json& context) {
+        ++encoded;
+        return JsonContextCodec::encode(context);
+    }
+    static void reset() { decoded = encoded = 0; on_decode = {}; }
+};
+
+static int preset_context_renames_tests()
+{
+    // Compare composed lookup against sequential substitution for all 729
+    // length-three sequences over three names, including collisions/cycles.
+    const std::vector<std::string> names{"A", "B", "C"};
+    for (int sequence = 0; sequence < 729; ++sequence) {
+        PresetContextRenames batch;
+        auto expected = names;
+        int choices = sequence;
+        for (int step = 0; step < 3; ++step) {
+            const auto& from = names[(choices % 9) / 3];
+            const auto& to = names[choices % 3];
+            choices /= 9;
+            batch.add("filament", from, to);
+            for (auto& name : expected) if (name == from) name = to;
+        }
+        json value = {{"filamentState", {{"filament_presets", names}}}, {"unrelated", "A"}};
+        batch.rewrite(value);
+        CHECK(value["filamentState"]["filament_presets"] == expected);
+        CHECK(value["unrelated"] == "A");
+    }
+    PresetContextRenames batch;
+    for (const auto& kind : {"printer", "filament", "print"}) {
+        batch.add(kind, "A", "B");
+        batch.add(kind, "B", "C");
+        batch.add(kind, "A", "D"); // A has already become C, not D.
+    }
+    const json original = {
+        {"nativePrinterPreset", {{"selected", "A"}, {"values", {{"notes", "A"}}}}},
+        {"filamentState", {{"filament_presets", {"A", "B", "C", "untouched"}}}},
+        {"nativePrintPreset", {{"selected", "A"}, {"project_embedded_presets", {{{"inherits", "B"}, {"name", "B"}}}}}},
+        {"presetDraftRegistry", {{"entries", {
+            {{"kind", "printer"}, {"canonical_name", "A"}, {"values", {{"notes", "A"}}}},
+            {{"kind", "filament"}, {"canonical_name", "B"}},
+            {{"kind", "print"}, {"canonical_name", "A"}}}}}},
+        {"ui", 0}
+    };
+    auto expected = original;
+    batch.rewrite(expected);
+    CHECK(expected["nativePrinterPreset"]["selected"] == "C");
+    CHECK(expected["filamentState"]["filament_presets"] == json({"C", "C", "C", "untouched"}));
+    CHECK(expected["nativePrintPreset"]["selected"] == "C");
+    CHECK(expected["nativePrintPreset"]["project_embedded_presets"][0]["inherits"] == "C");
+    CHECK(expected["nativePrintPreset"]["project_embedded_presets"][0]["name"] == "B");
+    for (const auto& entry : expected["presetDraftRegistry"]["entries"]) CHECK(entry["canonical_name"] == "C");
+    CHECK(expected["nativePrinterPreset"]["values"] == original["nativePrinterPreset"]["values"]);
+    CHECK(expected["presetDraftRegistry"]["entries"][0]["values"] == original["presetDraftRegistry"]["entries"][0]["values"]);
+
+    TimestampedHistory history;
+    auto predecessor = roots(1, {object(1, 1, 1)});
+    predecessor.session.history_context = JsonContextCodec::encode(original);
+    auto middle = predecessor;
+    auto top = predecessor;
+    auto middle_context = original;
+    middle_context["ui"] = 1;
+    middle.session.history_context = JsonContextCodec::encode(middle_context);
+    auto top_context = original;
+    top_context["ui"] = 2;
+    top.session.history_context = JsonContextCodec::encode(top_context);
+    CHECK(history.begin_operation("First", predecessor));
+    CHECK(history.commit_operation(middle));
+    history.mark_current_as_saved();
+    CHECK(history.begin_operation("Second", middle));
+    CHECK(history.commit_operation(top));
+    TimestampedRestore restored;
+    CHECK(history.undo(top, restored));
+    const auto archive = history.object_archive(0, 1);
+    const auto entries = history.entries();
+    const auto saved = history.saved_timestamp();
+    auto contexts = [&] {
+        std::vector<Bytes> values;
+        history.visit_contexts([&](const Bytes& value) { values.push_back(value); });
+        return values;
+    };
+    const auto old_contexts = contexts();
+    bool atomic = true;
+    CountingContextCodec::reset();
+    CountingContextCodec::on_decode = [&] { atomic = atomic && contexts() == old_contexts; };
+    auto adopted = original;
+    adopted["nativePrinterPreset"]["selected"] = "new saved head";
+    const auto current = JsonContextCodec::encode(adopted);
+    batch.publish<CountingContextCodec>(history, &current);
+    CHECK(atomic && CountingContextCodec::decoded == 2 && CountingContextCodec::encoded == 2);
+    CHECK(entries_are_equal(history.entries(), entries) && history.saved_timestamp() == saved);
+    CHECK(!history.project_modified() && history.can_redo());
+    CHECK(history.object_archive(0, 1) == archive);
+    CHECK(history.undo(middle, restored));
+    CHECK(JsonContextCodec::decode(restored.roots.session.history_context) == expected);
+    CHECK(history.redo(restored));
+    CHECK(restored.roots.session.history_context == current);
+    CHECK(history.redo(restored));
+    auto expected_top = expected; expected_top["ui"] = 2;
+    CHECK(JsonContextCodec::decode(restored.roots.session.history_context) == expected_top);
+    CHECK(history.undo(top, restored));
+
+    // A refreshed active predecessor and its older abort snapshot are separate
+    // roots. A failure on the last root must publish neither of them.
+    CHECK(history.begin_operation("Abort after migration", middle));
+    const auto active_contexts = contexts();
+    PresetContextRenames active_batch;
+    active_batch.add("printer", "new saved head", "historical head");
+    active_batch.add("printer", "A", "historical head");
+    CountingContextCodec::reset();
+    CountingContextCodec::on_decode = [&] {
+        if (CountingContextCodec::decoded == active_contexts.size()) throw std::runtime_error("last rollback root failed");
+    };
+    bool rejected = false;
+    try { active_batch.publish<CountingContextCodec>(history); }
+    catch (const std::runtime_error&) { rejected = true; }
+    CHECK(rejected && contexts() == active_contexts && history.operation_active());
+    CountingContextCodec::reset();
+    atomic = true;
+    CountingContextCodec::on_decode = [&] { atomic = atomic && contexts() == active_contexts; };
+    active_batch.publish<CountingContextCodec>(history);
+    CHECK(atomic && CountingContextCodec::decoded == active_contexts.size() && CountingContextCodec::encoded == active_contexts.size());
+    CHECK(history.abort_operation(&restored));
+    CHECK(JsonContextCodec::decode(restored.roots.session.history_context)["nativePrinterPreset"]["selected"] == "historical head");
+    CHECK(history.saved_timestamp() == saved && !history.project_modified() && history.can_redo());
+    CHECK(history.redo(restored)); CHECK(history.undo(top, restored));
+    CHECK(JsonContextCodec::decode(restored.roots.session.history_context)["nativePrinterPreset"]["selected"] == "historical head");
+    std::cout << "Preset context batch PASS: ordered mappings, 2 decodes/encodes for 3 retained roots with cursor override; active rollback atomicity\n";
+    return EXIT_SUCCESS;
+}
+} // namespace
+
 int main()
 {
+    CHECK(preset_context_renames_tests() == EXIT_SUCCESS);
     // Transform roots share a potentially large archive but remain distinct
     // authoritative states. Unversioned archive edits must also mark the
     // object in the renderer delta even when config timestamp stays zero.

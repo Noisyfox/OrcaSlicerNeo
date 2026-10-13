@@ -440,6 +440,7 @@ if(NEO_PROJECT_HISTORY_TEST)
     "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.test.cpp")
   target_compile_definitions(timestamped_history_core_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
+  target_include_directories(timestamped_history_core_test PRIVATE "${ORCA_SRC}/deps_src")
   target_compile_options(timestamped_history_core_test PRIVATE -fexceptions)
   target_link_options(timestamped_history_core_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
     -sEXIT_RUNTIME=1 -sASSERTIONS=1)
