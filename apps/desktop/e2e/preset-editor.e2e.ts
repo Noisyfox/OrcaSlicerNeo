@@ -35,8 +35,10 @@ test('independent preset browsing preserves project choices and both Filament dr
     expect((await page.getByTestId('preset-editor-preset').boundingBox())!.width).toBeCloseTo(printerPickerWidth, 1);
     await expect(page.getByTestId('preset-select')).toHaveAttribute('title', printerBefore!);
     await page.getByTestId('preset-editor-preset').click();
+    // Allow subpixel clipping at the popup border while still requiring the
+    // selected row to be revealed and focused after reopening.
     await expect(page.getByRole('option').and(page.getByTitle(otherPrinter, { exact: true })))
-      .toBeInViewport({ ratio: 1 });
+      .toBeInViewport({ ratio: 0.99 });
     await expect(page.getByRole('option').and(page.getByTitle(otherPrinter, { exact: true }))).toBeFocused();
     await page.keyboard.press('Escape');
     await page.getByTestId('preset-editor-close').click();
@@ -46,6 +48,7 @@ test('independent preset browsing preserves project choices and both Filament dr
     await page.getByTestId('filament-slot-1').click({ button: 'right' });
     await page.getByTestId('filament-edit-1').click();
     const picker = page.getByTestId('preset-editor-preset');
+    const sourceLabel = await page.getByTestId('preset-editor-title').textContent();
     const filamentPickerWidth = (await picker.boundingBox())!.width;
     const settingsSearch = page.getByTestId('preset-editor-search');
     await settingsSearch.fill('filament_diameter');
@@ -56,20 +59,23 @@ test('independent preset browsing preserves project choices and both Filament dr
     await picker.click();
     const editorPopup = page.locator('[data-slot="select-content"][aria-label="Preset to edit"]');
     const groups = page.locator('[data-slot="select-group"]');
-    const incompatible = groups.filter({ has: page.locator('[data-slot="select-label"]', {
+    const incompatible = groups.filter({ has: page.locator(':scope > [data-slot="select-label"]', {
       hasText: 'Not compatible with project printer',
     }) });
-    const target = await incompatible.getByRole('option').first().getAttribute('title');
+    const targetOption = incompatible.getByRole('option').first();
+    const target = await targetOption.getAttribute('title');
+    const targetLabel = (await targetOption.textContent())!.trim();
     if (!target) throw new Error('expected an incompatible editor candidate');
-    await incompatible.getByRole('option').first().click();
-    await expect(page.getByTestId('preset-editor-title')).toHaveText(target);
+    await targetOption.click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(targetLabel);
+    await expect(picker).toHaveAttribute('title', target);
     expect((await picker.boundingBox())!.width).toBeCloseTo(filamentPickerWidth, 1);
     await expect(slot).toHaveAttribute('title', source);
     await diameter.fill('1.77'); await diameter.press('Enter');
     await expect(picker).toBeEnabled();
     await picker.click();
     await expect(page.getByRole('option').and(page.getByTitle(target, { exact: true })))
-      .toBeInViewport({ ratio: 1 });
+      .toBeInViewport({ ratio: 0.99 });
     await expect(page.getByRole('option').and(page.getByTitle(target, { exact: true }))).toBeFocused();
     const presetSearch = editorPopup.getByPlaceholder('Search presets to edit…');
     await expect(presetSearch).toBeInViewport({ ratio: 1 });
@@ -78,11 +84,11 @@ test('independent preset browsing preserves project choices and both Filament dr
     expect(await optionsList.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
     await optionsList.evaluate(element => { element.scrollTop = 0; });
     expect((await presetSearch.boundingBox())!.y).toBeCloseTo(searchTop, 1);
-    await presetSearch.fill(target);
-    // Native root names can also prefix many printer-specific descendants.
+    await presetSearch.fill(targetLabel);
+    // Display aliases can match multiple distinct canonical presets.
     await expect(editorPopup.getByRole('option').and(page.getByTitle(target, { exact: true }))).toBeVisible();
     expect(await editorPopup.getByRole('option').evaluateAll((options, query) =>
-      options.every(option => option.getAttribute('title')?.toLocaleLowerCase().includes(query)), target.toLocaleLowerCase())).toBe(true);
+      options.every(option => option.textContent?.toLocaleLowerCase().includes(query)), targetLabel.toLocaleLowerCase())).toBe(true);
     await presetSearch.press('ArrowDown');
     await expect(editorPopup.getByRole('option').first()).toBeFocused();
     await presetSearch.fill('');
@@ -96,7 +102,8 @@ test('independent preset browsing preserves project choices and both Filament dr
     await expect(incompatible.getByRole('option').first()).toHaveAttribute('title', target);
     await expect(incompatible.getByRole('option').first().locator('.config-override-label')).toBeVisible();
     await page.getByRole('option').and(page.getByTitle(source, { exact: true })).click();
-    await expect(page.getByTestId('preset-editor-title')).toHaveText(source);
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(sourceLabel!);
+    await expect(picker).toHaveAttribute('title', source);
     await expect(diameter).toHaveValue('1.76');
     await picker.click();
     await page.getByRole('option').and(page.getByTitle(target, { exact: true })).click();
@@ -111,7 +118,8 @@ test('independent preset browsing preserves project choices and both Filament dr
     expect(closeBounds.y + closeBounds.height).toBeLessThanOrEqual((await picker.boundingBox())!.y);
     await picker.click();
     await page.getByRole('option').and(page.getByTitle(source, { exact: true })).click();
-    await expect(page.getByTestId('preset-editor-title')).toHaveText(source);
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(sourceLabel!);
+    await expect(picker).toHaveAttribute('title', source);
     expect((await picker.boundingBox())!.width).toBeCloseTo(narrowPickerWidth, 1);
     await page.getByTestId('preset-editor-close').click();
     await expect(slot).toHaveAttribute('title', source);
