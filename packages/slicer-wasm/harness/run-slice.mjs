@@ -79,8 +79,6 @@ export function buildSliceArgs(modelPath, configPath, out = '/out.gcode') {
   const modelMemfsPath = `/model${extension}`;
   return {
     modelMemfsPath,
-    // Compatibility alias for callers of the original STL-only helper.
-    stlMemfsPath: modelMemfsPath,
     configMemfsPath: `/${configName}`,
     mainArgs: [modelMemfsPath, `/${configName}`, out],
   };
