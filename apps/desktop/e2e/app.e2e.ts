@@ -828,8 +828,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     await page.mouse.up();
 
     // A right-button scene drag is camera panning, not a context-menu
-    // gesture. The browser dispatches contextmenu after release, so this
-    // specifically guards against opening the menu at the end of the drag.
+    // gesture, regardless of whether contextmenu arrives on press or release.
     const rightDragStart = { x: box.x + box.width - 120, y: box.y + 40 };
     await page.mouse.move(rightDragStart.x, rightDragStart.y);
     await page.mouse.down({ button: 'right' });
@@ -1870,6 +1869,72 @@ test('scene context menu: Add Model imports through the host picker', async () =
 // misclassified as empty space. The right-click also selects the clicked
 // instance (the same granularity as a plain left-click), but leaves the
 // selection untouched when the clicked volume is already selected.
+for (const contextTiming of ['press', 'release'] as const) {
+  test(`scene context menu: right-drag suppresses ${contextTiming}-phase menus and retains panning`, async () => {
+    const { app } = await launchApp();
+    try {
+      const page = await app.firstWindow();
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      const point = { x: box.x + box.width - 120, y: box.y + 40 };
+      const dispatchContextMenu = () => canvas.evaluate((element, p) => {
+        element.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, button: 2, clientX: p.x, clientY: p.y,
+        }));
+      }, point);
+      const readCamera = () => page.evaluate(() => {
+        const state = (window as unknown as { __orcaE2e: {
+          cameraState: () => { position: number[]; target: number[] };
+        } }).__orcaE2e.cameraState();
+        return { position: state.position, target: state.target };
+      });
+      await expect.poll(readCamera).toBeTruthy();
+      const before = await readCamera();
+      await page.mouse.move(point.x, point.y);
+      await page.mouse.down({ button: 'right' });
+      if (contextTiming === 'press') await dispatchContextMenu();
+      await expect(page.getByTestId('ctx-menu')).toBeHidden();
+      await page.mouse.move(point.x + 50, point.y + 20, { steps: 4 });
+      await page.mouse.up({ button: 'right' });
+      if (contextTiming === 'release') await dispatchContextMenu();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await expect(page.getByTestId('ctx-menu')).toBeHidden();
+      await expect(page.locator('[data-testid="objectlist-ctx-menu"][data-open]')).toHaveCount(0);
+      await expect.poll(readCamera).not.toEqual(before);
+
+      // A plain click still opens after release.
+      await page.mouse.move(point.x, point.y);
+      await page.mouse.down({ button: 'right' });
+      if (contextTiming === 'press') await dispatchContextMenu();
+      await expect(page.getByTestId('ctx-menu')).toBeHidden();
+      await page.mouse.up({ button: 'right' });
+      if (contextTiming === 'release') await dispatchContextMenu();
+      await expect(page.getByTestId('ctx-menu')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('ctx-menu')).toBeHidden();
+
+      // Cancellation discards an early contextmenu and suppresses a late one.
+      await canvas.evaluate((element) => element.addEventListener('pointerdown', (event) => {
+        element.dataset.rightPointerId = String((event as PointerEvent).pointerId);
+      }, { once: true }));
+      await page.mouse.down({ button: 'right' });
+      if (contextTiming === 'press') await dispatchContextMenu();
+      await canvas.evaluate((element) => element.dispatchEvent(new PointerEvent('pointercancel', {
+        bubbles: true, pointerId: Number(element.dataset.rightPointerId), button: 2,
+      })));
+      await page.mouse.up({ button: 'right' });
+      if (contextTiming === 'release') await dispatchContextMenu();
+      await expect(page.getByTestId('ctx-menu')).toBeHidden();
+      await page.mouse.click(point.x, point.y, { button: 'right' });
+      await expect(page.getByTestId('ctx-menu')).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
+}
+
 test('scene context menu: right-click on a model body opens the object menu', async () => {
   const { app } = await launchApp();
   try {
