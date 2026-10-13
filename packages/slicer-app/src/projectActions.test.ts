@@ -272,6 +272,28 @@ describe('transactional project actions', () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(runtime.loadProject).toHaveBeenCalledTimes(1);
     expect(runtime.closeProject).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().notices).toEqual([]);
+  });
+
+  it('reopens installed user Printer and Filament presets without a notice or confirmation', async () => {
+    const userSnapshot: ProfileSnapshot = {
+      ...snapshot,
+      printers: snapshot.printers.map(preset => preset.selected ? { ...preset, is_user: true } : preset),
+      filamentCatalog: snapshot.filamentCatalog.map(preset => ({ ...preset, is_user: true })),
+    };
+    const { platform, runtime } = platformFor({
+      presetSnapshot: userSnapshot,
+      embeddedPresetWarnings: { present: true, count: 2, printerCount: 1, processCount: 0, filamentCount: 1,
+        modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false,
+        requiresConfirmation: false, filamentSlotChanges: [] },
+    });
+    const confirm = vi.fn(() => true);
+    const opened = await openProject(platform, { loadBehaviour: 'load_all', confirmProjectLoad: confirm });
+    expect(opened.status).toBe('ok');
+    expect(confirm).not.toHaveBeenCalled();
+    expect(runtime.closeProject).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().selectedPrinter).toBe(userSnapshot.printer.name);
+    expect(useProjectStore.getState().notices).toEqual([]);
   });
 
   it('shows post-close warning confirmation and leaves the fresh empty session on rejection', async () => {
@@ -676,4 +698,29 @@ it('reports native imported bed correction', () => {
   const notices = noticesFor({ ok: true, objects: 1, instances: 1, bedTypeNormalization: { globalChanged: true, removedPlateOverrideIds: ['plate-1'] } });
   expect(notices).toEqual([expect.objectContaining({ kind: 'bed-type-normalization', message: expect.stringContaining('1 local override(s)') })]);
 
+});
+
+describe('native project preset notices', () => {
+  const cleanWarning: NonNullable<ProjectLoadResult['embeddedPresetWarnings']> = {
+    present: true, count: 2, printerCount: 1, processCount: 0, filamentCount: 1,
+    modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false,
+    requiresConfirmation: false, filamentSlotChanges: [],
+  };
+
+  it.each(['modifiedPrinterGcode', 'modifiedFilamentGcode', 'missingSystemPreset'] as const)(
+    'retains the native safety warning for %s even without embedded archive records', flag => {
+      const warning = { ...cleanWarning, present: false, count: 0, [flag]: true, requiresConfirmation: true };
+      expect(noticesFor({ ok: true, bedTypeNormalization: null, objects: 0, instances: 0, embeddedPresetWarnings: warning }))
+        .toEqual([expect.objectContaining({ kind: 'embedded-presets', details: warning })]);
+    },
+  );
+
+  it('reports native filament replacements without implying unsafe embedded presets', () => {
+    const warning: NonNullable<ProjectLoadResult['embeddedPresetWarnings']> = { ...cleanWarning, filamentSlotChanges: [
+      { slot: 1, before: 'Missing PLA', after: 'Generic PLA', reason: 'native-compatibility' },
+    ] };
+    expect(noticesFor({ ok: true, bedTypeNormalization: null, objects: 0, instances: 0, embeddedPresetWarnings: warning }))
+      .toEqual([expect.objectContaining({ kind: 'compatibility-fallback',
+        message: 'Some filament slots were changed while loading this project.', details: warning })]);
+  });
 });

@@ -3,6 +3,54 @@ import { expect, test } from '@playwright/test';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { openProjectMenu } from './project-menu';
+
+test('reopening a 3MF using an installed user preset shows no preset warning', async () => {
+  test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires the real native preset reader and writer');
+  const directory = await mkdtemp(join(tmpdir(), 'orca-user-preset-project-e2e-'));
+  const projectPath = join(directory, 'same-user.3mf');
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: join(directory, 'preferences.json'),
+    ORCA_E2E_MODEL: projectPath, ORCA_E2E_PROJECT_SAVE: projectPath } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.', `--user-data-dir=${directory}`], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('filament-slot-1').click({ button: 'right' });
+    await page.getByTestId('filament-edit-1').click();
+    await page.getByTestId('preset-editor-dialog').getByRole('button', { name: 'Save as…', exact: true }).click();
+    await page.getByLabel('Preset name', { exact: true }).fill('Same User PLA');
+    await page.getByRole('button', { name: 'Save preset', exact: true }).click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText('Same User PLA');
+    await expect.poll(async () => JSON.parse(await readFile(join(directory, 'user/default/filament/Same User PLA.json'), 'utf8')).name).toBe('Same User PLA');
+    await page.getByTestId('preset-editor-close').click();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+s' : 'Control+Shift+s');
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('same-user');
+    await expect(page.getByTestId('titlebar-save-project')).toBeDisabled();
+    const byteLength = (await readFile(projectPath)).byteLength;
+    expect(byteLength).toBeGreaterThan(0);
+
+    await openProjectMenu(page, app);
+    // Wait for the actual load receipt, without accepting a safety dialog.
+    await expect.poll(() => page.evaluate(() => (window as unknown as {
+      __orcaE2e?: { projectLoadEvidence?: () => { receipt: unknown } };
+    }).__orcaE2e?.projectLoadEvidence?.().receipt), { timeout: 120_000 }).toMatchObject({
+      sourceDisplayName: 'same-user.3mf', sourceByteLength: byteLength, commitRoute: 'load-project',
+      nativeResult: { ok: true, projectSettingsAvailable: true, embeddedPresetWarnings: {
+        present: true, modifiedPrinterGcode: false, modifiedFilamentGcode: false,
+        missingSystemPreset: false, requiresConfirmation: false, filamentSlotChanges: [],
+      } },
+    });
+    await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
+    await expect(page.getByTestId('filament-preset-1')).toHaveText('Same User PLA');
+    await expect(page.getByTestId('project-load-confirmation-dialog')).toHaveCount(0);
+    await expect(page.getByTestId('project-notice-dialog')).toHaveCount(0);
+  } finally {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy());
+    await app.close();
+  }
+});
 
 test('local user preset files survive restart and deletion Undo stays embedded', async () => {
   test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires the real native preset writer');

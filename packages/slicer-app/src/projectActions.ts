@@ -68,7 +68,11 @@ function currentPresets(): ProjectPresetSelections {
 export function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
   const notices: ProjectNotice[] = [];
   const fallback = compatibilityFallback(load); if (fallback) notices.push({ kind: 'compatibility-fallback', message: fallback });
-  if (load.embeddedPresetWarnings?.present) notices.push({ kind: 'embedded-presets', message: 'This project contains embedded preset settings that may differ from system presets.', details: load.embeddedPresetWarnings });
+  const warning = load.embeddedPresetWarnings;
+  // Archive preset records are not warnings. Orca's native validation owns
+  // the safety decision, including projects using installed user presets.
+  if (warning?.requiresConfirmation) notices.push({ kind: 'embedded-presets', message: 'This project contains embedded preset settings that may differ from system presets.', details: warning });
+  else if (warning?.filamentSlotChanges?.length) notices.push({ kind: 'compatibility-fallback', message: 'Some filament slots were changed while loading this project.', details: warning });
   if (load.bedTypeNormalization) notices.push({ kind: 'bed-type-normalization', message: `Unsupported build plate settings were adjusted to the loaded printer: ${load.bedTypeNormalization.globalChanged ? 'global bed reset to its native default; ' : ''}${load.bedTypeNormalization.removedPlateOverrideIds.length} local override(s) reset to inheritance.`, details: load.bedTypeNormalization });
   return notices;
 }
