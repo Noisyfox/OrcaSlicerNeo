@@ -1,7 +1,6 @@
 import { paintingCommandAllowed, beforePaintingTopologyChange } from '../viewport/gizmo/painting/projectCommands';
 import type { SlicerRuntime } from '@orca/platform-contract';
-import type { ModelObjectStructure } from '@slicer/client';
-import type { PlateSessionMutation } from '@slicer/client';
+import type { ModelObjectStructure, DeleteObjectsResult } from '@slicer/client';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
@@ -62,47 +61,45 @@ export async function deleteSelection(
       return { ok: false, error: msg };
     }
     const volumeScoped = sceneInteraction.isVolumeScopedSelection();
-    let result: { ok: boolean; objects?: number; error?: string; plateSession?: PlateSessionMutation };
+    let result: DeleteObjectsResult;
     const history = await runProjectHistoryMutation(runtime, 'Delete Selection', async () => {
       if (volumeScoped) {
-      const volumeIds = collectSelectedVolumeIds(structure.objects, selected);
-      if (volumeIds.length === 0) {
-          return { ok: false, error: 'selection no longer matches the model' };
-      }
+        const volumeIds = collectSelectedVolumeIds(structure.objects, selected);
+        if (volumeIds.length === 0) {
+          return { ok: false as const, error: 'selection no longer matches the model' };
+        }
         return runtime.deleteVolumes(volumeIds);
       }
       const objectIds = collectSelectedObjectIds(structure.objects, objectIndices);
       if (objectIds.length === 0) {
-        return { ok: false, error: 'selection no longer matches the model' };
+        return { ok: false as const, error: 'selection no longer matches the model' };
       }
       return runtime.deleteObjects(objectIds);
     }, sceneInteraction, {
       publish: async (published) => {
+        if (!published.ok) throw new Error(published.error);
         applyPlateSessionTransforms(published.plateSession, glVolumeCollection.volumes);
         const slicer = useSlicerStore.getState();
         const settings = useSettingsStore.getState();
         slicer.setStatus('idle');
         slicer.setResultExported(false);
         slicer.setError(null);
-        if ((published.objects ?? 0) === 0) {
+        if (published.objects === 0) {
           settings.setModelLoadedFromSceneDelta(false);
           useProjectStore.getState().setProject({ hasContent: false });
         }
-        if (published.plateSession) {
-          invalidateAffectedPlateResults(runtime, published.plateSession.affectedPlateIds ?? []);
-          if (published.plateSession.nativeScopedConfig) {
-            const outcome = settings.applyNativeScopedConfigTransport(published.plateSession.nativeScopedConfig);
-            if (outcome === 'refresh-required') {
-              const refreshed = await runtime.getNativeScopedConfig();
-              if (refreshed.ok) settings.applyNativeScopedConfigTransport(refreshed.nativeScopedConfig);
-            }
+        invalidateAffectedPlateResults(runtime, published.plateSession.affectedPlateIds);
+        if (published.plateSession.nativeScopedConfig) {
+          const outcome = settings.applyNativeScopedConfigTransport(published.plateSession.nativeScopedConfig);
+          if (outcome === 'refresh-required') {
+            const refreshed = await runtime.getNativeScopedConfig();
+            if (refreshed.ok) settings.applyNativeScopedConfigTransport(refreshed.nativeScopedConfig);
           }
-          const previousPlateSession = usePlateSessionStore.getState().snapshot;
-          usePlateSessionStore.getState().setSnapshot(published.plateSession);
-          applyPlateResultMutation(published.plateSession, previousPlateSession);
-          useProjectStore.getState().recordPlateMutation(published.plateSession);
         }
-        else useProjectStore.getState().markDirty('model-delete');
+        const previousPlateSession = usePlateSessionStore.getState().snapshot;
+        usePlateSessionStore.getState().setSnapshot(published.plateSession);
+        applyPlateResultMutation(published.plateSession, previousPlateSession);
+        useProjectStore.getState().recordPlateMutation(published.plateSession);
       },
     });
     result = history.result;

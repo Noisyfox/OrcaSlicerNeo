@@ -1,3 +1,5 @@
+import { createClient } from '@slicer/client';
+import { createMockModule } from '../../../../../slicer-wasm/src/client/testing/mock-module';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
@@ -18,10 +20,13 @@ const structure = {
   }],
 };
 
+const cleared = await createClient(async () => createMockModule()).clearModel();
+if (!cleared.ok) throw new Error(cleared.error);
+
 function makeRuntime(): SlicerRuntime {
   return {
-    deleteObjects: vi.fn(async () => ({ ok: true, objects: 0, deleted: 1 })),
-    deleteVolumes: vi.fn(async () => ({ ok: true, objects: 1, deleted: 1 })),
+    deleteObjects: vi.fn(async () => ({ ok: true, objects: 0, deleted: 1, plateSession: cleared.plateSession })),
+    deleteVolumes: vi.fn(async () => ({ ok: true, objects: 1, deleted: 1, plateSession: cleared.plateSession })),
     getModelStructure: vi.fn(async () => structure),
     getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
     getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),

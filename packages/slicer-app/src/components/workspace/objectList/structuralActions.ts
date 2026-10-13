@@ -6,9 +6,9 @@ import {
   type MutationOutcome,
 } from './actions';
 import { runProjectHistoryMutation } from '../actions/historyMutation';
-import type { PlateSessionMutation } from '@slicer/client';
+import type { ModelMutationResult } from '@slicer/client';
 
-type StructuralMutation = { ok: boolean; error?: string; plateSession?: PlateSessionMutation };
+type StructuralMutation = ModelMutationResult;
 
 async function runStructuralHistory(
   runtime: SlicerRuntime,

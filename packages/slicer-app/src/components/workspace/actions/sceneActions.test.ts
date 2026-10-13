@@ -1,3 +1,6 @@
+import { createClient, type LoadModelResult } from '@slicer/client';
+import { createMockModule } from '../../../../../slicer-wasm/src/client/testing/mock-module';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { useSlicerStore } from '@/stores/useSlicerStore';
@@ -25,8 +28,11 @@ beforeEach(() => {
 });
 afterEach(() => { unsubscribeModelPublication?.(); });
 
+const modelSuccess = await createClient(async () => createMockModule()).addShape('Cube');
+if (!modelSuccess.ok) throw new Error(modelSuccess.error);
+
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
-  const addModel = vi.fn(async (_bytes: Uint8Array, _ext: string, _name: string) => result);
+  const addModel = vi.fn(async (_bytes: Uint8Array, _ext: string, _name: string) => result.ok ? modelSuccess : { ok: false as const, error: result.error ?? 'import failed' });
   const runProjectHistoryTransaction = vi.fn(async <T>(
     _label: string,
     _category: 'project',
@@ -90,6 +96,46 @@ describe('scene add-model action', () => {
     expect(onFailed).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['missing', undefined],
+    ['failed', { ok: false, error: 'invalid native plate receipt' }],
+  ])('does not publish model state from a %s native plate receipt', async (_label, receipt) => {
+    const module = createMockModule();
+    const ccall = module.ccall;
+    module.ccall = (name, ret, types, args) => {
+      const pointer = ccall(name, ret, types, args);
+      if (name !== 'orc_add_model' && name !== 'orc_clear_model') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
+      module._free(Number(pointer));
+      payload.plate_session = receipt;
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      const replacement = module._malloc(bytes.length + 1);
+      module.HEAPU8.set(bytes, replacement);
+      module.HEAPU8[replacement + bytes.length] = 0;
+      return replacement;
+    };
+    const client = createClient(async () => module);
+    const { platform } = platformFor('invalid.stl', { ok: true });
+    platform.runtime.addModel = client.addModel;
+    platform.runtime.clearModel = client.clearModel;
+    useSettingsStore.setState({ modelLoaded: true, values: { modelPath: 'existing.stl' } });
+    useProjectStore.getState().setProject({ hasContent: true });
+    usePlateSessionStore.getState().setSnapshot(modelSuccess.plateSession);
+    useSlicerStore.setState({ status: 'done', resultExported: true });
+    const revision = useSettingsStore.getState().modelRevision;
+    const onModelAdded = vi.fn();
+
+    await expect(addModel(platform, null, onModelAdded)).resolves.toBe(false);
+    await clearScene(platform, null);
+
+    expect(onModelAdded).not.toHaveBeenCalled();
+    expect(platform.runtime.getModelScenePatch).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState()).toMatchObject({ modelLoaded: true, modelRevision: revision, values: { modelPath: 'existing.stl' } });
+    expect(useProjectStore.getState().hasContent).toBe(true);
+    expect(usePlateSessionStore.getState().snapshot).toBe(modelSuccess.plateSession);
+    expect(useSlicerStore.getState()).toMatchObject({ status: 'done', resultExported: true, error: expect.any(String) });
+  });
+
   it('does not expose decoder diagnostics when DRC import fails', async () => {
     const { platform } = platformFor('broken.drc', { ok: false, error: 'Draco decoder detail' });
     await expect(addModel(platform, null)).resolves.toBe(false);
@@ -126,7 +172,7 @@ describe('scene add-model action', () => {
     const progressDuringImport: number[] = [];
     const addModel = vi.fn(async (_bytes: Uint8Array, _ext: string, _name: string) => {
       progressDuringImport.push(useProjectStore.getState().operation.progress);
-      return { ok: true };
+      return modelSuccess;
     });
     const runProjectHistoryTransaction = vi.fn(async <T>(
       _label: string,
@@ -153,7 +199,7 @@ describe('scene add-model action', () => {
     const { platform, addModel } = platformFor('unused.stl', { ok: true });
     const onModelAdded = vi.fn();
     addModel.mockImplementation(async (_bytes: Uint8Array, _ext: string, name: string) => name === 'a.stl'
-      ? { ok: true }
+      ? modelSuccess
       : { ok: false, error: 'decoder detail' });
     await expect(addDroppedModels(platform, null, [
       { displayName: 'a.stl', bytes: Uint8Array.from([1]) },
@@ -213,8 +259,8 @@ describe('scene add-model action', () => {
   });
 
   it('keeps filament mutations fenced while a primitive add is still publishing', async () => {
-    let release!: (value: { ok: boolean }) => void;
-    const addShape = vi.fn(() => new Promise<{ ok: boolean }>((resolve) => { release = resolve; }));
+    let release!: (value: LoadModelResult) => void;
+    const addShape = vi.fn(() => new Promise<LoadModelResult>((resolve) => { release = resolve; }));
     const runProjectHistoryTransaction = vi.fn(async (
       _label: string,
       _category: 'project',
@@ -231,7 +277,7 @@ describe('scene add-model action', () => {
     await Promise.resolve();
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(1);
 
-    release({ ok: true });
+    release(modelSuccess);
     await pending;
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
     expect(onModelAdded).toHaveBeenCalledOnce();
@@ -241,7 +287,7 @@ describe('scene add-model action', () => {
     const pendingAtRefresh: number[] = [];
     const platform = {
       runtime: {
-        clearModel: vi.fn(async () => ({ ok: true })),
+        clearModel: vi.fn(async () => modelSuccess),
         runProjectHistoryTransaction: vi.fn(async (
           _label: string,
           _category: 'project',

@@ -1964,6 +1964,7 @@ describe('SlicerClient bridge contract', () => {
       const before = await c.getModelStructure();
       const source = before.objects[0];
       const r = await c.cloneObjects([source.id]);
+      if (!r.ok) throw new Error(r.error);
       expect(r.ok).toBe(true);
       expect(r.newObjectIds).toHaveLength(1);
       expect(r.objects).toBe(2);
@@ -1985,6 +1986,7 @@ describe('SlicerClient bridge contract', () => {
       if (!before.ok) throw new Error(before.error);
       const source = (await c.getModelStructure()).objects[0];
       const cloned = await c.cloneObjects([source.id]);
+      if (!cloned.ok) throw new Error(cloned.error);
       expect(cloned).toMatchObject({ ok: true, plateSession: {
         affectedPlateIds: [before.currentPlateId],
         dirtyReasons: ['model-structure'],
@@ -2005,6 +2007,7 @@ describe('SlicerClient bridge contract', () => {
       await c.setNativeScopedConfig({ scope: 'object', id: source.id }, 'wall_loops', '3');
       await c.setNativeScopedConfig({ scope: 'part', id: source.volumes[0].id }, 'enable_support', '1');
       const cloned = await c.cloneObjects([source.id]);
+      if (!cloned.ok) throw new Error(cloned.error);
       const cloneId = cloned.newObjectIds[0];
       const snapshot = await c.getNativeScopedConfig();
       expect(snapshot).toMatchObject({ ok: true, nativeScopedConfig: { kind: 'full', snapshot: {
@@ -2072,6 +2075,7 @@ describe('SlicerClient bridge contract', () => {
       const before = await c.getModelStructure();
       const [a, b, d] = before.objects;
       const r = await c.reorderObjects(d.id, a.index);
+      if (!r.ok) throw new Error(r.error);
       expect(r.ok).toBe(true);
       expect(r.objects.map((o) => o.index)).toEqual([0, 1, 2]);
       expect(r.objects.map((o) => o.id)).toEqual([d.id, a.id, b.id]);
@@ -2085,6 +2089,7 @@ describe('SlicerClient bridge contract', () => {
       const before = await c.getModelStructure();
       const [a, b, d] = before.objects;
       const r = await c.reorderObjects(a.id, before.objects.length);
+      if (!r.ok) throw new Error(r.error);
       expect(r.ok).toBe(true);
       expect(r.objects.map((o) => o.id)).toEqual([b.id, d.id, a.id]);
     });
@@ -2095,6 +2100,7 @@ describe('SlicerClient bridge contract', () => {
       const { objects } = await c.getModelStructure();
       const [v0, v1, v2] = objects[0].volumes;
       const r = await c.reorderVolumes(objects[0].id, v2.id, v0.index);
+      if (!r.ok) throw new Error(r.error);
       expect(r.ok).toBe(true);
       expect(r.objects[0].volumes.map((v) => v.id)).toEqual([v2.id, v0.id, v1.id]);
     });
@@ -2105,6 +2111,7 @@ describe('SlicerClient bridge contract', () => {
       const { objects } = await c.getModelStructure();
       const [v0, v1, v2] = objects[0].volumes;
       const r = await c.reorderVolumes(objects[0].id, v0.id, objects[0].volumes.length);
+      if (!r.ok) throw new Error(r.error);
       expect(r.ok).toBe(true);
       expect(r.objects[0].volumes.map((v) => v.id)).toEqual([v1.id, v2.id, v0.id]);
     });
@@ -2269,6 +2276,7 @@ describe('SlicerClient bridge contract', () => {
       const source = objects[0];
       const [i0, i1, i2] = source.instances;
       const r = await c.separateInstances(source.id, [i1.id, i2.id]);
+      if (!r.ok) throw new Error(r.error);
       expect(r.ok).toBe(true);
       expect(r.newObjectIds).toHaveLength(2);
       expect(r.objects).toBe(3); // source (1 instance left) + 2 new
