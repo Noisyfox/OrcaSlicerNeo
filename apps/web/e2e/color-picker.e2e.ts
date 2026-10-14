@@ -5,9 +5,16 @@ test('Web color favorites survive reload and expose alpha/gradient entries', asy
   const hidden = [{ kind: 'solid', color: '#11223380' },
     { kind: 'linear-gradient', start: '#FF000000', end: '#0000FF' }];
   await page.addInitScript((favorites) => {
-    if (!localStorage.getItem('orca-slicer-neo:preferences')) localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
-      version: 1, selectedProfiles: {}, ui: { sidebarWidth: 320 }, colorPicker: { favorites },
+    const seeded = 'orca-web-test:color-favorites-seeded';
+    if (sessionStorage.getItem(seeded)) return;
+    const key = 'orca-slicer-neo:preferences';
+    const current = JSON.parse(localStorage.getItem(key) || '{"version":1,"selectedProfiles":{},"ui":{}}');
+    localStorage.setItem(key, JSON.stringify({ ...current,
+      ui: { ...current.ui, sidebarWidth: 320 }, colorPicker: { ...current.colorPicker, favorites },
     }));
+    // Seed once per page session so reload proves persisted edits rather than
+    // reinstalling the starting favorites. Preserve the configured activation.
+    sessionStorage.setItem(seeded, '1');
   }, hidden);
   const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!));
   await page.goto('/');
@@ -55,12 +62,17 @@ test('Web converts imported multicolour to edited gradient across local storage 
   const printer = 'Bambu Lab X1 Carbon 0.4 nozzle';
   const original = { representative: '#998877', multiColour: '#11223380 #abcdef #44556640', type: '1' };
   await page.addInitScript(({ printer, original }) => {
-    if (!localStorage.getItem('orca-slicer-neo:preferences')) localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
-      version: 1, selectedProfiles: { printer, print: '0.20mm Standard @BBL X1C' },
-      rememberedFilamentRacks: { [printer]: { version: 1, slots: [
+    const seeded = 'orca-web-test:imported-multicolour-seeded';
+    if (sessionStorage.getItem(seeded)) return;
+    const key = 'orca-slicer-neo:preferences';
+    const current = JSON.parse(localStorage.getItem(key) || '{"version":1,"selectedProfiles":{},"ui":{}}');
+    localStorage.setItem(key, JSON.stringify({ ...current,
+      selectedProfiles: { ...current.selectedProfiles, printer, print: '0.20mm Standard @BBL X1C' },
+      rememberedFilamentRacks: { ...current.rememberedFilamentRacks, [printer]: { version: 1, slots: [
         { preset: 'Generic PLA @System', colour: '#998877', native: original },
       ] } },
     }));
+    sessionStorage.setItem(seeded, '1');
   }, { printer, original });
   const native = () => page.evaluate((printer) => JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!)
     .rememberedFilamentRacks[printer].slots[0].native, printer);
