@@ -211,6 +211,7 @@ function mutationSuccess(snapshot: PresetDraftSnapshot, request: PresetDraftMuta
   }
   return {
     ...next,
+    editorCandidates: { kind: 'replace', items: next.editorCandidates },
     overrides,
     effectiveValues,
     editorBindings,
@@ -248,7 +249,7 @@ async function mount(
     const [current, setCurrent] = useState(snapshot);
     const mutate = async (request: PresetDraftMutationRequest) => {
       const result = await onMutate(request);
-      if (result.ok) setCurrent(result);
+      if (result.ok) setCurrent(previous => ({ ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : previous!.editorCandidates }));
       return result;
     };
       const target = current ? { kind: current.kind, canonicalName: current.canonicalName } : null;
@@ -299,7 +300,7 @@ async function changeTextarea(textarea: HTMLTextAreaElement, value: string) {
   });
 }
 
-async function press(input: HTMLInputElement | HTMLTextAreaElement, key: string) {
+async function press(input: HTMLElement, key: string) {
   await act(async () => {
     input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
   });
@@ -378,7 +379,7 @@ describe('PresetEditorDialogContent', () => {
     };
     const requests: PresetDraftMutationRequest[] = [];
     await mount(current, vi.fn(), undefined, async request => {
-      requests.push(request); const result = mutationSuccess(current, request); if (result.ok) current = result; return result;
+      requests.push(request); const result = mutationSuccess(current, request); if (result.ok) current = { ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : current.editorCandidates }; return result;
     });
     await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-3"]'));
     expect(document.querySelector('[data-testid="preset-editor-effective-nozzle_diameter"]')?.textContent).toBe('0.6');
@@ -409,7 +410,7 @@ describe('PresetEditorDialogContent', () => {
     };
     const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => {
       const result = mutationSuccess(current, request);
-      if (result.ok) current = result;
+      if (result.ok) current = { ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : current.editorCandidates };
       return result;
     });
     await mount(current, vi.fn(), undefined, onMutate);
@@ -438,7 +439,7 @@ describe('PresetEditorDialogContent', () => {
       editorVectors: {...base.editorVectors, nozzle_diameter: {...base.editorVectors.nozzle_diameter,
         sourceValues: [0.4,0.6], overrideValues: [{value: 0.4}, {value: 0.6}]}}};
     const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => {
-      const result = mutationSuccess(current, request); if (result.ok) current = result; return result;
+      const result = mutationSuccess(current, request); if (result.ok) current = { ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : current.editorCandidates }; return result;
     });
     await mount(current, vi.fn(), undefined, onMutate);
     await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
@@ -458,10 +459,10 @@ describe('PresetEditorDialogContent', () => {
     const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => {
       const result = mutationSuccess(current, request);
       if (result.ok) current = { ...result, canonicalName: 'Printer Resolved', editorCandidates: [
-        ...result.editorCandidates.filter(candidate => candidate.canonicalName !== 'Printer Resolved'),
+        ...(result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : current.editorCandidates).filter(candidate => candidate.canonicalName !== 'Printer Resolved'),
         { canonicalName: 'Printer Resolved', label: 'Printer Resolved', isProjectEmbedded: false, isUser: false, compatible: true, modified: true },
       ] };
-      return result.ok ? current as typeof result : result;
+      return result.ok ? { ...result, ...current, editorCandidates: { kind: 'replace' as const, items: current.editorCandidates } } : result;
     });
     await mount(current, vi.fn(), undefined, onMutate);
     await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
@@ -484,7 +485,7 @@ describe('PresetEditorDialogContent', () => {
       extruder_printable_area: { ...coords, scalarType: 'points', indexCount: 2, sourceValues: [], effectiveValues: [] } } };
     const requests: PresetDraftMutationRequest[] = [];
     await mount(current, vi.fn(), undefined, async request => {
-      requests.push(request); const result = mutationSuccess(current, request); if (result.ok) current = result; return result;
+      requests.push(request); const result = mutationSuccess(current, request); if (result.ok) current = { ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : current.editorCandidates }; return result;
     });
     await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
     const input = document.querySelector('[data-testid="preset-editor-input-extruder_offset"]') as HTMLInputElement;
@@ -564,7 +565,7 @@ describe('PresetEditorDialogContent', () => {
     let current = source;
     await mount(source, vi.fn(), undefined, async (request) => {
       const result = mutationSuccess(current, request);
-      if (result.ok) current = result;
+      if (result.ok) current = { ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : current.editorCandidates };
       return result;
     });
 
@@ -979,7 +980,7 @@ describe('PresetEditorDialogContent', () => {
     let current = source;
     const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => {
       const result = mutationSuccess(current, request);
-      if (result.ok) current = result;
+      if (result.ok) current = { ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : current.editorCandidates };
       return result;
     });
     await mount(source, vi.fn(), undefined, onMutate);
@@ -1010,7 +1011,7 @@ describe('PresetEditorDialogContent', () => {
     let current = source;
     const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => {
       const result = mutationSuccess(current, request);
-      if (result.ok) current = result;
+      if (result.ok) current = { ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : current.editorCandidates };
       return result;
     });
     await mount(source, vi.fn(), undefined, onMutate);
@@ -1146,6 +1147,35 @@ describe('PresetEditorDialog session ownership', () => {
     await click(document.querySelector(`[role="option"][title="${name}"]`));
   }
 
+  it('retains the candidate list on unchanged and replaces it without extra reads', async () => {
+    const base = snapshotFor('printer', { modified: true });
+    const candidates = [base.editorCandidates[0], { ...base.editorCandidates[0], canonicalName: 'Other Printer', label: 'Other Printer' }];
+    const getDraft = vi.fn().mockResolvedValue({ ...base, editorCandidates: candidates });
+    await mountSession(getDraft);
+    vi.mocked(commitPresetDraftMutation).mockImplementation(async (_platform, request) => {
+      const result = mutationSuccess(base, request);
+      if (!result.ok) throw new Error('expected success');
+      return { ...result, editorCandidates: { kind: 'unchanged' } };
+    });
+    await enterSearch('printable_height');
+    const height = document.querySelector('[data-testid="preset-editor-input-printable_height"]') as HTMLInputElement;
+    await changeInput(height, '245'); await press(height, 'Enter');
+    expect(document.querySelector('[data-testid="preset-editor-effective-printable_height"]')?.textContent).toBe('245');
+    expect(getDraft).toHaveBeenCalledTimes(1);
+    await click(document.querySelector('[data-testid="preset-editor-preset"]'));
+    expect(document.querySelector('[role="option"][title="Other Printer"]')).not.toBeNull();
+    await press(document.querySelector('[data-testid="preset-editor-preset"]') as HTMLElement, 'Escape');
+    vi.mocked(commitPresetDraftMutation).mockImplementation(async (_platform, request) => {
+      const result = mutationSuccess(base, request);
+      if (!result.ok) throw new Error('expected success');
+      return { ...result, editorCandidates: { kind: 'replace', items: [base.editorCandidates[0]] } };
+    });
+    await click(document.querySelector('[data-testid="preset-editor-reset-preset"]'));
+    expect(getDraft).toHaveBeenCalledTimes(1);
+    await click(document.querySelector('[data-testid="preset-editor-preset"]'));
+    expect(document.querySelector('[role="option"][title="Other Printer"]')).toBeNull();
+  });
+
   it('refreshes the browsed source after history restore without following the opening source', async () => {
     const base = snapshotFor('printer');
     const candidates = [base.canonicalName, 'Other Printer'].map(canonicalName => ({
@@ -1219,7 +1249,7 @@ describe('PresetEditorDialog session ownership', () => {
     const result = mutationSuccess(base, submitted);
     if (!result.ok) throw new Error('expected fixture mutation success');
     const resolved = { ...result, canonicalName: 'Resolved Printer' };
-    getDraft.mockResolvedValue({ ...resolved, revision: 3 });
+    getDraft.mockResolvedValue({ ...resolved, editorCandidates: resolved.editorCandidates.kind === 'replace' ? resolved.editorCandidates.items : base.editorCandidates, revision: 3 });
     await act(async () => resolveMutation(resolved));
     expect(getDraft).toHaveBeenLastCalledWith('printer', 'Resolved Printer');
     expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Resolved Printer');

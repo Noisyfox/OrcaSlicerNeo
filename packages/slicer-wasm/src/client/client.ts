@@ -45,7 +45,7 @@ import type {
   FilamentAssignmentRequest, FilamentRoutingRequest,
   NativePerformanceProfile,
   PresetDraftKind, PresetDraftMutationRequest, PresetDraftMutationResult,
-  PresetDraftSnapshotResult, PresetDraftEditorBinding, PresetDraftEditorEnumOption,
+  PresetDraftSnapshotResult, PresetDraftValues, PresetDraftError, PresetEditorCandidate, PresetDraftEditorBinding, PresetDraftEditorEnumOption,
   PresetDraftEditorGuiType, PresetDraftEditorScalarType, PresetDraftEditorValue,
   PresetDraftEditorVector, PresetDraftVectorValue, ConfigVectorOverride, ConfigEditorSnapshotResult,
 } from './types';
@@ -1277,7 +1277,7 @@ function normalizeConfigEditorSnapshot(raw: unknown): ConfigEditorSnapshotResult
     optionMetadata, editorBindings, editorVectors, revision: raw.revision as number };
 }
 
-function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
+function normalizePresetDraftValues(raw: unknown): PresetDraftValues | PresetDraftError {
   const result = normalizeConfigEditorSnapshot(raw);
   if (!result.ok) return result;
   if (!isRecord(raw) || (raw.kind !== 'printer' && raw.kind !== 'filament') ||
@@ -1298,11 +1298,15 @@ function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
   if (Object.entries(result.editorVectors).some(([key, vector]) =>
       vector.overrideValues.some(entry => entry !== null) && !Object.hasOwn(overrides, key)))
     return { ok: false, error: 'vector ownership is missing from preset overrides', errorCode: 'invalid_response' };
-  if (!Array.isArray(raw.editor_candidates))
+  return { ...result, kind: raw.kind, draftExists: raw.draft_exists, modified: raw.modified, overrides };
+}
+
+function normalizePresetEditorCandidates(raw: unknown, canonicalName: string): readonly PresetEditorCandidate[] | PresetDraftError {
+  if (!Array.isArray(raw))
     return { ok: false, error: 'missing preset editor candidates', errorCode: 'invalid_response' };
   const names = new Set<string>();
-  const editorCandidates = [];
-  for (const candidate of raw.editor_candidates) {
+  const editorCandidates: PresetEditorCandidate[] = [];
+  for (const candidate of raw) {
     if (!isRecord(candidate) || typeof candidate.canonical_name !== 'string' || !candidate.canonical_name ||
         typeof candidate.label !== 'string' || !candidate.label || typeof candidate.compatible !== 'boolean' ||
         typeof candidate.is_project_embedded !== 'boolean' || typeof candidate.is_user !== 'boolean' || typeof candidate.modified !== 'boolean' || names.has(candidate.canonical_name))
@@ -1311,15 +1315,33 @@ function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
     editorCandidates.push({ canonicalName: candidate.canonical_name, label: candidate.label,
       isProjectEmbedded: candidate.is_project_embedded, isUser: candidate.is_user, compatible: candidate.compatible, modified: candidate.modified });
   }
-  if (!names.has(result.canonicalName))
+  if (!names.has(canonicalName))
     return { ok: false, error: 'preset editor target is missing from candidates', errorCode: 'invalid_response' };
-  return { ...result, kind: raw.kind, draftExists: raw.draft_exists, modified: raw.modified, overrides, editorCandidates };
+  return editorCandidates;
 }
 
-function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
-  const snapshot = normalizePresetDraftSnapshot(raw);
+function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
+  const values = normalizePresetDraftValues(raw);
+  if (!values.ok) return values;
+  const editorCandidates = normalizePresetEditorCandidates(isRecord(raw) ? raw.editor_candidates : undefined, values.canonicalName);
+  if (!Array.isArray(editorCandidates)) return editorCandidates as PresetDraftError;
+  return { ...values, editorCandidates };
+}
+
+function normalizePresetDraftMutation(raw: unknown, target: { kind: PresetDraftKind; canonicalName: string }): PresetDraftMutationResult {
+  const snapshot = normalizePresetDraftValues(raw);
   if (!snapshot.ok) return snapshot;
   if (!isRecord(raw)) return { ok: false, error: 'invalid preset draft mutation response', errorCode: 'invalid_response' };
+  const update = raw.editor_candidates;
+  if (!isRecord(update) || (update.kind !== 'unchanged' && update.kind !== 'replace') ||
+      (update.kind === 'unchanged' && Object.keys(update).some(key => key !== 'kind')) ||
+      (update.kind === 'replace' && Object.keys(update).some(key => key !== 'kind' && key !== 'items')))
+    return { ok: false, error: 'invalid preset editor candidate update', errorCode: 'invalid_response' };
+  const items = update.kind === 'replace' ? normalizePresetEditorCandidates(update.items, snapshot.canonicalName) : [];
+  if (!Array.isArray(items)) return items as PresetDraftError;
+  const editorCandidates = update.kind === 'replace' ? { kind: 'replace' as const, items } : { kind: 'unchanged' as const };
+  if (update.kind === 'unchanged' && (snapshot.kind !== target.kind || snapshot.canonicalName !== target.canonicalName))
+    return { ok: false, error: 'unchanged preset editor candidates cannot change target', errorCode: 'invalid_response' };
   const profile = isRecord(raw.profile_snapshot) ? normalizeProfileSnapshot(raw.profile_snapshot) :
     { ok: false as const, error: 'missing preset draft profile snapshot' };
   if (!profile.ok) return { ok: false, error: profile.error, errorCode: 'invalid_response' };
@@ -1340,7 +1362,7 @@ function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
       filamentSession.revisions.session !== historyStatus.revision ||
       filamentSession.revisions.project !== historyStatus.revision)
     return { ok: false, error: 'invalid preset draft mutation receipt', errorCode: 'invalid_response' };
-  return { ...snapshot, historyEntryDelta: 1, revisionBefore: raw.revision_before as number,
+  return { ...snapshot, editorCandidates, historyEntryDelta: 1, revisionBefore: raw.revision_before as number,
     revisionAfter: raw.revision_after as number, dirty: raw.dirty,
     affectedPlateIds: raw.affected_plate_ids as string[], allPlateResultsInvalidated: true,
     plateSession, filamentSession, historyStatus, nativeScopedConfig, profileSnapshot: profile };
@@ -2147,6 +2169,7 @@ export function createClient(
         payload.index = request.index;
       return normalizePresetDraftMutation(
         callJson(m, 'orc_mutate_preset_draft', ['string'], [JSON.stringify(payload)]),
+        request,
       );
     },
 

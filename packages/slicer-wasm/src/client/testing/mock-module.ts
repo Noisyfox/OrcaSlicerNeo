@@ -701,7 +701,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       source[key] = serializePresetEditorValues(option.values);
     return source;
   }
-  function presetDraftSnapshot(kind: 'printer' | 'filament', canonicalName: string): Record<string, unknown> {
+  function presetDraftSnapshot(kind: 'printer' | 'filament', canonicalName: string, includeCandidates = true): Record<string, unknown> {
     const sourceValues = presetSourceValues(kind, canonicalName);
     if (!sourceValues) return { ok: false, error_code: 'preset_not_found',
       error: `preset not found: ${canonicalName}`, revision: historyRevision };
@@ -712,12 +712,12 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const vectors = editorVectorsFor(kind, canonicalName);
     return { ok: true, kind, canonical_name: canonicalName,
       draft_exists: draft !== undefined, modified: Object.keys(overrides).length > 0,
-      editor_candidates: presetFixtures[kind]
+      ...(includeCandidates ? { editor_candidates: presetFixtures[kind]
         .filter(preset => (preset.is_visible && !preset.is_default) || preset.name === canonicalName)
         .map(preset => ({ canonical_name: preset.name, is_project_embedded: preset.is_project_embedded, is_user: preset.is_user, label: kind === 'printer' ? preset.name : preset.label,
           compatible: kind === 'printer' || !preset.compatible_printers?.length || preset.compatible_printers.includes(selected.printer),
           modified: Object.keys(presetDraftRegistry[kind][preset.name] ?? {}).length > 0 }))
-        .sort((a, b) => Number(b.compatible) - Number(a.compatible) || Number(b.modified) - Number(a.modified)),
+        .sort((a, b) => Number(b.compatible) - Number(a.compatible) || Number(b.modified) - Number(a.modified)) } : {}),
       overrides, source_values: sourceValues, effective_values: { ...sourceValues, ...Object.fromEntries(Object.entries(overrides).map(([key, value]) =>
         [key, Array.isArray(value) ? serializePresetEditorValues(editorValuesFor(kind, canonicalName, key)!) : value])) },
       option_metadata: optionMetadata, editor_vectors: vectors, revision: historyRevision };
@@ -805,6 +805,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return fail('unsupported_option', 'indexed reset requires an extruder vector option');
     }
 
+    const modifiedBefore = Object.keys(presetDraftRegistry[kind][request.canonical_name] ?? {}).length > 0;
+    const hadRedo = historyCursor + 1 < historyEntries.length;
     const beforeState = captureHistoryState();
     const beforeContext = { ...nativePresetDraftHistoryContext(),
       selection: clone(request.history_context.selection), gizmo: clone(request.history_context.gizmo) };
@@ -867,7 +869,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyCursor = historyEntries.length - 1;
     if (editingSession) editingSession.hasEffectiveCommit = true;
 
-    const result = presetDraftSnapshot(kind, canonicalName) as Record<string, unknown>;
+    const ordinarySet = ['set', 'set-element'].includes(action) && ![
+      'inherits', 'printer_settings_id', 'filament_settings_id', 'print_settings_id',
+      'printer_technology', 'printer_model', 'printer_variant', 'nozzle_diameter',
+    ].includes(request.key);
+    const unchanged = ordinarySet && !hadRedo && modifiedBefore === (Object.keys(presetDraftRegistry[kind][canonicalName] ?? {}).length > 0);
+    const result = presetDraftSnapshot(kind, canonicalName, !unchanged) as Record<string, unknown>;
+    result.editor_candidates = unchanged ? { kind: 'unchanged' } : { kind: 'replace', items: result.editor_candidates };
     const plateSession = plateSessionSnapshot() as Record<string, unknown>;
     plateSession.affected_plate_ids_before = [...plateIds];
     plateSession.affected_plate_ids_after = [...plateIds];

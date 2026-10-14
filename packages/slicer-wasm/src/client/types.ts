@@ -562,13 +562,20 @@ export interface PresetEditorCandidate {
   readonly modified: boolean;
 }
 
-export interface PresetDraftSnapshot extends PresetDraftTarget, ConfigEditorSnapshot {
-  /** Native order: compatible section first, modified presets first within each section. */
-  readonly editorCandidates: readonly PresetEditorCandidate[];
+export interface PresetDraftValues extends PresetDraftTarget, ConfigEditorSnapshot {
   readonly draftExists: boolean;
   readonly modified: boolean;
   readonly overrides: Readonly<Record<string, string | readonly ConfigVectorOverride[]>>;
 }
+
+export interface PresetDraftSnapshot extends PresetDraftValues {
+  /** Native order: compatible section first, modified presets first within each section. */
+  readonly editorCandidates: readonly PresetEditorCandidate[];
+}
+
+export type PresetEditorCandidateUpdate =
+  | { readonly kind: 'unchanged' }
+  | { readonly kind: 'replace'; readonly items: readonly PresetEditorCandidate[] };
 
 export interface PresetDraftError {
   readonly ok: false;
@@ -609,7 +616,8 @@ type ElementPayload<T> = T extends { readonly action: 'set-element' }
   ? Omit<T, keyof PresetDraftMutationBase | 'action'> : never;
 export type ConfigElementMutation = ElementPayload<Extract<PresetDraftMutationRequest, { readonly action: 'set-element' }>>;
 
-export interface PresetDraftMutationSuccess extends PresetDraftSnapshot {
+export interface PresetDraftMutationSuccess extends PresetDraftValues {
+  readonly editorCandidates: PresetEditorCandidateUpdate;
   readonly profileSnapshot: ProfileSnapshot;
   readonly filamentSession: FilamentSessionSnapshot;
   readonly historyEntryDelta: 1;

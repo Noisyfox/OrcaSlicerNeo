@@ -400,5 +400,39 @@ for (const kind of ['printer', 'filament', 'print']) {
   checkContextRoundtrip();
 }
 
+// Candidate receipts also cover real user-head comparison and frozen versions.
+const candidateName = 'Neo Candidate Stability';
+const candidateSource = ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name;
+mutate('save-as', 'filament', candidateSource, { name: candidateName });
+const baselineNote = draft(candidateName).editor_vectors.filament_notes.source_values[0];
+const candidateEdit = (name, value) => ok(request('orc_mutate_preset_draft', {
+  history_context: editingContext, action: 'set-element', kind: 'filament', canonical_name: name,
+  key: 'filament_notes', scalar_type: 'string', index: 0, value, expected_revision: status().revision,
+}));
+assert.equal(candidateEdit(candidateName, 'candidate first').editor_candidates.kind, 'replace');
+const secondCandidateEdit = candidateEdit(candidateName, 'candidate second');
+assert.deepEqual(secondCandidateEdit.editor_candidates, { kind: 'unchanged' });
+assert.equal(secondCandidateEdit.modified, true);
+const baselineWrite = candidateEdit(candidateName, baselineNote);
+assert.equal(baselineWrite.modified, false, 'ordinary Set restores saved-head equality');
+assert.equal(baselineWrite.editor_candidates.kind, 'replace', 'true-to-false modified flip replaces candidates');
+assert.deepEqual(candidateEdit(candidateName, 'candidate third').editor_candidates.kind, 'replace');
+assert.deepEqual(candidateEdit(candidateName, 'candidate fourth').editor_candidates, { kind: 'unchanged' });
+ok(call('orc_history_undo'));
+assert.equal(draft(candidateName).modified, true);
+assert.equal(status().canRedo, true);
+const branchCandidateEdit = candidateEdit(candidateName, 'candidate branch');
+assert.equal(branchCandidateEdit.editor_candidates.kind, 'replace',
+  'a redo-branch replacement returns full candidates even when modified stays true');
+assert.deepEqual(branchCandidateEdit.editor_candidates.items, draft(candidateName).editor_candidates,
+  'history collection cannot leave a stale replacement list');
+mutate('save-as', 'filament', candidateName, { name: candidateName });
+ok(call('orc_history_undo'));
+const frozenCandidate = ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name;
+assert.match(frozenCandidate, /snapshot/);
+candidateEdit(frozenCandidate, 'frozen candidate first');
+assert.deepEqual(candidateEdit(frozenCandidate, 'frozen candidate second').editor_candidates, { kind: 'unchanged' },
+  'continuous snapshot edits use the same safe path');
+
 console.log('user-presets PASS shared save dialog, self/cross overwrite, snapshots, delete, Undo/Redo, Reset, shared slots, dormant editor, Printer, Process, 3MF, name reuse, failed persistence, required renderer context and selection/gizmo roundtrips');
 process.exit(0);

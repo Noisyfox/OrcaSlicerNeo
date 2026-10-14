@@ -133,6 +133,44 @@ test('Print edits followed by Filament edits keep the Process profile catalogue 
   await expect(page.getByRole('option').filter({ hasText: '(Project)' })).toHaveCount(0);
 });
 
+test('continuous preset edits retain candidates through the real Worker', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  for (const kind of ['printer', 'filament'] as const) {
+    if (kind === 'printer') await page.getByTestId('preset-edit-printer').click();
+    else {
+      await page.getByTestId('filament-slot-1').click({ button: 'right' });
+      await page.getByTestId('filament-edit-1').click();
+    }
+    const key = kind === 'printer' ? 'printable_height' : 'filament_diameter';
+    await page.getByTestId('preset-editor-search').fill(key);
+    const input = page.getByTestId(`preset-editor-input-${key}`);
+    const original = await input.inputValue();
+    const picker = page.getByTestId('preset-editor-preset');
+    await picker.click();
+    await expect(page.getByRole('option').first()).toBeVisible();
+    const count = await page.getByRole('option').count();
+    await page.keyboard.press('Escape');
+    const values = kind === 'printer' ? ['240', '245'] : ['1.76', '1.77'];
+    for (const value of values) {
+      await input.fill(value); await input.press('Enter');
+      await expect(picker).toBeEnabled();
+      await expect(input).toHaveValue(value);
+      await expect(page.getByTestId(`preset-editor-error-${key}`)).toHaveCount(0);
+      await picker.click();
+      await expect(page.getByRole('option')).toHaveCount(count);
+      await page.keyboard.press('Escape');
+    }
+    await page.getByTestId('preset-editor-reset-preset').click();
+    await expect(picker).toBeEnabled();
+    await expect(input).toHaveValue(original);
+    await picker.click(); await expect(page.getByRole('option')).toHaveCount(count);
+    await page.keyboard.press('Escape');
+    await page.getByTestId('preset-editor-close').click();
+  }
+});
+
 test('Web project save downloads its suggested filename and establishes a clean named session', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });

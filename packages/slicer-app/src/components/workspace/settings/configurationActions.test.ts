@@ -76,7 +76,7 @@ function presetHistoryStatus(revision: number): HistoryStatus {
 function presetReceipt(allPlateResultsInvalidated: true): Extract<PresetDraftMutationResult, { ok: true }> {
   return {
     ok: true, kind: 'printer', canonicalName: 'Printer A', draftExists: true,
-    editorCandidates: [{ canonicalName: 'Printer A', label: 'Printer A', compatible: true, modified: true }],
+    editorCandidates: { kind: 'replace', items: [{ canonicalName: 'Printer A', label: 'Printer A', compatible: true, modified: true }] },
     modified: true, overrides: { printable_height: '250' },
     sourceValues: { printable_height: '230' }, effectiveValues: { printable_height: '250' },
     optionMetadata: {}, revision: 2,

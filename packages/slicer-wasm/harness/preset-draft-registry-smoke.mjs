@@ -41,6 +41,8 @@ function historyStatus() {
 }
 
 function mutateDraft(action, kind, canonicalName, fields = {}) {
+  const candidatesBefore = callJson('orc_get_preset_draft', ['string', 'string'], [kind, canonicalName]).editor_candidates;
+  const hadRedo = historyStatus().canRedo;
   const beforeSnapshot = callJson('orc_get_preset_snapshot');
   const originalRows = kind === 'printer' ? beforeSnapshot.printers : beforeSnapshot.filament_catalog;
   const result = request('orc_mutate_preset_draft', { history_context: editingContext,
@@ -52,9 +54,20 @@ function mutateDraft(action, kind, canonicalName, fields = {}) {
   assert.equal(result.all_plate_results_invalidated, true);
   assert.equal(result.profile_snapshot.modified_presets[kind].includes(canonicalName), result.modified,
     'sidebar modified sources must use the same nonempty-overlay rule as the native editor');
-  assert.equal(result.editor_candidates.find(candidate => candidate.canonical_name === canonicalName)?.modified, result.modified);
+  const candidateUpdate = result.editor_candidates;
+  assert.ok(['unchanged', 'replace'].includes(candidateUpdate.kind));
+  const candidatesAfter = callJson('orc_get_preset_draft', ['string', 'string'], [kind, result.canonical_name]).editor_candidates;
+  if (candidateUpdate.kind === 'unchanged') {
+    assert.deepEqual(candidateUpdate, { kind: 'unchanged' }, 'unchanged carries no candidate array');
+    assert.deepEqual(candidatesAfter, candidatesBefore, 'unchanged preserves the entire catalogue');
+    assert.ok(['set', 'set-element'].includes(action) && fields.key !== 'nozzle_diameter' && !hadRedo);
+  } else assert.deepEqual(candidateUpdate.items, candidatesAfter, 'replacement is the complete current catalogue');
+  if (!['set', 'set-element'].includes(action) || fields.key === 'nozzle_diameter' || hadRedo)
+    assert.equal(candidateUpdate.kind, 'replace');
+  const candidates = candidateUpdate.kind === 'replace' ? candidateUpdate.items : candidatesBefore;
+  assert.equal(candidates.find(candidate => candidate.canonical_name === canonicalName)?.modified, result.modified);
   for (const compatible of [true, false]) {
-    const section = result.editor_candidates.filter(candidate => candidate.compatible === compatible);
+    const section = candidates.filter(candidate => candidate.compatible === compatible);
     assert.ok(section.every((candidate, index) => index === 0 || !candidate.modified || section[index - 1].modified),
       'native editor puts modified candidates before unmodified candidates within each section');
   }
@@ -121,11 +134,16 @@ const geometryBefore = callJson('orc_get_plate_session_snapshot');
 assert.equal(geometryBefore.instances[0].out_of_bounds, false);
 const notes = mutateDraft('set', 'printer', printer.name,
   { key: 'printer_notes', value: 'notes geometry regression' });
+assert.equal(notes.editor_candidates.kind, 'replace', 'first modified flip replaces candidates');
 assert.deepEqual(notes.plate_session.instance_transforms, geometryBefore.instance_transforms);
 assert.equal(notes.plate_session.instances[0].out_of_bounds, false);
 const shortBed = mutateDraft('set', 'printer', printer.name,
   { key: 'printable_height', value: '1' });
+assert.equal(shortBed.editor_candidates.kind, 'unchanged', 'continuous ordinary Printer edits retain candidates');
 assert.equal(shortBed.plate_session.instances[0].out_of_bounds, true);
+const identityWrite = mutateDraft('set', 'printer', printer.name,
+  { key: 'printer_model', value: callJson('orc_get_preset_draft', ['string', 'string'], ['printer', printer.name]).source_values.printer_model });
+assert.equal(identityWrite.editor_candidates.kind, 'replace', 'identity keys stay conservative');
 const notesOnShortBed = mutateDraft('set', 'printer', printer.name,
   { key: 'printer_notes', value: 'still a short build volume' });
 assert.equal(notesOnShortBed.plate_session.instances[0].out_of_bounds, true);

@@ -38,6 +38,7 @@ export type {
   OptionMetadata, OptionMeta,
   ConfigElementMutation, ConfigEditorSnapshot, ConfigEditorSnapshotResult,
   PresetDraftKind, PresetDraftTarget, PresetDraftSnapshot, PresetDraftSnapshotResult,
+  PresetDraftValues, PresetEditorCandidateUpdate,
   PresetDraftEditorScalarType, PresetDraftEditorValue, PresetDraftEditorGuiType,
   PresetDraftEditorEnumOption, PresetDraftEditorBinding,
   PresetDraftEditorPoint, PresetDraftVectorValue, PresetDraftEditorVector,

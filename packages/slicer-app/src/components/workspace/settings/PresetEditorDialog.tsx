@@ -10,6 +10,7 @@ import type {
   PresetDraftMutationRequest,
   PresetDraftMutationResult,
   PresetDraftSnapshot,
+  PresetDraftValues,
   PresetDraftTarget,
   PresetDraftEditorVector,
   PresetDraftVectorValue,
@@ -127,7 +128,7 @@ function searchText(field: PresetEditorManifestField, metadata: OptionMeta | und
 }
 
 
-function fieldBinding(snapshot: PresetDraftSnapshot, key: string, index?: number): PresetDraftEditorBinding | undefined {
+function fieldBinding(snapshot: PresetDraftValues, key: string, index?: number): PresetDraftEditorBinding | undefined {
   if (index === undefined) return snapshot.editorBindings[key];
   const vector = snapshot.editorVectors[key];
   if (!vector) return undefined;
@@ -977,7 +978,8 @@ export function PresetEditorDialog({ initialTarget, sceneInteraction, onClose }:
           targetRef.current = resolvedTarget;
           setTarget(resolvedTarget);
         }
-        setSnapshot(result);
+        setSnapshot(previous => ({ ...result, editorCandidates: result.editorCandidates.kind === 'replace'
+          ? result.editorCandidates.items : previous!.editorCandidates }));
         setLoadError(null);
       }
       return result;
