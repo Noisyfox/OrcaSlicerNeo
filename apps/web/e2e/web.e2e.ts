@@ -133,6 +133,98 @@ test('Print edits followed by Filament edits keep the Process profile catalogue 
   await expect(page.getByRole('option').filter({ hasText: '(Project)' })).toHaveCount(0);
 });
 
+test('continuous preset edits retain candidates through the real Worker', async ({ page }) => {
+  // Observe the existing public Worker protocol only in this test. The
+  // production runtime has no counters or projection instrumentation.
+  await page.addInitScript(() => {
+    const probe = { calls: [] as string[], receipts: [] as Array<{ kind: string; catalogues: boolean; references: boolean }> };
+    (window as unknown as { presetReceiptProbe: typeof probe }).presetReceiptProbe = probe;
+    const observed = new WeakSet<Worker>(), operations = new Map<number, string>();
+    const prototype = Worker.prototype as unknown as { postMessage(...args: unknown[]): void };
+    const original = prototype.postMessage;
+    prototype.postMessage = function (this: Worker, ...args: unknown[]) {
+      if (!observed.has(this)) {
+        observed.add(this);
+        this.addEventListener('message', event => {
+          const message = event.data, receipt = message?.result;
+          if (message?.type === 'response' && operations.get(message.id) === 'mutatePresetDraft' && receipt?.ok) {
+            probe.receipts.push({ kind: receipt.projectionKind,
+              catalogues: ['printers', 'prints', 'filamentCatalog'].some(key => Object.hasOwn(receipt.profileSnapshot, key)),
+              references: ['routing', 'assignments'].some(key => Object.hasOwn(receipt.filamentSession, key)) });
+          }
+        });
+      }
+      const message = args[0] as { type?: string; op?: string; id?: number };
+      if (message?.type === 'request' && typeof message.op === 'string' && typeof message.id === 'number') {
+        probe.calls.push(message.op); operations.set(message.id, message.op);
+      }
+      Reflect.apply(original, this, args);
+    };
+  });
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  for (const kind of ['printer', 'filament'] as const) {
+    if (kind === 'printer') await page.getByTestId('preset-edit-printer').click();
+    else {
+      await page.getByTestId('filament-slot-1').click({ button: 'right' });
+      await page.getByTestId('filament-edit-1').click();
+    }
+    const key = kind === 'printer' ? 'printable_height' : 'filament_max_volumetric_speed';
+    await page.getByTestId('preset-editor-search').fill(key);
+    const input = page.getByTestId(`preset-editor-input-${key}`);
+    const original = await input.inputValue();
+    const picker = page.getByTestId('preset-editor-preset');
+    await picker.click();
+    await expect(page.getByRole('option').first()).toBeVisible();
+    const count = await page.getByRole('option').count();
+    await page.keyboard.press('Escape');
+    const values = kind === 'printer' ? ['240', '245'] : ['18', '19'];
+    for (const value of values) {
+      await page.evaluate(() => {
+        const probe = (window as unknown as { presetReceiptProbe: { calls: string[]; receipts: unknown[] } }).presetReceiptProbe;
+        probe.calls.length = 0; probe.receipts.length = 0;
+      });
+      await input.fill(value); await input.press('Enter');
+      await expect(picker).toBeEnabled();
+      await expect(input).toHaveValue(value);
+      await expect(page.getByTestId(`preset-editor-error-${key}`)).toHaveCount(0);
+      await picker.click();
+      await expect(page.getByRole('option')).toHaveCount(count);
+      await page.keyboard.press('Escape');
+    }
+    if (kind === 'filament') {
+      const readProbe = () => page.evaluate(() => (window as unknown as { presetReceiptProbe: {
+        calls: string[]; receipts: Array<{ kind: string; catalogues: boolean; references: boolean }>;
+      } }).presetReceiptProbe);
+      const assertOrdinary = async () => {
+        const probe = await readProbe();
+        expect(probe.receipts).toEqual([{ kind: 'ordinary-edit', catalogues: false, references: false }]);
+        expect(probe.calls.filter(op => ['getProfileSnapshot', 'getFilamentSessionSnapshot', 'getPresetDraft'].includes(op))).toEqual([]);
+      };
+      await assertOrdinary();
+      for (const [commonKey, value] of [['fan_min_speed', '1'], ['fan_max_speed', '2']]) {
+        await page.getByTestId('preset-editor-search').fill(commonKey);
+        await page.evaluate(() => {
+          const probe = (window as unknown as { presetReceiptProbe: { calls: string[]; receipts: unknown[] } }).presetReceiptProbe;
+          probe.calls.length = 0; probe.receipts.length = 0;
+        });
+        const common = page.getByTestId(`preset-editor-input-${commonKey}`);
+        await common.fill(value); await common.press('Enter');
+        await expect(picker).toBeEnabled(); await expect(common).toHaveValue(value);
+        await assertOrdinary();
+      }
+      await page.getByTestId('preset-editor-search').fill(key);
+    }
+    await page.getByTestId('preset-editor-reset-preset').click();
+    await expect(picker).toBeEnabled();
+    await expect(input).toHaveValue(original);
+    await picker.click(); await expect(page.getByRole('option')).toHaveCount(count);
+    await page.keyboard.press('Escape');
+    await page.getByTestId('preset-editor-close').click();
+  }
+});
+
 test('Web project save downloads its suggested filename and establishes a clean named session', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });

@@ -2054,7 +2054,7 @@ bool effective_filament_int_map(const DynamicPrintConfig& primary, const char* k
 
 } // namespace
 
-json filament_session_snapshot_json()
+json filament_session_snapshot_json(const bool include_references)
 {
     PresetBundle& bundle = state().presets;
     const DynamicPrintConfig& project = bundle.project_config;
@@ -2194,7 +2194,7 @@ json filament_session_snapshot_json()
         const int object_effective = object_explicit;
         if (object_effective > static_cast<int>(slot_count))
             return filament_session_error_json("assignment_slot_out_of_range", "object assignment exceeds slot count");
-        objects.push_back({"object", static_cast<uint32_t>(object->id().id), static_cast<uint32_t>(object->id().id), object_explicit, object_effective, false});
+        if (include_references) objects.push_back({"object", static_cast<uint32_t>(object->id().id), static_cast<uint32_t>(object->id().id), object_explicit, object_effective, false});
         for (const ModelVolume* volume : object->volumes) {
             if (volume == nullptr) continue;
             const auto type = volume->type();
@@ -2207,7 +2207,7 @@ json filament_session_snapshot_json()
                 return filament_session_error_json("assignment_slot_out_of_range", "volume assignment exceeds slot count");
             Assignment item{type == ModelVolumeType::MODEL_PART ? "model-part" : "parameter-modifier",
                             static_cast<uint32_t>(volume->id().id), static_cast<uint32_t>(object->id().id), explicit_slot, effective_slot, inherited};
-            (type == ModelVolumeType::MODEL_PART ? parts : modifiers).push_back(item);
+            if (include_references) (type == ModelVolumeType::MODEL_PART ? parts : modifiers).push_back(item);
         }
     }
     auto assignment_json = [](const std::vector<Assignment>& values) {
@@ -2257,7 +2257,11 @@ json filament_session_snapshot_json()
             const int effective = own > 0 ? own : (parent > 0 ? parent : (feature ? assignment_slot : 0));
             const bool inherited = own == 0 && !parent_values.empty();
             const bool defaulted = effective == 0;
-            routing.push_back({{"target", target}, {"id", id}, {"object_id", object_id},
+            // The full client validates these projected bounds. Validate them
+            // here when no rows cross that boundary; full reads stay unchanged.
+            if (!include_references && (own < 0 || own > static_cast<int>(slot_count) || effective > static_cast<int>(slot_count)))
+                throw std::runtime_error("filament routing exceeds slot count");
+            if (include_references) routing.push_back({{"target", target}, {"id", id}, {"object_id", object_id},
                                {"selector", selector}, {"explicit_slot", own},
                                {"effective_slot", effective}, {"inherited", inherited},
                                {"defaulted", defaulted}});
@@ -2278,10 +2282,13 @@ json filament_session_snapshot_json()
         }
     }
     json result = {{"ok", true}, {"version", 1}, {"slots", slots}, {"mappings", mappings},
-            {"flushing", flushing}, {"capabilities", capabilities}, {"routing", routing},
-            {"assignments", {{"objects", assignment_json(objects)}, {"parts", assignment_json(parts)},
-                             {"modifiers", assignment_json(modifiers)}}},
+            {"flushing", flushing}, {"capabilities", capabilities},
             {"revisions", revisions}, {"status", {{"state", "ready"}, {"error", nullptr}}}};
+    if (include_references) {
+        result["routing"] = std::move(routing);
+        result["assignments"] = {{"objects", assignment_json(objects)}, {"parts", assignment_json(parts)},
+                                 {"modifiers", assignment_json(modifiers)}};
+    }
     state().filament_slot_ids.swap(slot_ids);
     return result;
 }

@@ -316,7 +316,7 @@ unmounts that session, and its pending reads cannot publish into a later dialog.
 Mutations continue through the shared configuration commit helper so history,
 project projections and slice invalidation keep their existing transaction path.
 
-Each native draft snapshot includes a required `editor_candidates` projection
+Each native draft read includes a required complete `editor_candidates` projection
 of installed visible sources supported by the editor (FFF Printers and
 Filaments), including incompatible Filaments. Printer entries identify complete
 canonical profiles, including nozzle/variant differences. Both editor pickers
@@ -340,7 +340,20 @@ Within each section, nonempty draft overrides are highlighted with the existing
 configuration-override colour and stably ordered before unmodified sources.
 The Printer picker likewise puts modified sources first. Empty retained draft
 entries are not highlighted. Mutations, resets, and history restoration refresh
-the candidate projection together with the editor values.
+the candidate projection together with the editor values. Ordinary Set and
+Set-element mutations return an explicit unchanged candidate receipt when
+canonical identity and the target modified flag remain stable and candidate
+membership, labels, classification, compatibility and ordering are provably
+unchanged. This path constructs only current editor values and the existing
+commit receipts; it does not construct the candidate catalogue. All other
+mutations replace the full candidate list, including Reset, identity/topology
+changes and replacement of a redo branch. The typed mutation contract requires
+a discriminated `unchanged` or `replace` candidate update; draft reads continue
+to require the complete array. The mounted editor retains its existing array
+on unchanged and replaces it on replace, under its existing target and async
+guards, without a follow-up read. Opening, switching and history refresh still
+read the complete projection. Profile, Filament, plate, scoped configuration
+and history receipts retain their existing contracts.
 
 Switching targets retains every accepted source-local draft, matching sidebar
 selection's draft retention. Returning to a source reads its existing overlay;
@@ -354,8 +367,9 @@ selection. Dormant-draft persistence and existing mutation invalidation policy
 remain unchanged.
 
 The picker is shared by Electron and Web, with keyboard/pointer input; mobile
-support remains deferred. It adds a bounded candidate array to each draft
-snapshot and introduces no downloads or second configuration owner.
+support remains deferred. It adds a complete candidate array to each draft
+read and to mutations that replace that projection, and introduces no downloads
+or second configuration owner.
 
 A Filament editor title displays its source preset name, `Project draft` state
 when applicable, and the numbered slots currently referencing that source
@@ -578,9 +592,35 @@ fields are read-only until their dedicated editor exists.
   their required placement and validity state.
 - The rollback Model copy remains necessary for atomic failure recovery;
   do not remove it as an unvalidated performance shortcut.
-- Draft mutation receipts publish the complete committed Filament session,
-  including recalculated flushing values. Updating only the revision token on
-  the old renderer snapshot is insufficient for material configuration edits.
+- Draft mutations use a fixed full or ordinary-edit projection receipt. The
+  ordinary path is limited to explicitly allowlisted Filament Set/Set-element
+  fields (temperature, flow, cooling, notes and supported material extrusion
+  parameters), with unchanged editor candidates, canonical identity, modified
+  state and project selections, and no redo branch. Unknown fields, Printer
+  edits, resets and other cold transitions retain full projections.
+- An ordinary receipt omits only Profile Printer/Process/Filament catalogue
+  arrays and Filament routing/assignments. Native branches before constructing
+  those JSON blocks and retains reference validity checks. Current profile
+  values, selected profiles, modified markers, bed/picker/tooltips, slots,
+  mappings, capabilities, revisions and recalculated flushing values remain
+  complete. Editor values, scoped configuration, plates and history retain
+  their existing complete receipts; Get interfaces remain full.
+- The application merges an ordinary receipt into complete store projections,
+  retaining the three catalogue arrays and routing/assignment references.
+  It checks existing base revisions before history publication advances the
+  Filament command token, preserves configuration mode and applies the final
+  complete scoped receipt. No native catalogue cache, catalogue revision or
+  generic delta protocol is introduced.
+- A missing or stale base explicitly resyncs through the existing full Profile
+  and Filament read interfaces within the project command FIFO; successful
+  ordinary edits with a matching base make no extra reads. Failed resync is an
+  already committed edit, not a native rejection: committed history, scoped
+  configuration and plate receipts still publish. Incomplete bases are marked
+  for resync while any complete older projection is retained. The editor
+  acknowledges its committed values/revision while
+  showing the refresh error and disabling further edits until it is reopened.
+  Closing remains available. The failed operation cannot be resubmitted at its
+  old revision. Native failure rollback and history ownership are unchanged.
 
 No persistence migration, new file format, host-specific behavior, or mobile
 interaction is introduced. Both hosts retain their current desktop layout.

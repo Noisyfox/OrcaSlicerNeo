@@ -20,7 +20,7 @@ const char* duplicate_json(const std::string& value);
 const char* error_json(const std::string& message);
 // Neo displays dirty state through orange highlighting, never name decoration.
 std::string preset_display_label(const Preset& preset);
-json preset_snapshot_json();
+json preset_snapshot_json(bool include_catalogues = true);
 // Shared native authority for projection and subsequent bed-type mutations.
 struct BedTypeChoice {
     BedType type;

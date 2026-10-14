@@ -95,7 +95,7 @@ json set_filament_routing_command(const json& request, const Runtime& runtime);
 
 namespace Session {
 
-json filament_session_snapshot_json();
+json filament_session_snapshot_json(bool include_references = true);
 Commands::Runtime filament_command_runtime();
 
 } // namespace Session

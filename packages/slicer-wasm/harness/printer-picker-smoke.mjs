@@ -135,10 +135,24 @@ try {
   assert.deepEqual(reversed.profile_snapshot.printer_picker.variants, mixed.profile_snapshot.printer_picker.variants,
     'editing another toolhead must not synthesize an ordered or deduplicated variant');
   assert.equal(reversed.profile_snapshot.printer_picker.selected_variant, '0.4+0.6');
+  // The editor wrapper must publish replacement candidates for both custom
+  // diameters and canonical mixed-profile transitions.
+  current = select('Compatibility Alpha 0.4+0.4 nozzle');
+  for (const diameter of [0.5, 0.6]) {
+    const editorDiameter = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({
+      history_context: editingContext, action: 'set-element', kind: 'printer',
+      canonical_name: snapshot().printer.name, expected_revision: call('orc_history_status').revision,
+      key: 'nozzle_diameter', scalar_type: 'float', index: 1, value: diameter,
+    })]);
+    assert.equal(editorDiameter.ok, true, JSON.stringify(editorDiameter));
+    assert.equal(editorDiameter.editor_candidates.kind, 'replace');
+    const freshDraft = call('orc_get_preset_draft', ['string', 'string'], ['printer', editorDiameter.canonical_name]);
+    assert.deepEqual(editorDiameter.editor_candidates.items, freshDraft.editor_candidates);
+  }
   const retained = snapshot();
   assert.equal(setDiameter(0, 0.4, custom.history_status.revision).ok, false);
   assert.deepEqual(snapshot(), retained, 'stale edits cannot mutate the current vector');
-  assert.equal(setDiameter(2, 0.4, reversed.history_status.revision).ok, false);
+  assert.equal(setDiameter(2, 0.4, call('orc_history_status').revision).ok, false);
   assert.deepEqual(snapshot(), retained, 'invalid indices cannot resize the nozzle vector');
   console.log('printer picker smoke OK: grouping, named/mixed variants, atomic transition, toolhead exact matching, indexed fallback, stale/index rejection');
 } finally {

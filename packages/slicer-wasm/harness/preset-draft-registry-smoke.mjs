@@ -41,6 +41,9 @@ function historyStatus() {
 }
 
 function mutateDraft(action, kind, canonicalName, fields = {}) {
+  const filamentBefore = callJson('orc_get_filament_session_snapshot');
+  const candidatesBefore = callJson('orc_get_preset_draft', ['string', 'string'], [kind, canonicalName]).editor_candidates;
+  const hadRedo = historyStatus().canRedo;
   const beforeSnapshot = callJson('orc_get_preset_snapshot');
   const originalRows = kind === 'printer' ? beforeSnapshot.printers : beforeSnapshot.filament_catalog;
   const result = request('orc_mutate_preset_draft', { history_context: editingContext,
@@ -52,22 +55,49 @@ function mutateDraft(action, kind, canonicalName, fields = {}) {
   assert.equal(result.all_plate_results_invalidated, true);
   assert.equal(result.profile_snapshot.modified_presets[kind].includes(canonicalName), result.modified,
     'sidebar modified sources must use the same nonempty-overlay rule as the native editor');
-  assert.equal(result.editor_candidates.find(candidate => candidate.canonical_name === canonicalName)?.modified, result.modified);
+  const candidateUpdate = result.editor_candidates;
+  assert.ok(['unchanged', 'replace'].includes(candidateUpdate.kind));
+  const candidatesAfter = callJson('orc_get_preset_draft', ['string', 'string'], [kind, result.canonical_name]).editor_candidates;
+  if (candidateUpdate.kind === 'unchanged') {
+    assert.deepEqual(candidateUpdate, { kind: 'unchanged' }, 'unchanged carries no candidate array');
+    assert.deepEqual(candidatesAfter, candidatesBefore, 'unchanged preserves the entire catalogue');
+    assert.ok(['set', 'set-element'].includes(action) && fields.key !== 'nozzle_diameter' && !hadRedo);
+  } else assert.deepEqual(candidateUpdate.items, candidatesAfter, 'replacement is the complete current catalogue');
+  if (!['set', 'set-element'].includes(action) || fields.key === 'nozzle_diameter' || hadRedo)
+    assert.equal(candidateUpdate.kind, 'replace');
+  const candidates = candidateUpdate.kind === 'replace' ? candidateUpdate.items : candidatesBefore;
+  assert.equal(candidates.find(candidate => candidate.canonical_name === canonicalName)?.modified, result.modified);
   for (const compatible of [true, false]) {
-    const section = result.editor_candidates.filter(candidate => candidate.compatible === compatible);
+    const section = candidates.filter(candidate => candidate.compatible === compatible);
     assert.ok(section.every((candidate, index) => index === 0 || !candidate.modified || section[index - 1].modified),
       'native editor puts modified candidates before unmodified candidates within each section');
   }
-  const rows = kind === 'printer' ? result.profile_snapshot.printers : result.profile_snapshot.filament_catalog;
+  const fullProfile = callJson('orc_get_preset_snapshot');
+  const fullFilament = callJson('orc_get_filament_session_snapshot');
+  if (result.projection_kind === 'ordinary-edit') {
+    assert.equal(kind, 'filament');
+    assert.equal(candidateUpdate.kind, 'unchanged');
+    for (const key of ['printers', 'prints', 'filament_catalog']) assert.equal(Object.hasOwn(result.profile_snapshot, key), false);
+    for (const key of ['routing', 'assignments']) assert.equal(Object.hasOwn(result.filament_session, key), false);
+    assert.deepEqual({ ...result.profile_snapshot, printers: beforeSnapshot.printers, prints: beforeSnapshot.prints,
+      filament_catalog: beforeSnapshot.filament_catalog }, fullProfile, 'retained catalogues plus ordinary receipt reconstruct the full profile');
+    assert.deepEqual({ ...result.filament_session, routing: filamentBefore.routing, assignments: filamentBefore.assignments },
+      fullFilament, 'retained references plus ordinary receipt reconstruct the complete session');
+  } else {
+    assert.equal(result.projection_kind, 'full');
+    assert.deepEqual(result.profile_snapshot, fullProfile);
+    assert.deepEqual(result.filament_session, fullFilament);
+  }
+  const rows = kind === 'printer' ? fullProfile.printers : fullProfile.filament_catalog;
   assert.equal(rows.find(row => row.name === canonicalName)?.label,
     originalRows.find(row => row.name === canonicalName)?.label,
     'dirty Printer/Filament labels retain their undecorated alias/name');
   for (const slot of result.filament_session.slots ?? []) {
-    const source = result.profile_snapshot.filament_catalog.find(row => row.name === slot.preset.name);
+    const source = fullProfile.filament_catalog.find(row => row.name === slot.preset.name);
     if (source) assert.equal(slot.preset.label, source.label, 'slot and catalogue use the same clean label');
   }
-  assert.deepEqual(result.filament_session, callJson('orc_get_filament_session_snapshot'),
-    'the commit must publish the current native rack and flushing projection');
+  assert.deepEqual(result.filament_session.flushing, fullFilament.flushing,
+    'the commit must publish current native flushing even on the ordinary path');
   return result;
 }
 
@@ -121,11 +151,16 @@ const geometryBefore = callJson('orc_get_plate_session_snapshot');
 assert.equal(geometryBefore.instances[0].out_of_bounds, false);
 const notes = mutateDraft('set', 'printer', printer.name,
   { key: 'printer_notes', value: 'notes geometry regression' });
+assert.equal(notes.editor_candidates.kind, 'replace', 'first modified flip replaces candidates');
 assert.deepEqual(notes.plate_session.instance_transforms, geometryBefore.instance_transforms);
 assert.equal(notes.plate_session.instances[0].out_of_bounds, false);
 const shortBed = mutateDraft('set', 'printer', printer.name,
   { key: 'printable_height', value: '1' });
+assert.equal(shortBed.editor_candidates.kind, 'unchanged', 'continuous ordinary Printer edits retain candidates');
 assert.equal(shortBed.plate_session.instances[0].out_of_bounds, true);
+const identityWrite = mutateDraft('set', 'printer', printer.name,
+  { key: 'printer_model', value: callJson('orc_get_preset_draft', ['string', 'string'], ['printer', printer.name]).source_values.printer_model });
+assert.equal(identityWrite.editor_candidates.kind, 'replace', 'identity keys stay conservative');
 const notesOnShortBed = mutateDraft('set', 'printer', printer.name,
   { key: 'printer_notes', value: 'still a short build volume' });
 assert.equal(notesOnShortBed.plate_session.instances[0].out_of_bounds, true);
@@ -641,3 +676,16 @@ for (const [kind, name] of [['printer', printer.name], ['filament', genericPlaSo
 }
 assert.equal(historyStatus().canUndo, false);
 console.log('preset draft registry smoke passed (shared and independent Filament overlays, Printer overlay, flattened 3MF save/reload, dormant-draft omission, slot-color separation, Prepare projection, project-close cleanup)');
+
+// Real common temperature/cooling writes retain the same references/catalogues.
+mutateDraft('set-element', 'filament', genericPlaSource,
+  { key: 'filament_notes', scalar_type: 'string', index: 0, value: 'common edit baseline' });
+for (const [key, value] of [['nozzle_temperature', 235], ['filament_flow_ratio', 0.93], ['fan_min_speed', 1]]) {
+  const scalarType = callJson('orc_get_preset_draft', ['string', 'string'], ['filament', genericPlaSource]).editor_vectors[key].scalar_type;
+  const common = mutateDraftElement('filament', genericPlaSource, key, scalarType, 0, value);
+  assert.equal(common.projection_kind, 'ordinary-edit');
+}
+
+const unlistedKey = "filament_density";
+const densityType = callJson("orc_get_preset_draft", ["string", "string"], ["filament", genericPlaSource]).editor_vectors[unlistedKey].scalar_type;
+assert.equal(mutateDraftElement("filament", genericPlaSource, unlistedKey, densityType, 0, 1.3).projection_kind, "full", "unlisted ordinary field retains full projections");

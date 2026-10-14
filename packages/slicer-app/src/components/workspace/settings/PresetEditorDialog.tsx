@@ -10,6 +10,7 @@ import type {
   PresetDraftMutationRequest,
   PresetDraftMutationResult,
   PresetDraftSnapshot,
+  PresetDraftValues,
   PresetDraftTarget,
   PresetDraftEditorVector,
   PresetDraftVectorValue,
@@ -20,7 +21,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
-import { commitPresetDraftMutation } from './configurationActions';
+import { commitPresetDraftMutation, CommittedPresetDraftProjectionError } from './configurationActions';
 import { Button } from '@/components/ui/button';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
 import { ColorSwatch } from '@/components/ui/color-picker';
@@ -127,7 +128,7 @@ function searchText(field: PresetEditorManifestField, metadata: OptionMeta | und
 }
 
 
-function fieldBinding(snapshot: PresetDraftSnapshot, key: string, index?: number): PresetDraftEditorBinding | undefined {
+function fieldBinding(snapshot: PresetDraftValues, key: string, index?: number): PresetDraftEditorBinding | undefined {
   if (index === undefined) return snapshot.editorBindings[key];
   const vector = snapshot.editorVectors[key];
   if (!vector) return undefined;
@@ -977,11 +978,21 @@ export function PresetEditorDialog({ initialTarget, sceneInteraction, onClose }:
           targetRef.current = resolvedTarget;
           setTarget(resolvedTarget);
         }
-        setSnapshot(result);
+        setSnapshot(previous => ({ ...result, editorCandidates: result.editorCandidates.kind === 'replace'
+          ? result.editorCandidates.items : previous!.editorCandidates }));
         setLoadError(null);
       }
       return result;
     } catch (error) {
+      if (error instanceof CommittedPresetDraftProjectionError) {
+        const result = error.receipt;
+        if (targetRef.current === currentTarget) {
+          setSnapshot(previous => ({ ...result, editorCandidates: result.editorCandidates.kind === 'replace'
+            ? result.editorCandidates.items : previous!.editorCandidates }));
+          setLoadError(error.message);
+        }
+        return result;
+      }
       return { ok: false, errorCode: 'runtime_failure', error: errorText(error) };
     } finally {
       mutationPendingRef.current = false;
@@ -1026,7 +1037,7 @@ export function PresetEditorDialog({ initialTarget, sceneInteraction, onClose }:
   return <PresetEditorDialogContent target={target} snapshot={snapshot} loading={loading}
     userPresetActions={<UserPresetActions kind={target.kind} canonicalName={target.canonicalName}
       sceneInteraction={sceneInteraction}
-      disabled={loading || refreshing || mutationPending || historyPhase !== 'idle'}
+      disabled={loading || refreshing || mutationPending || Boolean(loadError) || historyPhase !== 'idle'}
       onPendingChange={value => { mutationPendingRef.current = value; setMutationPending(value); }}
       onCommitted={async result => {
         const next = { kind: target.kind, canonicalName: result.canonicalName };
@@ -1060,7 +1071,7 @@ export function PresetEditorDialogContent({
   onSelectPreset,
   onMutate,
 }: PresetEditorDialogContentProps) {
-  const interactionPending = loading || refreshing || mutationPending;
+  const interactionPending = loading || refreshing || mutationPending || loadError !== null;
   const manifest = target ? manifestFor(target.kind) : null;
   const pages = useMemo(() => manifest ? pageInstances(manifest, snapshot) : [], [manifest, snapshot]);
   const [activePageId, setActivePageId] = useState<string | null>(null);

@@ -354,10 +354,11 @@ json editor_candidates_json(const Preset::Type type, const std::string& canonica
     return candidates;
 }
 
-json get_draft_json(const Preset::Type type, const std::string& canonical_name)
+// Values can be projected without traversing the installed candidate collection.
+json draft_values_json(const Preset::Type type, const std::string& canonical_name)
 {
     const auto visible_name = UserPresets::view_name(type, canonical_name);
-    if (visible_name != canonical_name) return get_draft_json(type, visible_name);
+    if (visible_name != canonical_name) return draft_values_json(type, visible_name);
     const Preset* source = find_preset_source(state().presets, type, canonical_name);
     if (source == nullptr)
         return json{{"ok", false}, {"error_code", "preset_not_found"},
@@ -401,13 +402,20 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
                 {"canonical_name", source->name},
                 {"draft_exists", overrides != nullptr || UserPresets::is_snapshot(type, canonical_name)},
                 {"modified", UserPresets::modified(type, canonical_name, effective.config)},
-                {"editor_candidates", editor_candidates_json(type, canonical_name)},
                 {"overrides", override_values},
                 {"source_values", config_values_json(baseline_config)},
                 {"effective_values", config_values_json(effective.config)},
                 {"option_metadata", std::move(source_metadata)},
                 {"editor_vectors", std::move(editor_vectors)},
                 {"revision", state().history_revision}};
+}
+
+json get_draft_json(const Preset::Type type, const std::string& canonical_name)
+{
+    auto result = draft_values_json(type, canonical_name);
+    if (result.value("ok", false))
+        result["editor_candidates"] = editor_candidates_json(type, result.at("canonical_name"));
+    return result;
 }
 
 // Only notes are excluded: all other keys conservatively retain native
@@ -428,6 +436,22 @@ bool geometry_inputs_changed(const PresetDraftRegistry::Overrides* before,
         return false;
     };
     return has_change(old_values, new_values) || has_change(new_values, old_values);
+}
+
+// These Filament values cannot change collection identity/compatibility or
+// project/model slot references. Flushing and every other small projection are
+// still rebuilt. Unknown keys deliberately retain the full receipt.
+bool ordinary_filament_edit_key(const std::string& key)
+{
+    static const std::set<std::string> keys{
+        "filament_notes", "nozzle_temperature", "nozzle_temperature_initial_layer",
+        "filament_flow_ratio", "filament_max_volumetric_speed", "filament_change_length",
+        "fan_min_speed", "fan_max_speed", "additional_cooling_fan_speed", "overhang_fan_speed",
+        "overhang_fan_threshold", "close_fan_the_first_x_layers", "full_fan_speed_layer",
+        "fan_cooling_layer_time", "slowdown_below_layer_time", "slowdown_min_speed",
+        "slowdown_for_layer_cooling"
+    };
+    return keys.count(key) != 0;
 }
 
 json mutate_draft_json(const json& request)
@@ -541,6 +565,19 @@ json mutate_draft_json(const json& request)
         }
     }
 
+    // Ordinary writes only change this source's overlay. Candidate membership,
+    // labels, classification and compatibility read collection sources, not
+    // that overlay; only its modified flag can change the candidate ordering.
+    // Identity/topology writes and redo-branch collection stay on the full path.
+    const bool had_redo = state().history.can_redo();
+    const bool ordinary_set = (action == "set" || action == "set-element") &&
+        key != "inherits" && key != "printer_settings_id" && key != "filament_settings_id" &&
+        key != "print_settings_id" && key != "printer_technology" &&
+        key != "printer_model" && key != "printer_variant" && key != "nozzle_diameter";
+    const bool stable_target = UserPresets::view_name(type, canonical_name) == canonical_name;
+    const bool modified_before = ordinary_set && stable_target && !had_redo &&
+        UserPresets::modified(type, canonical_name,
+            effective_preset_config(state().presets, state().preset_drafts, type, canonical_name));
     const auto before_drafts = state().preset_drafts;
     const auto before_printer_name = state().presets.printers.get_selected_preset_name();
     const auto before_filament_names = state().presets.filament_presets;
@@ -664,12 +701,24 @@ json mutate_draft_json(const json& request)
         // Stage every snapshot that can fail before the history commit. The
         // reply then publishes the exact committed revision without leaving a
         // mutation behind if snapshot construction rejects native state.
-        json result = get_draft_json(type, result_name);
+        json result = draft_values_json(type, result_name);
         if (!result.value("ok", false))
             throw std::runtime_error("committed preset draft could not be read back");
+        const bool candidates_unchanged = ordinary_set && stable_target && !had_redo &&
+            result.at("canonical_name") == canonical_name &&
+            result.at("modified").get<bool>() == modified_before;
+        result["editor_candidates"] = candidates_unchanged
+            ? json{{"kind", "unchanged"}}
+            : json{{"kind", "replace"}, {"items", editor_candidates_json(type, result.at("canonical_name"))}};
         const json native_config = ScopedConfig::native_scoped_config_full_transport(revision_before + 1);
-        const json profile_snapshot = Profiles::preset_snapshot_json();
-        json filament_session = Filament::Session::filament_session_snapshot_json();
+        const bool ordinary_edit = type == Preset::TYPE_FILAMENT && candidates_unchanged &&
+            ordinary_filament_edit_key(key) &&
+            before_printer_name == state().presets.printers.get_selected_preset_name() &&
+            before_filament_name == state().presets.filaments.get_selected_preset_name() &&
+            before_filament_names == state().presets.filament_presets;
+        result["projection_kind"] = ordinary_edit ? "ordinary-edit" : "full";
+        const json profile_snapshot = Profiles::preset_snapshot_json(!ordinary_edit);
+        json filament_session = Filament::Session::filament_session_snapshot_json(!ordinary_edit);
         if (!filament_session.value("ok", false))
             throw std::runtime_error("preset draft filament snapshot could not be constructed");
         filament_session["revisions"]["session"] = revision_before + 1;
@@ -755,6 +804,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_preset_draft(const char* request_cst
                     return duplicate_json(transition.dump());
                 auto result = PresetDrafts::get_draft_json(Preset::TYPE_PRINTER,
                     state().presets.printers.get_selected_preset_name());
+                result["editor_candidates"] = json{{"kind", "replace"}, {"items", std::move(result["editor_candidates"])}};
+                result["projection_kind"] = "full";
                 for (const auto* key : {"profile_snapshot", "filament_session", "plate_session", "history_status", "native_scoped_config"})
                     result[key] = transition.at(key);
                 // Preset-draft receipts publish both Filament revisions at

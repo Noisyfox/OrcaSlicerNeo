@@ -8,6 +8,7 @@ import type {
   NativeScopedConfigTransport,
   PresetDraftMutationRequest,
   PresetDraftMutationResult,
+  PresetDraftMutationSuccess,
   PlateSessionMutation,
   PlateSessionMutationResult,
 } from '@slicer/client';
@@ -153,6 +154,14 @@ export function commitScopedConfigurationMutation(
   return task;
 }
 
+/** Native commit succeeded; an application projection refresh failed. */
+export class CommittedPresetDraftProjectionError extends Error {
+  constructor(readonly receipt: PresetDraftMutationSuccess, cause: unknown) {
+    super(`The edit was committed, but its displayed state could not be refreshed: ${errorText(cause)}. Close and reopen the editor to continue.`);
+    this.name = 'CommittedPresetDraftProjectionError';
+  }
+}
+
 /** Commit and publish one native preset-draft operation. The Worker operation
  * owns its single history entry; this app-side path only orders it with other
  * project mutations and publishes the returned history/configuration/plate
@@ -177,17 +186,71 @@ async function commitPresetDraftMutationNow(
     const result = await platform.runtime.mutatePresetDraft(request, historyContextForStructure(sceneInteraction));
     if (!result.ok) return result;
 
-    projectHistoryStatus(result.historyStatus);
-
-    const configurationMode = useSettingsStore.getState().configurationMode;
-    useSettingsStore.getState().hydrateProfileSnapshot(result.profileSnapshot);
-    useSettingsStore.getState().setConfigurationMode(configurationMode);
-    const scopedConfigResult = useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
-    if (scopedConfigResult === 'refresh-required')
-      throw new Error('native scoped configuration refresh was not accepted');
-
+    // Check the actual base before projectHistoryStatus's synchronous filament
+    // subscription advances its optimistic token to the committed revision.
+    const settingsBase = useSettingsStore.getState();
+    const filamentBase = useFilamentSessionStore.getState().snapshot;
+    const canRetain = result.projectionKind === 'ordinary-edit' && settingsBase.printerPicker !== null &&
+      !settingsBase.nativeScopedConfigRefreshRequired &&
+      settingsBase.nativeScopedConfigRevision === result.revisionBefore &&
+      settingsBase.selectedPrinter === result.profileSnapshot.printer.name &&
+      settingsBase.selectedPrint === result.profileSnapshot.print.name &&
+      settingsBase.printers.some(preset => preset.name === settingsBase.selectedPrinter) &&
+      settingsBase.prints.some(preset => preset.name === settingsBase.selectedPrint) &&
+      filamentBase !== null && filamentBase.assignments !== undefined &&
+      filamentBase.revisions.session === result.revisionBefore &&
+      filamentBase.revisions.project === result.revisionBefore &&
+      filamentBase.slots.length === result.filamentSession.slots.length &&
+      filamentBase.slots.every((slot, index) => slot.logicalId === result.filamentSession.slots[index].logicalId);
+    const configurationMode = settingsBase.configurationMode;
+    let publicationError: CommittedPresetDraftProjectionError | null = null;
+    try {
+      let refreshed: Awaited<ReturnType<typeof platform.runtime.getProfileSnapshot>> | undefined;
+      let refreshedFilament: Awaited<ReturnType<typeof platform.runtime.getFilamentSessionSnapshot>> | undefined;
+      if (result.projectionKind === 'ordinary-edit' && !canRetain) {
+        // Exceptional recovery only. Normal edits retain the known arrays and
+        // references without another Worker read or a client-side full payload.
+        [refreshed, refreshedFilament] = await Promise.all([
+          platform.runtime.getProfileSnapshot(), platform.runtime.getFilamentSessionSnapshot(),
+        ]);
+        if (!refreshed.ok) throw new Error(refreshed.error);
+        if (!refreshedFilament.ok) throw new Error(refreshedFilament.error);
+        if (refreshedFilament.revisions.session !== result.revisionAfter ||
+            refreshedFilament.revisions.project !== result.revisionAfter ||
+            refreshed.printer.name !== result.profileSnapshot.printer.name ||
+            refreshed.print.name !== result.profileSnapshot.print.name)
+          throw new Error('preset projection refresh was superseded');
+      }
+      projectHistoryStatus(result.historyStatus);
+      unstable_batchedUpdates(() => {
+        const settings = useSettingsStore.getState();
+        if (result.projectionKind === 'full') {
+          settings.hydrateProfileSnapshot(result.profileSnapshot);
+          useFilamentSessionStore.getState().publish(result.filamentSession);
+        } else if (canRetain) {
+          settings.applyProfileOrdinaryEdit(result.profileSnapshot);
+          useFilamentSessionStore.getState().applyOrdinaryEdit(result.filamentSession, filamentBase!);
+        } else {
+          if (!refreshed?.ok || !refreshedFilament?.ok) throw new Error('preset projection refresh is unavailable');
+          settings.hydrateProfileSnapshot(refreshed);
+          useFilamentSessionStore.getState().publish(refreshedFilament);
+        }
+        settings.setConfigurationMode(configurationMode);
+        const scoped = settings.applyNativeScopedConfigTransport(result.nativeScopedConfig);
+        if (scoped !== 'applied' && useSettingsStore.getState().nativeScopedConfigRevision !== result.revisionAfter)
+          throw new Error('native scoped configuration refresh was not accepted');
+      });
+    } catch (error) {
+      publicationError = new CommittedPresetDraftProjectionError(result, error);
+      // Publish the native commit and complete receipts even if recovery fails.
+      // Retain any complete older projection, explicitly mark it for resync,
+      // and never invent empty references or report a native rejection.
+      projectHistoryStatus(result.historyStatus);
+      useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
+      useSettingsStore.setState({ nativeScopedConfigRefreshRequired: true });
+      useFilamentSessionStore.setState({ rejected: publicationError.message });
+    }
     unstable_batchedUpdates(() => {
-      useFilamentSessionStore.getState().publish(result.filamentSession);
       applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
       usePlateSessionStore.getState().setSnapshot(result.plateSession);
       const project = useProjectStore.getState();
@@ -195,11 +258,13 @@ async function commitPresetDraftMutationNow(
       project.setProject(project.scope === 'project'
         ? { projectPresets: selections } : { systemPresets: selections });
       invalidateAfterSharedConfigurationMutation(
-        result.affectedPlateIds,
-        platform.runtime,
-        result.allPlateResultsInvalidated,
+        result.affectedPlateIds, platform.runtime, result.allPlateResultsInvalidated,
       );
     });
+    if (publicationError) {
+      useSlicerStore.getState().setError(publicationError.message);
+      throw publicationError;
+    }
 
     return result;
   });
