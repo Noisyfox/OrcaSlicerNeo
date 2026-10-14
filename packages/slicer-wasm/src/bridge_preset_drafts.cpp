@@ -243,51 +243,38 @@ DynamicPrintConfig effective_full_config(
 {
     Preset printer = bundle.printers.get_selected_preset();
     apply_draft(printer, drafts);
+    if (printer.printer_technology() != ptFFF)
+        throw std::runtime_error("only FFF printers are supported");
 
     // The native static assembler is the standard FFF configuration path. It
     // receives temporary Printer and Filament values plus the existing Print
     // edited preset and project config; no collection edited-preset slot is
     // swapped, even temporarily.
-    if (printer.printer_technology() == ptFFF) {
-        Preset print = bundle.prints.get_edited_preset();
-        const DynamicPrintConfig& filament_defaults = bundle.filaments.default_preset().config;
-        const auto filament_keys = filament_defaults.keys();
-        std::vector<Preset> filaments;
-        filaments.reserve(bundle.filament_presets.size());
-        for (const std::string& canonical_name : bundle.filament_presets) {
-            const Preset* source = find_preset_source(bundle, Preset::TYPE_FILAMENT, canonical_name);
-            if (source == nullptr)
-                throw std::runtime_error("selected filament preset not found: " + canonical_name);
-            filaments.emplace_back(*source);
-            apply_draft(filaments.back(), drafts);
-            // Project-embedded presets may carry the expanded project config.
-            // Orca's ordinary assembler iterates the default Filament keys;
-            // its static assembler instead iterates the first input's keys.
-            // Supply only Filament-owned options, with native defaults for
-            // missing keys, so other slots never supply a null vector option.
-            DynamicPrintConfig owned_config = filament_defaults;
-            owned_config.apply_only(filaments.back().config, filament_keys, true);
-            filaments.back().config = std::move(owned_config);
-        }
-        if (filaments.empty())
-            throw std::runtime_error("selected filament rack has no presets");
-        return PresetBundle::construct_full_config(
-            printer, print, bundle.project_config, filaments, apply_extruder,
-            std::move(filament_maps), std::move(filament_volume_maps));
+    Preset print = bundle.prints.get_edited_preset();
+    const DynamicPrintConfig& filament_defaults = bundle.filaments.default_preset().config;
+    const auto filament_keys = filament_defaults.keys();
+    std::vector<Preset> filaments;
+    filaments.reserve(bundle.filament_presets.size());
+    for (const std::string& canonical_name : bundle.filament_presets) {
+        const Preset* source = find_preset_source(bundle, Preset::TYPE_FILAMENT, canonical_name);
+        if (source == nullptr)
+            throw std::runtime_error("selected filament preset not found: " + canonical_name);
+        filaments.emplace_back(*source);
+        apply_draft(filaments.back(), drafts);
+        // Project-embedded presets may carry the expanded project config.
+        // Orca's ordinary assembler iterates the default Filament keys;
+        // its static assembler instead iterates the first input's keys.
+        // Supply only Filament-owned options, with native defaults for
+        // missing keys, so other slots never supply a null vector option.
+        DynamicPrintConfig owned_config = filament_defaults;
+        owned_config.apply_only(filaments.back().config, filament_keys, true);
+        filaments.back().config = std::move(owned_config);
     }
-
-    // SLA has no filament rack and no corresponding static assembler. Keep
-    // Orca's existing SLA composition, then apply the selected Printer's
-    // sparse draft values to the returned temporary config.
-    DynamicPrintConfig config = bundle.full_config(apply_extruder,
-                                                   std::move(filament_maps),
-                                                   std::move(filament_volume_maps));
-    const auto* overrides = drafts.find(Preset::TYPE_PRINTER, printer.name);
-    if (overrides != nullptr) {
-        for (const auto& [key, value] : *overrides)
-            ConfigElements::apply_override(config, Preset::TYPE_PRINTER, key, value);
-    }
-    return config;
+    if (filaments.empty())
+        throw std::runtime_error("selected filament rack has no presets");
+    return PresetBundle::construct_full_config(
+        printer, print, bundle.project_config, filaments, apply_extruder,
+        std::move(filament_maps), std::move(filament_volume_maps));
 }
 
 DynamicPrintConfig effective_full_config(

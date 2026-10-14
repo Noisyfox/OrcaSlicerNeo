@@ -1084,8 +1084,7 @@ MutableObjectCaptureCache::MutationFingerprint mutation_fingerprint(const ModelO
     // Derived bounding-box caches are deliberately excluded; restore
     // invalidates them after applying the authoritative transform overlay.
     result.metadata = metadata_fingerprint(object.layer_config_ranges,
-        object.layer_height_profile, object.sla_support_points, object.sla_points_status,
-        object.sla_drain_holes, object.origin_translation, object.brim_points,
+        object.layer_height_profile, object.origin_translation, object.brim_points,
         object.cut_connectors, object.cut_id);
     result.volumes.reserve(object.volumes.size());
     for (const ModelVolume* volume : object.volumes) {

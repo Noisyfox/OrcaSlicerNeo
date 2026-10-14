@@ -105,8 +105,6 @@ bool is_project_print_override_key(const std::string& key)
         "print_extruder_variant",
         "filament_settings_id",
         "printer_settings_id",
-        "sla_print_settings_id",
-        "sla_material_settings_id",
         "compatible_printers",
         "compatible_prints",
         "compatible_printers_condition",

@@ -284,7 +284,7 @@ export class SceneInteractionController {
    *  level, so a full instance and a full object live in `Instance` mode and may
    *  be mixed. Only a part (`Volume` mode) is restricted: it is anchored to a
    *  single instance, and mixing it with an instance/object, or spanning several
-   *  instances, is Orca's `Mixed` (invalid for edits). Modifiers / SLA helpers /
+   *  instances, is Orca's `Mixed` (invalid for edits). Modifiers and
    *  the wipe tower are not special-cased here (the ObjectList treats them as
    *  ordinary volumes). */
   classifyVolumeIds(ids: readonly string[]): SelectionKind {
