@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { captureHistoryTransportDiagnostics, type HistoryObservabilitySnapshot, useHistoryDiagnosticsStore } from '../history/historyDiagnostics';
 import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
+import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { registerOrcaE2eOwner } from './registerOrcaE2e';
 
 const pendingProjectionReads = new WeakMap<object, Set<Promise<void>>>();
@@ -28,6 +29,10 @@ export function WorkspaceHistoryProbe() {
     // Painting open/commit/close and history navigation project their native
     // receipts here; an E2E read must not enqueue another project operation.
     historyNativeStatus: () => useHistoryNavigationStore.getState().status,
+    historyRestoreLifecycle: () => {
+      const { phase, revision, error } = useHistoryRestoreStore.getState();
+      return { phase, revision, error };
+    },
     primeTowerProjectionPendingCount: () => primeTowerProjectionPendingCount(runtime),
     historyDiagnostics: (): HistoryObservabilitySnapshot => {
       captureHistoryTransportDiagnostics(runtime);

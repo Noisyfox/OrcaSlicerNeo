@@ -1,9 +1,9 @@
-import type { HistoryObservabilitySnapshot } from '../history/historyDiagnostics';
 import type { ProjectLoadReceipt } from '../projectActions';
+import type { HistoryRestoreProbe } from './historyProbeTypes';
 
 declare const __ORCA_E2E__: boolean;
 
-export interface OrcaE2eHooks extends Record<string, unknown> {
+export interface OrcaE2eHooks extends Partial<HistoryRestoreProbe>, Record<string, unknown> {
   gizmoAxis?: () => string | null;
   gizmoAxisLineWorldPosition?: () => [number, number, number] | null;
   selectionBoxWorldSegments?: () => {
@@ -26,7 +26,6 @@ export interface OrcaE2eHooks extends Record<string, unknown> {
   primeTowerMoveCommands?: () => number;
   primeTowerCommitBusy?: () => boolean;
   primeTowerProxyIds?: () => string[];
-  historyDiagnostics?: () => HistoryObservabilitySnapshot;
   primeTowerProjectionPendingCount?: () => number;
   modelMeshResponse?: () => unknown;
   previewFirstCommitPaintMaterialsByVolume?: Record<string, unknown[]>;

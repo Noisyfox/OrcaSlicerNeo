@@ -4,6 +4,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { openProjectMenu } from './project-menu';
+import { measureUserPresetDelete, measureUserPresetUndo, type UserPresetTiming } from './user-preset-performance';
 
 test('reopening a 3MF using an installed user preset shows no preset warning', async () => {
   test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires the real native preset reader and writer');
@@ -58,6 +59,7 @@ test('reopening a 3MF using an installed user preset shows no preset warning', a
 });
 
 test('local user preset files survive restart and deletion Undo stays embedded', async () => {
+  const timings: Array<UserPresetTiming & { kind: 'filament' | 'print' }> = [];
   test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires the real native preset writer');
   const directory = await mkdtemp(join(tmpdir(), 'orca-local-presets-e2e-'));
   const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: join(directory, 'preferences.json') } as Record<string, string>;
@@ -120,10 +122,10 @@ test('local user preset files survive restart and deletion Undo stays embedded',
     await page.getByTestId('preset-editor-search').fill('filament_diameter');
     await expect(page.getByTestId('preset-editor-input-filament_diameter')).toHaveValue('1.77');
     await page.getByTestId('preset-editor-dialog').getByRole('button', { name: 'Delete', exact: true }).click();
-    await page.getByRole('button', { name: 'Delete preset', exact: true }).click();
+    timings.push({ ...await measureUserPresetDelete(page), kind: 'filament' });
     await expect.poll(async () => readFile(file).then(() => false, () => true)).toBe(true);
     await page.getByTestId('preset-editor-close').click();
-    await page.getByTestId('history-undo').click();
+    timings.push({ ...await measureUserPresetUndo(page), kind: 'filament' });
     await expect(page.getByTestId('filament-preset-1')).toHaveText(parentLabel!);
     await page.getByTestId('filament-slot-1').click({ button: 'right' });
     await page.getByTestId('filament-edit-1').click();
@@ -156,11 +158,12 @@ test('local user preset files survive restart and deletion Undo stays embedded',
     await expect(page.getByText('System presets', { exact: true })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
-    await page.getByRole('button', { name: 'Delete preset', exact: true }).click();
-    await page.getByTestId('history-undo').click();
+    timings.push({ ...await measureUserPresetDelete(page), kind: 'print' });
+    timings.push({ ...await measureUserPresetUndo(page), kind: 'print' });
     await expect(page.getByTestId('history-redo')).toBeEnabled();
     await newProject();
     await expect(page.getByRole('button', { name: 'Save as…', exact: true })).toBeEnabled();
     await expect(page.getByTestId('process-preset-select')).toHaveText(processParentLabel!);
+    console.log('[user-preset-performance]', JSON.stringify({ timings }));
   } finally { await app.close(); }
 });
