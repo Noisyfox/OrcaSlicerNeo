@@ -399,7 +399,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     };
   }
 
-  function snapshot() {
+  function snapshot(includeCatalogues = true) {
     const selectableEntry = (kind: 'printer' | 'print', preset: PresetFixture) => ({
       ...preset,
       selected: preset.name === selected[kind],
@@ -425,9 +425,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       modified_presets: Object.fromEntries((['printer', 'filament'] as const).map(kind => [kind,
         Object.entries(presetDraftRegistry[kind]).filter(([, overrides]) => Object.keys(overrides).length > 0).map(([name]) => name),
       ])),
-      printers: candidates('printer').map((preset) => selectableEntry('printer', preset)),
-      prints: candidates('print').map((preset) => selectableEntry('print', preset)),
-      filament_catalog: candidates('filament').map(filamentEntry),
+      ...(includeCatalogues ? { printers: candidates('printer').map((preset) => selectableEntry('printer', preset)),
+        prints: candidates('print').map((preset) => selectableEntry('print', preset)),
+        filament_catalog: candidates('filament').map(filamentEntry) } : {}),
       printer: selectedEntry('printer'),
       print: selectedEntry('print'),
       tooltip_defaults: { layer_height: '0.2', sparse_infill_density: '20%' },
@@ -882,15 +882,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateSession.affected_plate_ids = [...plateIds];
     plateSession.dirty_reasons = ['shared-configuration'];
     plateSession.native_scoped_config = nativeScopedConfigFullTransport();
-    const filamentSnapshot = filamentSessionSnapshot() as any;
+    const ordinaryEdit = kind === 'filament' && unchanged && [
+      'filament_notes', 'nozzle_temperature', 'nozzle_temperature_initial_layer',
+      'filament_flow_ratio', 'filament_max_volumetric_speed', 'filament_change_length',
+      'fan_min_speed', 'fan_max_speed', 'additional_cooling_fan_speed', 'overhang_fan_speed',
+      'overhang_fan_threshold', 'close_fan_the_first_x_layers', 'full_fan_speed_layer',
+      'fan_cooling_layer_time', 'slowdown_below_layer_time', 'slowdown_min_speed', 'slowdown_for_layer_cooling',
+    ].includes(request.key);
+    const filamentSnapshot = filamentSessionSnapshot(!ordinaryEdit) as any;
     filamentSnapshot.revisions = { ...filamentSnapshot.revisions,
       session: historyRevision, project: historyRevision, plates: { ...plateInputRevisions } };
-    filamentSessionState = clone(filamentSnapshot);
-    return { ...result, history_entry_delta: 1, revision_before: revisionBefore,
+    if (!ordinaryEdit) filamentSessionState = clone(filamentSnapshot);
+    else if (filamentSessionState !== undefined) filamentSessionState = { ...filamentSessionState, ...clone(filamentSnapshot) };
+    return { ...result, projection_kind: ordinaryEdit ? 'ordinary-edit' : 'full', history_entry_delta: 1, revision_before: revisionBefore,
       revision_after: historyRevision, dirty: true, affected_plate_ids: [...plateIds],
       all_plate_results_invalidated: true, plate_session: plateSession,
       filament_session: filamentSnapshot,
-      profile_snapshot: snapshot(),
+      profile_snapshot: snapshot(!ordinaryEdit),
       history_status: historyStatus(), native_scoped_config: nativeScopedConfigFullTransport() };
   }
   type MockScopedTarget = { scope: 'project' | 'object' | 'part' | 'plate'; id?: string };
@@ -1297,9 +1305,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     } } };
   }
 
-  function filamentSessionSnapshot(): unknown {
+  function filamentSessionSnapshot(includeReferences = true): unknown {
     if (filamentSessionState !== undefined) {
-      const snapshot = clone(filamentSessionState) as any;
+      const snapshot = includeReferences ? clone(filamentSessionState) as any
+        : Object.fromEntries(Object.entries(filamentSessionState).filter(([key]) => key !== 'routing' && key !== 'assignments').map(([key,value]) => [key,clone(value)])) as any;
       // A prior slot mutation retains rack content, but later history-session
       // opens and paint commits still advance the native filament command
       // epoch. Mirror the bridge's global history revision on every read.
@@ -1311,7 +1320,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // model-backed assignment projection live when a later Add Primitive
       // changes the model; the native bridge derives this from the current
       // Model on every snapshot read.
-      if (objectMeta.length > 0) {
+      if (includeReferences && objectMeta.length > 0) {
         const previousObjects = new Map((snapshot.assignments?.objects ?? []).map((entry: any) => [entry.id, entry]));
         const previousParts = new Map((snapshot.assignments?.parts ?? []).map((entry: any) => [entry.id, entry]));
         const objects = objectMeta.map((object) => previousObjects.get(object.id) ?? ({
@@ -1328,14 +1337,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       return snapshot;
     }
-    const objects = objectMeta.map((object) => ({
+    const objects = includeReferences ? objectMeta.map((object) => ({
       target: 'object', id: object.id, object_id: object.id,
       explicit_slot: 1, effective_slot: 1, inherited: false,
-    }));
-    const parts = objectMeta.flatMap((object, index) => (volumeMeta[index] ?? [])
+    })) : [];
+    const parts = includeReferences ? objectMeta.flatMap((object, index) => (volumeMeta[index] ?? [])
       .filter((volume) => volume.type === 'model_part')
       .map((volume) => ({ target: 'model-part', id: volume.id, object_id: object.id,
-        explicit_slot: 0, effective_slot: 1, inherited: true })));
+        explicit_slot: 0, effective_slot: 1, inherited: true }))) : [];
     return {
       ok: true, version: 1,
       slots: [{ logical_id: 'filament-1', slot: 1, preset: { is_project_embedded: false, is_user: false, id: 'Generic PLA @System', name: 'Generic PLA @System', label: 'Generic PLA', vendor: 'Generic' },
@@ -1346,8 +1355,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true,
         can_add: true, can_delete: false, can_merge: false },
-      routing: [],
-      assignments: { objects, parts, modifiers: [] },
+      ...(includeReferences ? { routing: [], assignments: { objects, parts, modifiers: [] } } : {}),
       revisions: { session: historyRevision, project: historyRevision, result: 0, plates: { ...plateInputRevisions } },
       status: { state: 'ready', error: null },
     };

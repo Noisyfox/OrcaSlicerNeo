@@ -444,6 +444,9 @@ export interface ProfileSnapshot {
   tooltip_defaults?: Record<string, string>;
 }
 
+/** Values refreshed by an ordinary Filament edit; catalogue arrays are retained by the application. */
+export type ProfileOrdinaryEdit = Omit<ProfileSnapshot, 'printers' | 'prints' | 'filamentCatalog'>;
+
 /** A bridge rejection has no partial snapshot and leaves engine state unchanged. */
 export interface ProfileSnapshotError {
   ok?: false;
@@ -616,10 +619,8 @@ type ElementPayload<T> = T extends { readonly action: 'set-element' }
   ? Omit<T, keyof PresetDraftMutationBase | 'action'> : never;
 export type ConfigElementMutation = ElementPayload<Extract<PresetDraftMutationRequest, { readonly action: 'set-element' }>>;
 
-export interface PresetDraftMutationSuccess extends PresetDraftValues {
+interface PresetDraftMutationCommit extends PresetDraftValues {
   readonly editorCandidates: PresetEditorCandidateUpdate;
-  readonly profileSnapshot: ProfileSnapshot;
-  readonly filamentSession: FilamentSessionSnapshot;
   readonly historyEntryDelta: 1;
   readonly revisionBefore: number;
   readonly revisionAfter: number;
@@ -630,6 +631,13 @@ export interface PresetDraftMutationSuccess extends PresetDraftValues {
   readonly historyStatus: import('./history').HistoryStatus;
   readonly nativeScopedConfig: NativeScopedConfigFullTransport;
 }
+
+export type PresetDraftMutationSuccess = PresetDraftMutationCommit & (
+  | { readonly projectionKind: 'full'; readonly profileSnapshot: ProfileSnapshot;
+      readonly filamentSession: FilamentSessionSnapshot }
+  | { readonly projectionKind: 'ordinary-edit'; readonly profileSnapshot: ProfileOrdinaryEdit;
+      readonly filamentSession: FilamentSessionOrdinaryEdit }
+);
 
 export type PresetDraftMutationResult = PresetDraftMutationSuccess | PresetDraftError;
 
@@ -1249,6 +1257,9 @@ export interface FilamentSessionSnapshot {
   readonly revisions: FilamentSessionRevisions;
   readonly status: FilamentSessionStatus;
 }
+
+/** Slot/configuration receipt with unchanged model routing and assignments omitted. */
+export type FilamentSessionOrdinaryEdit = Omit<FilamentSessionSnapshot, 'routing' | 'assignments'>;
 
 export interface FilamentSessionSnapshotError {
   readonly ok?: false;

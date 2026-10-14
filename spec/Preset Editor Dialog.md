@@ -592,9 +592,35 @@ fields are read-only until their dedicated editor exists.
   their required placement and validity state.
 - The rollback Model copy remains necessary for atomic failure recovery;
   do not remove it as an unvalidated performance shortcut.
-- Draft mutation receipts publish the complete committed Filament session,
-  including recalculated flushing values. Updating only the revision token on
-  the old renderer snapshot is insufficient for material configuration edits.
+- Draft mutations use a fixed full or ordinary-edit projection receipt. The
+  ordinary path is limited to explicitly allowlisted Filament Set/Set-element
+  fields (temperature, flow, cooling, notes and supported material extrusion
+  parameters), with unchanged editor candidates, canonical identity, modified
+  state and project selections, and no redo branch. Unknown fields, Printer
+  edits, resets and other cold transitions retain full projections.
+- An ordinary receipt omits only Profile Printer/Process/Filament catalogue
+  arrays and Filament routing/assignments. Native branches before constructing
+  those JSON blocks and retains reference validity checks. Current profile
+  values, selected profiles, modified markers, bed/picker/tooltips, slots,
+  mappings, capabilities, revisions and recalculated flushing values remain
+  complete. Editor values, scoped configuration, plates and history retain
+  their existing complete receipts; Get interfaces remain full.
+- The application merges an ordinary receipt into complete store projections,
+  retaining the three catalogue arrays and routing/assignment references.
+  It checks existing base revisions before history publication advances the
+  Filament command token, preserves configuration mode and applies the final
+  complete scoped receipt. No native catalogue cache, catalogue revision or
+  generic delta protocol is introduced.
+- A missing or stale base explicitly resyncs through the existing full Profile
+  and Filament read interfaces within the project command FIFO; successful
+  ordinary edits with a matching base make no extra reads. Failed resync is an
+  already committed edit, not a native rejection: committed history, scoped
+  configuration and plate receipts still publish. Incomplete bases are marked
+  for resync while any complete older projection is retained. The editor
+  acknowledges its committed values/revision while
+  showing the refresh error and disabling further edits until it is reopened.
+  Closing remains available. The failed operation cannot be resubmitted at its
+  old revision. Native failure rollback and history ownership are unchanged.
 
 No persistence migration, new file format, host-specific behavior, or mobile
 interaction is introduced. Both hosts retain their current desktop layout.

@@ -660,7 +660,7 @@ json printer_picker_json(const DynamicPrintConfig& effective)
             {"nozzle_diameters", diameters}};
 }
 
-json preset_snapshot_json()
+json preset_snapshot_json(const bool include_catalogues)
 {
     const auto effective = PresetDrafts::effective_full_config();
     const auto bed_resources = selected_printer_bed_resources();
@@ -682,13 +682,10 @@ json preset_snapshot_json()
                 UserPresets::modified(collection->type(), preset.name,
                 PresetDrafts::effective_preset_config(state().presets, state().preset_drafts, collection->type(), preset.name)))
                 modified_presets[collection->type() == Preset::TYPE_PRINTER ? "printer" : "filament"].push_back(preset.name);
-    return json{{"ok", true},
+    json result{{"ok", true},
                 {"modified_presets", std::move(modified_presets)},
                 {"printer_picker", printer_picker_json(effective)},
                 {"tooltip_defaults", std::move(tooltip_defaults)},
-                {"printers", preset_candidates_json(state().presets.printers, false)},
-                {"prints", preset_candidates_json(state().presets.prints, true)},
-                {"filament_catalog", preset_candidates_json(state().presets.filaments, true, false)},
                 {"printer", preset_selection_json(state().presets.printers)},
                 {"print", preset_selection_json(state().presets.prints)},
                 {"printable_area", selected_printer_printable_area_json()},
@@ -702,6 +699,12 @@ json preset_snapshot_json()
                 // that slicing starts from so the UI cannot fall back to
                 // metadata defaults that disagree with slicing.
                 {"project_config", Filament::State::config_metadata_json(effective)}};
+    if (include_catalogues) {
+        result["printers"] = preset_candidates_json(state().presets.printers, false);
+        result["prints"] = preset_candidates_json(state().presets.prints, true);
+        result["filament_catalog"] = preset_candidates_json(state().presets.filaments, true, false);
+    }
+    return result;
 }
 
 std::optional<std::vector<RememberedSlot>> parse_remembered_slots(const json& rack)

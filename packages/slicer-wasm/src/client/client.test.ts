@@ -1272,6 +1272,62 @@ describe('SlicerClient bridge contract', () => {
       .toMatchObject({ ok: false, errorCode: 'invalid_response' });
   });
 
+  it('keeps ordinary receipt transport compact and preserves complete small blocks', async () => {
+    const c = makeClient(); await c.init(MOCK_PROFILE_ACTIVATION);
+    const source = await c.getPresetDraft('filament', 'Generic PLA @System');
+    if (!source.ok) throw new Error(source.error);
+    const first = await c.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
+      expectedRevision: source.revision, action: 'set', key: 'filament_flow_ratio', value: '0.93' }, presetContext);
+    if (!first.ok) throw new Error(first.error);
+    expect(first.projectionKind).toBe('full');
+    const profileBefore = await c.getProfileSnapshot(), sessionBefore = await c.getFilamentSessionSnapshot();
+    if (!profileBefore.ok || !sessionBefore.ok) throw new Error('missing bases');
+    const ordinary = await c.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
+      expectedRevision: first.revision, action: 'set-element', key: 'filament_flow_ratio',
+      scalarType: 'float', index: 1, value: 0.94 }, presetContext);
+    if (!ordinary.ok || ordinary.projectionKind !== 'ordinary-edit') throw new Error('expected ordinary edit');
+    for (const key of ['printers', 'prints', 'filamentCatalog']) expect(Object.hasOwn(ordinary.profileSnapshot, key)).toBe(false);
+    for (const key of ['routing', 'assignments']) expect(Object.hasOwn(ordinary.filamentSession, key)).toBe(false);
+    expect({ ...ordinary.profileSnapshot, printers: profileBefore.printers, prints: profileBefore.prints,
+      filamentCatalog: profileBefore.filamentCatalog }).toEqual(await c.getProfileSnapshot());
+    expect({ ...ordinary.filamentSession, routing: sessionBefore.routing, assignments: sessionBefore.assignments })
+      .toEqual(await c.getFilamentSessionSnapshot());
+    const unknown = await c.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
+      expectedRevision: ordinary.revision, action: 'set', key: 'filament_vendor', value: 'other' }, presetContext);
+    expect(unknown).toMatchObject({ ok: true, projectionKind: 'full' });
+  });
+
+  it.each(['missing-kind', 'unknown-kind', 'catalogue', 'assignments', 'routing', 'missing-flushing', 'missing-config', 'full-with-missing-blocks'])(
+    'rejects malformed compact mutation receipt %s', async defect => {
+      const module = createMockModule(); const original = module.ccall;
+      module.ccall = (name, ret, types, args) => {
+        const pointer = original(name, ret, types, args);
+        if (name !== 'orc_mutate_preset_draft') return pointer;
+        const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
+        if (payload.projection_kind !== 'ordinary-edit') return pointer;
+        module._free(Number(pointer));
+        if (defect === 'missing-kind') delete payload.projection_kind;
+        if (defect === 'unknown-kind') payload.projection_kind = 'incremental';
+        if (defect === 'catalogue') payload.profile_snapshot.printers = [];
+        if (defect === 'assignments') payload.filament_session.assignments = {};
+        if (defect === 'routing') payload.filament_session.routing = [];
+        if (defect === 'missing-flushing') delete payload.filament_session.flushing;
+        if (defect === 'missing-config') delete payload.profile_snapshot.project_config;
+        if (defect === 'full-with-missing-blocks') payload.projection_kind = 'full';
+        const bytes = new TextEncoder().encode(JSON.stringify(payload) + '\0');
+        const result = module._malloc(bytes.length); module.HEAPU8.set(bytes, Number(result)); return result;
+      };
+      const c = createClient(async () => module); await c.init(MOCK_PROFILE_ACTIVATION);
+      const source = await c.getPresetDraft('filament', 'Generic PLA @System');
+      if (!source.ok) throw new Error(source.error);
+      const first = await c.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
+        expectedRevision: source.revision, action: 'set', key: 'filament_flow_ratio', value: '0.93' }, presetContext);
+      if (!first.ok) throw new Error(first.error);
+      const result = await c.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
+        expectedRevision: first.revision, action: 'set', key: 'filament_flow_ratio', value: '0.94' }, presetContext);
+      expect(result).toMatchObject({ ok: false, errorCode: 'invalid_response' });
+    });
+
   it('reads source/effective preset values and shares drafts by canonical source across filament slots', async () => {
     const c = makeClient();
     await c.init(MOCK_PROFILE_ACTIVATION);

@@ -14,7 +14,8 @@ import { decodeModelGeometry } from './modelGeometry';
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   ArrangementResult, ArrangementParkingReason,
-  InitResult, ProfileSnapshot, ProfileSnapshotResult,
+  InitResult, ProfileSnapshot, ProfileSnapshotResult, ProfileSnapshotError, ProfileOrdinaryEdit,
+  FilamentSessionOrdinaryEdit, FilamentSessionSnapshotError,
   PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutation, PlateSessionMutationResult, PlateSelectionResult,
   PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
   PrimeTowerProjection, PrimeTowerProjectionResult, PrimeTowerMoveRequest,
@@ -321,7 +322,9 @@ function normalizeNativeScopedConfig(raw: unknown): NativeScopedConfigResultOrEr
   return result as NativeScopedConfigResultOrError;
 }
 
-function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotResult {
+function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotResult;
+function normalizeFilamentSessionResult(raw: unknown, includeReferences: false): FilamentSessionOrdinaryEdit | FilamentSessionSnapshotError;
+function normalizeFilamentSessionResult(raw: unknown, includeReferences = true): FilamentSessionSnapshotResult | FilamentSessionOrdinaryEdit {
   if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid filament session response' };
   const value = raw as Record<string, unknown>;
   if (value.ok !== true) {
@@ -437,65 +440,72 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
   if (f.plane_count !== nozzleCount)
     return { ok: false, error: 'inconsistent filament session flushing planes' };
 
-  const routing: FilamentRoutingProjection[] = [];
-  const routingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
-    'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
-  if (value.routing !== undefined) {
-    if (!Array.isArray(value.routing)) return { ok: false, error: 'invalid filament session routing' };
-    for (const candidate of value.routing) {
-      if (!candidate || typeof candidate !== 'object') return { ok: false, error: 'invalid filament session routing' };
-      const item = candidate as Record<string, unknown>;
-      if ((item.target !== 'project' && item.target !== 'object' && item.target !== 'model-part') ||
-          !integer(item.id) || !integer(item.object_id) || typeof item.selector !== 'string' ||
-          !routingSelectors.has(item.selector) || !integer(item.explicit_slot) ||
-          !integer(item.effective_slot) || typeof item.inherited !== 'boolean' || typeof item.defaulted !== 'boolean' ||
-          (item.target === 'project' && (item.id !== 0 || item.object_id !== 0 ||
-            (item.selector !== 'support-base' && item.selector !== 'support-interface'))) ||
-          (item.target === 'object' && (item.id === 0 || item.object_id !== item.id)) ||
-          (item.target === 'model-part' && (item.id === 0 || item.object_id === 0 ||
-            item.selector === 'support-base' || item.selector === 'support-interface')) ||
-          (item.effective_slot === 0 && item.defaulted !== true) ||
-          (item.effective_slot !== 0 && item.defaulted !== false))
-        return { ok: false, error: 'invalid filament session routing' };
-      if ((item.effective_slot as number) > slotCount || (item.explicit_slot as number) > slotCount)
-        return { ok: false, error: 'invalid filament session routing' };
-      routing.push({ target: item.target as FilamentRoutingProjection['target'], id: item.id as number,
-        objectId: item.object_id as number, selector: item.selector as FilamentRoutingProjection['selector'],
-        explicitSlot: item.explicit_slot as number, effectiveSlot: item.effective_slot as number,
-        inherited: item.inherited as boolean, defaulted: item.defaulted as boolean });
+  let references: Pick<FilamentSessionSnapshot, 'routing' | 'assignments'> | undefined;
+  if (includeReferences) {
+    const routing: FilamentRoutingProjection[] = [];
+    const routingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
+      'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
+    if (value.routing !== undefined) {
+      if (!Array.isArray(value.routing)) return { ok: false, error: 'invalid filament session routing' };
+      for (const candidate of value.routing) {
+        if (!candidate || typeof candidate !== 'object') return { ok: false, error: 'invalid filament session routing' };
+        const item = candidate as Record<string, unknown>;
+        if ((item.target !== 'project' && item.target !== 'object' && item.target !== 'model-part') ||
+            !integer(item.id) || !integer(item.object_id) || typeof item.selector !== 'string' ||
+            !routingSelectors.has(item.selector) || !integer(item.explicit_slot) ||
+            !integer(item.effective_slot) || typeof item.inherited !== 'boolean' || typeof item.defaulted !== 'boolean' ||
+            (item.target === 'project' && (item.id !== 0 || item.object_id !== 0 ||
+              (item.selector !== 'support-base' && item.selector !== 'support-interface'))) ||
+            (item.target === 'object' && (item.id === 0 || item.object_id !== item.id)) ||
+            (item.target === 'model-part' && (item.id === 0 || item.object_id === 0 ||
+              item.selector === 'support-base' || item.selector === 'support-interface')) ||
+            (item.effective_slot === 0 && item.defaulted !== true) ||
+            (item.effective_slot !== 0 && item.defaulted !== false))
+          return { ok: false, error: 'invalid filament session routing' };
+        if ((item.effective_slot as number) > slotCount || (item.explicit_slot as number) > slotCount)
+          return { ok: false, error: 'invalid filament session routing' };
+        routing.push({ target: item.target as FilamentRoutingProjection['target'], id: item.id as number,
+          objectId: item.object_id as number, selector: item.selector as FilamentRoutingProjection['selector'],
+          explicitSlot: item.explicit_slot as number, effectiveSlot: item.effective_slot as number,
+          inherited: item.inherited as boolean, defaulted: item.defaulted as boolean });
+      }
     }
-  }
 
-  const assignments = value.assignments;
-  if (!assignments || typeof assignments !== 'object') return { ok: false, error: 'invalid filament session assignments' };
-  const assignmentSet = assignments as Record<string, unknown>;
-  const assignmentArray = (entry: unknown, target: FilamentAssignmentProjection['target']): FilamentAssignmentProjection[] | null => {
-    if (!Array.isArray(entry)) return null;
-    const result = entry.map((candidate): FilamentAssignmentProjection | null => {
-      if (!candidate || typeof candidate !== 'object') return null;
-      const item = candidate as Record<string, unknown>;
-      if (item.target !== target || !integer(item.id) || !integer(item.object_id) ||
-          !integer(item.explicit_slot) || !integer(item.effective_slot, 1) || typeof item.inherited !== 'boolean') return null;
-      const explicitSlot = item.explicit_slot as number;
-      const effectiveSlot = item.effective_slot as number;
-      if (effectiveSlot > slotCount || (target === 'object' && (item.inherited !== false || explicitSlot < 1)) ||
-          (target !== 'object' && explicitSlot > slotCount) ||
-          (target !== 'object' && item.inherited !== (explicitSlot === 0)) ||
-          (target === 'object' && effectiveSlot !== explicitSlot) ||
-          (target !== 'object' && explicitSlot > 0 && effectiveSlot !== explicitSlot)) return null;
-      return { target, id: item.id as number, objectId: item.object_id as number,
-        explicitSlot, effectiveSlot,
-        inherited: item.inherited as boolean };
-    });
-    return result.some((item) => item === null) ? null : (result as FilamentAssignmentProjection[]);
-  };
-  const objects = assignmentArray(assignmentSet.objects, 'object');
-  const parts = assignmentArray(assignmentSet.parts, 'model-part');
-  const modifiers = assignmentArray(assignmentSet.modifiers, 'parameter-modifier');
-  if (!objects || !parts || !modifiers) return { ok: false, error: 'invalid filament session assignments' };
-  for (const entries of [objects, parts, modifiers]) {
-    const ids = new Set(entries.map((entry) => `${entry.objectId}:${entry.id}`));
-    if (ids.size !== entries.length) return { ok: false, error: 'invalid filament session assignments' };
+    const assignments = value.assignments;
+    if (!assignments || typeof assignments !== 'object') return { ok: false, error: 'invalid filament session assignments' };
+    const assignmentSet = assignments as Record<string, unknown>;
+    const assignmentArray = (entry: unknown, target: FilamentAssignmentProjection['target']): FilamentAssignmentProjection[] | null => {
+      if (!Array.isArray(entry)) return null;
+      const result = entry.map((candidate): FilamentAssignmentProjection | null => {
+        if (!candidate || typeof candidate !== 'object') return null;
+        const item = candidate as Record<string, unknown>;
+        if (item.target !== target || !integer(item.id) || !integer(item.object_id) ||
+            !integer(item.explicit_slot) || !integer(item.effective_slot, 1) || typeof item.inherited !== 'boolean') return null;
+        const explicitSlot = item.explicit_slot as number;
+        const effectiveSlot = item.effective_slot as number;
+        if (effectiveSlot > slotCount || (target === 'object' && (item.inherited !== false || explicitSlot < 1)) ||
+            (target !== 'object' && explicitSlot > slotCount) ||
+            (target !== 'object' && item.inherited !== (explicitSlot === 0)) ||
+            (target === 'object' && effectiveSlot !== explicitSlot) ||
+            (target !== 'object' && explicitSlot > 0 && effectiveSlot !== explicitSlot)) return null;
+        return { target, id: item.id as number, objectId: item.object_id as number,
+          explicitSlot, effectiveSlot,
+          inherited: item.inherited as boolean };
+      });
+      return result.some((item) => item === null) ? null : (result as FilamentAssignmentProjection[]);
+    };
+    const objects = assignmentArray(assignmentSet.objects, 'object');
+    const parts = assignmentArray(assignmentSet.parts, 'model-part');
+    const modifiers = assignmentArray(assignmentSet.modifiers, 'parameter-modifier');
+    if (!objects || !parts || !modifiers) return { ok: false, error: 'invalid filament session assignments' };
+    for (const entries of [objects, parts, modifiers]) {
+      const ids = new Set(entries.map((entry) => `${entry.objectId}:${entry.id}`));
+      if (ids.size !== entries.length) return { ok: false, error: 'invalid filament session assignments' };
+    }
+
+    references = { ...(value.routing !== undefined ? { routing } : {}), assignments: { objects, parts, modifiers } };
+  } else if (Object.hasOwn(value, 'routing') || Object.hasOwn(value, 'assignments')) {
+    return { ok: false, error: 'ordinary filament receipt must omit routing and assignments' };
   }
 
   const revisions = value.revisions;
@@ -513,7 +523,7 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
   if (!status || typeof status !== 'object') return { ok: false, error: 'invalid filament session status' };
   const s = status as Record<string, unknown>;
   if (s.state !== 'ready' || s.error !== null) return { ok: false, error: 'invalid filament session status' };
-  const result: FilamentSessionSnapshot = {
+  const result: FilamentSessionOrdinaryEdit = {
     ok: true, version: 1, slots: orderedSlots,
     mappings: { filament, volume, nozzle, filament2, physicalExtruder },
     flushing: { matrix, vector, matrixDimension: f.matrix_dimension as number,
@@ -521,13 +531,11 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
     capabilities: { minSlots, maxSlots, nozzleCount, flexible,
       canAdd: cap.can_add as boolean,
       canDelete: cap.can_delete as boolean, canMerge: cap.can_merge as boolean },
-    ...(value.routing !== undefined ? { routing } : {}),
-    assignments: { objects, parts, modifiers },
     revisions: { session: rev.session as number, project: rev.project as number,
       result: rev.result as number, plates },
     status: { state: 'ready', error: null },
   };
-  return result;
+  return references ? { ...result, ...references } : result;
 }
 
 function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOrError {
@@ -1018,16 +1026,27 @@ function normalizeBedTypeNormalization(raw: unknown): ProjectLoadResult['bedType
 
 /** Convert the native profile/catalogue payload into the public profile
  * contract, including the engine-filtered filament catalogue. */
-function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
+function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult;
+function normalizeProfileSnapshot(raw: Record<string, unknown>, includeCatalogues: false): ProfileOrdinaryEdit | ProfileSnapshotError;
+function normalizeProfileSnapshot(raw: Record<string, unknown>, includeCatalogues = true): ProfileSnapshotResult | ProfileOrdinaryEdit {
   if (raw.ok !== true) return raw as unknown as ProfileSnapshotResult;
-  if (['printers', 'prints', 'filament_catalog'].some(key =>
+  if (includeCatalogues && ['printers', 'prints', 'filament_catalog'].some(key =>
     !Array.isArray(raw[key]) || raw[key].some(item => !isRecord(item) || typeof item.label !== 'string' || typeof item.vendor !== 'string' ||
       (item.source_name !== undefined && (typeof item.source_name !== 'string' || !item.source_name)))))
     return { ok: false, error: 'Invalid native preset display labels' };
+  if (!includeCatalogues && ['printers', 'prints', 'filament_catalog'].some(key => Object.hasOwn(raw, key)))
+    return { ok: false, error: 'ordinary profile receipt must omit catalogues' };
+  if (!includeCatalogues && (!isRecord(raw.printer) || typeof raw.printer.name !== 'string' || !raw.printer.name ||
+      !isRecord(raw.print) || typeof raw.print.name !== 'string' || !raw.print.name ||
+      !stringRecord(raw.project_config) || !stringRecord(raw.tooltip_defaults) ||
+      typeof raw.bed_model !== 'string' || typeof raw.bed_texture !== 'string' ||
+      !Array.isArray(raw.printable_area) || raw.printable_area.some(point => !Array.isArray(point) ||
+        point.length !== 2 || point.some(value => typeof value !== 'number' || !Number.isFinite(value)))))
+    return { ok: false, error: 'invalid ordinary profile values' };
   const picker = raw.printer_picker;
   const selectedPrinterName = isRecord(raw.printer) ? raw.printer.name : undefined;
-  const printers = raw.printers as ProfileSnapshot['printers'];
-  const printerNames = new Set(printers.map((printer) => printer.name));
+  const printers = includeCatalogues ? raw.printers as ProfileSnapshot['printers'] : undefined;
+  const printerNames = printers ? new Set(printers.map((printer) => printer.name)) : null;
   if (!isRecord(picker) || !Array.isArray(picker.items) ||
       typeof picker.selected_id !== 'string' || typeof picker.selected_variant !== 'string' ||
       !Array.isArray(picker.nozzle_diameters) || picker.nozzle_diameters.some((diameter) =>
@@ -1035,9 +1054,9 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
       !Array.isArray(picker.variants) || picker.items.some((item) =>
         !isRecord(item) || typeof item.id !== 'string' || !item.id ||
         typeof item.label !== 'string' || !item.label || typeof item.preset !== 'string' ||
-        !printerNames.has(item.preset)) || picker.variants.some((variant) =>
+        !item.preset || (printerNames !== null && !printerNames.has(item.preset))) || picker.variants.some((variant) =>
         !isRecord(variant) || typeof variant.value !== 'string' || !variant.value ||
-        typeof variant.preset !== 'string' || !printerNames.has(variant.preset)) ||
+        typeof variant.preset !== 'string' || !variant.preset || (printerNames !== null && !printerNames.has(variant.preset))) ||
       new Set(picker.items.map((item) => item.id)).size !== picker.items.length ||
       new Set(picker.variants.map((variant) => variant.value)).size !== picker.variants.length ||
       (picker.items.length > 0 &&
@@ -1065,9 +1084,8 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
       selectedVariant: picker.selected_variant,
     },
     modifiedPresets: { printer: modified.printer as string[], filament: modified.filament as string[] },
-    printers,
-    prints: raw.prints as ProfileSnapshot['prints'],
-    filamentCatalog: raw.filament_catalog as ProfileSnapshot['filamentCatalog'],
+    ...(includeCatalogues ? { printers: printers!, prints: raw.prints as ProfileSnapshot['prints'],
+      filamentCatalog: raw.filament_catalog as ProfileSnapshot['filamentCatalog'] } : {}),
     printer: raw.printer as ProfileSnapshot['printer'],
     print: raw.print as ProfileSnapshot['print'],
     bedType: {
@@ -1328,7 +1346,7 @@ function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
   return { ...values, editorCandidates };
 }
 
-function normalizePresetDraftMutation(raw: unknown, target: { kind: PresetDraftKind; canonicalName: string }): PresetDraftMutationResult {
+function normalizePresetDraftMutation(raw: unknown, target: PresetDraftMutationRequest): PresetDraftMutationResult {
   const snapshot = normalizePresetDraftValues(raw);
   if (!snapshot.ok) return snapshot;
   if (!isRecord(raw)) return { ok: false, error: 'invalid preset draft mutation response', errorCode: 'invalid_response' };
@@ -1342,10 +1360,18 @@ function normalizePresetDraftMutation(raw: unknown, target: { kind: PresetDraftK
   const editorCandidates = update.kind === 'replace' ? { kind: 'replace' as const, items } : { kind: 'unchanged' as const };
   if (update.kind === 'unchanged' && (snapshot.kind !== target.kind || snapshot.canonicalName !== target.canonicalName))
     return { ok: false, error: 'unchanged preset editor candidates cannot change target', errorCode: 'invalid_response' };
-  const profile = isRecord(raw.profile_snapshot) ? normalizeProfileSnapshot(raw.profile_snapshot) :
+  const projectionKind = raw.projection_kind;
+  if (projectionKind !== 'full' && projectionKind !== 'ordinary-edit')
+    return { ok: false, error: 'invalid preset draft projection kind', errorCode: 'invalid_response' };
+  if (projectionKind === 'ordinary-edit' && (snapshot.kind !== 'filament' || update.kind !== 'unchanged' ||
+      (target.action !== 'set' && target.action !== 'set-element')))
+    return { ok: false, error: 'invalid ordinary preset draft receipt', errorCode: 'invalid_response' };
+  const profile = isRecord(raw.profile_snapshot) ? (projectionKind === 'full'
+    ? normalizeProfileSnapshot(raw.profile_snapshot) : normalizeProfileSnapshot(raw.profile_snapshot, false)) :
     { ok: false as const, error: 'missing preset draft profile snapshot' };
   if (!profile.ok) return { ok: false, error: profile.error, errorCode: 'invalid_response' };
-  const filamentSession = normalizeFilamentSessionResult(raw.filament_session);
+  const filamentSession = projectionKind === 'full' ? normalizeFilamentSessionResult(raw.filament_session)
+    : normalizeFilamentSessionResult(raw.filament_session, false);
   if (!filamentSession.ok) return { ok: false, error: 'invalid preset draft filament receipt', errorCode: 'invalid_response' };
   const plateSession = normalizePlateMutationResult(raw.plate_session);
   if (!plateSession.ok) return { ok: false, error: plateSession.error ?? 'invalid preset draft plate receipt', errorCode: 'invalid_response' };
@@ -1354,7 +1380,9 @@ function normalizePresetDraftMutation(raw: unknown, target: { kind: PresetDraftK
   catch { return { ok: false, error: 'invalid preset draft history status', errorCode: 'invalid_response' }; }
   const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
   if (raw.history_entry_delta !== 1 || !Number.isSafeInteger(raw.revision_before) ||
-      !Number.isSafeInteger(raw.revision_after) || typeof raw.dirty !== 'boolean' ||
+      !Number.isSafeInteger(raw.revision_after) || (raw.revision_before as number) < 0 ||
+      raw.revision_after !== (raw.revision_before as number) + 1 || raw.revision_after !== historyStatus.revision ||
+      snapshot.revision !== raw.revision_after || typeof raw.dirty !== 'boolean' ||
       !Array.isArray(raw.affected_plate_ids) ||
       !raw.affected_plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
       raw.all_plate_results_invalidated !== true || !nativeScopedConfig || nativeScopedConfig.kind !== 'full' ||
@@ -1362,10 +1390,10 @@ function normalizePresetDraftMutation(raw: unknown, target: { kind: PresetDraftK
       filamentSession.revisions.session !== historyStatus.revision ||
       filamentSession.revisions.project !== historyStatus.revision)
     return { ok: false, error: 'invalid preset draft mutation receipt', errorCode: 'invalid_response' };
-  return { ...snapshot, editorCandidates, historyEntryDelta: 1, revisionBefore: raw.revision_before as number,
+  return { ...snapshot, editorCandidates, projectionKind, historyEntryDelta: 1, revisionBefore: raw.revision_before as number,
     revisionAfter: raw.revision_after as number, dirty: raw.dirty,
     affectedPlateIds: raw.affected_plate_ids as string[], allPlateResultsInvalidated: true,
-    plateSession, filamentSession, historyStatus, nativeScopedConfig, profileSnapshot: profile };
+    plateSession, filamentSession, historyStatus, nativeScopedConfig, profileSnapshot: profile } as Extract<PresetDraftMutationResult, { ok: true }>;
 }
 
 function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter'): PrinterTransitionResult {

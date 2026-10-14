@@ -16,10 +16,12 @@ import type {
   PresetDraftEditorVector,
 } from '@slicer/client';
 import { PresetEditorDialog, PresetEditorDialogContent } from './PresetEditorDialog';
-import { commitPresetDraftMutation } from './configurationActions';
+import { commitPresetDraftMutation, CommittedPresetDraftProjectionError } from './configurationActions';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
 import { SceneInteractionController } from '../viewport/SceneInteractionController';
-vi.mock('./configurationActions', () => ({ commitPresetDraftMutation: vi.fn() }));
+vi.mock('./configurationActions', async importOriginal => ({
+  ...await importOriginal<typeof import('./configurationActions')>(), commitPresetDraftMutation: vi.fn(),
+}));
 import {
   FILAMENT_PRESET_EDITOR_MANIFEST,
   PRINTER_PRESET_EDITOR_MANIFEST,
@@ -211,6 +213,7 @@ function mutationSuccess(snapshot: PresetDraftSnapshot, request: PresetDraftMuta
   }
   return {
     ...next,
+    projectionKind: 'full',
     editorCandidates: { kind: 'replace', items: next.editorCandidates },
     overrides,
     effectiveValues,
@@ -1146,6 +1149,26 @@ describe('PresetEditorDialog session ownership', () => {
     await click(document.querySelector('[data-testid="preset-editor-preset"]'));
     await click(document.querySelector(`[role="option"][title="${name}"]`));
   }
+
+  it('acknowledges a committed edit after recovery fails and blocks resubmission while allowing close', async () => {
+    const base = snapshotFor('printer');
+    const getDraft = vi.fn().mockResolvedValue(base);
+    const { onClose } = await mountSession(getDraft);
+    vi.mocked(commitPresetDraftMutation).mockImplementation(async (_platform, request) => {
+      const receipt = mutationSuccess(base, request);
+      if (!receipt.ok) throw new Error('expected success');
+      throw new CommittedPresetDraftProjectionError(receipt, new Error('refresh unavailable'));
+    });
+    await enterSearch('printable_height');
+    const height = document.querySelector('[data-testid="preset-editor-input-printable_height"]') as HTMLInputElement;
+    await changeInput(height, '245'); await press(height, 'Enter');
+    expect(document.querySelector('[data-testid="preset-editor-load-error"]')?.textContent).toContain('The edit was committed');
+    expect(document.querySelector('[data-testid="preset-editor-input-printable_height"]')).toBeNull();
+    expect((document.querySelector('[data-testid="preset-editor-reset-preset"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((document.querySelector('[data-testid="preset-editor-preset"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(getDraft).toHaveBeenCalledOnce(); expect(commitPresetDraftMutation).toHaveBeenCalledOnce();
+    await click(document.querySelector('[data-testid="preset-editor-close"]')); expect(onClose).toHaveBeenCalledOnce();
+  });
 
   it('retains the candidate list on unchanged and replaces it without extra reads', async () => {
     const base = snapshotFor('printer', { modified: true });

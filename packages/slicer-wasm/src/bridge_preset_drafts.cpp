@@ -438,6 +438,22 @@ bool geometry_inputs_changed(const PresetDraftRegistry::Overrides* before,
     return has_change(old_values, new_values) || has_change(new_values, old_values);
 }
 
+// These Filament values cannot change collection identity/compatibility or
+// project/model slot references. Flushing and every other small projection are
+// still rebuilt. Unknown keys deliberately retain the full receipt.
+bool ordinary_filament_edit_key(const std::string& key)
+{
+    static const std::set<std::string> keys{
+        "filament_notes", "nozzle_temperature", "nozzle_temperature_initial_layer",
+        "filament_flow_ratio", "filament_max_volumetric_speed", "filament_change_length",
+        "fan_min_speed", "fan_max_speed", "additional_cooling_fan_speed", "overhang_fan_speed",
+        "overhang_fan_threshold", "close_fan_the_first_x_layers", "full_fan_speed_layer",
+        "fan_cooling_layer_time", "slowdown_below_layer_time", "slowdown_min_speed",
+        "slowdown_for_layer_cooling"
+    };
+    return keys.count(key) != 0;
+}
+
 json mutate_draft_json(const json& request)
 {
     if (!request.is_object())
@@ -695,8 +711,14 @@ json mutate_draft_json(const json& request)
             ? json{{"kind", "unchanged"}}
             : json{{"kind", "replace"}, {"items", editor_candidates_json(type, result.at("canonical_name"))}};
         const json native_config = ScopedConfig::native_scoped_config_full_transport(revision_before + 1);
-        const json profile_snapshot = Profiles::preset_snapshot_json();
-        json filament_session = Filament::Session::filament_session_snapshot_json();
+        const bool ordinary_edit = type == Preset::TYPE_FILAMENT && candidates_unchanged &&
+            ordinary_filament_edit_key(key) &&
+            before_printer_name == state().presets.printers.get_selected_preset_name() &&
+            before_filament_name == state().presets.filaments.get_selected_preset_name() &&
+            before_filament_names == state().presets.filament_presets;
+        result["projection_kind"] = ordinary_edit ? "ordinary-edit" : "full";
+        const json profile_snapshot = Profiles::preset_snapshot_json(!ordinary_edit);
+        json filament_session = Filament::Session::filament_session_snapshot_json(!ordinary_edit);
         if (!filament_session.value("ok", false))
             throw std::runtime_error("preset draft filament snapshot could not be constructed");
         filament_session["revisions"]["session"] = revision_before + 1;
@@ -783,6 +805,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_preset_draft(const char* request_cst
                 auto result = PresetDrafts::get_draft_json(Preset::TYPE_PRINTER,
                     state().presets.printers.get_selected_preset_name());
                 result["editor_candidates"] = json{{"kind", "replace"}, {"items", std::move(result["editor_candidates"])}};
+                result["projection_kind"] = "full";
                 for (const auto* key : {"profile_snapshot", "filament_session", "plate_session", "history_status", "native_scoped_config"})
                     result[key] = transition.at(key);
                 // Preset-draft receipts publish both Filament revisions at

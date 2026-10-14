@@ -5,6 +5,7 @@ import type {
   FilamentCommandRequest,
   FilamentMutationResultOrError,
   FilamentSessionSnapshot,
+  FilamentSessionOrdinaryEdit,
   FilamentSessionSnapshotResult,
   FilamentSlotColourRequest,
   FilamentSlotDeleteRequest,
@@ -34,6 +35,8 @@ interface FilamentSessionState {
   rejected: string | null;
   /** Publish a complete rack snapshot returned by a composite native receipt. */
   publish: (snapshot: FilamentSessionSnapshot) => void;
+  /** Caller checks the base revision before history publication advances its token. */
+  applyOrdinaryEdit: (snapshot: FilamentSessionOrdinaryEdit, base: FilamentSessionSnapshot) => void;
   load: (runtime: SlicerClient) => Promise<FilamentSessionSnapshotResult>;
   refresh: (runtime: Pick<SlicerClient, 'getFilamentSessionSnapshot'>, isCurrent?: () => boolean, lease?: ProjectMutationLease) => Promise<FilamentSessionSnapshotResult>;
   run: (runtime: SlicerClient, command: () => Promise<FilamentMutationResultOrError>) => Promise<FilamentMutationResultOrError>;
@@ -116,11 +119,16 @@ async function refreshRemappedPaint(runtime: SlicerClient): Promise<void> {
   glVolumeCollection.patch(projection.volumes, revision);
 }
 
-export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
+export const useFilamentSessionStore = create<FilamentSessionState>((set, get) => ({
   snapshot: null,
   pendingKind: null,
   rejected: null,
   publish: (snapshot) => { set({ snapshot, rejected: null }); reconcilePaintingPalette(snapshot); },
+  applyOrdinaryEdit: (snapshot, base) => {
+    if (get().snapshot !== base) throw new Error('filament projection base was superseded');
+    const complete = { ...snapshot, routing: base.routing, assignments: base.assignments };
+    set({ snapshot: complete, rejected: null }); reconcilePaintingPalette(complete);
+  },
   load: (runtime): Promise<FilamentSessionSnapshotResult> => enqueueProjectMutationOperation(
     () => readFilamentSnapshot(runtime, set, () => true),
   ),

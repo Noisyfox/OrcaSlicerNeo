@@ -41,6 +41,7 @@ function historyStatus() {
 }
 
 function mutateDraft(action, kind, canonicalName, fields = {}) {
+  const filamentBefore = callJson('orc_get_filament_session_snapshot');
   const candidatesBefore = callJson('orc_get_preset_draft', ['string', 'string'], [kind, canonicalName]).editor_candidates;
   const hadRedo = historyStatus().canRedo;
   const beforeSnapshot = callJson('orc_get_preset_snapshot');
@@ -71,16 +72,32 @@ function mutateDraft(action, kind, canonicalName, fields = {}) {
     assert.ok(section.every((candidate, index) => index === 0 || !candidate.modified || section[index - 1].modified),
       'native editor puts modified candidates before unmodified candidates within each section');
   }
-  const rows = kind === 'printer' ? result.profile_snapshot.printers : result.profile_snapshot.filament_catalog;
+  const fullProfile = callJson('orc_get_preset_snapshot');
+  const fullFilament = callJson('orc_get_filament_session_snapshot');
+  if (result.projection_kind === 'ordinary-edit') {
+    assert.equal(kind, 'filament');
+    assert.equal(candidateUpdate.kind, 'unchanged');
+    for (const key of ['printers', 'prints', 'filament_catalog']) assert.equal(Object.hasOwn(result.profile_snapshot, key), false);
+    for (const key of ['routing', 'assignments']) assert.equal(Object.hasOwn(result.filament_session, key), false);
+    assert.deepEqual({ ...result.profile_snapshot, printers: beforeSnapshot.printers, prints: beforeSnapshot.prints,
+      filament_catalog: beforeSnapshot.filament_catalog }, fullProfile, 'retained catalogues plus ordinary receipt reconstruct the full profile');
+    assert.deepEqual({ ...result.filament_session, routing: filamentBefore.routing, assignments: filamentBefore.assignments },
+      fullFilament, 'retained references plus ordinary receipt reconstruct the complete session');
+  } else {
+    assert.equal(result.projection_kind, 'full');
+    assert.deepEqual(result.profile_snapshot, fullProfile);
+    assert.deepEqual(result.filament_session, fullFilament);
+  }
+  const rows = kind === 'printer' ? fullProfile.printers : fullProfile.filament_catalog;
   assert.equal(rows.find(row => row.name === canonicalName)?.label,
     originalRows.find(row => row.name === canonicalName)?.label,
     'dirty Printer/Filament labels retain their undecorated alias/name');
   for (const slot of result.filament_session.slots ?? []) {
-    const source = result.profile_snapshot.filament_catalog.find(row => row.name === slot.preset.name);
+    const source = fullProfile.filament_catalog.find(row => row.name === slot.preset.name);
     if (source) assert.equal(slot.preset.label, source.label, 'slot and catalogue use the same clean label');
   }
-  assert.deepEqual(result.filament_session, callJson('orc_get_filament_session_snapshot'),
-    'the commit must publish the current native rack and flushing projection');
+  assert.deepEqual(result.filament_session.flushing, fullFilament.flushing,
+    'the commit must publish current native flushing even on the ordinary path');
   return result;
 }
 
@@ -659,3 +676,16 @@ for (const [kind, name] of [['printer', printer.name], ['filament', genericPlaSo
 }
 assert.equal(historyStatus().canUndo, false);
 console.log('preset draft registry smoke passed (shared and independent Filament overlays, Printer overlay, flattened 3MF save/reload, dormant-draft omission, slot-color separation, Prepare projection, project-close cleanup)');
+
+// Real common temperature/cooling writes retain the same references/catalogues.
+mutateDraft('set-element', 'filament', genericPlaSource,
+  { key: 'filament_notes', scalar_type: 'string', index: 0, value: 'common edit baseline' });
+for (const [key, value] of [['nozzle_temperature', 235], ['filament_flow_ratio', 0.93], ['fan_min_speed', 1]]) {
+  const scalarType = callJson('orc_get_preset_draft', ['string', 'string'], ['filament', genericPlaSource]).editor_vectors[key].scalar_type;
+  const common = mutateDraftElement('filament', genericPlaSource, key, scalarType, 0, value);
+  assert.equal(common.projection_kind, 'ordinary-edit');
+}
+
+const unlistedKey = "filament_density";
+const densityType = callJson("orc_get_preset_draft", ["string", "string"], ["filament", genericPlaSource]).editor_vectors[unlistedKey].scalar_type;
+assert.equal(mutateDraftElement("filament", genericPlaSource, unlistedKey, densityType, 0, 1.3).projection_kind, "full", "unlisted ordinary field retains full projections");

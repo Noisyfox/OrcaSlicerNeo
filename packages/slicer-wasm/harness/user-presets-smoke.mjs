@@ -412,9 +412,13 @@ const candidateEdit = (name, value) => ok(request('orc_mutate_preset_draft', {
 assert.equal(candidateEdit(candidateName, 'candidate first').editor_candidates.kind, 'replace');
 const secondCandidateEdit = candidateEdit(candidateName, 'candidate second');
 assert.deepEqual(secondCandidateEdit.editor_candidates, { kind: 'unchanged' });
+assert.equal(secondCandidateEdit.projection_kind, 'ordinary-edit');
+assert.equal(Object.hasOwn(secondCandidateEdit.filament_session, 'routing'), false);
+assert.equal(Object.hasOwn(secondCandidateEdit.profile_snapshot, 'filament_catalog'), false);
 assert.equal(secondCandidateEdit.modified, true);
 const baselineWrite = candidateEdit(candidateName, baselineNote);
 assert.equal(baselineWrite.modified, false, 'ordinary Set restores saved-head equality');
+assert.equal(baselineWrite.projection_kind, 'full');
 assert.equal(baselineWrite.editor_candidates.kind, 'replace', 'true-to-false modified flip replaces candidates');
 assert.deepEqual(candidateEdit(candidateName, 'candidate third').editor_candidates.kind, 'replace');
 assert.deepEqual(candidateEdit(candidateName, 'candidate fourth').editor_candidates, { kind: 'unchanged' });
@@ -431,7 +435,9 @@ ok(call('orc_history_undo'));
 const frozenCandidate = ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name;
 assert.match(frozenCandidate, /snapshot/);
 candidateEdit(frozenCandidate, 'frozen candidate first');
-assert.deepEqual(candidateEdit(frozenCandidate, 'frozen candidate second').editor_candidates, { kind: 'unchanged' },
+const frozenOrdinary = candidateEdit(frozenCandidate, 'frozen candidate second');
+assert.equal(frozenOrdinary.projection_kind, 'ordinary-edit');
+assert.deepEqual(frozenOrdinary.editor_candidates, { kind: 'unchanged' },
   'continuous snapshot edits use the same safe path');
 
 console.log('user-presets PASS shared save dialog, self/cross overwrite, snapshots, delete, Undo/Redo, Reset, shared slots, dormant editor, Printer, Process, 3MF, name reuse, failed persistence, required renderer context and selection/gizmo roundtrips');

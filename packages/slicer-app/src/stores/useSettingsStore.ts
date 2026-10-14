@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type {
-  BedTypeCapabilities, FilamentCatalogItem, OptionMetadata, PresetInfo, ProfileSnapshot, PrinterPicker,
+  BedTypeCapabilities, FilamentCatalogItem, OptionMetadata, PresetInfo, ProfileSnapshot, ProfileOrdinaryEdit, PrinterPicker,
   NativeScopedConfigSnapshot, NativeScopedConfigTransport,
 } from '@slicer/client';
 
@@ -69,6 +69,8 @@ interface SettingsState {
   setMetadata: (m: OptionMetadata) => void;
   /** Replace all picker state from one atomic native snapshot. */
   hydrateProfileSnapshot: (snapshot: ProfileSnapshot) => void;
+  /** Refresh values after a guarded ordinary edit while retaining all catalogues and scoped state. */
+  applyProfileOrdinaryEdit: (snapshot: ProfileOrdinaryEdit) => void;
   setPresets: (printers: PresetInfo[], prints: PresetInfo[], filamentCatalog: FilamentCatalogItem[]) => void;
   setSelections: (printer: string, print: string) => void;
   setValue: (key: string, value: string) => void;
@@ -130,6 +132,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       nativeScopedConfigRefreshRequired: false,
       configurationMode: 'project',
       values: effectiveValues(baseValues, nativeScopedConfig),
+    };
+  }),
+  applyProfileOrdinaryEdit: (snapshot) => set((s) => {
+    const baseValues = snapshot.project_config ?? {};
+    return {
+      printerPicker: snapshot.printerPicker, modifiedPresets: snapshot.modifiedPresets,
+      selectedPrinter: snapshot.printer.name, selectedPrint: snapshot.print.name,
+      printableArea: snapshot.printable_area ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
+      bedModel: snapshot.bed_model ?? '', bedTexture: snapshot.bed_texture ?? '', bedType: snapshot.bedType,
+      tooltipDefaults: snapshot.tooltip_defaults ?? {}, baseValues,
+      values: effectiveValues(baseValues, s.nativeScopedConfig),
     };
   }),
   setPresets: (printers, prints, filamentCatalog) => set({

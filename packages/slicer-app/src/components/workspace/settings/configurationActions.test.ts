@@ -1,3 +1,4 @@
+import { createClient, createMockModule, MOCK_PROFILE_ACTIVATION } from '@slicer/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { HistoryStatus, PresetDraftMutationRequest, PresetDraftMutationResult, RestoreResult, UserPresetMutation } from '@slicer/client';
@@ -15,6 +16,7 @@ import {
   commitScopedConfigurationMutation,
   commitGlobalBedType,
   commitPresetDraftMutation,
+  CommittedPresetDraftProjectionError,
   commitUserPresetMutation,
   invalidateAfterSharedConfigurationMutation,
   waitForConfigurationMutations,
@@ -73,9 +75,9 @@ function presetHistoryStatus(revision: number): HistoryStatus {
   };
 }
 
-function presetReceipt(allPlateResultsInvalidated: true): Extract<PresetDraftMutationResult, { ok: true }> {
+function presetReceipt(allPlateResultsInvalidated: true): Extract<PresetDraftMutationResult, { ok: true; projectionKind: 'full' }> {
   return {
-    ok: true, kind: 'printer', canonicalName: 'Printer A', draftExists: true,
+    ok: true, projectionKind: 'full', kind: 'printer', canonicalName: 'Printer A', draftExists: true,
     editorCandidates: { kind: 'replace', items: [{ canonicalName: 'Printer A', label: 'Printer A', compatible: true, modified: true }] },
     modified: true, overrides: { printable_height: '250' },
     sourceValues: { printable_height: '230' }, effectiveValues: { printable_height: '250' },
@@ -102,7 +104,7 @@ function presetReceipt(allPlateResultsInvalidated: true): Extract<PresetDraftMut
       snapshot: { project: { printable_height: '250' }, objects: {}, parts: {}, plates: {} },
       removedTargets: [],
     },
-  } as unknown as Extract<PresetDraftMutationResult, { ok: true }>;
+  } as unknown as Extract<PresetDraftMutationResult, { ok: true; projectionKind: 'full' }>;
 }
 
 describe('commitScopedConfigurationMutation', () => {
@@ -322,6 +324,80 @@ describe('commitPresetDraftMutation', () => {
     useSlicerStore.getState().clearPlateResults();
     useSlicerStore.setState({ status: 'idle', error: null });
     useSettingsStore.getState().resetNativeScopedConfig();
+  });
+
+  async function ordinaryFixture() {
+    const runtime = createClient(async () => createMockModule()); await runtime.init(MOCK_PROFILE_ACTIVATION);
+    const context = { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+    const source = await runtime.getPresetDraft('filament', 'Generic PLA @System');
+    if (!source.ok) throw new Error(source.error);
+    const first = await runtime.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
+      expectedRevision: source.revision, action: 'set', key: 'filament_flow_ratio', value: '0.93' }, context);
+    if (!first.ok || first.projectionKind !== 'full') throw new Error('expected full first edit');
+    useSettingsStore.getState().hydrateProfileSnapshot(first.profileSnapshot);
+    useSettingsStore.getState().applyNativeScopedConfigTransport(first.nativeScopedConfig);
+    useFilamentSessionStore.getState().publish(first.filamentSession);
+    useHistoryNavigationStore.getState().setStatus(first.historyStatus);
+    const request: PresetDraftMutationRequest = { kind: 'filament', canonicalName: source.canonicalName,
+      expectedRevision: first.revision, action: 'set', key: 'filament_flow_ratio', value: '0.94' };
+    return { runtime, request, platform: { runtime } as unknown as PlatformCapabilities };
+  }
+
+  it('applies ordinary native values while retaining catalogue/reference identities without reads or scoped reset', async () => {
+    const { runtime, request, platform } = await ordinaryFixture();
+    const settingsBefore = useSettingsStore.getState(), sessionBefore = useFilamentSessionStore.getState().snapshot!;
+    useSettingsStore.getState().setConfigurationMode('scoped');
+    const getProfile = vi.spyOn(runtime, 'getProfileSnapshot'), getFilament = vi.spyOn(runtime, 'getFilamentSessionSnapshot');
+    const hydrate = vi.spyOn(useSettingsStore.getState(), 'hydrateProfileSnapshot');
+    const result = await commitPresetDraftMutation(platform, request, null);
+    if (!result.ok || result.projectionKind !== 'ordinary-edit') throw new Error('expected ordinary edit');
+    expect(getProfile).not.toHaveBeenCalled(); expect(getFilament).not.toHaveBeenCalled(); expect(hydrate).not.toHaveBeenCalled();
+    const settings = useSettingsStore.getState(), session = useFilamentSessionStore.getState().snapshot!;
+    expect(settings.printers).toBe(settingsBefore.printers); expect(settings.prints).toBe(settingsBefore.prints);
+    expect(settings.filamentCatalog).toBe(settingsBefore.filamentCatalog);
+    expect(session.assignments).toBe(sessionBefore.assignments); expect(session.routing).toBe(sessionBefore.routing);
+    expect(session.slots).toBe(result.filamentSession.slots); expect(session.flushing).toBe(result.filamentSession.flushing);
+    expect(session.revisions.session).toBe(result.revisionAfter); expect(settings.configurationMode).toBe('scoped');
+    expect(settings.nativeScopedConfig).toEqual(result.nativeScopedConfig.snapshot);
+    expect(settings.nativeScopedConfigRevision).toBe(result.revisionAfter);
+    expect(settings.baseValues).toEqual(result.profileSnapshot.project_config);
+    expect(settings.bedType).toBe(result.profileSnapshot.bedType); expect(settings.tooltipDefaults).toBe(result.profileSnapshot.tooltip_defaults);
+  });
+
+  it.each(['missing', 'stale'] as const)('explicitly resyncs a %s ordinary projection base', async kind => {
+    const { runtime, request, platform } = await ordinaryFixture();
+    if (kind === 'missing') useFilamentSessionStore.getState().reset();
+    else useSettingsStore.setState({ nativeScopedConfigRevision: request.expectedRevision - 1 });
+    const getProfile = vi.spyOn(runtime, 'getProfileSnapshot'), getFilament = vi.spyOn(runtime, 'getFilamentSessionSnapshot');
+    const result = await commitPresetDraftMutation(platform, request, null);
+    if (!result.ok) throw new Error(result.error);
+    expect(getProfile).toHaveBeenCalledOnce(); expect(getFilament).toHaveBeenCalledOnce();
+    expect(useFilamentSessionStore.getState().snapshot).toEqual(await runtime.getFilamentSessionSnapshot());
+    const profile = await runtime.getProfileSnapshot(); if (!profile.ok) throw new Error(profile.error);
+    expect(useSettingsStore.getState().filamentCatalog).toEqual(profile.filamentCatalog);
+    expect(useSettingsStore.getState().nativeScopedConfigRevision).toBe(result.revisionAfter);
+  });
+
+  it('reports failed recovery as an already committed edit and still publishes its history/scoped/plate receipts', async () => {
+    const { runtime, request, platform } = await ordinaryFixture();
+    useFilamentSessionStore.getState().reset();
+    vi.spyOn(runtime, 'getProfileSnapshot').mockRejectedValue(new Error('resync unavailable'));
+    const mutate = vi.spyOn(runtime, 'mutatePresetDraft');
+    let failure: unknown;
+    try { await commitPresetDraftMutation(platform, request, null); } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(CommittedPresetDraftProjectionError);
+    const committed = failure as CommittedPresetDraftProjectionError;
+    expect(committed.receipt.ok).toBe(true); expect(committed.message).toContain('The edit was committed');
+    expect(mutate).toHaveBeenCalledOnce();
+    expect(useHistoryNavigationStore.getState().status?.revision).toBe(committed.receipt.revisionAfter);
+    expect(useSettingsStore.getState().nativeScopedConfig).toEqual(committed.receipt.nativeScopedConfig.snapshot);
+    expect(useSettingsStore.getState().nativeScopedConfigRefreshRequired).toBe(true);
+    expect(usePlateSessionStore.getState().snapshot).toBe(committed.receipt.plateSession);
+    expect(useFilamentSessionStore.getState().snapshot).toBeNull();
+    expect(useSlicerStore.getState().error).toBe(committed.message);
+    const repeated = await commitPresetDraftMutation(platform, request, null);
+    expect(repeated).toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    expect(mutate).toHaveBeenCalledOnce();
   });
 
   it.each(['draft', 'save-as', 'delete'] as const)('samples renderer selection and gizmo inside the shared FIFO for %s', async action => {
