@@ -2,15 +2,22 @@ import type { ColorValue } from '@orca/platform-contract';
 
 export interface ColorPalette { id: string; name: string; colors: readonly { name: string; value: ColorValue }[] }
 
-// Display swatches from the user-provided ColorDialog reference. RAL values
+// Display swatches from OrcaSlicer commit 26f5fd6251de6a7b4ae6280d550dae7045b0026a. RAL values
 // are screen approximations, not authoritative physical color measurements.
 export const DEFAULT_COLOR_PALETTES: readonly ColorPalette[] = [
   { id: 'gradient', name: 'Gradients', colors: [
-    { name: 'Pearl', value: { kind: 'linear-gradient', start: '#D8FEE7', end: '#FFF5BD' } },
-    { name: 'Gold', value: { kind: 'linear-gradient', start: '#FFF47B', end: '#CD9800' } },
-    { name: 'Silver', value: { kind: 'linear-gradient', start: '#373737', end: '#F5F4F4' } },
-    { name: 'Copper', value: { kind: 'linear-gradient', start: '#C39292', end: '#C73725' } },
-    { name: 'Brass', value: { kind: 'linear-gradient', start: '#DED699', end: '#C99620' } },
+    { name: "Metal: Gold", value: { kind: 'linear-gradient', colors: ["#FFF47B", "#CD9800"] } },
+    { name: "Metal: Silver", value: { kind: 'linear-gradient', colors: ["#373737", "#F5F4F4"] } },
+    { name: "Metal: Copper", value: { kind: 'linear-gradient', colors: ["#C39292", "#C73725"] } },
+    { name: "Metal: Brass", value: { kind: 'linear-gradient', colors: ["#DED699", "#C99620"] } },
+    { name: "Metal: Bronze", value: { kind: 'linear-gradient', colors: ["#6E4316", "#B0742E"] } },
+    { name: "Nature: Rainbow", value: { kind: 'linear-gradient', colors: ["#FF0000", "#FFFF00", "#00FF00", "#00FFFF", "#0000FF", "#FF00FF", "#FF0000"] } },
+    { name: "Nature: Pearl", value: { kind: 'linear-gradient', colors: ["#D8FEE7", "#FFF5BD"] } },
+    { name: "Nature: Clear Sky", value: { kind: 'linear-gradient', colors: ["#1E5AA8", "#3D8BD9", "#7DB9F0", "#C9E6FF"] } },
+    { name: "Nature: Sunset", value: { kind: 'linear-gradient', colors: ["#2B1B5A", "#7A2E7E", "#D9466E", "#F57C3A", "#FFC857"] } },
+    { name: "Wood: Dark", value: { kind: 'linear-gradient', colors: ["#3B2416", "#5A3A24", "#45291A", "#6B4630", "#3B2416"] } },
+    { name: "Wood: Medium", value: { kind: 'linear-gradient', colors: ["#8B5A2B", "#A8733F", "#946235", "#B5844F", "#8B5A2B"] } },
+    { name: "Wood: Light", value: { kind: 'linear-gradient', colors: ["#D9B98C", "#E8CFA6", "#D3AE7C", "#EBD5B0", "#D9B98C"] } },
   ] },
   {
     "id": "basic",

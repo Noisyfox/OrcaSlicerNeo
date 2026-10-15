@@ -358,12 +358,13 @@ remains at the right. Existing row layout and hover behaviour remain unchanged.
 The slot number retains the original direct text styling and
 representative-colour luminance contrast rule. The colour block
 tooltip names the mode and complete colour sequence. The slot editor uses the
-shared opaque solid or two-endpoint gradient picker. Imported dual/multi-colour
-partitions and gradients with extra stops open as a draft from their first and
-last displayed colours. Cancel leaves all raw metadata untouched; Confirm commits a
-two-endpoint gradient and discards intermediate colours and the partition type,
-even when those endpoints were not changed in the draft. An unchanged canonical
-solid or two-endpoint gradient does not create a mutation. A change to any slot
+[shared color picker](Reusable%20Color%20Picker.md) with solid colors, alpha,
+and gradients of 2 to 7 ordered colors. Imported gradients within this limit
+retain every color and alpha byte in the editor. Imported partitions and
+longer gradients show a preservation notice and open from the first color;
+Cancel and unchanged Confirm retain all raw metadata. Explicit edits replace
+the native tuple with the selected solid or complete ordered gradient. An
+unchanged canonical solid or gradient does not create a mutation. A change to any slot
 colour metadata closes an open draft. Model and toolpath rendering continue to
 use the representative colour.
 

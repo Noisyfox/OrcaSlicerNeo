@@ -1842,11 +1842,14 @@ json set_filament_slot_colour_command(const json& request, const Runtime& runtim
             representative = colour["color"].get<std::string>();
             multi_colour = representative;
             colour_type = "1";
-        } else if (kind == "linear-gradient" && colour.size() == 3 &&
-                   colour.contains("start") && colour.contains("end") &&
-                    valid_colour(colour["start"]) && valid_colour(colour["end"])) {
-            representative = colour["start"].get<std::string>();
-            multi_colour = representative + " " + colour["end"].get<std::string>();
+        } else if (kind == "linear-gradient" && colour.size() == 2 && colour.contains("colors") &&
+                   colour["colors"].is_array() && colour["colors"].size() >= 2 && colour["colors"].size() <= 7 &&
+                   std::all_of(colour["colors"].begin(), colour["colors"].end(), valid_colour)) {
+            representative = colour["colors"][0].get<std::string>();
+            for (const auto& color : colour["colors"]) {
+                if (!multi_colour.empty()) multi_colour += " ";
+                multi_colour += color.get<std::string>();
+            }
             colour_type = "0";
         } else {
             throw FilamentCommandFailure("native_validation_failure", "native filament colour validation failed");

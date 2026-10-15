@@ -3,7 +3,7 @@ import { useColorFavorites } from '@/lib/useColorFavorites';
 
 /** Application binding; the reusable picker itself never accesses platform state. */
 export function UserColorPickerPopover(props: Omit<ColorPickerPopoverProps,
-  'favorites' | 'favoritesReady' | 'onFavoriteAdd' | 'onFavoriteRemove'>) {
+  'favorites' | 'favoritesReady' | 'onFavoriteAdd' | 'onFavoriteRemove' | 'uiState' | 'onUiStateChange'>) {
   const favorites = useColorFavorites();
   return <ColorPickerPopover {...props} {...favorites} />;
 }

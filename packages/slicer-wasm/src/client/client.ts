@@ -613,11 +613,12 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     const validColour = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
     const valid = colour && typeof colour === 'object' && !Array.isArray(colour) &&
       ((colour.kind === 'solid' && Object.keys(colour).length === 2 && validColour(colour.color)) ||
-       (colour.kind === 'linear-gradient' && Object.keys(colour).length === 3 && validColour(colour.start) && validColour(colour.end)));
+       (colour.kind === 'linear-gradient' && Object.keys(colour).length === 2 && Array.isArray(colour.colors) &&
+        colour.colors.length >= 2 && colour.colors.length <= 7 && colour.colors.every(validColour)));
     if (!valid) return { ok: false, version: 1, error: 'invalid filament mutation colour', errorCode: 'invalid_response' };
     const native = snapshot.slots[Number(mutation.slot) - 1].colour.native;
-    const first = colour.kind === 'solid' ? colour.color : colour.start;
-    const multi = colour.kind === 'solid' ? first : `${first} ${colour.end}`;
+    const first = colour.kind === 'solid' ? colour.color : (colour.colors as string[])[0];
+    const multi = colour.kind === 'solid' ? first : (colour.colors as string[]).join(' ');
     if (native.representative !== first || native.multiColour !== multi ||
         native.type !== (colour.kind === 'solid' ? '1' : '0'))
       return { ok: false, version: 1, error: 'filament mutation colour does not match snapshot', errorCode: 'invalid_response' };

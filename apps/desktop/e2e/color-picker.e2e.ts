@@ -81,12 +81,12 @@ test('filament gradient alpha survives unchanged confirmation, cancellation, edi
     await page.getByRole('button', { name: 'Confirm', exact: true }).click();
     expect(stored()).toEqual(native);
     await trigger.click();
-    await page.getByRole('tab', { name: 'End', exact: true }).click();
+    await page.getByRole('tab', { name: 'Gradient color 2', exact: true }).click();
     await editHex(page, '44556620');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(stored()).toEqual(native);
     await trigger.click();
-    await page.getByRole('tab', { name: 'End', exact: true }).click();
+    await page.getByRole('tab', { name: 'Gradient color 2', exact: true }).click();
     await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('44556640');
     await editHex(page, '44556620');
     await page.getByRole('button', { name: 'Confirm', exact: true }).click();
@@ -96,7 +96,7 @@ test('filament gradient alpha survives unchanged confirmation, cancellation, edi
   try {
     await second.page.getByTestId('filament-colour-1').click();
     await expect(second.page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('11223380');
-    await second.page.getByRole('tab', { name: 'End', exact: true }).click();
+    await second.page.getByRole('tab', { name: 'Gradient color 2', exact: true }).click();
     await expect(second.page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('44556620');
   } finally { await second.app.close(); }
 });
@@ -215,34 +215,38 @@ test('red-to-white gradients fill bordered assignment swatches without wrapping 
   } finally { await app.close(); }
 });
 
-test('imported partition edits as a two-endpoint gradient only after confirmation', async () => {
+test('keeps imported partitions until an explicit gradient edit is confirmed', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'neo-gradient-edit-'));
   const preferences = join(dir, 'preferences.json');
+  const printer = 'Bambu Lab X1 Carbon 0.4 nozzle';
+  const original = { representative: '#998877', multiColour: '#112233 #abcdef #445566', type: '1' };
   writeFileSync(preferences, JSON.stringify({ version: 1,
-    selectedProfiles: { printer: 'Bambu Lab X1 Carbon 0.4 nozzle', print: '0.20mm Standard @BBL X1C' },
-    rememberedFilamentRacks: { 'Bambu Lab X1 Carbon 0.4 nozzle': { version: 1, slots: [
-      { preset: 'Generic PLA @System', colour: '#998877', native: {
-        representative: '#998877', multiColour: '#112233 #abcdef #445566', type: '1',
-      } },
+    selectedProfiles: { printer, print: '0.20mm Standard @BBL X1C' },
+    rememberedFilamentRacks: { [printer]: { version: 1, slots: [
+      { preset: 'Generic PLA @System', colour: '#998877', native: original },
     ] } },
   }));
   const { app, page } = await launch(preferences);
   try {
     const trigger = page.getByTestId('filament-colour-1');
-    await expect(trigger).toHaveCSS('background-image', /rgb\(17, 34, 51\).*rgb\(171, 205, 239\).*rgb\(68, 85, 102\)/);
+    const stored = () => JSON.parse(readFileSync(preferences, 'utf8')).rememberedFilamentRacks[printer].slots[0].native;
     await trigger.click();
-    await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('112233FF');
-    await page.getByRole('tab', { name: 'End' }).click();
-    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('445566FF');
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(trigger).toHaveCSS('background-image', /rgb\(171, 205, 239\)/);
-    await trigger.click();
+    await expect(page.getByRole('tab', { name: 'Solid', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByText('The current multi-color selection is kept until you choose a different color.')).toBeVisible();
     await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-    await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgb\(17, 34, 51\), rgb\(68, 85, 102\)\)/);
-    await expect.poll(() => JSON.parse(readFileSync(preferences, 'utf8'))
-      .rememberedFilamentRacks['Bambu Lab X1 Carbon 0.4 nozzle'].slots[0].native)
-      .toEqual({ representative: '#112233', multiColour: '#112233 #445566', type: '0' });
+    expect(stored()).toEqual(original);
+    await trigger.click();
+    await page.getByRole('tab', { name: 'Gradient', exact: true }).click();
+    await page.getByRole('tab', { name: 'Gradient color 2', exact: true }).click();
+    await editHex(page, '#445566');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect(stored()).toEqual(original);
+    await trigger.click();
+    await page.getByRole('tab', { name: 'Gradient', exact: true }).click();
+    await page.getByRole('tab', { name: 'Gradient color 2', exact: true }).click();
+    await editHex(page, '#445566');
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect.poll(stored).toEqual({ representative: '#112233', multiColour: '#112233 #445566', type: '0' });
   } finally { await app.close(); }
 });
 
@@ -250,7 +254,7 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
   const dir = mkdtempSync(join(tmpdir(), 'neo-color-picker-'));
   const preferences = join(dir, 'preferences.json');
   const hidden = [{ kind: 'solid', color: '#11223380' },
-    { kind: 'linear-gradient', start: '#FF000000', end: '#0000FF' }];
+    { kind: 'linear-gradient', colors: ['#FF000000', '#0000FF'] }];
   writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: {}, ui: { sidebarWidth: 320 },
     colorPicker: { favorites: hidden } }));
   // The main process writes asynchronously; a disk read can overlap truncation
@@ -284,16 +288,14 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
         Math.abs(bounds.y - anchorBounds.y - anchorBounds.height),
         Math.abs(bounds.y + bounds.height - anchorBounds.y));
     }).toBeLessThan(10);
-    await expect.poll(async () => {
-      const presets = (await page.getByLabel('Preset colors', { exact: true }).boundingBox())!;
-      const favorites = (await page.getByLabel('Favorite colors', { exact: true }).boundingBox())!;
-      return Math.abs(presets.y + presets.height - favorites.y - favorites.height);
-    }).toBeLessThan(2);
-    const modeBounds = (await page.locator('[data-slot="color-picker-mode-row"]').boundingBox())!;
-    const redBounds = (await page.getByRole('spinbutton', { name: 'R value', exact: true }).boundingBox())!;
-    const alphaBounds = (await page.getByRole('spinbutton', { name: 'Alpha value', exact: true }).boundingBox())!;
-    const gridBounds = (await page.getByLabel('Favorite colors', { exact: true }).boundingBox())!;
-    expect(Math.abs((gridBounds.y - alphaBounds.y - alphaBounds.height) - (redBounds.y - modeBounds.y - modeBounds.height))).toBeLessThan(2);
+    const collapsedWidth = (await popup.boundingBox())!.width;
+    await expect(page.getByRole('spinbutton', { name: 'H value', exact: true })).toBeVisible();
+    await expect(page.getByRole('spinbutton', { name: 'R value', exact: true })).toBeVisible();
+    await expect(page.getByRole('slider', { name: 'Saturation', exact: true })).toHaveAttribute('aria-orientation', 'vertical');
+    await page.getByRole('button', { name: 'Palettes', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Palettes', exact: true })).toHaveAttribute('aria-expanded', 'true');
+    await expect.poll(async () => (await popup.boundingBox())!.width).toBeGreaterThan(collapsedWidth + 150);
+    await expectSaved({ colorPicker: { ui: { sidebarOpen: true, paletteId: 'basic' } } });
     const presets = page.getByLabel('Preset colors', { exact: true });
     const favoriteBounds = (await page.getByLabel('Favorite colors', { exact: true }).boundingBox())!;
     await presets.hover();
@@ -391,5 +393,94 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await removeFavorite.click();
     await expect(favorite).toHaveCount(0);
     await expectSaved({ colorPicker: { favorites: hidden }, ui: { sidebarWidth: 320 } });
+  } finally { await second.app.close(); }
+});
+
+test('edits seven gradient colors with compact controls and persists palette state and complete favorites', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-seven-color-picker-'));
+  const preferences = join(dir, 'preferences.json');
+  const printer = 'Bambu Lab X1 Carbon 0.4 nozzle';
+  const initial = { representative: '#11223301', multiColour: '#11223301 #44556680 #778899FE', type: '0' };
+  writeFileSync(preferences, JSON.stringify({ version: 1,
+    selectedProfiles: { printer, print: '0.20mm Standard @BBL X1C' },
+    rememberedFilamentRacks: { [printer]: { version: 1, slots: [{ preset: 'Generic PLA @System', colour: initial.representative, native: initial }] } },
+  }));
+  const colors = ['#FF000001', '#FFFF0080', '#00FF00FE', '#00FFFF00', '#0000FFFF', '#FF00FF40', '#FF8000AA'];
+  const normalized = colors.map(hex => hex.endsWith('FF') ? hex.slice(0, 7) : hex);
+  const stored = () => JSON.parse(readFileSync(preferences, 'utf8'));
+  const first = await launch(preferences);
+  try {
+    const { page } = first;
+    await page.getByTestId('filament-colour-1').click();
+    const popup = page.locator('[data-slot="popover-content"]');
+    const confirm = page.getByRole('button', { name: 'Confirm', exact: true });
+    const original = page.getByRole('button', { name: 'Original color', exact: true });
+    const red = page.getByRole('spinbutton', { name: 'R value', exact: true });
+    const hue = page.getByRole('spinbutton', { name: 'H value', exact: true });
+    await expect(red).toBeVisible(); await expect(hue).toBeVisible();
+    const saturation = page.getByRole('slider', { name: 'Saturation', exact: true });
+    await expect(saturation).toHaveAttribute('aria-orientation', 'vertical');
+    await saturation.focus(); await saturation.press('End');
+    await expect(red).not.toHaveValue('17');
+    await original.click();
+    await red.fill('999'); await expect(red).toHaveValue('255');
+    await red.fill(''); await expect(confirm).toBeDisabled();
+    await original.click(); await expect(confirm).toBeEnabled();
+    await page.getByRole('spinbutton', { name: 'Alpha value', exact: true }).focus();
+    await expect(page.getByRole('slider', { name: 'Opacity', exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Gradient color 1', exact: true })).toHaveCount(0);
+    await hue.focus();
+    await expect(page.getByRole('slider', { name: 'Opacity', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Palettes', exact: true }).click();
+    await page.getByRole('combobox', { name: 'Color palette', exact: true }).click();
+    await page.getByRole('option', { name: 'Gradients', exact: true }).click();
+    await page.getByRole('button', { name: 'Search colors', exact: true }).click();
+    const filter = page.getByRole('textbox', { name: 'Filter colors', exact: true });
+    await filter.fill('Rainbow');
+    await expect(page.getByLabel('Preset colors', { exact: true }).getByRole('button')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Nature: Rainbow', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Gradient color 7', exact: true })).toBeVisible();
+    await filter.focus(); await filter.press('Escape');
+    await expect(popup).toBeVisible(); await expect(filter).toHaveCount(0);
+    await original.click();
+    for (let i = 0; i < 4; ++i) await page.getByRole('button', { name: 'Add color', exact: true }).click();
+    const add = page.getByRole('button', { name: 'Add color', exact: true });
+    await expect(add).toBeDisabled();
+    await hue.hover(); await add.locator('..').hover(); await expect(page.locator('[data-slot="tooltip-content"]')).toHaveText('Up to 7 colors supported.');
+    for (let i = 0; i < colors.length; ++i) {
+      await page.getByRole('tab', { name: `Gradient color ${i + 1}`, exact: true }).click();
+      await editHex(page, colors[i]);
+    }
+    await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
+    await expect.poll(() => stored().colorPicker).toMatchObject({ ui: { sidebarOpen: true, paletteId: 'gradient' },
+      favorites: [{ kind: 'linear-gradient', colors: normalized }] });
+    await hue.focus(); await hue.hover();
+    await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(0);
+    await popup.screenshot({ path: test.info().outputPath('seven-color-picker.png') });
+    await original.click();
+    await expect(page.getByRole('tab', { name: 'Gradient color 4', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Favorite ' + normalized.join(' to '), exact: true }).click();
+    await page.getByRole('button', { name: 'Remove color', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Gradient color 7', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Favorite ' + normalized.join(' to '), exact: true }).click();
+    await confirm.click();
+    await expect.poll(() => stored().rememberedFilamentRacks[printer].slots[0].native).toEqual({
+      representative: normalized[0].toLowerCase(), multiColour: normalized.join(' ').toLowerCase(), type: '0',
+    });
+    await page.getByTestId('filament-colour-1').click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  } finally { await first.app.close(); }
+  const second = await launch(preferences);
+  try {
+    const { page } = second;
+    await page.getByTestId('filament-colour-1').click();
+    await expect(page.getByRole('button', { name: 'Palettes', exact: true })).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('combobox', { name: 'Color palette', exact: true })).toContainText('Gradients');
+    await expect(page.getByRole('tab', { name: 'Gradient color 7', exact: true })).toBeVisible();
+    await page.getByRole('tab', { name: 'Gradient color 3', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('00FF00FE');
+    await page.getByRole('tab', { name: 'Gradient color 4', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('00FFFF00');
+    await expect(page.getByRole('button', { name: 'Favorite ' + normalized.join(' to '), exact: true })).toBeVisible();
   } finally { await second.app.close(); }
 });

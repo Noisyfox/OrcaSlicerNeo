@@ -34,15 +34,24 @@ export function hslaToRgba(color: HslaColor): RgbaColor {
 }
 
 export function colorValueCss(value: ColorValue): string {
-  return value.kind === 'solid' ? value.color : `linear-gradient(to right, ${value.start}, ${value.end})`;
+  return value.kind === 'solid' ? value.color : `linear-gradient(to right, ${value.colors.join(', ')})`;
 }
 
 /** Enforce instance capabilities and explicit output format at commit boundaries. */
 export function formatColorValue(value: ColorValue, alpha = false, gradient = false): ColorValue {
   const format = (hex: string) => rgbaToHex(hexToRgba(hex) ?? { r: 0, g: 0, b: 0, a: 1 }, alpha);
   return value.kind === 'linear-gradient' && gradient
-    ? { kind: 'linear-gradient', start: format(value.start), end: format(value.end) }
-    : { kind: 'solid', color: format(value.kind === 'solid' ? value.color : value.start) };
+    ? { kind: 'linear-gradient', colors: value.colors.map(format) }
+    : { kind: 'solid', color: format(value.kind === 'solid' ? value.color : value.colors[0]) };
+}
+
+/** Orca's new-stop contrast: shift hue 75 degrees and pull lightness toward its opposite. */
+export function nextGradientColor(hex: string): string {
+  const color = rgbaToHsla(hexToRgba(hex)!);
+  const grey = color.s < 10;
+  const target = grey ? (color.l < 50 ? 100 : 0) : 100 - color.l;
+  return rgbaToHex(hslaToRgba({ ...color, h: color.h + 75, s: grey ? 0 : color.s,
+    l: color.l + (target - color.l) * 75 / 180 }), true);
 }
 
 export function spectrumColor(x: number, y: number, saturation: number, alpha: number): HslaColor {

@@ -110,25 +110,25 @@ it('uses pointer capture, clamps dragging outside the spectrum and stops on canc
 it('preserves RGB at zero alpha and independently edits gradient endpoints', async () => {
   const changed = vi.fn();
   function Picker() {
-    const [value, setValue] = useState<ColorValue>({ kind: 'linear-gradient', start: '#FF0000FF', end: '#0000FFFF' });
+    const [value, setValue] = useState<ColorValue>({ kind: 'linear-gradient', colors: ['#FF0000FF', '#0000FFFF'] });
     return <ColorPicker value={value} enableAlpha enableGradient onChange={next => { setValue(next); changed(next); }} />;
   }
   const container = await mount(<Picker />);
   await fill(container, 'Alpha value', '0');
-  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', start: '#FF000000', end: '#0000FFFF' });
-  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.getAttribute('aria-label') === 'End')!.click());
+  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', colors: ['#FF000000', '#0000FFFF'] });
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.getAttribute('aria-label') === 'Gradient color 2')!.click());
   await fill(container, 'Alpha value', '50');
-  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', start: '#FF000000', end: '#0000FF80' });
-  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.getAttribute('aria-label') === 'Start')!.click());
+  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', colors: ['#FF000000', '#0000FF80'] });
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.getAttribute('aria-label') === 'Gradient color 1')!.click());
   await fill(container, 'Alpha value', '100');
-  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', start: '#FF0000FF', end: '#0000FF80' });
+  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', colors: ['#FF0000FF', '#0000FF80'] });
 });
 
-it('hides unsupported favorites without deleting them and rejects transparent HEX when alpha is disabled', async () => {
-  const favorites: ColorValue[] = [{ kind: 'solid', color: '#11223380' }, { kind: 'linear-gradient', start: '#000000', end: '#FFFFFF' }];
+it('hides unsupported gradients, shows stored alpha swatches and rejects transparent HEX when alpha is disabled', async () => {
+  const favorites: ColorValue[] = [{ kind: 'solid', color: '#11223380' }, { kind: 'linear-gradient', colors: ['#000000', '#FFFFFF'] }];
   const changed = vi.fn(), remove = vi.fn();
   const container = await mount(<ColorPicker value={{ kind: 'solid', color: '#FFFFFF' }} onChange={changed} favorites={favorites} onFavoriteRemove={remove} />);
-  expect(container.querySelectorAll('button[aria-label^="Favorite "]')).toHaveLength(0);
+  expect(container.querySelectorAll('button[aria-label^="Favorite "]')).toHaveLength(1);
   expect(container.querySelector('input[aria-label="Alpha value"]')).toBeNull();
   await fill(container, 'HEX color', '#11223380');
   expect(changed).not.toHaveBeenCalled();
@@ -168,7 +168,6 @@ it('keeps hue 360 at the right edge when the caller canonicalizes HEX case', asy
     return <ColorPicker value={value} onChange={next => next.kind === 'solid' && setValue({ ...next, color: next.color.toLowerCase() })} />;
   }
   const container = await mount(<Picker />);
-  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(button => button.textContent === 'HSL')!.click());
   await fill(container, 'H value', '360');
   expect(container.querySelector<HTMLInputElement>('input[aria-label="H value"]')!.value).toBe('360');
   expect(container.querySelector<HTMLElement>('.color-spectrum-pointer')!.style.left).toBe('100%');
@@ -197,11 +196,132 @@ it('applies changed capabilities when confirming an already open dialog', async 
   function Picker() {
     const [enabled, setEnabled] = useState(true);
     disable = () => setEnabled(false);
-    return <ColorPickerPopover value={{ kind: 'linear-gradient', start: '#12345680', end: '#ABCDEFFF' }}
+    return <ColorPickerPopover value={{ kind: 'linear-gradient', colors: ['#12345680', '#ABCDEFFF'] }}
       open trigger={<Button>Open picker</Button>} onOpenChange={() => undefined} onConfirm={confirm} enableAlpha={enabled} enableGradient={enabled} />;
   }
   await mount(<Picker />);
   await act(async () => disable());
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Confirm')!.click());
   expect(confirm).toHaveBeenCalledExactlyOnceWith({ kind: 'solid', color: '#123456' });
+});
+
+it('adds up to seven ordered gradient colors, edits alpha independently, removes the active stop and restores the original', async () => {
+  const changed = vi.fn(), favorite = vi.fn();
+  const initial: ColorValue = { kind: 'solid', color: '#FF000080' };
+  function Picker() {
+    const [value, setValue] = useState(initial);
+    return <ColorPicker value={value} enableGradient enableAlpha onFavoriteAdd={favorite}
+      onChange={next => { setValue(next); changed(next); }} />;
+  }
+  const container = await mount(<Picker />);
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'Gradient')!.click());
+  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', colors: ['#FF000080', '#BFFF0080'] });
+  for (let i = 0; i < 5; ++i) await act(async () => button(container, 'Add color').click());
+  expect(container.querySelectorAll('[role="tab"][aria-label^="Gradient color"]')).toHaveLength(7);
+  expect(button(container, 'Add color').disabled).toBe(true);
+  const count = changed.mock.calls.length;
+  await act(async () => button(container, 'Add color').click());
+  expect(changed).toHaveBeenCalledTimes(count);
+  await fill(container, 'Alpha value', '0');
+  const gradient = changed.mock.calls.at(-1)![0];
+  expect(gradient.colors).toHaveLength(7);
+  expect(gradient.colors[0]).toBe('#FF000080');
+  expect(gradient.colors[5].slice(-2)).toBe('00');
+  await act(async () => button(container, 'Add favorite color').click());
+  expect(favorite).toHaveBeenLastCalledWith(gradient);
+  await act(async () => button(container, 'Remove color').click());
+  expect(changed.mock.calls.at(-1)![0].colors).toEqual(gradient.colors.filter((_: string, index: number) => index !== 5));
+  await act(async () => button(container, 'Original color').click());
+  expect(changed).toHaveBeenLastCalledWith(initial);
+  expect(container.querySelector<HTMLInputElement>('[aria-label="HEX color"]')!.value).toBe('FF000080');
+});
+
+it('preserves exact alpha bytes on stop switches and six-digit HEX edits, and restores each mode independently', async () => {
+  const changed = vi.fn();
+  function Picker() {
+    const [value, setValue] = useState<ColorValue>({ kind: 'linear-gradient', colors: ['#11223301', '#445566FE', '#77889980'] });
+    return <ColorPicker value={value} enableGradient enableAlpha onChange={next => { setValue(next); changed(next); }} />;
+  }
+  const container = await mount(<Picker />);
+  const stop = (index: number) => container.querySelector<HTMLButtonElement>(`[aria-label="Gradient color ${index}"]`)!;
+  await act(async () => stop(3).click());
+  await fill(container, 'HEX color', 'abcdef');
+  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', colors: ['#11223301', '#445566FE', '#ABCDEF80'] });
+  await act(async () => stop(1).click());
+  expect(container.querySelector<HTMLInputElement>('[aria-label="HEX color"]')!.value).toBe('11223301');
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'Solid')!.click());
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'Gradient')!.click());
+  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', colors: ['#11223301', '#445566FE', '#ABCDEF80'] });
+});
+
+it('filters palette colors by name and HEX, clears on Escape and keeps the popover open', async () => {
+  const confirm = vi.fn(), ui = vi.fn();
+  function Picker() {
+    const [open, setOpen] = useState(true);
+    return <ColorPickerPopover value={{ kind: 'solid', color: '#123456' }} open={open} onOpenChange={setOpen}
+      onConfirm={confirm} onUiStateChange={ui} trigger={<Button>Open picker</Button>} />;
+  }
+  await mount(<Picker />);
+  await act(async () => button(document.body, 'Palettes').click());
+  expect(ui).toHaveBeenLastCalledWith({ sidebarOpen: true, paletteId: 'basic' });
+  await act(async () => button(document.body, 'Search colors').click());
+  await fill(document.body, 'Filter colors', 'ff8000');
+  const presets = document.querySelector('[aria-label="Preset colors"]')!;
+  expect(presets.textContent).toBe('Orange');
+  await fill(document.body, 'Filter colors', 'no-such-color');
+  expect(presets.textContent).toContain('No matching colors');
+  await act(async () => document.querySelector('[aria-label="Filter colors"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  expect(document.querySelector('[aria-label="HEX color"]')).not.toBeNull();
+  expect(document.querySelector('[aria-label="Filter colors"]')).toBeNull();
+  expect(document.querySelector('[aria-label="Preset colors"]')!.textContent).toContain('Orange');
+  expect(confirm).not.toHaveBeenCalled();
+});
+
+it('clamps out-of-range channels, blocks empty edits and recovers every editor after a spectrum pick', async () => {
+  const confirm = vi.fn();
+  function Picker() {
+    const [open, setOpen] = useState(true);
+    return <ColorPickerPopover value={{ kind: 'solid', color: '#123456' }} open={open} onOpenChange={setOpen}
+      onConfirm={confirm} trigger={<Button>Open picker</Button>} />;
+  }
+  await mount(<Picker />);
+  await fill(document.body, 'R value', '256');
+  const confirmButton = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Confirm')!;
+  expect(confirmButton.disabled).toBe(false);
+  expect(document.querySelector<HTMLInputElement>('[aria-label="R value"]')!.value).toBe('255');
+  await fill(document.body, 'R value', '');
+  expect(confirmButton.disabled).toBe(true);
+  await fill(document.body, 'HEX color', 'invalid');
+  await act(async () => document.querySelector('[aria-label="Color spectrum"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
+  expect(confirmButton.disabled).toBe(false);
+  expect(document.querySelector('[aria-invalid="true"]')).toBeNull();
+});
+
+it('steps numeric fields and saturation with the mouse wheel without losing alpha', async () => {
+  const changed = vi.fn();
+  function Picker() {
+    const [value, setValue] = useState<ColorValue>({ kind: 'solid', color: '#11223301' });
+    return <ColorPicker value={value} enableAlpha onChange={next => { setValue(next); changed(next); }} />;
+  }
+  const container = await mount(<Picker />);
+  const red = container.querySelector('[aria-label="R value"]')!;
+  const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120 });
+  await act(async () => red.dispatchEvent(wheel));
+  expect(wheel.defaultPrevented).toBe(true);
+  expect(changed).toHaveBeenLastCalledWith({ kind: 'solid', color: '#12223301' });
+  const saturation = container.querySelector('[data-slot="slider"][aria-label="Saturation"]')!;
+  const before = Number(container.querySelector<HTMLInputElement>('[aria-label="S value"]')!.value);
+  await act(async () => saturation.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 120 })));
+  expect(Number(container.querySelector<HTMLInputElement>('[aria-label="S value"]')!.value)).toBe(before - 5);
+  expect(changed.mock.calls.at(-1)![0].color.slice(-2)).toBe('01');
+});
+
+it('normalizes a translucent favorite immediately when the opaque caller already has the same RGB', async () => {
+  const changed = vi.fn();
+  const container = await mount(<ColorPicker value={{ kind: 'solid', color: '#112233' }} onChange={changed}
+    favorites={[{ kind: 'solid', color: '#11223380' }]} />);
+  await act(async () => button(container, 'Favorite #11223380').click());
+  expect(changed).toHaveBeenLastCalledWith({ kind: 'solid', color: '#112233' });
+  expect(container.querySelector<HTMLInputElement>('[aria-label="HEX color"]')!.value).toBe('112233');
+  expect(container.querySelector('[aria-invalid="true"]')).toBeNull();
 });

@@ -39,6 +39,7 @@ function Slider({
     : Array.isArray(defaultValue)
       ? defaultValue
       : [min, max]
+  const thumbLabel = _values.length === 1 ? props['aria-label'] : undefined;
 
   return (
     <SliderPrimitive.Root
@@ -64,6 +65,7 @@ function Slider({
         </SliderPrimitive.Track>
         {Array.from({ length: _values.length }, (_, index) => (
           <SliderPrimitive.Thumb
+            getAriaLabel={thumbLabel ? () => thumbLabel : undefined}
             data-slot="slider-thumb"
             data-testid={thumbTestIds?.[index]}
             data-thumb-index={index}

@@ -37,7 +37,7 @@ assert.equal(session().slots.length, 2);
 const alternate = selected.filament_catalog.find(entry => entry.name !== session().slots[0].preset.name);
 assert.ok(alternate, 'H2D must expose a second compatible source preset');
 command('orc_select_filament_slot_preset', { slot: 2, preset: alternate.name });
-command('orc_set_filament_slot_colour', { slot: 1, colour: { kind: 'linear-gradient', start: '#123456', end: '#654321' } });
+command('orc_set_filament_slot_colour', { slot: 1, colour: { kind: 'linear-gradient', colors: ['#123456', '#654321'] } });
 command('orc_set_filament_slot_colour', { slot: 2, colour: { kind: 'solid', color: '#ABCDEF' } });
 assert.equal(call('orc_add_shape', ['string', 'string'], ['Cube', 'Single H2D material']).ok, true);
 command('orc_assign_filament', { slot: 2, targets: [{ kind: 'object', id: session().assignments.objects[0].id }] });

@@ -19,13 +19,18 @@ function DraftEditor({ value, onConfirm, onOpenChange, title = 'Choose color', .
   const [valid, setValid] = useState(true);
   return <PopoverContent align="start" sideOffset={6}
     onContextMenu={event => event.stopPropagation()}
-    className="max-h-[min(90vh,var(--available-height))] w-[550px] max-w-[calc(100vw-24px)] gap-3 p-3">
+    onKeyDown={event => {
+      if (event.key === 'Enter' && event.target instanceof HTMLInputElement && ['text', 'number'].includes(event.target.type)) {
+        event.preventDefault();
+        if (valid && !props.disabled) { onConfirm(formatColorValue(draft, props.enableAlpha, props.enableGradient)); onOpenChange(false); }
+      }
+    }}
+    className="max-h-[min(90vh,var(--available-height))] w-auto max-w-[calc(100vw-24px)] gap-2 p-3">
     <PopoverTitle className="sr-only">{title}</PopoverTitle>
-    <ColorPicker {...props} className="min-h-0 flex-1" value={draft} onChange={setDraft} onValidityChange={setValid} />
-    <div className="flex shrink-0 justify-end gap-2">
+    <ColorPicker {...props} className="min-h-0 flex-1" value={draft} onChange={setDraft} onValidityChange={setValid} actions={<>
       <Button variant="settings" onClick={() => onOpenChange(false)}>Cancel</Button>
       <Button disabled={props.disabled || !valid} onClick={() => { onConfirm(formatColorValue(draft, props.enableAlpha, props.enableGradient)); onOpenChange(false); }}>Confirm</Button>
-    </div>
+    </>} />
   </PopoverContent>;
 }
 

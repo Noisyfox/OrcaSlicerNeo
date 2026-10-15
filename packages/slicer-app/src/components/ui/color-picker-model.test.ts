@@ -29,8 +29,8 @@ it('maps spectrum boundaries analytically and keeps hue 360 on the right', () =>
 
 it('enforces the instance output format for unchanged values at confirmation', () => {
   expect(formatColorValue({ kind: 'solid', color: '#123456' }, true)).toEqual({ kind: 'solid', color: '#123456FF' });
-  expect(formatColorValue({ kind: 'linear-gradient', start: '#12345680', end: '#ABCDEF00' }))
+  expect(formatColorValue({ kind: 'linear-gradient', colors: ['#12345680', '#ABCDEF00'] }))
     .toEqual({ kind: 'solid', color: '#123456' });
-  expect(formatColorValue({ kind: 'linear-gradient', start: '#12345680', end: '#ABCDEF' }, true, true))
-    .toEqual({ kind: 'linear-gradient', start: '#12345680', end: '#ABCDEFFF' });
+  expect(formatColorValue({ kind: 'linear-gradient', colors: ['#12345680', '#ABCDEF'] }, true, true))
+    .toEqual({ kind: 'linear-gradient', colors: ['#12345680', '#ABCDEFFF'] });
 });

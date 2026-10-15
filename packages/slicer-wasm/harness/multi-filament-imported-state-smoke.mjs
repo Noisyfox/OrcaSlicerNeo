@@ -269,8 +269,11 @@ if (options['edit-only'] === 'true') {
     version: 1, revision: revision(), slot: 1, colour, ...extra,
   });
   for (const colour of ['#112233', { kind: 'solid', color: '#112233GG' },
-    { kind: 'linear-gradient', start: '#112233', end: '#0000FF8' },
-    { kind: 'linear-gradient', start: '#112233', end: '#0000FF40', middle: '#abcdef' }]) {
+    { kind: 'linear-gradient', colors: ['#112233', '#0000FF8'] },
+    { kind: 'linear-gradient', colors: ['#112233', '#0000FF40'], middle: '#abcdef' },
+    { kind: 'linear-gradient', colors: ['#112233'] },
+    { kind: 'linear-gradient', colors: Array(8).fill('#112233') },
+    { kind: 'linear-gradient', start: '#112233', end: '#445566' }]) {
     const rejected = command(colour);
     assert.equal(rejected.error_code, 'native_validation_failure', JSON.stringify(rejected));
     assert.deepEqual(native(), original, 'invalid colour command must not mutate any raw slot');
@@ -287,7 +290,7 @@ if (options['edit-only'] === 'true') {
     assert.equal(undo.ok, true, JSON.stringify(undo));
     assert.deepEqual(native(), original, 'Undo restores raw colours after a solid RGBA edit');
   }
-  const colour = { kind: 'linear-gradient', start: '#FFEEDD80', end: '#0000FF40' };
+  const colour = { kind: 'linear-gradient', colors: ['#FFEEDD80', '#11223301', '#445566FE', '#77889900', '#ABCDEF', '#FF0080AA', '#0000FF40'] };
   for (const extra of [{ inject_failure: true }, { inject_failure_stage: 'before-history' },
     { inject_failure_stage: 'during-history' }]) {
     const rejected = command(colour, extra);
@@ -298,8 +301,8 @@ if (options['edit-only'] === 'true') {
   const edited = command(colour);
   assert.equal(edited.ok, true, JSON.stringify(edited));
   assert.deepEqual(edited.result.mutation.colour, colour);
-  assert.deepEqual(native()[0], { representative: '#FFEEDD80', multi_colour: '#FFEEDD80 #0000FF40', type: '0' });
-  assert.deepEqual(session().slots[0].colour.display, { mode: 'gradient', colors: ['#FFEEDD80', '#0000FF40'] });
+  assert.deepEqual(native()[0], { representative: '#FFEEDD80', multi_colour: colour.colors.join(' '), type: '0' });
+  assert.deepEqual(session().slots[0].colour.display, { mode: 'gradient', colors: colour.colors });
   assert.deepEqual(native().slice(1), original.slice(1), 'unrelated imported slots stay raw-identical');
   assert.equal(edited.result.mutation.history_entry_delta, 1);
   const after = session();
@@ -312,11 +315,11 @@ if (options['edit-only'] === 'true') {
   assert.deepEqual(native(), original, 'Undo restores all imported raw metadata');
   const redo = callJson('orc_history_redo');
   assert.equal(redo.ok, true, JSON.stringify(redo));
-  assert.deepEqual(native()[0], after.slots[0].colour.native, 'Redo restores complete two-endpoint gradient');
+  assert.deepEqual(native()[0], after.slots[0].colour.native, 'Redo restores complete seven-stop gradient');
   const saved = exportProject();
   const settings = JSON.parse(exportedText(saved, 'Metadata/project_settings.config'));
   assert.deepEqual(settings.filament_colour[0], '#FFEEDD80');
-  assert.deepEqual(settings.filament_multi_colour[0], '#FFEEDD80 #0000FF40');
+  assert.deepEqual(settings.filament_multi_colour[0], colour.colors.join(' '));
   assert.deepEqual(settings.filament_colour_type[0], '0');
   const reopened = loadArchive(saved, 'edited-gradient.3mf');
   assert.equal(reopened.ok, true, JSON.stringify(reopened));

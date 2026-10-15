@@ -51,11 +51,11 @@ describe('Electron adapter', () => {
     const prefs = await adapter.preferences.load();
     await adapter.preferences.save({ ...prefs, colorPicker: { favorites: [
       { kind: 'solid', color: '#12345680' },
-      { kind: 'linear-gradient', start: '#FF000000', end: '#0000FFFF' },
+      { kind: 'linear-gradient', colors: ['#FF000000', '#0000FFFF'] },
     ] } });
     expect((await adapter.preferences.load()).colorPicker).toEqual({ favorites: [
       { kind: 'solid', color: '#12345680' },
-      { kind: 'linear-gradient', start: '#FF000000', end: '#0000FF' },
+      { kind: 'linear-gradient', colors: ['#FF000000', '#0000FF'] },
     ] });
   });
   it('round trips complete remembered filament colours through the host contract', async () => {

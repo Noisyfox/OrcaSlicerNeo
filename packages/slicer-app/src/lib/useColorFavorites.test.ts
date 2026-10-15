@@ -8,7 +8,7 @@ it('restores, shares, normalizes and persists favorites across a recreated contr
   const colors = createColorFavorites(repository);
   await Promise.all([
     colors.add({ kind: 'solid', color: '#12345680' }),
-    colors.add({ kind: 'linear-gradient', start: '#F008', end: '#00F' }),
+    colors.add({ kind: 'linear-gradient', colors: ['#F008', '#00F'] }),
     updateUserPreferences(repository, current => ({ ...current, ui: { ...current.ui, sidebarWidth: 400 } })),
   ]);
   await colors.add({ kind: 'solid', color: '#0000FFFF' });
@@ -33,4 +33,20 @@ it('keeps a full collection intact instead of evicting a favorite', async () => 
   expect(saved.colorPicker!.favorites).toEqual(reordered);
   const restored = createColorFavorites(repository); await restored.load();
   expect(restored.getSnapshot().favorites).toEqual(reordered);
+});
+
+it('merges picker layout and concurrent favorite writes without losing other preferences', async () => {
+  let saved = normalizeUserPreferences(DEFAULT_USER_PREFERENCES);
+  const repository: UserPreferencesRepository = { async load() { return structuredClone(saved); }, async save(next) { saved = normalizeUserPreferences(next); } };
+  const colors = createColorFavorites(repository);
+  await Promise.all([
+    colors.updateUi({ sidebarOpen: true, paletteId: 'gradient' }),
+    colors.add({ kind: 'linear-gradient', colors: ['#11223301', '#44556680', '#778899FE'] }),
+    updateUserPreferences(repository, current => ({ ...current, ui: { ...current.ui, sidebarWidth: 480 } })),
+  ]);
+  const restored = createColorFavorites(repository); await restored.load();
+  expect(restored.getSnapshot()).toEqual(colors.getSnapshot());
+  expect(saved.colorPicker!.ui).toEqual({ sidebarOpen: true, paletteId: 'gradient' });
+  expect(saved.colorPicker!.favorites).toEqual([{ kind: 'linear-gradient', colors: ['#11223301', '#44556680', '#778899FE'] }]);
+  expect(saved.ui.sidebarWidth).toBe(480);
 });

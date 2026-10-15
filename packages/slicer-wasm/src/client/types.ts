@@ -1326,7 +1326,7 @@ export interface FilamentSlotPresetRequest extends FilamentCommandRequest {
 
 export type FilamentSlotColourValue =
   | { readonly kind: 'solid'; readonly color: string }
-  | { readonly kind: 'linear-gradient'; readonly start: string; readonly end: string };
+  | { readonly kind: 'linear-gradient'; readonly colors: readonly string[] };
 
 export interface FilamentSlotColourRequest extends FilamentCommandRequest {
   readonly slot: number;

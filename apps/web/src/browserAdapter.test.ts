@@ -26,10 +26,10 @@ describe('browser adapter', () => {
     const prefs = await first.preferences.load();
     await first.preferences.save({ ...prefs, colorPicker: { favorites: [
       { kind: 'solid', color: '#12345680' },
-      { kind: 'linear-gradient', start: '#FF000000', end: '#0000FFFF' },
+      { kind: 'linear-gradient', colors: ['#FF000000', '#0000FFFF'] },
     ] } });
     const expected = { favorites: [{ kind: 'solid', color: '#12345680' },
-      { kind: 'linear-gradient', start: '#FF000000', end: '#0000FF' }] };
+      { kind: 'linear-gradient', colors: ['#FF000000', '#0000FF'] }] };
     expect(JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!).colorPicker).toEqual(expected);
     expect((await createBrowserAdapter({} as never).preferences.load()).colorPicker).toEqual(expected);
   });
