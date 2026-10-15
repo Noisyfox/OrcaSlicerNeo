@@ -87,7 +87,7 @@ const commit = extra => update('orc_painting_stroke_commit', { strokeId: session
 function geometry(knownResourceIds = []) {
   const result = ok(command('orc_painting_geometry', { ...handle(), knownResourceIds }));
   try { for (const resource of result.resources) {
-      resource.vertices = Array.from(new Float32Array(Module.HEAPU8.slice(resource.vertex_ptr, resource.vertex_ptr + resource.vertexCount * 24).buffer));
+      resource.vertices = Array.from(new Float32Array(Module.HEAPU8.slice(resource.vertex_ptr, resource.vertex_ptr + resource.vertexCount * 12).buffer));
       resource.contour = Array.from(new Float32Array(Module.HEAPU8.slice(resource.contour_ptr, resource.contour_ptr + resource.contourVertexCount * 12).buffer));
   } } finally { Module.ccall('orc_painting_geometry_release', null, ['string'], [JSON.stringify({ version: 1, leaseId: result.leaseId })]); }
   return result;
@@ -133,10 +133,10 @@ for (const subdivided of [false, true]) {
   assert.ok(leaf); assert.equal(leaf.vertexCount, 3);
   assert.ok(leaf.contourVertexCount >= 6 && leaf.contourVertexCount % 2 === 0);
   const draftVertices = draft.resources[0].vertices;
-  assert.ok(Array.from({ length: draftVertices.length / 18 }, (_, i) => draftVertices.slice(i * 18, i * 18 + 18))
+  assert.ok(Array.from({ length: draftVertices.length / 9 }, (_, i) => draftVertices.slice(i * 9, i * 9 + 9))
     .some(vertices => JSON.stringify(vertices) === JSON.stringify(leaf.vertices)), 'native selected geometry must be one current draft leaf');
   if (subdivided) {
-    const [a, b, c] = [0, 6, 12].map(i => leaf.vertices.slice(i, i + 3));
+    const [a, b, c] = [0, 3, 6].map(i => leaf.vertices.slice(i, i + 3));
     const ab = b.map((v, i) => v - a[i]), ac = c.map((v, i) => v - a[i]);
     const area = Math.hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) / 2;
     assert.ok(area < 200, 'subdivided selection must be smaller than an original cube triangle');

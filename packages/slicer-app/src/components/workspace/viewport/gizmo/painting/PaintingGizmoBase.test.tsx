@@ -43,6 +43,7 @@ it.each([
   expect(material.depthWrite).toBe(depthWrite);
   expect(material.depthTest).toBe(true);
   expect(material.side).toBe(THREE.DoubleSide);
+  expect(material.flatShading).toBe(true);
   material.dispose();
 });
 it('keeps candidate overlay opacity independent of translucent filament alpha', () => {
@@ -52,6 +53,7 @@ it('keeps candidate overlay opacity independent of translucent filament alpha', 
   expect(material.transparent).toBe(true);
   expect(material.depthWrite).toBe(false);
   expect(material.side).toBe(THREE.DoubleSide);
+  expect(material.flatShading).toBe(true);
   material.dispose();
 });
 beforeEach(() => {
@@ -70,7 +72,7 @@ beforeEach(() => {
   canvas.releasePointerCapture = vi.fn((id) => { captures.delete(id); });
   const session = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, instanceTransform: identity, phase: 'idle' as const, strokeId: null, channel: 'mmu' as const, parts: [{ volumeId: 3, volumeTransform: identity, sourceTriangleCount: 1, annotationTimestamp: 0, draftResourceId: 'a', facetCounts: [] }] };
   mocked.state = { phase: 'idle', channel: 'mmu', session, tool: 'triangle', settings: { state: 1, erase: false, vertical: false, radius: 2, height: 1, angle: 30, gapArea: 0, overhangAngle: 0, restrictToOverhangs: false }, error: null, epoch: 1,
-    display: { ok: true, version: 1, channel: 'mmu' as const, sessionId: session.id, revision: 1, session, palette: null, parts: [{ volumeId: 3, resourceId: 'a' }], candidates: [], resources: [{ resourceId: 'a', volumeId: 3, kind: 'draft', vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array() }] } };
+    display: { ok: true, version: 1, channel: 'mmu' as const, sessionId: session.id, revision: 1, session, palette: null, parts: [{ volumeId: 3, resourceId: 'a' }], candidates: [], resources: [{ resourceId: 'a', volumeId: 3, kind: 'draft', vertices: new Float32Array(9), groups: [[0, 0, 3]], contour: new Float32Array() }] } };
   mocked.owner = { getSnapshot: () => mocked.state, get unfinished() { return mocked.state?.phase === 'drawing'; },
     press: vi.fn(async () => { mocked.state = { ...mocked.state!, phase: 'drawing' }; return 'paint'; }),
     release: vi.fn(), hoverAt: vi.fn(), reportDisplayError: vi.fn(), move: vi.fn(), cancel: vi.fn(), close: vi.fn() };
@@ -358,7 +360,7 @@ it('opens without reframing, holds the displayed pivot during delayed transform 
   await render([source]); near(pose(), beforeOpen); await rotate(); near(pose(), beforeOpen);
   const oldSession = { ...mocked.state!.session!, instanceTransform: new THREE.Matrix4().makeTranslation(100, 40, 20).toArray() };
   const display = { ok: true as const, version: 1 as const, channel: 'mmu' as const, sessionId: oldSession.id, revision: 1, session: oldSession, palette: null,
-    parts: [{ volumeId: 3, resourceId: 'a' }], candidates: [], resources: [{ resourceId: 'a', volumeId: 3, kind: 'draft' as const, vertices: new Float32Array(18), groups: [[0, 0, 3]] as [number, number, number][], contour: new Float32Array() }] };
+    parts: [{ volumeId: 3, resourceId: 'a' }], candidates: [], resources: [{ resourceId: 'a', volumeId: 3, kind: 'draft' as const, vertices: new Float32Array(9), groups: [[0, 0, 3]] as [number, number, number][], contour: new Float32Array() }] };
   mocked.state = { ...mocked.state!, session: oldSession, display }; await render([source]); near(pose(), beforeOpen);
   const oldPivot = new THREE.Vector3(100, 40, 20), oldPoint = cameraPoint(oldPivot);
   const nextSession = { ...oldSession, instanceTransform: new THREE.Matrix4().makeTranslation(-50, 75, 35).toArray(), revision: 2 };

@@ -646,6 +646,13 @@ incremental topology synchronization are not required for the first release;
 consider them later if measured generation, transfer, or upload costs justify
 the additional protocol and resource-lifetime complexity.
 
+Draft and candidate surface buffers contain nonindexed local-space xyz
+triangles, grouped by native facet state. The shared renderer derives flat
+face normals on the GPU, including under mirrored and nonuniform transforms;
+native display generation neither computes nor transfers per-vertex normals.
+This display layout does not change native normals used for painting selection
+or overhang classification. Contours remain xyz line-segment endpoints.
+
 Publish the resource manifest, its target/part transforms and its palette as
 one complete visual bundle. While entering painting, retain passive Prepare
 visuals until the first complete painting bundle is ready. During later

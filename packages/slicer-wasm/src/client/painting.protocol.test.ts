@@ -20,7 +20,7 @@ it.each(['valid', 'channel', 'session', 'revision', 'unsafe'] as const)('validat
 });
 function geometry() {
   const m = createMockModule();
-  const a = m._malloc(72), b = m._malloc(24);
+  const a = m._malloc(36), b = m._malloc(24);
   const raw: any = { ok: true, leaseId: 'pg-1', ...request, candidates: [], parts: [{ volumeId: 3, resourceId: 'pd-mmu-1-1-3' }], resources: [
     { volumeId: 3, resourceId: 'pd-mmu-1-1-3', kind: 'draft', vertex_ptr: a, vertexCount: 3, contour_ptr: b, contourVertexCount: 2, groups: [[0,0,3]] }] };
   const freed = vi.spyOn(m, '_free');
@@ -32,10 +32,20 @@ function geometry() {
   return { m, a, b, raw, freed };
 }
 describe('painting binary ownership', () => {
-  it('copies P3N3 and native contours before freeing all buffers', () => {
-    const { m, raw, freed } = geometry();
+  it('copies xyz triangles and native contours before freeing all buffers', () => {
+    const { m, raw, a, b, freed } = geometry();
+    const positions = [1, 2, 3, -4, 5, 6, 7, -8, 9];
+    const contour = [1, 2, 3, -4, 5, 6];
+    new Float32Array(m.HEAPU8.buffer, a, 9).set(positions);
+    new Float32Array(m.HEAPU8.buffer, b, 6).set(contour);
     const result = decodePaintingGeometry(m, raw, request);
-    expect('ok' in result && result.resources[0].vertices.length).toBe(18);
+    if (!('ok' in result)) throw new Error(result.error);
+    expect(Array.from(result.resources[0].vertices)).toEqual(positions);
+    expect(result.resources[0].vertices.byteLength).toBe(36);
+    expect(Array.from(result.resources[0].contour)).toEqual(contour);
+    expect(result.resources[0].groups).toEqual([[0, 0, 3]]);
+    new Float32Array(m.HEAPU8.buffer, a, 9).fill(0);
+    expect(Array.from(result.resources[0].vertices)).toEqual(positions);
     expect(freed).toHaveBeenCalledTimes(2);
   });
   it.each(['stale', 'groups', 'pointer', 'count', 'identity', 'nan', 'later'])('frees all buffers on %s malformed response', mode => {

@@ -94,39 +94,49 @@ public:
     // Display uses the native leaf topology and selection flags, independently
     // from the prospective state. Contours use the pinned selector's T-joints.
     struct Display {
-        std::vector<float> vertices; // nonindexed xyz + normal triangles
+        std::vector<float> vertices; // nonindexed xyz triangles; face normals are derived by the renderer
         std::vector<std::array<std::size_t, 3>> groups; // state, first vertex, count
     };
     Display display(const std::set<int>* membership = nullptr, bool selected_only = false) const {
         Display out;
         std::array<std::vector<float>, 17> buckets;
-        const auto append = [&](int i) {
-            const auto& triangle = m_triangles[i];
-            if (!triangle.valid() || triangle.is_split() || (selected_only && !triangle.is_selected_by_seed_fill())) return;
-            auto& bucket = buckets[std::size_t(triangle.get_state())];
-            const auto& a = m_vertices[triangle.verts_idxs[0]].v;
-            const auto& b = m_vertices[triangle.verts_idxs[1]].v;
-            const auto& c = m_vertices[triangle.verts_idxs[2]].v;
-            const Vec3f cross = (b - a).cross(c - a);
-            const Vec3f normal = cross.squaredNorm() > 0 ? cross.normalized().eval() : Vec3f::Zero();
-            for (int vertex : triangle.verts_idxs) {
-                for (int j = 0; j < 3; ++j) bucket.push_back(m_vertices[vertex].v[j]);
-                for (int j = 0; j < 3; ++j) bucket.push_back(normal[j]);
-            }
+        const auto for_each_leaf = [&](const auto& fn) {
+            const auto visit = [&](int i) {
+                const auto& triangle = m_triangles[i];
+                if (triangle.valid() && !triangle.is_split() && (!selected_only || triangle.is_selected_by_seed_fill())) fn(triangle);
+            };
+            if (membership) for (int i : *membership) visit(i);
+            else for (int i = 0; i < int(m_triangles.size()); ++i) visit(i);
         };
-        if (membership) for (int i : *membership) append(i);
-        else for (int i = 0; i < int(m_triangles.size()); ++i) append(i);
+        // Count only the displayed leaves, so tiny overlays do not reserve a
+        // whole part and each colour allocates only its own share of the data.
+        std::array<std::size_t, 17> sizes{};
+        for_each_leaf([&](const auto& triangle) { sizes[std::size_t(triangle.get_state())] += 9; });
+        std::size_t total = 0;
+        for (std::size_t state = 0; state < buckets.size(); ++state) {
+            buckets[state].reserve(sizes[state]);
+            total += sizes[state];
+        }
+        out.vertices.reserve(total);
+        out.groups.reserve(buckets.size());
+        for_each_leaf([&](const auto& triangle) {
+            auto& bucket = buckets[std::size_t(triangle.get_state())];
+            for (int vertex : triangle.verts_idxs)
+                for (int j = 0; j < 3; ++j) bucket.push_back(m_vertices[vertex].v[j]);
+        });
         for (std::size_t state = 0; state < buckets.size(); ++state) {
             const auto& bucket = buckets[state];
             if (bucket.empty()) continue;
-            out.groups.push_back({state, out.vertices.size() / 6, bucket.size() / 6});
+            out.groups.push_back({state, out.vertices.size() / 3, bucket.size() / 3});
             out.vertices.insert(out.vertices.end(), bucket.begin(), bucket.end());
         }
         return out;
     }
     std::vector<float> contour() const {
         std::vector<float> result;
-        for (const auto& edge : get_seed_fill_contour())
+        const auto edges = get_seed_fill_contour();
+        result.reserve(edges.size() * 6);
+        for (const auto& edge : edges)
             for (int vertex : edge) for (float value : m_vertices[vertex].v) result.push_back(value);
         return result;
     }

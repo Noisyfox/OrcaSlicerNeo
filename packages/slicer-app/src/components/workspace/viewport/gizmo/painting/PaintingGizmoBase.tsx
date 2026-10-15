@@ -23,6 +23,8 @@ export function paintingSurfaceMaterial(style: string, region: boolean, overhang
   return new THREE.MeshStandardMaterial({
     color: paintingModelColor(overhang ? '#ffb347' : region ? '#ffffff' : style),
     side: THREE.DoubleSide,
+    // Match Orca MMU: derive face normals from position derivatives on the GPU.
+    flatShading: true,
     transparent: region || model.transparent,
     opacity: overhang ? 0.25 : region ? 0.35 : model.opacity,
     depthWrite: !overlay && model.depthWrite,

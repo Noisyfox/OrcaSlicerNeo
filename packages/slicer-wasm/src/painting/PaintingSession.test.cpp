@@ -40,6 +40,32 @@ struct Fixture {
         sessions.publish(sessions.prepare_preview(s().id, s().revision, tool, settings, event));
     }
 };
+void display_positions_tests() {
+    const TriangleMesh mesh(its_make_cube(3., 5., 7.));
+    NativeSelector selector(mesh);
+    selector.set_facet(0, EnforcerBlockerType::ENFORCER);
+    selector.set_facet(4, EnforcerBlockerType::BLOCKER);
+    const auto display = selector.display();
+    std::vector<float> expected;
+    std::vector<std::array<std::size_t, 3>> groups;
+    for (int state = 0; state <= 2; ++state) {
+        const auto first = expected.size() / 3;
+        for (std::size_t i = 0; i < mesh.its.indices.size(); ++i) {
+            const int facet_state = i == 0 ? 1 : i == 4 ? 2 : 0;
+            if (facet_state != state) continue;
+            for (int vertex : mesh.its.indices[i])
+                for (int axis = 0; axis < 3; ++axis) expected.push_back(mesh.its.vertices[vertex][axis]);
+        }
+        groups.push_back({std::size_t(state), first, expected.size() / 3 - first});
+    }
+    CHECK(display.vertices == expected);
+    CHECK(display.groups == groups);
+    CHECK(display.vertices.size() == mesh.its.indices.size() * 9);
+    const std::set<int> membership{4};
+    const auto overlay = selector.display(&membership);
+    CHECK(overlay.vertices == std::vector<float>(expected.end() - 9, expected.end()));
+    CHECK(overlay.groups.size() == 1 && overlay.groups[0][0] == 2 && overlay.groups[0][2] == 3);
+}
 void channel_tests() {
     for (const auto channel : {Channel::Support, Channel::Seam, Channel::Fuzzy}) {
         Fixture f;
@@ -300,13 +326,13 @@ void triangle_preview_tests() {
         auto expected = selector->clone();
         expected->bucket_fill_select_triangles(hit.local.cast<float>(), hit.original_facet, {}, -1.f, false, true);
         const auto selected = expected->display(nullptr, true);
-        CHECK(selected.vertices.size() == 18);
+        CHECK(selected.vertices.size() == 9);
         if (subdivided) {
-            CHECK(selector->display().vertices.size() > 12 * 18);
+            CHECK(selector->display().vertices.size() > 12 * 9);
             CHECK(f.s().parts[0].facet_counts()[1] > 0);
             const Vec3f a(selected.vertices[0], selected.vertices[1], selected.vertices[2]);
-            const Vec3f b(selected.vertices[6], selected.vertices[7], selected.vertices[8]);
-            const Vec3f c(selected.vertices[12], selected.vertices[13], selected.vertices[14]);
+            const Vec3f b(selected.vertices[3], selected.vertices[4], selected.vertices[5]);
+            const Vec3f c(selected.vertices[6], selected.vertices[7], selected.vertices[8]);
             CHECK((b - a).cross(c - a).norm() * .5f < 50.f);
         }
         Settings settings; settings.state = 2; settings.angle.reset(); settings.radius = 100;
@@ -633,7 +659,7 @@ void engine_tests() {
     const auto overlay = selected.display(nullptr, true);
     CHECK(!overlay.vertices.empty() && !selected.contour().empty());
     CHECK(overlay.groups.front()[0] == 0); // Unpainted candidate is still visible.
-    CHECK(overlay.vertices.size() / 6 == selected.selected_facet_count() * 3);
+    CHECK(overlay.vertices.size() / 3 == selected.selected_facet_count() * 3);
     const auto old_geometry = publication.s().parts[0].geometry_revision;
     auto stroke_candidate = publication.sessions.prepare_begin(publication.s().id, publication.s().revision,
         Tool::Triangle, Settings{}, top(3, 4));
@@ -869,6 +895,7 @@ void selector_reuse_tests() {
 
 int main() {
     try {
+    display_positions_tests();
     channel_tests();
     seam_vertical_tests();
     smart_gap_overhang_tests();

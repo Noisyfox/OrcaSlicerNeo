@@ -65,7 +65,7 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
         throw new Error('invalid painting geometry');
       if (entry.kind === 'draft' ? !parts.some(p => p.resourceId === entry.resourceId && p.volumeId === entry.volumeId)
           : !candidates.some(candidate => candidate.resourceId === entry.resourceId && candidate.kind === entry.kind && candidate.volumeId === entry.volumeId)) throw new Error('invalid painting resource identity');
-      const vertices = copy(entry.vertex_ptr, entry.vertexCount, 6);
+      const vertices = copy(entry.vertex_ptr, entry.vertexCount, 3);
       const contour = copy(entry.contour_ptr, entry.contourVertexCount, 3);
       if (entry.vertexCount % 3 || entry.contourVertexCount % 2) throw new Error('invalid painting primitive count');
       let end = 0;

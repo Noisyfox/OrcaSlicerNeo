@@ -22,9 +22,7 @@ export class PaintingResources {
         const source = incoming.get(id)!;
         const geometry = new THREE.BufferGeometry(), contour = new THREE.BufferGeometry();
         created.set(id, { source, geometry, contour });
-        const buffer = new THREE.InterleavedBuffer(source.vertices, 6);
-        geometry.setAttribute('position', new THREE.InterleavedBufferAttribute(buffer, 3, 0));
-        geometry.setAttribute('normal', new THREE.InterleavedBufferAttribute(buffer, 3, 3));
+        geometry.setAttribute('position', new THREE.BufferAttribute(source.vertices, 3));
         source.groups.forEach(([, first, count], i) => geometry.addGroup(first, count, i));
         contour.setAttribute('position', new THREE.BufferAttribute(source.contour, 3));
       }

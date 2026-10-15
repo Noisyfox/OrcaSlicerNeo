@@ -151,7 +151,7 @@ export interface PaintingGeometry {
   readonly volumeId: number;
   readonly resourceId: string;
   readonly kind: 'draft' | 'triangle' | 'region' | 'smartFill' | 'gap' | 'overhang';
-  /** Nonindexed local-space P3N3 triangle vertices. */
+  /** Nonindexed local-space xyz triangle vertices; face normals are derived on the GPU. */
   readonly vertices: Float32Array;
   readonly groups: readonly (readonly [state: number, firstVertex: number, vertexCount: number])[];
   /** Local-space xyz line segment endpoints from native seed-fill topology. */

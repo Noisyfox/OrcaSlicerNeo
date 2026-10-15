@@ -285,7 +285,7 @@ std::uint64_t next_geometry_lease = 1;
 json geometry(Buffers& buffers, const NativeSelector::Display& data, const std::vector<float>& contour,
               std::size_t volume, const std::string& id, const char* kind) {
     return {{"volumeId", volume}, {"resourceId", id}, {"kind", kind},
-        {"vertex_ptr", buffers.copy(data.vertices)}, {"vertexCount", data.vertices.size() / 6},
+        {"vertex_ptr", buffers.copy(data.vertices)}, {"vertexCount", data.vertices.size() / 3},
         {"groups", data.groups}, {"contour_ptr", buffers.copy(contour)}, {"contourVertexCount", contour.size() / 3}};
 }
 template<class Fn> const char* invoke(Fn&& fn) {

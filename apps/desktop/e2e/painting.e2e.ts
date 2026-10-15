@@ -329,7 +329,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await expect.poll(async () => (await read())?.resources.find((r) => r.kind === 'triangle')?.matchesDraftLeaf).toBe(true);
     await settleFrames();
     const triangleLeaf = (await read())!.resources.find((r) => r.kind === 'triangle')!;
-    expect(triangleLeaf.vertices).toHaveLength(18); expect(triangleLeaf.contour).toHaveLength(18);
+    expect(triangleLeaf.vertices).toHaveLength(9); expect(triangleLeaf.contour).toHaveLength(18);
     await startFrames(); await settleFrames();
     const hoverContours = [triangleLeaf.contour!];
     for (const point of [topFaces[1], topFaces[0], topFaces[1], topFaces[0]]) {
@@ -402,7 +402,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       expect(fill, 'every continuous Region hover frame draws one native fill').toHaveLength(1);
       expect(fill[0].candidate).toMatchObject({color:'ffffff',opacity:0.35,depthWrite:false,polygonOffsetFactor:-2});
       expect(contour, 'every continuous Region hover frame draws one native contour').toHaveLength(1);
-      expect(regions.some((r) => JSON.stringify(r.vertices!.filter((_, i) => i % 6 < 3)) === JSON.stringify(fill[0].candidate!.positions)
+      expect(regions.some((r) => JSON.stringify(r.vertices!) === JSON.stringify(fill[0].candidate!.positions)
         && JSON.stringify(r.contour) === JSON.stringify(contour[0].contour!.positions)), 'fill and contour belong to one complete native region').toBe(true);
       expect(contour[0].contour).toMatchObject({ color: 'ffffff', depthTest: false });
     }
@@ -586,7 +586,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         expect(new Set(frames.flatMap((frame) => frame.painting)).size, 'held native samples replace draft geometry').toBeGreaterThan(1);
         expect(frames.flatMap((f) => f.draws).filter((draw) => draw.kind === 'painting-cursor-triangle' || draw.kind === 'painting-candidate')).toEqual([]);
         const selected = (await read())!.resources.find((r) => r.kind === 'triangle')!;
-        expect(selected.matchesDraftLeaf).toBe(true); expect(selected.vertices).toHaveLength(18);
+        expect(selected.matchesDraftLeaf).toBe(true); expect(selected.vertices).toHaveLength(9);
         await page.screenshot({ path: test.info().outputPath('painting-triangle-held-outline.png') });
         await startFrames();
         await page.mouse.move(bounds!.x + 10, bounds!.y + 10);
@@ -625,8 +625,8 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         await page.mouse.move(point.x + 1.137, point.y + 0.719);
         await expect.poll(async () => (await read())?.resources.find((r) => r.kind === 'triangle')?.matchesDraftLeaf).toBe(true);
         const leaf = (await read())!.resources.find((r) => r.kind === 'triangle')!;
-        expect(leaf.vertices).toHaveLength(18);
-        const [a, b, c] = [0, 6, 12].map((i) => leaf.vertices!.slice(i, i + 3));
+        expect(leaf.vertices).toHaveLength(9);
+        const [a, b, c] = [0, 3, 6].map((i) => leaf.vertices!.slice(i, i + 3));
         const ab = b.map((v, i) => v - a[i]), ac = c.map((v, i) => v - a[i]);
         const area = Math.hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) / 2;
         expect(area, 'Triangle highlights a subdivided leaf rather than its 200 mm² original cube face').toBeLessThan(200);
@@ -689,7 +689,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         // Native Gap resources have no contour; preserve that appearance.
         expect(contour, 'Gap retains the native empty contour').toEqual([]);
         expect(selections.some((selection) => selection.every((r, i) =>
-          JSON.stringify(r.vertices!.filter((_, j) => j % 6 < 3)) === JSON.stringify(fill[i].candidate!.positions)
+          JSON.stringify(r.vertices!) === JSON.stringify(fill[i].candidate!.positions)
           && r.contour!.length === 0)), 'candidate positions belong to one complete native Gap receipt').toBe(true);
         expect(frame.draws.filter((d) => d.kind.startsWith('painting-cursor-'))).toEqual([]);
       }

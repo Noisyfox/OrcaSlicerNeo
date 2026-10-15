@@ -248,7 +248,7 @@ function visualFixture() {
   f.ports.palette = () => palette;
   vi.mocked(f.ports.api.openPaintingSession).mockImplementation(async () => ({ ok: true, version: 1, session }));
   vi.mocked(f.ports.api.readPaintingSession).mockImplementation(async () => ({ ok: true, version: 1, session }));
-  const geometry = (resourceId = 'a', include = true): Extract<PaintingGeometryResult, { ok: true }> => ({ ok: true, version: 1, channel: session.channel, sessionId: session.id, revision: session.revision, parts: [{ volumeId: 3, resourceId }], candidates: [], resources: include ? [{ resourceId, volumeId: 3, kind: 'draft', vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array() }] : [] });
+  const geometry = (resourceId = 'a', include = true): Extract<PaintingGeometryResult, { ok: true }> => ({ ok: true, version: 1, channel: session.channel, sessionId: session.id, revision: session.revision, parts: [{ volumeId: 3, resourceId }], candidates: [], resources: include ? [{ resourceId, volumeId: 3, kind: 'draft', vertices: new Float32Array(9), groups: [[0, 0, 3]], contour: new Float32Array() }] : [] });
   vi.mocked(f.ports.api.getPaintingGeometry).mockImplementation(async () => geometry());
   const cache = new PaintingResources();
   return { ...f, cache, geometry, setSession: (next: PaintingSessionMetadata) => { session = next; },
@@ -265,7 +265,7 @@ describe.each(['triangle', 'region'] as const)('%s native hover admission and se
       const resourceId = `pc-mmu-1-${snapshot.session!.revision}-3`;
       return { ...result, revision: snapshot.session!.revision,
         candidates: [{ volumeId: 3, resourceId, kind: tool }],
-        resources: [...result.resources, { resourceId, volumeId: 3, kind: tool, vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array(18) }] };
+        resources: [...result.resources, { resourceId, volumeId: 3, kind: tool, vertices: new Float32Array(9), groups: [[0, 0, 3]], contour: new Float32Array(18) }] };
     });
     return f;
   }
@@ -450,7 +450,7 @@ describe.each(['triangle', 'region', 'gap'] as const)('%s shared candidate previ
       const result = f.geometry(draft, includeDraft);
       return { ...result, revision: c.getSnapshot().session!.revision,
         candidates: [{ volumeId: 3, resourceId: id, kind: tool }],
-        resources: [...result.resources, { resourceId: id, volumeId: 3, kind: tool, vertices: new Float32Array(18).fill(1), groups: [[0, 0, 3]], contour: new Float32Array(tool === 'gap' ? 0 : 18) }] };
+        resources: [...result.resources, { resourceId: id, volumeId: 3, kind: tool, vertices: new Float32Array(9).fill(1), groups: [[0, 0, 3]], contour: new Float32Array(tool === 'gap' ? 0 : 18) }] };
     };
     vi.mocked(f.ports.api.getPaintingGeometry).mockImplementation(async () => candidateGeometry());
     c.setTool(tool); c.setSettings({ gapArea: 3 }); if (tool !== 'gap') c.hoverAt(event(1)); await f.frame(); f.publish();

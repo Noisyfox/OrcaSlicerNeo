@@ -114,7 +114,7 @@ export function paintingMock(hooks: {
       if (session.highlightRevision) candidates.push(...parts.map((part: any) => ({ volumeId: part.volumeId, resourceId: `${part.resourceId.replace(/^pd-/, 'ph-')}-${session.highlightRevision}`, kind: 'overhang' })));
       const resources = [...parts.map((part: any) => ({ ...part, kind: 'draft' })), ...candidates]
         .flatMap((part: any, i: number) => request.knownResourceIds?.includes(part.resourceId) ? [] : [{ ...part,
-          vertex_ptr: hooks.allocate([0,0,0,0,0,1,1,0,0,0,0,1,0,1,0,0,0,1]), vertexCount: 3,
+          vertex_ptr: hooks.allocate([0,0,0,1,0,0,0,1,0]), vertexCount: 3,
           groups: [[session.states[Math.min(i, session.states.length - 1)],0,3]],
           contour_ptr: part.kind === 'region' || part.kind === 'triangle' ? hooks.allocate([0,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0]) : 0,
           contourVertexCount: part.kind === 'region' || part.kind === 'triangle' ? 6 : 0 }]);
