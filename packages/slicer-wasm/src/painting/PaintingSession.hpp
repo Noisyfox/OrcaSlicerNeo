@@ -142,6 +142,8 @@ public:
 private:
     static std::unique_ptr<Session> stage(const Session& session);
     void sample(Session& session, const Settings& settings, const PointerEvent& event);
+    std::vector<std::vector<Hit>> projected_trajectory(const Session& session, const Settings& settings,
+        const PointerEvent& event, const Hit& endpoint) const;
     static void apply_hit(Session& session, const Settings& settings, const Hit& hit, const std::optional<Hit>& previous, std::vector<bool>* preview_touched = nullptr);
     static void compare(Session& session, const std::vector<bool>& touched);
     static void mark_changed(Session& session, PartDraft& part);

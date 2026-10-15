@@ -1,8 +1,10 @@
 #include "PaintingSession.hpp"
+#include <algorithm>
 #include <limits>
 #include <stdexcept>
 #include <cmath>
 #include <Eigen/LU>
+#include "libslic3r/Polyline.hpp"
 #include "PaintingProfile.hpp"
 
 namespace Slic3r::Neo::Painting {
@@ -233,6 +235,82 @@ std::unique_ptr<Session> Sessions::stage(const Session& session)
     return result;
 }
 
+std::vector<std::vector<Hit>> Sessions::projected_trajectory(const Session& session, const Settings& settings,
+    const PointerEvent& event, const Hit& endpoint) const
+{
+    // Match GLGizmoPainterBase::get_projected_mouse_positions: project from
+    // the current pointer back towards the preceding hit at <= 1 CSS pixel
+    // spacing, stopping at the first miss and grouping consecutive parts.
+    const Vec2d start = session.last_event && session.last_hit ? session.last_event->pointer : event.pointer;
+    const double distance = (event.pointer - start).norm();
+    if (!std::isfinite(distance) || distance >= double(std::numeric_limits<std::size_t>::max()))
+        throw std::invalid_argument("painting trajectory is too large");
+    const auto between = std::size_t(distance);
+    std::vector<std::vector<Hit>> groups{{endpoint}};
+    if (between > 0) {
+        for (std::size_t i = 0; i < between + 1; ++i) {
+            auto intermediate = event;
+            intermediate.pointer = event.pointer + (start - event.pointer) * (double(i + 1) / double(between + 1));
+            auto hit = pick(session, intermediate);
+            if (!hit) break;
+            if (groups.back().back().part != hit->part) groups.emplace_back();
+            groups.back().push_back(*hit);
+        }
+    }
+
+    for (auto& hits : groups) {
+        if (hits.size() <= 2) continue;
+        if (std::all_of(hits.begin(), hits.end(), [&](const Hit& hit) { return hit.original_facet == hits.front().original_facet; })) {
+            hits = {hits.front(), hits.back()};
+            continue;
+        }
+        struct Plane { Vec3d origin, first, second; };
+        std::optional<Plane> plane;
+        // Orca's GUI stores its raycast positions as Vec3f. Use that same
+        // precision for plane construction and the subsequent integer polyline.
+        for (std::size_t i = 2; i < hits.size(); ++i) {
+            const Vec3d middle = hits[i - 1].local.cast<float>().cast<double>();
+            const Vec3d first = hits[i - 2].local.cast<float>().cast<double>() - middle;
+            const Vec3d second = hits[i].local.cast<float>().cast<double>() - middle;
+            if (first.cross(second).squaredNorm() > sqr(EPSILON)) {
+                plane = Plane{middle, first.normalized(), (second - first.dot(second) / first.dot(first) * first).normalized()};
+                break;
+            }
+        }
+        if (!plane) {
+            hits = {hits.front(), hits.back()};
+            continue;
+        }
+        Polyline polyline;
+        polyline.points.reserve(hits.size());
+        for (const auto& hit : hits) {
+            const Vec3d relative = hit.local.cast<float>().cast<double>() - plane->origin;
+            polyline.points.emplace_back(scale_(plane->first.dot(relative)), scale_(plane->second.dot(relative)));
+        }
+        polyline.simplify(scale_(settings.radius) / 10.);
+        const auto& part = session.parts[hits.front().part];
+        const Transform3d transform = session.instance_transform * part.volume_transform;
+        const auto inverse_camera = inverse_checked(event.projection * event.view);
+        std::vector<Hit> simplified;
+        simplified.reserve(polyline.points.size());
+        for (const auto& point : polyline.points) {
+            Hit hit = hits.front();
+            hit.local = (plane->origin + unscale<double>(point.x()) * plane->first +
+                unscale<double>(point.y()) * plane->second).cast<float>().cast<double>();
+            Vec3d closest;
+            part.acceleration->squared_distance(hit.local, hit.original_facet, closest);
+            hit.world = transform * hit.local;
+            // Synthetic projected positions need their own near-plane source;
+            // a shared camera point would turn orthographic rays into a cone.
+            const Eigen::Vector4d clip = event.projection * event.view * hit.world.homogeneous();
+            hit.ray_origin = unproject(inverse_camera, Eigen::Vector4d(clip.x() / clip.w(), clip.y() / clip.w(), -1, 1));
+            simplified.push_back(hit);
+        }
+        hits = std::move(simplified);
+    }
+    return groups;
+}
+
 void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& hit, const std::optional<Hit>& previous, std::vector<bool>* preview_touched)
 {
 #ifdef NEO_PAINTING_PROFILE
@@ -270,12 +348,13 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
         } else {
             const auto type = session.tool == Tool::Circle ? TriangleSelector::CIRCLE : TriangleSelector::SPHERE;
             std::unique_ptr<TriangleSelector::Cursor> cursor;
-            if (previous && previous->part == hit.part && (previous->local - hit.local).squaredNorm() > 1e-14)
+            const bool capsule = previous && previous->part == hit.part && (previous->local - hit.local).squaredNorm() > 1e-14;
+            if (capsule)
                 cursor = TriangleSelector::DoublePointCursor::cursor_factory(previous->local.cast<float>(),
-                    hit.local.cast<float>(), source, float(settings.radius), type, transform, clipping);
+                    hit.local.cast<float>(), (inverse * previous->ray_origin).cast<float>(), float(settings.radius), type, transform, clipping);
             else cursor = TriangleSelector::SinglePointCursor::cursor_factory(hit.local.cast<float>(), source,
                 float(settings.radius), type, transform, clipping);
-            part.selector->select_patch(hit.original_facet, std::move(cursor), state, linear, true,
+            part.selector->select_patch(capsule ? previous->original_facet : hit.original_facet, std::move(cursor), state, linear, true,
                 settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f);
         }
         // Conservatively invalidate after an admitted edit, including same-colour
@@ -302,20 +381,28 @@ void Sessions::sample(Session& session, const Settings& settings, const PointerE
         session.last_event = event; session.last_hit.reset(); session.preview.reset();
         return;
     }
-    // Orca projects a sequence at one-pixel spacing before using its capsule
-    // cursor between neighboring hits. Reconstruct those rays natively; an
-    // empty-space crossing or part change always breaks capsule continuity.
-    const Vec2d start = session.last_event && session.last_hit ? session.last_event->pointer : event.pointer;
-    const double steps_value = std::ceil((event.pointer - start).norm());
-    if (!std::isfinite(steps_value) || steps_value >= double(std::numeric_limits<std::size_t>::max())) throw std::invalid_argument("painting trajectory is too large");
-    const std::size_t steps = std::max<std::size_t>(1, std::size_t(steps_value));
-    auto previous = session.last_hit;
-    for (std::size_t index = 1; index <= steps; ++index) {
-        auto intermediate = event;
-        intermediate.pointer = start + (event.pointer - start) * (double(index) / double(steps));
-        auto hit = index == steps ? endpoint : pick(session, intermediate);
-        if (hit) apply_hit(session, settings, *hit, previous);
-        previous = hit;
+    if (session.tool != Tool::Height) {
+        for (const auto& hits : projected_trajectory(session, settings, event, *endpoint)) {
+            if (session.tool == Tool::Circle || session.tool == Tool::Sphere) {
+                if (hits.size() == 1) apply_hit(session, settings, hits.front(), {});
+                else for (std::size_t i = 1; i < hits.size(); ++i) apply_hit(session, settings, hits[i], hits[i - 1]);
+            } else for (const auto& hit : hits) apply_hit(session, settings, hit, {});
+        }
+    } else {
+        // Height has a separate Orca input path; leave its existing processing
+        // unchanged in this projected-polyline reduction.
+        const Vec2d start = session.last_event && session.last_hit ? session.last_event->pointer : event.pointer;
+        const double steps_value = std::ceil((event.pointer - start).norm());
+        if (!std::isfinite(steps_value) || steps_value >= double(std::numeric_limits<std::size_t>::max())) throw std::invalid_argument("painting trajectory is too large");
+        const std::size_t steps = std::max<std::size_t>(1, std::size_t(steps_value));
+        auto previous = session.last_hit;
+        for (std::size_t index = 1; index <= steps; ++index) {
+            auto intermediate = event;
+            intermediate.pointer = start + (event.pointer - start) * (double(index) / double(steps));
+            auto hit = index == steps ? endpoint : pick(session, intermediate);
+            if (hit) apply_hit(session, settings, *hit, previous);
+            previous = hit;
+        }
     }
     session.last_event = event;
     session.last_hit = endpoint;

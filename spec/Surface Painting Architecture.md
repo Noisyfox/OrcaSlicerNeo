@@ -611,6 +611,18 @@ local hit coordinates, clipping, and transformation semantics, then invokes
 The frontend must not discard any subsequent painting sample because its BVH
 reported a miss. The negative initial-press preflight is the sole exception. Native code also owns trajectory interpolation and continuous
 brush coverage, including transitions between parts and off-surface intervals.
+Circle, Sphere, Triangle, Region and Smart Fill follow Orca's projected-trajectory
+reduction before modifying the selector. Project from the admitted pointer back
+towards the preceding hit at approximately one CSS pixel spacing, stop at the
+first miss, and group consecutive hits by solid part. Reduce same-facet or
+collinear groups to their endpoints; otherwise project into a locally constructed
+plane and simplify the polyline with the current brush radius divided by ten as
+the local-coordinate tolerance. Reconstruct the retained points and locate their nearest original
+facets. Circle and Sphere apply one capsule per retained segment (or one point
+cursor for a singleton); Triangle and fill tools apply their selection/fill at
+each retained point. Preserve parallel ray directions for orthographic cameras.
+Height and static Gap Fill keep their separate input paths. This reduction does
+not introduce selector snapshots or preview-result caching.
 Region fill includes a hover preview that highlights the candidate area before
 clicking. Native code performs the candidate hit test and region calculation;
 cursor hits are not an input authority for fill selection. Preview changes do

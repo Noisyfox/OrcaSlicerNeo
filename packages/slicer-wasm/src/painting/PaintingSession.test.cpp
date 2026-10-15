@@ -681,6 +681,119 @@ void engine_tests() {
 }
 }
 
+void projected_trajectory_tests() {
+    for (const auto tool : {Tool::Circle, Tool::Sphere}) {
+        // A long straight stroke must produce the same native topology as
+        // Orca's single capsule, both within one facet and across coplanar ones.
+        for (bool same_facet : {false, true}) {
+            Fixture f; f.open();
+            const auto press = same_facet ? top(1, 7) : top(1, 3);
+            const auto drag = same_facet ? top(2, 8) : top(9, 3);
+            const auto first = *f.sessions.pick(f.s(), drag);
+            const auto last = *f.sessions.pick(f.s(), press);
+            CHECK((first.original_facet == last.original_facet) == same_facet);
+            Settings settings; settings.radius = .6;
+            f.begin(tool, settings, press);
+            const auto working = f.s().parts[0].selector;
+            NativeSelector expected(*f.s().parts[0].mesh);
+            load_annotation(*f.part, Channel::Mmu, expected);
+            const Transform3d transform = f.s().instance_transform * f.s().parts[0].volume_transform;
+            Transform3d linear = transform; linear.translation().setZero();
+            expected.select_patch(last.original_facet, TriangleSelector::SinglePointCursor::cursor_factory(
+                last.local.cast<float>(), (transform.inverse() * last.ray_origin).cast<float>(), float(settings.radius),
+                tool == Tool::Circle ? TriangleSelector::CIRCLE : TriangleSelector::SPHERE,
+                transform, {}), EnforcerBlockerType::ENFORCER, linear, true);
+            CHECK(expected.serialize() == working->serialize());
+            settings.state = 2;
+            expected.select_patch(first.original_facet, TriangleSelector::DoublePointCursor::cursor_factory(
+                first.local.cast<float>(), last.local.cast<float>(), (transform.inverse() * first.ray_origin).cast<float>(),
+                float(settings.radius), tool == Tool::Circle ? TriangleSelector::CIRCLE : TriangleSelector::SPHERE,
+                transform, {}), EnforcerBlockerType::BLOCKER, linear, true);
+            f.sample(settings, drag);
+            CHECK(f.s().parts[0].selector == working);
+            CHECK(working->serialize() == expected.serialize());
+            CHECK(f.s().last_event->pointer == drag.pointer && f.s().last_hit->local.isApprox(first.local));
+            f.cancel(); CHECK(working->serialize() == annotation(*f.part, Channel::Mmu).get_data());
+        }
+
+        // A curved surface needs intermediate capsules. In particular, Sphere
+        // must follow the upper arc instead of cutting a chord through the mesh.
+        Fixture curved;
+        curved.part->set_mesh(TriangleMesh(its_make_sphere(5, PI / 24)));
+        curved.part->set_offset(Vec3d::Zero());
+        curved.open();
+        Settings settings; settings.radius = .4;
+        curved.begin(tool, settings, top(-4, .2));
+        curved.sample(settings, top(4, .2));
+        const auto painted = curved.s().parts[0].selector->get_facets(EnforcerBlockerType::ENFORCER);
+        CHECK(!painted.indices.empty());
+        TriangleMesh painted_mesh(painted); AABBMesh painted_surface(painted_mesh);
+        for (double x : {-3., -1., 0., 1., 3.}) {
+            const auto hit = curved.sessions.pick(curved.s(), top(x, .2)); CHECK(hit);
+            CHECK(painted_surface.squared_distance(hit->local) < 1e-8);
+        }
+        curved.cancel(); CHECK(curved.s().parts[0].facet_counts()[1] == 0);
+
+        // Orca projects backwards from the new endpoint and stops at a miss.
+        // A disconnected old-side island must not be painted on that sample.
+        Fixture separated;
+        auto* second = separated.object->add_volume(TriangleMesh(its_make_cube(2., 10., 10.)));
+        second->set_offset(Vec3d(13, 5, 5));
+        auto* third = separated.object->add_volume(TriangleMesh(its_make_cube(2., 10., 10.)));
+        third->set_offset(Vec3d(17, 5, 5));
+        separated.open(); settings.radius = .3;
+        separated.begin(tool, settings, top(2, 3));
+        const auto original = separated.s().parts[0].selector->serialize();
+        separated.sample(settings, top(17, 3));
+        CHECK(separated.s().parts[0].selector->serialize() == original);
+        CHECK(separated.s().parts[1].facet_counts()[1] == 0);
+        CHECK(separated.s().parts[2].facet_counts()[1] > 0);
+        separated.cancel();
+
+        // Adjacent parts without a miss form separate capsules, never one
+        // capsule whose centres belong to different local coordinate systems.
+        Fixture adjacent;
+        auto* neighbor = adjacent.object->add_volume(TriangleMesh(its_make_cube(10., 10., 10.)));
+        neighbor->set_offset(Vec3d(15, 5, 5));
+        adjacent.open();
+        adjacent.begin(tool, settings, top(2, 3));
+        adjacent.sample(settings, top(18, 3));
+        CHECK(adjacent.s().parts[0].facet_counts()[1] > 0 && adjacent.s().parts[1].facet_counts()[1] > 0);
+        for (std::size_t part = 0; part < 2; ++part) {
+            const auto local = adjacent.s().parts[part].selector->get_facets(EnforcerBlockerType::ENFORCER);
+            TriangleMesh mesh(local); AABBMesh surface(mesh);
+            const auto hit = adjacent.sessions.pick(adjacent.s(), top(part ? 15 : 7, 3));
+            CHECK(hit && hit->part == part && surface.squared_distance(hit->local) < 1e-8);
+        }
+        adjacent.cancel();
+        CHECK(adjacent.s().parts[0].facet_counts()[1] == 0 && adjacent.s().parts[1].facet_counts()[1] == 0);
+    }
+    // The same reduction feeds Triangle and both fill tools. A shallow folded
+    // strip falls within the radius/10 tolerance but its zero-angle fill edges
+    // separate the four panels. Only retained endpoints may apply their tools.
+    indexed_triangle_set strip;
+    for (int i = 0; i <= 4; ++i) {
+        strip.vertices.emplace_back(2.f * i, 0.f, i % 2 ? .05f : 0.f);
+        strip.vertices.emplace_back(2.f * i, 2.f, i % 2 ? .05f : 0.f);
+        if (i < 4) {
+            strip.indices.emplace_back(2*i, 2*i+2, 2*i+3);
+            strip.indices.emplace_back(2*i, 2*i+3, 2*i+1);
+        }
+    }
+    for (const auto tool : {Tool::Triangle, Tool::Region, Tool::SmartFill}) {
+        Fixture f; f.part->set_mesh(TriangleMesh(strip)); f.part->set_offset(Vec3d::Zero());
+        const auto channel = tool == Tool::SmartFill ? Channel::Support : Channel::Mmu;
+        f.sessions.publish(f.sessions.prepare_open(f.model, f.object->id().id, f.instance->id().id, channel, 2, 1));
+        Settings settings; settings.radius = 2.; settings.angle = 0.;
+        f.begin(tool, settings, top(.5, .7));
+        settings.state = 2;
+        f.sample(settings, top(7.5, .7));
+        CHECK(f.s().parts[0].facet_counts()[2] == (tool == Tool::Triangle ? 2 : 4));
+        CHECK(f.s().parts[0].facet_counts()[1] == 0);
+        f.cancel(); CHECK(f.s().parts[0].facet_counts()[0] == 8);
+    }
+}
+
 void selector_reuse_tests() {
     for (const auto channel : {Channel::Mmu, Channel::Support, Channel::Seam, Channel::Fuzzy}) {
         for (const auto tool : {Tool::Circle, Tool::Sphere}) {
@@ -761,6 +874,7 @@ int main() {
     smart_gap_overhang_tests();
     triangle_preview_tests();
     engine_tests();
+    projected_trajectory_tests();
     selector_reuse_tests();
     Model model;
     auto* object = model.add_object();
