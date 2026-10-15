@@ -297,7 +297,7 @@ function visualFixture() {
   let session: PaintingSessionMetadata = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, instanceTransform: identity, parts: [{ volumeId: 3, volumeTransform: identity, sourceTriangleCount: 1, annotationTimestamp: 0, draftResourceId: 'a', facetCounts: [] }], phase: 'idle', strokeId: null, channel: 'mmu' };
   let palette = { slots: [{ slot: 1, colour: { effective: '#112233' } }] } as unknown as FilamentSessionSnapshot;
   f.ports.palette = () => palette;
-  vi.mocked(f.ports.api.openPaintingSession).mockImplementation(async () => ({ ok: true, version: 1, session }));
+  vi.mocked(f.ports.api.openPaintingSession).mockImplementation(async (request) => ({ ok: true, version: 1, session: session = { ...session, channel: request.channel } }));
   vi.mocked(f.ports.api.readPaintingSession).mockImplementation(async () => ({ ok: true, version: 1, session }));
   const geometry = (resourceId = 'a', include = true): Extract<PaintingGeometryResult, { ok: true }> => ({ ok: true, version: 1, channel: session.channel, sessionId: session.id, revision: session.revision, parts: [{ volumeId: 3, resourceId }], candidates: [], resources: include ? [{ resourceId, volumeId: 3, kind: 'draft', vertices: new Float32Array(9), groups: [[0, 0, 3]], contour: new Float32Array() }] : [] });
   vi.mocked(f.ports.api.getPaintingGeometry).mockImplementation(async () => geometry());
@@ -809,6 +809,44 @@ it('fuzzy has its own four tools, legal state1/erase and strict Smart Fill angle
 });
 
 describe('support independent highlight lane',()=>{
+  it.each(['circle', 'smartFill'] as const)('retains the complete %s highlight through threshold RPCs and stale geometry until one replacement is ready', async (tool) => {
+    const f = visualFixture(), c = f.controller;
+    vi.mocked(f.ports.api.previewPainting).mockImplementation(async () => {
+      const session = { ...c.getSnapshot().session!, revision: c.getSnapshot().session!.revision + 1 };
+      f.setSession(session);
+      return { ...f.receipt('idle'), channel: session.channel, revision: session.revision };
+    });
+    const highlightGeometry = (id: string): Extract<PaintingGeometryResult, { ok: true }> => {
+      const result = f.geometry();
+      return { ...result, candidates: [{ volumeId: 3, resourceId: id, kind: 'overhang' }], resources: [...result.resources,
+        { volumeId: 3, resourceId: id, kind: 'overhang', vertices: new Float32Array(9), groups: [[0, 0, 3]], contour: new Float32Array() }] };
+    };
+    vi.mocked(f.ports.api.getPaintingGeometry).mockImplementation(async () => c.getSnapshot().settings.overhangAngle ? highlightGeometry(`highlight-${c.getSnapshot().session!.revision}`) : f.geometry());
+    await c.open(1, 2, 'support'); await f.frame(); c.setTool(tool); c.setSettings({ overhangAngle: 60 }); await f.frame();
+    const before = f.publish(), selected = f.cache.resources.get(before.candidates[0].resourceId)!;
+    const draft = f.cache.resources.get('a'), disposed = vi.spyOn(selected.geometry, 'dispose');
+    const displays: unknown[] = [], unsubscribe = c.subscribe(() => { displays.push(c.getSnapshot().display); f.publish(); });
+    const preview = deferred<PaintingDraftResult>(), geometry = deferred<PaintingGeometryResult>();
+    vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(preview.promise);
+    vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    c.setSettings({ overhangAngle: 50 }); f.frames.shift()?.(); await tick();
+    expect(c.getSnapshot().display).toBe(before); expect(disposed).not.toHaveBeenCalled();
+    const receipt = f.receipt('idle'); f.setSession({ ...c.getSnapshot().session!, revision: receipt.revision });
+    preview.resolve({ ...receipt, channel: 'support' }); await tick();
+    const obsolete = highlightGeometry('obsolete');
+    c.setSettings({ overhangAngle: 40 }); c.setSettings({ overhangAngle: 45 });
+    geometry.resolve(obsolete); await tick();
+    expect(displays.every((display) => display === before)).toBe(true);
+    expect(f.cache.resources.get(before.candidates[0].resourceId)).toBe(selected); expect(disposed).not.toHaveBeenCalled();
+    await f.frame();
+    expect(c.getSnapshot().display?.candidates).toHaveLength(1);
+    expect(c.getSnapshot().display?.resources.some((r) => r.resourceId === 'obsolete')).toBe(false);
+    expect(disposed).toHaveBeenCalledTimes(1); expect(f.cache.resources.get('a')).toBe(draft);
+    expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ settings: { overhangAngle: 45 } }));
+    c.setSettings({ overhangAngle: 0 }); await f.frame();
+    expect(c.getSnapshot().display?.candidates).toEqual([]); expect(f.cache.resources.size).toBe(1);
+    expect(f.ports.api.commitPaintingStroke).not.toHaveBeenCalled(); unsubscribe(); f.cache.dispose();
+  });
   it('schedules explicit angle/null without candidate ownership or commits and retains parameters across channels',async()=>{
     const {controller:c,ports:p,frame}=fixture();await c.open(1,2,'support');await frame();
     expect(p.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({tool:'overhang',settings:{overhangAngle:null}}));

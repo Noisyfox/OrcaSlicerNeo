@@ -210,7 +210,6 @@ export class PaintingController {
   }
   private invalidateHighlight(): void {
     this.highlightDirty = this.state.channel === 'support'; ++this.highlightGeneration;
-    if (this.state.display) this.update({ display: { ...this.state.display, candidates: this.state.display.candidates.filter(c => c.kind !== 'overhang') } });
   }
   private mmuParameters() {
     return this.state.channel === 'mmu' ? { tool: this.state.tool, settings: this.state.settings }
@@ -255,7 +254,7 @@ export class PaintingController {
     const { overhangAngle, restrictToOverhangs, ...shared } = this.state.settings;
     return { ...shared, ...(this.state.channel === 'support' ? { overhangAngle, restrictToOverhangs } : {}), erase: erase || shared.erase };
   }
-  private withoutCandidates() { return this.state.display?.candidates.length ? { ...this.state.display, candidates: this.state.display.candidates.filter(c => c.kind === 'overhang') } : this.state.display; }
+  private withoutCandidates() { return this.state.display?.candidates.some(c => c.kind !== 'overhang') ? { ...this.state.display, candidates: this.state.display.candidates.filter(c => c.kind === 'overhang') } : this.state.display; }
   hoverAt(event?: PaintingPointerEvent): void {
     // Gap is a static fragment selection, independent of pointer/camera state.
     if (previewInput(this.state.tool) === 'static') return;
@@ -467,9 +466,9 @@ export class PaintingController {
             const identity = this.identity(), epoch = this.state.epoch;
             const result = await this.ports.api.getPaintingGeometry({ ...identity, knownResourceIds: [...this.known] });
             if ('error' in result) throw new Error(result.error);
-            if (previewInput(previewTool) && previewVersion !== this.previewGeneration) {
+            if (highlightVersion !== this.highlightGeneration || (previewInput(previewTool) && previewVersion !== this.previewGeneration)) {
               // A newer input/setting/terminal owns the next selection. Keep the
-              // complete displayed geometry/contour together until its receipt;
+              // complete displayed geometry/contour/highlight until its receipt;
               // publishing this draft with an empty or retained old candidate
               // would either blink or mix resources from different revisions.
               this.displayDirty = true;
@@ -477,7 +476,7 @@ export class PaintingController {
               // Retain CPU resources referenced by a reused native manifest only.
               const resources = new Map(this.state.display?.resources.map((r) => [r.resourceId, r]));
               result.resources.forEach((r) => resources.set(r.resourceId, r));
-              const eligible = result.candidates.filter(c => c.kind !== 'overhang' || (highlightVersion === this.highlightGeneration && this.state.channel === 'support' && !!this.state.settings.overhangAngle));
+              const eligible = result.candidates.filter(c => c.kind !== 'overhang' || (this.state.channel === 'support' && !!this.state.settings.overhangAngle));
               const candidates = this.candidateOwner === previewVersion && !!previewInput(this.state.tool) ? eligible.filter((c) => c.kind === this.state.tool || c.kind === 'overhang') : eligible.filter(c => c.kind === 'overhang');
               const active = new Set([...result.parts, ...candidates].map((r) => r.resourceId));
               for (const id of active) if (!resources.has(id)) throw new Error(`Missing painting resource ${id}`);
