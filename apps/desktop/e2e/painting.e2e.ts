@@ -1019,6 +1019,10 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect((await read())!.channel).toBe('support');await expect(supportButton).toHaveAttribute('aria-pressed','true');
     const supportCounts=()=>page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
     const supportEvidence:Record<string,unknown>={};
+    const surfacePixels = (kind: string) => page.evaluate((kind) => (window as any).__orcaE2e.paintingSurfacePixels(kind) as Array<{ z: number; rgba: number[] }>, kind);
+    const isBlue = ([r, g, b]: number[]) => g > r + 20 && b > r + 20 && Math.abs(g - b) <= 1;
+    await expect(page.getByRole('checkbox', { name: 'Highlight overhangs', exact: true })).toHaveCount(0);
+    await expect.poll(async () => (await surfacePixels('draft')).filter(({ rgba }) => isBlue(rgba)).length).toBe(3);
     const overhangSlider = page.getByRole('slider', { name: 'Overhang angle (degrees)', exact: true });
     const overhangInput = page.getByRole('spinbutton', { name: 'Overhang angle (degrees)', exact: true });
     await overhangSlider.focus(); await overhangSlider.press('End'); await expect(overhangInput).toHaveValue('90');
@@ -1029,8 +1033,9 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect(Number(await overhangInput.inputValue())).toBeGreaterThan(60);
     expect(Number(await overhangInput.inputValue())).toBeLessThan(75);
     await overhangSlider.press('Home'); await expect(overhangInput).toHaveValue('0');
+    await expect.poll(async () => (await read())!.resources.some(r => r.kind === 'overhang')).toBe(false);
     const beforeHighlight=await history();
-    await page.getByRole('checkbox',{name:'Highlight overhangs',exact:true}).check();
+    await overhangInput.fill('90');
     await expect.poll(async()=> (await read())!.resources.filter(r=>r.kind==='overhang').length).toBeGreaterThan(0);
     const initialHighlight=await read();expect((await history()).undoEntries.length).toBe(beforeHighlight.undoEntries.length);
     await page.getByTestId('painting-tool-smartFill').click();await page.getByRole('spinbutton',{name:'Edge angle (degrees)',exact:true}).fill('90');
@@ -1041,8 +1046,6 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await page.screenshot({path:test.info().outputPath('support-smart-fill-overhang-editor.png')});
     expect(supportOverlayFrames.some(f=>f.draws.some(d=>d.candidate?.color==='c96666'&&d.candidate.opacity===1)&&f.draws.some(d=>d.candidate?.color==='ffffff'))).toBe(true);
     for(const frame of supportOverlayFrames){const overlays=frame.draws.filter(d=>d.candidate);expect(overlays.every(d=>d.candidate!.depthWrite===false)).toBe(true);const highlight=overlays.find(d=>d.candidate!.color==='c96666'),candidate=overlays.find(d=>d.candidate!.color==='ffffff');if(highlight&&candidate){expect(highlight.renderOrder).toBeLessThan(candidate.renderOrder);expect(highlight.candidate!.polygonOffsetFactor).toBeGreaterThan(candidate.candidate!.polygonOffsetFactor);}}
-    const surfacePixels = (kind: string) => page.evaluate((kind) => (window as any).__orcaE2e.paintingSurfacePixels(kind) as Array<{ z: number; rgba: number[] }>, kind);
-    const isBlue = ([r, g, b]: number[]) => g > r + 20 && b > r + 20 && Math.abs(g - b) <= 1;
     const bedPixels: Record<string, unknown> = {};
     for (const kind of ['draft', 'overhang', 'smartFill']) {
       const pixels = await surfacePixels(kind); bedPixels[kind] = pixels;
@@ -1054,11 +1057,12 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     }
     await page.getByRole('spinbutton', { name: 'Overhang angle (degrees)', exact: true }).fill('45'); await settleFrames();
     expect((await surfacePixels('draft')).filter(({ rgba }) => isBlue(rgba))).toHaveLength(3);
-    await page.getByRole('checkbox', { name: 'Highlight overhangs', exact: true }).uncheck(); await settleFrames();
-    expect((await surfacePixels('draft')).some(({ rgba }) => isBlue(rgba))).toBe(false);
     await page.getByRole('spinbutton', { name: 'Overhang angle (degrees)', exact: true }).fill('0');
-    await page.getByRole('checkbox', { name: 'Highlight overhangs', exact: true }).check(); await settleFrames();
+    await expect.poll(async () => (await read())!.resources.some(r => r.kind === 'overhang')).toBe(false);
+    await settleFrames();
     expect((await surfacePixels('draft')).filter(({ rgba }) => isBlue(rgba))).toHaveLength(3);
+    await overhangInput.fill('90');
+    await expect.poll(async () => (await read())!.resources.some(r => r.kind === 'overhang')).toBe(true);
     supportEvidence.bedPixels = bedPixels;
     await page.mouse.click(supportCenter.x,supportCenter.y);await idle();expect((await supportCounts())[0].facetCounts[1]).toBeGreaterThan(0);
     expect((await read())!.resources.some(r=>r.kind==='overhang')).toBe(true);
@@ -1074,7 +1078,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect((await history()).undoEntries.length).toBe(beforeGap.undoEntries.length);
     await page.getByTestId('painting-tool-circle').click();await page.getByRole('spinbutton',{name:'Overhang angle (degrees)',exact:true}).fill('90');await page.getByRole('checkbox',{name:'Restrict to overhangs',exact:true}).check();
     await expect.poll(async()=> (await read())!.resources.some(r=>r.kind==='overhang')).toBe(true);
-    await page.getByRole('checkbox',{name:'Highlight overhangs',exact:true}).uncheck();await expect.poll(async()=> (await read())!.resources.some(r=>r.kind==='overhang')).toBe(false);
+    await overhangInput.fill('0');await expect.poll(async()=> (await read())!.resources.some(r=>r.kind==='overhang')).toBe(false);
     const supportParameters={tool:(await read())!.tool,settings:(await read())!.settings};supportEvidence.parameters=supportParameters;supportEvidence.blocked=supportBlocked;supportEvidence.erased=supportErased;supportEvidence.overlayFrames=supportOverlayFrames;
     await fuzzyButton.click();await idle();expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(fuzzyParameters);
     await supportButton.click();await idle();expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(supportParameters);
@@ -1084,6 +1088,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect(ordinaryAfterSupport.some(frame=>frame.colors.includes('80ff80')||frame.colors.includes('ff8080')||frame.colors.includes('c96666'))).toBe(false);
     const supportPath=test.info().outputPath('support-editor-evidence.json');writeFileSync(supportPath,JSON.stringify(supportEvidence,null,2));await test.info().attach('support-editor-evidence',{path:supportPath,contentType:'application/json'});
     await paintButton.click(); await idle();
+    expect((await surfacePixels('draft')).some(({ rgba }) => isBlue(rgba))).toBe(false);
     const hiddenSession = (await read())!.sessionId;
     for (const tab of ['home', 'device']) {
       await page.locator(`#app-tab-${tab}`).click();

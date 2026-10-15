@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { PaintingState } from './PaintingController';
 import { SupportPaintingPanel } from './SupportPaintingPanel';
-const mocked = vi.hoisted(() => ({ state: null as PaintingState | null, controller: {setTool:vi.fn(),setSettings:vi.fn(),close:vi.fn(),apply:vi.fn(),setHighlight:vi.fn()} }));
+const mocked = vi.hoisted(() => ({ state: null as PaintingState | null, controller: {setTool:vi.fn(),setSettings:vi.fn(),close:vi.fn(),apply:vi.fn()} }));
 vi.mock('./PaintingProvider', () => ({usePaintingState:()=>mocked.state,usePaintingController:()=>mocked.controller}));
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 let root:Root,container:HTMLDivElement;
@@ -22,8 +22,10 @@ it('offers exactly Circle/Sphere/Smart Fill/Gap with explicit Enforce/Block/Eras
   expect(mocked.controller.setSettings).toHaveBeenLastCalledWith({state:2,erase:false});
   await act(async()=> (container.querySelector('[data-testid="painting-action-erase"]') as HTMLElement).click());
   expect(mocked.controller.setSettings).toHaveBeenLastCalledWith({erase:true});
+  expect(container.querySelectorAll('[role="checkbox"]')).toHaveLength(1);
+  expect(container.textContent).toContain('Highlight overhangs');
   await act(async()=> (container.querySelector('[role="checkbox"]') as HTMLElement).click());
-  expect(mocked.controller.setHighlight).toHaveBeenLastCalledWith(true);
+  expect(mocked.controller.setSettings).toHaveBeenLastCalledWith({restrictToOverhangs:true});
 });
 it('keeps live brush/action controls available while unfinished and retains explicit close recovery',async()=>{
   mocked.state!.phase='drawing';await render();
@@ -60,7 +62,6 @@ it('shares the 0–90 degree threshold between the slider and precise numeric in
   await render();
   expect(slider.value).toBe('37.25');
   expect(input.value).toBe('37.25');
-  expect(mocked.controller.setHighlight).not.toHaveBeenCalled();
 });
 
 it('offers object-wide Apply only for Gap and no generation/configuration mutation',async()=>{

@@ -29,13 +29,13 @@ export function SupportPaintingPanel() {
       <p className="text-xs text-muted-foreground">Object-wide gaps use the lowest neighboring native state, including Auto/Default. Apply commits the highlighted gaps. Overhang restriction applies to Circle, Sphere and Smart Fill; Gap Fill is unrestricted.</p>
       <Button variant="secondary" disabled={!idle} onClick={() => void controller.apply('gap')}>Apply gaps</Button>
     </>}
-    <Label className="flex items-center gap-2"><Checkbox disabled={!idle} checked={!!state.highlightEnabled} onCheckedChange={(enabled) => controller.setHighlight(enabled)} />Highlight overhangs</Label>
+    <Label>Highlight overhangs</Label>
     <div className="flex items-center gap-3">
       <Slider className="min-w-0 flex-1" aria-label="Overhang angle (degrees)" thumbAriaLabels={['Overhang angle (degrees)']} value={[settings.overhangAngle ?? 0]} min={0} max={90} step={0.01} onValueChange={(value) => controller.setSettings({ overhangAngle: Array.isArray(value) ? value[0] : value })} />
       <Input className="w-24 shrink-0" type="number" aria-label="Overhang angle (degrees)" value={settings.overhangAngle ?? 0} min={0} max={90} step={0.01} onChange={(event) => { if (event.target.value !== '') controller.setSettings({ overhangAngle: Number(event.target.value) }); }} />
     </div>
     <Label className="flex items-center gap-2"><Checkbox disabled={state.tool === 'gap'} checked={settings.restrictToOverhangs} onCheckedChange={(restricted) => controller.setSettings({ restrictToOverhangs: restricted })} />Restrict to overhangs</Label>
-    <p className="text-xs text-muted-foreground">Zero disables restriction and highlights all eligible surfaces. Erase restores Auto/Default. Painting does not enable support generation; the existing support settings apply.</p>
+    <p className="text-xs text-muted-foreground">Zero clears the red overhang highlight and disables restriction. Surfaces at bed height remain light blue. Erase restores Auto/Default. Painting does not enable support generation; the existing support settings apply.</p>
     <Button variant="secondary" disabled={!idle} onClick={() => void controller.apply('eraseAll')}>Erase all</Button>
     {state.phase !== 'idle' && <p role="status">{state.phase === 'error' ? 'Recovery required; retry Close.' : 'Processing…'}</p>}
     {state.error && <p role="alert" className="text-destructive">{state.error}</p>}

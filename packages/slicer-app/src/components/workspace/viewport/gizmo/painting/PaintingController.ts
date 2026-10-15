@@ -33,8 +33,6 @@ export interface PaintingState {
   display: PaintingDisplay | null;
   /** Native metadata generation for rejecting obsolete geometry receipts. */
   epoch: number;
-  /** Independent memory-only overlay preference; never an Apply candidate. */
-  highlightEnabled?: boolean;
 }
 export interface PaintingPorts {
   coordinate<T>(operation: () => Promise<T>): Promise<T>;
@@ -61,7 +59,7 @@ const defaults: Required<PaintingSettings> = { state: 1, erase: false, vertical:
 export class PaintingController {
   private state: PaintingState = { phase: 'closed', channel: 'mmu', session: null, tool: 'circle', settings: defaults, error: null, display: null, epoch: 0 };
   private switching = false;
-  private parameters = new Map<PaintingChannel, { tool: PaintTool; settings: Required<PaintingSettings>; highlightEnabled?: boolean }>();
+  private parameters = new Map<PaintingChannel, { tool: PaintTool; settings: Required<PaintingSettings> }>();
   private listeners = new Set<() => void>();
   private lane: Promise<unknown> | null = null;
   private terminal: Terminal | null = null;
@@ -146,8 +144,8 @@ export class PaintingController {
       this.switching = false;
       if (!closed) return false;
     }
-    this.parameters.set(this.state.channel, { tool: this.state.tool, settings: this.state.settings, highlightEnabled: this.state.highlightEnabled });
-    const parameters = this.parameters.get(channel) ?? { tool: 'circle' as const, settings: { ...defaults }, highlightEnabled: false };
+    this.parameters.set(this.state.channel, { tool: this.state.tool, settings: this.state.settings });
+    const parameters = this.parameters.get(channel) ?? { tool: 'circle' as const, settings: { ...defaults } };
     this.update({ channel, ...parameters, phase: 'opening', error: null });
     return this.exclusive(async () => {
       try {
@@ -209,11 +207,6 @@ export class PaintingController {
     this.advancePreview(); this.update({ settings: next, ...(!previewInput(this.state.tool) ? { display: this.withoutCandidates() } : {}) });
     if (value.state !== undefined && this.state.channel === 'mmu') this.selectedFilamentId = this.ports.palette()?.slots.find((slot) => slot.slot === next.state)?.logicalId ?? null;
     this.previewDirty = true; this.scheduleDisplay();
-  }
-  setHighlight(enabled: boolean): void {
-    if (this.state.channel !== 'support' || this.state.phase !== 'idle') return;
-    this.invalidateHighlight();
-    this.update({ highlightEnabled: enabled }); this.scheduleDisplay();
   }
   private invalidateHighlight(): void {
     this.highlightDirty = this.state.channel === 'support'; ++this.highlightGeneration;
@@ -460,7 +453,7 @@ export class PaintingController {
           const highlightVersion = this.highlightGeneration;
           if (this.state.phase === 'idle' && this.highlightDirty) {
             this.highlightDirty = false;
-            this.receipt(await this.ports.api.previewPainting({ ...this.identity(), tool: 'overhang', settings: { overhangAngle: this.state.highlightEnabled ? this.state.settings.overhangAngle : null } }));
+            this.receipt(await this.ports.api.previewPainting({ ...this.identity(), tool: 'overhang', settings: { overhangAngle: this.state.settings.overhangAngle || null } }));
           }
           if (this.state.phase === 'idle' && this.previewDirty) {
             this.previewDirty = false;
@@ -484,7 +477,7 @@ export class PaintingController {
               // Retain CPU resources referenced by a reused native manifest only.
               const resources = new Map(this.state.display?.resources.map((r) => [r.resourceId, r]));
               result.resources.forEach((r) => resources.set(r.resourceId, r));
-              const eligible = result.candidates.filter(c => c.kind !== 'overhang' || (highlightVersion === this.highlightGeneration && this.state.highlightEnabled));
+              const eligible = result.candidates.filter(c => c.kind !== 'overhang' || (highlightVersion === this.highlightGeneration && this.state.channel === 'support' && !!this.state.settings.overhangAngle));
               const candidates = this.candidateOwner === previewVersion && !!previewInput(this.state.tool) ? eligible.filter((c) => c.kind === this.state.tool || c.kind === 'overhang') : eligible.filter(c => c.kind === 'overhang');
               const active = new Set([...result.parts, ...candidates].map((r) => r.resourceId));
               for (const id of active) if (!resources.has(id)) throw new Error(`Missing painting resource ${id}`);
