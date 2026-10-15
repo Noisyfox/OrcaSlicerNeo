@@ -65,7 +65,7 @@ favorite saving. A spectrum or palette selection replaces invalid editor text.
 Original and current color previews sit to the left of the favorites grid.
 Clicking Original restores the full opening selection, including gradient
 order and alpha; clicking the current preview saves/promotes a favorite.
-NEO retains its 24 favorite slots, displayed in three rows. Checkerboards
+Favorites match Orca's 16 slots, displayed in two rows of eight. Checkerboards
 appear under translucent colors. Controls reuse NEO's Base UI wrappers and
 semantic theme tokens, including borderless fields and secondary actions.
 The popup fits content width and available viewport height; the spectrum can
@@ -93,8 +93,9 @@ it, including when the collection is full. Favorite swatches expose a
 red "Remove favorite" context-menu action instead of an overlay button, available
 through right click or keyboard context-menu invocation. NEO tooltips show the
 stored HEX value, or both endpoint HEX values for a gradient.
-There are at most 24 entries; a full collection requires removal rather than
-silent eviction. Alpha-disabled instances display stored translucent favorites and normalize
+There are at most 16 entries. Saving a new color at capacity drops the oldest
+favorite; saving an existing color moves it to first without duplication.
+Alpha-disabled instances display stored translucent favorites and normalize
 selected results to opaque. Gradient-disabled instances hide gradient entries
 without deleting them.
 Preference updates share repository-scoped serialization so unrelated UI,

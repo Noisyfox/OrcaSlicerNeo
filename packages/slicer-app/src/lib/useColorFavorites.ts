@@ -47,7 +47,7 @@ export function createColorFavorites(repository: UserPreferencesRepository) {
         const key = colorValueKey(color);
         const existing = favorites.find(item => colorValueKey(item) === key);
         if (existing) return [existing, ...favorites.filter(item => colorValueKey(item) !== key)];
-        return favorites.length >= MAX_COLOR_FAVORITES ? favorites : [color, ...favorites];
+        return [color, ...favorites].slice(0, MAX_COLOR_FAVORITES);
       });
     },
     remove(value: ColorValue) { return mutate(favorites => favorites.filter(item => colorValueKey(item) !== colorValueKey(value))); },

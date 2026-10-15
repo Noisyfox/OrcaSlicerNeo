@@ -183,7 +183,6 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
   const allFavorites = normalizeColorFavorites(favorites);
   const visibleFavorites = allFavorites.filter(item => colorValueSupported(item, true, enableGradient));
   const alreadySaved = allFavorites.some(item => colorValueKey(item) === colorValueKey(current));
-  const full = allFavorites.length >= MAX_COLOR_FAVORITES;
   const availablePalettes = palettes.filter(item => item.colors.some(color => colorValueSupported(color.value, enableAlpha, enableGradient)));
   const palette = availablePalettes.find(item => item.id === ui.paletteId) ?? availablePalettes.find(item => item.id === 'basic') ?? availablePalettes[0];
   const query = filter.trim().toLowerCase();
@@ -309,27 +308,26 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
       </div>
       {!valid && <span role="status" className="shrink-0 text-xs text-destructive">{hexInvalid ? (enableAlpha ? 'Enter a HEX or HEX-alpha color.' : 'Enter an opaque HEX color.') : 'Enter a channel value within its range.'}</span>}
       <div className="flex shrink-0 gap-1">
-        <TooltipFor content="Original color"><Button variant="settings" className="relative h-[68px] w-14 overflow-hidden p-0" aria-label="Original color" disabled={disabled} onClick={() => { setEndpoint(0); memories.current = {}; apply(format(original.current)); }}>
+        <TooltipFor content="Original color"><Button variant="settings" className="relative size-[52px] overflow-hidden p-0" aria-label="Original color" disabled={disabled} onClick={() => { setEndpoint(0); memories.current = {}; apply(format(original.current)); }}>
           <ColorSwatch value={format(original.current)} className="size-full" /><RotateCcwIcon className="absolute opacity-0 group-hover/button:opacity-100" />
         </Button></TooltipFor>
-        <TooltipFor content={alreadySaved ? 'Move favorite to first' : 'Save current color'}><Button variant="settings" className="relative h-[68px] w-14 overflow-hidden p-0 disabled:opacity-100" aria-label="Add favorite color"
-          disabled={disabled || !favoritesReady || !onFavoriteAdd || (full && !alreadySaved) || !valid} onClick={() => onFavoriteAdd?.(current)}>
+        <TooltipFor content={alreadySaved ? 'Move favorite to first' : 'Save current color'}><Button variant="settings" className="relative size-[52px] overflow-hidden p-0 disabled:opacity-100" aria-label="Add favorite color"
+          disabled={disabled || !favoritesReady || !onFavoriteAdd || !valid} onClick={() => onFavoriteAdd?.(current)}>
           <ColorSwatch value={current} className="size-full" /><StarIcon className="absolute opacity-0 group-hover/button:opacity-100" />
         </Button></TooltipFor>
         <div className="grid min-w-0 flex-1 grid-cols-8 gap-1" aria-label="Favorite colors">
           {visibleFavorites.map(item => {
-            const favoriteButton = <Button variant="input" size="icon-sm" className="h-5 w-full border-0 p-0" aria-label={`Favorite ${item.kind === 'solid' ? item.color : item.colors.join(' to ')}`} disabled={disabled} onClick={() => apply(item)} />;
-            return <div key={colorValueKey(item)} className="h-5 min-w-0">
+            const favoriteButton = <Button variant="input" size="icon-sm" className="h-6 w-full border-0 p-0" aria-label={`Favorite ${item.kind === 'solid' ? item.color : item.colors.join(' to ')}`} disabled={disabled} onClick={() => apply(item)} />;
+            return <div key={colorValueKey(item)} className="h-6 min-w-0">
               {onFavoriteRemove ? <ContextMenu disabled={disabled}>
-                <TooltipFor content={colorLabel(item)}><span className="block h-5 w-full"><ContextMenuTrigger render={favoriteButton}><ColorSwatch value={item} className="size-full" /></ContextMenuTrigger></span></TooltipFor>
+                <TooltipFor content={colorLabel(item)}><span className="block h-6 w-full"><ContextMenuTrigger render={favoriteButton}><ColorSwatch value={item} className="size-full" /></ContextMenuTrigger></span></TooltipFor>
                 <ContextMenuContent><ContextMenuGroup><ContextMenuItem variant="destructive" disabled={disabled || !favoritesReady} onClick={() => onFavoriteRemove(item)}>Remove favorite</ContextMenuItem></ContextMenuGroup></ContextMenuContent>
               </ContextMenu> : <TooltipFor content={colorLabel(item)}><Button {...favoriteButton.props}><ColorSwatch value={item} className="size-full" /></Button></TooltipFor>}
             </div>;
           })}
-          {Array.from({ length: MAX_COLOR_FAVORITES - visibleFavorites.length }, (_, i) => <span key={i} aria-hidden="true" className="h-5 rounded-sm bg-control-background" />)}
+          {Array.from({ length: MAX_COLOR_FAVORITES - visibleFavorites.length }, (_, i) => <span key={i} aria-hidden="true" className="h-6 rounded-sm bg-control-background" />)}
         </div>
       </div>
-      {full && <span role="status" className="shrink-0 text-xs text-muted-foreground">Remove a favorite to add another color.</span>}
       <div className="flex shrink-0 items-center gap-2 pt-1">
         <Button variant="settings" size="icon" aria-label="Palettes" aria-expanded={ui.sidebarOpen} aria-controls={palettePanelId} disabled={disabled || !favoritesReady} onClick={() => updateUi({ ...ui, sidebarOpen: !ui.sidebarOpen })}><PanelLeftIcon /></Button>
         <div className="flex-1" />{actions}

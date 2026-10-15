@@ -65,7 +65,7 @@ it('synchronizes RGB/HEX and keyboard spectrum editing without coupling instance
   expect(first.querySelector('input[aria-label="HEX color"]')!.getAttribute('aria-invalid')).toBe('true');
 });
 
-it('adds valid favorites, permits promoting an existing color at capacity and never evicts', async () => {
+it('adds valid favorites and permits both new saves and promotions at sixteen-slot capacity', async () => {
   const add = vi.fn(), remove = vi.fn();
   const favorite: ColorValue = { kind: 'solid', color: '#112233' };
   const container = await mount(<ColorPicker value={{ kind: 'solid', color: '#0000FF' }} onChange={() => undefined}
@@ -77,11 +77,13 @@ it('adds valid favorites, permits promoting an existing color at capacity and ne
   await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Remove favorite')!.click());
   expect(remove).toHaveBeenCalledWith(favorite);
   const full = await mount(<ColorPicker value={{ kind: 'solid', color: '#FFFFFF' }} onChange={() => undefined}
-    favorites={Array.from({ length: 24 }, (_, i) => ({ kind: 'solid', color: '#' + i.toString(16).padStart(6, '0') }))} onFavoriteAdd={add} />);
-  expect(button(full, 'Add favorite color').disabled).toBe(true);
-  expect(full.textContent).toContain('Remove a favorite');
+    favorites={Array.from({ length: 16 }, (_, i) => ({ kind: 'solid', color: '#' + i.toString(16).padStart(6, '0') }))} onFavoriteAdd={add} />);
+  expect(button(full, 'Add favorite color').disabled).toBe(false);
+  await act(async () => button(full, 'Add favorite color').click());
+  expect(add).toHaveBeenLastCalledWith({ kind: 'solid', color: '#FFFFFF' });
+  expect(full.querySelector('[aria-label="Favorite colors"]')!.children).toHaveLength(16);
   const promote = await mount(<ColorPicker value={{ kind: 'solid', color: '#000007' }} onChange={() => undefined}
-    favorites={Array.from({ length: 24 }, (_, i) => ({ kind: 'solid', color: '#' + i.toString(16).padStart(6, '0') }))} onFavoriteAdd={add} />);
+    favorites={Array.from({ length: 16 }, (_, i) => ({ kind: 'solid', color: '#' + i.toString(16).padStart(6, '0') }))} onFavoriteAdd={add} />);
   expect(button(promote, 'Add favorite color').disabled).toBe(false);
   await act(async () => button(promote, 'Add favorite color').click());
   expect(add).toHaveBeenLastCalledWith({ kind: 'solid', color: '#000007' });

@@ -21,14 +21,15 @@ it('restores, shares, normalizes and persists favorites across a recreated contr
   expect(saved.colorPicker!.favorites).toHaveLength(2);
 });
 
-it('keeps a full collection intact instead of evicting a favorite', async () => {
-  const initial = Array.from({ length: 24 }, (_, i) => ({ kind: 'solid' as const, color: '#' + i.toString(16).padStart(6, '0').toUpperCase() }));
+it('keeps sixteen favorites, evicts the oldest new-color save and promotes existing colors without duplication', async () => {
+  const initial = Array.from({ length: 16 }, (_, i) => ({ kind: 'solid' as const, color: '#' + i.toString(16).padStart(6, '0').toUpperCase() }));
   let saved = normalizeUserPreferences({ ...DEFAULT_USER_PREFERENCES, colorPicker: { favorites: initial } });
   const repository: UserPreferencesRepository = { async load() { return saved; }, async save(next) { saved = next; } };
   const colors = createColorFavorites(repository); await colors.add({ kind: 'solid', color: '#FFFFFF' });
-  expect(saved.colorPicker!.favorites).toEqual(initial);
+  const afterAdd = [{ kind: 'solid' as const, color: '#FFFFFF' }, ...initial.slice(0, 15)];
+  expect(saved.colorPicker!.favorites).toEqual(afterAdd);
   await colors.add({ kind: 'solid', color: '#000007FF' });
-  const reordered = [initial[7], ...initial.filter((_, index) => index !== 7)];
+  const reordered = [initial[7], ...afterAdd.filter(item => item.color !== initial[7].color)];
   expect(colors.getSnapshot().favorites).toEqual(reordered);
   expect(saved.colorPicker!.favorites).toEqual(reordered);
   const restored = createColorFavorites(repository); await restored.load();

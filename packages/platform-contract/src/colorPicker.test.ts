@@ -13,7 +13,7 @@ it('deduplicates canonical values, filters invalid entries and bounds favorites'
   const first = { kind: 'solid', color: '#112233' };
   const rest = Array.from({ length: 30 }, (_, i) => ({ kind: 'solid', color: '#' + i.toString(16).padStart(6, '0') }));
   const result = normalizeColorFavorites([null, first, { ...first, color: '#112233FF' }, ...rest]);
-  expect(result).toHaveLength(24);
+  expect(result).toHaveLength(16);
   expect(result[0]).toEqual(first);
   expect(normalizeColorFavorites({})).toEqual([]);
 });

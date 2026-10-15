@@ -3,7 +3,7 @@ export type ColorValue =
   | { kind: 'solid'; color: string }
   | { kind: 'linear-gradient'; colors: readonly string[] };
 
-export const MAX_COLOR_FAVORITES = 24;
+export const MAX_COLOR_FAVORITES = 16;
 export const MAX_GRADIENT_COLORS = 7;
 
 export interface ColorPickerUiState { sidebarOpen: boolean; paletteId: string }

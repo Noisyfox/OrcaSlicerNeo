@@ -329,7 +329,7 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     const favoriteBox = (await favorite.boundingBox())!;
     const swatchBox = (await favorite.locator('[aria-hidden="true"]').boundingBox())!;
     const emptyBox = (await page.getByLabel('Favorite colors', { exact: true }).locator(':scope > span').first().boundingBox())!;
-    expect(favoriteBox.width).toBeGreaterThan(favoriteBox.height);
+    expect(Math.abs(favoriteBox.width - favoriteBox.height)).toBeLessThan(1);
     expect(Math.abs(favoriteBox.width - swatchBox.width)).toBeLessThan(1);
     expect(Math.abs(favoriteBox.height - swatchBox.height)).toBeLessThan(1);
     expect(Math.abs(favoriteBox.width - emptyBox.width)).toBeLessThan(1);
@@ -415,6 +415,11 @@ test('edits seven gradient colors with compact controls and persists palette sta
     const popup = page.locator('[data-slot="popover-content"]');
     const confirm = page.getByRole('button', { name: 'Confirm', exact: true });
     const original = page.getByRole('button', { name: 'Original color', exact: true });
+    const favoriteGrid = page.getByLabel('Favorite colors', { exact: true });
+    await expect(favoriteGrid.locator(':scope > *')).toHaveCount(16);
+    const gridBounds = (await favoriteGrid.boundingBox())!;
+    const originalBounds = (await original.boundingBox())!;
+    expect(Math.abs(gridBounds.height - originalBounds.height)).toBeLessThan(1);
     const red = page.getByRole('spinbutton', { name: 'R value', exact: true });
     const hue = page.getByRole('spinbutton', { name: 'H value', exact: true });
     const mode = page.getByRole('tablist', { name: 'Color mode', exact: true });
