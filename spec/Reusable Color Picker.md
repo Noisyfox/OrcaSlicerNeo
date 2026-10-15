@@ -1,6 +1,6 @@
 # Reusable Color Picker
 
-Date: 2026-10-05
+Date: 2026-10-15
 Status: Delivered
 Scope: Shared desktop Electron and Web UI, reusable color editing and favorites
 
@@ -21,36 +21,69 @@ to the clicked color button, aligns to its start edge, and automatically shifts
 or flips to remain inside the viewport. Outside clicks cancel the draft without
 blocking the rest of the application. Nested preset-editor popovers preserve
 their parent dialog when dismissed.
+The visible title bar can be dragged with the primary pointer button. Pointer
+capture keeps the gesture active outside the header; release, cancellation,
+lost capture, and unmount end it. After dragging, the popup uses a viewport
+position and stays within the viewport as its contents or the viewport resize.
+Palette expansion preserves the chosen top-left position whenever it fits.
+Position is local to this opening; reopening anchors to the color button again.
 Right clicks inside the color popup do not open the enclosing filament card's
 context menu. Native input editing menus retain their established behavior.
 
 `enableAlpha` and `enableGradient` default to false. Values are discriminated
-solid colors or fixed-direction, two-endpoint linear gradients. Opaque output
+solid colors or fixed-direction linear gradients with 2 to 7 ordered colors.
+The current gradient contract is `{ kind: 'linear-gradient', colors: string[] }`
+through UI, preferences, typed client, mock runtime, and native bridge. The old
+start/end object is rejected; existing favorites are not migrated. Opaque output
 is `#RRGGBB`; alpha-enabled output is `#RRGGBBAA`. Alpha is the last byte,
-internally 0–1 and displayed as 0–100%. Each gradient endpoint has independent
-color and alpha. No gradient angles or extra stops are included.
+internally 0–1 and displayed as 0–100%. Each gradient color has independent
+color and alpha. Gradient stops are evenly spaced; angles and stop positions
+are not editable. New gradients and added colors use Orca's 75-degree hue
+shift and lightness contrast calculation, retaining the source alpha byte.
 
-RGB/HSL inputs, HEX, and the hue/lightness spectrum share mathematical color
-conversion and positioning, with adjustable saturation. Achromatic and fully
-transparent edits preserve useful hue/color information. Controls reuse NEO's
-Base UI wrappers and semantic theme tokens. Preview and translucent swatches
-use a checkerboard. The panel has a scrollable preset palette beside the
-editor. The palette selector reuses the settings panel's searchable Combobox,
-including its shared trigger and popup style. Beneath the spectrum, one row
-contains RGB/HSL tabs, optional gradient endpoint tabs, and HEX input. Channel
-controls follow. Valid HEX typing updates channels and preview immediately
-without rewriting the text or caret; case, short forms, and a pasted hash
-remain intact until blur normalizes the display. Invalid edits retain the last
-valid color and display validation feedback. The add-favorite button has
-a persistent NEO settings-button surface, including while disabled.
-Inputs, swatches, favorite slots, and secondary actions use
-NEO's borderless control surfaces; focus rings and invalid-input feedback remain.
-Favorites occupy the lower-left grid; the add action and
-preview stack on its right. Occupied and empty favorite slots are equal rectangles;
-color swatches fill occupied slots without an inset. Tabs use NEO's neutral line variant. The preset list stretches to align
-with the bottom of the favorites grid and scrolls independently. The popup
-itself does not scroll; the spectrum can shrink when vertical space is limited.
-Preset palettes are replaceable data; RAL colors from the reference are display approximations.
+The layout and interactions follow [OrcaSlicer commit 26f5fd6](https://github.com/OrcaSlicer/OrcaSlicer/commit/26f5fd6251de6a7b4ae6280d550dae7045b0026a).
+A collapsible palette sidebar places its selector below the independently
+scrollable color list. Search swaps the selector for a name/HEX filter, with
+an empty-result notice. Closing search clears it; Escape closes search before
+it dismisses the color popup. The selected palette and sidebar visibility are
+shared user preferences; unsupported palettes fall back to Basic for that caller.
+
+A vertical saturation slider sits beside the hue/lightness spectrum. HEX,
+optional opacity percentage, RGB and HSL inputs are visible together below it.
+The Solid/Gradient switch uses the dark control background, neutral secondary
+surface for the selected segment, and foreground/muted-foreground text roles.
+It remembers each mode's last selection. A gradient
+track selects the nearest fixed stop on click; keyboard-accessible stop tabs
+select an individual color. Add inserts after the active stop and selects it;
+Remove deletes the active stop, with a minimum of two and maximum of seven.
+The gradient track, selected stop, and add/remove buttons are 20 CSS px high;
+inactive stops are 10 CSS px squares. Stops stay centered while pressed, with
+their first/last centers inset 10 px from the track ends. Buttons sit 10 px
+away from the track, with a 6 px gap between them. The HSL and RGB columns
+are 52 px wide with 5 px gutters, leaving the gradient track the reference
+layout's share of the editor width.
+The opacity slider occupies the gradient track row while the opacity input or
+slider is in use. Focusing or clicking another control closes it.
+
+RGB/HSL inputs, HEX, and the spectrum share mathematical conversion and
+positioning. Achromatic and fully transparent edits preserve useful hue/color
+information. Alpha remains byte-precise across color edits and stop switches;
+a six-digit HEX edit preserves the current alpha. HEX typing does not rewrite
+the text or caret until blur. Out-of-range numbers clamp to their bounds. Mouse wheel input steps numbers
+by one and sliders by five. Invalid HEX and empty numeric
+edits retain the last valid color, show feedback, and block confirmation and
+favorite saving. A spectrum or palette selection replaces invalid editor text.
+
+Original and current color previews sit to the left of the favorites grid.
+Clicking Original restores the full opening selection, including gradient
+order and alpha; clicking the current preview saves/promotes a favorite.
+Favorites match Orca's 16 slots, displayed in two rows of eight. Checkerboards
+appear under translucent colors. Controls reuse NEO's Base UI wrappers and
+semantic theme tokens, including borderless fields and secondary actions.
+The popup fits content width and available viewport height; the spectrum can
+shrink while the palette list scrolls independently. Preset palettes are
+replaceable data; the built-in gradients include all 2-to-7-color upstream
+entries, and RAL colors are display approximations.
 
 ## Favorites and configuration
 
@@ -62,15 +95,21 @@ Electron saves `preferences.json` in its user-data directory; Web uses
 Normalization filters malformed data, canonicalizes colors, and removes
 duplicates. Opaque six/eight-digit equivalents are identical.
 
+The optional `colorPicker.ui` stores `sidebarOpen` and `paletteId`; missing
+state defaults to a collapsed Basic palette. Layout and favorite writes use
+the same repository transaction queue and preserve each other.
+
 Explicit additions/removals save immediately. New favorites appear first.
 Adding an existing favorite moves it to the first position without duplicating
 it, including when the collection is full. Favorite swatches expose a
 red "Remove favorite" context-menu action instead of an overlay button, available
 through right click or keyboard context-menu invocation. NEO tooltips show the
 stored HEX value, or both endpoint HEX values for a gradient.
-There are at most 24 entries; a full collection requires removal rather than
-silent eviction. Alpha-disabled instances hide translucent entries and
-gradient-disabled instances hide gradient entries without deleting them.
+There are at most 16 entries. Saving a new color at capacity drops the oldest
+favorite; saving an existing color moves it to first without duplication.
+Alpha-disabled instances display stored translucent favorites and normalize
+selected results to opaque. Gradient-disabled instances hide gradient entries
+without deleting them.
 Preference updates share repository-scoped serialization so unrelated UI,
 rack, selection, arrangement, and favorite writes preserve one another.
 Host persistence failures retain the established console/session fallback;
@@ -78,17 +117,20 @@ durability is conditional on successful storage.
 
 ## Business integration
 
-Filament rack color controls enable alpha in solid and two-endpoint gradient
-modes; the preset editor remains solid-only with alpha disabled. Filament colour drafts remain
-local until confirmation, when one typed native command changes the full slot
-colour tuple and records one history operation. Imported multi-colour lists
-open with their first and last colours as gradient endpoints; only confirmation
-replaces the raw list and type. Imported solid colours and both gradient
-endpoints retain alpha in the draft. Cancellation and unchanged confirmation
-preserve native values, including opaque six/eight-digit equivalence. Alpha-only
-edits commit once. Rack commands store opaque colours as `#RRGGBB` and
-translucent colours as `#RRGGBBAA`; the native command and typed client accept
-both formats. Disabled states and errors remain controlled by the runtime.
+Filament rack color controls enable alpha and gradients with 2 to 7 colors;
+the preset editor remains solid-only with alpha disabled. Filament color
+drafts remain local until confirmation, when one typed native command changes
+the complete slot color tuple and records one history operation. Imported
+gradients of up to seven colors open with their entire ordered sequence.
+Partitions and longer gradients show a preservation notice and open from the
+first color; Cancel and unchanged Confirm retain all original native metadata.
+An explicit edit replaces it with the selected solid or gradient. Unchanged
+canonical solids and gradients create no mutation. Alpha-only edits commit
+once. Rack commands store opaque colors as `#RRGGBB` and translucent colors
+as `#RRGGBBAA`; both formats are accepted by the typed client and bridge.
+The first gradient color is the representative; all colors are serialized in
+order into Orca's space-separated `filament_multi_colour` with type `0`.
+Disabled states and errors remain controlled by the runtime.
 
 Translucent filament swatches display the colour over the same checkerboard
 used by the picker. This applies to the rack, object-list assignment cells and
@@ -115,11 +157,11 @@ conversion and normalization tests, real component interaction tests,
 cross-writer preference regression tests, affected package suites/typechecks,
 root suites/typechecks, focused Electron UI and disk-restart tests, and real
 Web serial/threaded storage/reload checks. Alpha/gradient behavior is verified
-at the reusable component layer; the filament rack also verifies both gradient
-endpoints, cancellation, conversion of imported multi-colour metadata, and
+at the reusable component layer; the filament rack also verifies all gradient
+colors, cancellation, conversion of imported multi-colour metadata, and
 representative-colour persistence through its business entrance. Rack tests
 also cover imported alpha, unchanged confirmation and alpha-only edits. Native
-WASM verification exercises independent gradient alpha, rollback, Undo/Redo,
+WASM verification exercises seven-color gradient order, independent alpha, rollback, Undo/Redo,
 and standard 3MF export/reopen preservation.
 
 ## Implementation entry points

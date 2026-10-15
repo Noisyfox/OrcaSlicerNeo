@@ -4,7 +4,7 @@ import type { PrinterConfigurationDocument, PrinterTransport } from '@orca/print
 import type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
 import type { ProfileActivation } from '@slicer/client';
 import { normalizeProfileActivation } from './profileActivation';
-import { normalizeColorFavorites } from './colorPicker';
+import { normalizeColorFavorites, normalizeColorPickerUi } from './colorPicker';
 
 export type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
 
@@ -112,7 +112,7 @@ export interface UserPreferences {
   version: 1;
   /** Absent means setup is required; stale source identities remain durable. */
   profileActivation?: ProfileActivation;
-  colorPicker?: { favorites: import('./colorPicker').ColorValue[] };
+  colorPicker?: { favorites: import('./colorPicker').ColorValue[]; ui?: import('./colorPicker').ColorPickerUiState };
   arrangement?: ArrangementPreferences;
   autoFlushPolicy?: import('@slicer/client').AutoFlushPolicy;
   /** Global project-open policy; project bytes and locations never belong here. */
@@ -282,7 +282,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
     return { ...DEFAULT_USER_PREFERENCES, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
-  const v = value as { autoFlushPolicy?: unknown; profileActivation?: unknown; colorPicker?: { favorites?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown };
+  const v = value as { autoFlushPolicy?: unknown; profileActivation?: unknown; colorPicker?: { favorites?: unknown; ui?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown };
   const profileActivation = normalizeProfileActivation(v.profileActivation);
   const selectedProfiles = v.selectedProfiles ?? {};
   const ui = v.ui ?? {};
@@ -320,7 +320,8 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
     version: 1,
     rememberedBedTypes,
     ...(profileActivation ? { profileActivation } : {}),
-    ...(v.colorPicker && typeof v.colorPicker === 'object' ? { colorPicker: { favorites: normalizeColorFavorites(v.colorPicker.favorites) } } : {}),
+    ...(v.colorPicker && typeof v.colorPicker === 'object' ? { colorPicker: { favorites: normalizeColorFavorites(v.colorPicker.favorites),
+      ...(v.colorPicker.ui ? { ui: normalizeColorPickerUi(v.colorPicker.ui) } : {}) } } : {}),
     projectLoadBehaviour: PROJECT_LOAD_BEHAVIOURS.includes(v.projectLoadBehaviour as ProjectLoadBehaviour)
       ? v.projectLoadBehaviour as ProjectLoadBehaviour
       : DEFAULT_PROJECT_LOAD_BEHAVIOUR,

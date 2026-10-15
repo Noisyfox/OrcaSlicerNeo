@@ -1410,14 +1410,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const validColour = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
         if (!colour || typeof colour !== 'object' || Array.isArray(colour) ||
             !((colour.kind === 'solid' && Object.keys(colour).length === 2 && validColour(colour.color)) ||
-              (colour.kind === 'linear-gradient' && Object.keys(colour).length === 3 && validColour(colour.start) && validColour(colour.end))))
+              (colour.kind === 'linear-gradient' && Object.keys(colour).length === 2 && Array.isArray(colour.colors) &&
+                colour.colors.length >= 2 && colour.colors.length <= 7 && colour.colors.every(validColour))))
           return fail('native filament colour validation failed', 'native_validation_failure');
-        const representative = colour.kind === 'solid' ? colour.color : colour.start;
-        const multi = colour.kind === 'solid' ? representative : `${colour.start} ${colour.end}`;
+        const representative = colour.kind === 'solid' ? colour.color : colour.colors[0];
+        const multi = colour.kind === 'solid' ? representative : colour.colors.join(' ');
         next.slots[index].colour = { effective: representative, provenance: 'user',
           native: { representative, multi_colour: multi, type: colour.kind === 'solid' ? '1' : '0' },
           display: colour.kind === 'solid' ? { mode: 'solid', colors: [representative] }
-            : { mode: 'gradient', colors: [colour.start, colour.end] } };
+            : { mode: 'gradient', colors: [...colour.colors] } };
       }
     } else if (kind === 'add') {
       if (next.slots.length >= next.capabilities.max_slots || !next.capabilities.flexible)

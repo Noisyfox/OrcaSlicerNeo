@@ -1,6 +1,6 @@
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 import { useEffect, useMemo, useState } from 'react';
-import { normalizeHexColor, usePlatform, type ColorValue } from '@orca/platform-contract';
+import { MAX_GRADIENT_COLORS, colorValueKey, normalizeHexColor, usePlatform, type ColorValue } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import type { FilamentMutationResultOrError, FilamentSessionSlot } from '@slicer/client';
@@ -22,11 +22,9 @@ type PendingImpact = { kind: 'delete' | 'merge'; summary: FilamentImpactSummary 
 
 function editorValue(slot: FilamentSessionSlot): ColorValue {
   const { mode, colors } = slot.colour.display;
-  // The editor owns only two endpoints. Imported partitions and extra stops
-  // become a two-endpoint draft without changing native state until Confirm.
-  return mode === 'solid'
-    ? { kind: 'solid', color: colors[0] }
-    : { kind: 'linear-gradient', start: colors[0], end: colors.at(-1)! };
+  return mode === 'gradient' && colors.length >= 2 && colors.length <= MAX_GRADIENT_COLORS
+    ? { kind: 'linear-gradient', colors: [...colors] }
+    : { kind: 'solid', color: colors[0] };
 }
 
 function matchesCanonicalColour(slot: FilamentSessionSlot, value: ColorValue): boolean {
@@ -35,8 +33,8 @@ function matchesCanonicalColour(slot: FilamentSessionSlot, value: ColorValue): b
   const normalizedMulti = native.multiColour?.split(' ').map(normalizeHexColor).join(' ');
   if (value.kind === 'solid')
     return native.type === '1' && equal(native.representative, value.color) && equal(native.multiColour, value.color);
-  return native.type === '0' && equal(native.representative, value.start) &&
-    normalizedMulti === `${normalizeHexColor(value.start)} ${normalizeHexColor(value.end)}`;
+  return native.type === '0' && equal(native.representative, value.colors[0]) &&
+    normalizedMulti === value.colors.map(normalizeHexColor).join(' ');
 }
 
 function ImpactDialog({ impact, onCancel, onConfirm }: {
@@ -87,7 +85,7 @@ function SlotCard({ slot, presetNames, presetLabels, presetVendors, userPresets,
     setColourOpen(false);
   }, [colourSignature]);
   const draft = editorValue(slot);
-  const displayedColour = (draft.kind === 'solid' ? draft.color : draft.start).toLowerCase();
+  const displayedColour = (draft.kind === 'solid' ? draft.color : draft.colors[0]).toLowerCase();
   const representative = slot.colour.effective.slice(0, 7);
   const [red, green, blue] = [1, 3, 5].map((offset) => parseInt(representative.slice(offset, offset + 2), 16));
   const numberColour = red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#171717' : '#ffffff';
@@ -97,11 +95,15 @@ function SlotCard({ slot, presetNames, presetLabels, presetVendors, userPresets,
         className="flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-control-background"
         data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
         <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen}
-          title={`Slot ${slot.slot} color`} value={draft} enableAlpha enableGradient disabled={pending}
+          title={`Slot ${slot.slot} color`} value={draft}
+          notice={slot.colour.display.mode === 'multicolor' || slot.colour.display.colors.length > MAX_GRADIENT_COLORS
+            ? 'The current multi-color selection is kept until you choose a different color.' : undefined} enableAlpha enableGradient disabled={pending}
           onConfirm={next => {
+            if ((slot.colour.display.mode === 'multicolor' || slot.colour.display.colors.length > MAX_GRADIENT_COLORS) &&
+                colorValueKey(next) === colorValueKey(draft)) return;
             const colour: ColorValue = next.kind === 'solid'
               ? { kind: 'solid', color: normalizeHexColor(next.color)!.toLowerCase() }
-              : { kind: 'linear-gradient', start: normalizeHexColor(next.start)!.toLowerCase(), end: normalizeHexColor(next.end)!.toLowerCase() };
+              : { kind: 'linear-gradient', colors: next.colors.map(color => normalizeHexColor(color)!.toLowerCase()) };
             if (!matchesCanonicalColour(slot, colour)) onColour(colour);
           }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0"
             aria-label={`Slot ${slot.slot} colour`} data-testid={`filament-colour-${slot.slot}`} value={displayedColour}

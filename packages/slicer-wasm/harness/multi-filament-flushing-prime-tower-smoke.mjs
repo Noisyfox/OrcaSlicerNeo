@@ -86,7 +86,7 @@ changed = request('orc_set_filament_slot_colour', { version: 1, revision: before
 assert.equal(changed.ok, true, JSON.stringify(changed)); assertReplaced(before.flushing.matrix, changed.result.snapshot, 2); snapshot = changed.result.snapshot;
 before = installImportedMatrix(2, 360);
 changed = request('orc_set_filament_slot_colour', { version: 1, revision: before.revisions.session, slot: 2,
-  colour: { kind: 'linear-gradient', start: '#112233', end: '#445566' } });
+  colour: { kind: 'linear-gradient', colors: ['#112233', '#445566'] } });
 assert.equal(changed.ok, true, JSON.stringify(changed)); assertReplaced(before.flushing.matrix, changed.result.snapshot, 2);
 assert.deepEqual(changed.result.snapshot.slots[1].colour.native,
   { representative: '#112233', multi_colour: '#112233 #445566', type: '0' });

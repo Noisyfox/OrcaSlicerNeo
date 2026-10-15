@@ -256,12 +256,12 @@ describe('FilamentRack runtime interaction', () => {
     await confirmColor();
     expect(setColour).not.toHaveBeenCalled();
     await act(async () => trigger.click());
-    if (mode === 'gradient') await act(async () => (document.querySelector('[role="tab"][aria-label="End"]') as HTMLButtonElement).click());
+    if (mode === 'gradient') await act(async () => (document.querySelector('[role="tab"][aria-label="Gradient color 2"]') as HTMLButtonElement).click());
     await editColor(mode === 'solid' ? '#11223320' : '#44556620');
     await confirmColor();
     expect(setColour).toHaveBeenCalledExactlyOnceWith({ version: 1, revision: 4, slot: 1,
       colour: mode === 'solid' ? { kind: 'solid', color: '#11223320' }
-        : { kind: 'linear-gradient', start: '#11223380', end: '#44556620' } });
+        : { kind: 'linear-gradient', colors: ['#11223380', '#44556620'] } });
   });
 
   it('dispatches Add and renders the complete returned snapshot, not an optimistic slot', async () => {
@@ -350,36 +350,30 @@ describe('FilamentRack runtime interaction', () => {
     expect(setColour).not.toHaveBeenCalled();
   });
 
-  it('cancels imported multicolor unchanged, then confirms its first and last colours as a gradient', async () => {
+  it('preserves imported partitions until an explicit gradient edit is confirmed', async () => {
     const initial = makeSnapshot();
-    const source = initial.slots[0];
-    const imported = { ...source, colour: { ...source.colour,
+    const imported = { ...initial.slots[0], colour: { ...initial.slots[0].colour,
       native: { representative: '#112233', multiColour: '#112233 #abcdef #445566', type: '1' },
       display: { mode: 'multicolor' as const, colors: ['#112233', '#abcdef', '#445566'] },
     } };
     const snapshot = makeSnapshot({ slots: [imported, initial.slots[1]] });
-    const returned = makeSnapshot({ slots: [{ ...imported, colour: { ...imported.colour,
-      native: { representative: '#112233', multiColour: '#112233 #445566', type: '0' },
-      display: { mode: 'gradient' as const, colors: ['#112233', '#445566'] },
-    } }, initial.slots[1]], revisions: { ...snapshot.revisions, session: 5, project: 5 } });
-    const setColour = vi.fn(async () => mutation(returned, 'set-colour'));
+    const setColour = vi.fn(async () => mutation(snapshot, 'set-colour'));
     useFilamentSessionStore.setState({ snapshot });
     const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot), setFilamentSlotColour: setColour }); root = rendered.root;
     await act(async () => { await Promise.resolve(); });
     const trigger = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
     await act(async () => trigger.click());
-    expect(document.querySelector('[role="tab"][aria-label="Start"]')).not.toBeNull();
-    await act(async () => (document.querySelector('[role="tab"][aria-label="End"]') as HTMLButtonElement).click());
-    expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')?.value).toBe('445566FF');
-    await act(async () => (document.querySelector('button') && [...document.querySelectorAll('button')].find((button) => button.textContent === 'Cancel'))?.click());
-    expect(setColour).not.toHaveBeenCalled();
-    expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native.multiColour).toBe('#112233 #abcdef #445566');
-    await act(async () => trigger.click());
+    expect(document.body.textContent).toContain('current multi-color selection is kept');
+    expect(document.querySelector('[aria-label="Gradient color 1"]')).toBeNull();
     await confirmColor();
-    expect(setColour).toHaveBeenCalledWith({ version: 1, revision: 4, slot: 1,
-      colour: { kind: 'linear-gradient', start: '#112233', end: '#445566' } });
-    expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native)
-      .toEqual({ representative: '#112233', multiColour: '#112233 #445566', type: '0' });
+    expect(setColour).not.toHaveBeenCalled();
+    await act(async () => trigger.click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'Gradient')!.click());
+    await act(async () => (document.querySelector('[aria-label="Gradient color 2"]') as HTMLButtonElement).click());
+    await editColor('#445566');
+    await confirmColor();
+    expect(setColour).toHaveBeenCalledExactlyOnceWith({ version: 1, revision: 4, slot: 1,
+      colour: { kind: 'linear-gradient', colors: ['#112233', '#445566'] } });
   });
 
   it('skips unchanged canonical gradients but closes a draft when only native metadata changes', async () => {
@@ -415,8 +409,8 @@ describe('FilamentRack runtime interaction', () => {
     const snapshot = makeSnapshot({ slots: [imported, initial.slots[1]] });
     const returned = makeSnapshot({ slots: [{ ...imported, colour: { ...imported.colour,
       effective: '#112233',
-      native: { representative: '#112233', multiColour: '#112233 #445566', type: '0' },
-      display: { mode: 'gradient' as const, colors: ['#112233', '#445566'] },
+      native: { representative: '#112233', multiColour: '#112233 #abcdef #445566', type: '0' },
+      display: { mode: 'gradient' as const, colors: ['#112233', '#abcdef', '#445566'] },
     } }, initial.slots[1]], revisions: { ...snapshot.revisions, session: 5, project: 5 } });
     const setColour = vi.fn(async () => mutation(returned, 'set-colour'));
     useFilamentSessionStore.setState({ snapshot });
@@ -426,9 +420,9 @@ describe('FilamentRack runtime interaction', () => {
     await act(async () => trigger.click());
     await confirmColor();
     expect(setColour).toHaveBeenCalledExactlyOnceWith({ version: 1, revision: 4, slot: 1,
-      colour: { kind: 'linear-gradient', start: '#112233', end: '#445566' } });
+      colour: { kind: 'linear-gradient', colors: ['#112233', '#abcdef', '#445566'] } });
     expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native)
-      .toEqual({ representative: '#112233', multiColour: '#112233 #445566', type: '0' });
+      .toEqual({ representative: '#112233', multiColour: '#112233 #abcdef #445566', type: '0' });
   });
 
   it('cancels a referenced Delete without dispatching mutation or changing the snapshot', async () => {

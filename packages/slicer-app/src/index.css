@@ -6,8 +6,24 @@
   background-size: 12px 12px;
 }
 .color-spectrum-pointer { transform: translate(-50%, -50%); box-shadow: 0 0 0 1px var(--color-panel-header); }
-.color-channel-slider [data-slot="slider-track"] { background: var(--channel-gradient); height: 8px; }
+.color-channel-slider [data-slot="slider-track"] { background-image: var(--channel-gradient), conic-gradient(var(--color-secondary) 25%, transparent 0 50%, var(--color-secondary) 0 75%, transparent 0); background-size: auto, 8px 8px; height: 8px; }
 .color-channel-slider [data-slot="slider-range"] { background: transparent; }
+.color-saturation-slider [data-slot="slider-control"] { min-height: 64px; }
+.color-saturation-slider [data-slot="slider-track"] { width: 8px; height: 100%; }
+.color-gradient-stops { background: transparent; }
+.color-gradient-track { background-image: var(--gradient-colors), conic-gradient(var(--color-secondary) 25%, transparent 0 50%, var(--color-secondary) 0 75%, transparent 0); background-size: auto, 8px 8px; }
+.color-gradient-stops [data-slot="tabs-trigger"] {
+  width: 10px;
+  height: 10px;
+  border: 1px solid white;
+  border-radius: 1px;
+  box-shadow: 0 0 0 1px var(--color-panel-header);
+  /* Keep centering independent of the global pressed-tab translate reset. */
+  transform: translate(-50%, -50%);
+  transition-property: background-color, border-color, box-shadow;
+}
+.color-gradient-stops [data-slot="tabs-trigger"][data-active] { width: 20px; height: 20px; border-width: 2px; border-radius: 4px; box-shadow: 0 0 0 2px var(--color-panel-header); }
+.color-gradient-stops [data-slot="tabs-trigger"]::after { display: none; }
 
 /* Plate cards stay inside the existing sidebar list/scroll allocation. */
 .plate-list-card {

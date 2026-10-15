@@ -3,7 +3,7 @@ import { test, expect } from './browser-fixture';
 
 test('Web color favorites survive reload and expose alpha/gradient entries', async ({ page }) => {
   const hidden = [{ kind: 'solid', color: '#11223380' },
-    { kind: 'linear-gradient', start: '#FF000000', end: '#0000FF' }];
+    { kind: 'linear-gradient', colors: ['#FF000000', '#0000FF'] }];
   await page.addInitScript((favorites) => {
     const seeded = 'orca-web-test:color-favorites-seeded';
     if (sessionStorage.getItem(seeded)) return;
@@ -60,7 +60,7 @@ test('Web color favorites survive reload and expose alpha/gradient entries', asy
 
 test('Web converts imported multicolour to edited gradient across local storage and reload', async ({ page }) => {
   const printer = 'Bambu Lab X1 Carbon 0.4 nozzle';
-  const original = { representative: '#998877', multiColour: '#11223380 #abcdef #44556640', type: '1' };
+  const original = { representative: '#998877', multiColour: '#11223380 #abcdef #44556640', type: '0' };
   await page.addInitScript(({ printer, original }) => {
     const seeded = 'orca-web-test:imported-multicolour-seeded';
     if (sessionStorage.getItem(seeded)) return;
@@ -91,7 +91,7 @@ test('Web converts imported multicolour to edited gradient across local storage 
   await trigger.click();
   await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('11223380');
-  await page.getByRole('tab', { name: 'End' }).click();
+  await page.getByRole('tab', { name: 'Gradient color 3' }).click();
   await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('44556640');
   await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#77889940');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -101,16 +101,16 @@ test('Web converts imported multicolour to edited gradient across local storage 
   await page.locator('#app-tab-prepare').click();
   await expect(trigger).toHaveCSS('background-image', /rgb\(171, 205, 239\)/);
   await trigger.click();
-  await page.getByRole('tab', { name: 'Start' }).click();
+  await page.getByRole('tab', { name: 'Gradient color 1' }).click();
   await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#22446680');
-  await page.getByRole('tab', { name: 'End' }).click();
+  await page.getByRole('tab', { name: 'Gradient color 3' }).click();
   await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#77889940');
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgba\(34, 68, 102, [\d.]+\), rgba\(119, 136, 153, [\d.]+\)\)/);
-  await expect.poll(native).toEqual({ representative: '#22446680', multiColour: '#22446680 #77889940', type: '0' });
+  await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgba\(34, 68, 102, [\d.]+\), rgb\(171, 205, 239\), rgba\(119, 136, 153, [\d.]+\)\)/);
+  await expect.poll(native).toEqual({ representative: '#22446680', multiColour: '#22446680 #abcdef #77889940', type: '0' });
   await page.reload();
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
-  await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgba\(34, 68, 102, [\d.]+\), rgba\(119, 136, 153, [\d.]+\)\)/);
-  expect(await native()).toEqual({ representative: '#22446680', multiColour: '#22446680 #77889940', type: '0' });
+  await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgba\(34, 68, 102, [\d.]+\), rgb\(171, 205, 239\), rgba\(119, 136, 153, [\d.]+\)\)/);
+  expect(await native()).toEqual({ representative: '#22446680', multiColour: '#22446680 #abcdef #77889940', type: '0' });
 });
