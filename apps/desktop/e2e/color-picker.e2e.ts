@@ -22,6 +22,18 @@ async function editHex(page: Page, color: string) {
   await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill(color);
 }
 
+async function dragPicker(page: Page, dx: number, dy: number) {
+  const header = page.getByTestId('color-picker-titlebar');
+  await header.hover();
+  await expect.poll(() => page.locator('[data-slot="popover-content"]').evaluate(element => element.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
+  const handle = (await header.boundingBox())!;
+  const before = (await page.locator('[data-slot="popover-content"]').boundingBox())!;
+  const x = handle.x + handle.width / 2, y = handle.y + handle.height / 2;
+  await page.mouse.move(x, y); await page.mouse.down();
+  await page.mouse.move(x + dx, y + dy, { steps: 6 }); await page.mouse.up();
+  return before;
+}
+
 test('translucent filament swatches have checkerboards in the rack, assignment and context menu', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'neo-filament-checkerboard-'));
   const preferences = join(dir, 'preferences.json');
@@ -368,6 +380,7 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await page.getByTestId('preset-editor-input-default_filament_colour').click();
     await expect(page.getByRole('button', { name: 'Favorite #2357AB', exact: true })).toBeVisible();
     await editHex(page, '#654321');
+    await dragPicker(page, 60, -30);
     await page.keyboard.press('Escape');
     await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveCount(0);
     await expect(page.getByTestId('preset-editor-close')).toBeVisible();
@@ -499,4 +512,65 @@ test('edits seven gradient colors with compact controls and persists palette sta
     await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('00FFFF00');
     await expect(page.getByRole('button', { name: 'Favorite ' + normalized.join(' to '), exact: true })).toBeVisible();
   } finally { await second.app.close(); }
+});
+
+test('color picker title bar drags within the viewport and resets position on reopening', async () => {
+  const preferences = join(mkdtempSync(join(tmpdir(), 'neo-color-picker-drag-')), 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1,
+    selectedProfiles: { printer: 'Bambu Lab X1 Carbon 0.4 nozzle', print: '0.20mm Standard @BBL X1C' },
+  }));
+  const { app, page } = await launch(preferences);
+  try {
+    const trigger = page.getByTestId('filament-colour-1');
+    const original = await trigger.getAttribute('value');
+    await trigger.click();
+    const popup = page.locator('[data-slot="popover-content"]');
+    const before = await dragPicker(page, 120, 60);
+    await expect.poll(async () => Math.abs((await popup.boundingBox())!.x - before.x - 120)).toBeLessThan(2);
+    await expect.poll(async () => Math.abs((await popup.boundingBox())!.y - before.y - 60)).toBeLessThan(2);
+    const moved = (await popup.boundingBox())!;
+    await editHex(page, '#2357AB');
+    await page.getByRole('button', { name: 'Palettes', exact: true }).click();
+    await expect(page.getByLabel('Preset colors', { exact: true })).toBeVisible();
+    await expect.poll(async () => (await popup.boundingBox())!.width).toBeGreaterThan(moved.width + 150);
+    await expect.poll(async () => Math.abs((await popup.boundingBox())!.x - moved.x)).toBeLessThan(2);
+    await expect.poll(async () => Math.abs((await popup.boundingBox())!.y - moved.y)).toBeLessThan(2);
+    const header = page.getByTestId('color-picker-titlebar');
+    await header.hover();
+    let handle = (await header.boundingBox())!;
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down(); await page.mouse.move(0, 0, { steps: 6 }); await page.mouse.up();
+    await expect(popup).toBeVisible();
+    await expect.poll(async () => (await popup.boundingBox())!.x).toBeGreaterThanOrEqual(0);
+    await expect.poll(async () => (await popup.boundingBox())!.x).toBeLessThan(12);
+    await expect.poll(async () => (await popup.boundingBox())!.y).toBeGreaterThanOrEqual(0);
+    await expect.poll(async () => (await popup.boundingBox())!.y).toBeLessThan(12);
+    const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    await header.hover(); handle = (await header.boundingBox())!;
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down(); await page.mouse.move(viewport.width - 1, viewport.height - 1, { steps: 6 }); await page.mouse.up();
+    const fits = async () => {
+      const rect = (await popup.boundingBox())!;
+      const view = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+      return rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= view.width + 1 && rect.y + rect.height <= view.height + 1;
+    };
+    await expect.poll(fits).toBe(true);
+    await page.setViewportSize({ width: 900, height: 640 });
+    await expect.poll(fits).toBe(true);
+    const stopped = (await popup.boundingBox())!;
+    await page.mouse.move(450, 120);
+    expect((await popup.boundingBox())!.x).toBeCloseTo(stopped.x, 0);
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('2357ABFF');
+    await popup.screenshot({ path: test.info().outputPath('draggable-color-picker.png') });
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(trigger).toHaveAttribute('value', original!);
+    await trigger.click(); await page.getByTestId('color-picker-titlebar').hover();
+    const anchor = (await trigger.boundingBox())!;
+    await expect.poll(async () => {
+      const rect = (await popup.boundingBox())!;
+      return Math.min(Math.abs(rect.x - anchor.x - anchor.width), Math.abs(rect.x + rect.width - anchor.x),
+        Math.abs(rect.y - anchor.y - anchor.height), Math.abs(rect.y + rect.height - anchor.y));
+    }).toBeLessThan(10);
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue(original!.slice(1).toUpperCase() + (original!.length === 7 ? 'FF' : ''));
+  } finally { await app.close(); }
 });

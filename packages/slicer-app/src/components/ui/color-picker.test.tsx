@@ -327,3 +327,31 @@ it('normalizes a translucent favorite immediately when the opaque caller already
   expect(container.querySelector<HTMLInputElement>('[aria-label="HEX color"]')!.value).toBe('112233');
   expect(container.querySelector('[aria-invalid="true"]')).toBeNull();
 });
+
+it('captures only primary title-bar drags and releases capture on cancel and unmount', async () => {
+  const confirm = vi.fn();
+  await mount(<ColorPickerPopover value={{ kind: 'solid', color: '#123456' }} open onOpenChange={() => undefined}
+    onConfirm={confirm} trigger={<Button>Open picker</Button>} />);
+  const header = document.querySelector<HTMLElement>('[data-testid="color-picker-titlebar"]')!;
+  let captured = false;
+  header.setPointerCapture = vi.fn(() => { captured = true; });
+  header.hasPointerCapture = vi.fn(() => captured);
+  header.releasePointerCapture = vi.fn(() => { captured = false; });
+  const dispatch = async (type: string, button = 0) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button, clientX: 50, clientY: 50 });
+    Object.defineProperty(event, 'pointerId', { value: 1 });
+    await act(async () => header.dispatchEvent(event));
+  };
+  await dispatch('pointerdown', 2);
+  expect(header.setPointerCapture).not.toHaveBeenCalled();
+  await dispatch('pointerdown');
+  expect(header.setPointerCapture).toHaveBeenCalledExactlyOnceWith(1);
+  await dispatch('pointercancel');
+  expect(header.releasePointerCapture).toHaveBeenCalledExactlyOnceWith(1);
+  expect(document.querySelector('[aria-label="HEX color"]')).not.toBeNull();
+  await dispatch('pointerdown');
+  const root = roots.pop()!;
+  await act(async () => root.unmount());
+  expect(header.releasePointerCapture).toHaveBeenCalledTimes(2);
+  expect(confirm).not.toHaveBeenCalled();
+});

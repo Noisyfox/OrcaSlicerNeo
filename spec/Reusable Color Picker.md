@@ -21,6 +21,12 @@ to the clicked color button, aligns to its start edge, and automatically shifts
 or flips to remain inside the viewport. Outside clicks cancel the draft without
 blocking the rest of the application. Nested preset-editor popovers preserve
 their parent dialog when dismissed.
+The visible title bar can be dragged with the primary pointer button. Pointer
+capture keeps the gesture active outside the header; release, cancellation,
+lost capture, and unmount end it. After dragging, the popup uses a viewport
+position and stays within the viewport as its contents or the viewport resize.
+Palette expansion preserves the chosen top-left position whenever it fits.
+Position is local to this opening; reopening anchors to the color button again.
 Right clicks inside the color popup do not open the enclosing filament card's
 context menu. Native input editing menus retain their established behavior.
 
