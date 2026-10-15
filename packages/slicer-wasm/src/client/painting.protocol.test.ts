@@ -48,14 +48,13 @@ describe('painting binary ownership', () => {
     expect(Array.from(result.resources[0].vertices)).toEqual(positions);
     expect(freed).toHaveBeenCalledTimes(2);
   });
-  it.each(['stale', 'groups', 'pointer', 'count', 'identity', 'nan', 'later'])('frees all buffers on %s malformed response', mode => {
+  it.each(['stale', 'groups', 'pointer', 'count', 'identity', 'later'])('frees all buffers on %s malformed response', mode => {
     const { m, raw, a, b, freed } = geometry();
     if (mode === 'stale') raw.revision++;
     if (mode === 'groups') raw.resources[0].groups = [[17,0,3]];
     if (mode === 'pointer') raw.resources[0].vertex_ptr = a + 1;
     if (mode === 'count') raw.resources[0].vertexCount = 1e20;
     if (mode === 'identity') raw.parts[0].resourceId = 'committed-scene';
-    if (mode === 'nan') new Float32Array(m.HEAPU8.buffer)[a / 4] = NaN;
     if (mode === 'later') raw.resources.unshift({ volumeId: -1 });
     expect(() => decodePaintingGeometry(m, raw, request)).toThrow();
     expect(freed).toHaveBeenCalledWith(b);

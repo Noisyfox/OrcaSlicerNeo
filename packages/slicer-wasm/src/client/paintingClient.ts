@@ -33,9 +33,7 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
       if ((bytes > 0 && (!pointer || pointer % 4 || used.has(pointer))) || (!bytes && pointer !== 0) || pointer + bytes > module.HEAPU8.length || ranges.some(([start, end]) => bytes > 0 && pointer < end && pointer + bytes > start))
         throw new Error('invalid painting buffer range');
       if (pointer) { used.add(pointer); ranges.push([pointer, pointer + bytes]); }
-      const result = new Float32Array(module.HEAPU8.slice(pointer, pointer + bytes).buffer);
-      if (!result.every(Number.isFinite)) throw new Error('invalid painting vertex');
-      return result;
+      return new Float32Array(module.HEAPU8.slice(pointer, pointer + bytes).buffer);
     };
     const ids = new Set<string>();
     const volumeIds = new Set<number>();

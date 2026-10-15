@@ -652,6 +652,8 @@ face normals on the GPU, including under mirrored and nonuniform transforms;
 native display generation neither computes nor transfers per-vertex normals.
 This display layout does not change native normals used for painting selection
 or overhang classification. Contours remain xyz line-segment endpoints.
+The client validates buffer ranges, resource identities and manifest structure,
+then copies native coordinate buffers without a full per-float finite-value scan.
 
 Publish the resource manifest, its target/part transforms and its palette as
 one complete visual bundle. While entering painting, retain passive Prepare
