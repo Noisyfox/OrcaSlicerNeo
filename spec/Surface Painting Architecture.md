@@ -723,8 +723,11 @@ receipts identify exact net changes. Determine those net changes once at the
 stroke boundary using the content needed for model/history publication, rather
 than comparing the whole stroke after each sample. A new stroke reuses the
 preceding boundary's immutable content for Escape. Escape reconstructs the
-pre-stroke content in the same working selectors. Independent candidate
-previews retain their isolation, including the Triangle selection preview.
+pre-stroke content in the same working selectors. Fill candidate previews retain
+their selector isolation. Triangle preview borrows the working selector's
+temporary selection flags without changing annotation content or topology;
+it does not clone selectors or cache preview geometry. Commands run serially
+and displayed client geometry remains independently owned.
 
 Validate request settings, identities and camera context before selector mutation.
 Invalid or stale requests report their business error without cancelling another

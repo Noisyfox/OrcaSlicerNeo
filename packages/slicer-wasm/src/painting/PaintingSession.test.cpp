@@ -310,7 +310,10 @@ void triangle_preview_tests() {
             CHECK((b - a).cross(c - a).norm() * .5f < 50.f);
         }
         Settings settings; settings.state = 2; settings.angle.reset(); settings.radius = 100;
+        const auto geometry_revision = f.s().parts[0].geometry_revision;
+        const auto boundary_data = f.s().parts[0].data;
         f.preview(Tool::Triangle, settings, top(3.013, 4.027));
+        CHECK(f.s().preview->facet_selection == selector);
         CHECK(f.s().preview->facet_selection->selected_facet_count() == 1);
         CHECK(f.s().preview->facet_selection->display(nullptr, true).vertices == selected.vertices);
         CHECK(f.s().preview->facet_selection->contour() == expected->contour());
@@ -318,20 +321,34 @@ void triangle_preview_tests() {
         CHECK(f.s().preview->facet_selection->contour().size() % 6 == 0);
         CHECK(f.s().preview->selectors[0] == selector && f.s().parts[0].selector == selector);
         CHECK(selector->serialize() == before && !f.s().effective && f.s().changed_parts.empty());
+        CHECK(f.s().parts[0].geometry_revision == geometry_revision);
+        CHECK(f.s().parts[0].data == boundary_data && f.s().parts[0].data_current);
         CHECK(f.part->mmu_segmentation_facets.timestamp() == timestamp && f.part->mmu_segmentation_facets.get_data() == annotation);
+        for (const auto& pointer : {top(2.013, 3.027), top(3.013, 4.027)}) {
+            const auto hover_hit = *f.sessions.pick(f.s(), pointer);
+            expected->bucket_fill_select_triangles(hover_hit.local.cast<float>(), hover_hit.original_facet, {}, -1.f, false, true);
+            f.preview(Tool::Triangle, settings, pointer);
+            CHECK(f.s().preview->facet_selection == selector && selector->selected_facet_count() == 1);
+            CHECK(selector->display(nullptr, true).vertices == expected->display(nullptr, true).vertices);
+            CHECK(selector->contour() == expected->contour() && selector->serialize() == before);
+            CHECK(f.s().parts[0].geometry_revision == geometry_revision && !f.s().effective);
+        }
         f.preview(Tool::Triangle, settings, top(13, 2));
         CHECK(f.s().preview->hit->part == 1 && f.s().preview->facet_selection->selected_facet_count() == 1);
+        CHECK(f.s().preview->facet_selection == f.s().parts[1].selector);
         f.preview(Tool::Triangle, settings, top(-10, 2));
         CHECK(!f.s().preview->hit && !f.s().preview->facet_selection);
         f.preview(Tool::Triangle, settings, top(3.013, 4.027));
         const auto revision = f.s().revision;
         THROWS(f.sessions.prepare_begin(f.s().id, revision, Tool::Triangle, settings, top(13, 2), revision));
         f.sessions.publish(f.sessions.prepare_begin(f.s().id, revision, Tool::Triangle, settings, top(3.013, 4.027), revision));
+        CHECK(f.s().preview->facet_selection == selector);
         CHECK(f.s().parts[0].facet_counts()[2] == 1);
         CHECK(f.s().preview->facet_selection->display(nullptr, true).vertices == selected.vertices);
         CHECK(f.s().preview->facet_selection->display(nullptr, true).groups.front()[0] == 2);
         f.sample(settings, top(13, 2));
         CHECK(f.s().preview->hit->part == 1);
+        CHECK(f.s().preview->facet_selection == f.s().parts[1].selector);
         f.sample(settings, top(-10, 2));
         CHECK(!f.s().preview && !f.s().last_hit);
         f.cancel();

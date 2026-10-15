@@ -74,8 +74,9 @@ struct Preview {
     std::vector<std::shared_ptr<NativeSelector>> selectors;
     // TriangleSelectorGUI keeps seed membership/contours distinct from paint
     // colour. Retain that selection even when the prospective colour is NONE
-    // or already assigned. Triangle hover retains only current native leaf
-    // membership; its selectors above remain the unchanged draft selectors.
+    // or already assigned. Triangle borrows the working selector's temporary
+    // membership flags; it is not an independent selector snapshot. Commands
+    // run serially and the displayed geometry is separately owned by the client.
     std::shared_ptr<const NativeSelector> facet_selection;
     // Leaf IDs refer to the unchanged Session::parts selectors, not the
     // prospective selectors above. Gap fragments remain separately inspectable.

@@ -321,9 +321,9 @@ void Sessions::sample(Session& session, const Settings& settings, const PointerE
     session.last_hit = endpoint;
     session.preview.reset();
     if (session.tool == Tool::Triangle) {
-        // Orca POINTER leaves the current native leaf selected after each
-        // admitted sample. Keep flags isolated from draft annotation topology.
-        auto selected = session.parts[endpoint->part].selector->clone();
+        // Re-select after painting: applying the colour may merge leaves.
+        // Triangle preview borrows the working selector's temporary flags.
+        auto selected = session.parts[endpoint->part].selector;
         selected->bucket_fill_select_triangles(endpoint->local.cast<float>(), endpoint->original_facet, {}, -1.f, false, true);
         Preview preview{Tool::Triangle, settings, endpoint, {}, std::move(selected), {}};
         for (const auto& part : session.parts) preview.selectors.push_back(part.selector);
@@ -495,8 +495,8 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
     if ((tool != Tool::Gap && tool != Tool::Overhang) != bool(event)) throw std::invalid_argument("painting preview event mismatch");
     auto next = stage(current);
     const auto hit = event ? pick(current, *event) : std::optional<Hit>{};
-    // Candidate selectors are isolated from the authoritative draft as well as
-    // Model annotations. Replacing a hover discards the previous candidate.
+    // Fill candidates own isolated selectors. Triangle only changes temporary
+    // selection flags on the working selector; annotation/topology is unchanged.
     Session work = current;
     work.tool = tool;
     Preview preview{tool, settings, hit, {}, {}, {}};
@@ -520,7 +520,8 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
         part.selector->apply_gaps(patches);
     }
     else if (hit) {
-        auto selected = current.parts[hit->part].selector->clone();
+        auto selected = tool == Tool::Triangle ? current.parts[hit->part].selector
+                                              : current.parts[hit->part].selector->clone();
         {
 #ifdef NEO_PAINTING_PROFILE
         Profile::Scope profile_region(Profile::selector);
