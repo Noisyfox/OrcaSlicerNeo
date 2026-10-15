@@ -574,3 +574,74 @@ test('color picker title bar drags within the viewport and resets position on re
     await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue(original!.slice(1).toUpperCase() + (original!.length === 7 ? 'FF' : ''));
   } finally { await app.close(); }
 });
+
+test('gradient nodes keep their centers while held down and match the reference proportions', async () => {
+  const preferences = join(mkdtempSync(join(tmpdir(), 'neo-gradient-nodes-')), 'preferences.json');
+  const printer = 'Bambu Lab X1 Carbon 0.4 nozzle';
+  writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: { printer, print: '0.20mm Standard @BBL X1C' },
+    colorPicker: { favorites: [], ui: { sidebarOpen: true, paletteId: 'basic' } },
+    rememberedFilamentRacks: { [printer]: { version: 1, slots: [{ preset: 'Generic PLA @System', colour: '#0000ff',
+      native: { representative: '#0000ff', multiColour: '#0000ff #ff0000', type: '0' } }] } },
+  }));
+  const { app, page } = await launch(preferences);
+  try {
+    await page.getByTestId('filament-colour-1').click();
+    const popup = page.locator('[data-slot="popover-content"]');
+    const track = page.getByRole('tablist', { name: 'Gradient colors', exact: true });
+    const paint = track.locator('.color-gradient-track');
+    const node = (index: number) => page.getByRole('tab', { name: `Gradient color ${index}`, exact: true });
+    await node(2).hover();
+    const selected = (await node(1).boundingBox())!, inactive = (await node(2).boundingBox())!;
+    const band = (await paint.boundingBox())!, add = (await page.getByRole('button', { name: 'Add color', exact: true }).boundingBox())!;
+    expect(selected.height).toBeCloseTo(20, 0);
+    expect(selected.width).toBeCloseTo(selected.height, 0);
+    expect(inactive.height * 2).toBeCloseTo(selected.height, 0);
+    expect(inactive.width).toBeCloseTo(inactive.height, 0);
+    expect(band.height).toBeCloseTo(selected.height, 0);
+    expect(add.height).toBeCloseTo(band.height, 0);
+    expect(add.x - band.x - band.width).toBeCloseTo(10, 0);
+    expect(band.width / band.height).toBeGreaterThan(9);
+    expect(band.width / band.height).toBeLessThan(9.2);
+    expect(selected.x + selected.width / 2 - band.x).toBeCloseTo(10, 0);
+    expect(band.x + band.width - inactive.x - inactive.width / 2).toBeCloseTo(10, 0);
+    const pressNode = async (index: number) => {
+      const target = node(index);
+      await target.hover();
+      const before = (await target.boundingBox())!, popupBefore = (await popup.boundingBox())!;
+      await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2); await page.mouse.down();
+      // Sample every frame while the mouse is held: the former global tab
+      // :active rule animated the centering translate away from -50%.
+      const frames = await target.evaluate(element => new Promise<{ x: number; y: number }[]>(resolve => {
+        const centers: { x: number; y: number }[] = [];
+        const sample = () => {
+          const rect = element.getBoundingClientRect(); centers.push({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+          if (centers.length < 12) requestAnimationFrame(sample); else resolve(centers);
+        };
+        sample();
+      }));
+      for (const center of frames) {
+        expect(center.x).toBeCloseTo(before.x + before.width / 2, 0);
+        expect(center.y).toBeCloseTo(before.y + before.height / 2, 0);
+      }
+      await page.mouse.up();
+      await expect(target).toHaveAttribute('aria-selected', 'true');
+      const after = (await target.boundingBox())!, popupAfter = (await popup.boundingBox())!;
+      expect(after.x + after.width / 2).toBeCloseTo(before.x + before.width / 2, 0);
+      expect(after.y + after.height / 2).toBeCloseTo(before.y + before.height / 2, 0);
+      expect(popupAfter.x).toBeCloseTo(popupBefore.x, 0); expect(popupAfter.y).toBeCloseTo(popupBefore.y, 0);
+    };
+    for (const index of [2, 1, 2]) await pressNode(index);
+    await popup.screenshot({ path: test.info().outputPath('gradient-nodes-two.png') });
+    for (let i = 0; i < 5; ++i) await page.getByRole('button', { name: 'Add color', exact: true }).click();
+    for (let index = 1; index <= 7; ++index) await pressNode(index);
+    const remove = (await page.getByRole('button', { name: 'Remove color', exact: true }).boundingBox())!;
+    const addFull = (await page.getByRole('button', { name: 'Add color', exact: true }).boundingBox())!;
+    expect(addFull.x - remove.x - remove.width).toBeCloseTo(6, 0);
+    await node(1).focus(); await page.keyboard.press('End'); await page.keyboard.press('Enter');
+    await expect(node(7)).toHaveAttribute('aria-selected', 'true');
+    const trackRect = (await track.boundingBox())!;
+    await track.click({ position: { x: 10 + (trackRect.width - 20) * 0.24, y: trackRect.height / 2 } });
+    await expect(node(2)).toHaveAttribute('aria-selected', 'true');
+    await popup.screenshot({ path: test.info().outputPath('gradient-nodes-seven.png') });
+  } finally { await app.close(); }
+});

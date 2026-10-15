@@ -248,12 +248,12 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
           onValueChange={next => { clearEditors(); publish({ ...color, s: Array.isArray(next) ? next[0] : next }); }} />
         <ColorSpectrum color={color} onChange={next => { clearEditors(); publish(next); }} disabled={disabled} />
       </div>
-      <div data-slot="color-picker-editor-grid" className="flex shrink-0 gap-1.5">
-        <FieldGroup className="min-w-0 flex-1 gap-1.5">
+      <div data-slot="color-picker-editor-grid" className="flex shrink-0 gap-[5px]">
+        <FieldGroup className="min-w-0 flex-1 gap-[5px]">
           <div className="h-7">{enableGradient && <Tabs value={isGradient ? 'gradient' : 'solid'} onValueChange={changeMode}>
             <TabsList aria-label="Color mode" variant="segmented" className="h-7 w-full"><TabsTrigger value="solid" disabled={disabled}>Solid</TabsTrigger><TabsTrigger value="gradient" disabled={disabled}>Gradient</TabsTrigger></TabsList>
           </Tabs>}</div>
-          <div className="flex min-w-0 gap-1.5">
+          <div className="flex min-w-0 gap-[5px]">
             <Field orientation="horizontal" className="min-w-0 flex-1 gap-1 rounded-sm bg-control-background pl-1" data-invalid={hexInvalid || undefined}>
               <FieldLabel htmlFor={hexId}>#</FieldLabel>
               <Input id={hexId} aria-label="HEX color" className="h-7 min-w-0 border-0 px-1" value={hexText} aria-invalid={hexInvalid} disabled={disabled} spellCheck={false}
@@ -266,7 +266,7 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
                   }
                 }} onBlur={() => { if (!hexInvalid) setHexText(rgbaToHex(hslaToRgba(color), enableAlpha).slice(1)); }} />
             </Field>
-            {enableAlpha && <div data-opacity-control className="w-14 shrink-0" onFocusCapture={() => setOpacityOpen(true)} onClick={() => setOpacityOpen(true)}>
+            {enableAlpha && <div data-opacity-control className="w-[54px] shrink-0" onFocusCapture={() => setOpacityOpen(true)} onClick={() => setOpacityOpen(true)}>
               <ColorNumber key={`alpha-${reset}`} label="Alpha" value={color.a * 100} max={100} disabled={disabled} onValidityChange={channelValidity} onChange={next => publish({ ...color, a: Math.round(next * 255 / 100) / 255 })} />
             </div>}
           </div>
@@ -278,12 +278,13 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
             </div> : isGradient && <>
               <Tabs value={String(active)} className="min-w-0 flex-1" onValueChange={next => { clearEditors(); emitted.current = null; setEndpoint(Number(next)); }}>
                 <TabsList aria-label="Gradient colors" className="color-gradient-stops relative h-7 w-full p-0" style={{ '--gradient-colors': colorValueCss(current) } as React.CSSProperties}
-                  onClick={event => { if (disabled || event.target !== event.currentTarget) return; const rect = event.currentTarget.getBoundingClientRect(); clearEditors(); setEndpoint(Math.round(clamp((event.clientX - rect.left) / rect.width, 0, 1) * (value.colors.length - 1))); }}>
+                  onClick={event => { if (disabled || event.target !== event.currentTarget) return; const rect = event.currentTarget.getBoundingClientRect(); clearEditors(); setEndpoint(Math.round(clamp((event.clientX - rect.left - 10) / Math.max(1, rect.width - 20), 0, 1) * (value.colors.length - 1))); }}>
+                  <span aria-hidden="true" className="color-gradient-track pointer-events-none absolute inset-x-0 top-1/2 h-5 -translate-y-1/2 rounded-sm border border-border" />
                   {value.colors.map((hex, index) => <TabsTrigger key={index} value={String(index)} disabled={disabled} aria-label={`Gradient color ${index + 1}`}
-                    className="absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-sm p-0" style={{ left: `calc(10px + (100% - 20px) * ${index / (value.colors.length - 1)})`, background: hex }} />)}
+                    className="absolute top-1/2 p-0" style={{ left: `calc(10px + (100% - 20px) * ${index / (value.colors.length - 1)})`, background: hex }} />)}
                 </TabsList>
               </Tabs>
-              <div className="ml-2 flex shrink-0 gap-1">
+              <div className="ml-[10px] mr-1 flex shrink-0 gap-1.5">
                 {value.colors.length > 2 && <Button variant="settings" size="icon-xs" aria-label="Remove color" disabled={disabled} onClick={() => {
                   const colors = value.colors.filter((_, index) => index !== active); setEndpoint(Math.min(active, colors.length - 1)); memories.current = {}; apply({ kind: 'linear-gradient', colors });
                 }}><MinusIcon /></Button>}
@@ -297,11 +298,11 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
             </>}
           </div>
         </FieldGroup>
-        <FieldGroup className="w-14 shrink-0 gap-1.5">
+        <FieldGroup className="w-[52px] shrink-0 gap-[5px]">
           {(['h', 's', 'l'] as const).map(channel => <ColorNumber key={`${reset}-${channel}`} label={channel.toUpperCase()} value={color[channel]} max={channel === 'h' ? 360 : 100} disabled={disabled}
             onValidityChange={channelValidity} onChange={next => publish({ ...color, [channel]: next })} />)}
         </FieldGroup>
-        <FieldGroup className="w-14 shrink-0 gap-1.5">
+        <FieldGroup className="w-[52px] shrink-0 gap-[5px]">
           {(['r', 'g', 'b'] as const).map(channel => <ColorNumber key={`${reset}-${channel}`} label={channel.toUpperCase()} value={rgba[channel]} max={255} disabled={disabled}
             onValidityChange={channelValidity} onChange={next => publish(rgbaToHsla({ ...rgba, [channel]: next }, color))} />)}
         </FieldGroup>

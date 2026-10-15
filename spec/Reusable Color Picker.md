@@ -56,6 +56,12 @@ It remembers each mode's last selection. A gradient
 track selects the nearest fixed stop on click; keyboard-accessible stop tabs
 select an individual color. Add inserts after the active stop and selects it;
 Remove deletes the active stop, with a minimum of two and maximum of seven.
+The gradient track, selected stop, and add/remove buttons are 20 CSS px high;
+inactive stops are 10 CSS px squares. Stops stay centered while pressed, with
+their first/last centers inset 10 px from the track ends. Buttons sit 10 px
+away from the track, with a 6 px gap between them. The HSL and RGB columns
+are 52 px wide with 5 px gutters, leaving the gradient track the reference
+layout's share of the editor width.
 The opacity slider occupies the gradient track row while the opacity input or
 slider is in use. Focusing or clicking another control closes it.
 
