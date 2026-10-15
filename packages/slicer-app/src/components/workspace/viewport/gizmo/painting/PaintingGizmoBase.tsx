@@ -18,7 +18,7 @@ export function paintingModelColor(style: string): THREE.Color {
   return new THREE.Color(resolvePrepareMaterial({ baseColour: style }).colour);
 }
 
-export function paintingSurfaceMaterial(style: string, region: boolean, overhang: boolean, overlay: boolean): THREE.MeshStandardMaterial {
+export function paintingSurfaceMaterial(style: string, region: boolean, overhang: boolean, overlay: boolean, highlightBed = false): THREE.MeshStandardMaterial {
   const model = resolvePrepareMaterial({ baseColour: style });
   const color = paintingModelColor(region && !overhang ? '#ffffff' : style);
   if (overhang) {
@@ -27,7 +27,7 @@ export function paintingSurfaceMaterial(style: string, region: boolean, overhang
     const rgb = Number.parseInt(model.colour.slice(1), 16);
     color.setRGB(((rgb >> 16) / 255 + 0.78) * 0.5, ((rgb >> 8) & 255) / 510, (rgb & 255) / 510, THREE.SRGBColorSpace);
   }
-  return new THREE.MeshStandardMaterial({
+  const material = new THREE.MeshStandardMaterial({
     color,
     side: THREE.DoubleSide,
     // Match Orca MMU: derive face normals from position derivatives on the GPU.
@@ -39,6 +39,21 @@ export function paintingSurfaceMaterial(style: string, region: boolean, overhang
     polygonOffsetFactor: overhang ? -1 : -2,
     polygonOffsetUnits: overhang ? -1 : -2,
   });
+  if (highlightBed) {
+    // Orca mm_gouraud.fs gives the world-Z bed band priority over the
+    // overhang tint, including faces that fail the overhang angle filter.
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.paintingBedColor = { value: new THREE.Color().setRGB(0.73, 1, 1, THREE.SRGBColorSpace) };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying float paintingWorldZ;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\npaintingWorldZ = (modelMatrix * vec4(transformed, 1.0)).z;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float paintingWorldZ;\nuniform vec3 paintingBedColor;')
+        .replace('#include <color_fragment>', '#include <color_fragment>\nif (paintingWorldZ > -0.1 && paintingWorldZ < 0.1) { diffuseColor = vec4(paintingBedColor, 1.0); }');
+    };
+    material.customProgramCacheKey = () => 'painting-bed-highlight';
+  }
+  return material;
 }
 
 export function paintingPointer(event: Pick<PointerEvent, 'clientX' | 'clientY'>, canvas: HTMLCanvasElement, camera: THREE.Camera): PaintingPointerEvent {
@@ -232,7 +247,7 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
     {__ORCA_E2E__ && <PaintingProbe owner={owner} resources={cache} volumes={volumes} cursor={cursor} pivot={pivot} />}
     <ambientLight intensity={0.6} /><directionalLight position={[100, 150, 200]} intensity={1.2} />
     {visual ? visual.resources.filter((r) => r.source.kind === 'draft' || activeCandidates.has(r.source.resourceId)).map((r) => {
-      return <PaintResourceMesh key={r.source.resourceId} resource={r} targetName={__ORCA_E2E__ ? `painting-model-${visual.display.session.objectId}-${visual.display.session.instanceId}` : ''} matrix={paintingPartMatrix(visual.display.session, r.source.volumeId)} colors={r.source.groups.map(([state]) => resolveColor(visual.display, r.source.volumeId, state))} />;
+      return <PaintResourceMesh key={r.source.resourceId} resource={r} targetName={__ORCA_E2E__ ? `painting-model-${visual.display.session.objectId}-${visual.display.session.instanceId}` : ''} matrix={paintingPartMatrix(visual.display.session, r.source.volumeId)} colors={r.source.groups.map(([state]) => resolveColor(visual.display, r.source.volumeId, state))} highlightBed={state.channel === 'support' && !!state.highlightEnabled} />;
     }) : openingVisual}
     {cursor && visual && (state.tool === 'circle' || state.tool === 'sphere' || state.tool === 'height') && <PaintingCursor tool={state.tool} settings={state.settings} position={cursor} cameraQuaternion={camera.quaternion} bounds={bounds} meshes={cursorMeshes} color={resolveCursorColor(visual.display, (state.channel === 'seam' || state.channel === 'support') && state.settings.erase ? 0 : state.settings.state)} />}
   </>;
@@ -247,11 +262,11 @@ export function triangleContourMaterial(): THREE.LineBasicMaterial {
   material.customProgramCacheKey = () => 'painting-triangle-contour';
   return material;
 }
-function PaintResourceMesh({ resource, matrix, colors, targetName }: { resource: PaintingResource; matrix: THREE.Matrix4; colors: string[]; targetName: string }) {
+function PaintResourceMesh({ resource, matrix, colors, targetName, highlightBed }: { resource: PaintingResource; matrix: THREE.Matrix4; colors: string[]; targetName: string; highlightBed: boolean }) {
   const triangle = resource.source.kind === 'triangle';
   const overhang = resource.source.kind === 'overhang';
   const region = (resource.source.kind === 'region' || resource.source.kind === 'smartFill' || resource.source.kind === 'overhang'), overlay = resource.source.kind !== 'draft';
-  const materials = useMemo(() => triangle ? [] : colors.map((color) => paintingSurfaceMaterial(color, region, overhang, overlay)), [colors.join(','), triangle, region, overlay, overhang]);
+  const materials = useMemo(() => triangle ? [] : colors.map((color) => paintingSurfaceMaterial(color, region, overhang, overlay, highlightBed)), [colors.join(','), triangle, region, overlay, overhang, highlightBed]);
   const contourMaterial = useMemo(() => triangle ? triangleContourMaterial() : new THREE.LineBasicMaterial({ color: 'white', depthTest: false }), [triangle]);
   useEffect(() => () => materials.forEach((m) => m.dispose()), [materials]);
   useEffect(() => () => contourMaterial.dispose(), [contourMaterial]);

@@ -1041,6 +1041,25 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await page.screenshot({path:test.info().outputPath('support-smart-fill-overhang-editor.png')});
     expect(supportOverlayFrames.some(f=>f.draws.some(d=>d.candidate?.color==='c96666'&&d.candidate.opacity===1)&&f.draws.some(d=>d.candidate?.color==='ffffff'))).toBe(true);
     for(const frame of supportOverlayFrames){const overlays=frame.draws.filter(d=>d.candidate);expect(overlays.every(d=>d.candidate!.depthWrite===false)).toBe(true);const highlight=overlays.find(d=>d.candidate!.color==='c96666'),candidate=overlays.find(d=>d.candidate!.color==='ffffff');if(highlight&&candidate){expect(highlight.renderOrder).toBeLessThan(candidate.renderOrder);expect(highlight.candidate!.polygonOffsetFactor).toBeGreaterThan(candidate.candidate!.polygonOffsetFactor);}}
+    const surfacePixels = (kind: string) => page.evaluate((kind) => (window as any).__orcaE2e.paintingSurfacePixels(kind) as Array<{ z: number; rgba: number[] }>, kind);
+    const isBlue = ([r, g, b]: number[]) => g > r + 20 && b > r + 20 && Math.abs(g - b) <= 1;
+    const bedPixels: Record<string, unknown> = {};
+    for (const kind of ['draft', 'overhang', 'smartFill']) {
+      const pixels = await surfacePixels(kind); bedPixels[kind] = pixels;
+      for (const { z, rgba } of pixels) {
+        const inBand = z > -0.1 && z < 0.1;
+        expect(isBlue(rgba), `${kind} world Z=${z}: only the strict bed band is blue`).toBe(inBand);
+        if (inBand) expect(rgba[3], `${kind}: blue overrides preview transparency`).toBe(255);
+      }
+    }
+    await page.getByRole('spinbutton', { name: 'Overhang angle (degrees)', exact: true }).fill('45'); await settleFrames();
+    expect((await surfacePixels('draft')).filter(({ rgba }) => isBlue(rgba))).toHaveLength(3);
+    await page.getByRole('checkbox', { name: 'Highlight overhangs', exact: true }).uncheck(); await settleFrames();
+    expect((await surfacePixels('draft')).some(({ rgba }) => isBlue(rgba))).toBe(false);
+    await page.getByRole('spinbutton', { name: 'Overhang angle (degrees)', exact: true }).fill('0');
+    await page.getByRole('checkbox', { name: 'Highlight overhangs', exact: true }).check(); await settleFrames();
+    expect((await surfacePixels('draft')).filter(({ rgba }) => isBlue(rgba))).toHaveLength(3);
+    supportEvidence.bedPixels = bedPixels;
     await page.mouse.click(supportCenter.x,supportCenter.y);await idle();expect((await supportCounts())[0].facetCounts[1]).toBeGreaterThan(0);
     expect((await read())!.resources.some(r=>r.kind==='overhang')).toBe(true);
     await page.getByTestId('painting-tool-sphere').click();await page.getByRole('radio',{name:'Block',exact:true}).click();
