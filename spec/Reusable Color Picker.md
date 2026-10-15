@@ -44,7 +44,9 @@ shared user preferences; unsupported palettes fall back to Basic for that caller
 
 A vertical saturation slider sits beside the hue/lightness spectrum. HEX,
 optional opacity percentage, RGB and HSL inputs are visible together below it.
-The Solid/Gradient switch remembers each mode's last selection. A gradient
+The Solid/Gradient switch uses the dark control background, neutral secondary
+surface for the selected segment, and foreground/muted-foreground text roles.
+It remembers each mode's last selection. A gradient
 track selects the nearest fixed stop on click; keyboard-accessible stop tabs
 select an individual color. Add inserts after the active stop and selects it;
 Remove deletes the active stop, with a minimum of two and maximum of seven.

@@ -417,6 +417,17 @@ test('edits seven gradient colors with compact controls and persists palette sta
     const original = page.getByRole('button', { name: 'Original color', exact: true });
     const red = page.getByRole('spinbutton', { name: 'R value', exact: true });
     const hue = page.getByRole('spinbutton', { name: 'H value', exact: true });
+    const mode = page.getByRole('tablist', { name: 'Color mode', exact: true });
+    const controlBackground = await page.getByRole('textbox', { name: 'HEX color', exact: true }).locator('..').evaluate(element => getComputedStyle(element).backgroundColor);
+    const selectedBackground = await page.getByRole('button', { name: 'Cancel', exact: true }).evaluate(element => getComputedStyle(element).backgroundColor);
+    const selectedForeground = await confirm.evaluate(element => getComputedStyle(element).color);
+    await expect(mode).toHaveCSS('background-color', controlBackground);
+    await expect(mode.getByRole('tab', { name: 'Gradient', exact: true })).toHaveCSS('background-color', selectedBackground);
+    await expect(mode.getByRole('tab', { name: 'Gradient', exact: true })).toHaveCSS('color', selectedForeground);
+    await mode.getByRole('tab', { name: 'Solid', exact: true }).click();
+    await expect(mode.getByRole('tab', { name: 'Solid', exact: true })).toHaveCSS('background-color', selectedBackground);
+    await expect(mode.getByRole('tab', { name: 'Solid', exact: true })).toHaveCSS('color', selectedForeground);
+    await mode.getByRole('tab', { name: 'Gradient', exact: true }).click();
     await expect(red).toBeVisible(); await expect(hue).toBeVisible();
     const saturation = page.getByRole('slider', { name: 'Saturation', exact: true });
     await expect(saturation).toHaveAttribute('aria-orientation', 'vertical');

@@ -252,7 +252,7 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
       <div data-slot="color-picker-editor-grid" className="flex shrink-0 gap-1.5">
         <FieldGroup className="min-w-0 flex-1 gap-1.5">
           <div className="h-7">{enableGradient && <Tabs value={isGradient ? 'gradient' : 'solid'} onValueChange={changeMode}>
-            <TabsList className="h-7 w-full"><TabsTrigger value="solid" disabled={disabled}>Solid</TabsTrigger><TabsTrigger value="gradient" disabled={disabled}>Gradient</TabsTrigger></TabsList>
+            <TabsList aria-label="Color mode" variant="segmented" className="h-7 w-full"><TabsTrigger value="solid" disabled={disabled}>Solid</TabsTrigger><TabsTrigger value="gradient" disabled={disabled}>Gradient</TabsTrigger></TabsList>
           </Tabs>}</div>
           <div className="flex min-w-0 gap-1.5">
             <Field orientation="horizontal" className="min-w-0 flex-1 gap-1 rounded-sm bg-control-background pl-1" data-invalid={hexInvalid || undefined}>
