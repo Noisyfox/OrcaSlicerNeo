@@ -1,8 +1,10 @@
 #include "PaintingSession.hpp"
+#include <algorithm>
 #include <limits>
 #include <stdexcept>
 #include <cmath>
 #include <Eigen/LU>
+#include "libslic3r/Polyline.hpp"
 #include "PaintingProfile.hpp"
 
 namespace Slic3r::Neo::Painting {
@@ -91,9 +93,10 @@ void Sessions::bind(Session& session, const Model& model, std::size_t object_id,
         if (!mesh || mesh->its.indices.empty()) continue;
         auto selector = std::make_shared<NativeSelector>(*mesh);
         load_annotation(*volume, session.channel, *selector);
+        auto data = std::make_shared<const SelectorData>(selector->serialize());
         auto acceleration = std::make_shared<AABBMesh>(*mesh);
         session.parts.push_back({volume->id().id, std::move(mesh), std::move(selector),
-            volume->get_matrix(), annotation(*volume, session.channel).timestamp(), std::move(acceleration), session.revision});
+            volume->get_matrix(), annotation(*volume, session.channel).timestamp(), std::move(acceleration), session.revision, std::move(data)});
     }
     if (session.parts.empty()) throw std::invalid_argument("painting object has no solid mesh parts");
 }
@@ -226,11 +229,89 @@ std::unique_ptr<Session> Sessions::stage(const Session& session)
 {
     if (session.revision >= 9007199254740991ULL) throw std::overflow_error("painting revision exhausted");
     auto result = std::make_unique<Session>(session);
+    // Only metadata is staged. Stroke samples deliberately share and mutate the
+    // session-owned working selectors; discarding this wrapper cannot undo them.
     ++result->revision;
     return result;
 }
 
-void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& hit, const std::optional<Hit>& previous, std::vector<bool>& touched)
+std::vector<std::vector<Hit>> Sessions::projected_trajectory(const Session& session, const Settings& settings,
+    const PointerEvent& event, const Hit& endpoint) const
+{
+    // Match GLGizmoPainterBase::get_projected_mouse_positions: project from
+    // the current pointer back towards the preceding hit at <= 1 CSS pixel
+    // spacing, stopping at the first miss and grouping consecutive parts.
+    const Vec2d start = session.last_event && session.last_hit ? session.last_event->pointer : event.pointer;
+    const double distance = (event.pointer - start).norm();
+    if (!std::isfinite(distance) || distance >= double(std::numeric_limits<std::size_t>::max()))
+        throw std::invalid_argument("painting trajectory is too large");
+    const auto between = std::size_t(distance);
+    std::vector<std::vector<Hit>> groups{{endpoint}};
+    if (between > 0) {
+        for (std::size_t i = 0; i < between + 1; ++i) {
+            auto intermediate = event;
+            intermediate.pointer = event.pointer + (start - event.pointer) * (double(i + 1) / double(between + 1));
+            auto hit = pick(session, intermediate);
+            if (!hit) break;
+            if (groups.back().back().part != hit->part) groups.emplace_back();
+            groups.back().push_back(*hit);
+        }
+    }
+
+    for (auto& hits : groups) {
+        if (hits.size() <= 2) continue;
+        if (std::all_of(hits.begin(), hits.end(), [&](const Hit& hit) { return hit.original_facet == hits.front().original_facet; })) {
+            hits = {hits.front(), hits.back()};
+            continue;
+        }
+        struct Plane { Vec3d origin, first, second; };
+        std::optional<Plane> plane;
+        // Orca's GUI stores its raycast positions as Vec3f. Use that same
+        // precision for plane construction and the subsequent integer polyline.
+        for (std::size_t i = 2; i < hits.size(); ++i) {
+            const Vec3d middle = hits[i - 1].local.cast<float>().cast<double>();
+            const Vec3d first = hits[i - 2].local.cast<float>().cast<double>() - middle;
+            const Vec3d second = hits[i].local.cast<float>().cast<double>() - middle;
+            if (first.cross(second).squaredNorm() > sqr(EPSILON)) {
+                plane = Plane{middle, first.normalized(), (second - first.dot(second) / first.dot(first) * first).normalized()};
+                break;
+            }
+        }
+        if (!plane) {
+            hits = {hits.front(), hits.back()};
+            continue;
+        }
+        Polyline polyline;
+        polyline.points.reserve(hits.size());
+        for (const auto& hit : hits) {
+            const Vec3d relative = hit.local.cast<float>().cast<double>() - plane->origin;
+            polyline.points.emplace_back(scale_(plane->first.dot(relative)), scale_(plane->second.dot(relative)));
+        }
+        polyline.simplify(scale_(settings.radius) / 10.);
+        const auto& part = session.parts[hits.front().part];
+        const Transform3d transform = session.instance_transform * part.volume_transform;
+        const auto inverse_camera = inverse_checked(event.projection * event.view);
+        std::vector<Hit> simplified;
+        simplified.reserve(polyline.points.size());
+        for (const auto& point : polyline.points) {
+            Hit hit = hits.front();
+            hit.local = (plane->origin + unscale<double>(point.x()) * plane->first +
+                unscale<double>(point.y()) * plane->second).cast<float>().cast<double>();
+            Vec3d closest;
+            part.acceleration->squared_distance(hit.local, hit.original_facet, closest);
+            hit.world = transform * hit.local;
+            // Synthetic projected positions need their own near-plane source;
+            // a shared camera point would turn orthographic rays into a cone.
+            const Eigen::Vector4d clip = event.projection * event.view * hit.world.homogeneous();
+            hit.ray_origin = unproject(inverse_camera, Eigen::Vector4d(clip.x() / clip.w(), clip.y() / clip.w(), -1, 1));
+            simplified.push_back(hit);
+        }
+        hits = std::move(simplified);
+    }
+    return groups;
+}
+
+void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& hit, const std::optional<Hit>& previous, std::vector<bool>* preview_touched)
 {
 #ifdef NEO_PAINTING_PROFILE
     Profile::Scope profile_selector(Profile::selector);
@@ -241,9 +322,9 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
     const std::size_t end = session.tool == Tool::Height ? session.parts.size() : hit.part + 1;
     for (std::size_t i = begin; i < end; ++i) {
         auto& part = session.parts[i];
-        if (!touched[i]) {
+        if (preview_touched && !(*preview_touched)[i]) {
             part.selector = part.selector->clone();
-            touched[i] = true;
+            (*preview_touched)[i] = true;
         }
         const Transform3d transform = session.instance_transform * part.volume_transform;
         const Transform3d inverse = transform.inverse();
@@ -267,20 +348,25 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
         } else {
             const auto type = session.tool == Tool::Circle ? TriangleSelector::CIRCLE : TriangleSelector::SPHERE;
             std::unique_ptr<TriangleSelector::Cursor> cursor;
-            if (previous && previous->part == hit.part && (previous->local - hit.local).squaredNorm() > 1e-14)
+            const bool capsule = previous && previous->part == hit.part && (previous->local - hit.local).squaredNorm() > 1e-14;
+            if (capsule)
                 cursor = TriangleSelector::DoublePointCursor::cursor_factory(previous->local.cast<float>(),
-                    hit.local.cast<float>(), source, float(settings.radius), type, transform, clipping);
+                    hit.local.cast<float>(), (inverse * previous->ray_origin).cast<float>(), float(settings.radius), type, transform, clipping);
             else cursor = TriangleSelector::SinglePointCursor::cursor_factory(hit.local.cast<float>(), source,
                 float(settings.radius), type, transform, clipping);
-            part.selector->select_patch(hit.original_facet, std::move(cursor), state, linear, true,
+            part.selector->select_patch(capsule ? previous->original_facet : hit.original_facet, std::move(cursor), state, linear, true,
                 settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f);
         }
+        // Conservatively invalidate after an admitted edit, including same-colour
+        // painting. The native selector exposes no cheap exact mutation result.
+        mark_changed(session, part);
     }
 }
 
 void Sessions::sample(Session& session, const Settings& settings, const PointerEvent& input)
 {
     settings.validate(session.channel);
+    if (session.tool == Tool::SmartFill && !settings.angle) throw std::invalid_argument("Smart Fill requires an angle");
     // Match Orca drag projection: constrain CSS screen X before native picking
     // and trajectory interpolation, never a world-space axis or mesh normal.
     if (!input.pointer.allFinite()) throw std::invalid_argument("invalid painting pointer");
@@ -295,44 +381,65 @@ void Sessions::sample(Session& session, const Settings& settings, const PointerE
         session.last_event = event; session.last_hit.reset(); session.preview.reset();
         return;
     }
-    std::vector<bool> touched(session.parts.size(), false);
-    // Orca projects a sequence at one-pixel spacing before using its capsule
-    // cursor between neighboring hits. Reconstruct those rays natively; an
-    // empty-space crossing or part change always breaks capsule continuity.
-    const Vec2d start = session.last_event && session.last_hit ? session.last_event->pointer : event.pointer;
-    const double steps_value = std::ceil((event.pointer - start).norm());
-    if (!std::isfinite(steps_value) || steps_value >= double(std::numeric_limits<std::size_t>::max())) throw std::invalid_argument("painting trajectory is too large");
-    const std::size_t steps = std::max<std::size_t>(1, std::size_t(steps_value));
-    auto previous = session.last_hit;
-    for (std::size_t index = 1; index <= steps; ++index) {
-        auto intermediate = event;
-        intermediate.pointer = start + (event.pointer - start) * (double(index) / double(steps));
-        auto hit = index == steps ? endpoint : pick(session, intermediate);
-        if (hit) apply_hit(session, settings, *hit, previous, touched);
-        previous = hit;
+    if (session.tool != Tool::Height) {
+        for (const auto& hits : projected_trajectory(session, settings, event, *endpoint)) {
+            if (session.tool == Tool::Circle || session.tool == Tool::Sphere) {
+                if (hits.size() == 1) apply_hit(session, settings, hits.front(), {});
+                else for (std::size_t i = 1; i < hits.size(); ++i) apply_hit(session, settings, hits[i], hits[i - 1]);
+            } else for (const auto& hit : hits) apply_hit(session, settings, hit, {});
+        }
+    } else {
+        // Height has a separate Orca input path; leave its existing processing
+        // unchanged in this projected-polyline reduction.
+        const Vec2d start = session.last_event && session.last_hit ? session.last_event->pointer : event.pointer;
+        const double steps_value = std::ceil((event.pointer - start).norm());
+        if (!std::isfinite(steps_value) || steps_value >= double(std::numeric_limits<std::size_t>::max())) throw std::invalid_argument("painting trajectory is too large");
+        const std::size_t steps = std::max<std::size_t>(1, std::size_t(steps_value));
+        auto previous = session.last_hit;
+        for (std::size_t index = 1; index <= steps; ++index) {
+            auto intermediate = event;
+            intermediate.pointer = start + (event.pointer - start) * (double(index) / double(steps));
+            auto hit = index == steps ? endpoint : pick(session, intermediate);
+            if (hit) apply_hit(session, settings, *hit, previous);
+            previous = hit;
+        }
     }
     session.last_event = event;
     session.last_hit = endpoint;
     session.preview.reset();
     if (session.tool == Tool::Triangle) {
-        // Orca POINTER leaves the current native leaf selected after each
-        // admitted sample. Keep flags isolated from draft annotation topology.
-        auto selected = session.parts[endpoint->part].selector->clone();
+        // Re-select after painting: applying the colour may merge leaves.
+        // Triangle preview borrows the working selector's temporary flags.
+        auto selected = session.parts[endpoint->part].selector;
         selected->bucket_fill_select_triangles(endpoint->local.cast<float>(), endpoint->original_facet, {}, -1.f, false, true);
         Preview preview{Tool::Triangle, settings, endpoint, {}, std::move(selected), {}};
         for (const auto& part : session.parts) preview.selectors.push_back(part.selector);
         session.preview = std::move(preview);
     }
-    compare(session, touched);
+}
+
+void Sessions::mark_changed(Session& session, PartDraft& part)
+{
+    part.data_current = false;
+    part.geometry_revision = session.revision;
+    if (std::find(session.changed_parts.begin(), session.changed_parts.end(), part.volume_id) == session.changed_parts.end())
+        session.changed_parts.push_back(part.volume_id);
+    session.effective = true;
 }
 
 void Sessions::compare(Session& session, const std::vector<bool>& touched)
 {
     for (std::size_t i = 0; i < session.parts.size(); ++i) {
         if (!touched[i]) continue;
-        const auto volume_id = session.parts[i].volume_id;
+        auto& part = session.parts[i];
+        if (!part.data_current) {
+            auto data = part.selector->serialize();
+            if (!(data == *part.data)) part.data = std::make_shared<const SelectorData>(std::move(data));
+            part.data_current = true;
+        }
+        const auto volume_id = part.volume_id;
         auto found = std::find(session.changed_parts.begin(), session.changed_parts.end(), volume_id);
-        const bool changed = !(session.parts[i].selector->serialize() == (*session.before_data)[i]);
+        const bool changed = !(*part.data == *(*session.stroke_start_data)[i]);
         if (changed && found == session.changed_parts.end()) session.changed_parts.push_back(volume_id);
         else if (!changed && found != session.changed_parts.end()) session.changed_parts.erase(found);
     }
@@ -370,25 +477,31 @@ std::unique_ptr<Session> Sessions::prepare_begin(std::uint64_t id, std::uint64_t
     next->phase = Phase::Drawing;
     next->tool = tool;
     next->effective = false;
-    next->before_stroke.clear();
-    auto before_data = std::make_shared<std::vector<TriangleSelector::TriangleSplittingData>>();
+    auto start_data = std::make_shared<std::vector<std::shared_ptr<const SelectorData>>>();
+    start_data->reserve(current.parts.size());
     next->changed_parts.clear();
     for (const auto& part : current.parts) {
-        next->before_stroke.push_back(part.selector);
-        before_data->push_back(part.selector->serialize());
+        start_data->push_back(part.data);
     }
-    next->before_data = std::move(before_data);
+    next->stroke_start_data = std::move(start_data);
+    next->preview.reset();
     next->last_event.reset(); next->last_hit.reset();
     if (event) next->stroke_screen_x = event->pointer.x();
     if (tool == Tool::Gap) {
-        for (std::size_t i = 0; i < next->parts.size(); ++i) next->parts[i].selector = current.preview->selectors[i];
+        for (std::size_t i = 0; i < next->parts.size(); ++i) {
+            next->parts[i].selector = current.preview->selectors[i];
+            next->parts[i].data_current = false;
+        }
         next->phase = Phase::Finished;
         compare(*next, std::vector<bool>(next->parts.size(), true));
     } else if (tool == Tool::EraseAll) {
 #ifdef NEO_PAINTING_PROFILE
         Profile::Scope profile_selector(Profile::selector);
 #endif
-        for (auto& part : next->parts) part.selector = std::make_shared<NativeSelector>(*part.mesh);
+        for (auto& part : next->parts) {
+            part.selector->reset();
+            mark_changed(*next, part);
+        }
         next->phase = Phase::Finished;
         compare(*next, std::vector<bool>(next->parts.size(), true));
     } else sample(*next, settings, *event);
@@ -411,6 +524,7 @@ std::unique_ptr<Session> Sessions::prepare_finish(std::uint64_t id, std::uint64_
     const auto& current = require(id, revision, false);
     require_stroke(current, stroke);
     auto next = stage(current);
+    compare(*next, std::vector<bool>(next->parts.size(), true));
     next->phase = Phase::Finished;
     // Even a no-op remains explicitly pending, so a host cannot accidentally
     // treat an uncertain terminal response as a newly admitted stroke.
@@ -422,10 +536,38 @@ std::unique_ptr<Session> Sessions::prepare_cancel(std::uint64_t id, std::uint64_
     const auto& current = require(id, revision, false);
     require_stroke(current, stroke, true);
     auto next = stage(current);
-    for (std::size_t i = 0; i < next->parts.size(); ++i) next->parts[i].selector = next->before_stroke[i];
-    next->before_stroke.clear(); next->before_data.reset(); next->changed_parts.clear();
+    for (std::size_t i = 0; i < next->parts.size(); ++i) {
+        auto& part = next->parts[i];
+        const auto& start = (*next->stroke_start_data)[i];
+        // Cancellation is an explicit user operation, outside the sampling hot
+        // path. Inspect the working tree itself before restoring its contents.
+        if (!(part.selector->serialize() == *start)) {
+            part.selector->deserialize(*start, true, static_cast<EnforcerBlockerType>(max_state(next->channel)));
+            part.geometry_revision = next->revision;
+        }
+        part.data = start;
+        part.data_current = true;
+    }
+    next->stroke_start_data.reset(); next->changed_parts.clear();
     next->preview.reset(); next->last_event.reset(); next->last_hit.reset();
     next->phase = Phase::Idle; next->active_stroke_id = 0; next->effective = false;
+    return next;
+}
+
+std::unique_ptr<Session> Sessions::prepare_failed_cancel(std::uint64_t id, std::uint64_t revision)
+{
+    const auto& current = require(id, revision, false);
+    auto next = stage(current);
+    for (std::size_t i = 0; i < next->parts.size(); ++i) {
+        auto& part = next->parts[i];
+        const auto& start = current.stroke_start_data ? (*current.stroke_start_data)[i] : current.parts[i].data;
+        auto selector = std::make_shared<NativeSelector>(*part.mesh);
+        selector->deserialize(*start, true, static_cast<EnforcerBlockerType>(max_state(next->channel)));
+        part.selector = std::move(selector);
+        part.data = start;
+        part.data_current = true;
+    }
+    complete(*next);
     return next;
 }
 
@@ -440,8 +582,8 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
     if ((tool != Tool::Gap && tool != Tool::Overhang) != bool(event)) throw std::invalid_argument("painting preview event mismatch");
     auto next = stage(current);
     const auto hit = event ? pick(current, *event) : std::optional<Hit>{};
-    // Candidate selectors are isolated from the authoritative draft as well as
-    // Model annotations. Replacing a hover discards the previous candidate.
+    // Fill candidates own isolated selectors. Triangle only changes temporary
+    // selection flags on the working selector; annotation/topology is unchanged.
     Session work = current;
     work.tool = tool;
     Preview preview{tool, settings, hit, {}, {}, {}};
@@ -465,7 +607,8 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
         part.selector->apply_gaps(patches);
     }
     else if (hit) {
-        auto selected = current.parts[hit->part].selector->clone();
+        auto selected = tool == Tool::Triangle ? current.parts[hit->part].selector
+                                              : current.parts[hit->part].selector->clone();
         {
 #ifdef NEO_PAINTING_PROFILE
         Profile::Scope profile_region(Profile::selector);
@@ -480,7 +623,7 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
         }
         preview.facet_selection = std::move(selected);
         std::vector<bool> touched(work.parts.size(), false);
-        if (tool == Tool::Region || tool == Tool::SmartFill) apply_hit(work, settings, *hit, {}, touched);
+        if (tool == Tool::Region || tool == Tool::SmartFill) apply_hit(work, settings, *hit, {}, &touched);
     }
     for (auto& part : work.parts) preview.selectors.push_back(std::move(part.selector));
     next->preview = std::move(preview);
@@ -535,25 +678,15 @@ void Sessions::update_geometry_revisions(Session& candidate) const
         const auto found = std::find_if(m_session->parts.begin(), m_session->parts.end(),
             [&](const auto& old) { return old.volume_id == part.volume_id; });
         if (found == m_session->parts.end()) continue;
-        part.geometry_revision = found->geometry_revision;
-        if (part.mesh != found->mesh || (part.selector != found->selector && !(part.selector->serialize() == found->selector->serialize())))
+        if (part.mesh != found->mesh)
             part.geometry_revision = candidate.revision;
+        else if (part.selector != found->selector)
+            part.geometry_revision = found->data_current && *part.data == *found->data ? found->geometry_revision : candidate.revision;
     }
-}
-void Sessions::discard_pending() noexcept
-{
-    if (!m_session || m_session->phase == Phase::Idle) return;
-    ++m_session->revision;
-    for (std::size_t i = 0; i < m_session->parts.size(); ++i) {
-        if (m_session->parts[i].selector != m_session->before_stroke[i])
-            m_session->parts[i].geometry_revision = m_session->revision;
-        m_session->parts[i].selector = m_session->before_stroke[i];
-    }
-    complete(*m_session);
 }
 void Sessions::complete(Session& session) noexcept
 {
-    session.before_stroke.clear(); session.before_data.reset(); session.changed_parts.clear();
+    session.stroke_start_data.reset(); session.changed_parts.clear();
     session.preview.reset(); session.last_event.reset(); session.last_hit.reset();
     session.phase = Phase::Idle; session.active_stroke_id = 0; session.effective = false;
 }
@@ -566,6 +699,7 @@ std::unique_ptr<Session> Sessions::prepare_commit(std::uint64_t id, std::uint64_
     if (event && current.phase != Phase::Drawing) throw std::invalid_argument("finished stroke has no final sample");
     auto candidate = stage(current);
     if (event) sample(*candidate, *settings, *event);
+    compare(*candidate, std::vector<bool>(candidate->parts.size(), true));
     candidate->phase = Phase::Finished;
     update_geometry_revisions(*candidate);
     return candidate;

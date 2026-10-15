@@ -285,10 +285,10 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
         resources: [...resources.resources.values()].map((r) => ({ id: r.source.resourceId, volumeId: r.source.volumeId, kind: r.source.kind, groups: r.source.groups, hasBvh: !!(r.geometry as THREE.BufferGeometry & { boundsTree?: unknown }).boundsTree,
           ...(r.source.kind === 'triangle' || r.source.kind === 'region' || r.source.kind === 'gap' ? { vertices: Array.from(r.source.vertices), contour: Array.from(r.source.contour), contourGeometry: r.contour.uuid,
             matchesDraftLeaf: [...resources.resources.values()].filter((p) => p.source.kind === 'draft' && p.source.volumeId === r.source.volumeId).some((p) => {
-              for (let leaf = 0; leaf < r.source.vertices.length; leaf += 18) {
+              for (let leaf = 0; leaf < r.source.vertices.length; leaf += 9) {
                 let found = false;
-                for (let i = 0; i < p.source.vertices.length && !found; i += 18) {
-                  found = Array.from(r.source.vertices.subarray(leaf, leaf + 18)).every((value, j) => value === p.source.vertices[i + j]);
+                for (let i = 0; i < p.source.vertices.length && !found; i += 9) {
+                  found = Array.from(r.source.vertices.subarray(leaf, leaf + 9)).every((value, j) => value === p.source.vertices[i + j]);
                 }
                 if (!found) return false;
               }

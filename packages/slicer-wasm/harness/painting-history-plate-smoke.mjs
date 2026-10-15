@@ -70,8 +70,10 @@ const handle = () => ({ version: 1, channel: session.channel, sessionId: session
 function refresh() { session = ok(command('orc_painting_session_read', { ...handle(), latest: true })).session; return session; }
 function stroke(name, value = {}) {
   const reply = command(name, { ...handle(), ...value });
-  if (reply.recovered) { session.revision = reply.revision; session.phase = reply.phase; session.strokeId = null; }
-  else { ok(reply); session = { ...session, revision: reply.revision, phase: reply.phase, strokeId: reply.strokeId }; }
+  if (reply.cancellation) {
+    assert.equal(reply.cancellation.sessionId, session.id);
+    session = { ...session, revision: reply.cancellation.revision, phase: 'idle', strokeId: null };
+  } else if (!reply.error) { ok(reply); session = { ...session, revision: reply.revision, phase: reply.phase, strokeId: reply.strokeId }; }
   return reply;
 }
 function begin(channel) {
@@ -146,9 +148,9 @@ for (const channel of ['support','seam','fuzzy','mmu']) {
   const initial = observe();
   begin(channel);
   Module.ccall('orc_painting_test_fail_next_commit', null, [], []);
-  const failure = commit(); assert.equal(failure.recovered, true);
-  // The failed stroke discards its draft; model/history/result/cache authority
-  // remains unchanged. Session revision legitimately advances for stale guards.
+  const failure = commit(); assert.ok(failure.cancellation); assert.equal(session.phase, 'idle');
+  // Internal failure cancels the whole stroke using its existing boundary data.
+  // Model/history/result/cache authority remains unchanged.
   const failed = observe();
   for (const field of ['history','plates','model','resources','cache']) assert.deepEqual(failed[field], initial[field], `${channel} commit rollback ${field}`);
   assert.deepEqual(failed.session.parts.map(p => p.facetCounts), initialCounts);

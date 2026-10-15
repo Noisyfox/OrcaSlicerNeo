@@ -611,6 +611,18 @@ local hit coordinates, clipping, and transformation semantics, then invokes
 The frontend must not discard any subsequent painting sample because its BVH
 reported a miss. The negative initial-press preflight is the sole exception. Native code also owns trajectory interpolation and continuous
 brush coverage, including transitions between parts and off-surface intervals.
+Circle, Sphere, Triangle, Region and Smart Fill follow Orca's projected-trajectory
+reduction before modifying the selector. Project from the admitted pointer back
+towards the preceding hit at approximately one CSS pixel spacing, stop at the
+first miss, and group consecutive hits by solid part. Reduce same-facet or
+collinear groups to their endpoints; otherwise project into a locally constructed
+plane and simplify the polyline with the current brush radius divided by ten as
+the local-coordinate tolerance. Reconstruct the retained points and locate their nearest original
+facets. Circle and Sphere apply one capsule per retained segment (or one point
+cursor for a singleton); Triangle and fill tools apply their selection/fill at
+each retained point. Preserve parallel ray directions for orthographic cameras.
+Height and static Gap Fill keep their separate input paths. This reduction does
+not introduce selector snapshots or preview-result caching.
 Region fill includes a hover preview that highlights the candidate area before
 clicking. Native code performs the candidate hit test and region calculation;
 cursor hits are not an input authority for fill selection. Preview changes do
@@ -634,6 +646,15 @@ incremental topology synchronization are not required for the first release;
 consider them later if measured generation, transfer, or upload costs justify
 the additional protocol and resource-lifetime complexity.
 
+Draft and candidate surface buffers contain nonindexed local-space xyz
+triangles, grouped by native facet state. The shared renderer derives flat
+face normals on the GPU, including under mirrored and nonuniform transforms;
+native display generation neither computes nor transfers per-vertex normals.
+This display layout does not change native normals used for painting selection
+or overhang classification. Contours remain xyz line-segment endpoints.
+The client validates buffer ranges, resource identities and manifest structure,
+then copies native coordinate buffers without a full per-float finite-value scan.
+
 Publish the resource manifest, its target/part transforms and its palette as
 one complete visual bundle. While entering painting, retain passive Prepare
 visuals until the first complete painting bundle is ready. During later
@@ -652,6 +673,13 @@ refreshes: coalesce pending display requests and publish the latest eligible
 state. This is a scheduling policy, not a guarantee of achieving the display's
 refresh rate on every model or device. Cursor and camera rendering remain
 independent of the geometry-publication cadence.
+
+When a scheduled display frame becomes due, reserve the shared RPC lane behind
+the operation already in progress. Later movement samples must not overtake
+that reservation. Before reading geometry, process any pending reliable stroke
+terminal and recheck the session and phase; capture request metadata only after
+the wait. Keep at most one pending display reservation and coalesce further
+display changes into it.
 
 Geometry-refresh coalescing applies only to intermediate display states; it must
 not discard admitted painting events or stroke boundaries. Separately, movement
@@ -713,13 +741,35 @@ queuing them; after successful
 completion the user must press again to start a new stroke. Do not implicitly
 begin painting from a button held during this waiting period.
 
-For a recoverable commit failure with a healthy Worker and intact authoritative
-project state, roll back any partial transaction, automatically discard this
-stroke's draft, restore selectors/display to the pre-stroke state, and report
-the failure. Earlier committed edits and history remain intact. Once recovery
-is complete, allow a new stroke; do not retain a failed-draft Retry workflow.
-An empty stroke creates no history entry. Closing the gizmo does not write the
-completed strokes again.
+Working selectors are owned by the painting session and modified in place across
+admitted samples, including the final release sample. Keep immutable serialized
+annotation content at stroke boundaries for net-change comparison and the
+explicit Escape operation. Successful admitted edits conservatively advance
+the affected parts' geometry resource versions, including same-colour edits, without serializing or cloning
+working selectors. Drawing receipts identify potentially changed parts; finish/commit
+receipts identify exact net changes. Determine those net changes once at the
+stroke boundary using the content needed for model/history publication, rather
+than comparing the whole stroke after each sample. A new stroke reuses the
+preceding boundary's immutable content for Escape. Escape reconstructs the
+pre-stroke content in the same working selectors. Fill candidate previews retain
+their selector isolation. Triangle preview borrows the working selector's
+temporary selection flags without changing annotation content or topology;
+it does not clone selectors or cache preview geometry. Commands run serially
+and displayed client geometry remains independently owned.
+
+Validate request settings, identities and camera context before selector mutation.
+Invalid or stale requests report their business error without cancelling another
+stroke. A caught internal exception cancels the owned stroke using its existing
+boundary data, then reports both the error and the confirmed cancellation
+identity/revision. Reconstruct selectors only on that failure path; do not keep
+per-sample backups, prebuild recovery candidates, or inspect interrupted trees.
+User Escape and internal-error cancellation have separate entry points and share
+the same immutable stroke-start content. A failure to complete cancellation
+blocks further painting; a cancellation receipt must never be synthesized.
+Discarding staged metadata cannot undo an in-place selector mutation.
+The existing model/history commit transaction preserves earlier committed edits
+and history on a failed publication. An empty stroke creates no history entry.
+Closing the gizmo does not write the completed strokes again.
 
 Stage history begin/commit and allocate the success response before publishing
 history. Failure must preserve Redo, timestamps, save markers, and memory
@@ -1207,9 +1257,11 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   export cannot bypass selected-plate result validity or implicitly slice.
 - Pending stroke processing/commit displays a processing state and rejects new
   strokes without queuing. Success requires a fresh press for the next stroke.
-  Recoverable failure automatically discards the failed draft, restores its
-  pre-stroke display/model/history state, reports the error, and permits new
-  strokes after recovery. Fatal Worker failure uses the shared runtime flow.
+  Business rejections do not cancel the stroke. An internal input/commit exception
+  cancels the owned stroke from the existing boundary data and confirms its new
+  idle revision before permitting a fresh press. A failed cancellation blocks
+  painting. Explicit Escape independently restores the stroke-start content.
+  Fatal Worker failure uses the shared runtime flow.
 - Idle target deletion, replacement/reload, and splitting close and compact the
   painting session before model mutation, retaining a separate model-operation
   history entry. During a stroke these commands are ignored without queuing.

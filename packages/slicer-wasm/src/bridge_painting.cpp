@@ -226,6 +226,21 @@ const char* publish(std::unique_ptr<Session> candidate, bool selection_receipt =
     state().painting.publish(std::move(candidate));
     return out.release();
 }
+const char* cancel_internal_failure(std::uint64_t id, std::uint64_t revision, const char* message) {
+    auto cancelled = state().painting.prepare_failed_cancel(id, revision);
+    state().painting.update_geometry_revisions(*cancelled);
+    auto out = response({{"error", message}, {"cancellation", {
+            {"channel", channel_name(cancelled->channel)}, {"sessionId", "ps-" + std::to_string(id)}, {"revision", cancelled->revision}}}});
+    state().painting.publish(std::move(cancelled));
+    return out.release();
+}
+template<class Fn> const char* stroke_command(const Session& session, Fn&& fn) {
+    const auto id = session.id, revision = session.revision;
+    try { return fn(); }
+    catch (const std::invalid_argument&) { throw; } // Explicit business rejection.
+    catch (const std::exception& error) { return cancel_internal_failure(id, revision, error.what()); }
+    catch (...) { return cancel_internal_failure(id, revision, "unknown painting exception"); }
+}
 json settle() {
     auto& bridge = state();
     const auto* runtime = bridge.plate_runtime_registry.find(bridge.current_plate_id);
@@ -270,7 +285,7 @@ std::uint64_t next_geometry_lease = 1;
 json geometry(Buffers& buffers, const NativeSelector::Display& data, const std::vector<float>& contour,
               std::size_t volume, const std::string& id, const char* kind) {
     return {{"volumeId", volume}, {"resourceId", id}, {"kind", kind},
-        {"vertex_ptr", buffers.copy(data.vertices)}, {"vertexCount", data.vertices.size() / 6},
+        {"vertex_ptr", buffers.copy(data.vertices)}, {"vertexCount", data.vertices.size() / 3},
         {"groups", data.groups}, {"contour_ptr", buffers.copy(contour)}, {"contourVertexCount", contour.size() / 3}};
 }
 template<class Fn> const char* invoke(Fn&& fn) {
@@ -358,7 +373,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_begin(const char* text) {
         const auto& session = engine_session(value);
         std::optional<std::uint64_t> candidate;
         if (value.contains("candidateRevision")) candidate = integer(value, "candidateRevision");
-        return publish(state().painting.prepare_begin(session.id, session.revision, tool(value.at("tool")), settings(value.at("settings"), session.channel), event(value), candidate));
+        state().painting.require(session.id, session.revision); // Busy rejection is not an internal failure.
+        const auto selected_tool = tool(value.at("tool"));
+        const auto params = settings(value.at("settings"), session.channel);
+        const auto pointer = event(value);
+        return stroke_command(session, [&] {
+            return publish(state().painting.prepare_begin(session.id, session.revision, selected_tool, params, pointer, candidate));
+        });
     });
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_sample(const char* text) {
@@ -367,14 +388,21 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_sample(const char* text) {
         const auto& session = engine_session(value);
         const auto input = event(value);
         if (!input) throw std::invalid_argument("painting sample requires an event");
-        return publish(state().painting.prepare_sample(session.id, session.revision, stroke(value, session.id), settings(value.at("settings"), session.channel), *input));
+        const auto stroke_id = stroke(value, session.id);
+        if (session.phase != Phase::Drawing || stroke_id != session.active_stroke_id) throw std::invalid_argument("painting stroke is stale or finished");
+        const auto params = settings(value.at("settings"), session.channel);
+        return stroke_command(session, [&] {
+            return publish(state().painting.prepare_sample(session.id, session.revision, stroke_id, params, *input));
+        });
     });
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_finish(const char* text) {
     return invoke([&]() -> const char* {
         const auto value = request(text, {"version", "channel", "sessionId", "revision", "strokeId"});
         const auto& session = engine_session(value);
-        return publish(state().painting.prepare_finish(session.id, session.revision, stroke(value, session.id)));
+        const auto stroke_id = stroke(value, session.id);
+        if (session.phase != Phase::Drawing || stroke_id != session.active_stroke_id) throw std::invalid_argument("painting stroke is stale or finished");
+        return stroke_command(session, [&] { return publish(state().painting.prepare_finish(session.id, session.revision, stroke_id)); });
     });
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_cancel(const char* text) {
@@ -475,107 +503,98 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
         const auto& session = engine_session(value);
         const auto stroke_id = stroke(value, session.id);
         if (session.phase == Phase::Idle || stroke_id != session.active_stroke_id) throw std::invalid_argument("painting stroke is stale");
-        // Even response/recovery allocation failure must not retain a failed
-        // draft. This guard needs no allocation; stale requests never own it.
-        struct DiscardOnFailure {
-            Sessions& owner; bool released = false;
-            ~DiscardOnFailure() { if (!released) owner.discard_pending(); }
-        } discard{state().painting};
-        // Prepare recovery before any mutation. Every recoverable commit failure
-        // discards the whole draft, including a failed final endpoint.
-        auto recovery = state().painting.prepare_cancel(session.id, session.revision, stroke_id);
-        state().painting.update_geometry_revisions(*recovery);
-        Slic3r::Model backup_model;
-        auto* backup_owner = backup_model.add_object();
-        std::vector<std::pair<Slic3r::ModelVolume*, Slic3r::ModelVolume*>> backups;
-        bool started = false;
-        auto old_revisions = state().plate_input_revisions;
-        auto old_lifecycle = state().plate_runtime_registry.capture_lifecycle();
-        auto old_context = state().history_live_context;
-        try {
-            std::optional<Settings> final_settings;
-            if (value.contains("settings")) final_settings = settings(value["settings"], session.channel);
-            auto candidate = state().painting.prepare_commit(session.id, session.revision, stroke_id, final_settings, event(value));
-            const bool effective = candidate->effective;
-            const auto changed = candidate->changed_parts;
-            std::set<std::string> affected;
-            Response out(nullptr, &std::free);
-            if (effective) {
-                auto context = state().history_live_context;
-                if (!context.contains("plateSession")) context = HistoryMetadata::default_history_context(state(),
-                    PlateSession::plate_session_snapshot_json(), Filament::State::history_state_json(state().presets));
-                auto before = HistoryMetadata::capture_history_roots(state(), context);
-                if (!state().history.begin_operation(history_name(candidate->channel), before, Slic3r::Neo::History::TimestampedOperationKind::Paint))
-                    throw std::logic_error("could not begin painting history");
-                started = true;
-                for (auto* object : state().model.objects) if (object->id().id == candidate->object_id) {
-                    std::set<std::size_t> instances;
-                    for (const auto* instance : object->instances) instances.insert(instance->id().id);
-                    affected = PlateSession::member_plate_ids_for_instances(instances);
-                    for (auto* volume : object->volumes) {
-                        if (std::find(changed.begin(), changed.end(), volume->id().id) == changed.end()) continue;
-                        backups.emplace_back(volume, backup_owner->add_volume(*volume));
-                        auto part = std::find_if(candidate->parts.begin(), candidate->parts.end(),
-                            [&](const auto& part) { return part.volume_id == volume->id().id; });
-                        for (auto used : Slic3r::TriangleSelector::extract_used_facet_states(part->selector->serialize()))
-                            if (candidate->channel == Channel::Mmu && std::size_t(used) > Slic3r::Neo::Bridge::Filament::State::material_slot_count(state().presets.project_config)) throw std::invalid_argument("painting state has no filament slot");
-                        annotation(*volume, candidate->channel).set(*part->selector);
-                        part->annotation_timestamp = annotation(*volume, candidate->channel).timestamp();
+        std::optional<Settings> final_settings;
+        if (value.contains("settings")) final_settings = settings(value["settings"], session.channel);
+        const auto final_event = event(value);
+        return stroke_command(session, [&]() -> const char* {
+            Slic3r::Model backup_model;
+            auto* backup_owner = backup_model.add_object();
+            std::vector<std::pair<Slic3r::ModelVolume*, Slic3r::ModelVolume*>> backups;
+            bool started = false;
+            auto old_revisions = state().plate_input_revisions;
+            auto old_lifecycle = state().plate_runtime_registry.capture_lifecycle();
+            auto old_context = state().history_live_context;
+            try {
+                auto candidate = state().painting.prepare_commit(session.id, session.revision, stroke_id, final_settings, final_event);
+                const bool effective = candidate->effective;
+                const auto changed = candidate->changed_parts;
+                std::set<std::string> affected;
+                Response out(nullptr, &std::free);
+                if (effective) {
+                    auto context = state().history_live_context;
+                    if (!context.contains("plateSession")) context = HistoryMetadata::default_history_context(state(),
+                        PlateSession::plate_session_snapshot_json(), Filament::State::history_state_json(state().presets));
+                    auto before = HistoryMetadata::capture_history_roots(state(), context);
+                    if (!state().history.begin_operation(history_name(candidate->channel), before, Slic3r::Neo::History::TimestampedOperationKind::Paint))
+                        throw std::logic_error("could not begin painting history");
+                    started = true;
+                    for (auto* object : state().model.objects) if (object->id().id == candidate->object_id) {
+                        std::set<std::size_t> instances;
+                        for (const auto* instance : object->instances) instances.insert(instance->id().id);
+                        affected = PlateSession::member_plate_ids_for_instances(instances);
+                        for (auto* volume : object->volumes) {
+                            if (std::find(changed.begin(), changed.end(), volume->id().id) == changed.end()) continue;
+                            backups.emplace_back(volume, backup_owner->add_volume(*volume));
+                            auto part = std::find_if(candidate->parts.begin(), candidate->parts.end(),
+                                [&](const auto& part) { return part.volume_id == volume->id().id; });
+                            for (auto used : Slic3r::TriangleSelector::extract_used_facet_states(*part->data))
+                                if (candidate->channel == Channel::Mmu && std::size_t(used) > Slic3r::Neo::Bridge::Filament::State::material_slot_count(state().presets.project_config)) throw std::invalid_argument("painting state has no filament slot");
+                            auto data = *part->data;
+                            annotation(*volume, candidate->channel).set_data(std::move(data));
+                            part->annotation_timestamp = annotation(*volume, candidate->channel).timestamp();
+                        }
                     }
-                }
-                for (const auto& id : affected) state().plate_input_revisions[id] = allocate_plate_input_stamp(state());
-                state().plate_runtime_registry.invalidate_presentations(affected);
-                context["plateSession"]["input_revisions"] = PlateSession::plate_revisions_json();
-                auto after = HistoryMetadata::capture_history_roots(state(), context);
-                Sessions::complete(*candidate);
-                const bool had_redo = state().history.can_redo();
-                if (!state().history.commit_operation(after, nullptr, [&](const auto& history) {
-                    auto result = receipt(*candidate);
-                    result["committed"] = true; result["changedPartIds"] = changed;
-                    result["affectedPlateIds"] = affected;
-                    result["history"] = HistoryMetadata::history_status_json(state(), history, state().history_revision + 1);
-#ifdef NEO_PROJECT_HISTORY_TEST
-                    if (fail_next_commit) { fail_next_commit = false; throw std::runtime_error("injected painting commit failure"); }
-#endif
-                    out = response(result);
-                })) throw std::logic_error("could not commit painting history");
-                started = false;
-                state().history_live_context.swap(context);
-                HistoryMetadata::advance_history_epoch(state());
-                UserPresets::collect_discarded_redo_snapshots(had_redo);
-                // MMU and support painting affect material/support use. Seam
-                // and fuzzy alter slicing but retain material-use summaries.
-                // Evict only after the history response has been prepared, so
-                // failed publication leaves warm caches and settlement intact.
-                if (candidate->channel == Channel::Mmu || candidate->channel == Channel::Support) {
-                    PrimeTower::invalidate_projection_cache_and_usage_summaries(affected);
-                    ++state().painting_derived_version;
+                    for (const auto& id : affected) state().plate_input_revisions[id] = allocate_plate_input_stamp(state());
+                    state().plate_runtime_registry.invalidate_presentations(affected);
+                    context["plateSession"]["input_revisions"] = PlateSession::plate_revisions_json();
+                    auto after = HistoryMetadata::capture_history_roots(state(), context);
+                    Sessions::complete(*candidate);
+                    const bool had_redo = state().history.can_redo();
+                    if (!state().history.commit_operation(after, nullptr, [&](const auto& history) {
+                        auto result = receipt(*candidate);
+                        result["committed"] = true; result["changedPartIds"] = changed;
+                        result["affectedPlateIds"] = affected;
+                        result["history"] = HistoryMetadata::history_status_json(state(), history, state().history_revision + 1);
+    #ifdef NEO_PROJECT_HISTORY_TEST
+                        if (fail_next_commit) { fail_next_commit = false; throw std::runtime_error("injected painting commit failure"); }
+    #endif
+                        out = response(result);
+                    })) throw std::logic_error("could not commit painting history");
+                    started = false;
+                    state().history_live_context.swap(context);
+                    HistoryMetadata::advance_history_epoch(state());
+                    UserPresets::collect_discarded_redo_snapshots(had_redo);
+                    // MMU and support painting affect material/support use. Seam
+                    // and fuzzy alter slicing but retain material-use summaries.
+                    // Evict only after the history response has been prepared, so
+                    // failed publication leaves warm caches and settlement intact.
+                    if (candidate->channel == Channel::Mmu || candidate->channel == Channel::Support) {
+                        PrimeTower::invalidate_projection_cache_and_usage_summaries(affected);
+                        ++state().painting_derived_version;
+                    } else {
+                        PrimeTower::invalidate_projection_cache(affected);
+                    }
+                    // Only noexcept publication work follows the history swap.
                 } else {
-                    PrimeTower::invalidate_projection_cache(affected);
+                    Sessions::complete(*candidate);
+                    auto result = receipt(*candidate); result["committed"] = false;
+                    result["affectedPlateIds"] = json::array(); result["history"] = HistoryMetadata::history_status_json(state());
+                    out = response(result);
                 }
-                // Only noexcept publication work follows the history swap.
-            } else {
-                Sessions::complete(*candidate);
-                auto result = receipt(*candidate); result["committed"] = false;
-                result["affectedPlateIds"] = json::array(); result["history"] = HistoryMetadata::history_status_json(state());
-                out = response(result);
+                state().painting.publish(std::move(candidate));
+                return out.release();
+            } catch (...) {
+                if (started) HistoryMetadata::abort_timestamped_operation(state());
+                for (auto& [volume, backup] : backups) annotation(*volume, session.channel).assign(std::move(annotation(*backup, session.channel)));
+                state().mutable_object_capture_cache.clear();
+                state().plate_input_revisions.swap(old_revisions);
+                state().plate_runtime_registry.restore_lifecycle(old_lifecycle);
+                state().history_live_context.swap(old_context);
+                // Only the owned internal-failure path cancels the stroke, after
+                // model/history publication has been unwound. Business errors propagate.
+                throw;
             }
-            state().painting.publish(std::move(candidate));
-            discard.released = true;
-            return out.release();
-        } catch (const std::exception& error) {
-            if (started) HistoryMetadata::abort_timestamped_operation(state());
-            for (auto& [volume, backup] : backups) annotation(*volume, recovery->channel).assign(std::move(annotation(*backup, recovery->channel)));
-            state().mutable_object_capture_cache.clear();
-            state().plate_input_revisions.swap(old_revisions);
-            state().plate_runtime_registry.restore_lifecycle(old_lifecycle);
-            state().history_live_context.swap(old_context);
-            auto result = receipt(*recovery); result["error"] = error.what(); result["recovered"] = true;
-            auto out = response(result);
-            state().painting.publish(std::move(recovery));
-            discard.released = true;
-            return out.release();
-        }
+        });
     });
 }
 

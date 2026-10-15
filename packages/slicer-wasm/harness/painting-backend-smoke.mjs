@@ -87,7 +87,7 @@ const commit = extra => update('orc_painting_stroke_commit', { strokeId: session
 function geometry(knownResourceIds = []) {
   const result = ok(command('orc_painting_geometry', { ...handle(), knownResourceIds }));
   try { for (const resource of result.resources) {
-      resource.vertices = Array.from(new Float32Array(Module.HEAPU8.slice(resource.vertex_ptr, resource.vertex_ptr + resource.vertexCount * 24).buffer));
+      resource.vertices = Array.from(new Float32Array(Module.HEAPU8.slice(resource.vertex_ptr, resource.vertex_ptr + resource.vertexCount * 12).buffer));
       resource.contour = Array.from(new Float32Array(Module.HEAPU8.slice(resource.contour_ptr, resource.contour_ptr + resource.contourVertexCount * 12).buffer));
   } } finally { Module.ccall('orc_painting_geometry_release', null, ['string'], [JSON.stringify({ version: 1, leaseId: result.leaseId })]); }
   return result;
@@ -133,10 +133,10 @@ for (const subdivided of [false, true]) {
   assert.ok(leaf); assert.equal(leaf.vertexCount, 3);
   assert.ok(leaf.contourVertexCount >= 6 && leaf.contourVertexCount % 2 === 0);
   const draftVertices = draft.resources[0].vertices;
-  assert.ok(Array.from({ length: draftVertices.length / 18 }, (_, i) => draftVertices.slice(i * 18, i * 18 + 18))
+  assert.ok(Array.from({ length: draftVertices.length / 9 }, (_, i) => draftVertices.slice(i * 9, i * 9 + 9))
     .some(vertices => JSON.stringify(vertices) === JSON.stringify(leaf.vertices)), 'native selected geometry must be one current draft leaf');
   if (subdivided) {
-    const [a, b, c] = [0, 6, 12].map(i => leaf.vertices.slice(i, i + 3));
+    const [a, b, c] = [0, 3, 6].map(i => leaf.vertices.slice(i, i + 3));
     const ab = b.map((v, i) => v - a[i]), ac = c.map((v, i) => v - a[i]);
     const area = Math.hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) / 2;
     assert.ok(area < 200, 'subdivided selection must be smaller than an original cube triangle');
@@ -166,6 +166,14 @@ assert.equal(mesh().paint_geometries.length, 0);
 const plateBefore = ok(call('orc_get_plate_session_snapshot'));
 const before = history();
 begin('triangle', { state: 2 }, top(92, 105));
+// Stale identities and invalid business settings do not cancel the owned stroke.
+for (const request of [
+  { ...handle(), revision: session.revision - 1, strokeId: session.strokeId, settings: { state: 2 }, event: top(108,95) },
+  { ...handle(), strokeId: session.strokeId, settings: { state: 17 }, event: top(108,95) },
+]) {
+  const rejected = error(command('orc_painting_stroke_sample', request));
+  assert.equal(rejected.cancellation, undefined); assert.equal(refresh().phase, 'drawing');
+}
 const draftGeometry = geometry([firstKey]); assert.ok(draftGeometry.resources.length > 0);
 assert.notEqual(draftGeometry.parts[0].resourceId, firstKey);
 assert.equal(mesh().paint_geometries.length, 0, 'draft never replaces committed scene');
@@ -207,7 +215,8 @@ if (testHook) {
   begin('sphere', { state: 1, radius: 50 });
   Module.ccall('orc_painting_test_fail_next_commit', null, [], []);
   const failure = error(command('orc_painting_stroke_commit', { ...handle(), strokeId: session.strokeId }));
-  assert.equal(failure.recovered, true); session.revision = failure.revision; refresh();
+  assert.deepEqual(failure.cancellation, { channel: session.channel, sessionId: session.id, revision: session.revision + 1 });
+  session.revision = failure.cancellation.revision; refresh();
   assert.equal(session.phase, 'idle'); assert.deepEqual(session.parts.map(p => p.facetCounts), committedCounts);
   assert.deepEqual(history(), stableHistory); assert.deepEqual(call('orc_get_plate_session_snapshot'), stablePlates);
   assert.equal(exportedPaint(), committedExport);
@@ -462,8 +471,8 @@ for (const channel of ['support', 'seam', 'fuzzy']) {
     const beforeFailure = observe();
     Module.ccall('orc_painting_test_fail_next_commit', null, [], []);
     const failed = error(command('orc_painting_stroke_commit', { ...handle(), strokeId: session.strokeId, settings: { state: 1, radius: 2 }, event: top(108,95) }));
-    assert.equal(failed.recovered, true); assert.equal(failed.channel, channel); assert.equal(failed.phase, 'idle');
-    session.revision = failed.revision; session.strokeId = null; session.phase = 'idle';
+    assert.deepEqual(failed.cancellation, { channel, sessionId: session.id, revision: session.revision + 1 });
+    session.revision = failed.cancellation.revision; refresh();
     assert.deepEqual(observe(), beforeFailure, `${channel} failed publication changed model/history/plates`);
     assert.deepEqual(annotationBytes(exportedPaint()), baseline, `${channel} failed commit did not roll back annotation bytes`);
     assert.deepEqual(refresh().parts.map(p => p.annotationTimestamp), timestamps, `${channel} failed commit did not restore timestamps`);

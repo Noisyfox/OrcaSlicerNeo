@@ -33,9 +33,7 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
       if ((bytes > 0 && (!pointer || pointer % 4 || used.has(pointer))) || (!bytes && pointer !== 0) || pointer + bytes > module.HEAPU8.length || ranges.some(([start, end]) => bytes > 0 && pointer < end && pointer + bytes > start))
         throw new Error('invalid painting buffer range');
       if (pointer) { used.add(pointer); ranges.push([pointer, pointer + bytes]); }
-      const result = new Float32Array(module.HEAPU8.slice(pointer, pointer + bytes).buffer);
-      if (!result.every(Number.isFinite)) throw new Error('invalid painting vertex');
-      return result;
+      return new Float32Array(module.HEAPU8.slice(pointer, pointer + bytes).buffer);
     };
     const ids = new Set<string>();
     const volumeIds = new Set<number>();
@@ -65,7 +63,7 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
         throw new Error('invalid painting geometry');
       if (entry.kind === 'draft' ? !parts.some(p => p.resourceId === entry.resourceId && p.volumeId === entry.volumeId)
           : !candidates.some(candidate => candidate.resourceId === entry.resourceId && candidate.kind === entry.kind && candidate.volumeId === entry.volumeId)) throw new Error('invalid painting resource identity');
-      const vertices = copy(entry.vertex_ptr, entry.vertexCount, 6);
+      const vertices = copy(entry.vertex_ptr, entry.vertexCount, 3);
       const contour = copy(entry.contour_ptr, entry.contourVertexCount, 3);
       if (entry.vertexCount % 3 || entry.contourVertexCount % 2) throw new Error('invalid painting primitive count');
       let end = 0;
@@ -150,11 +148,14 @@ export function createPaintingApi(module: () => Promise<OrcaModule>, normalizeHi
     envelope(raw);
     const input = request as Record<string, unknown>;
     if (typeof raw.error === 'string') {
-      if (raw.recovered !== undefined) {
-        if (kind !== 'commit' || raw.recovered !== true) throw new Error('invalid painting recovery');
-        checkReceipt(raw, input, name);
-        if (raw.phase !== 'idle' || raw.effective !== false || (raw.changedPartIds as unknown[]).length !== 0) throw new Error('invalid painting recovery state');
-        return { error: raw.error, recovered: true, channel: raw.channel, sessionId: raw.sessionId, revision: raw.revision } as T;
+      if (Object.keys(raw).some(key => key !== 'error' && key !== 'cancellation')) throw new Error('invalid painting error response');
+      if (raw.cancellation !== undefined) {
+        const c = raw.cancellation;
+        if (!['orc_painting_stroke_begin', 'orc_painting_stroke_sample', 'orc_painting_stroke_finish', 'orc_painting_stroke_commit'].includes(name) ||
+            !record(c) || !channel(c.channel) || !canonical(c.sessionId, 'ps-') || !integer(c.revision, 1) ||
+            c.channel !== input.channel || c.sessionId !== input.sessionId || !integer(input.revision, 1) || c.revision !== input.revision + 1)
+          throw new Error('invalid painting cancellation receipt');
+        return { error: raw.error, cancellation: c } as T;
       }
       return { error: raw.error } as T;
     }

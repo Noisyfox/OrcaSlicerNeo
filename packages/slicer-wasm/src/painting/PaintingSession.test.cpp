@@ -22,6 +22,10 @@ struct Fixture {
     ModelVolume* part = object->add_volume(TriangleMesh(its_make_cube(10., 10., 10.)));
     ModelInstance* instance = object->add_instance();
     Sessions sessions;
+    void accept(std::unique_ptr<Session> candidate) {
+        sessions.update_geometry_revisions(*candidate);
+        sessions.publish(std::move(candidate));
+    }
     void open() { sessions.publish(sessions.prepare_open(model, object->id().id, instance->id().id, Channel::Mmu, 2, 1)); }
     const Session& s() { return *sessions.current(); }
     void begin(Tool tool, const Settings& settings, std::optional<PointerEvent> event = {}) {
@@ -36,6 +40,32 @@ struct Fixture {
         sessions.publish(sessions.prepare_preview(s().id, s().revision, tool, settings, event));
     }
 };
+void display_positions_tests() {
+    const TriangleMesh mesh(its_make_cube(3., 5., 7.));
+    NativeSelector selector(mesh);
+    selector.set_facet(0, EnforcerBlockerType::ENFORCER);
+    selector.set_facet(4, EnforcerBlockerType::BLOCKER);
+    const auto display = selector.display();
+    std::vector<float> expected;
+    std::vector<std::array<std::size_t, 3>> groups;
+    for (int state = 0; state <= 2; ++state) {
+        const auto first = expected.size() / 3;
+        for (std::size_t i = 0; i < mesh.its.indices.size(); ++i) {
+            const int facet_state = i == 0 ? 1 : i == 4 ? 2 : 0;
+            if (facet_state != state) continue;
+            for (int vertex : mesh.its.indices[i])
+                for (int axis = 0; axis < 3; ++axis) expected.push_back(mesh.its.vertices[vertex][axis]);
+        }
+        groups.push_back({std::size_t(state), first, expected.size() / 3 - first});
+    }
+    CHECK(display.vertices == expected);
+    CHECK(display.groups == groups);
+    CHECK(display.vertices.size() == mesh.its.indices.size() * 9);
+    const std::set<int> membership{4};
+    const auto overlay = selector.display(&membership);
+    CHECK(overlay.vertices == std::vector<float>(expected.end() - 9, expected.end()));
+    CHECK(overlay.groups.size() == 1 && overlay.groups[0][0] == 2 && overlay.groups[0][2] == 3);
+}
 void channel_tests() {
     for (const auto channel : {Channel::Support, Channel::Seam, Channel::Fuzzy}) {
         Fixture f;
@@ -203,10 +233,14 @@ void smart_gap_overhang_tests() {
     settings.restrict_to_overhangs=true; settings.radius=50.; settings.angle=30.;
     for(const auto tool:{Tool::Circle,Tool::Sphere,Tool::SmartFill}) {
         auto stroke=sessions.prepare_begin(sessions.current()->id,sessions.current()->revision,tool,settings,top(.5,.25));
-        CHECK(!stroke->effective);
+        CHECK(stroke->effective);
+        sessions.publish(std::move(stroke));
+        sessions.publish(sessions.prepare_cancel(sessions.current()->id,sessions.current()->revision,sessions.current()->active_stroke_id));
         settings.overhang_angle=0.;
         auto unrestricted=sessions.prepare_begin(sessions.current()->id,sessions.current()->revision,tool,settings,top(.5,.25));
         if (!unrestricted->effective) throw std::runtime_error("zero-angle restriction tool " + std::to_string(int(tool))); settings.overhang_angle=45.;
+        sessions.publish(std::move(unrestricted));
+        sessions.publish(sessions.prepare_cancel(sessions.current()->id,sessions.current()->revision,sessions.current()->active_stroke_id));
     }
     // Highlight survives completion/cancellation and follows transformed native
     // normals on reconcile while local draft buffer identity remains stable.
@@ -292,17 +326,20 @@ void triangle_preview_tests() {
         auto expected = selector->clone();
         expected->bucket_fill_select_triangles(hit.local.cast<float>(), hit.original_facet, {}, -1.f, false, true);
         const auto selected = expected->display(nullptr, true);
-        CHECK(selected.vertices.size() == 18);
+        CHECK(selected.vertices.size() == 9);
         if (subdivided) {
-            CHECK(selector->display().vertices.size() > 12 * 18);
+            CHECK(selector->display().vertices.size() > 12 * 9);
             CHECK(f.s().parts[0].facet_counts()[1] > 0);
             const Vec3f a(selected.vertices[0], selected.vertices[1], selected.vertices[2]);
-            const Vec3f b(selected.vertices[6], selected.vertices[7], selected.vertices[8]);
-            const Vec3f c(selected.vertices[12], selected.vertices[13], selected.vertices[14]);
+            const Vec3f b(selected.vertices[3], selected.vertices[4], selected.vertices[5]);
+            const Vec3f c(selected.vertices[6], selected.vertices[7], selected.vertices[8]);
             CHECK((b - a).cross(c - a).norm() * .5f < 50.f);
         }
         Settings settings; settings.state = 2; settings.angle.reset(); settings.radius = 100;
+        const auto geometry_revision = f.s().parts[0].geometry_revision;
+        const auto boundary_data = f.s().parts[0].data;
         f.preview(Tool::Triangle, settings, top(3.013, 4.027));
+        CHECK(f.s().preview->facet_selection == selector);
         CHECK(f.s().preview->facet_selection->selected_facet_count() == 1);
         CHECK(f.s().preview->facet_selection->display(nullptr, true).vertices == selected.vertices);
         CHECK(f.s().preview->facet_selection->contour() == expected->contour());
@@ -310,20 +347,34 @@ void triangle_preview_tests() {
         CHECK(f.s().preview->facet_selection->contour().size() % 6 == 0);
         CHECK(f.s().preview->selectors[0] == selector && f.s().parts[0].selector == selector);
         CHECK(selector->serialize() == before && !f.s().effective && f.s().changed_parts.empty());
+        CHECK(f.s().parts[0].geometry_revision == geometry_revision);
+        CHECK(f.s().parts[0].data == boundary_data && f.s().parts[0].data_current);
         CHECK(f.part->mmu_segmentation_facets.timestamp() == timestamp && f.part->mmu_segmentation_facets.get_data() == annotation);
+        for (const auto& pointer : {top(2.013, 3.027), top(3.013, 4.027)}) {
+            const auto hover_hit = *f.sessions.pick(f.s(), pointer);
+            expected->bucket_fill_select_triangles(hover_hit.local.cast<float>(), hover_hit.original_facet, {}, -1.f, false, true);
+            f.preview(Tool::Triangle, settings, pointer);
+            CHECK(f.s().preview->facet_selection == selector && selector->selected_facet_count() == 1);
+            CHECK(selector->display(nullptr, true).vertices == expected->display(nullptr, true).vertices);
+            CHECK(selector->contour() == expected->contour() && selector->serialize() == before);
+            CHECK(f.s().parts[0].geometry_revision == geometry_revision && !f.s().effective);
+        }
         f.preview(Tool::Triangle, settings, top(13, 2));
         CHECK(f.s().preview->hit->part == 1 && f.s().preview->facet_selection->selected_facet_count() == 1);
+        CHECK(f.s().preview->facet_selection == f.s().parts[1].selector);
         f.preview(Tool::Triangle, settings, top(-10, 2));
         CHECK(!f.s().preview->hit && !f.s().preview->facet_selection);
         f.preview(Tool::Triangle, settings, top(3.013, 4.027));
         const auto revision = f.s().revision;
         THROWS(f.sessions.prepare_begin(f.s().id, revision, Tool::Triangle, settings, top(13, 2), revision));
         f.sessions.publish(f.sessions.prepare_begin(f.s().id, revision, Tool::Triangle, settings, top(3.013, 4.027), revision));
+        CHECK(f.s().preview->facet_selection == selector);
         CHECK(f.s().parts[0].facet_counts()[2] == 1);
         CHECK(f.s().preview->facet_selection->display(nullptr, true).vertices == selected.vertices);
         CHECK(f.s().preview->facet_selection->display(nullptr, true).groups.front()[0] == 2);
         f.sample(settings, top(13, 2));
         CHECK(f.s().preview->hit->part == 1);
+        CHECK(f.s().preview->facet_selection == f.s().parts[1].selector);
         f.sample(settings, top(-10, 2));
         CHECK(!f.s().preview && !f.s().last_hit);
         f.cancel();
@@ -481,9 +532,15 @@ void engine_tests() {
     }
     f.cancel();
     CHECK(f.part->mmu_segmentation_facets.timestamp() == timestamp && f.part->mmu_segmentation_facets.get_data() == original);
-    // A failed response/preparation cannot publish staged draft work.
+    // Session wrappers stage metadata, not copies of the working selectors.
     auto abandoned = f.sessions.prepare_begin(f.s().id, f.s().revision, Tool::Triangle, settings, top(3, 4));
-    CHECK(abandoned->effective && f.s().phase == Phase::Idle && f.s().parts[0].facet_counts()[2] == 0);
+    CHECK(abandoned->effective && abandoned->parts[0].selector == f.s().parts[0].selector);
+    CHECK(f.s().phase == Phase::Idle && f.s().parts[0].facet_counts()[2] > 0);
+    CHECK(f.part->mmu_segmentation_facets.get_data() == original);
+    // Internal-error cancellation uses the existing boundary bytes even when
+    // the first sample never published its metadata or a stroke handle.
+    f.accept(f.sessions.prepare_failed_cancel(f.s().id, f.s().revision));
+    CHECK(f.s().phase == Phase::Idle && f.s().parts[0].selector->serialize() == original);
 
     Fixture transformed;
     transformed.part->set_scaling_factor(Vec3d(2, .5, 1.5));
@@ -602,7 +659,7 @@ void engine_tests() {
     const auto overlay = selected.display(nullptr, true);
     CHECK(!overlay.vertices.empty() && !selected.contour().empty());
     CHECK(overlay.groups.front()[0] == 0); // Unpainted candidate is still visible.
-    CHECK(overlay.vertices.size() / 6 == selected.selected_facet_count() * 3);
+    CHECK(overlay.vertices.size() / 3 == selected.selected_facet_count() * 3);
     const auto old_geometry = publication.s().parts[0].geometry_revision;
     auto stroke_candidate = publication.sessions.prepare_begin(publication.s().id, publication.s().revision,
         Tool::Triangle, Settings{}, top(3, 4));
@@ -613,13 +670,13 @@ void engine_tests() {
     auto clean_candidate = publication.sessions.prepare_sample(publication.s().id, publication.s().revision,
         publication.s().active_stroke_id, erase, top(3, 4));
     publication.sessions.update_geometry_revisions(*clean_candidate);
-    CHECK(!clean_candidate->effective && clean_candidate->parts[0].geometry_revision == clean_candidate->revision);
+    CHECK(clean_candidate->effective && clean_candidate->parts[0].geometry_revision == clean_candidate->revision);
     publication.sessions.publish(std::move(clean_candidate));
     auto no_effect = publication.sessions.prepare_commit(publication.s().id, publication.s().revision,
         publication.s().active_stroke_id, {}, {});
     CHECK(!no_effect->effective);
     Sessions::complete(*no_effect);
-    CHECK(no_effect->phase == Phase::Idle && no_effect->before_stroke.empty());
+    CHECK(no_effect->phase == Phase::Idle && !no_effect->stroke_start_data);
     publication.sessions.publish(std::move(no_effect));
     publication.part->mmu_segmentation_facets.reset();
     auto synchronized = publication.sessions.prepare_reconcile(publication.model);
@@ -650,13 +707,202 @@ void engine_tests() {
 }
 }
 
+void projected_trajectory_tests() {
+    for (const auto tool : {Tool::Circle, Tool::Sphere}) {
+        // A long straight stroke must produce the same native topology as
+        // Orca's single capsule, both within one facet and across coplanar ones.
+        for (bool same_facet : {false, true}) {
+            Fixture f; f.open();
+            const auto press = same_facet ? top(1, 7) : top(1, 3);
+            const auto drag = same_facet ? top(2, 8) : top(9, 3);
+            const auto first = *f.sessions.pick(f.s(), drag);
+            const auto last = *f.sessions.pick(f.s(), press);
+            CHECK((first.original_facet == last.original_facet) == same_facet);
+            Settings settings; settings.radius = .6;
+            f.begin(tool, settings, press);
+            const auto working = f.s().parts[0].selector;
+            NativeSelector expected(*f.s().parts[0].mesh);
+            load_annotation(*f.part, Channel::Mmu, expected);
+            const Transform3d transform = f.s().instance_transform * f.s().parts[0].volume_transform;
+            Transform3d linear = transform; linear.translation().setZero();
+            expected.select_patch(last.original_facet, TriangleSelector::SinglePointCursor::cursor_factory(
+                last.local.cast<float>(), (transform.inverse() * last.ray_origin).cast<float>(), float(settings.radius),
+                tool == Tool::Circle ? TriangleSelector::CIRCLE : TriangleSelector::SPHERE,
+                transform, {}), EnforcerBlockerType::ENFORCER, linear, true);
+            CHECK(expected.serialize() == working->serialize());
+            settings.state = 2;
+            expected.select_patch(first.original_facet, TriangleSelector::DoublePointCursor::cursor_factory(
+                first.local.cast<float>(), last.local.cast<float>(), (transform.inverse() * first.ray_origin).cast<float>(),
+                float(settings.radius), tool == Tool::Circle ? TriangleSelector::CIRCLE : TriangleSelector::SPHERE,
+                transform, {}), EnforcerBlockerType::BLOCKER, linear, true);
+            f.sample(settings, drag);
+            CHECK(f.s().parts[0].selector == working);
+            CHECK(working->serialize() == expected.serialize());
+            CHECK(f.s().last_event->pointer == drag.pointer && f.s().last_hit->local.isApprox(first.local));
+            f.cancel(); CHECK(working->serialize() == annotation(*f.part, Channel::Mmu).get_data());
+        }
+
+        // A curved surface needs intermediate capsules. In particular, Sphere
+        // must follow the upper arc instead of cutting a chord through the mesh.
+        Fixture curved;
+        curved.part->set_mesh(TriangleMesh(its_make_sphere(5, PI / 24)));
+        curved.part->set_offset(Vec3d::Zero());
+        curved.open();
+        Settings settings; settings.radius = .4;
+        curved.begin(tool, settings, top(-4, .2));
+        curved.sample(settings, top(4, .2));
+        const auto painted = curved.s().parts[0].selector->get_facets(EnforcerBlockerType::ENFORCER);
+        CHECK(!painted.indices.empty());
+        TriangleMesh painted_mesh(painted); AABBMesh painted_surface(painted_mesh);
+        for (double x : {-3., -1., 0., 1., 3.}) {
+            const auto hit = curved.sessions.pick(curved.s(), top(x, .2)); CHECK(hit);
+            CHECK(painted_surface.squared_distance(hit->local) < 1e-8);
+        }
+        curved.cancel(); CHECK(curved.s().parts[0].facet_counts()[1] == 0);
+
+        // Orca projects backwards from the new endpoint and stops at a miss.
+        // A disconnected old-side island must not be painted on that sample.
+        Fixture separated;
+        auto* second = separated.object->add_volume(TriangleMesh(its_make_cube(2., 10., 10.)));
+        second->set_offset(Vec3d(13, 5, 5));
+        auto* third = separated.object->add_volume(TriangleMesh(its_make_cube(2., 10., 10.)));
+        third->set_offset(Vec3d(17, 5, 5));
+        separated.open(); settings.radius = .3;
+        separated.begin(tool, settings, top(2, 3));
+        const auto original = separated.s().parts[0].selector->serialize();
+        separated.sample(settings, top(17, 3));
+        CHECK(separated.s().parts[0].selector->serialize() == original);
+        CHECK(separated.s().parts[1].facet_counts()[1] == 0);
+        CHECK(separated.s().parts[2].facet_counts()[1] > 0);
+        separated.cancel();
+
+        // Adjacent parts without a miss form separate capsules, never one
+        // capsule whose centres belong to different local coordinate systems.
+        Fixture adjacent;
+        auto* neighbor = adjacent.object->add_volume(TriangleMesh(its_make_cube(10., 10., 10.)));
+        neighbor->set_offset(Vec3d(15, 5, 5));
+        adjacent.open();
+        adjacent.begin(tool, settings, top(2, 3));
+        adjacent.sample(settings, top(18, 3));
+        CHECK(adjacent.s().parts[0].facet_counts()[1] > 0 && adjacent.s().parts[1].facet_counts()[1] > 0);
+        for (std::size_t part = 0; part < 2; ++part) {
+            const auto local = adjacent.s().parts[part].selector->get_facets(EnforcerBlockerType::ENFORCER);
+            TriangleMesh mesh(local); AABBMesh surface(mesh);
+            const auto hit = adjacent.sessions.pick(adjacent.s(), top(part ? 15 : 7, 3));
+            CHECK(hit && hit->part == part && surface.squared_distance(hit->local) < 1e-8);
+        }
+        adjacent.cancel();
+        CHECK(adjacent.s().parts[0].facet_counts()[1] == 0 && adjacent.s().parts[1].facet_counts()[1] == 0);
+    }
+    // The same reduction feeds Triangle and both fill tools. A shallow folded
+    // strip falls within the radius/10 tolerance but its zero-angle fill edges
+    // separate the four panels. Only retained endpoints may apply their tools.
+    indexed_triangle_set strip;
+    for (int i = 0; i <= 4; ++i) {
+        strip.vertices.emplace_back(2.f * i, 0.f, i % 2 ? .05f : 0.f);
+        strip.vertices.emplace_back(2.f * i, 2.f, i % 2 ? .05f : 0.f);
+        if (i < 4) {
+            strip.indices.emplace_back(2*i, 2*i+2, 2*i+3);
+            strip.indices.emplace_back(2*i, 2*i+3, 2*i+1);
+        }
+    }
+    for (const auto tool : {Tool::Triangle, Tool::Region, Tool::SmartFill}) {
+        Fixture f; f.part->set_mesh(TriangleMesh(strip)); f.part->set_offset(Vec3d::Zero());
+        const auto channel = tool == Tool::SmartFill ? Channel::Support : Channel::Mmu;
+        f.sessions.publish(f.sessions.prepare_open(f.model, f.object->id().id, f.instance->id().id, channel, 2, 1));
+        Settings settings; settings.radius = 2.; settings.angle = 0.;
+        f.begin(tool, settings, top(.5, .7));
+        settings.state = 2;
+        f.sample(settings, top(7.5, .7));
+        CHECK(f.s().parts[0].facet_counts()[2] == (tool == Tool::Triangle ? 2 : 4));
+        CHECK(f.s().parts[0].facet_counts()[1] == 0);
+        f.cancel(); CHECK(f.s().parts[0].facet_counts()[0] == 8);
+    }
+}
+
+void selector_reuse_tests() {
+    for (const auto channel : {Channel::Mmu, Channel::Support, Channel::Seam, Channel::Fuzzy}) {
+        for (const auto tool : {Tool::Circle, Tool::Sphere}) {
+            Fixture f;
+            auto* second = f.object->add_volume(TriangleMesh(its_make_cube(10., 10., 10.)));
+            second->set_offset(Vec3d(12, 0, 0));
+            NativeSelector initial(f.part->mesh());
+            initial.set_facet(0, EnforcerBlockerType::ENFORCER);
+            annotation(*f.part, channel).set(initial);
+            f.accept(f.sessions.prepare_open(f.model, f.object->id().id, f.instance->id().id, channel, 2, 1));
+            const auto first = f.s().parts[0].selector;
+            const auto other = f.s().parts[1].selector;
+            const auto start = f.s().parts[0].data;
+            const auto other_start = f.s().parts[1].data;
+            const auto other_revision = f.s().parts[1].geometry_revision;
+            Settings settings; settings.radius = 1.;
+            f.accept(f.sessions.prepare_begin(f.s().id, f.s().revision, tool, settings, top(2, 2)));
+            CHECK((*f.s().stroke_start_data)[0] == start);
+            for (int i = 0; i < 12; ++i) {
+                const auto previous = first->serialize();
+                const auto revision = f.s().parts[0].geometry_revision;
+                settings.erase = i % 2;
+                f.accept(f.sessions.prepare_sample(f.s().id, f.s().revision, f.s().active_stroke_id,
+                    settings, top(2 + i % 5, 2 + (i * 3) % 5)));
+                CHECK(f.s().parts[0].selector == first && f.s().parts[1].selector == other);
+                CHECK(f.s().parts[0].data == start && !f.s().parts[0].data_current);
+                if (!(previous == first->serialize())) CHECK(f.s().parts[0].geometry_revision == f.s().revision);
+                else CHECK(f.s().parts[0].geometry_revision >= revision);
+                CHECK(f.s().parts[1].data == other_start && f.s().parts[1].geometry_revision == other_revision);
+                CHECK(*start == annotation(*f.part, channel).get_data());
+            }
+            settings.erase = false;
+            const auto second_hit = f.sessions.pick(f.s(), top(13, 3));
+            CHECK(second_hit && second_hit->part == 1);
+            f.accept(f.sessions.prepare_sample(f.s().id, f.s().revision, f.s().active_stroke_id, settings, top(13, 3)));
+            const auto before_endpoint = other->serialize();
+            CHECK(!(before_endpoint == *other_start));
+            settings.erase = true;
+            f.accept(f.sessions.prepare_commit(f.s().id, f.s().revision, f.s().active_stroke_id, settings, top(15, 3)));
+            CHECK(f.s().phase == Phase::Finished && f.s().parts[1].selector == other);
+            CHECK(!(before_endpoint == *f.s().parts[1].data));
+            CHECK(f.s().parts[0].data_current && *f.s().parts[0].data == first->serialize());
+            CHECK(f.s().parts[1].geometry_revision == f.s().revision);
+            f.accept(f.sessions.prepare_cancel(f.s().id, f.s().revision, f.s().active_stroke_id));
+            CHECK(f.s().phase == Phase::Idle && !f.s().stroke_start_data && !f.s().effective);
+            CHECK(f.s().parts[0].selector == first && f.s().parts[1].selector == other);
+            CHECK(first->serialize() == *start && other->serialize() == *other_start);
+            CHECK(f.s().parts[0].data == start && f.s().parts[1].data == other_start);
+        }
+    }
+    Fixture f; f.open();
+    const auto selector = f.s().parts[0].selector;
+    Settings settings; settings.radius = 50.;
+    f.accept(f.sessions.prepare_begin(f.s().id, f.s().revision, Tool::Sphere, settings, top(3, 4)));
+    const auto painted = selector->serialize();
+    f.accept(f.sessions.prepare_sample(f.s().id, f.s().revision, f.s().active_stroke_id, settings, top(3, 4)));
+    CHECK(selector->serialize() == painted && f.s().parts[0].geometry_revision == f.s().revision);
+    settings.erase = true;
+    f.accept(f.sessions.prepare_sample(f.s().id, f.s().revision, f.s().active_stroke_id, settings, top(3, 4)));
+    CHECK(f.s().effective && !f.s().parts[0].data_current);
+    CHECK(f.s().parts[0].selector == selector && f.s().parts[0].geometry_revision == f.s().revision);
+    f.accept(f.sessions.prepare_finish(f.s().id, f.s().revision, f.s().active_stroke_id));
+    CHECK(!f.s().effective && f.s().changed_parts.empty() && f.s().parts[0].data_current);
+    f.cancel();
+    for (const auto tool : {Tool::Height, Tool::Region, Tool::Triangle}) {
+        f.accept(f.sessions.prepare_begin(f.s().id, f.s().revision, tool, Settings{}, top(3, 4)));
+        f.accept(f.sessions.prepare_sample(f.s().id, f.s().revision, f.s().active_stroke_id, Settings{}, top(6, 4)));
+        CHECK(f.s().parts[0].selector == selector && !f.s().parts[0].data_current);
+        f.cancel();
+    }
+}
+
+
 int main() {
     try {
+    display_positions_tests();
     channel_tests();
     seam_vertical_tests();
     smart_gap_overhang_tests();
     triangle_preview_tests();
     engine_tests();
+    projected_trajectory_tests();
+    selector_reuse_tests();
     Model model;
     auto* object = model.add_object();
     auto* part = object->add_volume(TriangleMesh(its_make_cube(10., 10., 10.)));

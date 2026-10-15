@@ -173,7 +173,7 @@ function geometry(knownResourceIds = []) {
         ...r,
         vertices: [
           ...new Float32Array(
-            Module.HEAPU8.slice(r.vertex_ptr, r.vertex_ptr + r.vertexCount * 24)
+            Module.HEAPU8.slice(r.vertex_ptr, r.vertex_ptr + r.vertexCount * 12)
               .buffer,
           ),
         ],
