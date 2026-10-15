@@ -672,6 +672,13 @@ state. This is a scheduling policy, not a guarantee of achieving the display's
 refresh rate on every model or device. Cursor and camera rendering remain
 independent of the geometry-publication cadence.
 
+When a scheduled display frame becomes due, reserve the shared RPC lane behind
+the operation already in progress. Later movement samples must not overtake
+that reservation. Before reading geometry, process any pending reliable stroke
+terminal and recheck the session and phase; capture request metadata only after
+the wait. Keep at most one pending display reservation and coalesce further
+display changes into it.
+
 Geometry-refresh coalescing applies only to intermediate display states; it must
 not discard admitted painting events or stroke boundaries. Separately, movement
 events arriving during an in-flight painting event are discarded under section

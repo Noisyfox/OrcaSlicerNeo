@@ -449,9 +449,13 @@ export class PaintingController {
     if (this.lane || this.cancelFrame || !this.state.session || !['idle', 'drawing'].includes(this.state.phase) || (!this.displayDirty && !((this.previewDirty || this.highlightDirty) && this.state.phase === 'idle'))) return;
     this.cancelFrame = this.ports.schedule(() => {
       this.cancelFrame = null;
-      if (this.lane || !['idle', 'drawing'].includes(this.state.phase)) return;
+      if (!['idle', 'drawing'].includes(this.state.phase)) return;
+      // Reserve the due display behind the current operation synchronously.
+      // Later moves must not repeatedly win the lane before the next frame.
       void this.exclusive(async () => {
         try {
+          if (this.terminal) await this.drainTerminal();
+          if (!this.state.session || !['idle', 'drawing'].includes(this.state.phase)) return;
           const previewVersion = this.previewGeneration, previewTool = this.state.tool;
           const highlightVersion = this.highlightGeneration;
           if (this.state.phase === 'idle' && this.highlightDirty) {

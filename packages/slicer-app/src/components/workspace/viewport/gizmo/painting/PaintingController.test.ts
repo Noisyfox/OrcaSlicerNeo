@@ -90,6 +90,57 @@ describe('painting event admission and reliable terminal', () => {
     pending.resolve({ ok: true, version: 1, channel: 'mmu' as const, sessionId: 'ps-1', revision: 2, parts: [], candidates: [], resources: [] }); await tick();
     expect(p.api.commitPaintingStroke).toHaveBeenCalledTimes(1); expect(c.getSnapshot().phase).toBe('idle');
   });
+  it('reserves a due display behind the current sample before admitting any later moves', async () => {
+    const { controller: c, ports: p, receipt, frame, frames } = fixture();
+    await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
+    const pending = deferred<PaintingDraftResult>();
+    vi.mocked(p.api.samplePaintingStroke).mockReturnValueOnce(pending.promise);
+    expect(c.move(event(2))).toBe(true);
+    await frame(); // The due display must reserve the lane while this sample is still running.
+    expect(p.api.getPaintingGeometry).toHaveBeenCalledTimes(1);
+    for (let x = 3; x < 20; x++) expect(c.move(event(x))).toBe(false);
+    expect(frames).toHaveLength(0);
+    pending.resolve(receipt()); await tick();
+    expect(p.api.samplePaintingStroke).toHaveBeenCalledTimes(1);
+    expect(p.api.getPaintingGeometry).toHaveBeenCalledTimes(2);
+    expect(p.api.getPaintingGeometry).toHaveBeenLastCalledWith(expect.objectContaining({ revision: 3 }));
+    expect(c.getSnapshot().display?.revision).toBe(3);
+    expect(frames).toHaveLength(0);
+    expect(c.move(event(20))).toBe(true); await tick();
+  });
+  it.each(['release', 'Escape'] as const)('handles %s once before a display queued behind a sample', async terminal => {
+    const { controller: c, ports: p, receipt, frame } = fixture();
+    await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
+    const pending = deferred<PaintingDraftResult>();
+    vi.mocked(p.api.samplePaintingStroke).mockReturnValueOnce(pending.promise);
+    expect(c.move(event(2))).toBe(true); await frame();
+    c.release(event(3), true); c.release(event(4));
+    if (terminal === 'Escape') c.cancel();
+    pending.resolve(receipt()); await tick();
+    expect(c.getSnapshot().phase).toBe('idle');
+    expect(p.api.samplePaintingStroke).toHaveBeenCalledTimes(1);
+    if (terminal === 'release') {
+      expect(p.api.commitPaintingStroke).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: event(3), settings: expect.objectContaining({ erase: true }) }));
+      expect(p.api.cancelPaintingStroke).not.toHaveBeenCalled();
+    } else {
+      expect(p.api.cancelPaintingStroke).toHaveBeenCalledTimes(1);
+      expect(p.api.commitPaintingStroke).not.toHaveBeenCalled();
+    }
+    expect(p.api.getPaintingGeometry).toHaveBeenCalledTimes(2);
+    expect(p.api.getPaintingGeometry).toHaveBeenLastCalledWith(expect.objectContaining({ revision: 4 }));
+    expect(c.getSnapshot().display?.revision).toBe(4);
+  });
+  it('skips a queued display when the preceding sample leaves the controller in error', async () => {
+    const { controller: c, ports: p, frame } = fixture();
+    await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
+    const pending = deferred<PaintingDraftResult>();
+    vi.mocked(p.api.samplePaintingStroke).mockReturnValueOnce(pending.promise);
+    expect(c.move(event(2))).toBe(true); await frame();
+    pending.resolve({ error: 'sample failed' }); await tick();
+    expect(c.getSnapshot()).toMatchObject({ phase: 'error', error: 'sample failed' });
+    expect(p.api.getPaintingGeometry).toHaveBeenCalledTimes(1);
+    expect(p.api.cancelPaintingStroke).not.toHaveBeenCalled();
+  });
   it('keeps admitted settings immutable and blocks tool switches/history/close until terminal completes', async () => {
     const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
     c.setTool('sphere'); c.setSettings({ state: 2, erase: true, radius: 7 }); c.move(event(2)); await tick();
