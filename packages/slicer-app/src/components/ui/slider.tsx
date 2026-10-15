@@ -19,6 +19,7 @@ import { cn } from "cn"
 type SliderProps = SliderPrimitive.Root.Props & {
   /** Optional stable identifiers for individual thumbs in multi-thumb sliders. */
   thumbTestIds?: string[];
+  thumbAriaLabels?: string[];
   variant?: 'default' | 'preview';
   thumbLabels?: ReactNode[];
 };
@@ -30,6 +31,7 @@ function Slider({
   min = 0,
   max = 100,
   thumbTestIds,
+  thumbAriaLabels,
   variant = 'default',
   thumbLabels,
   ...props
@@ -66,6 +68,7 @@ function Slider({
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
             data-testid={thumbTestIds?.[index]}
+            aria-label={thumbAriaLabels?.[index]}
             data-thumb-index={index}
             key={index}
             className="relative z-10 block size-3 shrink-0 rounded-md border border-ring bg-white ring-ring/30 transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-2 focus-visible:ring-2 focus-visible:outline-hidden active:ring-2 disabled:pointer-events-none disabled:opacity-50"

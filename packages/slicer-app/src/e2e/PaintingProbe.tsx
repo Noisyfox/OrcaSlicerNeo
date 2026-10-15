@@ -334,6 +334,35 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
       return { x: rect.left + (projected.x + 1) * rect.width / 2,
         y: rect.top + (1 - projected.y) * rect.height / 2 };
     },
+    // Borrow an actually displayed material so this checks production shader
+    // wiring and program-cache switches, not a duplicate test-only material.
+    paintingSurfacePixels: (kind: string) => {
+      const resource = [...resources.resources.values()].find((r) => r.source.kind === kind);
+      const meshes: THREE.Mesh[] = [];
+      scene.traverse((object) => { if (object instanceof THREE.Mesh && object.geometry === resource?.geometry) meshes.push(object); });
+      if (!meshes.length) throw new Error(`No displayed painting surface for ${kind}`);
+      const material = Array.isArray(meshes[0].material) ? meshes[0].material[0] : meshes[0].material;
+      const geometry = new THREE.PlaneGeometry(1, 1).translate(0, 0, -10);
+      const sampleMesh = new THREE.Mesh(geometry, material); sampleMesh.matrixAutoUpdate = false;
+      const sampleScene = new THREE.Scene(); sampleScene.add(sampleMesh, new THREE.AmbientLight('white', 1));
+      const sampleCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20); sampleCamera.position.z = 5;
+      const target = new THREE.WebGLRenderTarget(16, 16); target.texture.colorSpace = THREE.SRGBColorSpace;
+      const previousTarget = gl.getRenderTarget(), previousColor = gl.getClearColor(new THREE.Color()), previousAlpha = gl.getClearAlpha();
+      try {
+        gl.setRenderTarget(target); gl.setClearColor('black', 0);
+        return [-0.1001, -0.1, -0.0999, 0, 0.0999, 0.1, 0.1001].map((z) => {
+          // Local Z is -10, so the band must follow modelMatrix rather than
+          // local vertices. Test both strict boundaries and their neighbours.
+          sampleMesh.matrix.makeTranslation(0, 0, z + 10);
+          gl.clear(); gl.render(sampleScene, sampleCamera);
+          const pixel = new Uint8Array(4); gl.readRenderTargetPixels(target, 8, 8, 1, 1, pixel);
+          return { z, rgba: Array.from(pixel) };
+        });
+      } finally {
+        gl.setRenderTarget(previousTarget); gl.setClearColor(previousColor, previousAlpha);
+        geometry.dispose(); target.dispose();
+      }
+    },
   }), [camera, controls, cursor, gl, owner, resources, runtime, scene, volumes, interaction, pivot]);
   return null;
 }

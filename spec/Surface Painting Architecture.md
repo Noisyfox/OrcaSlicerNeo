@@ -216,10 +216,11 @@ Smart Fill requires a numeric 0–90 degree edge angle. The `null` edge-angle
 option remains specific to MMU Region Fill. Support overhang membership uses
 inverse-transpose normalized normals and the pinned native strict cosine
 comparison, without an additional determinant flip for mirrored transforms.
-Numeric zero disables the native restriction and highlights every eligible leaf;
-an explicit `null` highlight angle clears the overlay. The pinned float-radian
-comparison at 90 degrees admits exactly vertical side normals. Highlight and
-restricted-stroke membership must agree at these boundaries.
+Numeric zero disables the native restriction. The application clears the red
+highlight at zero by sending an explicit `null` highlight angle; the native
+preview API's numeric zero still denotes every eligible leaf. The pinned
+float-radian comparison at 90 degrees admits exactly vertical side normals.
+For nonzero angles, highlight and restricted-stroke membership must agree.
 
 Overhang highlighting is independent of the current selection candidate. It
 survives candidate replacement, strokes, target changes and history
@@ -227,6 +228,17 @@ reconciliation, and grants no Apply ownership. Reuse unchanged highlight
 resources across hover; invalidate their identity after threshold, tree or
 transform changes while retaining unchanged local-space draft buffers. The
 dedicated highlight wire request requires an explicit angle or `null`.
+Expose the highlight threshold through a synchronized 0–90 degree slider and
+numeric input, without a separate highlight checkbox. Highlighting is active
+throughout support painting and remains independent of the restriction checkbox.
+Match Orca's overhang tint by mixing the facet state's encoded RGB equally with
+`LightRed (0.78, 0, 0)` before linear colour conversion, at full opacity.
+Throughout support painting, including at a zero-degree threshold, fragments
+at world height
+`-0.1 < Z < 0.1 mm` use Orca's opaque `LightBlue (0.73, 1, 1)` instead,
+independently of the overhang angle. This band takes priority over both
+overhang tint and selection-preview colour, follows the displayed part's full
+world transform, and does not change painting eligibility or annotations.
 
 Each adapter has its own dedicated toolbar entry, following Orca’s independent
 support, seam, fuzzy-skin and MMU gizmo entries. Do not hide the adapters behind
