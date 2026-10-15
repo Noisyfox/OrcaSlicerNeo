@@ -98,18 +98,39 @@ describe('painting event admission and reliable terminal', () => {
     expect(vi.mocked(p.api.samplePaintingStroke).mock.calls[0][0].settings).toMatchObject({ state: 2, radius: 7, erase: true });
     const history = vi.fn(async () => true); expect(await c.betweenStrokes(history)).toBe(false); expect(history).not.toHaveBeenCalled(); expect(await c.close()).toBe(false);
   });
-  it('recoverable commit discards the failed draft and permits a fresh press', async () => {
+  it('stops after a failed commit without automatically cancelling or admitting a fresh press', async () => {
     const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
-    vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce({ error: 'allocation failed', recovered: true, channel: 'mmu', sessionId: 'ps-1', revision: 3 });
+    vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce({ error: 'allocation failed' });
     c.release(event(2)); await tick();
-    expect(c.getSnapshot()).toMatchObject({ phase: 'idle', error: 'allocation failed' });
-    expect(p.committed).not.toHaveBeenCalled(); expect(await c.press(event(3))).toBe('paint');
+    expect(c.getSnapshot()).toMatchObject({ phase: 'error', error: 'allocation failed' });
+    expect(p.api.cancelPaintingStroke).not.toHaveBeenCalled(); expect(p.api.readPaintingSession).not.toHaveBeenCalled();
+    expect(p.committed).not.toHaveBeenCalled(); expect(await c.press(event(3))).toBe('ignored');
   });
   it('native initial miss owns empty-space rotation; no frontend face filter exists', async () => {
     const { controller: c, ports: p, receipt, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
     vi.mocked(p.api.beginPaintingStroke).mockImplementationOnce(async () => ({ ...receipt(), hit: null }));
     expect(await c.press(event(100))).toBe('camera'); expect(p.api.cancelPaintingStroke).toHaveBeenCalledTimes(1);
     expect(p.api.commitPaintingStroke).not.toHaveBeenCalled();
+  });
+  it.each(['begin', 'sample', 'commit'] as const)('adopts confirmed internal-error cancellation during %s without another cancel RPC', async stage => {
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
+    if (stage !== 'begin') await c.press(event(1));
+    const revision = c.getSnapshot().session!.revision + 1;
+    const failure = { error: 'internal selector error', cancellation: { channel: 'mmu' as const, sessionId: 'ps-1', revision } };
+    if (stage === 'begin') { vi.mocked(p.api.beginPaintingStroke).mockResolvedValueOnce(failure); await c.press(event(1)); }
+    else if (stage === 'sample') { vi.mocked(p.api.samplePaintingStroke).mockResolvedValueOnce(failure); c.move(event(2)); await tick(); }
+    else { vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce(failure); c.release(event(2)); await tick(); }
+    expect(c.getSnapshot()).toMatchObject({ phase: 'idle', error: failure.error, session: { revision, strokeId: null } });
+    expect(p.api.cancelPaintingStroke).not.toHaveBeenCalled(); expect(p.api.readPaintingSession).not.toHaveBeenCalled();
+    expect(await c.press(event(3))).toBe('paint');
+  });
+  it('stops after a sample failure without replaying release or automatically cancelling', async () => {
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
+    vi.mocked(p.api.samplePaintingStroke).mockRejectedValueOnce(new Error('selector failed'));
+    expect(c.move(event(2))).toBe(true); c.release(event(3)); await tick();
+    expect(c.getSnapshot()).toMatchObject({ phase: 'error', error: 'selector failed' });
+    expect(p.api.cancelPaintingStroke).not.toHaveBeenCalled(); expect(p.api.commitPaintingStroke).not.toHaveBeenCalled();
+    expect(p.api.readPaintingSession).not.toHaveBeenCalled(); expect(c.move(event(4))).toBe(false);
   });
 });
 describe('painting session and display ownership', () => {
@@ -186,11 +207,13 @@ describe('painting session and display ownership', () => {
     await c.apply('eraseAll'); expect(await c.close()).toBe(true);
     expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([]);
   });
-  it('does not refresh Prepare after a recovered failed commit', async () => {
+  it('does not refresh Prepare after a failed commit; explicit close cancels its draft', async () => {
     const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
-    vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce({ error: 'allocation failed', recovered: true, channel: 'mmu', sessionId: 'ps-1', revision: 3 });
+    vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce({ error: 'allocation failed' });
     expect(await c.apply('eraseAll')).toBe(false);
+    expect(p.api.cancelPaintingStroke).not.toHaveBeenCalled();
     expect(await c.close()).toBe(true); expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([]);
+    expect(p.api.cancelPaintingStroke).toHaveBeenCalledTimes(1);
   });
   it('gap apply uses an exact fresh native candidate and commits all parts once', async () => {
     const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); c.setSettings({ gapArea: 2.5 });
@@ -548,7 +571,7 @@ describe.each(['triangle', 'region', 'gap'] as const)('%s shared candidate previ
     // An explicit complete native refresh, rather than old geometry, restores it.
     c.setSettings({ gapArea: 3 }); if (tool !== 'gap') c.hoverAt(event(4)); await f.frame(); expect(c.getSnapshot().display?.candidates).toHaveLength(1); f.cache.dispose();
   });
-  it('does not revive old native candidates in the model-only refresh after a commit failure', async () => {
+  it('does not revive native candidates or resume painting after a commit failure', async () => {
     const f = await candidatePreview(), c = f.controller, before = c.getSnapshot().display!;
     vi.mocked(f.ports.api.commitPaintingStroke).mockRejectedValueOnce(new Error('commit failed'));
     if (tool === 'gap') expect(await c.apply('gap')).toBe(false);
@@ -556,7 +579,9 @@ describe.each(['triangle', 'region', 'gap'] as const)('%s shared candidate previ
     expect(c.getSnapshot().display?.parts).toBe(before.parts); expect(c.getSnapshot().error).toBe('commit failed');
     await f.frame(); expect(c.getSnapshot().display?.candidates).toEqual([]); expect(f.ports.api.previewPainting).toHaveBeenCalledTimes(tool === 'gap' ? 2 : 1);
     expect(f.ports.history).toHaveBeenCalledTimes(1); expect(f.ports.committed).not.toHaveBeenCalled();
-    c.setSettings({ gapArea: 4 }); if (tool !== 'gap') c.hoverAt(event(4)); await f.frame(); expect(c.getSnapshot().display?.candidates).toHaveLength(1); f.cache.dispose();
+    c.setSettings({ gapArea: 4 }); if (tool !== 'gap') c.hoverAt(event(4)); await f.frame();
+    expect(c.getSnapshot().phase).toBe('error'); expect(c.getSnapshot().display?.candidates).toEqual([]);
+    expect(f.ports.api.cancelPaintingStroke).not.toHaveBeenCalled(); f.cache.dispose();
   });
   it.each(['project', 'history'].flatMap((kind) => (['preview', 'geometry'] as const).map((stage) => ({ kind, stage }))))('reserves a $kind mutation behind pending $stage and refreshes a matched native preview', async ({ kind, stage }) => {
     const f = await candidatePreview(), c = f.controller, before = f.publish();

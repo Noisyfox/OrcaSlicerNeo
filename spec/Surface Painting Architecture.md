@@ -713,13 +713,32 @@ queuing them; after successful
 completion the user must press again to start a new stroke. Do not implicitly
 begin painting from a button held during this waiting period.
 
-For a recoverable commit failure with a healthy Worker and intact authoritative
-project state, roll back any partial transaction, automatically discard this
-stroke's draft, restore selectors/display to the pre-stroke state, and report
-the failure. Earlier committed edits and history remain intact. Once recovery
-is complete, allow a new stroke; do not retain a failed-draft Retry workflow.
-An empty stroke creates no history entry. Closing the gizmo does not write the
-completed strokes again.
+Working selectors are owned by the painting session and modified in place across
+admitted samples, including the final release sample. Keep immutable serialized
+annotation content at stroke boundaries for net-change comparison and the
+explicit Escape operation. Successful admitted edits conservatively advance
+the affected parts' geometry resource versions, including same-colour edits, without serializing or cloning
+working selectors. Drawing receipts identify potentially changed parts; finish/commit
+receipts identify exact net changes. Determine those net changes once at the
+stroke boundary using the content needed for model/history publication, rather
+than comparing the whole stroke after each sample. A new stroke reuses the
+preceding boundary's immutable content for Escape. Escape reconstructs the
+pre-stroke content in the same working selectors. Independent candidate
+previews retain their isolation, including the Triangle selection preview.
+
+Validate request settings, identities and camera context before selector mutation.
+Invalid or stale requests report their business error without cancelling another
+stroke. A caught internal exception cancels the owned stroke using its existing
+boundary data, then reports both the error and the confirmed cancellation
+identity/revision. Reconstruct selectors only on that failure path; do not keep
+per-sample backups, prebuild recovery candidates, or inspect interrupted trees.
+User Escape and internal-error cancellation have separate entry points and share
+the same immutable stroke-start content. A failure to complete cancellation
+blocks further painting; a cancellation receipt must never be synthesized.
+Discarding staged metadata cannot undo an in-place selector mutation.
+The existing model/history commit transaction preserves earlier committed edits
+and history on a failed publication. An empty stroke creates no history entry.
+Closing the gizmo does not write the completed strokes again.
 
 Stage history begin/commit and allocate the success response before publishing
 history. Failure must preserve Redo, timestamps, save markers, and memory
@@ -1207,9 +1226,11 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   export cannot bypass selected-plate result validity or implicitly slice.
 - Pending stroke processing/commit displays a processing state and rejects new
   strokes without queuing. Success requires a fresh press for the next stroke.
-  Recoverable failure automatically discards the failed draft, restores its
-  pre-stroke display/model/history state, reports the error, and permits new
-  strokes after recovery. Fatal Worker failure uses the shared runtime flow.
+  Business rejections do not cancel the stroke. An internal input/commit exception
+  cancels the owned stroke from the existing boundary data and confirms its new
+  idle revision before permitting a fresh press. A failed cancellation blocks
+  painting. Explicit Escape independently restores the stroke-start content.
+  Fatal Worker failure uses the shared runtime flow.
 - Idle target deletion, replacement/reload, and splitting close and compact the
   painting session before model mutation, retaining a separate model-operation
   history entry. During a stroke these commands are ignored without queuing.

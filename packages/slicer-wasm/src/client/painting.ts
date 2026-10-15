@@ -112,7 +112,12 @@ export interface PaintingStrokeSampleRequest extends PaintingStrokeRequest {
 }
 /** Compact command receipt; full facet scans only occur on explicit session read.
  * finished is pending publication/discard, including no-ops. cancel discards
- * drawing or finished drafts atomically. No command here writes Model/history. */
+ * drawing or finished drafts explicitly. No command here writes Model/history. */
+export interface PaintingFailure {
+  readonly error: string;
+  /** Present only after an internal exception successfully cancelled this stroke. */
+  readonly cancellation?: { readonly channel: PaintingChannel; readonly sessionId: PaintingSessionId; readonly revision: PaintingRevision };
+}
 export type PaintingDraftResult = {
   readonly ok: true;
   readonly version: 1;
@@ -121,13 +126,15 @@ export type PaintingDraftResult = {
   readonly revision: PaintingRevision;
   readonly strokeId: PaintingStrokeId | null;
   readonly phase: 'idle' | 'drawing' | 'finished';
+  /** Conservative during drawing; exact net effect at finish/commit. */
   readonly effective: boolean;
-  /** Cumulative changed parts relative to this stroke's starting selectors. */
+  /** During drawing: conservatively affected parts. At finish/commit:
+   * exact net changes relative to the stroke start, excluding reverted edits. */
   readonly changedPartIds: readonly StablePartId[];
   readonly hit: { readonly volumeId: StablePartId; readonly originalFacet: number; readonly world: readonly [number, number, number] } | null;
   readonly candidateRevision: PaintingRevision | null;
   readonly paintingProfile?: PaintingProfileCounters;
-} | { readonly error: string };
+} | PaintingFailure;
 
 export interface PaintingCommitRequest extends PaintingStrokeRequest {
   /** Final pointer release sample; omitted for explicit finish and one-shot tools. */
@@ -138,8 +145,7 @@ export type PaintingCommitResult = Exclude<PaintingDraftResult, { error: string 
   readonly committed: boolean;
   readonly affectedPlateIds: readonly string[];
   readonly history: import('./history').HistoryStatus;
-} | { readonly error: string; readonly recovered?: false }
-  | { readonly error: string; readonly recovered: true; readonly channel: PaintingChannel; readonly sessionId: PaintingSessionId; readonly revision: PaintingRevision };
+} | PaintingFailure;
 export interface PaintingGeometryRequest extends PaintingSessionRequest { readonly knownResourceIds?: readonly string[] }
 export interface PaintingGeometry {
   readonly volumeId: number;

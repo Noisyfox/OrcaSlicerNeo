@@ -91,9 +91,10 @@ void Sessions::bind(Session& session, const Model& model, std::size_t object_id,
         if (!mesh || mesh->its.indices.empty()) continue;
         auto selector = std::make_shared<NativeSelector>(*mesh);
         load_annotation(*volume, session.channel, *selector);
+        auto data = std::make_shared<const SelectorData>(selector->serialize());
         auto acceleration = std::make_shared<AABBMesh>(*mesh);
         session.parts.push_back({volume->id().id, std::move(mesh), std::move(selector),
-            volume->get_matrix(), annotation(*volume, session.channel).timestamp(), std::move(acceleration), session.revision});
+            volume->get_matrix(), annotation(*volume, session.channel).timestamp(), std::move(acceleration), session.revision, std::move(data)});
     }
     if (session.parts.empty()) throw std::invalid_argument("painting object has no solid mesh parts");
 }
@@ -226,11 +227,13 @@ std::unique_ptr<Session> Sessions::stage(const Session& session)
 {
     if (session.revision >= 9007199254740991ULL) throw std::overflow_error("painting revision exhausted");
     auto result = std::make_unique<Session>(session);
+    // Only metadata is staged. Stroke samples deliberately share and mutate the
+    // session-owned working selectors; discarding this wrapper cannot undo them.
     ++result->revision;
     return result;
 }
 
-void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& hit, const std::optional<Hit>& previous, std::vector<bool>& touched)
+void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& hit, const std::optional<Hit>& previous, std::vector<bool>* preview_touched)
 {
 #ifdef NEO_PAINTING_PROFILE
     Profile::Scope profile_selector(Profile::selector);
@@ -241,9 +244,9 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
     const std::size_t end = session.tool == Tool::Height ? session.parts.size() : hit.part + 1;
     for (std::size_t i = begin; i < end; ++i) {
         auto& part = session.parts[i];
-        if (!touched[i]) {
+        if (preview_touched && !(*preview_touched)[i]) {
             part.selector = part.selector->clone();
-            touched[i] = true;
+            (*preview_touched)[i] = true;
         }
         const Transform3d transform = session.instance_transform * part.volume_transform;
         const Transform3d inverse = transform.inverse();
@@ -275,12 +278,16 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
             part.selector->select_patch(hit.original_facet, std::move(cursor), state, linear, true,
                 settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f);
         }
+        // Conservatively invalidate after an admitted edit, including same-colour
+        // painting. The native selector exposes no cheap exact mutation result.
+        mark_changed(session, part);
     }
 }
 
 void Sessions::sample(Session& session, const Settings& settings, const PointerEvent& input)
 {
     settings.validate(session.channel);
+    if (session.tool == Tool::SmartFill && !settings.angle) throw std::invalid_argument("Smart Fill requires an angle");
     // Match Orca drag projection: constrain CSS screen X before native picking
     // and trajectory interpolation, never a world-space axis or mesh normal.
     if (!input.pointer.allFinite()) throw std::invalid_argument("invalid painting pointer");
@@ -295,7 +302,6 @@ void Sessions::sample(Session& session, const Settings& settings, const PointerE
         session.last_event = event; session.last_hit.reset(); session.preview.reset();
         return;
     }
-    std::vector<bool> touched(session.parts.size(), false);
     // Orca projects a sequence at one-pixel spacing before using its capsule
     // cursor between neighboring hits. Reconstruct those rays natively; an
     // empty-space crossing or part change always breaks capsule continuity.
@@ -308,7 +314,7 @@ void Sessions::sample(Session& session, const Settings& settings, const PointerE
         auto intermediate = event;
         intermediate.pointer = start + (event.pointer - start) * (double(index) / double(steps));
         auto hit = index == steps ? endpoint : pick(session, intermediate);
-        if (hit) apply_hit(session, settings, *hit, previous, touched);
+        if (hit) apply_hit(session, settings, *hit, previous);
         previous = hit;
     }
     session.last_event = event;
@@ -323,16 +329,30 @@ void Sessions::sample(Session& session, const Settings& settings, const PointerE
         for (const auto& part : session.parts) preview.selectors.push_back(part.selector);
         session.preview = std::move(preview);
     }
-    compare(session, touched);
+}
+
+void Sessions::mark_changed(Session& session, PartDraft& part)
+{
+    part.data_current = false;
+    part.geometry_revision = session.revision;
+    if (std::find(session.changed_parts.begin(), session.changed_parts.end(), part.volume_id) == session.changed_parts.end())
+        session.changed_parts.push_back(part.volume_id);
+    session.effective = true;
 }
 
 void Sessions::compare(Session& session, const std::vector<bool>& touched)
 {
     for (std::size_t i = 0; i < session.parts.size(); ++i) {
         if (!touched[i]) continue;
-        const auto volume_id = session.parts[i].volume_id;
+        auto& part = session.parts[i];
+        if (!part.data_current) {
+            auto data = part.selector->serialize();
+            if (!(data == *part.data)) part.data = std::make_shared<const SelectorData>(std::move(data));
+            part.data_current = true;
+        }
+        const auto volume_id = part.volume_id;
         auto found = std::find(session.changed_parts.begin(), session.changed_parts.end(), volume_id);
-        const bool changed = !(session.parts[i].selector->serialize() == (*session.before_data)[i]);
+        const bool changed = !(*part.data == *(*session.stroke_start_data)[i]);
         if (changed && found == session.changed_parts.end()) session.changed_parts.push_back(volume_id);
         else if (!changed && found != session.changed_parts.end()) session.changed_parts.erase(found);
     }
@@ -370,25 +390,31 @@ std::unique_ptr<Session> Sessions::prepare_begin(std::uint64_t id, std::uint64_t
     next->phase = Phase::Drawing;
     next->tool = tool;
     next->effective = false;
-    next->before_stroke.clear();
-    auto before_data = std::make_shared<std::vector<TriangleSelector::TriangleSplittingData>>();
+    auto start_data = std::make_shared<std::vector<std::shared_ptr<const SelectorData>>>();
+    start_data->reserve(current.parts.size());
     next->changed_parts.clear();
     for (const auto& part : current.parts) {
-        next->before_stroke.push_back(part.selector);
-        before_data->push_back(part.selector->serialize());
+        start_data->push_back(part.data);
     }
-    next->before_data = std::move(before_data);
+    next->stroke_start_data = std::move(start_data);
+    next->preview.reset();
     next->last_event.reset(); next->last_hit.reset();
     if (event) next->stroke_screen_x = event->pointer.x();
     if (tool == Tool::Gap) {
-        for (std::size_t i = 0; i < next->parts.size(); ++i) next->parts[i].selector = current.preview->selectors[i];
+        for (std::size_t i = 0; i < next->parts.size(); ++i) {
+            next->parts[i].selector = current.preview->selectors[i];
+            next->parts[i].data_current = false;
+        }
         next->phase = Phase::Finished;
         compare(*next, std::vector<bool>(next->parts.size(), true));
     } else if (tool == Tool::EraseAll) {
 #ifdef NEO_PAINTING_PROFILE
         Profile::Scope profile_selector(Profile::selector);
 #endif
-        for (auto& part : next->parts) part.selector = std::make_shared<NativeSelector>(*part.mesh);
+        for (auto& part : next->parts) {
+            part.selector->reset();
+            mark_changed(*next, part);
+        }
         next->phase = Phase::Finished;
         compare(*next, std::vector<bool>(next->parts.size(), true));
     } else sample(*next, settings, *event);
@@ -411,6 +437,7 @@ std::unique_ptr<Session> Sessions::prepare_finish(std::uint64_t id, std::uint64_
     const auto& current = require(id, revision, false);
     require_stroke(current, stroke);
     auto next = stage(current);
+    compare(*next, std::vector<bool>(next->parts.size(), true));
     next->phase = Phase::Finished;
     // Even a no-op remains explicitly pending, so a host cannot accidentally
     // treat an uncertain terminal response as a newly admitted stroke.
@@ -422,10 +449,38 @@ std::unique_ptr<Session> Sessions::prepare_cancel(std::uint64_t id, std::uint64_
     const auto& current = require(id, revision, false);
     require_stroke(current, stroke, true);
     auto next = stage(current);
-    for (std::size_t i = 0; i < next->parts.size(); ++i) next->parts[i].selector = next->before_stroke[i];
-    next->before_stroke.clear(); next->before_data.reset(); next->changed_parts.clear();
+    for (std::size_t i = 0; i < next->parts.size(); ++i) {
+        auto& part = next->parts[i];
+        const auto& start = (*next->stroke_start_data)[i];
+        // Cancellation is an explicit user operation, outside the sampling hot
+        // path. Inspect the working tree itself before restoring its contents.
+        if (!(part.selector->serialize() == *start)) {
+            part.selector->deserialize(*start, true, static_cast<EnforcerBlockerType>(max_state(next->channel)));
+            part.geometry_revision = next->revision;
+        }
+        part.data = start;
+        part.data_current = true;
+    }
+    next->stroke_start_data.reset(); next->changed_parts.clear();
     next->preview.reset(); next->last_event.reset(); next->last_hit.reset();
     next->phase = Phase::Idle; next->active_stroke_id = 0; next->effective = false;
+    return next;
+}
+
+std::unique_ptr<Session> Sessions::prepare_failed_cancel(std::uint64_t id, std::uint64_t revision)
+{
+    const auto& current = require(id, revision, false);
+    auto next = stage(current);
+    for (std::size_t i = 0; i < next->parts.size(); ++i) {
+        auto& part = next->parts[i];
+        const auto& start = current.stroke_start_data ? (*current.stroke_start_data)[i] : current.parts[i].data;
+        auto selector = std::make_shared<NativeSelector>(*part.mesh);
+        selector->deserialize(*start, true, static_cast<EnforcerBlockerType>(max_state(next->channel)));
+        part.selector = std::move(selector);
+        part.data = start;
+        part.data_current = true;
+    }
+    complete(*next);
     return next;
 }
 
@@ -480,7 +535,7 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
         }
         preview.facet_selection = std::move(selected);
         std::vector<bool> touched(work.parts.size(), false);
-        if (tool == Tool::Region || tool == Tool::SmartFill) apply_hit(work, settings, *hit, {}, touched);
+        if (tool == Tool::Region || tool == Tool::SmartFill) apply_hit(work, settings, *hit, {}, &touched);
     }
     for (auto& part : work.parts) preview.selectors.push_back(std::move(part.selector));
     next->preview = std::move(preview);
@@ -535,25 +590,15 @@ void Sessions::update_geometry_revisions(Session& candidate) const
         const auto found = std::find_if(m_session->parts.begin(), m_session->parts.end(),
             [&](const auto& old) { return old.volume_id == part.volume_id; });
         if (found == m_session->parts.end()) continue;
-        part.geometry_revision = found->geometry_revision;
-        if (part.mesh != found->mesh || (part.selector != found->selector && !(part.selector->serialize() == found->selector->serialize())))
+        if (part.mesh != found->mesh)
             part.geometry_revision = candidate.revision;
+        else if (part.selector != found->selector)
+            part.geometry_revision = found->data_current && *part.data == *found->data ? found->geometry_revision : candidate.revision;
     }
-}
-void Sessions::discard_pending() noexcept
-{
-    if (!m_session || m_session->phase == Phase::Idle) return;
-    ++m_session->revision;
-    for (std::size_t i = 0; i < m_session->parts.size(); ++i) {
-        if (m_session->parts[i].selector != m_session->before_stroke[i])
-            m_session->parts[i].geometry_revision = m_session->revision;
-        m_session->parts[i].selector = m_session->before_stroke[i];
-    }
-    complete(*m_session);
 }
 void Sessions::complete(Session& session) noexcept
 {
-    session.before_stroke.clear(); session.before_data.reset(); session.changed_parts.clear();
+    session.stroke_start_data.reset(); session.changed_parts.clear();
     session.preview.reset(); session.last_event.reset(); session.last_hit.reset();
     session.phase = Phase::Idle; session.active_stroke_id = 0; session.effective = false;
 }
@@ -566,6 +611,7 @@ std::unique_ptr<Session> Sessions::prepare_commit(std::uint64_t id, std::uint64_
     if (event && current.phase != Phase::Drawing) throw std::invalid_argument("finished stroke has no final sample");
     auto candidate = stage(current);
     if (event) sample(*candidate, *settings, *event);
+    compare(*candidate, std::vector<bool>(candidate->parts.size(), true));
     candidate->phase = Phase::Finished;
     update_geometry_revisions(*candidate);
     return candidate;

@@ -14,6 +14,7 @@ export function paintingMock(hooks: {
   let session: any = null;
   let before: number[] = [];
   let committed: number[] = [];
+  const affected = new Set<number>();
   const identity = [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
   const maxState = () => session.channel === 'mmu' ? 16 : session.channel === 'fuzzy' ? 1 : 2;
   const stateField = (channel: string): 'paintState' | 'supportState' | 'seamState' | 'fuzzyState' => {
@@ -45,8 +46,8 @@ export function paintingMock(hooks: {
       volumeTransform: identity, facetCounts: Array.from({ length: 17 }, (_, state) => +(state === session.states[i])),
       draftResourceId: `pd-${session.channel}-${session.id.slice(3)}-${part.generation}-${part.volumeId}` })) } });
   const receipt = () => ({ ok: true, version: 1, channel: session.channel, sessionId: session.id, revision: session.revision, strokeId: session.strokeId,
-    phase: session.phase, effective: session.states.some((state: number, i: number) => state !== before[i]),
-    changedPartIds: session.parts.filter((_: any, i: number) => session.states[i] !== before[i]).map((part: any) => part.volumeId),
+    phase: session.phase, effective: session.phase === 'drawing' ? affected.size > 0 : session.states.some((state: number, i: number) => state !== before[i]),
+    changedPartIds: session.parts.filter((_: any, i: number) => session.phase === 'drawing' ? affected.has(i) : session.states[i] !== before[i]).map((part: any) => part.volumeId),
     hit: null, candidateRevision: session.candidate ? session.revision : null });
   const validateSettings = (request: any) => {
     const settings = request.settings ?? {};
@@ -61,9 +62,9 @@ export function paintingMock(hooks: {
   const apply = (request: any) => {
     validateSettings(request);
     const state = request.settings?.erase || request.tool === 'eraseAll' ? 0 : request.settings?.state ?? 1;
-    if (session.states[0] !== state) { session.states[0] = state; session.parts[0].generation++; }
+    session.states[0] = state; session.parts[0].generation++; affected.add(0);
   };
-  const finish = () => { session.phase = 'idle'; session.strokeId = null; session.candidate = false; before = [...session.states]; };
+  const finish = () => { session.phase = 'idle'; session.strokeId = null; session.candidate = false; before = [...session.states]; affected.clear(); };
   const functions: Record<string, (request: any) => unknown> = {
     orc_painting_session_open(request) {
       stateField(request.channel);
@@ -87,7 +88,7 @@ export function paintingMock(hooks: {
     orc_painting_session_close(request) { require(request, true); session = null; return { ok: true, version: 1, channel: request.channel }; },
     orc_painting_preview(request) { require(request, true); validateTool(request.tool); validateSettings(request); if (request.tool === 'overhang') { if (request.settings.overhangAngle === undefined) throw new Error('missing overhang angle'); session.highlightRevision = request.settings.overhangAngle === null ? 0 : session.revision + 1; } else session.candidate = request.tool; session.revision++; return { ...receipt(), ...(request.tool === 'overhang' ? { candidateRevision: null } : {}) }; },
     orc_painting_stroke_begin(request) {
-      sync(); require(request, true); validateTool(request.tool); validateSettings(request); if (request.tool === 'overhang') throw new Error('overhang is preview-only'); before = [...session.states]; session.strokeId = `pst-${session.id.slice(3)}-${nextStroke++}`;
+      sync(); require(request, true); validateTool(request.tool); validateSettings(request); if (request.tool === 'overhang') throw new Error('overhang is preview-only'); before = [...session.states]; affected.clear(); session.strokeId = `pst-${session.id.slice(3)}-${nextStroke++}`;
       session.candidate = false; session.phase = ['gap', 'eraseAll'].includes(request.tool) ? 'finished' : 'drawing'; apply(request); session.revision++; return receipt();
     },
     orc_painting_stroke_sample(request) { require(request); if (session.phase !== 'drawing' || request.strokeId !== session.strokeId) throw new Error('painting stroke stale'); apply(request); session.revision++; return receipt(); },
@@ -97,13 +98,14 @@ export function paintingMock(hooks: {
       require(request); if (session.phase === 'idle' || request.strokeId !== session.strokeId) throw new Error('painting stroke stale');
       if (request.event) apply(request);
       const effective = session.states.some((s: number, i: number) => s !== before[i]);
+      const changedPartIds = session.parts.filter((_: any, i: number) => session.states[i] !== before[i]).map((part: any) => part.volumeId);
       if (effective) hooks.commit(() => {
         const object = hooks.objects().find(o => o.id === session.objectId)!;
         object.volumes.forEach((v, i) => { v[stateField(session.channel)] = session.states[i]; });
       }, session.channel === 'mmu' ? 'Paint' : session.channel === 'support' ? 'Paint Supports' : session.channel === 'seam' ? 'Paint Seam' : 'Paint Fuzzy Skin');
       if (effective) session.parts.forEach((part: any, i: number) => { if (session.states[i] !== before[i]) part.timestamp++; });
       committed = [...session.states]; session.revision++; finish();
-      return { ...receipt(), committed: effective, affectedPlateIds: [], history: hooks.history() };
+      return { ...receipt(), changedPartIds, committed: effective, affectedPlateIds: [], history: hooks.history() };
     },
     orc_painting_geometry(request) {
       require(request); const parts = metadata().session.parts.map((p: any) => ({ volumeId: p.volumeId, resourceId: p.draftResourceId }));

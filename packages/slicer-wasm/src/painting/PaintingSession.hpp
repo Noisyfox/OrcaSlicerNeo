@@ -20,6 +20,7 @@ FacetsAnnotation& annotation(ModelVolume& volume, Channel channel);
 const FacetsAnnotation& annotation(const ModelVolume& volume, Channel channel);
 void load_annotation(const ModelVolume& volume, Channel channel, TriangleSelector& selector);
 const char* history_name(Channel channel);
+using SelectorData = TriangleSelector::TriangleSplittingData;
 
 struct PartDraft {
     std::size_t volume_id;
@@ -31,6 +32,9 @@ struct PartDraft {
     std::uint64_t annotation_timestamp;
     std::shared_ptr<const AABBMesh> acceleration;
     std::uint64_t geometry_revision = 1;
+    // Content at the last stroke boundary. Samples only invalidate this cache.
+    std::shared_ptr<const SelectorData> data;
+    bool data_current = true;
     std::array<std::size_t, 17> facet_counts() const;
 };
 
@@ -92,8 +96,8 @@ struct Session {
     std::uint64_t active_stroke_id = 0;
     Phase phase = Phase::Idle;
     Tool tool = Tool::Circle;
-    std::vector<std::shared_ptr<NativeSelector>> before_stroke;
-    std::shared_ptr<const std::vector<TriangleSelector::TriangleSplittingData>> before_data;
+    // Explicit stroke cancellation and net-change comparison only.
+    std::shared_ptr<const std::vector<std::shared_ptr<const SelectorData>>> stroke_start_data;
     double stroke_screen_x = 0.;
     std::optional<PointerEvent> last_event;
     std::optional<Hit> last_hit;
@@ -118,6 +122,9 @@ public:
         const Settings& settings, const PointerEvent& event);
     std::unique_ptr<Session> prepare_finish(std::uint64_t id, std::uint64_t revision, std::uint64_t stroke);
     std::unique_ptr<Session> prepare_cancel(std::uint64_t id, std::uint64_t revision, std::uint64_t stroke);
+    // Internal-exception cancellation uses existing boundary data and never
+    // inspects a possibly interrupted working tree. No extra backup is retained.
+    std::unique_ptr<Session> prepare_failed_cancel(std::uint64_t id, std::uint64_t revision);
     std::unique_ptr<Session> prepare_preview(std::uint64_t id, std::uint64_t revision, Tool tool,
         const Settings& settings, const std::optional<PointerEvent>& event);
     // Reject stale topology/annotation/transforms without ever dereferencing
@@ -129,14 +136,14 @@ public:
         const std::optional<Settings>& settings, const std::optional<PointerEvent>& event);
     std::unique_ptr<Session> prepare_reconcile(const Model& model);
     static void complete(Session& session) noexcept;
-    void discard_pending() noexcept;
     void reset() noexcept { m_session.reset(); }
     const Session* current() const noexcept { return m_session.get(); }
 private:
     static std::unique_ptr<Session> stage(const Session& session);
     void sample(Session& session, const Settings& settings, const PointerEvent& event);
-    static void apply_hit(Session& session, const Settings& settings, const Hit& hit, const std::optional<Hit>& previous, std::vector<bool>& touched);
+    static void apply_hit(Session& session, const Settings& settings, const Hit& hit, const std::optional<Hit>& previous, std::vector<bool>* preview_touched = nullptr);
     static void compare(Session& session, const std::vector<bool>& touched);
+    static void mark_changed(Session& session, PartDraft& part);
     static void bind(Session& session, const Model& model, std::size_t object_id, std::size_t instance_id);
     std::uint64_t m_next_id = 1; // Never reset when a project is replaced.
     std::unique_ptr<Session> m_session;

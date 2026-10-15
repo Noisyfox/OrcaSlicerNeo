@@ -6,6 +6,7 @@ import type {
 
 export type PaintTool = Exclude<PaintingTool, 'eraseAll'>;
 export type PaintingPhase = 'closed' | 'opening' | 'idle' | 'drawing' | 'ending' | 'cancelling' | 'closing' | 'error';
+class CancelledStrokeError extends Error {}
 /** One complete visual receipt. Interaction metadata may advance while this
  * session, resource manifest and palette remain together on screen. */
 export interface PaintingDisplay extends Extract<PaintingGeometryResult, { ok: true }> {
@@ -104,13 +105,21 @@ export class PaintingController {
     return { ...this.identity(), strokeId };
   }
   private receipt(result: PaintingDraftResult, generation?: number): Exclude<PaintingDraftResult, { error: string }> {
-    if ('error' in result) throw new Error(result.error);
+    if ('error' in result) throw this.commandFailure(result);
     const session = this.state.session;
     if (!session || result.channel !== session.channel || result.sessionId !== session.id || result.revision < session.revision) throw new Error('Stale painting response');
     this.update({ session: { ...session, revision: result.revision, strokeId: result.strokeId, phase: result.phase } });
     if (generation !== undefined && generation === this.previewGeneration) this.candidateOwner = generation;
     this.displayDirty = true;
     return result;
+  }
+  private commandFailure(result: Extract<PaintingDraftResult, { error: string }>): Error {
+    const cancelled = result.cancellation, session = this.state.session;
+    if (cancelled && session && cancelled.channel === session.channel && cancelled.sessionId === session.id && cancelled.revision > session.revision) {
+      this.update({ session: { ...session, revision: cancelled.revision, phase: 'idle', strokeId: null } });
+      return new CancelledStrokeError(result.error);
+    }
+    return new Error(result.error);
   }
   private async exclusive<T>(operation: () => Promise<T>): Promise<T> {
     // Callers reserve phase synchronously before waiting. Ordinary moves never
@@ -288,7 +297,7 @@ export class PaintingController {
           this.update({ phase: 'idle' }); return 'camera';
         }
         await this.drainTerminal(); return 'paint';
-      } catch (error) { await this.recover(error); return 'ignored'; }
+      } catch (error) { await this.stopAfterFailure(error); return 'ignored'; }
     });
   }
   move(event: PaintingPointerEvent, erase = false): boolean {
@@ -298,7 +307,7 @@ export class PaintingController {
     const generation = this.previewGeneration;
     void this.exclusive(async () => {
       try { this.receipt(await this.ports.api.samplePaintingStroke({ ...this.stroke(), ...sample }), generation); await this.drainTerminal(); }
-      catch (error) { await this.recover(error); }
+      catch (error) { await this.stopAfterFailure(error); }
     });
     return true;
   }
@@ -315,7 +324,7 @@ export class PaintingController {
   }
   private startTerminal(): void {
     if (this.lane) return;
-    void this.exclusive(async () => { try { await this.drainTerminal(); } catch (error) { await this.recover(error); } });
+    void this.exclusive(async () => { try { await this.drainTerminal(); } catch (error) { await this.stopAfterFailure(error); } });
   }
   private async drainTerminal(): Promise<void> {
     const terminal = this.terminal;
@@ -325,12 +334,7 @@ export class PaintingController {
     if (terminal.kind === 'cancel') this.receipt(await this.ports.api.cancelPaintingStroke(this.stroke()));
     else {
       const result = await this.ports.api.commitPaintingStroke({ ...this.stroke(), ...terminal.sample });
-      if ('error' in result) {
-        if (result.recovered && result.channel === this.state.session?.channel && this.state.session?.id === result.sessionId) {
-          this.update({ session: { ...this.state.session, phase: 'idle', strokeId: null, revision: result.revision } });
-        }
-        throw new Error(result.error);
-      }
+      if ('error' in result) throw this.commandFailure(result);
       if (result.committed && this.state.session?.channel === 'mmu') this.paintedObjectIds.add(this.state.session.objectId);
       this.receipt(result, terminal.generation); this.ports.history(result.history);
       if (result.committed) this.ports.committed(result.affectedPlateIds);
@@ -338,16 +342,13 @@ export class PaintingController {
     this.terminal = null; this.terminalExecuting = false; this.update({ phase: 'idle' });
     this.previewDirty = this.previewReady();
   }
-  private async recover(error: unknown): Promise<void> {
+  private async stopAfterFailure(error: unknown): Promise<void> {
     this.fail(error); this.terminal = null; this.terminalExecuting = false;
-    try {
-      const latest = await this.ports.api.readPaintingSession({ ...this.identity(), latest: true });
-      if ('error' in latest) throw new Error(latest.error);
-      this.update({ session: latest.session });
-      if (latest.session.strokeId) this.receipt(await this.ports.api.cancelPaintingStroke(this.stroke()));
-      this.update({ phase: this.projectOperations > 0 ? 'opening' : 'idle', epoch: this.state.epoch + 1 });
+    this.invalidatePreview();
+    if (error instanceof CancelledStrokeError) {
       this.displayDirty = true;
-    } catch (recoveryError) { this.fail(recoveryError); this.update({ phase: 'error' }); }
+      this.update({ phase: 'idle', display: this.withoutCandidates(), epoch: this.state.epoch + 1 });
+    } else this.update({ phase: 'error', display: this.withoutCandidates() });
   }
   async apply(tool: 'gap' | 'eraseAll'): Promise<boolean> {
     if (this.state.phase !== 'idle') return false;
@@ -365,7 +366,7 @@ export class PaintingController {
         this.receipt(await this.ports.api.beginPaintingStroke({ ...this.identity(), tool, settings, candidateRevision }), generation);
         this.terminal ??= { kind: 'commit', generation }; this.update({ phase: this.terminal.kind === 'cancel' ? 'cancelling' : 'ending' });
         await this.drainTerminal(); return true;
-      } catch (error) { await this.recover(error); return false; }
+      } catch (error) { await this.stopAfterFailure(error); return false; }
     });
   }
   /** History uses the same lane as display and input, and refreshes native
@@ -384,9 +385,11 @@ export class PaintingController {
     if (previewInput(this.state.tool)) this.advancePreview();
     this.update({ phase: 'opening' });
     try { return await this.exclusive(async () => {
+      let operationCompleted = false;
       try {
         if (!this.active) return operation();
         const result = await operation();
+        operationCompleted = true;
         const target = this.state.session;
         if (target && !this.ports.targetAvailable(target.objectId, target.instanceId)) {
           await this.closeOwned();
@@ -397,7 +400,14 @@ export class PaintingController {
         this.update({ session: latest.session, epoch: this.state.epoch + 1 });
         this.highlightDirty = this.state.channel === 'support';
         this.displayDirty = true; this.previewDirty = this.previewReady(); return result;
-      } catch (error) { await this.recover(error); throw error; }
+      } catch (error) {
+        // Ordinary project commands own their failure contract and run between
+        // strokes. Report their failure without cancelling a painting draft.
+        // A failed native refresh cannot establish a usable painting state.
+        if (operationCompleted) await this.stopAfterFailure(error);
+        else this.fail(error);
+        throw error;
+      }
     }); } finally {
       this.projectOperations--;
       if (this.state.phase === 'opening' && this.projectOperations === 0) this.update({ phase: 'idle' });
@@ -483,7 +493,7 @@ export class PaintingController {
             }
           }
           await this.drainTerminal();
-        } catch (error) { this.fail(error); if (this.terminal) await this.drainTerminal().catch((e) => this.recover(e)); }
+        } catch (error) { this.fail(error); if (this.terminal) await this.drainTerminal().catch((e) => this.stopAfterFailure(e)); }
       });
     });
   }

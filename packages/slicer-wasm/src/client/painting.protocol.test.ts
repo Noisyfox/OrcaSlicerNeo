@@ -2,9 +2,22 @@ import { MOCK_PROFILE_ACTIVATION } from './testing/mock-module';
 import { describe, expect, it, vi } from 'vitest';
 import { createClient } from './client';
 import { createMockModule } from './testing/mock-module';
-import { decodePaintingGeometry } from './paintingClient';
+import { createPaintingApi, decodePaintingGeometry } from './paintingClient';
 import { createWorkerClient, startWorker, type WorkerMessage, type WorkerTransport } from './worker';
 const request = { version: 1 as const, channel: 'mmu' as const, sessionId: 'ps-1', revision: 1 };
+it.each(['valid', 'channel', 'session', 'revision', 'unsafe'] as const)('validates confirmed internal-error cancellation: %s', async field => {
+  const m = createMockModule();
+  const cancellation = { channel: field === 'channel' ? 'seam' : 'mmu', sessionId: field === 'session' ? 'ps-2' : 'ps-1',
+    revision: field === 'unsafe' ? Number.MAX_SAFE_INTEGER + 1 : field === 'revision' ? 3 : 2 };
+  m.ccall = (() => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ error: 'internal error', cancellation }) + '\0');
+    const ptr = m._malloc(bytes.length); m.HEAPU8.set(bytes, ptr); return ptr;
+  }) as typeof m.ccall;
+  const api = createPaintingApi(async () => m, () => { throw new Error('not a history reply'); });
+  const result = api.samplePaintingStroke({ ...request, strokeId: 'pst-1-1', settings: {}, event: {} as any });
+  if (field === 'valid') await expect(result).resolves.toEqual({ error: 'internal error', cancellation });
+  else await expect(result).rejects.toThrow('invalid painting cancellation receipt');
+});
 function geometry() {
   const m = createMockModule();
   const a = m._malloc(72), b = m._malloc(24);
