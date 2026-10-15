@@ -20,13 +20,20 @@ export function paintingModelColor(style: string): THREE.Color {
 
 export function paintingSurfaceMaterial(style: string, region: boolean, overhang: boolean, overlay: boolean): THREE.MeshStandardMaterial {
   const model = resolvePrepareMaterial({ baseColour: style });
+  const color = paintingModelColor(region && !overhang ? '#ffffff' : style);
+  if (overhang) {
+    // Orca mm_gouraud.fs mixes the encoded surface RGB equally with
+    // LightRed (0.78, 0, 0), then renders it opaque under the model lighting.
+    const rgb = Number.parseInt(model.colour.slice(1), 16);
+    color.setRGB(((rgb >> 16) / 255 + 0.78) * 0.5, ((rgb >> 8) & 255) / 510, (rgb & 255) / 510, THREE.SRGBColorSpace);
+  }
   return new THREE.MeshStandardMaterial({
-    color: paintingModelColor(overhang ? '#ffb347' : region ? '#ffffff' : style),
+    color,
     side: THREE.DoubleSide,
     // Match Orca MMU: derive face normals from position derivatives on the GPU.
     flatShading: true,
     transparent: region || model.transparent,
-    opacity: overhang ? 0.25 : region ? 0.35 : model.opacity,
+    opacity: overhang ? 1 : region ? 0.35 : model.opacity,
     depthWrite: !overlay && model.depthWrite,
     polygonOffset: overlay,
     polygonOffsetFactor: overhang ? -1 : -2,

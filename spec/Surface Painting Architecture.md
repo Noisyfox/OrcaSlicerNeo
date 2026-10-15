@@ -227,6 +227,10 @@ reconciliation, and grants no Apply ownership. Reuse unchanged highlight
 resources across hover; invalidate their identity after threshold, tree or
 transform changes while retaining unchanged local-space draft buffers. The
 dedicated highlight wire request requires an explicit angle or `null`.
+Expose the highlight threshold through a synchronized 0–90 degree slider and
+numeric input, retaining the independent highlight toggle. Match Orca's
+overhang tint by mixing the facet state's encoded RGB equally with
+`LightRed (0.78, 0, 0)` before linear colour conversion, at full opacity.
 
 Each adapter has its own dedicated toolbar entry, following Orca’s independent
 support, seam, fuzzy-skin and MMU gizmo entries. Do not hide the adapters behind

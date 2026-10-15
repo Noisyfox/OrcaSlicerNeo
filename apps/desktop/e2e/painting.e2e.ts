@@ -1019,6 +1019,16 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect((await read())!.channel).toBe('support');await expect(supportButton).toHaveAttribute('aria-pressed','true');
     const supportCounts=()=>page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
     const supportEvidence:Record<string,unknown>={};
+    const overhangSlider = page.getByRole('slider', { name: 'Overhang angle (degrees)', exact: true });
+    const overhangInput = page.getByRole('spinbutton', { name: 'Overhang angle (degrees)', exact: true });
+    await overhangSlider.focus(); await overhangSlider.press('End'); await expect(overhangInput).toHaveValue('90');
+    await overhangInput.fill('37.25'); await expect(overhangSlider).toHaveAttribute('aria-valuenow', '37.25');
+    const track = await page.locator('[data-slot="slider-track"]').boundingBox();
+    await page.mouse.move(track!.x + track!.width / 2, track!.y + track!.height / 2);
+    await page.mouse.down(); await page.mouse.move(track!.x + track!.width * 0.75, track!.y + track!.height / 2, { steps: 5 }); await page.mouse.up();
+    expect(Number(await overhangInput.inputValue())).toBeGreaterThan(60);
+    expect(Number(await overhangInput.inputValue())).toBeLessThan(75);
+    await overhangSlider.press('Home'); await expect(overhangInput).toHaveValue('0');
     const beforeHighlight=await history();
     await page.getByRole('checkbox',{name:'Highlight overhangs',exact:true}).check();
     await expect.poll(async()=> (await read())!.resources.filter(r=>r.kind==='overhang').length).toBeGreaterThan(0);
@@ -1029,8 +1039,8 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect((await read())!.resources.filter(r=>r.kind==='overhang')).toEqual(initialHighlight!.resources.filter(r=>r.kind==='overhang'));
     await startFrames();await settleFrames();const supportOverlayFrames=await stopFrames();
     await page.screenshot({path:test.info().outputPath('support-smart-fill-overhang-editor.png')});
-    expect(supportOverlayFrames.some(f=>f.draws.some(d=>d.candidate?.color==='ffb347')&&f.draws.some(d=>d.candidate?.color==='ffffff'))).toBe(true);
-    for(const frame of supportOverlayFrames){const overlays=frame.draws.filter(d=>d.candidate);expect(overlays.every(d=>d.candidate!.depthWrite===false)).toBe(true);const highlight=overlays.find(d=>d.candidate!.color==='ffb347'),candidate=overlays.find(d=>d.candidate!.color==='ffffff');if(highlight&&candidate){expect(highlight.renderOrder).toBeLessThan(candidate.renderOrder);expect(highlight.candidate!.polygonOffsetFactor).toBeGreaterThan(candidate.candidate!.polygonOffsetFactor);}}
+    expect(supportOverlayFrames.some(f=>f.draws.some(d=>d.candidate?.color==='c96666'&&d.candidate.opacity===1)&&f.draws.some(d=>d.candidate?.color==='ffffff'))).toBe(true);
+    for(const frame of supportOverlayFrames){const overlays=frame.draws.filter(d=>d.candidate);expect(overlays.every(d=>d.candidate!.depthWrite===false)).toBe(true);const highlight=overlays.find(d=>d.candidate!.color==='c96666'),candidate=overlays.find(d=>d.candidate!.color==='ffffff');if(highlight&&candidate){expect(highlight.renderOrder).toBeLessThan(candidate.renderOrder);expect(highlight.candidate!.polygonOffsetFactor).toBeGreaterThan(candidate.candidate!.polygonOffsetFactor);}}
     await page.mouse.click(supportCenter.x,supportCenter.y);await idle();expect((await supportCounts())[0].facetCounts[1]).toBeGreaterThan(0);
     expect((await read())!.resources.some(r=>r.kind==='overhang')).toBe(true);
     await page.getByTestId('painting-tool-sphere').click();await page.getByRole('radio',{name:'Block',exact:true}).click();
@@ -1052,7 +1062,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await supportButton.click();await expect(page.getByTestId('painting-panel')).toHaveCount(0);
     await startFrames();await settleFrames();const ordinaryAfterSupport=await stopFrames();await completeFrames('support-close-ordinary-MMU',ordinaryAfterSupport);
     expect(ordinaryAfterSupport.every(frame=>frame.painting.length===0&&frame.ordinary.length>0)).toBe(true);
-    expect(ordinaryAfterSupport.some(frame=>frame.colors.includes('80ff80')||frame.colors.includes('ff8080')||frame.colors.includes('ffb347'))).toBe(false);
+    expect(ordinaryAfterSupport.some(frame=>frame.colors.includes('80ff80')||frame.colors.includes('ff8080')||frame.colors.includes('c96666'))).toBe(false);
     const supportPath=test.info().outputPath('support-editor-evidence.json');writeFileSync(supportPath,JSON.stringify(supportEvidence,null,2));await test.info().attach('support-editor-evidence',{path:supportPath,contentType:'application/json'});
     await paintButton.click(); await idle();
     const hiddenSession = (await read())!.sessionId;

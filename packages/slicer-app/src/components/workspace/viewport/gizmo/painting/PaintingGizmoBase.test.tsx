@@ -56,6 +56,20 @@ it('keeps candidate overlay opacity independent of translucent filament alpha', 
   expect(material.flatShading).toBe(true);
   material.dispose();
 });
+it.each([
+  ['#cccccc', [0.79, 0.4, 0.4]],
+  ['#80ff80', [(128 / 255 + 0.78) / 2, 0.5, 64 / 255]],
+  ['#ff8080', [0.89, 64 / 255, 64 / 255]],
+] as const)('tints overhangs over %s with Orca LightRed in encoded RGB at full opacity', (style, expected) => {
+  const material = paintingSurfaceMaterial(style, true, true, true);
+  const linear = (channel: number) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  expected.forEach((channel, i) => expect(material.color.toArray()[i]).toBeCloseTo(linear(channel), 6));
+  expect(material.opacity).toBe(1);
+  expect(material.depthWrite).toBe(false);
+  expect(material.depthTest).toBe(true);
+  expect(material.polygonOffsetFactor).toBe(-1);
+  material.dispose();
+});
 beforeEach(() => {
   resolveCursorColor.mockClear();
   vi.stubGlobal('__ORCA_E2E__', false); vi.stubGlobal('PointerEvent', MouseEvent);

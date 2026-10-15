@@ -36,6 +36,33 @@ it('keeps live brush/action controls available while unfinished and retains expl
   await act(async()=>close.click());expect(mocked.controller.close).toHaveBeenCalledOnce();
 });
 
+it('shares the 0–90 degree threshold between the slider and precise numeric input', async () => {
+  mocked.state!.settings = { ...mocked.state!.settings, overhangAngle: 45 };
+  await render();
+  const slider = container.querySelector<HTMLInputElement>('input[type="range"]')!;
+  const input = container.querySelector<HTMLInputElement>('input[type="number"][aria-label="Overhang angle (degrees)"]')!;
+  expect(slider.value).toBe('45');
+  expect(slider.getAttribute('aria-label')).toBe('Overhang angle (degrees)');
+  expect(input.value).toBe('45');
+  for (const [key, angle] of [['Home', 0], ['End', 90]] as const) {
+    await act(async () => {
+      slider.focus();
+      slider.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+    expect(mocked.controller.setSettings).toHaveBeenLastCalledWith({ overhangAngle: angle });
+  }
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '37.25');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(mocked.controller.setSettings).toHaveBeenLastCalledWith({ overhangAngle: 37.25 });
+  mocked.state!.settings = { ...mocked.state!.settings, overhangAngle: 37.25 };
+  await render();
+  expect(slider.value).toBe('37.25');
+  expect(input.value).toBe('37.25');
+  expect(mocked.controller.setHighlight).not.toHaveBeenCalled();
+});
+
 it('offers object-wide Apply only for Gap and no generation/configuration mutation',async()=>{
   mocked.state!.tool='gap';await render();
   expect(container.textContent).toContain('lowest neighboring native state');

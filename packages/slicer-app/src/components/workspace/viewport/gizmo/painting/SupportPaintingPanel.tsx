@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Slider } from '@/components/ui/slider';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { usePaintingController, usePaintingState } from './PaintingProvider';
 
@@ -29,7 +30,10 @@ export function SupportPaintingPanel() {
       <Button variant="secondary" disabled={!idle} onClick={() => void controller.apply('gap')}>Apply gaps</Button>
     </>}
     <Label className="flex items-center gap-2"><Checkbox disabled={!idle} checked={!!state.highlightEnabled} onCheckedChange={(enabled) => controller.setHighlight(enabled)} />Highlight overhangs</Label>
-    <Label className="flex items-center justify-between gap-2">Overhang angle (degrees)<Input className="w-24" type="number" aria-label="Overhang angle (degrees)" value={settings.overhangAngle ?? 0} min={0} max={90} onChange={(event) => { if (event.target.value !== '') controller.setSettings({ overhangAngle: Number(event.target.value) }); }} /></Label>
+    <div className="flex items-center gap-3">
+      <Slider className="min-w-0 flex-1" aria-label="Overhang angle (degrees)" thumbAriaLabels={['Overhang angle (degrees)']} value={[settings.overhangAngle ?? 0]} min={0} max={90} step={0.01} onValueChange={(value) => controller.setSettings({ overhangAngle: Array.isArray(value) ? value[0] : value })} />
+      <Input className="w-24 shrink-0" type="number" aria-label="Overhang angle (degrees)" value={settings.overhangAngle ?? 0} min={0} max={90} step={0.01} onChange={(event) => { if (event.target.value !== '') controller.setSettings({ overhangAngle: Number(event.target.value) }); }} />
+    </div>
     <Label className="flex items-center gap-2"><Checkbox disabled={state.tool === 'gap'} checked={settings.restrictToOverhangs} onCheckedChange={(restricted) => controller.setSettings({ restrictToOverhangs: restricted })} />Restrict to overhangs</Label>
     <p className="text-xs text-muted-foreground">Zero disables restriction and highlights all eligible surfaces. Erase restores Auto/Default. Painting does not enable support generation; the existing support settings apply.</p>
     <Button variant="secondary" disabled={!idle} onClick={() => void controller.apply('eraseAll')}>Erase all</Button>
