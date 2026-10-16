@@ -1,6 +1,7 @@
 # Project and Scoped Configuration
 
-**Status:** Final user experience; delivered in the shared Electron and Web application.
+**Status:** Delivered in the shared Electron and Web application. The Objects-mode
+indexed extension in section 3.1 is specified and pending implementation.
 **Last updated:** 2026-10-16
 
 This specification records the final behavior visible to users. Project-wide and
@@ -75,7 +76,9 @@ keyboard access and keeps the selected choice visible on resize. A shared
 label gutter displays Orca's nozzle glyph only for native per-selection Print
 fields; shared fields have no glyph. This presentation follows
 [Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md)
-and does not add cross-extruder copy/sync commands or change Scoped/Plate views.
+and does not add cross-extruder copy/sync commands. The pending Objects-mode
+extension applies the same presentation to object/part/modifier targets;
+dedicated Plate views retain their current presentation.
 
 - **Project** edits and displays project-wide values, regardless of the current
   selection. Its value path is `Preset → Project`.
@@ -205,8 +208,9 @@ without partial changes, and all
 other elements remain unchanged. Element values outside native bounds are
 rejected; whole-option numeric edits retain their existing clamping behavior.
 These operations use the same Project-owned Print preset and enclosing history
-transaction as ordinary scoped edits. They currently accept one Project target;
-Object, Part and Plate element editing remains deferred. Project mode uses the
+transaction as ordinary scoped edits. The delivered element commands accept
+one Project target; section 3.1 specifies their pending Object/Part extension.
+Plate element editing remains deferred. Project mode uses the
 loaded Print snapshot's nozzle choices and native mappings for values, Source
 and Effective tooltips, indexed edits/resets, search and ownership highlights.
 Ordinary Print fields have no extra nullable checkbox or synthetic `Not set`
@@ -233,13 +237,106 @@ index and revision. Field-local feedback cannot migrate to another binding.
 
 Print snapshot reads and element commands use the existing project command FIFO,
 history transaction and receipt publication. Refreshes reject superseded reads;
-the interface adds no preset draft or history owner. Objects and Plates keep
-their existing scoped value paths and do not adopt the Project nozzle binding.
+the interface adds no preset draft or history owner. Objects retain their own
+scoped value path and will use the target-specific projection in section 3.1;
+they never adopt a fabricated Project preset owner. Plates keep their current
+whole-option path.
 The complete selection behavior is owned by
 [Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md)
-and is implemented. Its nozzle choices and bindings follow the actual
+and is delivered for Printer, Filament and Project. Scoped extension delivery
+is gated separately in its section 10.1. Nozzle choices and bindings follow the actual
 project flow context. Independent Printer-editor flow choices only change that
 editor's parameter view and do not change Project Print's flow context.
+
+### 3.1 Pending Object/Part indexed contract
+
+Objects-mode editing extends the existing native boundary without another
+history root, Print draft or persistent sparse registry. Objects/instances still
+resolve to object configuration; parts/modifiers still resolve to volume
+configuration. Existing homogeneous multi-object/instance and sibling-volume
+selection rules, including the one-instance constraint, remain unchanged.
+Plate, routing, topology and assignment capabilities are not added.
+
+The new `getScopedConfigEditor({version: 1, targets})` read accepts a non-empty,
+unique Object or Part target set using existing stable IDs. Its native ABI is
+`orc_get_scoped_config_editor(request_json)`; application callers use runtime,
+with direct ABI access confined to the typed client. The read resolves every
+requested owner before returning one revision-consistent snapshot:
+
+- One `revision` and one `editorSelection` supply the actual project-flow-driven
+  choices and native shared/per-selection/unavailable bindings. All choices'
+  indices come from native mapping, not target order or JavaScript calculations.
+- `targets` echoes each requested scope/ID with its own `sourceValues`,
+  `effectiveValues`, typed `editorVectors` and supported `localKeys`. It has no
+  preset canonical name. Shared scalar ownership comes from native local keys;
+  vector ownership uses the existing `overrideValues` shape with Scoped nil
+  rules below. Values are not duplicated per nozzle choice.
+- Per-target native `sourceScopes` metadata identifies the inherited origin of
+  shared values and individual vector slots. It distinguishes preset, Project
+  and Object inheritance without parsing serialized CSV/nil values in the UI.
+  Effective origin is the local target when owned, otherwise that inherited
+  origin. Per-target Source values must not be replaced with one arbitrary
+  member's parent when selected targets have differing inheritance.
+
+Object Source is the effective visible Project Print configuration. Part or
+modifier Source additionally composes its own owning Object's non-nil local
+slots. Effective then overlays only that target's local non-nil slots. The
+existing object/part presentation excludes Plate inheritance; this does not
+change the slicer's existing hierarchy. Multi-selection combines the per-target
+typed results using existing value/source mixed rules; local field highlights
+and per-nozzle dirty markers are unions of the selected owners' local entries,
+never of inherited Project/Object dirtiness. Whole-target dirty and Reset All
+scan supported local ownership over every selected target, page and nozzle.
+
+The canonical `mutateNativeScopedConfig` request retains `set-element` with one
+key/type/index/typed value, and `reset-fields` with unique indexed/shared field
+targets. Its element-command target union is extended from one Project target
+to homogeneous Object or Part target sets; Plate and mixed Project/scoped
+element batches are rejected. Every explicit target ID, capability, field,
+native index/type/value and the shared `expectedRevision` is validated against
+temporary candidates before any target, history or receipt publication changes.
+An invalid/stale target anywhere rejects the complete batch. The same command
+applies to all captured selected owners as one undoable history operation.
+Existing whole-option `set`/`reset` and native reset-all behavior remain available;
+the intermediate UI after increment A continues using them.
+
+Scoped nullable vectors are the owners' native `ModelConfig` values. Absent/nil
+slots inherit and project as `null` in `overrideValues`; a non-nil local value
+projects as `{value}` even when it equals Source. A scoped typed null is an
+inherit/reset request where native nullable storage supports it, not an owned
+`{value: null}` as in Project Print. Resetting an indexed field writes nil,
+erasing the key when every slot inherits; resetting a shared field erases its
+local key. Field/category reset affects only the current mapped element plus
+shared fields on every selected owner. Other indices, parents and unselected
+owners remain unchanged. Reset All clears supported settings of selected owners
+only, retaining the existing native capability/reset exclusions.
+
+Native legacy non-nil singleton vectors are already local across all variants.
+Before an element edit/reset, native normalization preserves that ownership
+across the valid variant range. An absent/all-nil singleton does not own those
+slots. Other short sparse vectors extend with nil, not parent values or a
+bounded Source-value fallback. Parent changes after editing/reset must still
+reach every inherited slot. The ordinary UI adds no Null/Not set control;
+blank/invalid numeric input cannot mutate inheritance or store nil.
+
+Scoped uses the same compact strip, glyph gutter, active-page orange markers,
+keyboard/overflow rules and project-effective diameter display as Project.
+Its selection is independent of Project/Printer/Filament, retained across valid
+target/category/mode changes and ordinary/history refresh by semantic identity,
+with native first-choice fallback and no per-target cache. New/opened/reset
+projects and explicit Process preset entry start at the first choice. Missing
+individual mappings remain read-only and excluded from category reset. Loaded
+nozzle navigation makes no native read or mutation. Target navigation is
+immediate; reads may load the newly selected owners, while stale results cannot
+enable old-target fields or restore an old view. Writes retain captured target
+IDs, revision, key and index through the existing FIFO/history/receipt path.
+
+Delivery proceeds through the two independently accepted increments in
+[Extruder Switch section 10.1](Extruder%20Switch%20and%20Variant%20Editing.md#101-objects-mode-scoped-extension).
+Increment A must prove native sparse inheritance, source-equivalent ownership,
+singleton compatibility, atomic rollback/history, actual slicing and 3MF
+export/reopen before UI integration begins. No Object/Part element feature is
+claimed delivered by this specification-only update.
 
 The initial validation behavior is intentionally limited:
 
