@@ -68,8 +68,8 @@ describe('worker protocol', () => {
       .resolves.toMatchObject({ ok: true });
     const edited = await workerClient.getPrintConfigEditor(); if (!edited.ok) throw new Error(edited.error);
     expect(edited.editorVectors.small_perimeter_speed.effectiveValues[2]).toEqual({ value: 42, percent: true });
-    await expect(workerClient.mutateNativeScopedConfig({ version: 1, operation: 'reset-elements', targets: [{ scope: 'project' }],
-      keys: ['small_perimeter_speed'], index: 2, expectedRevision: edited.revision })).resolves.toMatchObject({ ok: true });
+    await expect(workerClient.mutateNativeScopedConfig({ version: 1, operation: 'reset-fields', targets: [{ scope: 'project' }],
+      fields: [{key: 'small_perimeter_speed', kind: 'indexed', index: 2}], expectedRevision: edited.revision })).resolves.toMatchObject({ ok: true });
   });
 
   it('transports setup operations through the existing typed Worker client', async () => {

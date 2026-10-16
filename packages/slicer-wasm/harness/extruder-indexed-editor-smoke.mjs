@@ -105,6 +105,16 @@ assert.equal(inactive.editor_selection.choices.length, 5, 'missing fields do not
 // Dispose test-only inactive drafts so the existing history probes stay independent.
 must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext,
   kind: 'printer', canonical_name: inactiveName, action: 'reset-preset', expected_revision: inactive.revision })]));
+for (const index of [2,3]) {
+  const result = must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext,
+    kind: 'printer', canonical_name: inactiveName, action: 'set-element', key: 'nozzle_diameter', scalar_type: 'float',
+    index, value: 0.6, expected_revision: inactiveRead().revision })]));
+  assert.equal(result.canonical_name, inactiveName, 'inactive direct element edits retain their own source');
+  assert.equal(result.profile_snapshot.printer.name, printer, 'inactive diameter edits do not select the matching active source');
+}
+assert.deepEqual(inactiveRead().editor_vectors.nozzle_diameter.effective_values, mapping.editor_vectors.nozzle_diameter.effective_values);
+must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext,
+  kind: 'printer', canonical_name: inactiveName, action: 'reset-preset', expected_revision: inactiveRead().revision })]));
 const single = must(call('orc_get_preset_draft', ['string','string'], ['printer', 'Bambu Lab X1 Carbon 0.4 nozzle']));
 assert.equal(single.editor_selection.nozzles.length, 1, 'browsed single-head topology is independent of active four-head U1');
 assert.ok(single.editor_selection.choices.every(c => c.extruder_index === 0));
@@ -115,10 +125,12 @@ assert.equal(activeDefaults.editor_selection.nozzles[1].initial_choice_id, 'extr
 mutate({action: 'reset-field', key: 'default_nozzle_volume_type'});
 
 // The sidebar Multi. command and editor must agree after restoring a diameter.
-function diameter(value) {
-  return must(call('orc_set_toolhead_diameter', ['string'], [JSON.stringify({ history_context: editingContext,
-    index: 2, diameter: value, expected_revision: read().revision,
+function diameter(value, index = 2) {
+  const result = must(call('orc_set_toolhead_diameter', ['string'], [JSON.stringify({ history_context: editingContext,
+    index, diameter: value, expected_revision: read().revision,
   })]));
+  printer = result.profile_snapshot.printer.name;
+  return result;
 }
 const diameterChanged = diameter(0.4);
 assert.equal(read().modified, true);
@@ -200,7 +212,7 @@ const resetKeys = ['nozzle_diameter', 'nozzle_volume', 'extruder_printable_heigh
   'retract_restart_extra_toolchange', 'long_retractions_when_cut', 'retraction_distances_when_cut']
   .filter(key => Object.hasOwn(initial.source_values, key));
 for (const key of resetKeys) assert.ok(initial.editor_vectors[key], `native typed vector for ${key}`);
-mutate({ action: 'reset-category', keys: resetKeys, index: 2 });
+mutate({ action: 'reset-category', fields: resetKeys.map(key => ({key, kind: 'indexed', index: 2})) });
 assert.equal(values('retraction_length')[0], 1.1, 'category reset preserves the other Extruder');
 assert.equal(values('retraction_length')[2], 0.8);
 assert.deepEqual(values('extruder_offset')[2], initial.editor_vectors.extruder_offset.source_values[2]);
@@ -210,16 +222,88 @@ assert.deepEqual(values('extruder_printable_area')[2], polygon);
 must(call('orc_history_redo'));
 assert.deepEqual(values('extruder_printable_area'), []);
 
-// A diameter combination matching another canonical profile must publish that
-// source and its vectors in the same single-history mutation receipt.
+// Direct editor diameter changes retain their current canonical source even
+// when the effective combination exactly matches another installed preset.
+const directSource = printer;
 set('nozzle_diameter', 'float', 2, 0.4);
 restoreContext('orc_history_undo');
 restoreContext('orc_history_redo');
 set('nozzle_diameter', 'float', 3, 0.4);
 restoreContext('orc_history_undo');
 restoreContext('orc_history_redo');
-assert.equal(printer, 'Snapmaker U1 (0.4 nozzle)');
+assert.equal(printer, directSource);
+assert.equal(must(call('orc_get_preset_snapshot')).printer.name, directSource);
 assert.deepEqual(values('nozzle_diameter'), [0.4, 0.4, 0.4, 0.4]);
+assert.deepEqual(read().editor_vectors.nozzle_diameter.override_values, [null,null,{value: 0.4},{value: 0.4}]);
+// The separate sidebar command still matches canonical Printer profiles.
+mutate({action: 'reset-field', key: 'nozzle_diameter'});
+diameter(0.4, 2);
+const sidebarMatch = diameter(0.4, 3);
+assert.equal(printer, 'Snapmaker U1 (0.4 nozzle)');
+assert.equal(sidebarMatch.mutation.history_entry_delta, 1);
+restoreContext('orc_history_undo');
+assert.equal(must(call('orc_get_preset_snapshot')).printer.name, directSource);
+restoreContext('orc_history_redo');
+assert.equal(must(call('orc_get_preset_snapshot')).printer.name, printer);
+
+// One native category operation can mix T3 HF's physical/variant/motion indices
+// and shared fields. Explicit Source-equal ownership at other bindings survives.
+const mixedBase = read();
+const nativeValue = (snapshot, key, index) => {
+  const values = snapshot.editor_vectors[key].source_values;
+  return values[index < values.length ? index : 0];
+};
+const mappedField = (snapshot, key, head, flow) => ({key, ...choiceBinding(snapshot, key, head, flow)});
+const mixedFields = ['nozzle_diameter','retraction_length','machine_max_speed_e'].map(key => mappedField(mixedBase,key,2,1));
+mixedFields.push({key: 'emit_machine_limits_to_gcode', kind: 'shared'});
+assert.deepEqual(mixedFields.map(field => field.index ?? null), [2,5,10,null]);
+set('nozzle_diameter','float',1,nativeValue(mixedBase,'nozzle_diameter',1));
+set('nozzle_diameter','float',2,0.5);
+set('retraction_length','float',0,nativeValue(mixedBase,'retraction_length',0));
+set('retraction_length','float',5,1.9);
+set('machine_max_speed_e','float',8,nativeValue(mixedBase,'machine_max_speed_e',8));
+set('machine_max_speed_e','float',10,nativeValue(mixedBase,'machine_max_speed_e',10)+1);
+mutate({action:'set',key:'emit_machine_limits_to_gcode',value:mixedBase.source_values.emit_machine_limits_to_gcode === '0' ? '1' : '0'});
+const mixedBefore = read();
+const mixedHistory = call('orc_history_status');
+for (const body of [
+  {fields: []},
+  {fields: [...mixedFields,{key:'not_a_native_option',kind:'shared'}]},
+  {fields: [...mixedFields,mixedFields[0]]},
+  {fields: [...mixedFields.slice(0,2),{key:'machine_max_speed_e',kind:'indexed',index:16}]},
+  {fields: [mixedFields[0],{key:'emit_machine_limits_to_gcode',kind:'indexed',index:0}]},
+  {fields: [mixedFields[0],{key:'retraction_length',kind:'shared'}]},
+  {fields: [mixedFields[0],{key:'retraction_length',kind:'indexed',index:-1}]},
+  {fields: [mixedFields[0],{key:'retraction_length',kind:'indexed',index:1.5}]},
+  {fields: [mixedFields[0],{key:'emit_machine_limits_to_gcode',kind:'shared',index:0}]},
+  {fields: mixedFields,expected_revision: mixedBefore.revision-1},
+  {keys: ['nozzle_diameter'],index:2},
+]) {
+  assert.equal(mutate({action:'reset-category',...body},false).ok,false,JSON.stringify(body));
+  assert.deepEqual(read(),mixedBefore,'invalid batch cannot partially publish values or ownership');
+  assert.deepEqual(call('orc_history_status'),mixedHistory,'invalid batch adds no history');
+}
+mutate({action:'reset-category',fields:mixedFields});
+const mixedAfter = read();
+assert.equal(call('orc_history_status').undoEntries.length,mixedHistory.undoEntries.length+1);
+assert.equal(mixedAfter.canonical_name,mixedBefore.canonical_name);
+for (const field of mixedFields) {
+  if (field.kind === 'shared') {
+    assert.equal(mixedAfter.effective_values[field.key],mixedBase.source_values[field.key]);
+    assert.equal(Object.hasOwn(mixedAfter.overrides,field.key),false); continue;
+  }
+  const before = mixedBefore.editor_vectors[field.key], after = mixedAfter.editor_vectors[field.key];
+  for (let index=0; index<after.index_count; ++index) {
+    assert.deepEqual(after.override_values[index],index === field.index ? null : before.override_values[index]);
+    assert.deepEqual(after.effective_values[index],index === field.index ? nativeValue(mixedBase,field.key,index) : before.effective_values[index]);
+  }
+}
+restoreContext('orc_history_undo');
+assert.deepEqual(read().overrides,mixedBefore.overrides,'one Undo restores the whole mixed batch');
+assert.deepEqual(read().effective_values,mixedBefore.effective_values);
+restoreContext('orc_history_redo');
+assert.deepEqual(read().overrides,mixedAfter.overrides);
+assert.deepEqual(read().effective_values,mixedAfter.effective_values);
 
 // Variant counts are independent of physical extruder counts; U1 stores SF/HF columns.
 assert.equal(initial.editor_vectors.nozzle_diameter.index_count, 4);
@@ -248,15 +332,47 @@ filamentMutate({ action: 'set-element', key: 'filament_retraction_length', scala
 assert.deepEqual(readFilament().editor_vectors.filament_retraction_length.override_values[fi], {value: null}, 'native nil is explicit ownership, distinct from sparse inheritance');
 filamentMutate({ action: 'set-element', key: 'filament_retraction_length', scalar_type: 'float', index: fi, value: 1.3 });
 const beforeInvalidReset = readFilament();
-assert.equal(filamentMutate({ action: 'reset-category', keys: ['filament_flow_ratio', 'filament_vendor'], index: fi }, false).ok, false);
+assert.equal(filamentMutate({ action: 'reset-category', fields: [{key: 'filament_flow_ratio', kind: 'indexed', index: fi}, {key: 'filament_vendor', kind: 'indexed', index: fi}] }, false).ok, false);
 assert.deepEqual(readFilament(), beforeInvalidReset, 'invalid batch resets leave all elements and history unchanged');
-filamentMutate({ action: 'reset-category', keys: ['filament_flow_ratio', 'filament_retraction_length'], index: fi });
+filamentMutate({ action: 'reset-category', fields: ['filament_flow_ratio', 'filament_retraction_length'].map(key => ({key, kind: 'indexed', index: fi})) });
 assert.equal(readFilament().editor_vectors.filament_flow_ratio.effective_values[0], 1.01);
 assert.equal(readFilament().editor_vectors.filament_flow_ratio.effective_values[fi], baseFilament.editor_vectors.filament_flow_ratio.source_values[fi]);
 assert.equal(readFilament().editor_vectors.filament_retraction_length.effective_values[fi], null, 'indexed reset restores nullable native source');
 must(call('orc_history_undo'));
 assert.equal(readFilament().editor_vectors.filament_flow_ratio.effective_values[fi], 1.02);
 must(call('orc_history_redo'));
+
+// Filament batches can reset different variant elements together with a
+// shared field without replacing the shared native draft owner.
+filamentMutate({action:'set-element',key:'filament_flow_ratio',scalar_type:'float',index:0,value:baseFilament.editor_vectors.filament_flow_ratio.source_values[0]});
+filamentMutate({action:'set-element',key:'filament_flow_ratio',scalar_type:'float',index:fi-1,value:1.08});
+filamentMutate({action:'set-element',key:'filament_retraction_length',scalar_type:'float',index:fi,value:1.4});
+filamentMutate({action:'set',key:'filament_vendor',value:'Batch vendor'});
+const filamentMixedBefore = readFilament(), filamentMixedHistory = call('orc_history_status');
+const filamentFields = [{key:'filament_flow_ratio',kind:'indexed',index:fi-1},
+  {key:'filament_retraction_length',kind:'indexed',index:fi},{key:'filament_vendor',kind:'shared'}];
+for (const fields of [ [...filamentFields,{key:'unknown_option',kind:'shared'}],
+  [filamentFields[0],{key:'filament_retraction_length',kind:'indexed',index:999}],
+  [...filamentFields,filamentFields[0]],
+]) {
+  assert.equal(filamentMutate({action:'reset-category',fields},false).ok,false);
+  assert.deepEqual(readFilament(),filamentMixedBefore);
+  assert.deepEqual(call('orc_history_status'),filamentMixedHistory);
+}
+const filamentMixedReceipt = filamentMutate({action:'reset-category',fields:filamentFields});
+assert.equal(filamentMixedReceipt.history_entry_delta,1);
+assert.equal(call('orc_history_status').undoEntries.length,filamentMixedHistory.undoEntries.length+1);
+const filamentMixedAfter = readFilament();
+assert.equal(filamentMixedAfter.canonical_name,filamentMixedBefore.canonical_name);
+assert.deepEqual(filamentMixedAfter.editor_vectors.filament_flow_ratio.override_values[0],
+  {value:baseFilament.editor_vectors.filament_flow_ratio.source_values[0]},'other Filament variant retains explicit Source-equal ownership');
+assert.equal(filamentMixedAfter.editor_vectors.filament_flow_ratio.override_values[fi-1],null);
+assert.equal(filamentMixedAfter.editor_vectors.filament_retraction_length.override_values[fi],null);
+assert.equal(filamentMixedAfter.effective_values.filament_vendor,baseFilament.source_values.filament_vendor);
+must(call('orc_history_undo'));
+assert.deepEqual(readFilament().overrides,filamentMixedBefore.overrides);
+must(call('orc_history_redo'));
+assert.deepEqual(readFilament().overrides,filamentMixedAfter.overrides);
 
 const readPrint = () => must(call('orc_get_print_config_editor'));
 const printHistoryContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
@@ -299,11 +415,11 @@ for (const body of [
   { operation: 'set-element', key: 'outer_wall_speed', scalar_type: 'float', index: pi + 1, value: 1 },
   { operation: 'set-element', key: 'outer_wall_speed', scalar_type: 'bool', index: pi, value: false },
   { operation: 'set-element', key: 'small_perimeter_speed', scalar_type: 'float_or_percent', index: pi, value: { value: -1, percent: true } },
-  { operation: 'reset-elements', keys: ['outer_wall_speed', 'layer_height'], index: pi },
-  { operation: 'reset-elements', keys: ['outer_wall_speed'], index: pi, expected_revision: 0 },
+  { operation: 'reset-fields', fields: [{key: 'outer_wall_speed', kind: 'indexed', index: pi}, {key: 'layer_height', kind: 'indexed', index: pi}] },
+  { operation: 'reset-fields', fields: [{key: 'outer_wall_speed', kind: 'indexed', index: pi}], expected_revision: 0 },
 ]) assert.equal(printMutate(body, false).ok, false, JSON.stringify(body));
 assert.deepEqual(readPrint(), printBeforeRejections, 'Print rejections do not change owner, vectors or history');
-printMutate({ operation: 'reset-elements', keys: ['outer_wall_speed', 'enable_overhang_speed', 'small_perimeter_speed'], index: pi });
+printMutate({ operation: 'reset-fields', fields: ['outer_wall_speed', 'enable_overhang_speed', 'small_perimeter_speed'].map(key => ({key, kind: 'indexed', index: pi})) });
 assert.equal(readPrint().editor_vectors.outer_wall_speed.override_values[pi], null);
 assert.deepEqual(readPrint().editor_vectors.outer_wall_speed.override_values[0], {value: 100});
 assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[0], 100);
@@ -312,6 +428,46 @@ must(call('orc_history_undo'));
 assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[pi], 175);
 must(call('orc_history_redo'));
 assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[pi], basePrint.editor_vectors.outer_wall_speed.source_values[pi]);
+// Project Print retains its native owner/history root for a mixed batch.
+printMutate({operation:'set-element',key:'outer_wall_speed',scalar_type:'float',index:0,value:basePrint.editor_vectors.outer_wall_speed.source_values[0]});
+printMutate({operation:'set-element',key:'outer_wall_speed',scalar_type:'float',index:pi,value:181});
+printMutate({operation:'set-element',key:'enable_overhang_speed',scalar_type:'bool',index:1,value:false});
+printMutate({operation:'set',key:'layer_height',value:'0.17'});
+const printMixedBefore = readPrint(), printMixedHistory = call('orc_history_status');
+const printFields = [{key:'outer_wall_speed',kind:'indexed',index:pi},
+  {key:'enable_overhang_speed',kind:'indexed',index:1},{key:'layer_height',kind:'shared'}];
+for (const body of [
+  {fields: [...printFields,{key:'not_a_native_option',kind:'shared'}]},
+  {fields: [printFields[0],{key:'enable_overhang_speed',kind:'indexed',index:999}]},
+  {fields: [...printFields,printFields[0]]},
+  {fields: [printFields[0],{key:'outer_wall_speed',kind:'shared'}]},
+  {fields: [printFields[0],{key:'curr_bed_type',kind:'shared'}]},
+  {fields: printFields,expected_revision:printMixedBefore.revision-1},
+  {fields: []},
+  {fields: [printFields[0],{key:'enable_overhang_speed',kind:'indexed',index:-1}]},
+  {operation:'reset-elements',keys:['outer_wall_speed'],index:pi},
+]) {
+  assert.equal(printMutate({operation:'reset-fields',...body},false).ok,false,JSON.stringify(body));
+  assert.deepEqual(readPrint(),printMixedBefore,'invalid Print batch leaves owner/values/ownership/revision unchanged');
+  assert.deepEqual(call('orc_history_status'),printMixedHistory);
+}
+printMutate({operation:'reset-fields',fields:printFields});
+const printMixedAfter = readPrint();
+assert.equal(printMixedAfter.canonical_name,printMixedBefore.canonical_name,'Print reset retains its existing native project preset');
+assert.equal(call('orc_history_status').undoEntries.length,printMixedHistory.undoEntries.length+1);
+assert.deepEqual(printMixedAfter.editor_vectors.outer_wall_speed.override_values[0],
+  {value:basePrint.editor_vectors.outer_wall_speed.source_values[0]});
+for (const field of printFields.filter(f => f.kind === 'indexed')) {
+  const before=printMixedBefore.editor_vectors[field.key],after=printMixedAfter.editor_vectors[field.key];
+  assert.deepEqual(after.override_values,before.override_values.map((entry,index) => index === field.index ? null : entry));
+}
+assert.equal(printMixedAfter.effective_values.layer_height,basePrint.source_values.layer_height);
+must(call('orc_history_undo'));
+assert.deepEqual(readPrint().editor_vectors,printMixedBefore.editor_vectors,'one Undo restores the entire Print batch');
+assert.deepEqual(readPrint().effective_values,printMixedBefore.effective_values);
+must(call('orc_history_redo'));
+assert.deepEqual(readPrint().editor_vectors,printMixedAfter.editor_vectors);
+assert.deepEqual(readPrint().effective_values,printMixedAfter.effective_values);
 // Load actual project HF/Hybrid context through Orca's standard 3MF reader,
 // rather than a production test hook or a mock of the mapping function.
 const exported = must(call('orc_export_project'));
@@ -342,5 +498,5 @@ assert.deepEqual(choiceBinding(hybridPrint, 'outer_wall_speed', 2, 1), {kind: 'i
 assert.deepEqual(choiceBinding(hybridPrinter, 'machine_max_speed_e', 2, 1), {kind: 'indexed', index: 10});
 assert.deepEqual(readFilament().editor_selection.choices.map(c => c.variant), baseFilament.editor_selection.choices.map(c => c.variant),
   'Filament choices do not depend on project HF/Hybrid context');
-console.log('PASS native selections/defaults, physical/variant/stride-2 mappings, missing mappings, short vectors, full Filament variants, project HF/Hybrid context, typed edits/reset/history');
+console.log('PASS native mappings, atomic mixed-field reset ownership/history, editor diameter isolation, sidebar matching, full Filament variants and actual project HF/Hybrid context');
 process.exit(0);

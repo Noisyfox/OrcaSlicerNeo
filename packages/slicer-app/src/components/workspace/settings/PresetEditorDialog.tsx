@@ -15,6 +15,7 @@ import type {
   PresetDraftEditorVector,
   PresetDraftVectorValue,
   PresetDraftEditorPoint,
+  ConfigResetField,
 } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { usePlatform } from '@orca/platform-contract';
@@ -79,7 +80,7 @@ interface RoutedField {
 type PresetDraftAction =
   | { readonly action: 'set'; readonly key: string; readonly value: string }
   | { readonly action: 'reset-field'; readonly key: string }
-  | { readonly action: 'reset-category'; readonly keys: readonly string[]; readonly index?: number }
+  | { readonly action: 'reset-category'; readonly fields: readonly ConfigResetField[] }
   | { readonly action: 'reset-preset' };
 
 function manifestFor(kind: PresetDraftTarget['kind']): PresetEditorManifest {
@@ -1125,6 +1126,16 @@ export function PresetEditorDialogContent({
   const activePageResetKeys = snapshot === null ? [] : [...new Set(activePageKeys.filter((key) =>
     Object.prototype.hasOwnProperty.call(snapshot.sourceValues, key) ||
     Object.prototype.hasOwnProperty.call(snapshot.effectiveValues, key)))];
+  // Until selection navigation is connected, serialize exactly the binding
+  // displayed/edited by the legacy page, without introducing variant-index math.
+  const activePageResetFields: ConfigResetField[] = snapshot === null ? [] : activePageResetKeys.flatMap<ConfigResetField>((key) => {
+    const vector = snapshot.editorVectors[key];
+    const index = activePage?.extruderIndex ?? fieldBinding(snapshot, key)?.index;
+    if (vector && index !== undefined)
+      return index < vector.indexCount ? [{ key, kind: 'indexed' as const, index }] : [];
+    return snapshot.editorSelection.fieldBindings[key]?.kind === 'per_selection'
+      ? [] : [{ key, kind: 'shared' as const }];
+  });
   const categoryHasOverrides = snapshot !== null && activePageResetKeys.some((key) => hasOverride(snapshot, key, activePage?.extruderIndex));
   const showSearchResults = query.length > 0;
 
@@ -1267,7 +1278,7 @@ export function PresetEditorDialogContent({
                     size="xs"
                     data-testid={`preset-editor-reset-category-${activePage.id}`}
                     disabled={!categoryHasOverrides || interactionPending}
-                    onClick={() => void submitAction({ action: 'reset-category', keys: activePageResetKeys, index: activePage.extruderIndex })}
+                    onClick={() => void submitAction({ action: 'reset-category', fields: activePageResetFields })}
                   >Reset category</Button>
                 </div>
                 {activePage.groups.map((optionGroup) => <FieldGroup

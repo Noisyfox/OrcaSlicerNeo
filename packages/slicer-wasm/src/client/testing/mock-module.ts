@@ -669,15 +669,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
   function printConfigEditor() {
     return { ok: true, kind: 'print', canonical_name: selected.print, revision: historyRevision,
-      source_values: Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, serializePresetEditorValues(option.values)])),
-      effective_values: Object.fromEntries(Object.keys(printEditorOptions).map(key => [key, serializePresetEditorValues(printEditorValues(key))])),
-      option_metadata: Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, { type: option.metadataType }])),
+      source_values: { layer_height: '0.2', ...Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, serializePresetEditorValues(option.values)])) },
+      effective_values: { layer_height: nativeScopedConfig.project.layer_height ?? '0.2', ...Object.fromEntries(Object.keys(printEditorOptions).map(key => [key, serializePresetEditorValues(printEditorValues(key))])) },
+      option_metadata: { layer_height: {type: 'float'}, ...Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, { type: option.metadataType }])) },
       editor_vectors: Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, {
         scalar_type: option.scalarType, nullable: false, readonly: false, multiline: false, is_code: false,
         gui_type: 'undefined', gui_flags: '', source_values: clone(option.values), effective_values: clone(printEditorValues(key)), index_count: 3,
         override_values: printVectorOverrides[key] ?? option.values.map(() => null),
       }])),
-      editor_selection: mockEditorSelection('print', Object.keys(printEditorOptions),
+      editor_selection: mockEditorSelection('print', ['layer_height', ...Object.keys(printEditorOptions)],
         Object.fromEntries(Object.keys(printEditorOptions).map(key => [key, 3])), true),
     };
   }
@@ -771,7 +771,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const sourceValues = presetSourceValues(kind, request.canonical_name);
     if (!sourceValues) return fail('preset_not_found', `preset not found: ${request.canonical_name}`);
     const action = request.action as string;
-    const resetKeys: string[] = [];
+    const resetFields: Array<{key: string; kind: 'shared' | 'indexed'; index?: number}> = [];
     if (action === 'set') {
       if (typeof request.key !== 'string' || !(request.key in sourceValues) || typeof request.value !== 'string')
         return fail('unsupported_option', 'option is not available on this preset');
@@ -808,21 +808,30 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     } else if (action === 'reset-field') {
       if (typeof request.key !== 'string' || !(request.key in sourceValues))
         return fail('unsupported_option', 'option is not available on this preset');
-      resetKeys.push(request.key);
+      resetFields.push({key: request.key, kind: request.index === undefined ? 'shared' : 'indexed', index: request.index});
     } else if (action === 'reset-category') {
-      if (!Array.isArray(request.keys) || request.keys.length === 0 ||
-          !request.keys.every((key: unknown) => typeof key === 'string' && key in sourceValues) ||
-          new Set(request.keys).size !== request.keys.length)
-        return fail('unsupported_option', 'reset-category requires distinct available option keys');
-      resetKeys.push(...request.keys);
+      if (request.keys !== undefined || request.index !== undefined || !Array.isArray(request.fields) || !request.fields.length)
+        return fail('invalid_request', 'reset-category requires per-field reset targets');
+      const keys = new Set<string>();
+      for (const field of request.fields) {
+        if (!field || typeof field !== 'object' || typeof field.key !== 'string' || !field.key || keys.has(field.key) ||
+            !['indexed', 'shared'].includes(field.kind) || Object.keys(field).length !== (field.kind === 'indexed' ? 3 : 2))
+          return fail('invalid_request', 'invalid or duplicate reset field');
+        if (!(field.key in sourceValues)) return fail('unsupported_option', 'reset option is unavailable');
+        if (field.kind === 'shared' && presetEditorOptions[kind][field.key])
+          return fail('invalid_request', 'selection-dependent reset requires an index');
+        keys.add(field.key); resetFields.push(field);
+      }
     } else if (action !== 'reset-preset') {
       return fail('invalid_request', 'unknown preset draft action');
     }
 
-    if (resetKeys.length > 0 && request.index !== undefined) {
-      if (!Number.isSafeInteger(request.index) || request.index < 0 || resetKeys.some(key => request.index >= (kind === 'printer' ? editorValuesFor(kind, request.canonical_name, 'nozzle_diameter')?.length ?? 0 : editorValuesFor(kind, request.canonical_name, key)?.length ?? 0)))
+    for (const field of resetFields) {
+      if (field.kind !== 'indexed') continue;
+      const index = field.index!;
+      if (!Number.isSafeInteger(index) || index < 0 || index >= (kind === 'printer' ? editorValuesFor(kind, request.canonical_name, 'nozzle_diameter')?.length ?? 0 : editorValuesFor(kind, request.canonical_name, field.key)?.length ?? 0))
         return fail('invalid_index', 'indexed reset requires an available vector element');
-      if (resetKeys.some(key => !presetEditorOptions[kind][key]))
+      if (!presetEditorOptions[kind][field.key])
         return fail('unsupported_option', 'indexed reset requires an extruder vector option');
     }
 
@@ -859,13 +868,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       presetDraftRegistry[kind][canonicalName] = current;
     } else if (action === 'reset-field' || action === 'reset-category') {
       const current = presetDraftRegistry[kind][canonicalName] ?? {};
-      for (const key of resetKeys) {
-        if (request.index === undefined) {
+      for (const field of resetFields) {
+        const {key} = field;
+        if (field.kind === 'shared') {
           delete current[key];
         } else {
           const entries = current[key];
           if (Array.isArray(entries)) {
-            entries[request.index] = null;
+            entries[field.index!] = null;
             if (!entries.some(entry => entry !== null)) delete current[key];
           }
         }
@@ -2385,23 +2395,35 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const resetElementKeys = new Set<string>();
       const nextPrintOverrides = clone(printVectorOverrides);
       let indexedCommand = false;
-      if (request.operation === 'set-element' || request.operation === 'reset-elements') {
+      if (request.operation === 'set-element' || request.operation === 'reset-fields') {
         indexedCommand = true;
         if (request.targets.length !== 1 || request.targets[0]?.scope !== 'project' || request.targets[0]?.id !== undefined)
           return fail('Print element commands require one Project target', 'unsupported_reference');
         if (!Number.isSafeInteger(request.expected_revision) || request.expected_revision !== historyRevision)
           return fail('Print element revision is stale or missing', 'stale_revision');
-        if (!Number.isSafeInteger(request.index) || request.index < 0 || request.index >= 3)
-          return fail('vector element index is out of range', 'invalid_index');
-        const keys = request.operation === 'set-element' ? [request.key] : request.keys;
-        if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string') || new Set(keys).size !== keys.length)
-          return fail('element keys must be unique non-empty strings');
+        if (request.operation === 'reset-fields' && (request.keys !== undefined || request.index !== undefined))
+          return fail('reset-fields requires per-field reset targets');
+        const fields = request.operation === 'set-element' ? [{key: request.key, kind: 'indexed', index: request.index}] : request.fields;
+        if (!Array.isArray(fields) || !fields.length) return fail('reset fields must be a non-empty explicit batch');
+        const seen = new Set<string>();
         const values: Record<string, string> = {};
-        for (const key of keys) {
+        for (const field of fields) {
+          if (!field || typeof field !== 'object' || typeof field.key !== 'string' || !field.key || seen.has(field.key) ||
+              !['shared', 'indexed'].includes(field.kind) || Object.keys(field).length !== (field.kind === 'indexed' ? 3 : 2))
+            return fail('invalid or duplicate reset field');
+          const key = field.key as string; seen.add(key);
           const option = printEditorOptions[key];
+          if (field.kind === 'shared') {
+            if (option) return fail('selection-dependent reset requires an index');
+            if (key !== 'layer_height') return fail('option is not an exposed Print field', 'unsupported_reference');
+            values[key] = '0.2'; resetElementKeys.add(key); delete nextPrintOverrides[key]; continue;
+          }
+          const index = field.index;
+          if (!Number.isSafeInteger(index) || index < 0 || index >= 3)
+            return fail('vector element index is out of range', 'invalid_index');
           if (!option) return fail('option does not expose editable vector elements', 'unsupported_option');
           const elements = [...printEditorValues(key)];
-          const value = request.operation === 'set-element' ? request.value : option.values[request.index];
+          const value = request.operation === 'set-element' ? request.value : option.values[index];
           if (request.operation === 'set-element') {
             if (request.scalar_type !== option.scalarType) return fail('element type does not match native option', 'invalid_element_type');
             if ((option.scalarType === 'float' && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) ||
@@ -2409,11 +2431,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
                 (option.scalarType === 'float_or_percent' && (!value || typeof value !== 'object' || !Number.isFinite(value.value) || typeof value.percent !== 'boolean')))
               return fail('invalid typed element value', 'invalid_value');
           }
-          while (elements.length <= request.index) elements.push(clone(elements[0]));
-          elements[request.index] = clone(value);
+          while (elements.length <= index) elements.push(clone(elements[0]));
+          elements[index] = clone(value);
           values[key] = serializePresetEditorValues(elements);
           const entries = nextPrintOverrides[key] ?? option.values.map(() => null);
-          entries[request.index] = request.operation === 'set-element' ? { value: clone(value) } : null;
+          entries[index] = request.operation === 'set-element' ? { value: clone(value) } : null;
           if (entries.some(entry => entry !== null)) nextPrintOverrides[key] = entries;
           else { delete nextPrintOverrides[key]; resetElementKeys.add(key); }
         }

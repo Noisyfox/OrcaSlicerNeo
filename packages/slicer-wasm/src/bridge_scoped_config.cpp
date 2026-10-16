@@ -195,6 +195,7 @@ struct MutationRequest {
     std::map<std::string, std::string> values;
     std::string category;
     std::optional<uint64_t> index;
+    std::vector<ConfigElements::ResetField> reset_fields;
     std::string scalar_type;
     json element_value;
 };
@@ -444,14 +445,33 @@ void apply_project_mutation_to_candidates(const MutationRequest& request,
                                           std::map<std::string, std::string>& vector_overrides)
 {
     const Preset* parent = selected_print_parent();
+    if (request.operation == "reset-fields") {
+        const auto source = print_element_source();
+        for (const auto& field : request.reset_fields) {
+            const auto error = ConfigElements::validate_reset_field(print_candidate, source, Preset::TYPE_PRINT, field);
+            if (!error.is_null()) throw MutationCommandError(error["error_code"].get<std::string>(), error["error"].get<std::string>());
+            const auto& key = field.key;
+            if (!field.index) {
+                restore_parent_value_or_erase(print_candidate, parent, key);
+                vector_overrides.erase(key);
+                continue;
+            }
+            const json current = vector_overrides.count(key) ? json::parse(vector_overrides.at(key)) : json(nullptr);
+            const auto result = ConfigElements::reset_override(print_candidate, source, Preset::TYPE_PRINT, key, current, *field.index);
+            if (result.is_object()) throw MutationCommandError(result["error_code"].get<std::string>(), result["error"].get<std::string>());
+            if (result.is_null()) vector_overrides.erase(key);
+            else vector_overrides[key] = result.dump();
+            print_candidate.set_key_value(key, source.option(key)->clone());
+            if (!result.is_null()) ConfigElements::apply_override(print_candidate, Preset::TYPE_PRINT, key, result);
+        }
+        return;
+    }
     if (request.index) {
         const auto source = print_element_source();
         for (const auto& [key, ignored] : request.values) {
             const json current = vector_overrides.count(key) ? json::parse(vector_overrides.at(key)) : json(nullptr);
-            const auto result = request.operation == "set-element"
-                ? ConfigElements::set_override(print_candidate, Preset::TYPE_PRINT, key, current,
-                    request.scalar_type, *request.index, request.element_value)
-                : ConfigElements::reset_override(print_candidate, source, Preset::TYPE_PRINT, key, current, *request.index);
+            const auto result = ConfigElements::set_override(print_candidate, Preset::TYPE_PRINT, key, current,
+                request.scalar_type, *request.index, request.element_value);
             if (result.is_object()) throw MutationCommandError(result["error_code"].get<std::string>(), result["error"].get<std::string>());
             if (result.is_null()) vector_overrides.erase(key);
             else vector_overrides[key] = result.dump();
@@ -564,7 +584,7 @@ MutationRequest parse_request(const char* request_json)
     request.operation = encoded["operation"].get<std::string>();
     if (request.operation != "set" && request.operation != "reset" &&
         request.operation != "reset-category" && request.operation != "reset-all" &&
-        request.operation != "set-element" && request.operation != "reset-elements")
+        request.operation != "set-element" && request.operation != "reset-fields")
         throw MutationCommandError("invalid_command", "unsupported native mutation operation");
     if (!encoded.contains("targets") || !encoded["targets"].is_array() || encoded["targets"].empty())
         throw MutationCommandError("invalid_command", "at least one mutation target is required");
@@ -587,7 +607,7 @@ MutationRequest parse_request(const char* request_json)
             throw MutationCommandError("invalid_command", "duplicate mutation target");
         request.targets.push_back(std::move(target));
     }
-    if (request.operation == "set-element" || request.operation == "reset-elements") {
+    if (request.operation == "set-element" || request.operation == "reset-fields") {
         if (request.targets.size() != 1 || request.targets.front().scope != "project")
             throw MutationCommandError("unsupported_reference", "Print element commands require one Project target");
         if (!encoded.contains("expected_revision") || !encoded["expected_revision"].is_number_unsigned() ||
@@ -595,10 +615,10 @@ MutationRequest parse_request(const char* request_json)
             throw MutationCommandError("stale_revision", "Print element revision is stale or missing");
         if (state().history_disabled)
             throw MutationCommandError("history_disabled", "project history is disabled");
-        if (!encoded.contains("index") || !encoded["index"].is_number_unsigned())
-            throw MutationCommandError("invalid_index", "element index must be unsigned");
-        request.index = encoded["index"].get<uint64_t>();
         if (request.operation == "set-element") {
+            if (!encoded.contains("index") || !encoded["index"].is_number_unsigned())
+                throw MutationCommandError("invalid_index", "element index must be unsigned");
+            request.index = encoded["index"].get<uint64_t>();
             if (!encoded.contains("key") || !encoded["key"].is_string() || encoded["key"].get<std::string>().empty() ||
                 !encoded.contains("scalar_type") || !encoded["scalar_type"].is_string() || !encoded.contains("value"))
                 throw MutationCommandError("invalid_command", "set-element requires key, scalar_type and typed value");
@@ -606,12 +626,11 @@ MutationRequest parse_request(const char* request_json)
             request.scalar_type = encoded["scalar_type"].get<std::string>();
             request.element_value = encoded["value"];
         } else {
-            if (!encoded.contains("keys") || !encoded["keys"].is_array() || encoded["keys"].empty())
-                throw MutationCommandError("invalid_command", "reset-elements requires explicit keys");
-            for (const auto& key : encoded["keys"]) {
-                if (!key.is_string() || key.get<std::string>().empty() || !request.values.emplace(key.get<std::string>(), "").second)
-                    throw MutationCommandError("invalid_command", "reset element keys must be unique non-empty strings");
-            }
+            if (encoded.contains("keys") || encoded.contains("index"))
+                throw MutationCommandError("invalid_command", "reset-fields requires per-field reset targets");
+            const auto error = ConfigElements::parse_reset_fields(encoded.value("fields", json()), request.reset_fields);
+            if (!error.is_null()) throw MutationCommandError(error["error_code"].get<std::string>(), error["error"].get<std::string>());
+            for (const auto& field : request.reset_fields) request.values.emplace(field.key, "");
         }
     } else if (request.operation == "set") {
         const bool has_key = encoded.contains("key");
@@ -644,10 +663,11 @@ MutationRequest parse_request(const char* request_json)
 
 void validate_set_keys(const MutationRequest& request)
 {
-    if (request.operation != "set" && request.operation != "reset" && !request.index) return;
+    if (request.operation != "set" && request.operation != "reset" && !request.index && request.reset_fields.empty()) return;
     for (const auto& [key, value] : request.values) {
         const ConfigOptionDef& definition = require_definition(key);
-        if (request.index && (is_native_project_config_key(key) || !is_project_print_override_key(key)))
+        if ((request.index || !request.reset_fields.empty()) &&
+            (is_native_project_config_key(key) || !is_project_print_override_key(key)))
             throw MutationCommandError("unsupported_reference", "indexed configuration commands only edit Print options");
         if (is_bridge_owned_project_routing_key(key))
             throw MutationCommandError(

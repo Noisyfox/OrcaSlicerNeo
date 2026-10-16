@@ -22,6 +22,17 @@ describe('project session policy', () => {
     if (!receipt.ok) throw new Error(receipt.error);
     expect(receipt.editorSelection).toEqual(source.editorSelection);
     expect(receipt.editorVectors.filament_flow_ratio.effectiveValues[1]).toBe(0.9);
+    const beforeReset = await client.getHistoryStatus();
+    const reset = await client.mutatePresetDraft({kind:'filament',canonicalName:source.canonicalName,
+      expectedRevision:receipt.revision,action:'reset-category',fields:[
+        {key:'filament_flow_ratio',kind:'indexed',index:1},{key:'filament_vendor',kind:'shared'},
+      ]}, {selection:{mode:'object',objectIds:[],partIds:[],instanceIds:[]},activePlateId:null,gizmo:null,nativeScopedConfig:{}});
+    expect(reset).toMatchObject({ok:true,historyEntryDelta:1,editorVectors:{filament_flow_ratio:{effectiveValues:[1,1]}}});
+    expect((await client.getHistoryStatus()).undoEntries).toHaveLength(beforeReset.undoEntries.length+1);
+    await client.undoHistory();
+    expect(await client.getPresetDraft('filament',source.canonicalName)).toMatchObject({
+      editorVectors:{filament_flow_ratio:{effectiveValues:[1,0.9]}},
+    });
     const print = await client.getPrintConfigEditor();
     expect(print).toMatchObject({ ok: true, editorSelection: { kind: 'print', choices: [
       { extruderIndex: 0 }, { extruderIndex: 1 }, { extruderIndex: 2 },

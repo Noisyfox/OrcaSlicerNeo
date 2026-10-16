@@ -82,6 +82,55 @@ bool printer_extruder_key(const std::string& key)
     return key == "extruder_printable_area" || std::find(keys.begin(), keys.end(), key) != keys.end();
 }
 
+bool selection_dependent(const Preset::Type type, const std::string& key)
+{
+    if (type == Preset::TYPE_PRINTER)
+        return printer_options_with_variant_1.count(key) || printer_options_with_variant_2.count(key) || printer_extruder_key(key);
+    return type == Preset::TYPE_FILAMENT ? filament_options_with_variant.count(key) : print_options_with_variant.count(key);
+}
+
+json parse_reset_fields(const json& fields, std::vector<ResetField>& result)
+{
+    if (!fields.is_array() || fields.empty())
+        return command_error("invalid_request", "reset fields must be a non-empty explicit batch");
+    std::set<std::string> keys;
+    for (const auto& field : fields) {
+        if (!field.is_object() || !field.contains("key") || !field["key"].is_string() || field["key"].get<std::string>().empty() ||
+            !field.contains("kind") || !field["kind"].is_string())
+            return command_error("invalid_request", "reset field requires key and kind");
+        ResetField target{field["key"].get<std::string>(), std::nullopt};
+        if (!keys.insert(target.key).second)
+            return command_error("invalid_request", "reset fields must have unique option keys");
+        if (field["kind"] == "indexed") {
+            if (field.size() != 3 || !field.contains("index") || !field["index"].is_number_unsigned())
+                return command_error("invalid_index", "indexed reset requires an unsigned index");
+            target.index = field["index"].get<uint64_t>();
+        } else if (field["kind"] != "shared" || field.size() != 2)
+            return command_error("invalid_request", "reset field must be shared or indexed");
+        result.push_back(std::move(target));
+    }
+    return nullptr;
+}
+
+json validate_reset_field(const DynamicPrintConfig& effective, const DynamicPrintConfig& source,
+                          const Preset::Type type, const ResetField& target)
+{
+    const auto* def = print_config_def.get(target.key);
+    if (!def || !source.option(target.key) || !effective.option(target.key))
+        return command_error("unsupported_option", "reset option is unavailable: " + target.key);
+    if (!target.index) {
+        if (selection_dependent(type, target.key))
+            return command_error("invalid_request", "selection-dependent reset requires an index: " + target.key);
+    } else {
+        if (!editor_vector_type(target.key, *def) ||
+            !dynamic_cast<const ConfigOptionVectorBase*>(source.option(target.key)))
+            return command_error("unsupported_option", "option has no editable vector elements: " + target.key);
+        if (*target.index >= element_count(effective, type, target.key))
+            return command_error("invalid_index", "reset index is out of range: " + target.key);
+    }
+    return nullptr;
+}
+
 void resize_editor_vector(ConfigOptionVectorBase& option, const ConfigOptionDef& def, size_t count)
 {
     // The native point-group default is itself empty; generic resize would
@@ -489,7 +538,7 @@ json selection_json(const DynamicPrintConfig& effective, const Preset::Type type
             printer_options_with_variant_1.count(key) || printer_options_with_variant_2.count(key) :
             type == Preset::TYPE_FILAMENT ? filament_options_with_variant.count(key) : print_options_with_variant.count(key);
         const bool physical = type == Preset::TYPE_PRINTER && !variant && printer_extruder_key(key);
-        if (!variant && !physical) { fields[key] = {{"kind", "shared"}}; continue; }
+        if (!selection_dependent(type, key)) { fields[key] = {{"kind", "shared"}}; continue; }
         json bindings = json::array();
         for (size_t i = 0; i < choices.size(); ++i) {
             const auto& choice = choices[i];

@@ -173,10 +173,14 @@ the element, including `{value: null}` for native nullable nil)
 through `getPrintConfigEditor()`. Its required `indexCount` gives the native
 valid element range even when a serialized vector is short. Project
 `set-element` submits one typed value with its type, index and expected revision;
-`reset-elements` clears ownership at that index for an explicit set of unique
-option keys and restores Source. Other indices retain their ownership, even
+`reset-fields` accepts an explicit batch of unique option keys, each carrying
+its own indexed target or shared-field reset semantics. Indexed targets clear
+ownership only at their requested indices and restore Source; shared targets
+restore the shared option's existing inheritance baseline. Other indices retain their ownership, even
 when they equal Source; an all-inherited vector removes its override key.
-The batch is validated on temporary configuration before publication, and all
+The entire batch is validated on temporary configuration before publication,
+rejecting malformed, duplicate, unsupported, out-of-range and stale targets
+without partial changes, and all
 other elements remain unchanged. Element values outside native bounds are
 rejected; whole-option numeric edits retain their existing clamping behavior.
 These operations use the same Project-owned Print preset and enclosing history

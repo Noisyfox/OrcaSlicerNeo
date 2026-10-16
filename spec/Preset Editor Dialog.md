@@ -485,29 +485,39 @@ configuration, including its draft, and expose SF/HF only; Hybrid normalizes
 to SF. Filament exposes its complete native variant list in native order.
 Print choices use the actual project flow and expand Hybrid into SF/HF entries.
 
-Draft `set-element`, indexed `reset-field`, and indexed `reset-category` share
-that implementation for both Printer and Filament. Resets restore only the
-specified element from Source by clearing its override entry; only a vector
-with no explicitly owned entries removes its draft key. Explicit batch keys are validated before any history/state
-mutation. Scalar or structured options without an element editor are rejected.
+Draft `set-element`, indexed `reset-field`, and `reset-category` share that
+implementation for both Printer and Filament. A category request requires an
+explicit `fields` batch with unique option keys. Each target is either
+`{key, kind: 'indexed', index}` or `{key, kind: 'shared'}`. Indexed targets may
+resolve to different native indices in the same batch; they restore only that
+element from Source and clear its ownership, preserving other indices and their
+explicit Source-equivalent ownership. A shared target restores that entire
+shared option to its existing baseline. Selection-dependent fields require an
+index, and unavailable fields contribute no target. Native validation stages
+the complete batch on temporary configuration before history or publication;
+one changed category is one atomic, undoable operation. Invalid, duplicate,
+unsupported, out-of-range, or stale batches cannot partially reset a category.
+Scalar or structured options without an element editor reject indexed targets.
 
 Print uses `getPrintConfigEditor()` for complete typed Source/Effective vectors
 and the same range contract. It remains outside `PresetDraftRegistry`.
 `mutateNativeScopedConfig` accepts Project `set-element` (one typed value, its
-scalar type and index) and `reset-elements` (explicit unique keys and an index).
+scalar type and index) and `reset-fields` (the same explicit per-field batch).
 Both require the revision returned by the read. They retain the existing
 Project Print owner, embedded-preset materialization, configuration publication,
 and enclosing application history transaction. They do not introduce a second
 Print draft or history root. Whole-option operations remain distinct actions.
 
-The delivered contracts supply element editing and native mapping metadata.
+The native contracts supply element editing, mixed-field atomic resets and
+native mapping metadata. The existing editor still assembles category requests
+from its displayed bindings; native selection navigation remains separate work.
 The accepted, not-yet-implemented selection interface is owned by
 [Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md),
 including the single Printer Extruder page, independent editor selections, and
-category-dependent switch visibility. It also owns the accepted mixed-index
-category-reset scope (current selection plus shared fields) and single-group
-motion-limit presentation without Silent controls. Those extensions are not yet
-implemented. Extruder/variant navigation is immediate like category navigation,
+category-dependent switch visibility. It also owns how the interface assembles
+the current selection plus shared fields into category reset, and single-group
+motion-limit presentation without Silent controls. Those interface extensions
+are not yet implemented. Extruder/variant navigation is immediate like category navigation,
 including during field submission or with invalid input; dispatched writes
 remain bound to their original fields. Opening an editor starts at the first
 selection. Printer browsing retains valid nozzle and per-nozzle editing-flow
@@ -528,8 +538,9 @@ deferred, preserving the current category-tab feedback behavior.
 The accepted switch design separates diameter-editing entry points. A direct
 `nozzle_diameter` field edit changes the current Printer preset's draft while
 retaining its canonical source. Sidebar toolhead-size dropdowns retain automatic
-profile matching. This replaces the delivered editor's forwarding into the
-toolhead transition and is not yet implemented; the full boundary is owned by
+profile matching through its separate toolhead transaction. Editor element
+mutations write their own active or browsed source's draft even when another
+installed preset exactly matches the resulting diameters. The full boundary is owned by
 [Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md).
 
 Source, Effective, tooltips, search and history refresh use the same displayed

@@ -284,12 +284,12 @@ export interface NativeScopedConfigTarget {
 }
 
 export type NativeScopedConfigMutationOperation =
-  | 'set' | 'reset' | 'reset-category' | 'reset-all' | 'set-element' | 'reset-elements';
+  | 'set' | 'reset' | 'reset-category' | 'reset-all' | 'set-element' | 'reset-fields';
 
 /** One atomic native scoped-configuration transaction request. */
 export interface NativeScopedConfigWholeMutationRequest {
   readonly version: 1;
-  readonly operation: Exclude<NativeScopedConfigMutationOperation, 'set-element' | 'reset-elements'>;
+  readonly operation: Exclude<NativeScopedConfigMutationOperation, 'set-element' | 'reset-fields'>;
   readonly targets: readonly NativeScopedConfigTarget[];
   readonly key?: string;
   readonly value?: string;
@@ -300,10 +300,9 @@ export interface NativeScopedConfigWholeMutationRequest {
 export type NativeScopedConfigMutationRequest = NativeScopedConfigWholeMutationRequest | ({
   readonly version: 1;
   readonly targets: readonly [{ readonly scope: 'project'; readonly id?: never }];
-  readonly index: number;
   readonly expectedRevision: number;
 } & (({ readonly operation: 'set-element' } & ConfigElementMutation)
-   | { readonly operation: 'reset-elements'; readonly keys: readonly string[] }));
+   | { readonly operation: 'reset-fields'; readonly fields: readonly ConfigResetField[] }));
 
 export interface ConfigurationCorrection {
   readonly key: string;
@@ -625,6 +624,11 @@ interface PresetDraftMutationBase extends PresetDraftTarget {
   readonly expectedRevision: number;
 }
 
+/** Explicit category batch: one current binding per unique option key. */
+export type ConfigResetField =
+  | { readonly key: string; readonly kind: 'indexed'; readonly index: number }
+  | { readonly key: string; readonly kind: 'shared' };
+
 export type PresetDraftMutationRequest =
   | (PresetDraftMutationBase & { readonly action: 'set'; readonly key: string; readonly value: string })
   | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
@@ -643,7 +647,7 @@ export type PresetDraftMutationRequest =
   | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
       readonly index: number; readonly scalarType: 'points'; readonly value: readonly PresetDraftEditorPoint[] })
   | (PresetDraftMutationBase & { readonly action: 'reset-field'; readonly key: string; readonly index?: number })
-  | (PresetDraftMutationBase & { readonly action: 'reset-category'; readonly keys: readonly string[]; readonly index?: number })
+  | (PresetDraftMutationBase & { readonly action: 'reset-category'; readonly fields: readonly ConfigResetField[] })
   | (PresetDraftMutationBase & { readonly action: 'reset-preset' });
 
 /** Correlate the native element type with its single typed value. */
@@ -1530,7 +1534,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   setAutoFlushPolicy(policy: AutoFlushPolicy): Promise<{ ok: boolean; error?: string }>;
   /** Open/read native source+effective values and metadata for one canonical preset identity. */
   getPresetDraft(kind: PresetDraftKind, canonicalName: string): Promise<PresetDraftSnapshotResult>;
-  /** Apply one history-backed draft operation; reset-category receives its explicit field set. */
+  /** Apply one history-backed draft operation; category reset carries explicit per-field bindings. */
   mutatePresetDraft(request: PresetDraftMutationRequest, context: import('./history').HistoryContext): Promise<PresetDraftMutationResult>;
   selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError>;
   setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;

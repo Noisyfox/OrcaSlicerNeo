@@ -37,6 +37,7 @@ export type {
   ProfileSnapshotError, ProfileSnapshotResult,
   OptionMetadata, OptionMeta,
   ConfigElementMutation, ConfigEditorSnapshot, ConfigEditorSnapshotResult,
+  ConfigResetField,
   ConfigEditorChoice, ConfigEditorElementBinding, ConfigEditorFieldBinding, ConfigEditorSelection,
   PresetDraftKind, PresetDraftTarget, PresetDraftSnapshot, PresetDraftSnapshotResult,
   PresetDraftValues, PresetEditorCandidateUpdate, ProfileOrdinaryEdit, FilamentSessionOrdinaryEdit,

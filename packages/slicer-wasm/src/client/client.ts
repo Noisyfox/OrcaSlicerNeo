@@ -2247,8 +2247,8 @@ export function createClient(
         payload.index = request.index;
         payload.value = request.value;
       }
-      if (request.action === 'reset-category') payload.keys = [...request.keys];
-      if ((request.action === 'reset-field' || request.action === 'reset-category') && request.index !== undefined)
+      if (request.action === 'reset-category') payload.fields = request.fields;
+      if (request.action === 'reset-field' && request.index !== undefined)
         payload.index = request.index;
       return normalizePresetDraftMutation(
         callJson(m, 'orc_mutate_preset_draft', ['string'], [JSON.stringify(payload)]),
@@ -2444,14 +2444,14 @@ export function createClient(
         operation: request.operation,
         targets,
       };
-      if (request.operation === 'set-element' || request.operation === 'reset-elements') {
-        payload.index = request.index;
+      if (request.operation === 'set-element' || request.operation === 'reset-fields') {
         payload.expected_revision = request.expectedRevision;
         if (request.operation === 'set-element') {
+          payload.index = request.index;
           payload.key = request.key;
           payload.value = request.value;
           payload.scalar_type = request.scalarType;
-        } else payload.keys = request.keys;
+        } else payload.fields = request.fields;
       } else {
         if (request.key !== undefined) payload.key = request.key;
         if (request.value !== undefined) payload.value = request.value;
