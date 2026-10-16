@@ -3,7 +3,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
 
-if (!process.argv[2]) throw new Error('usage: node profile-activation-startup-smoke.mjs <module.js>');
+if (!process.argv[2]) throw new Error('usage: node profile-activation-startup-smoke.mjs <module.js> [--expect-variant serial|threaded]');
 const source = resolve(import.meta.dirname, 'fixtures/compatibility-profiles');
 const factory = await loadModuleFactory(resolve(process.argv[2]));
 const activation = { models: [{ vendor: 'CompatibilityFixture', model: 'Compatibility Alpha', nozzle_diameter: ['0.4'] }],
@@ -63,6 +63,21 @@ assert.notEqual(session.call('orc_select_preset', ['string', 'string'], ['printe
   'saved current printer cannot activate an excluded source vendor');
 initialized = session.init(activation);
 assert.equal(initialized.setupRequired, false); assert.equal(initialized.printers, 3, 'entire selected vendor parses');
+const threading=session.call('orc_get_threading_info');
+assert.equal(threading.ok,true);
+const expectedVariantIndex=process.argv.indexOf('--expect-variant');
+if(expectedVariantIndex>=0) {
+  const expected=process.argv[expectedVariantIndex+1];
+  assert.ok(['serial','threaded'].includes(expected),'expected variant must be serial or threaded');
+  assert.equal(threading.threaded,expected==='threaded','native execution matches the requested smoke variant');
+}
+assert.equal(threading.arena_concurrency,threading.max_concurrency);
+assert.equal(threading.max_concurrency,threading.threaded?globalThis.navigator.hardwareConcurrency:1);
+assert.equal(session.Module.HEAPU8.buffer instanceof SharedArrayBuffer,threading.threaded,'threaded startup uses shared WASM memory');
+const mailbox=session.call('orc_get_async_task_mailbox');
+assert.equal(mailbox.ok,true);assert.ok(mailbox.capacity>0);
+if(threading.threaded)assert.doesNotThrow(()=>Atomics.load(new Int32Array(session.Module.HEAPU8.buffer,mailbox.byte_offset,4),0));
+console.log('startup execution',JSON.stringify(threading));
 const startupProfiles = session.call('orc_get_preset_snapshot');
 assert.equal(startupProfiles.printer.name, 'Compatibility Alpha 0.4 nozzle', 'startup excludes intrinsic placeholder');
 assert.equal(startupProfiles.print.name, 'Alpha Explicit Process', 'native fallback resolves concrete default Process');

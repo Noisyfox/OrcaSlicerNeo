@@ -2,10 +2,11 @@
 
 **Date:** 2026-10-16
 
-**Status:** Implementation in progress. Native mappings, atomic resets, the
-diameter-editing boundary, and Printer, Filament and Project Print selection are
-delivered. Integrated qualification remains pending. Improved delayed rejection feedback
-after navigation remains deferred.
+**Status:** Implemented in the shared Electron and Web application. Native
+mappings, atomic resets, the diameter-editing boundary, and Printer, Filament
+and Project Print selection are delivered. Integrated verification and
+independent parent acceptance are complete under section 10. Improved delayed
+rejection feedback after navigation remains deferred.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
 preset editors and Project Print settings. This is a peer specification to
@@ -361,11 +362,14 @@ not evidence that the feature has been delivered:
 | Missing data | Missing native mappings are read-only and excluded from reset. A valid mapping with a short vector retains the existing bounded value fallback; missing mappings never substitute index zero. |
 | Diameter entry points | Direct editor diameter changes retain the current canonical preset and draft. Sidebar toolhead-size changes retain automatic preset matching and their existing transition behavior. |
 
-Extend the existing [indexed-editor smoke coverage](../packages/slicer-wasm/harness/extruder-indexed-editor-smoke.mjs)
-with real native mapping and mixed-index reset checks. Shared component tests
-cover selection transitions, presentation, and controlled pending/rejected
-responses. Mocked UI evidence does not replace real native index/ownership
-verification.
+The existing [indexed-editor smoke coverage](../packages/slicer-wasm/harness/extruder-indexed-editor-smoke.mjs)
+checks real native mappings, mixed-index reset, ownership and history. Shared
+component tests cover selection transitions, presentation, and controlled
+pending/rejected responses. The [Electron editor journeys](../apps/desktop/e2e/preset-editor.e2e.ts)
+and [Web settings journeys](../apps/web/e2e/project-settings.e2e.ts) exercise the
+native-exported Hybrid fixture through their respective host boundaries, with
+artifact identity and runtime-variant checks. Mocked UI evidence does not
+replace real native index/ownership verification.
 
 Verification scope follows the [testing guidelines](../doc/testing_guidelines.md):
 affected package checks during implementation; repository checks, a primary-host
@@ -392,7 +396,7 @@ to the same agent for repair and renewed verification.
 | 2. Atomic mutations and diameter boundary | Add one validated mixed-index/shared-field category-reset operation for preset drafts and Project Print. Direct Printer-editor diameter changes edit the current draft instead of entering sidebar matching. | Real native edits/reset preserve other elements and explicit ownership; invalid batches are atomic; one accepted reset is one history entry and Undo/Redo restores it. An editor diameter edit keeps canonical identity even when another matching preset exists; sidebar matching retains its current behavior. Affected package checks and native build/smoke pass, then parent independently verifies both boundaries. | Accepted |
 | 3. Printer editor | Deliver the single Extruder page, native bindings throughout the field presentation, multi-nozzle cards, single-nozzle variant dropdown, independent per-nozzle editing flows, selection transitions, and mapped category reset. | Component tests and a focused primary-host journey cover SF/HF isolation, active/inactive presets, fallback defaults, category visibility, single-nozzle cases, selected ownership/highlights, immediate navigation during invalid/pending edits, and captured mutation bindings. Parent reviews state lifetime and independently tests the rendered interaction. | Accepted |
 | 4. Filament and Project Print surfaces | Apply the shared variant/binding presentation to the complete Filament variant list and Project Print nozzle choices. Print retains its current native owner and uses actual project flow; other scoped element extensions remain deferred. | Tests demonstrate no project-Printer filtering of Filament variants, Project-flow-driven Print choices including Hybrid, independent surface selections, correct reads/edits/reset/highlights, and native history/ownership. Affected package checks and focused host integration pass before independent parent acceptance. | Accepted |
-| 5. Integrated delivery | Complete the real-runtime regression journeys and reconcile delivery statements in existing specifications. Repair any integration findings through the same implementation agent. | Repository tests/typechecks, the primary shared-UI journey, affected real-WASM host integration, both quick builds, comprehensive native coverage on one variant, and variant-specific smoke on the other meet section 9 and the testing guidelines. Parent independently reviews the complete feature and reruns decisive integration checks before the final commit. | Not started |
+| 5. Integrated delivery | Complete the real-runtime regression journeys and reconcile delivery statements in existing specifications. Repair any integration findings through the same implementation agent. | Repository tests/typechecks, the primary shared-UI journey, affected real-WASM host integration, both quick builds, comprehensive native coverage on one variant, and variant-specific smoke on the other meet section 9 and the testing guidelines. Parent independently reviews the complete feature and reruns decisive integration checks before the final commit. | Accepted |
 
 Each step also requires `git diff --check` and verification of changed local
 links/commands. Required evidence and unresolved failures are reported at its

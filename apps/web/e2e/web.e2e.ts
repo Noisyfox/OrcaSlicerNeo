@@ -3,6 +3,7 @@ import { expectCurrentPlate, clickPlateControl } from '../../desktop/e2e/plate-c
 import { test, expect, configuredActivation } from './browser-fixture';
 
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,9 +72,19 @@ test('real Web Send preserves browser multipart encoding and starts the server-r
   }
 });
 
-test('real Web G-code export downloads the native generated basename directly', async ({ page }) => {
+test('real Web G-code export downloads the native generated basename directly', async ({ page,context }) => {
+  const expectedVariant=process.env.ORCA_WEB_NO_ISOLATION==='1'?'serial':'threaded';
+  let servedArtifact:{variant:string;hash:string}|undefined;
+  await context.route('**/wasm/*/orca_slice.wasm',async route=>{
+    const response=await route.fetch();const body=await response.body();
+    servedArtifact={variant:new URL(route.request().url()).pathname.split('/').at(-2)!,hash:createHash('sha256').update(body).digest('hex')};
+    await route.fulfill({response,body});
+  });
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  const expectedWasm=await readFile(resolve(here,`../../../packages/slicer-wasm/out/${expectedVariant}/orca_slice.wasm`));
+  expect(servedArtifact).toEqual({variant:expectedVariant,hash:createHash('sha256').update(expectedWasm).digest('hex')});
+  console.log('[web-export-artifact]',JSON.stringify(servedArtifact));
   if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
     await expect(page.getByTestId('serial-fallback-status')).toBeVisible();
   } else {

@@ -1,6 +1,6 @@
 import { _electron } from './electron-fixture';
 import { expect, test, type Page } from '@playwright/test';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { statSync } from 'node:fs';
 import { openProjectMenu, waitForProjectLoad } from './project-menu';
 
@@ -18,7 +18,7 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:60_000});
     await page.locator('#app-tab-prepare').click();
     await openProjectMenu(page,app);await waitForProjectLoad(page);
-    await expect.poll(()=>page.evaluate(()=>(window as any).__orcaE2e.projectLoadEvidence())).toMatchObject({receipt:{sourceDisplayName:'extruder-step4-hybrid.3mf',sourceByteLength:statSync(fixture!).size,nativeResult:{ok:true,mode:'project'}}});
+    await expect.poll(()=>page.evaluate(()=>(window as any).__orcaE2e.projectLoadEvidence())).toMatchObject({receipt:{sourceDisplayName:basename(fixture!),sourceByteLength:statSync(fixture!).size,nativeResult:{ok:true,mode:'project'}}});
     await page.waitForFunction(()=>Boolean((window as any).__orcaScopedConfigurationGate));
     expect(await page.evaluate(async()=>(await (window as any).__orcaScopedConfigurationGate.execution()).threaded)).toBe(false);
     // Shared Print controls keep whole-option ownership beside the mapped editor.
