@@ -210,7 +210,6 @@ function normalizeScalarInput(value: string, metadata: OptionMeta | undefined): 
   return String(clamped);
 }
 
-const NULL_ENUM_VALUE = '__preset_editor_null__';
 
 function makeMutationRequest(
   snapshot: PresetDraftSnapshot,
@@ -391,7 +390,7 @@ function FieldValue({
   const multiline = field.multiline === true || binding?.multiline === true;
   const controlsDisabled = loading || mutationPending;
   const colorControl = <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen} title={label}
-    value={{ kind: 'solid', color: colourInputValue(displayValue) }} disabled={controlsDisabled || nullValue}
+    value={{ kind: 'solid', color: colourInputValue(displayValue) }} disabled={controlsDisabled}
     onConfirm={next => {
       if (next.kind !== 'solid' || next.color.toLowerCase() === colourInputValue(effectiveValue).toLowerCase()) return;
       if (binding && boundText) void submitElementSet(next.color.toLowerCase());
@@ -435,8 +434,8 @@ function FieldValue({
         return;
       }
       if (!boundNumeric) return;
-      if (!displayValue.trim() && binding.nullable) {
-        if (binding.effectiveValue !== null) void submitElementSet(null);
+      if (!displayValue.trim()) {
+        setFieldError('Enter a valid number.');
         return;
       }
     }
@@ -491,13 +490,6 @@ function FieldValue({
       event.currentTarget.blur();
     }
   };
-  const commitNull = (checked: boolean) => {
-    setNullValue(checked);
-    setFieldError(null);
-    if (checked) void submitElementSet(null);
-    else if (binding?.scalarType === 'string' && binding.effectiveValue === null)
-      void submitElementSet('');
-  };
   const setText = (value: string) => {
     setDisplayValue(value);
     if (nullValue) setNullValue(false);
@@ -529,28 +521,6 @@ function FieldValue({
       {coordinateVector.scalarType === 'points' ? <textarea {...props} className="min-h-20 w-full rounded-md border border-input bg-input px-2 py-1 text-xs" /> : <Input {...props} />}
       <span className="text-xs text-muted-foreground">{coordinateVector.scalarType === 'points' ? 'One X, Y coordinate per line.' : 'X, Y coordinates.'}</span>
     </div>;
-  } else if (!readOnly && binding?.scalarType === 'bool' && binding.nullable) {
-    control = <Select
-      value={nullValue ? NULL_ENUM_VALUE : displayValue === 'true' ? 'true' : 'false'}
-      onValueChange={(next) => {
-        if (next === NULL_ENUM_VALUE) void submitElementSet(null);
-        else if (next !== null) void submitElementSet(next === 'true');
-      }}
-      disabled={controlsDisabled}
-    >
-      <SelectTrigger id={inputId} aria-label={label} data-testid={`preset-editor-input-${field.key}`} className="w-full">
-        <SelectValue>
-          {(value) => value === NULL_ENUM_VALUE
-            ? 'Not set'
-            : value === 'true' ? 'Enabled' : 'Disabled'}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={NULL_ENUM_VALUE}>Not set</SelectItem>
-        <SelectItem value="true">Enabled</SelectItem>
-        <SelectItem value="false">Disabled</SelectItem>
-      </SelectContent>
-    </Select>;
   } else if (!readOnly && binding?.scalarType === 'bool') {
     control = <Checkbox
       aria-label={label}
@@ -562,22 +532,18 @@ function FieldValue({
     />;
   } else if (!readOnly && binding?.scalarType === 'enum' && binding.enumOptions?.length) {
     control = <Select
-      value={nullValue ? NULL_ENUM_VALUE : String(binding.effectiveValue ?? displayValue)}
+      value={nullValue ? null : String(binding.effectiveValue ?? displayValue)}
       onValueChange={(next) => {
-        if (next === NULL_ENUM_VALUE) void submitElementSet(null);
-        else if (next !== null) void submitElementSet(Number(next));
+        if (next !== null) void submitElementSet(Number(next));
       }}
       disabled={controlsDisabled}
     >
       <SelectTrigger id={inputId} aria-label={label} data-testid={`preset-editor-input-${field.key}`} className="w-full">
         <SelectValue>
-          {(value) => value === NULL_ENUM_VALUE
-            ? 'Not set'
-            : binding.enumOptions?.find((option) => String(option.value) === String(value))?.label ?? String(value)}
+          {(value) => value == null ? '' : binding.enumOptions?.find((option) => String(option.value) === String(value))?.label ?? String(value)}
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
-        {binding.nullable && <SelectItem value={NULL_ENUM_VALUE}>Not set</SelectItem>}
         {binding.enumOptions.map((option) => <SelectItem key={option.name} value={String(option.value)}>
           {option.label}
         </SelectItem>)}
@@ -592,7 +558,7 @@ function FieldValue({
         type="text"
         inputMode={binding.scalarType === 'int' ? 'numeric' : 'decimal'}
         value={nullValue ? '' : displayValue}
-        disabled={controlsDisabled || nullValue}
+        disabled={controlsDisabled}
         onFocus={() => { focused.current = true; }}
         onBlur={handleTextBlur}
         onChange={(event) => setText(event.currentTarget.value)}
@@ -607,7 +573,7 @@ function FieldValue({
           setPercentMode(nextPercent);
           submitBoundNumber(displayValue, nextPercent);
         }}
-        disabled={controlsDisabled || nullValue}
+        disabled={controlsDisabled}
       >
         <SelectTrigger aria-label={`${label} unit`} data-testid={`preset-editor-unit-${field.key}`} className="w-28">
           <SelectValue />
@@ -617,30 +583,10 @@ function FieldValue({
           <SelectItem value="percent">Percent</SelectItem>
         </SelectContent>
       </Select>}
-      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-        <Checkbox
-          aria-label={`Set ${label} to null`}
-          data-testid={`preset-editor-null-${field.key}`}
-          checked={nullValue}
-          disabled={controlsDisabled}
-          onCheckedChange={(checked) => commitNull(checked === true)}
-        />
-        Null
-      </label>}
     </div>;
   } else if (!readOnly && binding && boundText && colourField) {
     control = <div className="flex min-w-0 items-center gap-2">
       {colorControl}
-      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-        <Checkbox
-          aria-label={`Set ${label} to null`}
-          data-testid={`preset-editor-null-${field.key}`}
-          checked={nullValue}
-          disabled={controlsDisabled}
-          onCheckedChange={(checked) => commitNull(checked === true)}
-        />
-        Null
-      </label>}
     </div>;
   } else if (!readOnly && binding && boundText && multiline) {
     control = <div className="flex min-w-0 flex-col gap-2">
@@ -649,23 +595,13 @@ function FieldValue({
         id={inputId}
         data-testid={`preset-editor-input-${field.key}`}
         value={nullValue ? '' : displayValue}
-        disabled={controlsDisabled || nullValue}
+        disabled={controlsDisabled}
         onFocus={() => { focused.current = true; }}
         onBlur={handleTextBlur}
         onChange={(event) => setText(event.currentTarget.value)}
         onKeyDown={handleTextKeyDown}
         className="min-h-20 w-full min-w-0 rounded-md border border-input bg-input/20 px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-xs/relaxed dark:bg-input/30"
       />
-      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-        <Checkbox
-          aria-label={`Set ${label} to null`}
-          data-testid={`preset-editor-null-${field.key}`}
-          checked={nullValue}
-          disabled={controlsDisabled}
-          onCheckedChange={(checked) => commitNull(checked === true)}
-        />
-        Null
-      </label>}
     </div>;
   } else if (!readOnly && binding && boundText) {
     control = <div className="flex min-w-0 items-center gap-2">
@@ -675,22 +611,12 @@ function FieldValue({
         data-testid={`preset-editor-input-${field.key}`}
         type="text"
         value={nullValue ? '' : displayValue}
-        disabled={controlsDisabled || nullValue}
+        disabled={controlsDisabled}
         onFocus={() => { focused.current = true; }}
         onBlur={handleTextBlur}
         onChange={(event) => setText(event.currentTarget.value)}
         onKeyDown={handleTextKeyDown}
       />
-      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-        <Checkbox
-          aria-label={`Set ${label} to null`}
-          data-testid={`preset-editor-null-${field.key}`}
-          checked={nullValue}
-          disabled={controlsDisabled}
-          onCheckedChange={(checked) => commitNull(checked === true)}
-        />
-        Null
-      </label>}
     </div>;
   } else if (!readOnly && !binding && metadata?.type === 'bool') {
     control = <Checkbox

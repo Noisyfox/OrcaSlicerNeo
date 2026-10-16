@@ -48,13 +48,9 @@ export function projectPrintField(field: ScopedConfigurationField, snapshot: Con
 }
 
 /** Convert one UI value to the existing typed element command, never native index math. */
-export function parsePrintElement(element: PrintFieldElement, text: string, nullValue = false): PresetDraftVectorValue {
+export function parsePrintElement(element: PrintFieldElement, text: string): PresetDraftVectorValue {
   const vector = element.vector;
   if (!vector || element.target.kind !== 'indexed') throw new Error('This selection has no corresponding native mapping.');
-  if (nullValue || (!text.trim() && vector.nullable && vector.scalarType !== 'string')) {
-    if (!vector.nullable) throw new Error('This native value cannot be null.');
-    return null;
-  }
   if (vector.scalarType === 'string') return text;
   if (vector.scalarType === 'bool') return text === '1';
   if (vector.scalarType === 'enum') {

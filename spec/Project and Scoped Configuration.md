@@ -188,6 +188,12 @@ transaction as ordinary scoped edits. They currently accept one Project target;
 Object, Part and Plate element editing remains deferred. Project mode uses the
 loaded Print snapshot's nozzle choices and native mappings for values, Source
 and Effective tooltips, indexed edits/resets, search and ownership highlights.
+Ordinary Print fields have no extra nullable checkbox or synthetic `Not set`
+choice. An existing native nil numeric element appears empty and can be
+repaired by entering a valid number; viewing or clearing the field does not
+write nil or coerce its stored value. Native nullable vectors, reset and
+history semantics remain unchanged. Dedicated Filament override controls are
+governed by the [Preset Editor](Preset%20Editor%20Dialog.md).
 Only options present in that Print snapshot receive this projection. Native
 Project settings outside it retain their existing whole-option owner and
 commands; an owned Print option with a missing mapping remains unavailable.

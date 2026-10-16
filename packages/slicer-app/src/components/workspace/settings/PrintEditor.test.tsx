@@ -158,7 +158,8 @@ it.each([
   const vector={...snapshot.editorVectors.outer_wall_speed,scalarType,enumOptions:[{name:'top',label:'Top',value:2}]};
   const element={target:{kind:'indexed' as const,index:2},vector,source:value,effective:value,revision:snapshot.revision};
   expect(parsePrintElement(element,text)).toEqual(value);
-  expect(parsePrintElement({...element,vector:{...vector,nullable:true}},'',true)).toBeNull();
+  expect(parsePrintElement({...element,vector:{...vector,nullable:true}},text)).toEqual(value);
+  if(['float','int','percent','float_or_percent'].includes(scalarType))expect(()=>parsePrintElement({...element,vector:{...vector,nullable:true}},'')).toThrow(/valid number/);
   expect(()=>parsePrintElement({...element,target:{kind:'unavailable'}},text)).toThrow(/mapping/);
   if(['float','int','percent','float_or_percent','point'].includes(scalarType))expect(()=>parsePrintElement(element,'invalid')).toThrow();
 });
@@ -252,4 +253,53 @@ it('distinguishes external whole options from genuinely unavailable Print-owned 
   }
   const field={key:'outer_wall_speed',label:'Speed',category:'Speed',meta:{type:'floats' as const},value:'200',mixed:false,source:'preset' as const,local:false,resettable:true};
   expect(projectPrintField(field,{...snapshot,editorSelection:{...snapshot.editorSelection,fieldBindings:{}}},'ordinal-0')).toMatchObject({value:'Unavailable',resettable:false,editor:{target:{kind:'unavailable'}}});
+});
+
+
+it('shows ordinary numeric controls for nullable Print metadata, rejects blank input and keeps indexed edits/reset',async()=>{
+  const h=await setup();
+  h.project(snapshot=>({...snapshot,editorVectors:Object.fromEntries(Object.entries(snapshot.editorVectors).map(([key,vector])=>
+    [key,{...vector,nullable:true}]))}));
+  await h.refresh();await click('config-page-Speed');await choose('T1 HF');
+  expect(document.querySelector('[data-testid^="config-null-"]')).toBeNull();
+  expect([...document.querySelectorAll('label')].some(label=>label.textContent==='Null')).toBe(false);
+  const field=document.querySelector('[data-testid="config-field-outer_wall_speed"]')!;
+  expect(field.querySelector('[role="checkbox"]')).toBeNull();
+  expect((await h.runtime.getPrintConfigEditor() as ConfigEditorSnapshot).editorVectors.outer_wall_speed.nullable).toBe(true);
+  const before=await h.runtime.getHistoryStatus();
+  await type('');expect(h.mutate).not.toHaveBeenCalled();
+  expect(document.querySelector('[data-testid="config-error-outer_wall_speed"]')?.textContent).toContain('valid number');
+  await type('invalid');expect(h.mutate).not.toHaveBeenCalled();
+  expect(await h.runtime.getHistoryStatus()).toEqual(before);
+  expect(await h.runtime.getPrintConfigEditor()).toMatchObject({editorVectors:{outer_wall_speed:{effectiveValues:[200,220,240]}}});
+  await type('227');
+  expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({operation:'set-element',index:1,value:227}));
+  await click('config-reset-outer_wall_speed');
+  expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({operation:'reset-fields',fields:[{key:'outer_wall_speed',kind:'indexed',index:1}]}));
+  expect(await h.runtime.getPrintConfigEditor()).toMatchObject({editorVectors:{outer_wall_speed:{effectiveValues:[200,220,240]}}});
+});
+
+it('preserves an imported nullable Print element until valid numeric input and keeps its reset repairable',async()=>{
+  const h=await setup();
+  // Native-shaped imported Source has a nil at this selection. Ordinary
+  // numeric mutation/history still executes through the actual typed client.
+  h.project(snapshot=>{
+    const vector=snapshot.editorVectors.outer_wall_speed;
+    const sourceValues=[200,null,240];
+    const effectiveValues=vector.effectiveValues.map((value,index)=>index===1 && vector.overrideValues[index]===null?null:value);
+    return {...snapshot,sourceValues:{...snapshot.sourceValues,outer_wall_speed:'200,nil,240'},
+      effectiveValues:{...snapshot.effectiveValues,outer_wall_speed:effectiveValues.map(value=>value===null?'nil':value).join(',')},
+      editorVectors:{...snapshot.editorVectors,outer_wall_speed:{...vector,nullable:true,sourceValues,effectiveValues}}};
+  });
+  await h.refresh();await click('config-page-Speed');await choose('T1 HF');
+  const input=()=>document.querySelector<HTMLInputElement>('[data-testid="config-input-outer_wall_speed"]')!;
+  expect(input().value).toBe('');expect(input().disabled).toBe(false);
+  await type('');await type('invalid');await choose('T2 SF');await choose('T1 HF');
+  expect(input().value).toBe('');expect(h.mutate).not.toHaveBeenCalled();
+  expect(await h.runtime.getPrintConfigEditor()).toMatchObject({editorVectors:{outer_wall_speed:{nullable:true,sourceValues:[200,null,240],effectiveValues:[200,null,240]}}});
+  await type('229');expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({operation:'set-element',index:1,value:229}));
+  expect(input().value).toBe('229');
+  await click('config-reset-outer_wall_speed');expect(input().value).toBe('');expect(input().disabled).toBe(false);
+  expect(await h.runtime.getPrintConfigEditor()).toMatchObject({editorVectors:{outer_wall_speed:{effectiveValues:[200,null,240]}}});
+  await type('230');expect(input().value).toBe('230');
 });

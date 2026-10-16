@@ -391,9 +391,9 @@ async function changeTextarea(textarea: HTMLTextAreaElement, value: string) {
   });
 }
 
-async function press(input: HTMLElement, key: string) {
+async function press(input: HTMLElement, key: string, modifiers:KeyboardEventInit={}) {
   await act(async () => {
-    input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...modifiers }));
   });
 }
 
@@ -1175,8 +1175,9 @@ describe('PresetEditorDialogContent', () => {
       key: 'overhang_fan_threshold', scalarType: 'enum', value: 3 }));
 
     await click(document.querySelector('[data-testid="preset-editor-page-tab-filament"]'));
-    expect(document.querySelector('[data-testid="preset-editor-input-filament_adaptive_volumetric_speed"]')?.textContent)
-      .toContain('Not set');
+    const adaptive=document.querySelector('[data-testid="preset-editor-input-filament_adaptive_volumetric_speed"]')!;
+    expect(adaptive.getAttribute('role')).toBe('checkbox');expect(adaptive.getAttribute('aria-checked')).toBe('false');
+    expect(document.querySelector('[data-testid^="preset-editor-null-"]')).toBeNull();
     const category = document.querySelector('[data-testid="preset-editor-input-filament_adhesiveness_category"]') as HTMLInputElement;
     await changeInput(category, '3');
     await press(category, 'Enter');
@@ -1194,10 +1195,70 @@ describe('PresetEditorDialogContent', () => {
     await click(document.querySelector('[data-testid="preset-editor-page-tab-notes"]'));
     expect(document.querySelector('[data-testid="preset-editor-source-filament_notes"]')?.textContent).toBe('(null)');
     expect(document.querySelector('[data-testid="preset-editor-effective-filament_notes"]')?.textContent).toBe('(null)');
-    await click(document.querySelector('[data-testid="preset-editor-null-filament_notes"]'));
+    const notes=document.querySelector('[data-testid="preset-editor-input-filament_notes"]') as HTMLTextAreaElement;
+    expect(notes.disabled).toBe(false);
+    expect(document.querySelector('[data-testid="preset-editor-null-filament_notes"]')).toBeNull();
+    await changeTextarea(notes,'temporary');await changeTextarea(notes,'');await press(notes,'Enter',{ctrlKey:true});
     expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'set-element',
       key: 'filament_notes', scalarType: 'string', value: '' }));
     expect(document.querySelector('[data-testid="preset-editor-effective-filament_notes"]')?.textContent).toBe('(empty)');
+  });
+
+  it.each(['printer','filament'] as const)('keeps ordinary nullable %s numbers editable without nil toggles or blank-to-nil writes',async kind=>{
+    const base=kind==='printer'?u1Fixture():filamentVariantsFixture();
+    const key=kind==='printer'?'retraction_length':'filament_flow_ratio';
+    const index=kind==='printer'?4:1;
+    const vector=base.editorVectors[key];
+    const values=vector.sourceValues.map((value,i)=>i===index?null:value);
+    const snapshot={...base,sourceValues:{...base.sourceValues,[key]:JSON.stringify(values)},effectiveValues:{...base.effectiveValues,[key]:JSON.stringify(values)},
+      editorVectors:{...base.editorVectors,[key]:{...vector,nullable:true,sourceValues:values,effectiveValues:values}}};
+    const h=await controlledPrinter(snapshot);
+    if(kind==='printer'){await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]'));await selectExtruder(3);}
+    else {await click(document.querySelector('[data-testid="preset-editor-variant"]'));await click([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent==='Direct Drive High Flow')!);}
+    const input=()=>document.querySelector(`[data-testid="preset-editor-input-${key}"]`) as HTMLInputElement;
+    expect(input().disabled).toBe(false);expect(input().value).toBe('');
+    expect(document.querySelector('[data-testid^="preset-editor-null-"]')).toBeNull();
+    expect([...document.querySelectorAll('label')].some(label=>label.textContent==='Null')).toBe(false);
+    await act(async()=>{input().focus();input().blur();});expect(h.onMutate).not.toHaveBeenCalled();
+    await changeInput(input(),'bad');await press(input(),'Enter');expect(h.onMutate).not.toHaveBeenCalled();
+    await changeInput(input(),' ');await press(input(),'Enter');expect(h.onMutate).not.toHaveBeenCalled();
+    expect(document.querySelector(`[data-testid="preset-editor-error-${key}"]`)?.textContent).toContain('valid number');
+    expect(h.getSnapshot().editorVectors[key].effectiveValues).toEqual(values);
+    await changeInput(input(),'1.8');await press(input(),'Enter');
+    expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({action:'set-element',key,index,value:1.8}));
+    await click(document.querySelector(`[data-testid="preset-editor-reset-field-${key}"]`));
+    expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({action:'reset-field',key,index}));
+    expect(input().value).toBe('');expect(input().disabled).toBe(false);
+    expect(h.getSnapshot().editorVectors[key].effectiveValues).toEqual(values);
+  });
+
+  it('retains boolean value checkboxes and native enum options without synthetic Not set choices',async()=>{
+    const base=snapshotFor('filament');
+    const enumBinding={...base.editorBindings.overhang_fan_threshold,nullable:true,sourceValue:null,effectiveValue:null};
+    const snapshot={...base,editorBindings:{...base.editorBindings,overhang_fan_threshold:enumBinding}};
+    const h=await controlledPrinter(snapshot);
+    const checkbox=document.querySelector('[data-testid="preset-editor-input-filament_adaptive_volumetric_speed"]')!;
+    expect(checkbox.getAttribute('role')).toBe('checkbox');expect(h.onMutate).not.toHaveBeenCalled();
+    await click(checkbox);expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({key:'filament_adaptive_volumetric_speed',value:true}));
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-cooling"]'));
+    await click(document.querySelector('[data-testid="preset-editor-input-overhang_fan_threshold"]'));
+    expect([...document.querySelectorAll('[role="option"]')].map(option=>option.textContent)).toEqual(['0%','10%','25%','50%','75%','95%']);
+    await click([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent==='50%')!);
+    expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({key:'overhang_fan_threshold',value:3}));
+  });
+
+  it('keeps the dedicated Filament Setting Overrides manifest read-only instead of unlocking nullable fields',async()=>{
+    const source=filamentVariantsFixture();const vector={...source.editorVectors.filament_flow_ratio,nullable:true,sourceValues:[null,null,null,null,null,null],effectiveValues:[null,null,null,null,null,null]};
+    const h=await controlledPrinter({...source,sourceValues:{...source.sourceValues,filament_retraction_length:'nil'},effectiveValues:{...source.effectiveValues,filament_retraction_length:'nil'},
+      optionMetadata:{...source.optionMetadata,filament_retraction_length:{type:'floats',label:'Retraction length'}},
+      editorVectors:{...source.editorVectors,filament_retraction_length:vector},
+      editorSelection:{...source.editorSelection,fieldBindings:{...source.editorSelection.fieldBindings,filament_retraction_length:source.editorSelection.fieldBindings.filament_flow_ratio}}});
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-setting-overrides"]'));
+    const page=FILAMENT_PRESET_EDITOR_MANIFEST.pages.find(page=>page.id==='setting-overrides')!;
+    expect(page.groups.flatMap(group=>group.fields).every(field=>field.access==='read-only')).toBe(true);
+    expect(document.querySelector('[data-testid="preset-editor-readonly-filament_retraction_length"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-input-filament_retraction_length"]')).toBeNull();
+    expect(document.querySelector('[data-testid^="preset-editor-null-"]')).toBeNull();expect(h.onMutate).not.toHaveBeenCalled();
   });
 
   it('keeps a native float-or-percent object distinct from a percent scalar', async () => {
@@ -1328,11 +1389,12 @@ describe('PresetEditorDialogContent', () => {
 
     await click(document.querySelector('[data-testid="preset-editor-page-tab-notes"]'));
     const notes = document.querySelector('[data-testid="preset-editor-input-filament_notes"]') as HTMLTextAreaElement;
-    await click(document.querySelector('[data-testid="preset-editor-null-filament_notes"]'));
     expect(notes.disabled).toBe(false);
+    await changeTextarea(notes,'temporary');await changeTextarea(notes,'');await press(notes,'Enter',{ctrlKey:true});
     await click(document.querySelector('[data-testid="preset-editor-reset-field-filament_notes"]'));
     expect(notes.value).toBe('');
-    expect(document.querySelector('[data-testid="preset-editor-null-filament_notes"]')?.getAttribute('aria-checked')).toBe('true');
+    expect(document.querySelector('[data-testid="preset-editor-null-filament_notes"]')).toBeNull();
+    expect(notes.disabled).toBe(false);
     expect(document.querySelector('[data-testid="preset-editor-effective-filament_notes"]')?.textContent).toBe('(null)');
 
     await click(document.querySelector('[data-testid="preset-editor-page-tab-filament"]'));

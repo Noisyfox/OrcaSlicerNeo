@@ -1,8 +1,10 @@
 import { _electron } from './electron-fixture';
 import { expect, test, type Page } from '@playwright/test';
+import type { ConfigEditorSnapshot } from '@slicer/client';
 import { basename, resolve } from 'node:path';
 import { statSync } from 'node:fs';
 import { openProjectMenu, waitForProjectLoad } from './project-menu';
+import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receipts';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
@@ -16,6 +18,7 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
   try{
     const page=await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:60_000});
+    await installSliceReceiptObserver(page,['getPrintConfigEditor','mutateNativeScopedConfig']);
     await page.locator('#app-tab-prepare').click();
     await openProjectMenu(page,app);await waitForProjectLoad(page);
     await expect.poll(()=>page.evaluate(()=>(window as any).__orcaE2e.projectLoadEvidence())).toMatchObject({receipt:{sourceDisplayName:basename(fixture!),sourceByteLength:statSync(fixture!).size,nativeResult:{ok:true,mode:'project'}}});
@@ -49,6 +52,25 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     const valueHelp=page.locator('[data-slot="tooltip-content"]').filter({hasText:'Source:'});
     await expect(valueHelp).toBeVisible();
     const sourceBefore=(await valueHelp.textContent())!.match(/Source: ([^\n]+)/)![1].trim();
+    await expect(page.locator('[data-testid^="config-null-"]')).toHaveCount(0);
+    await expect(page.getByText('Null',{exact:true})).toHaveCount(0);
+    await expect(page.getByTestId('config-field-outer_wall_speed').getByRole('checkbox')).toHaveCount(0);
+    const nativePrint=async()=>{
+      const receipts=await readSliceReceipts(page) as {direction:string;op:string;result?:ConfigEditorSnapshot}[];
+      const response=receipts.reverse().find(receipt=>receipt.direction==='response' && receipt.op==='getPrintConfigEditor');
+      if(!response?.result)throw new Error('Missing native Print editor response');
+      return response.result;
+    };
+    const nullable=await nativePrint();expect(nullable.editorVectors.outer_wall_speed.nullable).toBe(true);
+    // Existing native nulls stay in configuration until an ordinary valid edit.
+    await page.evaluate(async revision=>(window as any).__orcaScopedConfigurationGate.configure({version:1,operation:'set-element',targets:[{scope:'project'}],
+      expectedRevision:revision,key:'outer_wall_speed',index:5,scalarType:'float',value:null}),nullable.revision);
+    await expect(speed).toHaveValue('');await expect(speed).toBeEnabled();
+    await expect.poll(async()=>(await nativePrint())?.editorVectors.outer_wall_speed.effectiveValues[5]).toBeNull();
+    const mutationCount=(await readSliceReceipts(page) as any[]).filter(receipt=>receipt.direction==='request' && receipt.op==='mutateNativeScopedConfig').length;
+    await speed.press('Enter');
+    expect((await readSliceReceipts(page) as any[]).filter(receipt=>receipt.direction==='request' && receipt.op==='mutateNativeScopedConfig')).toHaveLength(mutationCount);
+    expect((await nativePrint()).editorVectors.outer_wall_speed.effectiveValues[5]).toBeNull();
     await speed.fill('187');await speed.press('Enter');await expect(speed).toBeEnabled();
     await expect(speed).toHaveValue('187');
     await selection.click();await page.getByRole('option',{name:sf,exact:true}).click();
@@ -58,9 +80,10 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     await page.getByTestId('config-reset-outer_wall_speed').click();await expect(speed).toHaveValue(sourceBefore);
     await page.getByTestId('history-undo').click();await expect(speed).toHaveValue('187');await expect(selection).toContainText(hf);
     await page.getByTestId('history-redo').click();await expect(speed).toHaveValue(sourceBefore);
-    await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/extruder-step4-print.png')});
+    await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/extruder-print-no-null.png')});
     // Printer's editing flow and Filament variants do not follow this Print view.
     await page.getByTestId('preset-edit-printer').click();await page.getByTestId('preset-editor-page-tab-extruder').click();
+    await expect(page.locator('[data-testid^="preset-editor-null-"]')).toHaveCount(0);
     await expect(page.getByTestId('preset-editor-flow-3')).toContainText('SF');
     await page.getByTestId('preset-editor-flow-3').click();await page.getByRole('option',{name:'HF',exact:true}).click();
     await page.getByTestId('preset-editor-close').click();await expect(selection).toContainText(hf);
@@ -74,6 +97,7 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     await page.getByRole('option',{name:'Bowden Extra High Flow',exact:true}).click();
     const ratio=page.getByTestId('preset-editor-input-filament_flow_ratio');
     const ratioBefore=await ratio.inputValue();const ratioAfter=String(Number(ratioBefore)===1.07?1.08:1.07);
+    await expect(page.locator('[data-testid^="preset-editor-null-"]')).toHaveCount(0);
     const ratioSource=await page.getByTestId('preset-editor-source-filament_flow_ratio').textContent();
     await ratio.fill(ratioAfter);await ratio.press('Enter');await expect(ratio).toBeEnabled();await expect(ratio).toHaveValue(ratioAfter);
     await expect(page.getByTestId('preset-editor-field-filament_flow_ratio')).toHaveAttribute('title',/filament_flow_ratio\[5\]/);
@@ -83,6 +107,9 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     await ratio.scrollIntoViewIfNeeded();
     await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/extruder-step4-filament.png')});
     await page.getByTestId('preset-editor-reset-field-filament_flow_ratio').click();await expect(ratio).toHaveValue(ratioSource!);
+    await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
+    await expect(page.getByTestId('preset-editor-readonly-filament_retraction_length')).toBeVisible();
+    await expect(page.getByTestId('preset-editor-input-filament_retraction_length')).toHaveCount(0);
     await page.getByTestId('preset-editor-close').click();await expect(selection).toContainText(hf);
     await expect(page.getByTestId('filament-preset-1')).toHaveAttribute('title',rackSource!);
   }finally{await app.close();}

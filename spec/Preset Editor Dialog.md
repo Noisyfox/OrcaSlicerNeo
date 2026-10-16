@@ -438,6 +438,17 @@ remains in its existing serialized vector form. Filament scalar G-code and
 notes fields use multiline text controls and are editable through that native
 element binding. Printer scalar machine G-code remains read-only.
 
+Ordinary Printer, Filament and Project Print controls do not add a `Null`
+checkbox or a synthetic `Not set` choice. Native nil values remain intact in
+Source/Effective vectors; ordinary numeric controls show them as empty and
+remain editable. Only valid numeric input submits a value: clearing a numeric
+input never writes nil. Genuine boolean-value checkboxes remain available.
+The extra enable checkbox belongs only to Orca's dedicated Filament Setting
+Overrides interaction: checked enables a non-nil override, while unchecked
+uses the inherited Printer or Process value. Neo's Setting Overrides page
+remains read-only until that specialized interaction is implemented; generic
+nullable metadata does not unlock it.
+
 The Printer Extruder page uses complete typed native Source and Effective vectors.
 The internal snapshot contract requires these vectors; native no longer sends
 the previous first-element `editor_bindings` payload. The typed client derives

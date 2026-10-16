@@ -73,7 +73,7 @@ export const ScopedField = memo(function ScopedField({
   disabled?: boolean;
   field: ScopedConfigurationField;
   targets: readonly ScopedConfigurationTarget[];
-  onCommit: (field: ScopedConfigurationField, value: string, nullValue?: boolean) => Promise<string>;
+  onCommit: (field: ScopedConfigurationField, value: string) => Promise<string>;
   onReset: (field: ScopedConfigurationField) => Promise<void>;
 }) {
   const initial = valueForField(field);
@@ -89,13 +89,13 @@ export const ScopedField = memo(function ScopedField({
     signatureRef.current = signature;
     setDraft(initial);
   }, [initial, signature]);
-  const commit = async (value: string, nullValue = false) => {
+  const commit = async (value: string) => {
     if (committing.current || disabled) return;
     committing.current = true;
     setCommitPending(true);
     const submittedSignature = signatureRef.current;
     try {
-      const effective = nullValue ? await onCommit(field, value, true) : await onCommit(field, value);
+      const effective = await onCommit(field, value);
       if (signatureRef.current === submittedSignature) setDraft(effective);
       setError(null);
     } catch (reason) {
@@ -141,7 +141,7 @@ export const ScopedField = memo(function ScopedField({
       id={`scoped-${field.key}`}
       className="size-5 after:inset-0"
       checked={displayed === '1'}
-      disabled={controlDisabled || editor?.effective===null}
+      disabled={controlDisabled}
       data-testid={`config-input-${field.key}`}
       onCheckedChange={(checked) => onDiscrete(checked ? '1' : '0')}
     /></TooltipFor>;
@@ -155,7 +155,7 @@ export const ScopedField = memo(function ScopedField({
       <SelectContent><SelectGroup>{field.meta.enum_values.map((value, index) => <SelectItem key={value} value={value}>{field.meta.enum_labels?.[index] ?? value}</SelectItem>)}</SelectGroup></SelectContent>
     </Select>;
   } else if(editor?.vector?.multiline || editor?.vector?.scalarType==='points') {
-    control=<textarea id={`scoped-${field.key}`} data-testid={`config-input-${field.key}`} value={displayed} disabled={controlDisabled || editor.effective===null}
+    control=<textarea id={`scoped-${field.key}`} data-testid={`config-input-${field.key}`} value={displayed} disabled={controlDisabled}
       className="min-h-16 w-full rounded border border-input bg-background px-2 py-1 text-xs"
       onChange={event=>setDraft(event.target.value)} onBlur={()=>{if(cancelBlur.current){cancelBlur.current=false;return;}if(draft!==valueForField(field))void commit(draft);}}
       onKeyDown={event=>{if(event.key==='Escape'){cancelBlur.current=true;setDraft(initial);event.currentTarget.blur();}}} />;
@@ -164,7 +164,7 @@ export const ScopedField = memo(function ScopedField({
         id={`scoped-${field.key}`}
         data-testid={`config-input-${field.key}`}
         value={displayed}
-        disabled={controlDisabled || editor?.effective===null}
+        disabled={controlDisabled}
         placeholder={field.mixed ? 'Mixed' : undefined}
         min={field.meta.min}
         max={field.meta.max}
@@ -183,9 +183,9 @@ export const ScopedField = memo(function ScopedField({
       /></TooltipFor>
       {canStep && <div className="flex shrink-0 gap-px pr-0.5">
         <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-[2px] rounded-r-none [&>svg]:size-3"
-          aria-label={`Decrease ${field.label}`} disabled={controlDisabled || commitPending || field.mixed || editor?.effective===null || numericDraft <= (field.meta.min ?? -Infinity)} onClick={() => adjust(-1)}><Minus /></Button>
+          aria-label={`Decrease ${field.label}`} disabled={controlDisabled || commitPending || field.mixed || !Number.isFinite(numericDraft) || numericDraft <= (field.meta.min ?? -Infinity)} onClick={() => adjust(-1)}><Minus /></Button>
         <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-none rounded-r-[2px] [&>svg]:size-3"
-          aria-label={`Increase ${field.label}`} disabled={controlDisabled || commitPending || field.mixed || editor?.effective===null || numericDraft >= (field.meta.max ?? Infinity)} onClick={() => adjust(1)}><Plus /></Button>
+          aria-label={`Increase ${field.label}`} disabled={controlDisabled || commitPending || field.mixed || !Number.isFinite(numericDraft) || numericDraft >= (field.meta.max ?? Infinity)} onClick={() => adjust(1)}><Plus /></Button>
       </div>}
       </div>;
   }
@@ -204,16 +204,6 @@ export const ScopedField = memo(function ScopedField({
         {field.local && field.resettable && <TooltipFor content="Reset this local override"><Button
           type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 text-config-override [&>svg]:size-3"
           aria-label={`Reset ${field.label}`} data-testid={`config-reset-${field.key}`} disabled={controlDisabled} onClick={reset}><RotateCcw /></Button></TooltipFor>}
-          {!readOnly && editor?.vector?.nullable && <label className="flex shrink-0 items-center gap-1 text-xs"><Checkbox
-            className="after:inset-0" data-testid={`config-null-${field.key}`} checked={editor.effective===null} disabled={controlDisabled}
-            onCheckedChange={checked=>{
-              if(checked)void commit('',true);
-              else {
-                const fallback=editor.vector?.scalarType==='string'?'':editor.vector?.scalarType==='bool'?'0':
-                  editor.vector?.scalarType==='enum'?editor.vector.enumOptions?.[0]?.name??'':String(field.meta.min??0);
-                void commit(editor.source===null?fallback:elementText(editor.source,editor.vector));
-              }
-            }} />Null</label>}
         </div>
         <div className="min-w-0">
           {field.mixed && <span data-testid={`config-mixed-${field.key}`} className="sr-only">Mixed</span>}
@@ -344,14 +334,14 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     .map((field) => field.category)), [allFields]);
   const hasLocalOverrides = highlightedCategories.size > 0;
 
-  const commitField = useCallback(async (field: ScopedConfigurationField, value: string, nullValue=false) => {
+  const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
     if (mode !== 'project' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
     if(mode==='project' && field.editor) {
       const element=field.editor;
       if(element.target.kind!=='indexed' || !element.vector) throw new Error('This selection has no corresponding native mapping.');
       const next=await printEditor.mutate({version:1,operation:'set-element',targets:[{scope:'project'}],
         expectedRevision:element.revision,key:field.key,index:element.target.index,scalarType:element.vector.scalarType,
-        value:parsePrintElement(element,value,nullValue)} as NativeScopedConfigMutationRequest);
+        value:parsePrintElement(element,value)} as NativeScopedConfigMutationRequest);
       const vector=next.editorVectors[field.key];
       return elementText(configVectorElementAt(vector,vector.effectiveValues,element.target.index),vector);
     }
