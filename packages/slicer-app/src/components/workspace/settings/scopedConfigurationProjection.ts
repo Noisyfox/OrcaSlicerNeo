@@ -30,6 +30,7 @@ export interface ScopedTargetResolution {
 }
 
 export interface ScopedConfigurationField {
+  readonly editor?: import('./printEditorProjection').PrintFieldElement;
   readonly key: string;
   readonly label: string;
   readonly category: string;

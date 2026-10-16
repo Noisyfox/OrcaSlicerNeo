@@ -1,7 +1,7 @@
 # Project and Scoped Configuration
 
 **Status:** Final user experience; delivered in the shared Electron and Web application.
-**Last updated:** 2026-10-10
+**Last updated:** 2026-10-16
 
 This specification records the final behavior visible to users. Project-wide and
 selection-scoped configuration share one settings surface and follow OrcaSlicer's
@@ -185,10 +185,32 @@ other elements remain unchanged. Element values outside native bounds are
 rejected; whole-option numeric edits retain their existing clamping behavior.
 These operations use the same Project-owned Print preset and enclosing history
 transaction as ordinary scoped edits. They currently accept one Project target;
-Object, Part and Plate element editing remains deferred. The accepted design
-for Project Print variant selection is owned by
+Object, Part and Plate element editing remains deferred. Project mode uses the
+loaded Print snapshot's nozzle choices and native mappings for values, Source
+and Effective tooltips, indexed edits/resets, search and ownership highlights.
+Only options present in that Print snapshot receive this projection. Native
+Project settings outside it retain their existing whole-option owner and
+commands; an owned Print option with a missing mapping remains unavailable.
+`print_sequence` is Print-owned and shared; `curr_bed_type` is native Project
+storage and appears in the Plate page and global bed control, not the current
+Project pages. The current Project page allowlist exposes no editable
+`project_config` options, so category batches retain the existing Print-only
+native contract and history owner.
+The selector appears only for categories containing mapped fields and retains
+its choice while hidden. A selection change reads the loaded vectors without
+a native call or mutation. Explicit Process preset entry starts at the first
+choice; ordinary and history refresh retain a valid semantic nozzle/variant
+identity, with first-choice fallback. Incomplete or pending field input does
+not delay nozzle navigation; a dispatched edit retains its captured native
+index and revision. Field-local feedback cannot migrate to another binding.
+
+Print snapshot reads and element commands use the existing project command FIFO,
+history transaction and receipt publication. Refreshes reject superseded reads;
+the interface adds no preset draft or history owner. Objects and Plates keep
+their existing scoped value paths and do not adopt the Project nozzle binding.
+The complete selection behavior is owned by
 [Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md)
-and is not yet implemented. Its nozzle choices and bindings follow the actual
+and is implemented. Its nozzle choices and bindings follow the actual
 project flow context. Independent Printer-editor flow choices only change that
 editor's parameter view and do not change Project Print's flow context.
 

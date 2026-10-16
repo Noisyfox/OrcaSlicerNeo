@@ -37,6 +37,23 @@ describe('project session policy', () => {
     expect(print).toMatchObject({ ok: true, editorSelection: { kind: 'print', choices: [
       { extruderIndex: 0 }, { extruderIndex: 1 }, { extruderIndex: 2 },
     ] } });
+    if(!print.ok)throw new Error(print.error);
+    const context={selection:{mode:'object' as const,objectIds:[],partIds:[],instanceIds:[]},activePlateId:null,gizmo:null,nativeScopedConfig:{}};
+    const mutatePrint=async(request:Parameters<typeof client.mutateNativeScopedConfig>[0])=>client.runProjectHistoryTransaction(
+      'Print element','project',context,()=>client.mutateNativeScopedConfig(request),context);
+    await mutatePrint({version:1,operation:'set-element',targets:[{scope:'project'}],expectedRevision:print.revision,
+      key:'outer_wall_speed',index:2,scalarType:'float',value:240});
+    const owned=await client.getPrintConfigEditor();if(!owned.ok)throw new Error(owned.error);
+    expect(owned.editorVectors.outer_wall_speed.overrideValues).toEqual([null,null,{value:240}]);
+    const history=await client.getHistoryStatus();
+    await mutatePrint({version:1,operation:'reset-fields',targets:[{scope:'project'}],expectedRevision:owned.revision,
+      fields:[{key:'outer_wall_speed',kind:'indexed',index:2},{key:'layer_height',kind:'shared'}]});
+    expect((await client.getHistoryStatus()).undoEntries).toHaveLength(history.undoEntries.length+1);
+    expect(await client.getPrintConfigEditor()).toMatchObject({editorVectors:{outer_wall_speed:{overrideValues:[null,null,null]}}});
+    await client.undoHistory();
+    expect(await client.getPrintConfigEditor()).toMatchObject({editorVectors:{outer_wall_speed:{overrideValues:[null,null,{value:240}]}}});
+    // A Print operation neither retargets nor replaces the shared Filament draft.
+    expect(await client.getPresetDraft('filament',source.canonicalName)).toMatchObject({editorVectors:{filament_flow_ratio:{effectiveValues:[1,0.9]}}});
   });
   it.each([
     ['load_all', false, false], ['load_all', true, false],

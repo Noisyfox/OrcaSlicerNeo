@@ -81,8 +81,7 @@ export const FILAMENT_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
             'temperature_vitrification',
             'idle_temperature',
           ),
-          readOnly(
-            'This value is stored per nozzle and needs a dedicated multi-value editor.',
+          editableNativeElement(
             'nozzle_temperature_range_low',
             'nozzle_temperature_range_high',
           ),
@@ -100,8 +99,7 @@ export const FILAMENT_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
             'The calibration model uses a structured editor.',
             'adaptive_pressure_advance_model',
           ),
-          readOnly(
-            'Flow ratio is stored per nozzle and needs a dedicated multi-value editor.',
+          editableNativeElement(
             'filament_flow_ratio',
           ),
         ]),
@@ -109,8 +107,7 @@ export const FILAMENT_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
           editable('activate_chamber_temp_control', 'chamber_temperature', 'chamber_minimal_temperature'),
         ]),
         group('print-temperature', 'Print temperature', [
-          readOnly(
-            'Nozzle temperatures are stored per nozzle and need a dedicated multi-value editor.',
+          editableNativeElement(
             'nozzle_temperature_initial_layer',
             'nozzle_temperature',
           ),

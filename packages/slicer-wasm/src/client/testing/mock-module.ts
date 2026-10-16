@@ -261,6 +261,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // is limited to the explicit editable override keys; native BBS plate
       // metadata/config fields outside this catalogue are not generic targets.
       layer_height: { type: 'float', scopes: ['project', 'object'] },
+      outer_wall_speed: { type: 'floats', category: 'Speed', scopes: ['project', 'object', 'part'] },
+      enable_overhang_speed: { type: 'bools', category: 'Speed', scopes: ['project', 'object', 'part'] },
+      small_perimeter_speed: { type: 'floats_or_percents', category: 'Speed', scopes: ['project', 'object', 'part'] },
       wall_loops: { type: 'int', scopes: ['object', 'part'] },
       sparse_infill_density: { type: 'percent', min: 0, max: 100, sidetext: '%', scopes: ['object', 'part'] },
       sparse_infill_pattern: { type: 'enum', enum_values: ['grid', 'gyroid', 'lines'], scopes: ['object', 'part'] },
@@ -668,16 +671,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return values === undefined ? [...printEditorOptions[key].values] : parseMockEditorValue(values, printEditorOptions[key]);
   }
   function printConfigEditor() {
+    const shared = Object.fromEntries(Object.entries(metadata).filter(([key,meta])=>meta.scopes?.includes('project') &&
+      !['curr_bed_type','filament_map_mode','filament_map','filament_volume_map','printable_area','gcode_flavor'].includes(key))
+      .map(([key])=>[key,key==='layer_height'?'0.2':key==='print_sequence'?'by layer':key==='wipe_tower_rotation_angle'?'0':'']));
+    const keys=[...new Set([...Object.keys(shared),...Object.keys(printEditorOptions)])];
     return { ok: true, kind: 'print', canonical_name: selected.print, revision: historyRevision,
-      source_values: { layer_height: '0.2', ...Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, serializePresetEditorValues(option.values)])) },
-      effective_values: { layer_height: nativeScopedConfig.project.layer_height ?? '0.2', ...Object.fromEntries(Object.keys(printEditorOptions).map(key => [key, serializePresetEditorValues(printEditorValues(key))])) },
-      option_metadata: { layer_height: {type: 'float'}, ...Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, { type: option.metadataType }])) },
+      source_values: { ...shared, ...Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, serializePresetEditorValues(option.values)])) },
+      effective_values: { ...shared,...Object.fromEntries(Object.entries(nativeScopedConfig.project).filter(([key])=>Object.hasOwn(shared,key))), ...Object.fromEntries(Object.keys(printEditorOptions).map(key => [key, serializePresetEditorValues(printEditorValues(key))])) },
+      option_metadata: { ...Object.fromEntries(keys.filter(key=>metadata[key]).map(key=>[key,metadata[key]])), ...Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, { type: option.metadataType }])) },
       editor_vectors: Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, {
         scalar_type: option.scalarType, nullable: false, readonly: false, multiline: false, is_code: false,
         gui_type: 'undefined', gui_flags: '', source_values: clone(option.values), effective_values: clone(printEditorValues(key)), index_count: 3,
         override_values: printVectorOverrides[key] ?? option.values.map(() => null),
       }])),
-      editor_selection: mockEditorSelection('print', ['layer_height', ...Object.keys(printEditorOptions)],
+      editor_selection: mockEditorSelection('print', keys,
         Object.fromEntries(Object.keys(printEditorOptions).map(key => [key, 3])), true),
     };
   }
@@ -686,7 +693,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const count = kind === 'printer' ? counts.nozzle_diameter ?? 0 : Math.max(0, ...Object.values(counts));
     const choices = Array.from({ length: count }, (_, index) => ({
       id: `mock-${index}`, label: kind === 'filament' ? `Variant ${index + 1}` : `Extruder ${index + 1}`,
-      extruder_index: kind === 'filament' ? null : index, variant: 'Direct Drive Standard', extruder_type: 0, flow_type: 0,
+      extruder_index: kind === 'filament' ? null : index,
+      variant: kind==='filament' ? ['Direct Drive Standard','Bowden Extra High Flow'][index] : 'Direct Drive Standard',
+      extruder_type: kind==='filament' && index===1 ? 1 : 0, flow_type: kind==='filament' && index===1 ? 2 : 0,
     }));
     return { kind, active_source: activeSource, choices, first_choice_id: choices[0]?.id ?? null,
       nozzles: kind === 'printer' ? choices.map(c => ({ extruder_index: c.extruder_index,
@@ -2415,8 +2424,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           const option = printEditorOptions[key];
           if (field.kind === 'shared') {
             if (option) return fail('selection-dependent reset requires an index');
-            if (key !== 'layer_height') return fail('option is not an exposed Print field', 'unsupported_reference');
-            values[key] = '0.2'; resetElementKeys.add(key); delete nextPrintOverrides[key]; continue;
+            const source=printConfigEditor().source_values;
+            if (!Object.hasOwn(source,key)) return fail('option is not an exposed Print field', 'unsupported_reference');
+            values[key] = source[key];
+            resetElementKeys.add(key); delete nextPrintOverrides[key]; continue;
           }
           const index = field.index;
           if (!Number.isSafeInteger(index) || index < 0 || index >= 3)

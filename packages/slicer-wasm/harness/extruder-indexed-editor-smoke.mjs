@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages, fixtureProfileOptions } from './profile-installer.mjs';
 import { readZipEntries, replaceEntry } from './native-3mf-parser.mjs';
@@ -389,6 +390,28 @@ function printMutate(body, accept = true) {
   return result;
 }
 const basePrint = readPrint();
+assert.equal(Object.hasOwn(basePrint.source_values,'curr_bed_type'),false,'native Project storage is outside the Print owner');
+assert.equal(Object.hasOwn(basePrint.effective_values,'curr_bed_type'),false);
+assert.equal(Object.hasOwn(basePrint.editor_selection.field_bindings,'curr_bed_type'),false);
+assert.equal(Object.hasOwn(basePrint.source_values,'print_sequence'),true,'Print owns print_sequence');
+assert.deepEqual(basePrint.editor_selection.field_bindings.print_sequence,{kind:'shared'});
+// Audit the current renderer allowlist against Orca's Project ownership
+// catalogue and actual native exposure. Routing keys have no generic scope.
+const layoutSource=await readFile(resolve(root,'packages/slicer-app/src/components/workspace/settings/printSettingsLayout.ts'),'utf8');
+const projectPages=layoutSource.split('export const PRINT_SETTINGS_PAGES:')[1].split('// TabPrintModel')[0];
+const visibleProjectKeys=[...new Set([...projectPages.matchAll(/"([a-z][a-z0-9_]*)"/g)].map(match=>match[1]))];
+const bundleSource=await readFile(resolve(root,'packages/slicer-wasm/cpp/src/libslic3r/PresetBundle.cpp'),'utf8');
+const projectOptions=[...bundleSource.split('static std::vector<std::string> s_project_options {')[1].split('};')[0].matchAll(/"([a-z][a-z0-9_]*)"/g)].map(match=>match[1]);
+const catalogue=call('orc_get_option_metadata');
+const visibleProjectStorage=visibleProjectKeys.filter(key=>projectOptions.includes(key) && catalogue[key]?.scopes?.includes('project'));
+assert.deepEqual(visibleProjectStorage,[],'current Project pages cannot mix native project_config and Print owners');
+for(const key of visibleProjectKeys.filter(key=>/^(?:outer_wall|inner_wall|sparse_infill|internal_solid_infill|top_surface|bottom_surface)_filament_id$|^wipe_tower_filament$/.test(key)))
+  assert.equal(catalogue[key]?.scopes?.includes('project'),false,`${key} routing is not generic Project configuration`);
+const otherSequence=basePrint.source_values.print_sequence==='by layer'?'by object':'by layer';
+printMutate({operation:'set',key:'print_sequence',value:otherSequence});
+assert.equal(readPrint().effective_values.print_sequence,otherSequence,'shared Print setting keeps whole-option semantics');
+printMutate({operation:'reset',key:'print_sequence'});
+assert.equal(readPrint().effective_values.print_sequence,basePrint.source_values.print_sequence);
 assert.deepEqual(basePrint.editor_selection.choices.map(c => [c.extruder_index,c.flow_type]), [[0,0],[1,0],[2,0],[3,0]],
   'Print choices follow actual project SF flow, independent of available Printer editing HF');
 assert.deepEqual(choiceBinding(basePrint, 'outer_wall_speed', 2, 0), {kind: 'indexed', index: 4});
@@ -480,6 +503,10 @@ const settings = JSON.parse(new TextDecoder().decode(settingsEntry.content));
 settings.nozzle_volume_type = ['Standard', 'High Flow', 'Hybrid', 'Standard'];
 settings.extruder_max_nozzle_count = ['1','1','2','1'];
 const hybridArchive = replaceEntry(archiveBytes, settingsName, JSON.stringify(settings));
+// Optional real-host fixture: the same native-exported archive and project
+// flow context validated below, without a production injection mechanism.
+const fixtureArgument=process.argv.indexOf('--hybrid-fixture');
+if(fixtureArgument>=0) await writeFile(resolve(root,process.argv[fixtureArgument+1]),hybridArchive);
 const archivePointer = Number(Module._malloc(hybridArchive.length));
 Module.HEAPU8.set(hybridArchive, archivePointer);
 try { must(call('orc_load_project', ['pointer','number','number','string'], [archivePointer, hybridArchive.length, 0, 'U1-Hybrid-mapping.3mf'])); }

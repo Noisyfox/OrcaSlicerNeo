@@ -1,9 +1,92 @@
 import { _electron } from './electron-fixture';
 import { expect, test, type Page } from '@playwright/test';
 import { resolve } from 'node:path';
+import { statSync } from 'node:fs';
+import { openProjectMenu, waitForProjectLoad } from './project-menu';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
+
+test('real Filament variants and Project Print Hybrid choices edit independent native bindings',async()=>{
+  const fixture=process.env.ORCA_E2E_EXTRUDER_PROJECT;
+  test.skip(!REAL || !fixture,'Requires the native-exported indexed-editor Hybrid fixture');
+  const env={...process.env,ORCA_E2E:'1',ORCA_E2E_MODEL:fixture!,ORCA_E2E_PRIME_TOWER_PROJECT:fixture!} as Record<string,string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app=await _electron.launch({args:['.'],cwd:DESKTOP_ROOT,env});
+  try{
+    const page=await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:60_000});
+    await page.locator('#app-tab-prepare').click();
+    await openProjectMenu(page,app);await waitForProjectLoad(page);
+    await expect.poll(()=>page.evaluate(()=>(window as any).__orcaE2e.projectLoadEvidence())).toMatchObject({receipt:{sourceDisplayName:'extruder-step4-hybrid.3mf',sourceByteLength:statSync(fixture!).size,nativeResult:{ok:true,mode:'project'}}});
+    await page.waitForFunction(()=>Boolean((window as any).__orcaScopedConfigurationGate));
+    expect(await page.evaluate(async()=>(await (window as any).__orcaScopedConfigurationGate.execution()).threaded)).toBe(false);
+    // Shared Print controls keep whole-option ownership beside the mapped editor.
+    await page.getByTestId('config-page-Other').click();
+    const sequence=page.getByTestId('config-input-print_sequence');
+    await expect(sequence).toBeEnabled();
+    const sequenceBefore=await sequence.locator('[data-slot="select-value"]').textContent();
+    await sequence.click();
+    const sequenceChoices=await page.getByRole('option').allTextContents();
+    const sequenceAfter=sequenceChoices.find(label=>label.trim().toLowerCase()!==sequenceBefore?.trim().toLowerCase())!;
+    await page.getByRole('option',{name:sequenceAfter,exact:true}).click();
+    await expect(sequence).toContainText(sequenceAfter);await expect(sequence).toBeEnabled();
+    await page.getByTestId('config-reset-print_sequence').click();
+    await expect(sequence).toContainText(sequenceBefore!);
+    await expect(page.getByTestId('config-field-curr_bed_type')).toHaveCount(0);
+    await page.getByTestId('config-page-Speed').click();
+    const selection=page.getByTestId('print-editor-selection');await expect(selection).toBeVisible();
+    await selection.click();
+    const labels=await page.getByRole('option').allTextContents();
+    expect(labels).toHaveLength(5);
+    const sf=labels.find(label=>/3/.test(label)&&/Standard/.test(label))!;
+    const hf=labels.find(label=>/3/.test(label)&&/High Flow/.test(label))!;
+    expect(sf).toBeTruthy();expect(hf).toBeTruthy();
+    await page.getByRole('option',{name:hf,exact:true}).click();
+    const speed=page.getByTestId('config-input-outer_wall_speed');
+    await expect(page.getByTestId('config-field-outer_wall_speed')).toHaveAttribute('data-native-index','5');
+    await speed.hover();
+    const valueHelp=page.locator('[data-slot="tooltip-content"]').filter({hasText:'Source:'});
+    await expect(valueHelp).toBeVisible();
+    const sourceBefore=(await valueHelp.textContent())!.match(/Source: ([^\n]+)/)![1].trim();
+    await speed.fill('187');await speed.press('Enter');await expect(speed).toBeEnabled();
+    await expect(speed).toHaveValue('187');
+    await selection.click();await page.getByRole('option',{name:sf,exact:true}).click();
+    await expect(page.getByTestId('config-field-outer_wall_speed')).toHaveAttribute('data-native-index','4');
+    await expect(speed).not.toHaveValue('187');
+    await selection.click();await page.getByRole('option',{name:hf,exact:true}).click();
+    await page.getByTestId('config-reset-outer_wall_speed').click();await expect(speed).toHaveValue(sourceBefore);
+    await page.getByTestId('history-undo').click();await expect(speed).toHaveValue('187');await expect(selection).toContainText(hf);
+    await page.getByTestId('history-redo').click();await expect(speed).toHaveValue(sourceBefore);
+    await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/extruder-step4-print.png')});
+    // Printer's editing flow and Filament variants do not follow this Print view.
+    await page.getByTestId('preset-edit-printer').click();await page.getByTestId('preset-editor-page-tab-extruder').click();
+    await expect(page.getByTestId('preset-editor-flow-3')).toContainText('SF');
+    await page.getByTestId('preset-editor-flow-3').click();await page.getByRole('option',{name:'HF',exact:true}).click();
+    await page.getByTestId('preset-editor-close').click();await expect(selection).toContainText(hf);
+    const rackSource=await page.getByTestId('filament-preset-1').getAttribute('title');
+    await page.getByTestId('filament-slot-1').click({button:'right'});await page.getByTestId('filament-edit-1').click();
+    await page.getByTestId('preset-editor-preset').click();
+    await page.getByPlaceholder('Search presets to edit…').fill('Generic PLA');
+    await page.getByRole('option').and(page.getByTitle('Generic PLA @System',{exact:true})).click();
+    const variant=page.getByTestId('preset-editor-variant');await variant.click();
+    await expect(page.getByRole('option')).toHaveCount(6);
+    await page.getByRole('option',{name:'Bowden Extra High Flow',exact:true}).click();
+    const ratio=page.getByTestId('preset-editor-input-filament_flow_ratio');
+    const ratioBefore=await ratio.inputValue();const ratioAfter=String(Number(ratioBefore)===1.07?1.08:1.07);
+    const ratioSource=await page.getByTestId('preset-editor-source-filament_flow_ratio').textContent();
+    await ratio.fill(ratioAfter);await ratio.press('Enter');await expect(ratio).toBeEnabled();await expect(ratio).toHaveValue(ratioAfter);
+    await expect(page.getByTestId('preset-editor-field-filament_flow_ratio')).toHaveAttribute('title',/filament_flow_ratio\[5\]/);
+    await variant.click();await page.getByRole('option',{name:'Direct Drive Standard',exact:true}).click();await expect(ratio).not.toHaveValue(ratioAfter);
+    await variant.click();await page.getByRole('option',{name:'Bowden Extra High Flow',exact:true}).click();
+    await expect(page.getByRole('option')).toHaveCount(0);
+    await ratio.scrollIntoViewIfNeeded();
+    await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/extruder-step4-filament.png')});
+    await page.getByTestId('preset-editor-reset-field-filament_flow_ratio').click();await expect(ratio).toHaveValue(ratioSource!);
+    await page.getByTestId('preset-editor-close').click();await expect(selection).toContainText(hf);
+    await expect(page.getByTestId('filament-preset-1')).toHaveAttribute('title',rackSource!);
+  }finally{await app.close();}
+});
 
 test('independent preset browsing preserves project choices and both Filament drafts', async () => {
   const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;

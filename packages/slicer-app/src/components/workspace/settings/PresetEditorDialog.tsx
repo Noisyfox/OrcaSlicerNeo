@@ -2,6 +2,7 @@ import { configVectorElementAt as vectorAt } from '@slicer/client';
 import { UserPresetActions } from './UserPresetActions';
 import { editorFieldTarget, fieldBinding, fieldHasOverride, fieldViewKey } from './presetEditorBindings';
 import { PrinterEditorSelection, usePrinterEditorSelection } from './PrinterEditorSelection';
+import { ConfigEditorSelection, useConfigEditorSelection } from './ConfigEditorSelection';
 import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import type {
@@ -122,7 +123,7 @@ function hasOverride(snapshot: PresetDraftSnapshot, key: string, choiceId: strin
   return fieldHasOverride(snapshot, key, editorFieldTarget(snapshot, key, choiceId));
 }
 function groupHasOverrides(snapshot: PresetDraftSnapshot, group: PresetEditorManifestGroup, choiceId: string | null): boolean {
-  return group.fields.some(field => snapshot.kind === 'printer' ? hasOverride(snapshot, field.key, choiceId) : Object.hasOwn(snapshot.overrides, field.key));
+  return group.fields.some(field => hasOverride(snapshot, field.key, choiceId));
 }
 function pageHasOverrides(snapshot: PresetDraftSnapshot, page: PresetEditorManifestPage, choiceId: string | null): boolean {
   return page.groups.some(group => groupHasOverrides(snapshot, group, choiceId));
@@ -354,7 +355,7 @@ function FieldValue({
     setFieldError(null);
     try {
       const result = await onMutate({ ...makeMutationRequest(snapshot, { action: 'reset-field', key: field.key }),
-        ...(snapshot.kind !== 'printer' || fieldIndex === undefined ? {} : { index: fieldIndex }) } as PresetDraftMutationRequest);
+        ...(fieldIndex === undefined ? {} : { index: fieldIndex }) } as PresetDraftMutationRequest);
       if (!result.ok) {
         setFieldError(result.error);
         return;
@@ -1054,7 +1055,8 @@ export function PresetEditorDialogContent({
   const manifest = target ? manifestFor(target.kind) : null;
   const pages = manifest?.pages ?? [];
   const selection = usePrinterEditorSelection(target ? snapshot : null, sourceEntry);
-  const choiceId = target?.kind === 'printer' ? selection.choiceId : null;
+  const filamentSelection = useConfigEditorSelection(target?.kind === 'filament' ? snapshot?.editorSelection ?? null : null, sourceEntry);
+  const choiceId = target?.kind === 'printer' ? selection.choiceId : filamentSelection.choiceId;
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1218,6 +1220,9 @@ export function PresetEditorDialogContent({
 
           {snapshot && switchApplicable && categoryMapped && <PrinterEditorSelection snapshot={snapshot} selection={selection}
             disabled={loading || refreshing || !snapshot} />}
+          {snapshot?.kind === 'filament' && snapshot.editorSelection.choices.length > 1 && categoryMapped && <ConfigEditorSelection
+            metadata={snapshot.editorSelection} choiceId={filamentSelection.choiceId} onSelect={filamentSelection.select}
+            disabled={loading || refreshing} testId="preset-editor-variant" label="Filament variant" />}
 
           {actionError && <p role="alert" data-testid="preset-editor-action-error" className="text-xs text-destructive">{actionError}</p>}
 

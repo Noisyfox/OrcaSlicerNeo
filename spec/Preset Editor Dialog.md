@@ -430,8 +430,9 @@ custom G-code) is read-only until its control is implemented. It has no
 separate unsupported-feature notice in phase one.
 
 Where the native option is a vector of ordinary scalar values, the generic
-editor binds its first native element as one scalar control and preserves the
-remaining elements. Its displayed numeric, boolean, percent, nullable, and
+editor uses the current native selection's mapped element as one scalar control
+and preserves the remaining elements. Shared fields retain their native shared
+binding. Its displayed numeric, boolean, percent, nullable, and
 closed-enum semantics come from native element metadata; the stored option
 remains in its existing serialized vector form. Filament scalar G-code and
 notes fields use multiline text controls and are editable through that native
@@ -519,15 +520,18 @@ two, with only the normal value presented and no Silent controls.
 The complete selection interface is owned by
 [Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md),
 including independent editor selections and category-dependent switch visibility.
-Printer selection is implemented; Filament and Project Print selectors remain
-separate increments. Printer extruder/flow navigation is immediate like category navigation,
+Printer, Filament and Project Print selection are implemented. Extruder/variant
+navigation is immediate like category navigation,
 including during field submission or with invalid input; dispatched writes
 remain bound to their original fields. Opening an editor starts at the first
 selection. Printer browsing retains valid nozzle and per-nozzle editing-flow
 choices across other presets; entering the project's current Printer preset
 initializes editing flows from actual project flow. Editing-flow choices remain
 local to the editor and do not change project flow. Filament preset changes
-start at the first variant. Undo/Redo retains valid current selections, with
+start at the first variant. The Filament dropdown exposes the complete ordered
+native variant list, including variants unused by the project Printer. It does
+not change rack assignments. Refreshed choices retain semantic drive/flow
+identity rather than a snapshot-local ordinal ID. Undo/Redo retains valid current selections, with
 fallbacks owned by the switch specification. Cross-extruder copy is outside
 that feature's accepted scope.
 A valid vector index is not a physical Extruder ID.

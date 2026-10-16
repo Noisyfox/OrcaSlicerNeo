@@ -1,14 +1,10 @@
 import { configVectorElementAt } from '@slicer/client';
-import type { ConfigEditorElementBinding, PresetDraftEditorBinding, PresetDraftSnapshot, PresetDraftValues } from '@slicer/client';
+import type { ConfigEditorElementBinding, ConfigEditorSnapshot, PresetDraftEditorBinding, PresetDraftSnapshot } from '@slicer/client';
 
 export type EditorFieldTarget = ConfigEditorElementBinding | { readonly kind: 'shared' };
 
-/** Printer index selection belongs to the native snapshot, never to page numbering. */
-export function editorFieldTarget(snapshot: PresetDraftValues, key: string, choiceId: string | null): EditorFieldTarget {
-  if (snapshot.kind !== 'printer') {
-    const binding = snapshot.editorBindings[key];
-    return binding ? { kind: 'indexed', index: binding.index } : { kind: 'shared' };
-  }
+/** Element selection belongs to the native snapshot, never to page numbering. */
+export function editorFieldTarget(snapshot: ConfigEditorSnapshot, key: string, choiceId: string | null): EditorFieldTarget {
   if (key === 'extruders_count') return { kind: 'shared' };
   const field = snapshot.editorSelection.fieldBindings[key];
   if (field?.kind === 'shared') return field;
@@ -16,9 +12,8 @@ export function editorFieldTarget(snapshot: PresetDraftValues, key: string, choi
   return choice < 0 || field?.kind !== 'per_selection' ? { kind: 'unavailable' } : field.bindings[choice];
 }
 
-export function fieldBinding(snapshot: PresetDraftValues, key: string, target: EditorFieldTarget): PresetDraftEditorBinding | undefined {
+export function fieldBinding(snapshot: ConfigEditorSnapshot, key: string, target: EditorFieldTarget): PresetDraftEditorBinding | undefined {
   if (target.kind === 'unavailable') return;
-  if (snapshot.kind !== 'printer') return snapshot.editorBindings[key];
   if (target.kind === 'shared') return snapshot.editorBindings[key];
   const vector = snapshot.editorVectors[key];
   if (!vector || vector.scalarType === 'point' || vector.scalarType === 'points') return;
@@ -34,7 +29,9 @@ export function fieldHasOverride(snapshot: PresetDraftSnapshot, key: string, tar
   return target.kind === 'indexed' ? snapshot.editorVectors[key]?.overrideValues[target.index] != null : Object.hasOwn(snapshot.overrides, key);
 }
 
-export function fieldViewKey(snapshot: PresetDraftSnapshot, key: string, choiceId: string | null): string {
+export function fieldViewKey(snapshot: ConfigEditorSnapshot, key: string, choiceId: string | null): string {
   const target = editorFieldTarget(snapshot, key, choiceId);
-  return `${snapshot.canonicalName}:${key}:${target.kind}:${target.kind === 'indexed' ? `${choiceId}:${target.index}` : ''}`;
+  const choice=snapshot.editorSelection.choices.find(choice=>choice.id===choiceId);
+  const identity=choice?JSON.stringify([choice.extruderIndex,choice.variant]):'';
+  return `${snapshot.canonicalName}:${key}:${target.kind}:${target.kind === 'indexed' ? `${identity}:${target.index}` : ''}`;
 }

@@ -45,6 +45,9 @@ interface SettingsState {
    * selection is owned exclusively by the Worker filament session/rack. */
   selectedPrinter: string;
   selectedPrint: string;
+  /** Presentation entry token; only explicit Process preset entry advances it. */
+  printEditorEntry: number;
+  enterPrintPreset: () => void;
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printableArea: Array<[number, number]>;
   bedModel: string;
@@ -94,6 +97,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   filamentCatalog: [],
   selectedPrinter: '',
   selectedPrint: '',
+  printEditorEntry: 0,
+  enterPrintPreset: () => set(state => ({ printEditorEntry: state.printEditorEntry + 1 })),
   printableArea: [[0, 0], [220, 0], [220, 220], [0, 220]],
   bedModel: '',
   bedTexture: '',

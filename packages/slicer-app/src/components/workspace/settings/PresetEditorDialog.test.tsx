@@ -283,6 +283,20 @@ function u1Fixture({name='Active U1',active=true,count=4,flows=[0,1],initial=[0,
         initialChoiceId:`head-${head}-${flows.includes(initial[head])?initial[head]:flows[0]}`}))},
   };
 }
+function filamentVariantsFixture(): PresetDraftSnapshot {
+  const base=snapshotFor('filament');
+  const variants=['Direct Drive Standard','Direct Drive High Flow','Direct Drive Extra High Flow','Bowden Standard','Bowden High Flow','Bowden Extra High Flow'];
+  const choices=variants.map((variant,index)=>({id:`variant-${index}`,label:variant,variant,extruderIndex:null,extruderType:index<3?0:1,flowType:[0,1,2,0,1,2][index]}));
+  const editorVectors=Object.fromEntries(Object.entries(base.editorVectors).map(([key,vector])=>{
+    const values=key==='filament_flow_ratio'?[1,1.1,1.2,1.3,1.4,1.5]:Array.from({length:6},()=>vector.sourceValues[0]);
+    return [key,{...vector,indexCount:6,sourceValues:values,effectiveValues:[...values],overrideValues:values.map(()=>null)}];
+  }));
+  const values={...base.sourceValues,...Object.fromEntries(Object.entries(editorVectors).map(([key,vector])=>[key,JSON.stringify(vector.sourceValues)]))};
+  return {...base,sourceValues:values,effectiveValues:{...values},editorVectors,
+    optionMetadata:{...base.optionMetadata,filament_flow_ratio:{...base.optionMetadata.filament_flow_ratio,tooltip_default:'1,1.1,1.2,1.3,1.4,1.5'}},
+    editorSelection:{kind:'filament',activeSource:false,choices,nozzles:[],firstChoiceId:choices[0].id,
+      fieldBindings:Object.fromEntries(Object.keys(values).map(key=>[key,editorVectors[key]?{kind:'per_selection',bindings:choices.map((_,index)=>({kind:'indexed',index}))}:{kind:'shared'}]))}};
+}
 async function controlledPrinter(initial: PresetDraftSnapshot, handler?: (request:PresetDraftMutationRequest)=>Promise<PresetDraftMutationResult>) {
   const container=document.createElement('div');document.body.append(container);
   const root=createRoot(container);roots.push(root);
@@ -414,6 +428,78 @@ afterEach(() => {
 });
 
 describe('PresetEditorDialogContent', () => {
+  it('edits the complete native Filament list without Printer filtering, with indexed ownership and atomic shared reset',async()=>{
+    const source=filamentVariantsFixture();const h=await controlledPrinter(source);
+    await click(document.querySelector('[data-testid="preset-editor-variant"]'));
+    expect([...document.querySelectorAll('[role="option"]')].map(option=>option.textContent)).toEqual(source.editorSelection.choices.map(choice=>choice.label));
+    await click([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent==='Bowden Extra High Flow')!);
+    const input=()=>document.querySelector('[data-testid="preset-editor-input-filament_flow_ratio"]') as HTMLInputElement;
+    expect(input().value).toBe('1.5');
+    expect(document.querySelector('[data-testid="preset-editor-source-filament_flow_ratio"]')?.textContent).toBe('1.5');
+    expect(document.querySelector('[data-testid="preset-editor-field-filament_flow_ratio"]')?.getAttribute('title')).toContain('filament_flow_ratio[5]');
+    await changeInput(input(),'1.45');await press(input(),'Enter');
+    expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({kind:'filament',key:'filament_flow_ratio',index:5,value:1.45}));
+    await changeInput(input(),'1.5');await press(input(),'Enter');
+    expect(document.querySelector('[data-testid="preset-editor-option-label-filament_flow_ratio"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    await enterSearch('filament_flow_ratio');
+    expect(input().value).toBe('1.5');await enterSearch('');
+    await click(document.querySelector('[data-testid="preset-editor-reset-category-filament"]'));
+    expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({action:'reset-category',fields:expect.arrayContaining([
+      {key:'filament_flow_ratio',kind:'indexed',index:5},{key:'filament_vendor',kind:'shared'},
+    ])}));
+    expect(h.getSnapshot().editorVectors.filament_flow_ratio.overrideValues[5]).toBeNull();
+  });
+
+  it('retains semantic Filament identity on reordered history, defaults on removal/entry, and navigates during pending/invalid edits',async()=>{
+    const source=filamentVariantsFixture();let finish!:(result:PresetDraftMutationResult)=>void;
+    const h=await controlledPrinter(source,()=>new Promise(resolve=>{finish=resolve;}));
+    const select=async(label:string)=>{await click(document.querySelector('[data-testid="preset-editor-variant"]'));await click([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent===label)!);};
+    await select('Bowden Extra High Flow');
+    const choices=[source.editorSelection.choices[5],...source.editorSelection.choices.slice(0,5)].map((choice,index)=>({...choice,id:`variant-${index}`}));
+    await h.update({...source,revision:2,editorSelection:{...source.editorSelection,choices}});
+    expect(document.querySelector('[data-testid="preset-editor-variant"]')?.textContent).toContain('Bowden Extra High Flow');
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-dependencies"]'));
+    expect(document.querySelector('[data-testid="preset-editor-variant"]')).toBeNull();
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-cooling"]'));
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-filament"]'));
+    let input=document.querySelector('[data-testid="preset-editor-input-filament_flow_ratio"]') as HTMLInputElement;
+    await changeInput(input,'bad');await press(input,'Enter');
+    await select('Direct Drive High Flow');
+    expect(document.querySelector('[data-testid="preset-editor-error-filament_flow_ratio"]')).toBeNull();
+    input=document.querySelector('[data-testid="preset-editor-input-filament_flow_ratio"]') as HTMLInputElement;
+    await changeInput(input,'1.22');await act(async()=>input.blur());
+    const captured=h.onMutate.mock.calls[0][0];expect(captured).toMatchObject({index:2,value:1.22});
+    await select('Bowden High Flow');
+    await act(async()=>finish(mutationSuccess(source,captured)));
+    expect(document.querySelector('[data-testid="preset-editor-variant"]')?.textContent).toContain('Bowden High Flow');
+    expect(document.querySelector('[data-testid="preset-editor-input-filament_flow_ratio"]')).toHaveProperty('value','1.4');
+    await h.update({...source,editorSelection:{...source.editorSelection,choices:source.editorSelection.choices.slice(0,2),
+      fieldBindings:Object.fromEntries(Object.entries(source.editorSelection.fieldBindings).map(([key,binding])=>[key,
+        binding.kind==='shared'?binding:{...binding,bindings:binding.bindings.slice(0,2)}]))}});
+    expect(document.querySelector('[data-testid="preset-editor-variant"]')?.textContent).toContain('Direct Drive Standard');
+    await select('Direct Drive High Flow');await h.update(source,1);
+    expect(document.querySelector('[data-testid="preset-editor-variant"]')?.textContent).toContain('Direct Drive Standard');
+    await select('Bowden High Flow');await h.update(null);await h.update(source,2);
+    expect(document.querySelector('[data-testid="preset-editor-variant"]')?.textContent).toContain('Direct Drive Standard');
+  });
+
+  it('uses valid short Filament vectors while leaving missing variant mappings unavailable and out of reset',async()=>{
+    const source=filamentVariantsFixture();const diameter=source.editorSelection.fieldBindings.filament_diameter;
+    if(diameter.kind!=='per_selection')throw Error('mapping');
+    const h=await controlledPrinter({...source,
+      editorVectors:{...source.editorVectors,filament_flow_ratio:{...source.editorVectors.filament_flow_ratio,sourceValues:[1],effectiveValues:[1],overrideValues:[null,null,null,null,null,{value:1}]}},
+      editorSelection:{...source.editorSelection,fieldBindings:{...source.editorSelection.fieldBindings,
+        filament_diameter:{kind:'per_selection',bindings:diameter.bindings.map((binding,index)=>index===5?{kind:'unavailable'}:binding)}}}});
+    await click(document.querySelector('[data-testid="preset-editor-variant"]'));
+    await click([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent==='Bowden Extra High Flow')!);
+    expect(document.querySelector('[data-testid="preset-editor-input-filament_flow_ratio"]')).toHaveProperty('value','1');
+    expect(document.querySelector('[data-testid="preset-editor-effective-filament_diameter"]')?.textContent).toBe('Unavailable');
+    expect(document.querySelector('[data-testid="preset-editor-input-filament_diameter"]')).toBeNull();
+    await click(document.querySelector('[data-testid="preset-editor-reset-category-filament"]'));
+    const request=h.onMutate.mock.calls.at(-1)![0];if(request.action!=='reset-category')throw Error('reset');
+    expect(request.fields.map(field=>field.key)).not.toContain('filament_diameter');
+    expect(request.fields).toContainEqual({key:'filament_flow_ratio',kind:'indexed',index:5});
+  });
   it('shows two selectable Filament sections with modified candidates highlighted', async () => {
     const base = snapshotFor('filament');
     const snapshot: PresetDraftSnapshot = { ...base, editorCandidates: [
@@ -898,7 +984,6 @@ describe('PresetEditorDialogContent', () => {
   it('keeps genuine lists and specialized controls visibly read-only', async () => {
     await mount(snapshotFor('filament'));
     const cases = [
-      ['filament_flow_ratio', 'filament'],
       ['adaptive_pressure_advance_model', 'filament'],
       ['filament_ramming_parameters', 'multimaterial'],
       ['compatible_printers', 'dependencies'],

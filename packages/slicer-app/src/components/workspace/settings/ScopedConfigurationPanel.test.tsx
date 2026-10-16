@@ -14,6 +14,20 @@ import type { ScopedConfigurationField } from './scopedConfigurationProjection';
 
 let root: Root | undefined;
 let container: HTMLDivElement;
+function sharedPrintPlatform() {
+  return {runtime:{getPrintConfigEditor:async()=>{
+    const state=useSettingsStore.getState();
+    // Native Project storage is intentionally absent from the Print-owned snapshot.
+    const keys=Object.keys(state.metadata??{}).filter(key=>
+      !['curr_bed_type','filament_map_mode','filament_map','filament_volume_map'].includes(key) &&
+      (Object.hasOwn(state.baseValues,key) || Object.hasOwn(state.values,key)));
+    const sourceValues=Object.fromEntries(keys.filter(key=>Object.hasOwn(state.baseValues,key)).map(key=>[key,state.baseValues[key]]));
+    const effectiveValues=Object.fromEntries(keys.filter(key=>Object.hasOwn(state.values,key)).map(key=>[key,state.values[key]]));
+    return {ok:true,canonicalName:state.selectedPrint,revision:1,sourceValues,effectiveValues,
+      optionMetadata:Object.fromEntries(keys.map(key=>[key,state.metadata![key]])),editorVectors:{},editorBindings:{},editorSelection:{kind:'print',activeSource:true,choices:[],nozzles:[],firstChoiceId:null,
+        fieldBindings:Object.fromEntries(keys.map(key=>[key,{kind:'shared'}]))}};
+  }}} as unknown as PlatformCapabilities;
+}
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(async () => {
   await act(async () => root?.unmount());
@@ -164,7 +178,7 @@ describe('scoped field drafts', () => {
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    await act(async () => root!.render(<PlatformProvider value={{} as PlatformCapabilities}><TooltipProvider>
+    await act(async () => root!.render(<PlatformProvider value={sharedPrintPlatform()}><TooltipProvider>
       <ScopedConfigurationPanel sceneInteraction={controller} />
     </TooltipProvider></PlatformProvider>));
     const button = (id: string) => container.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)!;
@@ -247,7 +261,7 @@ describe('scoped field drafts', () => {
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    await act(async () => root!.render(<PlatformProvider value={{} as PlatformCapabilities}><TooltipProvider>
+    await act(async () => root!.render(<PlatformProvider value={sharedPrintPlatform()}><TooltipProvider>
       <ScopedConfigurationPanel sceneInteraction={controller} />
     </TooltipProvider></PlatformProvider>));
     const button = (testId: string) => container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
@@ -325,7 +339,7 @@ describe('scoped field drafts', () => {
     document.body.append(container);
     root = createRoot(container);
     const onRender = vi.fn();
-    await act(async () => root!.render(<PlatformProvider value={{} as PlatformCapabilities}><TooltipProvider>
+    await act(async () => root!.render(<PlatformProvider value={sharedPrintPlatform()}><TooltipProvider>
       <Profiler id="settings" onRender={onRender}><ScopedConfigurationPanel sceneInteraction={controller} /></Profiler>
     </TooltipProvider></PlatformProvider>));
     expect(hiddenScopedReads).not.toHaveBeenCalled();
