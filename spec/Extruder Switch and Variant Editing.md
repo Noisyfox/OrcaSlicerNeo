@@ -372,3 +372,30 @@ bridge changes require both WASM quick builds, comprehensive contract coverage
 on one variant, and variant-specific smoke on the other. Full release
 qualification remains the repository's release gate. Documentation-only work
 does not claim any of this product coverage.
+
+## 10. Implementation and acceptance steps
+
+Implementation proceeds in the following independently verifiable increments,
+on the dedicated feature branch. One `gpt-6.1-sol` agent with `high` reasoning
+implements every increment, including repairs and self-verification. The parent
+independently reviews the resulting diff and verifies the acceptance criteria.
+Only after parent acceptance may that increment be committed and the same agent
+receive the next increment. The implementation agent must not commit, start a
+later increment early, or delegate to another agent. Rejected increments return
+to the same agent for repair and renewed verification.
+
+| Step | Complete deliverable | Acceptance gate | State |
+| --- | --- | --- | --- |
+| 1. Native mapping projection | Native Printer, Filament, and Project Print snapshots expose complete selection/default metadata and shared/indexed/unavailable field bindings. Typed client, runtime, mocks, and fixtures use one contract. Existing UI remains functional. | Real-WASM checks distinguish U1 physical/variant/motion indices, browsed versus project Printer context, native defaults/Hybrid normalization, full Filament variants, missing mappings, and valid short vectors. Affected package suites/typechecks and the applicable quick build pass. Parent reviews the mapping oracle and independently exercises the projection. | Not started |
+| 2. Atomic mutations and diameter boundary | Add one validated mixed-index/shared-field category-reset operation for preset drafts and Project Print. Direct Printer-editor diameter changes edit the current draft instead of entering sidebar matching. | Real native edits/reset preserve other elements and explicit ownership; invalid batches are atomic; one accepted reset is one history entry and Undo/Redo restores it. An editor diameter edit keeps canonical identity even when another matching preset exists; sidebar matching retains its current behavior. Affected package checks and native build/smoke pass, then parent independently verifies both boundaries. | Not started |
+| 3. Printer editor | Deliver the single Extruder page, native bindings throughout the field presentation, multi-nozzle cards, single-nozzle variant dropdown, independent per-nozzle editing flows, selection transitions, and mapped category reset. | Component tests and a focused primary-host journey cover SF/HF isolation, active/inactive presets, fallback defaults, category visibility, single-nozzle cases, selected ownership/highlights, immediate navigation during invalid/pending edits, and captured mutation bindings. Parent reviews state lifetime and independently tests the rendered interaction. | Not started |
+| 4. Filament and Project Print surfaces | Apply the shared variant/binding presentation to the complete Filament variant list and Project Print nozzle choices. Print retains its current native owner and uses actual project flow; other scoped element extensions remain deferred. | Tests demonstrate no project-Printer filtering of Filament variants, Project-flow-driven Print choices including Hybrid, independent surface selections, correct reads/edits/reset/highlights, and native history/ownership. Affected package checks and focused host integration pass before independent parent acceptance. | Not started |
+| 5. Integrated delivery | Complete the real-runtime regression journeys and reconcile delivery statements in existing specifications. Repair any integration findings through the same implementation agent. | Repository tests/typechecks, the primary shared-UI journey, affected real-WASM host integration, both quick builds, comprehensive native coverage on one variant, and variant-specific smoke on the other meet section 9 and the testing guidelines. Parent independently reviews the complete feature and reruns decisive integration checks before the final commit. | Not started |
+
+Each step also requires `git diff --check` and verification of changed local
+links/commands. Required evidence and unresolved failures are reported at its
+handoff; execution logs remain in test artifacts and commit messages rather than
+this document. Update each state only after the corresponding acceptance event.
+Existing specifications are updated in place; this work adds no planning or
+verification documents. Grand Plan changes only if delivered work changes its
+roadmap or milestone status.
