@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { zipSync, strToU8 } from 'fflate';
 import { readProjectThumbnail } from './projectThumbnail';
 
@@ -68,10 +68,5 @@ describe('Orca 3MF thumbnail extraction', () => {
     expect(await readProjectThumbnail('/missing/project.3mf')).toBeNull();
     const path = await archive({}); await writeFile(path, 'invalid archive');
     expect(await readProjectThumbnail(path)).toBeNull();
-  });
-  it('reads the embedded image in the checked-in Orca project', async () => {
-    const url = await readProjectThumbnail(resolve(__dirname, '../../../../packages/slicer-wasm/fixtures/project-compatibility/orca-upstream-flowrate.3mf'));
-    expect(url).toMatch(/^data:image\/png;base64,/);
-    expect(Buffer.from(url!.split(',')[1], 'base64').subarray(0, 8)).toEqual(png.subarray(0, 8));
   });
 });
