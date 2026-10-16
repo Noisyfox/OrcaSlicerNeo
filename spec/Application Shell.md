@@ -50,9 +50,9 @@ when neither specifies a target, use `Metadata/plate_1.png`. Missing or malforme
 relationships, unavailable images and image decode failures use the file icon.
 Recent cards have fixed 184 × 256 CSS-pixel dimensions and wrap into rows
 without stretching to fill the window. The image region is 184 × 184, matching
-Orca's square thumbnail size. Images fill both dimensions without cropping;
-non-square previews are resized to the square so opaque images leave no exposed
-backing colour. The fixed-height footer truncates long names and timestamps,
+Orca's square thumbnail size. Images preserve their aspect ratio and cover the
+square, cropping excess edges so opaque images leave no exposed backing colour.
+The fixed-height footer truncates long names and timestamps,
 so content and window size cannot change card geometry.
 
 The preview Worker reads only the ZIP directory, relationships and selected

@@ -30,7 +30,7 @@ function RecentProjectThumbnail({ project, active }: { project: RecentProject; a
   const url = !project.missing && image?.id === project.id && image.modifiedAt === project.modifiedAt ? image.url : null;
   return <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-t-xl bg-muted/40">
     {url && url !== failedUrl
-      ? <img src={url} alt="" className="h-full w-full object-fill" onError={() => setFailedUrl(url)} />
+      ? <img src={url} alt="" className="h-full w-full object-cover" onError={() => setFailedUrl(url)} />
       : <Box className="size-14 text-muted-foreground/50" />}
   </div>;
 }
