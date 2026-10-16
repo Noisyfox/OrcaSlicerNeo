@@ -2,8 +2,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { crc32, deflateSync } from 'node:zlib';
 import { fixtureProfileOptions, createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 import { readZipEntries, writeStoredZip, verifyNativeProjectArchive } from './native-3mf-parser.mjs';
@@ -46,10 +48,38 @@ const load = (bytes, geometryOnly = false) => {
 const enc = s => new TextEncoder().encode(s);
 const text = (entries, name) => new TextDecoder().decode(entries.find(e => e.name === name)?.content);
 const sha = b => createHash('sha256').update(b).digest('hex');
+const readerIndex = process.argv.indexOf('--native-reader');
+const nativeReader = readerIndex < 0 ? undefined : resolve(process.argv[readerIndex + 1]);
+const readerDirectory = nativeReader ? mkdtempSync(resolve(tmpdir(), 'neo-cover-reader-')) : undefined;
+if (readerDirectory) process.on('exit', () => rmSync(readerDirectory, { recursive: true, force: true }));
+let nativeReads = 0;
+const verifyDesktopCover = (bytes, png, label) => {
+  if (!nativeReader) return;
+  const projectPath = resolve(readerDirectory, `cover-${++nativeReads}.3mf`);
+  const expectedPath = resolve(readerDirectory, 'expected.png');
+  writeFileSync(projectPath, bytes); writeFileSync(expectedPath, png);
+  const result = spawnSync(nativeReader, [projectPath, expectedPath], { encoding: 'utf8', timeout: 30_000 });
+  assert.equal(result.status, 0, `${label}: ${result.error ?? ''}\n${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /PASS desktop Orca cover read and PNG decode: 16x16/);
+};
+const xmlEscape = value => value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+const solidPng = rgba => {
+  const chunk = (name, data) => {
+    const bytes = Buffer.alloc(data.length + 12);
+    bytes.writeUInt32BE(data.length); bytes.write(name, 4, 'ascii'); bytes.set(data, 8);
+    bytes.writeUInt32BE(crc32(bytes.subarray(4, -4)), bytes.length - 4);
+    return bytes;
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(16); header.writeUInt32BE(16, 4); header[8] = 8; header[9] = 6;
+  const rows = Buffer.alloc(16 * 65);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) rows.set(rgba, y * 65 + x * 4 + 1);
+  return Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', header), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+};
 ok(call('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 ok(call('orc_add_shape', ['string','string'], ['Cube','Attachment test']));
 const bare = exportProject();
-const png = new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==','base64'));
+const png = solidPng([255, 0, 255, 255]);
 const aux = [
   { name:'Auxiliaries/说明/empty.txt', content: new Uint8Array() },
   { name:'Auxiliaries/说明/附件.bin', content: new Uint8Array([0,255,128,1,2,0]) },
@@ -65,6 +95,11 @@ const types = parts.find(e => e.name === '[Content_Types].xml');
 types.content = enc(text(parts,types.name).replace('</Types>', '<Override PartName="/Auxiliaries/percent%2520.bin" ContentType="application/x-test-percent"/><Default Extension="txt" ContentType="text/plain"/><Override PartName="/Auxiliaries/说明/附件.bin" ContentType="application/x-test-opaque"/></Types>'));
 const rels = parts.find(e => e.name === '_rels/.rels');
 const prefix = 'http://schemas.';
+const coverTypes = [
+  `${prefix}openxmlformats.org/package/2006/relationships/metadata/thumbnail`,
+  `${prefix}bambulab.com/package/2021/cover-thumbnail-middle`,
+  `${prefix}bambulab.com/package/2021/cover-thumbnail-small`,
+];
 rels.content = enc(`<?xml version="1.0"?><Relationships xmlns="${prefix}openxmlformats.org/package/2006/relationships"><Relationship Id="model" Target="/3D/3dmodel.model" Type="${prefix}microsoft.com/3dmanufacturing/2013/01/3dmodel"/>${[
   `${prefix}openxmlformats.org/package/2006/relationships/metadata/thumbnail`,
   `${prefix}bambulab.com/package/2021/cover-thumbnail-middle`,
@@ -72,16 +107,17 @@ rels.content = enc(`<?xml version="1.0"?><Relationships xmlns="${prefix}openxmlf
 ].map((type,i)=>`<Relationship Id="cover${i}" Target="/Auxiliaries/.thumbnails/custom%20cover.png" Type="${type}"/>`).join('')}<Relationship Id="notes" Target="/Auxiliaries/notes.txt" Type="urn:test:notes"/></Relationships>`);
 const fixture = writeStoredZip([...parts,...aux]);
 const audit = (bytes,label) => {
+  verifyDesktopCover(bytes, png, label);
   const entries = readZipEntries(bytes);
   assert.deepEqual(verifyNativeProjectArchive(bytes).derivedArtifacts, [], label);
   const actual = entries.filter(e => e.name.startsWith('Auxiliaries/'));
   assert.deepEqual(actual.map(e=>e.name).sort(), aux.map(e=>e.name).sort(),label);
   for (const expected of aux) assert.equal(sha(actual.find(e=>e.name===expected.name).content),sha(expected.content),`${label}: ${expected.name}`);
   const relationships = text(entries,'_rels/.rels');
-  assert.equal((relationships.match(/Target="\/Auxiliaries\/.thumbnails\/custom%20cover.png"/g)??[]).length,3,label);
+  assert.equal((relationships.match(/Target="\/Auxiliaries\/.thumbnails\/custom cover.png"/g)??[]).length,3,label);
   assert.match(relationships,/urn:test:notes/);
   assert.match(text(entries,'[Content_Types].xml'),/application\/x-test-opaque/);
-  assert.match(text(entries,'[Content_Types].xml'),/PartName="\/Auxiliaries\/UPPER.TXT" ContentType="text\/plain"/);
+  assert.match(text(entries,'[Content_Types].xml'),/Default Extension="txt" ContentType="text\/plain"/);
   assert.match(text(entries,'[Content_Types].xml'),/PartName="\/Auxiliaries\/percent%2520.bin" ContentType="application\/x-test-percent"/);
   console.log(`PASS ${label}: ${aux.length} exact attachment paths and SHA-256 hashes, custom cover relationships`);
   return bytes;
@@ -124,6 +160,47 @@ const standardOnly = parts.map(entry => entry.name === '_rels/.rels'
   : entry);
 ok(load(writeStoredZip([...standardOnly,...aux])));
 audit(exportProject(),'standard-only custom cover remains the display cover');
+const coverNames = ['custom cover.png', '中文封面.png', 'literal%20.png', '100%.png', '中文 & 100%25 封面.png'];
+const coverParts = readZipEntries(bare);
+for (const [index, name] of coverNames.entries()) for (const escaped of [false, true]) {
+  const path = `Auxiliaries/.thumbnails/${name}`;
+  const target = escaped ? path.split('/').map(encodeURIComponent).join('/') : path;
+  const image = solidPng([30 + index * 40, 255 - index * 30, 100, 255]);
+  const assets = [{ name: path, content: image }];
+  try {
+    const decoded = decodeURIComponent(path);
+    if (decoded !== path) assets.push({ name: decoded, content: solidPng([0, 0, 0, 255]) });
+  } catch {}
+  const relationshipXml = `<?xml version="1.0"?><Relationships xmlns="${prefix}openxmlformats.org/package/2006/relationships"><Relationship Id="model" Target="/3D/3dmodel.model" Type="${prefix}microsoft.com/3dmanufacturing/2013/01/3dmodel"/>${coverTypes.map((type,i) => `<Relationship Id="cover${i}" Target="/${xmlEscape(target)}" Type="${type}"/>`).join('')}</Relationships>`;
+  ok(load(writeStoredZip([...coverParts.map(entry => entry.name === '_rels/.rels' ? { ...entry, content: enc(relationshipXml) } : entry), ...assets])));
+  for (const pass of ['save', 'reopen']) {
+    const output = exportProject();
+    const entries = readZipEntries(output);
+    assert.equal(text(entries, '_rels/.rels').split(`Target="/${xmlEscape(path)}"`).length - 1, 3);
+    assert.deepEqual(entries.filter(entry => entry.name.startsWith('Auxiliaries/')).map(entry => entry.name).sort(), assets.map(asset => asset.name).sort());
+    for (const asset of assets) assert.equal(sha(entries.find(entry => entry.name === asset.name).content), sha(asset.content));
+    verifyDesktopCover(output, image, `${name} escaped=${escaped} ${pass}`);
+    ok(load(output));
+  }
+  console.log(`PASS custom cover ${name}, escaped=${escaped}: literal target, exact bytes and repeated save`);
+}
+const separateCovers = ['标准 封面%20.png', '中文 中图100%25.png', '小图 100%.png'].map((name, i) => ({
+  name: `Auxiliaries/.thumbnails/${name}`, content: solidPng([i * 100, 255 - i * 100, 40, 255]),
+}));
+const separateRelationships = `<?xml version="1.0"?><Relationships xmlns="${prefix}openxmlformats.org/package/2006/relationships"><Relationship Id="model" Target="/3D/3dmodel.model" Type="${prefix}microsoft.com/3dmanufacturing/2013/01/3dmodel"/>${coverTypes.map((type,i) => `<Relationship Id="cover${i}" Target="/${separateCovers[i].name.split('/').map(encodeURIComponent).join('/')}" Type="${type}"/>`).join('')}</Relationships>`;
+ok(load(writeStoredZip([...coverParts.map(entry => entry.name === '_rels/.rels' ? { ...entry, content: enc(separateRelationships) } : entry), ...separateCovers])));
+for (const pass of ['save', 'reopen']) {
+  const output = exportProject();
+  const entries = readZipEntries(output);
+  for (const cover of separateCovers) {
+    assert.ok(text(entries, '_rels/.rels').includes(`Target="/${cover.name}"`));
+    assert.equal(sha(entries.find(entry => entry.name === cover.name).content), sha(cover.content));
+  }
+  verifyDesktopCover(output, separateCovers[1].content, `distinct cover sizes ${pass}`);
+  ok(load(output));
+}
+console.log('PASS distinct standard/middle/small covers retain their paths and desktop selects middle');
+if (nativeReader) console.log(`PASS ${nativeReads} desktop Orca cover reads and PNG decodes`);
 const assetFile = Module.FS.readdir('/tmp').find(n=>n.endsWith('.aux.zip'));
 Module.FS.unlink(`/tmp/${assetFile}`);
 assert.notEqual(call('orc_export_project', ['string'], ['{}']).ok,true,'missing attachment storage must fail save');

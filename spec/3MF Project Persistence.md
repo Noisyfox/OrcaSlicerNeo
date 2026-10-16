@@ -122,8 +122,11 @@ package content types and internal root relationships are retained, including
 the standard thumbnail and Bambu small/middle cover relationships. A standard-only
 custom cover is also used for missing Bambu cover sizes so generated plate images
 do not hide it in consumers that prefer those relationships. Content-type part
-URIs are escaped separately from ZIP filenames, including literal percent signs. Generated
-model/configuration entries are never copied from the old archive.
+declarations retain their original paths and MIME values. Cover relationship
+targets use literal ZIP entry names, matching desktop Orca's reader. Literal
+names take precedence over URI decoding when both could identify different
+attachments; escaped input targets are resolved when no literal entry exists.
+Generated model/configuration entries are never copied from the old archive.
 
 Compressed attachments have a Worker-owned project-session lifetime independent
 of `Model`, its backup directory and history roots. Editing and Undo/Redo retain
@@ -143,6 +146,12 @@ The real-WASM regression entry point is
 `node packages/slicer-wasm/harness/project-auxiliaries-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
 Add `--thumbnails` to cover saves with generated images; on the threaded artifact,
 add `--native-tmp` to verify disk-backed staging and cleanup.
+Pass `--native-reader /path/to/native-cover-reader` to also read each saved cover
+through desktop Orca's `bbs_3mf_get_thumbnail` and decode it with wxWidgets. Build
+`packages/slicer-wasm/harness/native-cover-reader.cpp` against an existing desktop
+Orca build's libslic3r and wxWidgets libraries. This checks returned PNG bytes,
+not just relationship XML, for literal and escaped targets with spaces, Unicode
+and percent signs, including repeated saves and competing filenames.
 It compares paths and SHA-256 hashes after immediate save, edit, Undo, Redo and
 reopen, and verifies custom covers, content types, geometry-only import and
 project replacement/failure. The same harness accepts the threaded artifact.
