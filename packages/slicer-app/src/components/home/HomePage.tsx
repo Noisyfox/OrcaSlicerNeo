@@ -3,6 +3,7 @@ import { Box, FilePlus2, FolderOpen, FolderSearch, History, MoreHorizontal, Tras
 import { usePlatform, type RecentProject } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
 
 interface HomePageProps {
   active: boolean;
@@ -33,6 +34,20 @@ function RecentProjectThumbnail({ project, active }: { project: RecentProject; a
       ? <img src={url} alt="" className="h-full w-full object-cover" onError={() => setFailedUrl(url)} />
       : <Box className="size-14 text-muted-foreground/50" />}
   </div>;
+}
+
+function RecentProjectMenuItems({ context = false, disabled, missing, onReveal, onRemove }: {
+  context?: boolean;
+  disabled: boolean;
+  missing: boolean;
+  onReveal(): void;
+  onRemove(): void;
+}) {
+  const Item = context ? ContextMenuItem : DropdownMenuItem;
+  return <>
+    <Item disabled={disabled || missing} onClick={onReveal}><FolderSearch />Show in folder</Item>
+    <Item variant="destructive" disabled={disabled} onClick={onRemove}><Trash2 />Remove from recent</Item>
+  </>;
 }
 
 export function HomePage({ active, canOpen, canCreate, onOpen, onCreate, onOpenRecent }: HomePageProps) {
@@ -96,24 +111,35 @@ export function HomePage({ active, canOpen, canCreate, onOpen, onCreate, onOpenR
               <History className="size-10 opacity-50" />
               <p className="text-sm">No recent projects</p>
             </div> : <ul data-testid="home-recent-list" className="grid grid-cols-[repeat(auto-fill,184px)] gap-5">
-              {projects.map(project => <li key={project.id} className="relative h-[256px] w-[184px] rounded-xl bg-card ring-1 ring-border transition-shadow hover:ring-primary">
-                <button type="button" disabled={disabled} aria-label={`Open ${project.displayName}`}
-                  className="block h-full w-full rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                  onClick={() => void run(() => onOpenRecent(project.id), 'This project is no longer available or could not be opened.')}>
-                  <RecentProjectThumbnail project={project} active={active} />
-                  <div className="h-[72px] space-y-1 p-4 pr-9">
-                    <p className="truncate text-sm font-medium" title={project.displayName}>{project.displayName}</p>
-                    <p className="truncate text-xs text-muted-foreground">{project.missing ? 'File is missing' : project.modifiedAt !== null ? new Date(project.modifiedAt).toLocaleString() : ''}</p>
-                  </div>
-                </button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="absolute right-2 bottom-7" disabled={disabled} aria-label={`Actions for ${project.displayName}`} />}><MoreHorizontal /></DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-max whitespace-nowrap">
-                    <DropdownMenuItem disabled={disabled || project.missing} onClick={() => void run(() => recentProjects.reveal(project.id), 'The file could not be located.')}><FolderSearch />Show in folder</DropdownMenuItem>
-                    <DropdownMenuItem disabled={disabled} onClick={() => void run(() => recentProjects.remove(project.id), 'The recent project could not be removed.')}><Trash2 />Remove from recent</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </li>)}
+              {projects.map(project => {
+                const menuProps = {
+                  disabled, missing: project.missing,
+                  onReveal: () => void run(() => recentProjects.reveal(project.id), 'The file could not be located.'),
+                  onRemove: () => void run(() => recentProjects.remove(project.id), 'The recent project could not be removed.'),
+                };
+                return <ContextMenu key={project.id}>
+                  <ContextMenuTrigger render={<li />} className="relative h-[256px] w-[184px] rounded-xl bg-card ring-1 ring-border transition-shadow hover:ring-primary">
+                    <button type="button" disabled={disabled} aria-label={`Open ${project.displayName}`}
+                      className="block h-full w-full rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                      onClick={() => void run(() => onOpenRecent(project.id), 'This project is no longer available or could not be opened.')}>
+                      <RecentProjectThumbnail project={project} active={active} />
+                      <div className="h-[72px] space-y-1 p-4 pr-9">
+                        <p className="truncate text-sm font-medium" title={project.displayName}>{project.displayName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{project.missing ? 'File is missing' : project.modifiedAt !== null ? new Date(project.modifiedAt).toLocaleString() : ''}</p>
+                      </div>
+                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="absolute right-2 bottom-7" disabled={disabled} aria-label={`Actions for ${project.displayName}`} />}><MoreHorizontal /></DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-max whitespace-nowrap">
+                        <RecentProjectMenuItems {...menuProps} />
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-max whitespace-nowrap">
+                    <RecentProjectMenuItems context {...menuProps} />
+                  </ContextMenuContent>
+                </ContextMenu>;
+              })}
             </ul>}
         </section>
       </div>

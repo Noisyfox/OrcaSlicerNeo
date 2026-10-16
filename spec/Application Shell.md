@@ -33,8 +33,10 @@ open flow. Actions follow the shared command availability during editing,
 loading, slicing and dialogs; a cancelled operation keeps the current page.
 
 Electron cards show the filename and local last-modified time, or File is
-missing. Card actions reveal the file in its folder or remove the history
-entry; Clear all removes history only. Missing/inaccessible file opens show an
+missing. Right-clicking anywhere on a card opens the same actions as its ellipsis
+menu: reveal the file in its folder or remove the history entry. Remove from
+recent uses the red destructive style in both menus; Clear all removes history
+only. Missing/inaccessible file opens show an
 error and retain the record for explicit removal. Home refreshes on entry and
 window focus. The recent-list response contains file metadata only and returns
 without waiting for thumbnails. Each visible Home card independently requests

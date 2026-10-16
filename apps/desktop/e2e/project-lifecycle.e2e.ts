@@ -331,6 +331,26 @@ test('Home opens and creates projects, persists Orca recent history and manages 
     await page.locator('#app-tab-home').click();
     await expect(page.getByTestId('home-recent-list')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('home.png') });
+    await page.getByRole('button', { name: 'Actions for picked-project.3mf', exact: true }).click();
+    const labels = await page.getByRole('menuitem').allTextContents();
+    expect(labels).toEqual(['Show in folder', 'Remove from recent']);
+    await expect(page.getByRole('menuitem', { name: 'Remove from recent' })).toHaveAttribute('data-variant', 'destructive');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toBeHidden();
+    const card = page.getByTestId('home-recent-list').locator('li').first();
+    // The preview, filename/footer, and outer edge all own the same menu.
+    for (const position of [{ x: 90, y: 90 }, { x: 30, y: 215 }, { x: 182, y: 128 }]) {
+      await card.click({ button: 'right', position });
+      await expect(page.getByRole('menuitem')).toHaveText(labels);
+      await expect(page.getByRole('menuitem', { name: 'Remove from recent' })).toHaveAttribute('data-variant', 'destructive');
+      await expect(page.getByTestId('home-page')).toBeVisible();
+      if (position.x === 90) {
+        await page.getByRole('menu').evaluate(element => Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished)));
+        await page.screenshot({ path: testInfo.outputPath('home-context-menu.png') });
+      }
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('menu')).toBeHidden();
+    }
     await page.getByRole('button', { name: 'Open picked-project.3mf', exact: true }).click();
     await expect(page.getByTestId('project-load-choice-dialog')).toBeVisible();
     await page.getByTestId('project-load-project').check();
@@ -347,7 +367,8 @@ test('Home opens and creates projects, persists Orca recent history and manages 
     await page.getByRole('button', { name: 'Open picked-project.3mf', exact: true }).click();
     await expect(page.getByTestId('home-page').getByRole('alert')).toContainText('no longer available');
     await expect(page.getByTestId('home-recent-list')).toContainText('File is missing');
-    await page.getByRole('button', { name: 'Actions for picked-project.3mf', exact: true }).click();
+    await page.getByTestId('home-recent-list').locator('li').first().click({ button: 'right' });
+    await expect(page.getByRole('menuitem', { name: 'Show in folder' })).toBeDisabled();
     await page.getByRole('menuitem', { name: 'Remove from recent' }).click();
     await expect(page.getByTestId('home-recent-empty')).toBeVisible();
     expect(existsSync(first.savePath)).toBe(true);
