@@ -3,8 +3,9 @@
 **Date:** 2026-10-16
 
 **Status:** Accepted design direction, selection/navigation behavior, category
-reset scope, and motion-limit presentation. Remaining choice, lifecycle, and
-acceptance decisions are open. Not implemented.
+reset scope, motion-limit presentation, and input/navigation ordering.
+Remaining choice, automatic-transition, recovery, and acceptance decisions are
+open. Not implemented.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
 preset editors and Project Print settings. This is a peer specification to
@@ -81,9 +82,16 @@ Selection is presentation state: selecting an entry changes which native
 elements are presented for editing and does not itself edit configuration,
 change material assignments, or create a project-history entry.
 
-Selection lifetime across closing/reopening an editor, changing the edited
-preset, or changing printer topology is not established by category-navigation
-retention and remains open.
+Opening or reopening an editor starts at the first available selection. An
+explicit user change to another preset also selects that preset's first
+available entry. Closing/reopening the editor does not restore its previous
+extruder/variant selection, and this feature adds no per-preset or persistent
+selection memory.
+
+These initialization rules do not reset selection on category navigation or
+ordinary receipt publication. Automatic canonical-source transitions, history
+restore, and printer-topology changes require separate selection rules and
+remain open.
 
 ## 4. Switch visibility
 
@@ -141,7 +149,36 @@ Partial success is not an accepted outcome. Existing native ownership and
 history remain authoritative; issuing a sequence of independent field resets
 does not meet the category-reset contract.
 
-## 7. Scope boundaries
+## 7. Input and navigation ordering
+
+Extruder/variant switching follows Neo's setting-category tabs. With an
+available editor snapshot and a valid destination, switching is immediate even
+after editing a field, while a field submission is pending, or when a field
+contains invalid input. Field validation and pending mutations are not reasons
+to disable the extruder/variant switch. Existing snapshot-loading and refresh
+availability rules remain applicable.
+
+The existing Enter/blur submission behavior still applies. If leaving a field
+starts a submission, navigation does not wait for its result, require another
+click, or become a deferred navigation request. Invalid input does not block
+navigation or become an accepted configuration value. Field-local input and
+validation feedback must not migrate to the same option on another
+extruder/variant.
+
+An already dispatched mutation remains bound to the preset, option, and native
+element index captured for that submission. Changing the viewed selection does
+not cancel the mutation or retarget it to the newly viewed element. Its result
+updates the authoritative editor/configuration snapshot without restoring the
+previously viewed selection. Field-local success or failure feedback must not
+be applied to a different binding after navigation.
+
+Immediate navigation does not permit concurrent writes against stale revisions;
+the existing mutation serialization and edit-control busy behavior remain in
+force. Switching to a different preset retains the preset picker's existing
+pending-submission and invalid-input guards; those guards are not imposed on
+category or extruder/variant navigation.
+
+## 8. Scope boundaries
 
 The accepted feature covers Printer, Filament, and Project Print selection.
 Object, Part, and Plate element-editing extensions are outside this scope.
@@ -153,14 +190,14 @@ capability and is not included in this accepted direction. The switch also
 does not add preset management, material-to-extruder assignment controls, or
 printer topology editing.
 
-## 8. Open decisions
+## 9. Open decisions
 
 The following contracts still require clarification before implementation:
 
 - Detailed flow-type choices, presentation when a native mapping is unavailable,
   and treatment of any future conditionally hidden fields during reset.
-- Selection initialization and invalidation when an editor or preset changes,
-  pending/invalid input behavior, revision changes, and failure recovery.
+- Selection handling for automatic canonical-source transitions, history restore,
+  and topology changes, plus revision changes and failure recovery.
 - Required behavioral acceptance cases and applicable native/host verification.
 
 Open decisions are not implemented guarantees. The existing editor and scoped

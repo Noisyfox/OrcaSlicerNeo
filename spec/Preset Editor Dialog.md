@@ -358,9 +358,10 @@ and history receipts retain their existing contracts.
 Switching targets retains every accepted source-local draft, matching sidebar
 selection's draft retention. Returning to a source reads its existing overlay;
 no changes transfer between sources. Pending field submissions block switching,
-and invalid field input must be corrected before switching. A read failure
-retains the previous target and values; obsolete reads cannot publish into a
-closed or superseded editor. A successful switch clears field-local input and
+and invalid field input must be corrected before switching the preset target.
+These target-switch guards do not block setting-category navigation. A read
+failure retains the previous target and values; obsolete reads cannot publish
+into a closed or superseded editor. A successful switch clears field-local input and
 validation state while retaining a functional page when it exists on the new
 source. Undo/Redo refreshes the browsed target without following project preset
 selection. Dormant-draft persistence and existing mutation invalidation policy
@@ -483,7 +484,11 @@ including the single Printer Extruder page, independent editor selections, and
 category-dependent switch visibility. It also owns the accepted mixed-index
 category-reset scope (current selection plus shared fields) and single-group
 motion-limit presentation without Silent controls. Those extensions are not yet
-implemented; cross-extruder copy is outside that feature's accepted scope.
+implemented. Extruder/variant navigation is immediate like category navigation,
+including during field submission or with invalid input; dispatched writes
+remain bound to their original fields. Opening an editor or explicitly changing
+its preset starts at the first selection. Cross-extruder copy is outside that
+feature's accepted scope.
 A valid vector index is not a physical Extruder ID.
 
 Diameter edits reuse the native toolhead transition, including exact profile
