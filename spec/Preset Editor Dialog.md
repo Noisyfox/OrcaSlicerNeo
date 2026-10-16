@@ -476,9 +476,13 @@ Project Print owner, embedded-preset materialization, configuration publication,
 and enclosing application history transaction. They do not introduce a second
 Print draft or history root. Whole-option operations remain distinct actions.
 
-This increment supplies element mechanisms only. Filament/Print variant pickers,
-per-field Extruder-to-Variant mapping, motion-mode controls, and cross-extruder
-copy remain separate work. A valid vector index is not a physical Extruder ID.
+This delivered increment supplies element mechanisms only. The accepted,
+not-yet-implemented selection and mapping design is owned by
+[Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md),
+including the single Printer Extruder page, independent editor selections, and
+category-dependent switch visibility. Detailed motion-mode and reset decisions
+remain open there; cross-extruder copy is outside that feature's accepted scope.
+A valid vector index is not a physical Extruder ID.
 
 Diameter edits reuse the native toolhead transition, including exact profile
 combination matching, and the editor follows the resulting canonical source.

@@ -181,7 +181,10 @@ other elements remain unchanged. Element values outside native bounds are
 rejected; whole-option numeric edits retain their existing clamping behavior.
 These operations use the same Project-owned Print preset and enclosing history
 transaction as ordinary scoped edits. They currently accept one Project target;
-Object, Part and Plate element editing and Variant selection UI are deferred.
+Object, Part and Plate element editing remains deferred. The accepted design
+for Project Print variant selection is owned by
+[Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md)
+and is not yet implemented.
 
 The initial validation behavior is intentionally limited:
 
