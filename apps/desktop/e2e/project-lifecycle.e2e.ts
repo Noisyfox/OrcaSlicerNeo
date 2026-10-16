@@ -11,13 +11,13 @@ import { tmpdir } from 'node:os';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
-async function launchProjectApp(directory?: string): Promise<{ app: ElectronApplication; projectPath: string; savePath: string; dir: string }> {
+async function launchProjectApp(directory?: string, sourcePath = MODEL_PATH): Promise<{ app: ElectronApplication; projectPath: string; savePath: string; dir: string }> {
   const dir = directory ?? mkdtempSync(join(tmpdir(), 'orca-project-e2e-'));
   const projectPath = join(dir, 'picked-project.3mf');
   const savePath = join(dir, 'saved-project.3mf');
   // The mock bridge validates that bytes exist, while the extension drives
   // the project picker/action path.
-  if (!directory) copyFileSync(MODEL_PATH, projectPath);
+  if (!directory) copyFileSync(sourcePath, projectPath);
   const env = {
     ...process.env,
     ORCA_E2E: '1',
@@ -360,5 +360,31 @@ test('Home opens and creates projects, persists Orca recent history and manages 
     await expect(page.getByTestId('home-recent-empty')).toBeVisible();
     expect(JSON.parse(readFileSync(config, 'utf8')).recent_projects).toEqual({});
     expect(existsSync(first.projectPath)).toBe(true);
+  } finally { await app.close(); }
+});
+
+
+test('Home displays an embedded Orca 3MF thumbnail and retains it after restart', async ({}, testInfo) => {
+  const source = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/project-compatibility/orca-upstream-flowrate.3mf');
+  const first = await launchProjectApp(undefined, source);
+  let app = first.app;
+  try {
+    let page = await app.firstWindow();
+    await expect(page.getByTestId('home-open-project')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('home-open-project').click();
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('picked-project');
+    await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
+    await page.locator('#app-tab-home').click();
+    let image = page.getByRole('button', { name: 'Open picked-project.3mf', exact: true }).locator('img');
+    await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/);
+    await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+    const original = await image.getAttribute('src');
+    await page.screenshot({ path: testInfo.outputPath('home-thumbnail.png') });
+    await app.close();
+    app = (await launchProjectApp(first.dir)).app;
+    page = await app.firstWindow();
+    image = page.getByRole('button', { name: 'Open picked-project.3mf', exact: true }).locator('img');
+    await expect(image).toHaveAttribute('src', original!, { timeout: 30_000 });
+    await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
   } finally { await app.close(); }
 });

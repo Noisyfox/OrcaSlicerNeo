@@ -85,6 +85,8 @@ export interface RecentProject {
   id: string;
   displayName: string;
   modifiedAt: number | null;
+  /** Host-extracted embedded PNG, never a filesystem URL. */
+  thumbnailUrl: string | null;
   missing: boolean;
 }
 

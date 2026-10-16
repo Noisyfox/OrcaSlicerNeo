@@ -22,6 +22,20 @@ async function render(recentProjects: RecentProjectsCapability = NO_RECENT_PROJE
 async function click(button: Element | null) { expect(button).not.toBeNull(); await act(async () => (button as HTMLButtonElement).click()); }
 
 describe('Home page', () => {
+  it('renders the embedded PNG, falls back on decode failure and accepts a refreshed image', async () => {
+    let thumbnailUrl = 'data:image/png;base64,first';
+    const { container } = await render({ ...NO_RECENT_PROJECTS,
+      list: async () => [{ id: 'opaque', displayName: 'Robot.3mf', modifiedAt: 1, thumbnailUrl, missing: false }],
+    });
+    const button = container.querySelector('button[aria-label="Open Robot.3mf"]')!;
+    expect(button.querySelector('img')?.getAttribute('src')).toBe(thumbnailUrl);
+    await act(async () => { button.querySelector('img')!.dispatchEvent(new Event('error')); });
+    expect(button.querySelector('img')).toBeNull();
+    expect(button.querySelector('svg')).not.toBeNull();
+    thumbnailUrl = 'data:image/png;base64,second';
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(button.querySelector('img')?.getAttribute('src')).toBe(thumbnailUrl);
+  });
   it('offers New/Open and renders the Web empty state', async () => {
     const { container, onOpen, onCreate } = await render();
     expect(container.textContent).toContain('No recent projects');
@@ -32,7 +46,7 @@ describe('Home page', () => {
   });
   it('opens a missing record by id and honors command availability', async () => {
     const { container, onOpenRecent, update } = await render({ ...NO_RECENT_PROJECTS,
-      list: async () => [{ id: 'opaque', displayName: '<Robot>.3mf', modifiedAt: null, missing: true }],
+      list: async () => [{ id: 'opaque', displayName: '<Robot>.3mf', modifiedAt: null, thumbnailUrl: null, missing: true }],
     });
     expect(container.textContent).toContain('File is missing');
     const button = container.querySelector('button[aria-label="Open <Robot>.3mf"]');
@@ -42,7 +56,7 @@ describe('Home page', () => {
     expect(container.querySelector('[data-testid="home-new-project"]')?.hasAttribute('disabled')).toBe(true);
   });
   it('keeps history visible when clearing fails and can retry successfully', async () => {
-    let entries = [{ id: 'opaque', displayName: 'Robot.3mf', modifiedAt: 1, missing: false }];
+    let entries = [{ id: 'opaque', displayName: 'Robot.3mf', modifiedAt: 1, thumbnailUrl: null, missing: false }];
     const clear = vi.fn<() => Promise<void>>(async () => { throw new Error('disk full'); });
     const { container } = await render({ ...NO_RECENT_PROJECTS, list: async () => entries, clear });
     await click(container.querySelector('[data-testid="home-clear-recent"]'));

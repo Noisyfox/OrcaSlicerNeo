@@ -36,8 +36,23 @@ Electron cards show the filename and local last-modified time, or File is
 missing. Card actions reveal the file in its folder or remove the history
 entry; Clear all removes history only. Missing/inaccessible file opens show an
 error and retain the record for explicit removal. Home refreshes on entry and
-window focus. This initial grid uses a file icon; thumbnail extraction is not
-included. Browser history stays empty and all recent operations are no-ops.
+window focus. Electron extracts an embedded PNG from the 3MF ZIP using Orca's
+`_BBS_3MF_Importer::get_thumbnail` selection: read `_rels/.rels`, prefer the
+Bambu `cover-thumbnail-middle` relationship, then a standard PNG thumbnail;
+when neither specifies a target, use `Metadata/plate_1.png`. Missing or malformed
+relationships, unavailable images and image decode failures use the file icon.
+The image fits inside the existing card without cropping or layout changes.
+
+The host reads only the ZIP directory, relationships and selected image,
+without loading geometry into WASM or writing extracted files. Previews,
+including absent previews, are cached in memory by file modification/change
+time and size, invalidated on file changes and released when history is removed.
+Optional preview decoding is bounded to 1 MiB of relationships and 8 MiB of PNG
+data; these limits do not restrict project opening. Only PNG data URLs cross
+the platform boundary; images are not saved into the recent-history config.
+Normal Neo project saves still omit thumbnails, as specified in
+[3MF Project Persistence](3MF%20Project%20Persistence.md#project-save-behaviour).
+Browser history stays empty and all recent operations are no-ops.
 The persistence contract is owned by
 [3MF Project Persistence](3MF%20Project%20Persistence.md#persistence-boundary).
 

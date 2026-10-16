@@ -1,11 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, readFile, rm, unlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as thumbnails from './projectThumbnail';
 import { decodeRecentProjects, RecentProjectsRepository } from './recentProjects';
 
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
+afterEach(async () => { vi.restoreAllMocks(); await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), 'neo-recents-')); directories.push(dir);
   const config = join(dir, 'OrcaSlicerNeo.conf');
@@ -15,6 +16,31 @@ async function fixture() {
 }
 
 describe('Orca recent project configuration', () => {
+  it('caches previews until the file changes and drops them when the file disappears', async () => {
+    const { repo, files, config } = await fixture();
+    const read = vi.spyOn(thumbnails, 'readProjectThumbnail').mockResolvedValue('data:image/png;base64,first');
+    await repo.record(files[0]);
+    expect((await repo.list())[0].thumbnailUrl).toBe('data:image/png;base64,first');
+    await repo.list(); expect(read).toHaveBeenCalledTimes(1);
+    read.mockResolvedValue('data:image/png;base64,second');
+    await utimes(files[0], new Date(), new Date(Date.now() + 10_000));
+    expect((await repo.list())[0].thumbnailUrl).toBe('data:image/png;base64,second');
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(await readFile(config, 'utf8')).recent_projects).toEqual({ '001': files[0] });
+    await unlink(files[0]);
+    expect((await repo.list())[0]).toMatchObject({ missing: true, thumbnailUrl: null });
+    await writeFile(files[0], 'project');
+    await repo.list(); expect(read).toHaveBeenCalledTimes(3);
+    await repo.clear(); await repo.record(files[0]);
+    await repo.list(); expect(read).toHaveBeenCalledTimes(4);
+  });
+  it('caches absence of a thumbnail without hiding a valid file', async () => {
+    const { repo, files } = await fixture();
+    const read = vi.spyOn(thumbnails, 'readProjectThumbnail').mockResolvedValue(null);
+    await repo.record(files[0]);
+    expect((await repo.list())[0]).toMatchObject({ missing: false, thumbnailUrl: null });
+    await repo.list(); expect(read).toHaveBeenCalledTimes(1);
+  });
   it('serializes concurrent updates, deduplicates, caps at 18 and restores Orca keys', async () => {
     const { config, files, repo } = await fixture();
     await writeFile(config, JSON.stringify({ unrelated: { keep: true } }));

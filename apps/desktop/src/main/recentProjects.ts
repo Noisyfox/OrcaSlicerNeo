@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, normalize } from 'node:path';
 import type { RecentProject } from '../../../../packages/platform-contract/src/contracts';
+import { readProjectThumbnail } from './projectThumbnail';
 import { writeFileAtomically } from './atomicFile';
 
 const MAX_RECENT_PROJECTS = 18;
@@ -21,6 +22,7 @@ export class RecentProjectsRepository {
   private tail: Promise<unknown> = Promise.resolve();
   private document: Record<string, unknown> | null = null;
   private ids = new Map<string, string>();
+  private thumbnails = new Map<string, { signature: string; url: string | null }>();
   constructor(private readonly configPath: string | null) {}
 
   private async load(): Promise<Record<string, unknown>> {
@@ -52,8 +54,22 @@ export class RecentProjectsRepository {
       const paths = decodeRecentProjects(await this.load());
       return Promise.all(paths.map(async (path) => {
         let modifiedAt: number | null = null;
-        try { const file = await stat(path); if (file.isFile()) modifiedAt = file.mtimeMs; } catch { /* Missing or inaccessible. */ }
-        return { id: this.idFor(path), displayName: basename(path), modifiedAt, missing: modifiedAt === null };
+        let thumbnailUrl: string | null = null;
+        try {
+          const file = await stat(path);
+          if (file.isFile()) {
+            modifiedAt = file.mtimeMs;
+            const signature = `${file.mtimeMs}:${file.ctimeMs}:${file.size}`;
+            let cached = this.thumbnails.get(path);
+            if (cached?.signature !== signature) {
+              cached = { signature, url: await readProjectThumbnail(path) };
+              this.thumbnails.set(path, cached);
+            }
+            thumbnailUrl = cached.url;
+          }
+        } catch { /* Missing or inaccessible. */ }
+        if (modifiedAt === null) this.thumbnails.delete(path);
+        return { id: this.idFor(path), displayName: basename(path), modifiedAt, thumbnailUrl, missing: modifiedAt === null };
       }));
     });
   }
@@ -75,6 +91,7 @@ export class RecentProjectsRepository {
         await writeFileAtomically(this.configPath, Buffer.from(JSON.stringify(next, null, 2), 'utf8'));
       }
       this.document = next;
+      for (const path of this.thumbnails.keys()) if (!paths.includes(path)) this.thumbnails.delete(path);
       for (const [id, path] of this.ids) if (!paths.includes(path)) this.ids.delete(id);
     });
   }
