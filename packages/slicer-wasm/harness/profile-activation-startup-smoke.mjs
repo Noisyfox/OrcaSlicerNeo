@@ -83,6 +83,18 @@ assert.equal(startupProfiles.printer.name, 'Compatibility Alpha 0.4 nozzle', 'st
 assert.equal(startupProfiles.print.name, 'Alpha Explicit Process', 'native fallback resolves concrete default Process');
 assert.deepEqual(session.call('orc_get_preset_snapshot').printers.map(item => item.name), ['Compatibility Alpha 0.4 nozzle'],
   'only enabled model/nozzle is admitted');
+assert.equal(session.call('orc_add_shape',['string','string'],['Cube','scoped ABI startup']).ok,true);
+const scopedObject=session.call('orc_get_model_structure').objects[0];
+const scopedTargets=[{scope:'object',id:String(scopedObject.id)}];
+const scopedRead=()=>session.call('orc_get_scoped_config_editor',['string'],[JSON.stringify({version:1,targets:scopedTargets})]);
+const scopedBefore=scopedRead();assert.equal(scopedBefore.ok,true,JSON.stringify(scopedBefore));
+const scopedBinding=scopedBefore.editor_selection.field_bindings.outer_wall_speed.bindings[0];
+assert.equal(scopedBinding.kind,'indexed');
+assert.equal(session.call('orc_mutate_native_scoped_config',['string'],[JSON.stringify({version:1,
+  operation:'set-element',targets:scopedTargets,expected_revision:scopedBefore.revision,
+  key:'outer_wall_speed',scalar_type:'float',index:scopedBinding.index,value:17})]).ok,true);
+assert.deepEqual(scopedRead().targets[0].editor_vectors.outer_wall_speed.override_values[scopedBinding.index],{value:17},
+  'current variant exports and executes scoped indexed read/write ABI');
 const stale = { models: [{ vendor: 'CompatibilityFixture', model: 'Removed model', nozzle_diameter: ['0.4'] },
   { vendor: 'MissingVendor', model: 'Old model', nozzle_diameter: ['0.4'] }], filaments: ['Old PLA'] };
 assert.equal(session.init(stale).setupRequired, true, 'stale records are not usable printers');

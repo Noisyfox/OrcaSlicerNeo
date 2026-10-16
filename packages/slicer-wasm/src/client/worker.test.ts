@@ -45,6 +45,42 @@ function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | 
 }
 
 describe('worker protocol', () => {
+  it('transports scoped indexed inheritance, ownership, atomic rejection and reset without a preset owner', async () => {
+    const { workerClient: client } = setup();
+    await client.init(MOCK_PROFILE_ACTIVATION);
+    await client.addShape('Cube', 'scoped indexed');
+    const structure = await client.getModelStructure();
+    if (!structure.ok) throw new Error(structure.error);
+    const object = { scope: 'object' as const, id: structure.objects[0].id };
+    const part = { scope: 'part' as const, id: structure.objects[0].volumes[0].id };
+    const read = async (target = object as typeof object | typeof part) => {
+      const result = await client.getScopedConfigEditor({ version: 1, targets: [target] });
+      if (!result.ok) throw new Error(result.error);
+      return result;
+    };
+    const set = async (target: typeof object | typeof part, index: number, value: number | null) => client.mutateNativeScopedConfig({
+      version: 1, operation: 'set-element', targets: [target], expectedRevision: (await read(target)).revision,
+      key: 'outer_wall_speed', scalarType: 'float', index, value });
+    expect(await set(object, 0, 200)).toMatchObject({ ok: true });
+    expect(await set(part, 1, 220)).toMatchObject({ ok: true });
+    let values = (await read(part)).targets[0];
+    expect(values.sourceScopes.indexed.outer_wall_speed).toEqual(['object', 'preset', 'preset']);
+    expect(values.editorVectors.outer_wall_speed.overrideValues).toEqual([null, { value: 220 }, null]);
+    expect(values.localKeys).toContain('outer_wall_speed');
+    expect(values).not.toHaveProperty('canonicalName');
+    await set(object, 2, 123);
+    values = (await read(part)).targets[0];
+    expect(values.editorVectors.outer_wall_speed.effectiveValues).toEqual([200, 220, 123]);
+    const before = await read(part), history = await client.getHistoryStatus();
+    expect(await client.mutateNativeScopedConfig({ version: 1, operation: 'reset-fields', targets: [part], expectedRevision: before.revision,
+      fields: [{ key: 'outer_wall_speed', kind: 'indexed', index: 1 }, { key: 'not-a-field', kind: 'shared' }] })).toMatchObject({ ok: false });
+    expect(await read(part)).toEqual(before);
+    expect(await client.getHistoryStatus()).toEqual(history);
+    await set(part, 1, null);
+    values = (await read(part)).targets[0];
+    expect(values.localKeys).not.toContain('outer_wall_speed');
+    expect(values.editorVectors.outer_wall_speed.overrideValues).toEqual([null, null, null]);
+  });
   it('excludes reads and mutations while a user preset write owns the worker', async () => {
     let release!: () => void;
     let entered!: () => void;

@@ -139,6 +139,28 @@ describe('SlicerClient bridge contract', () => {
     ] });
     expect(snapshot.editorVectors.outer_wall_speed).toMatchObject({ indexCount: 3, sourceValues: [200], effectiveValues: [210] });
   });
+  it.each(['owned-null', 'wrong-origin', 'missing-origins', 'short-origins', 'wrong-target', 'wrong-target-scope', 'false-local-key'])('rejects malformed scoped %s receipts', async mode => {
+    const module = createMockModule(), original = module.ccall;
+    module.ccall = (name, ret, types, args) => {
+      const pointer = original(name, ret, types, args);
+      if(name !== 'orc_get_scoped_config_editor') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer))); module._free(Number(pointer));
+      const target = payload.targets[0];
+      if(mode==='owned-null') { target.editor_vectors.outer_wall_speed.override_values[1]={value:null}; target.local_keys.push('outer_wall_speed'); }
+      if(mode==='wrong-origin') target.source_scopes.indexed.outer_wall_speed[0]='object';
+      if(mode==='missing-origins') delete target.source_scopes.indexed.outer_wall_speed;
+      if(mode==='short-origins') target.source_scopes.indexed.outer_wall_speed.pop();
+      if(mode==='wrong-target') target.target.id='99999';
+      if(mode==='wrong-target-scope') target.target.scope='part';
+      if(mode==='false-local-key') target.local_keys.push('outer_wall_speed');
+      const bytes = new TextEncoder().encode(JSON.stringify(payload)+'\0'); const replacement = module._malloc(bytes.length);
+      module.HEAPU8.set(bytes,Number(replacement)); return replacement;
+    };
+    const client = createClient(async()=>module); await client.init(MOCK_PROFILE_ACTIVATION); await client.addShape('Cube','scoped');
+    const structure=await client.getModelStructure(); if(!structure.ok) throw new Error(structure.error);
+    expect(await client.getScopedConfigEditor({version:1,targets:[{scope:'object',id:structure.objects[0].id}]}))
+      .toMatchObject({ok:false,errorCode:'invalid_response'});
+  });
   const arrangement = { scope: 'all' as const, distance: 0, rotate: false, alignY: false, multipleMaterials: true, avoidCalibration: true,
     context: { selection: { mode: 'object' as const, objectIds: [], instanceIds: [], partIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} } };
   const arrangementCompletion = { ok: true, cancelled: false, changed: false, placed: 0, unplaced: [], plate_limit_reached: false };

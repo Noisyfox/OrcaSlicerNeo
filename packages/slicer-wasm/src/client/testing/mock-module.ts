@@ -678,7 +678,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return { ok: true, kind: 'print', canonical_name: selected.print, revision: historyRevision,
       source_values: { ...shared, ...Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, serializePresetEditorValues(option.values)])) },
       effective_values: { ...shared,...Object.fromEntries(Object.entries(nativeScopedConfig.project).filter(([key])=>Object.hasOwn(shared,key))), ...Object.fromEntries(Object.keys(printEditorOptions).map(key => [key, serializePresetEditorValues(printEditorValues(key))])) },
-      option_metadata: { ...Object.fromEntries(keys.filter(key=>metadata[key]).map(key=>[key,metadata[key]])), ...Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, { type: option.metadataType }])) },
+      option_metadata: { ...Object.fromEntries(keys.filter(key=>metadata[key]).map(key=>[key,metadata[key]])), ...Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, {
+        ...metadata[key], type: option.metadataType, scopes: metadata[key]?.scopes ?? ['project', 'object', 'part'],
+      }])) },
       editor_vectors: Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, {
         scalar_type: option.scalarType, nullable: false, readonly: false, multiline: false, is_code: false,
         gui_type: 'undefined', gui_flags: '', source_values: clone(option.values), effective_values: clone(printEditorValues(key)), index_count: 3,
@@ -687,6 +689,58 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       editor_selection: mockEditorSelection('print', keys,
         Object.fromEntries(Object.keys(printEditorOptions).map(key => [key, 3])), true),
     };
+  }
+  function scopedConfigEditor(request: { version: number; targets: Array<{ scope: string; id: string }> }) {
+    const fail = (error: string) => ({ ok: false, error, error_code: 'unsupported_reference' });
+    if (request.version !== 1 || !Array.isArray(request.targets) || !request.targets.length ||
+        !['object', 'part'].includes(request.targets[0]?.scope) ||
+        request.targets.some(target => target.scope !== request.targets[0].scope || typeof target.id !== 'string') ||
+        new Set(request.targets.map(target => target.id)).size !== request.targets.length) return fail('homogeneous scoped targets required');
+    const print = printConfigEditor();
+    const targets: Array<{ target: { scope: string; id: string }; source_values: Record<string, string>;
+      effective_values: Record<string, string>; editor_vectors: Record<string, unknown>; local_keys: string[];
+      source_scopes: { shared: Record<string, string>; indexed: Record<string, string[]> } }> = [];
+    for (const target of request.targets) {
+      const owner = target.scope === 'object'
+        ? objectMeta.findIndex(object => String(object.id) === target.id)
+        : volumeMeta.findIndex(volumes => volumes.some(volume => String(volume.id) === target.id));
+      if (owner < 0) return fail('scoped target not found');
+      const parent = target.scope === 'part' ? nativeScopedConfig.objects[String(objectMeta[owner].id)] ?? {} : {};
+      const local = (target.scope === 'part' ? nativeScopedConfig.parts : nativeScopedConfig.objects)[target.id] ?? {};
+      const source = Object.fromEntries(Object.entries(print.effective_values).filter(([key])=>
+        print.option_metadata[key]?.scopes?.includes(target.scope as 'object' | 'part')));
+      const effective = { ...source };
+      const sourceScopes = { shared: {} as Record<string, string>, indexed: {} as Record<string, string[]> };
+      const localKeys: string[] = [];
+      const vectors: Record<string, unknown> = {};
+      const slot = (values: PresetDraftEditorValue[], index: number) => values.length === 1 && values[0] !== null ? values[0] : values[index];
+      for (const key of Object.keys(source)) {
+        const option = printEditorOptions[key];
+        if (!option) {
+          source[key] = parent[key] ?? source[key]; effective[key] = local[key] ?? source[key];
+          sourceScopes.shared[key] = Object.hasOwn(parent, key) ? 'object' : Object.hasOwn(nativeScopedConfig.project, key) ? 'project' : 'preset';
+          if (Object.hasOwn(local, key)) localKeys.push(key);
+          continue;
+        }
+        const inherited = printEditorValues(key);
+        const parentValues = parent[key] === undefined ? [] : parseMockEditorValue(parent[key], { ...option, nullable: true });
+        const localValues = local[key] === undefined ? [] : parseMockEditorValue(local[key], { ...option, nullable: true });
+        const sources = option.values.map((_, index) => slot(parentValues, index) ?? inherited[index < inherited.length ? index : 0]);
+        const overrides = option.values.map((_, index) => {
+          const value = slot(localValues, index); return value === undefined || value === null ? null : { value };
+        });
+        const values = sources.map((value, index) => overrides[index]?.value ?? value);
+        source[key] = serializePresetEditorValues(sources); effective[key] = serializePresetEditorValues(values);
+        sourceScopes.indexed[key] = sources.map((_, index) => slot(parentValues, index) != null ? 'object' : printVectorOverrides[key]?.[index] ? 'project' : 'preset');
+        if (overrides.some(entry => entry !== null)) localKeys.push(key);
+        vectors[key] = { ...print.editor_vectors[key], nullable: true, source_values: sources, effective_values: values, override_values: overrides };
+      }
+      targets.push({ target, source_values: source, effective_values: effective, editor_vectors: vectors,
+        local_keys: localKeys, source_scopes: sourceScopes });
+    }
+    return { ok: true, version: 1, revision: historyRevision, option_metadata: print.option_metadata,
+      editor_selection: { ...print.editor_selection, field_bindings: Object.fromEntries(
+        Object.entries(print.editor_selection.field_bindings).filter(([key])=>Object.hasOwn(targets[0].source_values,key))) }, targets };
   }
   // Deliberate synthetic fixtures, not an implementation of native variant rules.
   function mockEditorSelection(kind: 'printer' | 'filament' | 'print', keys: string[], counts: Record<string, number>, activeSource: boolean) {
@@ -2390,6 +2444,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_native_scoped_config() {
       return { version: 1, ok: true, native_scoped_config: nativeScopedConfigFullTransport() };
     },
+    orc_get_scoped_config_editor(requestJson: string) {
+      try { return scopedConfigEditor(JSON.parse(requestJson)); }
+      catch { return { ok: false, error: 'invalid scoped editor read', error_code: 'invalid_command' }; }
+    },
     orc_mutate_native_scoped_config(requestJson: string) {
       if (opts.nativeScopedConfigOverride !== undefined) return opts.nativeScopedConfigOverride;
       let request: any;
@@ -2404,16 +2462,50 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const resetElementKeys = new Set<string>();
       const nextPrintOverrides = clone(printVectorOverrides);
       let indexedCommand = false;
+      let scopedValues: Record<string, Record<string, string | null>> | undefined;
       if (request.operation === 'set-element' || request.operation === 'reset-fields') {
         indexedCommand = true;
-        if (request.targets.length !== 1 || request.targets[0]?.scope !== 'project' || request.targets[0]?.id !== undefined)
-          return fail('Print element commands require one Project target', 'unsupported_reference');
         if (!Number.isSafeInteger(request.expected_revision) || request.expected_revision !== historyRevision)
           return fail('Print element revision is stale or missing', 'stale_revision');
         if (request.operation === 'reset-fields' && (request.keys !== undefined || request.index !== undefined))
           return fail('reset-fields requires per-field reset targets');
         const fields = request.operation === 'set-element' ? [{key: request.key, kind: 'indexed', index: request.index}] : request.fields;
         if (!Array.isArray(fields) || !fields.length) return fail('reset fields must be a non-empty explicit batch');
+        if (request.targets[0]?.scope !== 'project') {
+          const editor = scopedConfigEditor({ version: 1, targets: request.targets });
+          if (!editor.ok || !('targets' in editor)) return fail('invalid scoped targets', 'unsupported_reference');
+          scopedValues = {};
+          for (const target of editor.targets!) {
+            const values: Record<string, string | null> = {};
+            const seenFields = new Set<string>();
+            for (const field of fields) {
+              if (!field || typeof field.key !== 'string' || seenFields.has(field.key) ||
+                  !['shared', 'indexed'].includes(field.kind) || Object.keys(field).length !== (field.kind === 'indexed' ? 3 : 2)) return fail('invalid reset field');
+              const key: string = field.key; seenFields.add(key);
+              const option = printEditorOptions[key];
+              if (field.kind === 'shared') {
+                if (option || !Object.hasOwn(target.source_values, key) || !metadata[key]?.scopes?.includes(target.target.scope as 'object' | 'part'))
+                  return fail('invalid scoped shared field', 'unsupported_reference');
+                values[key] = null; continue;
+              }
+              if (!option) return fail('unsupported scoped vector', 'unsupported_reference');
+              if (!Number.isSafeInteger(field.index) || field.index < 0 || field.index >= option.values.length) return fail('invalid index', 'invalid_index');
+              const value = request.operation === 'set-element' ? request.value : null;
+              if (request.operation === 'set-element' && (request.scalar_type !== option.scalarType ||
+                  (value !== null && ((option.scalarType === 'float' && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) ||
+                  (option.scalarType === 'bool' && typeof value !== 'boolean') || (option.scalarType === 'float_or_percent' &&
+                  (!value || !Number.isFinite(value.value) || typeof value.percent !== 'boolean')))))) return fail('invalid typed scoped element', 'invalid_value');
+              const vector = target.editor_vectors[key] as { override_values: ConfigVectorOverride[] };
+              const slots = vector.override_values.map(entry => entry?.value ?? null);
+              slots[field.index] = clone(value);
+              values[key] = slots.some(slot => slot !== null) ? serializePresetEditorValues(slots as PresetDraftEditorValue[]) : null;
+            }
+            scopedValues[target.target.id] = values;
+          }
+          request = { ...request, operation: 'set', values: { __scoped_batch: '' } };
+        } else {
+        if (request.targets.length !== 1 || request.targets[0]?.id !== undefined)
+          return fail('Print element commands require one Project target', 'unsupported_reference');
         const seen = new Set<string>();
         const values: Record<string, string> = {};
         for (const field of fields) {
@@ -2451,6 +2543,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           else { delete nextPrintOverrides[key]; resetElementKeys.add(key); }
         }
         request = { ...request, operation: 'set', values };
+        }
       }
       if (!['set', 'reset', 'reset-category', 'reset-all'].includes(request.operation))
         return fail('unsupported native mutation operation');
@@ -2516,7 +2609,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
             affected.add(target.id);
           }
           const before = JSON.stringify(bucket);
-          if (request.operation === 'set') {
+          if (scopedValues) {
+            for (const [key, value] of Object.entries(scopedValues[target.id])) {
+              if (value === null) delete bucket[key]; else bucket[key] = value;
+            }
+          } else if (request.operation === 'set') {
             for (const [key, value] of Object.entries(values)) {
               if (key === 'wipe_tower_x' || key === 'wipe_tower_y') return fail('prime tower coordinates are scene-only', 'unsupported_reference');
               if (target.scope === 'plate' && !metadata[key]?.scopes?.includes('plate'))
@@ -3646,6 +3743,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_mark_shared_configuration_mutation: { ret: 'number', args: [] },
     orc_get_native_scoped_config: { ret: 'number', args: [] },
     orc_get_print_config_editor: { ret: 'number', args: [] },
+    orc_get_scoped_config_editor: { ret: 'number', args: ['string'] },
     orc_mutate_native_scoped_config: { ret: 'number', args: ['string'] },
     orc_revalidate_native_scoped_config: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },

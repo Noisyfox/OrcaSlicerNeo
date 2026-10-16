@@ -1,7 +1,8 @@
 # Project and Scoped Configuration
 
 **Status:** Delivered in the shared Electron and Web application. The Objects-mode
-indexed extension in section 3.1 is specified and pending implementation.
+indexed extension in section 3.1 has passed native/client independent acceptance;
+production Objects-mode integration remains pending.
 **Last updated:** 2026-10-16
 
 This specification records the final behavior visible to users. Project-wide and
@@ -209,7 +210,8 @@ other elements remain unchanged. Element values outside native bounds are
 rejected; whole-option numeric edits retain their existing clamping behavior.
 These operations use the same Project-owned Print preset and enclosing history
 transaction as ordinary scoped edits. The delivered element commands accept
-one Project target; section 3.1 specifies their pending Object/Part extension.
+one Project target or homogeneous Object/Part target sets; section 3.1 specifies
+the independently accepted indexed Object/Part contract.
 Plate element editing remains deferred. Project mode uses the
 loaded Print snapshot's nozzle choices and native mappings for values, Source
 and Effective tooltips, indexed edits/resets, search and ownership highlights.
@@ -272,7 +274,9 @@ requested owner before returning one revision-consistent snapshot:
   vector ownership uses the existing `overrideValues` shape with Scoped nil
   rules below. Values are not duplicated per nozzle choice.
 - Per-target native `sourceScopes` metadata identifies the inherited origin of
-  shared values and individual vector slots. It distinguishes preset, Project
+  shared values and individual per-selection vector slots. Typed vectors with
+  a native shared field binding have one shared origin, including when a Part
+  inherits that whole option from its Object. It distinguishes preset, Project
   and Object inheritance without parsing serialized CSV/nil values in the UI.
   Effective origin is the local target when owned, otherwise that inherited
   origin. Per-target Source values must not be replaced with one arbitrary
@@ -335,8 +339,9 @@ Delivery proceeds through the two independently accepted increments in
 [Extruder Switch section 10.1](Extruder%20Switch%20and%20Variant%20Editing.md#101-objects-mode-scoped-extension).
 Increment A must prove native sparse inheritance, source-equivalent ownership,
 singleton compatibility, atomic rollback/history, actual slicing and 3MF
-export/reopen before UI integration begins. No Object/Part element feature is
-claimed delivered by this specification-only update.
+export/reopen before UI integration begins. The native/client contract is
+independently accepted for increment A; production Objects-mode controls continue
+using the existing whole-option path until increment B is accepted.
 
 The initial validation behavior is intentionally limited:
 

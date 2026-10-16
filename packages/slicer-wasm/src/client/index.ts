@@ -37,6 +37,8 @@ export type {
   ProfileSnapshotError, ProfileSnapshotResult,
   OptionMetadata, OptionMeta,
   ConfigElementMutation, ConfigEditorSnapshot, ConfigEditorSnapshotResult,
+  ScopedConfigEditorTarget, ScopedConfigEditorRequest, ScopedConfigInheritedScope,
+  ScopedConfigEditorTargetValues, ScopedConfigEditorSnapshot, ScopedConfigEditorSnapshotResult,
   ConfigResetField,
   ConfigEditorChoice, ConfigEditorElementBinding, ConfigEditorFieldBinding, ConfigEditorSelection,
   PresetDraftKind, PresetDraftTarget, PresetDraftSnapshot, PresetDraftSnapshotResult,

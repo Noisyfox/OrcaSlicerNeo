@@ -296,10 +296,19 @@ export interface NativeScopedConfigWholeMutationRequest {
   readonly category?: string;
 }
 
-/** Print vectors use the existing Project transaction and native Print owner. */
+export interface ScopedConfigEditorTarget {
+  readonly scope: 'object' | 'part';
+  readonly id: number | string;
+}
+export interface ScopedConfigEditorRequest {
+  readonly version: 1;
+  readonly targets: readonly ScopedConfigEditorTarget[];
+}
+
+/** Indexed commands retain the existing native Project/Object/Part owners. */
 export type NativeScopedConfigMutationRequest = NativeScopedConfigWholeMutationRequest | ({
   readonly version: 1;
-  readonly targets: readonly [{ readonly scope: 'project'; readonly id?: never }];
+  readonly targets: readonly [{ readonly scope: 'project'; readonly id?: never }] | readonly ScopedConfigEditorTarget[];
   readonly expectedRevision: number;
 } & (({ readonly operation: 'set-element' } & ConfigElementMutation)
    | { readonly operation: 'reset-fields'; readonly fields: readonly ConfigResetField[] }));
@@ -584,6 +593,26 @@ export interface ConfigEditorSnapshot {
   readonly revision: number;
 }
 export type ConfigEditorSnapshotResult = ConfigEditorSnapshot | PresetDraftError;
+
+export type ScopedConfigInheritedScope = 'preset' | 'project' | 'object';
+export interface ScopedConfigEditorTargetValues extends Pick<ConfigEditorSnapshot,
+  'sourceValues' | 'effectiveValues' | 'editorVectors' | 'editorBindings'> {
+  readonly target: ScopedConfigEditorTarget;
+  /** Local non-nil ownership only; a raw all-nil vector is unowned. */
+  readonly localKeys: readonly string[];
+  readonly sourceScopes: {
+    readonly shared: Readonly<Record<string, ScopedConfigInheritedScope>>;
+    readonly indexed: Readonly<Record<string, readonly ScopedConfigInheritedScope[]>>;
+  };
+}
+export interface ScopedConfigEditorSnapshot {
+  readonly ok: true;
+  readonly revision: number;
+  readonly editorSelection: ConfigEditorSelection;
+  readonly optionMetadata: OptionMetadata;
+  readonly targets: readonly ScopedConfigEditorTargetValues[];
+}
+export type ScopedConfigEditorSnapshotResult = ScopedConfigEditorSnapshot | PresetDraftError;
 
 export interface PresetEditorCandidate {
   readonly isUser: boolean;
@@ -1597,6 +1626,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   /** Read a disposable projection of native project/object/part/plate config. */
   getNativeScopedConfig(): Promise<NativeScopedConfigResultOrError>;
   getPrintConfigEditor(): Promise<ConfigEditorSnapshotResult>;
+  getScopedConfigEditor(request: ScopedConfigEditorRequest): Promise<ScopedConfigEditorSnapshotResult>;
   /** Set one native scoped value and return the affected plate projection. */
   setNativeScopedConfig(target: NativeScopedConfigTarget, optionKey: string, value: string): Promise<NativeScopedConfigResultOrError>;
   /** Apply one atomic set/reset operation to one or more native targets. */
