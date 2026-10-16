@@ -149,6 +149,9 @@ interface PlatformCapabilities {
   retains an absolute source path in its host-private, in-memory session data
   for a future seamless model-reload feature; it is neither rendered by the
   common UI nor persisted in the first release. Web has no equivalent path.
+  Electron separately persists project recent paths behind its host-owned
+  [Home history capability](3MF%20Project%20Persistence.md#persistence-boundary);
+  shared state receives only opaque IDs and display metadata.
 - Both hosts route file drops through the shared model/project import
   contracts; see [Model Import](Model%20Import.md).
 - `BrandBar` styling uses the injected `chrome` capability rather than a

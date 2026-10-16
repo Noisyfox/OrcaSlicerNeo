@@ -4,29 +4,30 @@ import { _electron } from './electron-fixture';
 // actual Electron IPC/preload/adapter/shared-action boundary without a native
 // WASM dependency.
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, renameSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
-async function launchProjectApp(): Promise<{ app: ElectronApplication; projectPath: string; savePath: string }> {
-  const dir = mkdtempSync(join(tmpdir(), 'orca-project-e2e-'));
+async function launchProjectApp(directory?: string): Promise<{ app: ElectronApplication; projectPath: string; savePath: string; dir: string }> {
+  const dir = directory ?? mkdtempSync(join(tmpdir(), 'orca-project-e2e-'));
   const projectPath = join(dir, 'picked-project.3mf');
   const savePath = join(dir, 'saved-project.3mf');
   // The mock bridge validates that bytes exist, while the extension drives
   // the project picker/action path.
-  copyFileSync(MODEL_PATH, projectPath);
+  if (!directory) copyFileSync(MODEL_PATH, projectPath);
   const env = {
     ...process.env,
     ORCA_E2E: '1',
     ORCA_E2E_MODEL: projectPath,
     ORCA_E2E_PROJECT_SAVE: savePath,
     ORCA_E2E_LIFECYCLE: '1',
+    ORCA_E2E_PREFERENCES: join(dir, 'preferences.json'),
   } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
-  return { app: await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env }), projectPath, savePath };
+  return { app: await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env }), projectPath, savePath, dir };
 }
 
 async function ready(page: Page): Promise<void> {
@@ -308,4 +309,56 @@ test('Electron close requests honor Cancel then Save/Don\'t Save choices', async
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy());
     await app.close();
   }
+});
+
+
+test('Home opens and creates projects, persists Orca recent history and manages missing files', async ({}, testInfo) => {
+  const first = await launchProjectApp();
+  let app = first.app;
+  try {
+    let page = await app.firstWindow();
+    await expect(page.getByTestId('home-page')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('home-recent-empty')).toBeVisible();
+    await page.getByTestId('home-new-project').click();
+    await expect(page.locator('#app-panel-workspace')).toHaveAttribute('aria-hidden', 'false');
+    await page.locator('#app-tab-home').click();
+    await page.getByTestId('home-open-project').click();
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('picked-project');
+    await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
+    const config = join(first.dir, 'OrcaSlicerNeo.conf');
+    expect(JSON.parse(readFileSync(config, 'utf8')).recent_projects).toEqual({ '001': first.projectPath });
+    await page.locator('#app-tab-home').click();
+    await expect(page.getByTestId('home-recent-list')).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('home.png') });
+    await page.getByRole('button', { name: 'Open picked-project.3mf', exact: true }).click();
+    await expect(page.getByTestId('project-load-choice-dialog')).toBeVisible();
+    await page.getByTestId('project-load-project').check();
+    await page.getByTestId('project-load-confirm').click();
+    await expect(page.locator('#app-panel-workspace')).toHaveAttribute('aria-hidden', 'false');
+    await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
+    await app.close();
+    app = (await launchProjectApp(first.dir)).app;
+    page = await app.firstWindow();
+    await expect(page.getByRole('button', { name: 'Open picked-project.3mf', exact: true })).toBeVisible({ timeout: 30_000 });
+    expect(await page.getByTestId('home-recent-list').locator('li').count()).toBe(1);
+    // Renaming after list hydration exercises stale metadata and read failure.
+    renameSync(first.projectPath, first.savePath);
+    await page.getByRole('button', { name: 'Open picked-project.3mf', exact: true }).click();
+    await expect(page.getByTestId('home-page').getByRole('alert')).toContainText('no longer available');
+    await expect(page.getByTestId('home-recent-list')).toContainText('File is missing');
+    await page.getByRole('button', { name: 'Actions for picked-project.3mf', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Remove from recent' }).click();
+    await expect(page.getByTestId('home-recent-empty')).toBeVisible();
+    expect(existsSync(first.savePath)).toBe(true);
+    // Open the surviving file to exercise clearing a valid record.
+    renameSync(first.savePath, first.projectPath);
+    await page.getByTestId('home-open-project').click();
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('picked-project');
+    await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
+    await page.locator('#app-tab-home').click();
+    await page.getByTestId('home-clear-recent').click();
+    await expect(page.getByTestId('home-recent-empty')).toBeVisible();
+    expect(JSON.parse(readFileSync(config, 'utf8')).recent_projects).toEqual({});
+    expect(existsSync(first.projectPath)).toBe(true);
+  } finally { await app.close(); }
 });

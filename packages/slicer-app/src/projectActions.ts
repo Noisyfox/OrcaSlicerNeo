@@ -105,13 +105,14 @@ async function currentHistoryStatus(runtime: Runtime): Promise<HistoryStatus> {
   if (!status) throw new Error('project history status read failed');
   return status;
 }
-/** Read the Worker checkpoint state for lifecycle guards. */
+/** History persistence must not invalidate a committed project operation. */
 async function rememberProject(platform: PlatformCapabilities, location: ProjectInput['location']): Promise<void> {
   if (!location) return;
   try { await platform.recentProjects.record(location); }
   catch (error) { console.error('Recent project history could not be saved', error); }
 }
 
+/** Read the Worker checkpoint state for lifecycle guards. */
 export async function projectDirtyStatus(platform: PlatformCapabilities): Promise<boolean> {
   const status = await currentHistoryStatus(runtimeOf(platform));
   return status.dirty;
@@ -270,7 +271,11 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
   behaviour ??= 'ask_when_relevant';
   let choice: ProjectLoadChoice = behaviour === 'load_geometry_only' ? 'geometry-only' : 'project';
   if (shouldAskProjectLoad(behaviour, useSettingsStore.getState().modelLoaded)) { setOperation('waiting-for-load-choice'); choice = await options.chooseLoad?.(input) ?? 'cancel'; if (choice === 'cancel') { setOperation('cancelled'); return { status: 'cancelled' }; } }
-  if (choice === 'geometry-only') return importProjectGeometry(platform, input, options);
+  if (choice === 'geometry-only') {
+    const result = await importProjectGeometry(platform, input, options);
+    if (result.status === 'ok') await rememberProject(platform, input.location);
+    return result;
+  }
   const gate = await gateDirty(platform, 'open', input, options); if (gate) return gate;
   if (options.signal?.aborted || !await closePaintingForCommand()) return { status: 'cancelled' };
   resetPaintingProjectPalette();

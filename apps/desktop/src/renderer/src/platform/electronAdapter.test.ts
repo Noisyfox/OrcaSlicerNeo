@@ -27,7 +27,11 @@ function setup(overrides: Record<string, unknown> = {}) {
       save: vi.fn(async () => ({ canceled: false, locationToken: 'project-token', displayName: 'project.3mf' })),
       saveAs: vi.fn(async () => ({ canceled: false, locationToken: 'project-token', displayName: 'project.3mf' })),
     };
-    const host = { preferences: { load, save }, projects, printers: { configuration: { load: configurationLoad, save: configurationSave }, transport }, menu, externalLinks, platform: 'win32', ...overrides };
+    const recentProjects = {
+      list: vi.fn(async () => []), open: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
+      record: vi.fn(async () => {}), remove: vi.fn(async () => {}), clear: vi.fn(async () => {}), reveal: vi.fn(async () => {}),
+    };
+    const host = { preferences: { load, save }, projects, recentProjects, printers: { configuration: { load: configurationLoad, save: configurationSave }, transport }, menu, externalLinks, platform: 'win32', ...overrides };
     vi.stubGlobal('window', { orca: host });
     return { adapter: createElectronAdapter({} as never), load, save, menu, externalLinks, configurationLoad, configurationSave, transport };
 }

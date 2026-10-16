@@ -117,6 +117,15 @@ describe('transactional project actions', () => {
     expect((await saveProject(platform)).status).toBe('ok');
     expect(platform.recentProjects.record).toHaveBeenCalledWith(location);
   });
+  it('records a successful Open geometry-only choice without changing project identity', async () => {
+    const { platform, projects } = platformFor();
+    const location = {} as NonNullable<ProjectInput['location']>;
+    projects.open.mockResolvedValue({ status: 'ok', input: { ...input, location } });
+    const result = await openProject(platform, { loadBehaviour: 'load_geometry_only' });
+    expect(result.status).toBe('ok');
+    expect(platform.recentProjects.record).toHaveBeenCalledWith(location);
+    expect(useProjectStore.getState().location).not.toBe(location);
+  });
   it('does not add rejected project loads to history', async () => {
     const { platform, projects } = platformFor({ ok: false });
     projects.open.mockResolvedValue({ status: 'ok', input: { ...input, location: {} as never } });

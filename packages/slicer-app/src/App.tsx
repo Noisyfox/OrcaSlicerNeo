@@ -3,6 +3,7 @@ import { paintingCommandAllowed, closePaintingForCommand, paintingSessionActive 
 // client init → atomic preset snapshot → option metadata → settings store)
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { HomePage } from './components/home/HomePage';
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
 import { SliceButton } from './components/workspace/SliceButton';
@@ -245,9 +246,16 @@ function AppContent() {
     reportProjectFailure(result);
     if (result.status === 'ok') setActiveTab('prepare');
   }, [decideDirty, platform, reportProjectFailure]);
-  const runOpenProject = useCallback(async () => {
+  const runOpenProject = useCallback(async (recentId?: string) => {
     projectLoadReceiptRef.current = null;
-    const result = await openProject(platform, { chooseLoad, decideDirty, confirmProjectLoad });
+    let inputs: ProjectInput[] | undefined;
+    if (recentId) {
+      const picked = await platform.recentProjects.open(recentId);
+      if (picked.status === 'failed') throw picked.error;
+      if (picked.status !== 'ok') return;
+      inputs = [picked.input];
+    }
+    const result = await openProject(platform, { inputs, chooseLoad, decideDirty, confirmProjectLoad });
     if (result.status === 'ok' && result.loadReceipt) projectLoadReceiptRef.current = result.loadReceipt;
     reportProjectFailure(result);
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
@@ -670,7 +678,12 @@ function AppContent() {
         titleBar={titleBar}
         activeTab={activeTab}
         prewarmWorkspace={prewarmingWorkspace}
-        home={<div data-testid="home-page" />}
+        home={<HomePage active={activeTab === 'home'} canOpen={menuState.items['open-project'].enabled} canCreate={menuState.items['new-project'].enabled}
+          onOpen={() => dispatcher.dispatch('open-project')} onCreate={() => dispatcher.dispatch('new-project')}
+          onOpenRecent={async (id) => {
+            if (!menuStateRef.current.items['open-project'].enabled || !paintingCommandAllowed()) return;
+            await runOpenProject(id);
+          }} />}
         workspace={<Workspace leftSidebarVisible={leftSidebarVisible} rightSidebarVisible={rightSidebarVisible} actionControls={<SliceButton activeTab={workspaceTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />} activeTab={workspaceTab} onEditingSessionChange={setWorkspaceEditing} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
         device={<DevicePanel />}
         status={<StatusBar />}

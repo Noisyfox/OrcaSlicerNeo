@@ -1,6 +1,6 @@
 # Grand Plan
 
-**Updated:** 2026-10-12
+**Updated:** 2026-10-16
 **Scope:** Current delivery status and remaining product work.
 
 This is the single roadmap. Topic specifications own behavior; engineering
@@ -15,7 +15,7 @@ Consolidation does not constitute a new release qualification.
 | --- | --- |
 | Foundation and hosts (M0–M4, M9) | Shared React application, thin Electron/static-Web hosts, dual wasm64 runtime and packaging. [Shared architecture](Web-Electron%20Shared%20Application%20Architecture.md) replaces desktop-only and AppConfig-era designs. |
 | Scene and transforms (M5–M8, M10–M13) | Multi-volume/instance selection, Move/Rotate/Scale, affine transforms, primitives, model additions and object/part operations. [Viewport](Viewport%20Interaction.md), [Object List](ObjectList-and-Parts.md), [Model Import](Model%20Import.md). |
-| Application chrome | Persistent pages, shared/native menus, split slice/output action, diagnostics and sidebar. [Application Shell](Application%20Shell.md). Real macOS packaged-window/menu manual qualification remains separate. |
+| Application chrome | Persistent pages, Home New/Open actions and Electron recent-project management, shared/native menus, split slice/output action, diagnostics and sidebar. [Application Shell](Application%20Shell.md). Real macOS packaged-window/menu manual qualification remains separate. |
 | Printer integration (M14) | Device consoles and Moonraker upload/print, with host-specific constraints. [Printer Console](Printer%20Console%20and%20Control%20Integration.md). Additional drivers remain future work. |
 | Project persistence (M15) | Explicit compatible 3MF open/save, dirty protection and geometry fallback; delivered and release-verified in its original milestone. [3MF](3MF%20Project%20Persistence.md). No autosave or saved slicing outputs. |
 | History (M16) | Timestamped stable-object history, atomic restoration, input-only snapshots and painting-session integration. [Undo/Redo](Undo%20and%20Redo.md). |
@@ -49,7 +49,7 @@ Consolidation does not constitute a new release qualification.
   is already delivered.
 - Mobile, PWA/offline guarantees, richer startup recovery, autosave/crash
   recovery, a complete About page, i18n, application auto-update, signing and
-  notarization remain follow-ups. The Home page remains a placeholder.
+  notarization remain follow-ups. Home account integration remains deferred.
 
 Routine verification and full release qualification are distinct. Follow
 [testing guidelines](../doc/testing_guidelines.md), with host/variant and

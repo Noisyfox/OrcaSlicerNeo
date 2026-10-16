@@ -252,9 +252,8 @@ function registerIpc(): void {
     await writeFile(path, Buffer.from(bytes));
   });
 
-  const recentProjects = new RecentProjectsRepository(process.env.ORCA_E2E === '1'
-    ? (process.env.ORCA_E2E_PREFERENCES ? join(dirname(process.env.ORCA_E2E_PREFERENCES), 'OrcaSlicerNeo.conf') : null)
-    : join(app.getPath('userData'), 'OrcaSlicerNeo.conf'));
+  const recentProjects = new RecentProjectsRepository(preferencesPersisted()
+    ? join(dirname(preferencesPath()), 'OrcaSlicerNeo.conf') : null);
   const requireRecentSender = (sender: WebContents): void => {
     if (!isCurrentRenderer(sender)) throw new Error('Invalid recent project sender');
   };

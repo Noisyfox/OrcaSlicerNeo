@@ -1,6 +1,6 @@
 # Application Shell
 
-**Updated:** 2026-10-11
+**Updated:** 2026-10-16
 **Status:** Delivered behavior
 **Scope:** Shared layout, desktop window chrome, menus and diagnostics.
 
@@ -22,6 +22,27 @@ window quits Electron on all platforms after the project-close guard succeeds.
 The packaged renderer uses a guarded loopback HTTP origin; Electron WASM runs
 in the utility process, as specified by
 [Native Python Plugin Architecture](Native%20Python%20Plugin%20Architecture.md).
+
+## Home page
+
+Home starts with New project and Open project action cards above a Recent
+projects grid, without an account/login sidebar. New project enters Prepare
+after creating a clean session. Open project accepts 3MF and uses the existing
+project-load policy and dirty-project confirmation. Recent cards use the same
+open flow. Actions follow the shared command availability during editing,
+loading, slicing and dialogs; a cancelled operation keeps the current page.
+
+Electron cards show the filename and local last-modified time, or File is
+missing. Card actions reveal the file in its folder or remove the history
+entry; Clear all removes history only. Missing/inaccessible file opens show an
+error and retain the record for explicit removal. Home refreshes on entry and
+window focus. This initial grid uses a file icon; thumbnail extraction is not
+included. Browser history stays empty and all recent operations are no-ops.
+The persistence contract is owned by
+[3MF Project Persistence](3MF%20Project%20Persistence.md#persistence-boundary).
+
+The shared Home page has internal scrolling and wrapping action cards. Mobile
+support remains deferred; it introduces no additional WASM work or model copies.
 
 ## Titlebar and menus
 
