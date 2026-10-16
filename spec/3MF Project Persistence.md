@@ -88,10 +88,10 @@ plates. It does not depend on plate-list visibility or its thumbnail cache.
 Raw bottom-up RGBA crosses the typed client/Worker boundary. Native export checks
 the history revision, complete stable plate-ID coverage and exact 512×512 byte
 length, then passes images to Orca's standard PNG/small-thumbnail writer. Rejected
-images, lost graphics contexts or rendering failures fail Save without marking the project clean. Cancel
-is supported before the host write starts, but does not interrupt the wait for
-the current geometry projection; requests during that wait take effect after it
-finishes. Headless exports may omit images.
+images, lost graphics contexts or rendering failures fail Save without marking
+the project clean. Thumbnail generation and project export/write do not offer
+progress cancellation. The host Save As dialog may still be cancelled. Headless
+exports may omit images.
 
 Each plate temporarily uses 1 MiB per RGBA copy; the complete request is retained
 until export completes. GPU targets are released between plates and native/client
@@ -327,14 +327,14 @@ every upstream sample.
 ## Long-running project operations
 
 - Project open and save show stage-level progress and disable conflicting
-  project commands. Save provides cancellation; open admits cancellation only
-  before the old project session closes. The post-close archive load is
-  non-cancellable in both WASM variants.
+  project commands. Save does not offer progress cancellation; open admits
+  cancellation only before the old project session closes. The post-close
+  archive load is non-cancellable in both WASM variants.
 - Cancelling open before close preserves the current session. A cancelled
   compatibility warning or failed load after close leaves the fresh empty
   session, as required by the project-replacement lifecycle above.
 - Project export completes into temporary WASM storage before bytes are passed
-  to a host. A cancelled or failed export, or a cancelled host save dialog,
+  to a host. A failed export or a cancelled host save dialog
   leaves the existing destination file unchanged and leaves the current
   project dirty.
 

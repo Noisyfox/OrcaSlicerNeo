@@ -78,7 +78,7 @@ export function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
   return notices;
 }
 function setOperation(phase: Parameters<ReturnType<typeof useProjectStore.getState>['setOperation']>[0]['phase'], progress = 0, message?: string): void {
-  useProjectStore.getState().setOperation({ phase, progress, message, cancellable: phase === 'loading' || phase === 'saving' });
+  useProjectStore.getState().setOperation({ phase, progress, message, cancellable: phase === 'loading' });
 }
 function waitForProjectProgressPaint(): Promise<void> {
   return new Promise((resolve) => {
@@ -154,14 +154,11 @@ export function saveProject(platform: PlatformCapabilities): Promise<ProjectActi
 export function saveProjectAs(platform: PlatformCapabilities): Promise<ProjectActionResult> {
   return saveProjectFile(platform, true);
 }
-let activeSave: AbortController | undefined;
 async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean): Promise<ProjectActionResult> {
   if (!paintingCommandAllowed()) return { status: 'cancelled' };
   return runProjectSaveOperation(runtimeOf(platform), projectedHistoryContext, async (markSaved, readRevision) => {
     const session = useProjectStore.getState();
     if (!session.hasContent && !session.dirty) return errorResult(new Error('there is no project to save'));
-    const cancellation = new AbortController();
-    activeSave = cancellation;
     setOperation('saving', 0, 'Rendering plate thumbnails');
     try {
       if (paintingSessionActive()) {
@@ -169,14 +166,11 @@ async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean):
         if ('error' in settled) throw new Error(settled.error);
       }
       const revision = await readRevision();
-      const images = await captureProjectThumbnails(runtimeOf(platform), cancellation.signal, revision);
-      cancellation.signal.throwIfAborted();
+      const images = await captureProjectThumbnails(runtimeOf(platform), revision);
       setOperation('saving', 30, 'Exporting project');
       const exported = await runtimeOf(platform).exportProject(images);
-      cancellation.signal.throwIfAborted();
       if (!exported.ok) throw new Error(exported.error ?? 'project export failed');
-      activeSave = undefined;
-      useProjectStore.getState().setOperation({ phase: 'saving', progress: 70, message: 'Writing project', cancellable: false });
+      setOperation('saving', 70, 'Writing project');
       const request = { displayName: `${session.projectName || 'Untitled'}.3mf`, bytes: exported.bytes, location: session.location };
       const saved = asCopy ? await platform.projects.saveAs(request) : await platform.projects.save(request);
       if (saved.status !== 'ok') {
@@ -189,9 +183,8 @@ async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean):
       setOperation('completed', 100);
       return { status: 'ok' };
     } catch (error) {
-      if (cancellation.signal.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
       setOperation('failed', 0, errorText(error)); return errorResult(error);
-    } finally { if (activeSave === cancellation) activeSave = undefined; }
+    }
   });
 }
 export async function newProject(platform: PlatformCapabilities, options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
@@ -422,7 +415,6 @@ export async function openProject(platform: PlatformCapabilities, options: Proje
 
 /** UI-independent cancellation hook for the progress dialog/action surface. */
 export async function cancelProjectOperation(platform: PlatformCapabilities): Promise<ProjectActionResult> {
-  activeSave?.abort();
   try {
     const result = await runtimeOf(platform).cancel();
     if (!result.ok) throw new Error(result.error ?? 'project operation cancellation failed');

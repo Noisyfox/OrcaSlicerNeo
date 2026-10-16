@@ -17,44 +17,31 @@ describe('save thumbnails', () => {
   it('renders every plate including empty and inactive plates, and disposes GPU state', async () => {
     const renderer = { renderPixels: vi.fn(() => new Uint8Array(512 * 512 * 4)), dispose: vi.fn(), render: vi.fn() };
     vi.mocked(createThumbnailRenderer).mockReturnValue(renderer);
-    const request = await captureProjectThumbnails(runtime, new AbortController().signal, 42);
+    const request = await captureProjectThumbnails(runtime, 42);
     expect(request.expectedRevision).toBe(42);
     expect(request.thumbnails.map(t => t.plateId)).toEqual(['p1', 'p2']);
     expect(renderer.renderPixels).toHaveBeenCalledTimes(2);
     expect(renderer.renderPixels).toHaveBeenCalledWith([], 512);
     expect(renderer.dispose).toHaveBeenCalledOnce();
   });
-  it('cancels between plates and disposes the renderer', async () => {
-    const controller = new AbortController();
-    const renderer = { renderPixels: vi.fn(() => { controller.abort(); return new Uint8Array(4); }), dispose: vi.fn(), render: vi.fn() };
+  it('waits for the current geometry projection before rendering', async () => {
+    const renderer = { renderPixels: vi.fn(() => new Uint8Array(512 * 512 * 4)), dispose: vi.fn(), render: vi.fn() };
     vi.mocked(createThumbnailRenderer).mockReturnValue(renderer);
-    await expect(captureProjectThumbnails(runtime, controller.signal, 42)).rejects.toThrow();
-    expect(renderer.renderPixels).toHaveBeenCalledOnce();
-    expect(renderer.dispose).toHaveBeenCalledOnce();
-  });
-  it('defers cancellation until the current geometry projection finishes', async () => {
     useObjectListStore.setState({ structure: [{} as never] });
     const revision = glVolumeCollection.revision + 1;
     useSettingsStore.setState({ modelRevision: revision });
-    const controller = new AbortController();
-    const result = captureProjectThumbnails(runtime, controller.signal, 42);
-    let settled = false;
-    const outcome = result.then(
-      () => { settled = true; return undefined; },
-      error => { settled = true; return error; },
-    );
+    const result = captureProjectThumbnails(runtime, 42);
     await new Promise(resolve => setTimeout(resolve, 0));
-    controller.abort();
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(settled).toBe(false);
-    glVolumeCollection.clear(revision);
-    expect(await outcome).toBe(controller.signal.reason);
     expect(createThumbnailRenderer).not.toHaveBeenCalled();
+    glVolumeCollection.clear(revision);
+    expect((await result).thumbnails).toHaveLength(2);
+    expect(renderer.renderPixels).toHaveBeenCalledTimes(2);
+    expect(renderer.dispose).toHaveBeenCalledOnce();
   });
   it('propagates rendering failures instead of exporting stale images', async () => {
     const renderer = { renderPixels: vi.fn(() => { throw new Error('GPU unavailable'); }), dispose: vi.fn(), render: vi.fn() };
     vi.mocked(createThumbnailRenderer).mockReturnValue(renderer);
-    await expect(captureProjectThumbnails(runtime, new AbortController().signal, 42)).rejects.toThrow('GPU unavailable');
+    await expect(captureProjectThumbnails(runtime, 42)).rejects.toThrow('GPU unavailable');
     expect(renderer.dispose).toHaveBeenCalledOnce();
   });
 });
