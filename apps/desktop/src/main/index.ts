@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type WebContents } from 'electron';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
-import { extname, join, sep } from 'node:path';
+import { dirname, extname, join, sep } from 'node:path';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -18,6 +18,7 @@ import {
 } from './nativeMenu';
 import { configureWebViewAttachPolicy, configureWebViewGuest } from './webviewSecurity';
 import { writeFileAtomically } from './atomicFile';
+import { RecentProjectsRepository } from './recentProjects';
 import { summarizeElectronMemory } from './memoryIpc';
 import { attachSlicerUtility, stopSlicerUtilities } from './slicerUtility';
 import { rendererIsolationHeaders } from './sessionHeaders';
@@ -250,6 +251,31 @@ function registerIpc(): void {
   ipcMain.handle(Ipc.writeFile, async (_event, path: string, bytes: ArrayBuffer) => {
     await writeFile(path, Buffer.from(bytes));
   });
+
+  const recentProjects = new RecentProjectsRepository(process.env.ORCA_E2E === '1'
+    ? (process.env.ORCA_E2E_PREFERENCES ? join(dirname(process.env.ORCA_E2E_PREFERENCES), 'OrcaSlicerNeo.conf') : null)
+    : join(app.getPath('userData'), 'OrcaSlicerNeo.conf'));
+  const requireRecentSender = (sender: WebContents): void => {
+    if (!isCurrentRenderer(sender)) throw new Error('Invalid recent project sender');
+  };
+  ipcMain.handle(Ipc.recentList, (event) => { requireRecentSender(event.sender); return recentProjects.list(); });
+  ipcMain.handle(Ipc.recentRecord, async (event, token: unknown) => {
+    requireRecentSender(event.sender);
+    const path = typeof token === 'string' ? projectLocations.get(token) : undefined;
+    if (!path) throw new Error('Unknown project location token');
+    await recentProjects.record(path);
+  });
+  ipcMain.handle(Ipc.recentOpen, async (event, id: unknown): Promise<ProjectOpenIpcResult> => {
+    requireRecentSender(event.sender);
+    const path = await recentProjects.resolve(id);
+    const bytes = await readFile(path);
+    const locationToken = randomUUID(); projectLocations.set(locationToken, path);
+    return { canceled: false, locationToken, displayName: path.split(/[\\/]/).pop()!,
+      bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer };
+  });
+  ipcMain.handle(Ipc.recentRemove, (event, id: unknown) => { requireRecentSender(event.sender); return recentProjects.remove(id); });
+  ipcMain.handle(Ipc.recentClear, (event) => { requireRecentSender(event.sender); return recentProjects.clear(); });
+  ipcMain.handle(Ipc.recentReveal, async (event, id: unknown) => { requireRecentSender(event.sender); shell.showItemInFolder(await recentProjects.resolve(id)); });
 
   ipcMain.handle(Ipc.projectOpen, async (event): Promise<ProjectOpenIpcResult> => {
     const win = BrowserWindow.fromWebContents(event.sender);

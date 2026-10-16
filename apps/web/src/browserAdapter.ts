@@ -1,5 +1,6 @@
 import {
   MODEL_FILE_ACCEPT,
+  NO_RECENT_PROJECTS,
   gcodeFilenameBasename,
   normalizeUserPreferences,
   type ProjectFileCapability,
@@ -120,6 +121,7 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
     exports: { save: downloadGcode },
     downloads: { download: downloadFile },
     projects,
+    recentProjects: NO_RECENT_PROJECTS,
     preferences: {
       async load() {
         try {

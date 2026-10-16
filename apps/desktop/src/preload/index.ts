@@ -44,6 +44,14 @@ const bridge: ElectronBridge = {
       ipcRenderer.invoke(Ipc.projectSaveAs, defaultName, bytes) as Promise<import('../shared/ipc').ProjectSaveIpcResult>,
   },
 
+  recentProjects: {
+    list: () => ipcRenderer.invoke(Ipc.recentList),
+    open: (id) => ipcRenderer.invoke(Ipc.recentOpen, id),
+    record: (token) => ipcRenderer.invoke(Ipc.recentRecord, token),
+    remove: (id) => ipcRenderer.invoke(Ipc.recentRemove, id),
+    clear: () => ipcRenderer.invoke(Ipc.recentClear),
+    reveal: (id) => ipcRenderer.invoke(Ipc.recentReveal, id),
+  },
   lifecycle: {
     onCloseRequest: (listener) => {
       const handler = () => { void listener(); };

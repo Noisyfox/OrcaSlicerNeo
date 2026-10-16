@@ -16,6 +16,10 @@ export const fakeCapabilities: PlatformCapabilities = {
     async save() { return { status: 'cancelled' as const }; },
     async saveAs() { return { status: 'cancelled' as const }; },
   } satisfies ProjectFileCapability,
+  recentProjects: {
+    async list() { return []; }, async open() { return { status: 'cancelled' }; },
+    async record() {}, async remove() {}, async clear() {}, async reveal() {},
+  },
   preferences: { async load() { throw new Error(); }, async save() {} } satisfies UserPreferencesRepository,
   printers: {
     configuration: { async load() { return { version: 1 as const, printers: [] }; }, async save() {} } satisfies PrinterConfigurationRepository,

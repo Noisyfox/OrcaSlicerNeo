@@ -23,6 +23,12 @@ export const Ipc = {
   projectOpenDropped: 'project:openDropped',
   projectSave: 'project:save',
   projectSaveAs: 'project:saveAs',
+  recentList: 'recent:list',
+  recentOpen: 'recent:open',
+  recentRecord: 'recent:record',
+  recentRemove: 'recent:remove',
+  recentClear: 'recent:clear',
+  recentReveal: 'recent:reveal',
   preferencesLoad: 'preferences:load',
   preferencesSave: 'preferences:save',
   printerConfigurationLoad: 'printerConfiguration:load',
@@ -78,6 +84,14 @@ export interface ElectronBridge {
     openDropped(paths: string[]): Promise<ProjectOpenIpcResult>;
     save(locationToken: string | null, defaultName: string, bytes: ArrayBuffer): Promise<ProjectSaveIpcResult>;
     saveAs(defaultName: string, bytes: ArrayBuffer): Promise<ProjectSaveIpcResult>;
+  };
+  recentProjects: {
+    list(): Promise<import('../../../../packages/platform-contract/src/contracts').RecentProject[]>;
+    open(id: string): Promise<ProjectOpenIpcResult>;
+    record(locationToken: string): Promise<void>;
+    remove(id: string): Promise<void>;
+    clear(): Promise<void>;
+    reveal(id: string): Promise<void>;
   };
   lifecycle: {
     onCloseRequest(listener: () => void | Promise<void>): () => void;

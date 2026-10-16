@@ -80,6 +80,33 @@ export interface ProjectFileCapability {
   saveAs(input: ProjectInput): Promise<ProjectSaveAsResult>;
 }
 
+/** Host paths stay private; ids are only meaningful to the supplying host. */
+export interface RecentProject {
+  id: string;
+  displayName: string;
+  modifiedAt: number | null;
+  missing: boolean;
+}
+
+export interface RecentProjectsCapability {
+  list(): Promise<RecentProject[]>;
+  open(id: string): Promise<ProjectOpenResult>;
+  record(location: OpaqueProjectLocation): Promise<void>;
+  remove(id: string): Promise<void>;
+  clear(): Promise<void>;
+  reveal(id: string): Promise<void>;
+}
+
+/** Web cannot reopen a user path. It intentionally keeps no recent history. */
+export const NO_RECENT_PROJECTS: RecentProjectsCapability = {
+  async list() { return []; },
+  async open() { return { status: 'cancelled' }; },
+  async record() {},
+  async remove() {},
+  async clear() {},
+  async reveal() {},
+};
+
 export interface ProjectDropFile {
   name: string;
   arrayBuffer(): Promise<ArrayBuffer>;
@@ -388,6 +415,7 @@ export interface PlatformCapabilities {
   exports: GcodeExporter;
   downloads: FileDownloader;
   projects: ProjectFileCapability;
+  recentProjects: RecentProjectsCapability;
   preferences: UserPreferencesRepository;
   printers: { configuration: PrinterConfigurationRepository; transport: PrinterTransport };
   webview: WebViewHost;

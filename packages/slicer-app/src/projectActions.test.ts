@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NO_RECENT_PROJECTS } from '@orca/platform-contract';
 import type { PlatformCapabilities, ProjectInput, UserPreferences } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, PlateSessionMutation, ProfileSnapshot, ProjectLoadResult } from '@slicer/client';
 import { useProjectStore, projectFilenameBase } from './stores/useProjectStore';
@@ -100,10 +101,38 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
     saveAs: vi.fn(async () => ({ status: 'ok' as const, displayName: 'Robot.3mf', location: undefined as ProjectInput['location'] })),
   };
   const preferences = { load: vi.fn(async () => ({ version: 1 as const, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } })), save: vi.fn(async () => {}) };
-  return { runtime, projects, preferences, platform: { runtime, projects, preferences } as unknown as PlatformCapabilities };
+  return { runtime, projects, preferences, platform: { runtime, projects, preferences, recentProjects: { ...NO_RECENT_PROJECTS, record: vi.fn(async () => {}) } } as unknown as PlatformCapabilities };
 }
 
 describe('transactional project actions', () => {
+  it('records only committed project opens and saves using the opaque location', async () => {
+    const { platform, projects } = platformFor();
+    const location = {} as NonNullable<ProjectInput['location']>;
+    projects.open.mockResolvedValue({ status: 'ok', input: { ...input, location } });
+    expect((await openProject(platform)).status).toBe('ok');
+    expect(platform.recentProjects.record).toHaveBeenCalledWith(location);
+    vi.mocked(platform.recentProjects.record).mockClear();
+    projects.save.mockResolvedValue({ status: 'ok', displayName: 'Robot.3mf', location });
+    useProjectStore.getState().setProject({ hasContent: true });
+    expect((await saveProject(platform)).status).toBe('ok');
+    expect(platform.recentProjects.record).toHaveBeenCalledWith(location);
+  });
+  it('does not add rejected project loads to history', async () => {
+    const { platform, projects } = platformFor({ ok: false });
+    projects.open.mockResolvedValue({ status: 'ok', input: { ...input, location: {} as never } });
+    expect((await openProject(platform)).status).toBe('failed');
+    expect(platform.recentProjects.record).not.toHaveBeenCalled();
+  });
+  it('keeps a committed open successful if recent history cannot be persisted', async () => {
+    const { platform, projects } = platformFor();
+    projects.open.mockResolvedValue({ status: 'ok', input: { ...input, location: {} as never } });
+    vi.mocked(platform.recentProjects.record).mockRejectedValue(new Error('disk full'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect((await openProject(platform)).status).toBe('ok');
+      expect(logged).toHaveBeenCalledWith('Recent project history could not be saved', expect.any(Error));
+    } finally { logged.mockRestore(); }
+  });
   it('removes inherited tower rotation override before the New Project clean baseline', async () => {
     const { platform, runtime } = platformFor();
     let project = { wipe_tower_rotation_angle: '90', prime_tower_width: '63', wall_loops: '7' } as Record<string, string>;

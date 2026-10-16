@@ -352,3 +352,21 @@ it('propagates host preferences save rejection and setup cannot apply an unsaved
  expect(runtime.applyProfileActivation).not.toHaveBeenCalled();
  expect((await adapter.preferences.load()).profileActivation).toBeUndefined();
 });
+
+it('opens recent projects through private location tokens and never accepts a fabricated location', async () => {
+  const record = vi.fn(async () => {});
+  const list = vi.fn(async () => [{ id: 'recent-id', displayName: 'Robot.3mf', modifiedAt: 1, missing: false }]);
+  const { adapter } = setup({ recentProjects: {
+    list, record,
+    open: vi.fn(async () => ({ canceled: false, displayName: 'Robot.3mf', locationToken: 'private-token', bytes: new ArrayBuffer(2) })),
+    remove: vi.fn(), clear: vi.fn(), reveal: vi.fn(),
+  } });
+  expect(await adapter.recentProjects.list()).toEqual(await list());
+  const opened = await adapter.recentProjects.open('recent-id');
+  expect(opened.status).toBe('ok');
+  if (opened.status !== 'ok') throw new Error('Expected an opened project');
+  expect(JSON.stringify(opened.input)).not.toContain('private-token');
+  await adapter.recentProjects.record(opened.input.location!);
+  expect(record).toHaveBeenCalledWith('private-token');
+  await expect(adapter.recentProjects.record({} as never)).rejects.toThrow('Unknown project location');
+});

@@ -215,6 +215,25 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
       },
     },
     projects: projectCapability,
+    recentProjects: {
+      list: () => host.recentProjects.list(),
+      async open(id) {
+        try {
+          const result = await host.recentProjects.open(id);
+          if (result.canceled) return { status: 'cancelled' };
+          const input = await projectInputFrom(result);
+          return input ? { status: 'ok', input } : { status: 'failed', error: new Error('Invalid recent project input') };
+        } catch (error) { return { status: 'failed', error }; }
+      },
+      async record(location) {
+        const token = projectTokens.get(location);
+        if (!token) throw new Error('Unknown project location');
+        await host.recentProjects.record(token);
+      },
+      remove: (id) => host.recentProjects.remove(id),
+      clear: () => host.recentProjects.clear(),
+      reveal: (id) => host.recentProjects.reveal(id),
+    },
     preferences: {
       async load() {
         try {

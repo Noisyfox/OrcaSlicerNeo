@@ -106,6 +106,12 @@ async function currentHistoryStatus(runtime: Runtime): Promise<HistoryStatus> {
   return status;
 }
 /** Read the Worker checkpoint state for lifecycle guards. */
+async function rememberProject(platform: PlatformCapabilities, location: ProjectInput['location']): Promise<void> {
+  if (!location) return;
+  try { await platform.recentProjects.record(location); }
+  catch (error) { console.error('Recent project history could not be saved', error); }
+}
+
 export async function projectDirtyStatus(platform: PlatformCapabilities): Promise<boolean> {
   const status = await currentHistoryStatus(runtimeOf(platform));
   return status.dirty;
@@ -168,6 +174,7 @@ async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean):
       }
       await markSaved();
       useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(saved.displayName), projectFileName: saved.displayName, hasContent: true, location: saved.location });
+      await rememberProject(platform, saved.location);
       setOperation('completed', 100);
       return { status: 'ok' };
     } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
@@ -323,6 +330,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     const filament = await refreshFilamentSession(runtime);
     if (!filament.ok) throw new Error(filament.error ?? 'project load filament session refresh failed');
     useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), projectFileName: input.displayName, location: input.location, hasContent: true, scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
+    await rememberProject(platform, input.location);
     setOperation('completed', 100);
     return {
       status: 'ok',
