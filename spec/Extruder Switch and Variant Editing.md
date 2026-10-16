@@ -4,9 +4,9 @@
 
 **Status:** Accepted design direction, selection/navigation behavior, category
 reset scope, motion-limit presentation, input/navigation ordering, diameter-edit
-entry points, unavailable-mapping presentation, flow-context ownership, and
-history-selection behavior. Flow-selector presentation, failure recovery, and
-acceptance decisions remain open. Not implemented.
+entry points, unavailable-mapping presentation, flow-context ownership,
+history-selection behavior, and nozzle-card flow selectors. Failure recovery
+and acceptance decisions remain open. Not implemented.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
 preset editors and Project Print settings. This is a peer specification to
@@ -103,6 +103,11 @@ native metadata, including its current draft. The project's actual flow is an
 initialization input when entering its current Printer preset, not the source
 of choices for every browsed preset.
 
+The editing-flow choices are the SF/HF parameter variants actually supported
+by that nozzle in the browsed preset. Hybrid is not a separate editing choice
+or parameter group. A Hybrid project flow or native default initializes the
+editing flow as SF, following Orca's native preset-index normalization.
+
 These per-nozzle flow choices are presentation state. They do not change
 project flow, edit the Printer draft or its default-flow fields, select a
 different project preset, or create history entries. Each nozzle retains its
@@ -164,6 +169,21 @@ category restores the same selection while it remains valid.
 Shared fields retain their shared configuration meaning when displayed beside
 mapped fields. Selecting an extruder does not manufacture per-extruder copies
 of those fields.
+
+### 4.1 Printer nozzle cards
+
+The Printer switch uses one selectable card per physical nozzle, following the
+sidebar nozzle-card presentation owned by
+[Application Shell](Application%20Shell.md#native-toolhead-selection-and-editing).
+The card keeps the nozzle number and effective diameter, with a flow dropdown
+replacing the lower flow-text line. That dropdown displays the nozzle's current
+editing flow rather than the project's actual flow.
+
+Selecting the card presents that nozzle using its retained editing flow.
+Choosing a flow from a card's dropdown also selects that nozzle and immediately
+presents its corresponding parameters, including when another nozzle was
+previously selected. Opening the dropdown alone does not change selection.
+The immediate navigation rules in section 7 also apply to flow selection.
 
 ## 5. Native field binding
 
@@ -287,7 +307,6 @@ printer topology editing.
 
 The following contracts still require clarification before implementation:
 
-- Presentation of per-nozzle editing-flow choices in the Printer switch.
 - Revision changes and failure recovery within the existing editor contracts.
 - Required behavioral acceptance cases and applicable native/host verification.
 
