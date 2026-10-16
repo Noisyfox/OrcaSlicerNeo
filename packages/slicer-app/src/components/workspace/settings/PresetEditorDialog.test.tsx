@@ -240,6 +240,76 @@ function mutationSuccess(snapshot: PresetDraftSnapshot, request: PresetDraftMuta
   } as PresetDraftMutationResult;
 }
 
+function physicalFixture(snapshot: PresetDraftSnapshot): PresetDraftSnapshot {
+  if (snapshot.kind !== 'printer' || snapshot.editorSelection.choices.some(choice => !choice.id.startsWith('fixture-head-'))) return snapshot;
+  const count = snapshot.editorVectors.nozzle_diameter?.indexCount ?? 0;
+  const choices = Array.from({length:count},(_,index) => ({id:`fixture-head-${index}`,label:`Extruder ${index+1} Standard`,
+    extruderIndex:index,variant:'Direct Drive Standard',extruderType:0,flowType:0}));
+  return {...snapshot,editorSelection:{kind:'printer',activeSource:true,choices,firstChoiceId:choices[0]?.id??null,
+    nozzles:choices.map(choice => ({extruderIndex:choice.extruderIndex,defaultChoiceId:choice.id,initialChoiceId:choice.id})),
+    fieldBindings:Object.fromEntries(Object.keys(snapshot.effectiveValues).map(key => [key,snapshot.editorVectors[key] ? {
+      kind:'per_selection',bindings:choices.map((_,index) => index < snapshot.editorVectors[key].indexCount ? {kind:'indexed',index} : {kind:'unavailable'}),
+    } : {kind:'shared'}])),
+  }};
+}
+
+// Explicit native-shaped U1 oracle: physical 2, SF/HF variants 4/5, normal motion 8/10.
+function u1Fixture({name='Active U1',active=true,count=4,flows=[0,1],initial=[0,1,0,0],defaults=[0,0,0,0]}: {
+  name?:string;active?:boolean;count?:number;flows?:number[];initial?:number[];defaults?:number[];
+} = {}): PresetDraftSnapshot {
+  const base=snapshotFor('printer');
+  const positions=[{head:0,flow:0,variant:0,motion:0},{head:0,flow:1,variant:1,motion:2},
+    {head:1,flow:0,variant:2,motion:4},{head:1,flow:1,variant:3,motion:6},
+    {head:2,flow:0,variant:4,motion:8},{head:2,flow:1,variant:5,motion:10},
+    {head:3,flow:0,variant:6,motion:12},{head:3,flow:1,variant:7,motion:14}].filter(p => p.head<count && flows.includes(p.flow));
+  const choices=positions.map(p => ({id:`head-${p.head}-${p.flow}`,label:`Extruder ${p.head+1} ${p.flow?'High Flow':'Standard'}`,
+    extruderIndex:p.head,flowType:p.flow,extruderType:0,variant:p.flow?'Direct Drive High Flow':'Direct Drive Standard'}));
+  const vector=(values:number[]):PresetDraftEditorVector => ({...base.editorVectors.nozzle_diameter,scalarType:'float',
+    indexCount:values.length,sourceValues:values,effectiveValues:[...values],overrideValues:values.map(()=>null)});
+  const editorVectors={nozzle_diameter:vector([0.4,0.4,0.6,0.6].slice(0,count)),
+    min_layer_height:vector([0.08,0.08,0.12,0.12].slice(0,count)),
+    retraction_length:vector([0.8,0.9,1,1.1,1.2,1.3,1.4,1.5]),
+    machine_max_speed_e:vector([100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115])};
+  const sourceValues={...base.sourceValues,...Object.fromEntries(Object.entries(editorVectors).map(([k,v])=>[k,JSON.stringify(v.sourceValues)])),emit_machine_limits_to_gcode:'1'};
+  const fieldBindings={...Object.fromEntries(Object.keys(sourceValues).map(key=>[key,{kind:'shared' as const}])),
+    ...Object.fromEntries(Object.keys(editorVectors).map(key=>[key,{kind:'per_selection' as const,bindings:positions.map(p=>({kind:'indexed' as const,
+      index:key==='retraction_length'?p.variant:key==='machine_max_speed_e'?p.motion:p.head}))}]))};
+  return {...base,canonicalName:name,sourceValues,effectiveValues:{...sourceValues},editorVectors,
+    editorCandidates:[{...base.editorCandidates[0],canonicalName:name,label:name}],
+    optionMetadata:{...base.optionMetadata,retraction_length:{type:'floats',label:'Retraction length',tooltip_default:'0.8,0.9,1,1.1,1.2,1.3,1.4,1.5'},
+      machine_max_speed_e:{type:'floats',label:'Maximum E speed'},emit_machine_limits_to_gcode:{type:'bool',label:'Emit limits'}},
+    editorSelection:{kind:'printer',activeSource:active,choices,firstChoiceId:choices[0]?.id??null,fieldBindings,
+      nozzles:Array.from({length:count},(_,head)=>({extruderIndex:head,defaultChoiceId:`head-${head}-${flows.includes(defaults[head])?defaults[head]:flows[0]}`,
+        initialChoiceId:`head-${head}-${flows.includes(initial[head])?initial[head]:flows[0]}`}))},
+  };
+}
+async function controlledPrinter(initial: PresetDraftSnapshot, handler?: (request:PresetDraftMutationRequest)=>Promise<PresetDraftMutationResult>) {
+  const container=document.createElement('div');document.body.append(container);
+  const root=createRoot(container);roots.push(root);
+  const platform={preferences:{load:async()=>structuredClone(DEFAULT_USER_PREFERENCES),save:async()=>{}}} as unknown as PlatformCapabilities;
+  let snapshot:PresetDraftSnapshot|null=initial,entry=0,pending=false;
+  const onMutate=vi.fn(async(request:PresetDraftMutationRequest)=>{
+    pending=true; render();
+    const result=handler?await handler(request):mutationSuccess(snapshot!,request);
+    if(result.ok) snapshot={...result,editorCandidates:snapshot!.editorCandidates};
+    pending=false; render(); return result;
+  });
+  const render=()=>root.render(<PlatformProvider value={platform}><PresetEditorDialogContent
+    sourceEntry={entry} target={snapshot?{kind:snapshot.kind,canonicalName:snapshot.canonicalName}:null}
+    snapshot={snapshot} mutationPending={pending} onMutate={onMutate} onSelectPreset={async()=>{}} onClose={()=>{}} /></PlatformProvider>);
+  await act(async()=>render());
+  return {onMutate,getSnapshot:()=>snapshot!,update:async(next:PresetDraftSnapshot|null,nextEntry=entry)=>{snapshot=next;entry=nextEntry;await act(async()=>render());}};
+}
+async function selectFlow(head:number,label:string) {
+  await click(document.querySelector(`[data-testid="preset-editor-flow-${head}"]`));
+  await click([...document.querySelectorAll(`[data-testid^="preset-editor-flow-option-${head}-"]`)].find(option=>option.textContent===label)??null);
+}
+
+async function selectExtruder(number: number) {
+  await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]'));
+  await click(document.querySelector(`[data-testid="preset-editor-extruder-${number}"]`));
+}
+
 async function mount(
   snapshot: PresetDraftSnapshot | null,
   onClose = vi.fn(),
@@ -253,10 +323,10 @@ async function mount(
   const root = createRoot(container);
   roots.push(root);
   function Harness() {
-    const [current, setCurrent] = useState(snapshot);
+    const [current, setCurrent] = useState(snapshot ? physicalFixture(snapshot) : null);
     const mutate = async (request: PresetDraftMutationRequest) => {
       const result = await onMutate(request);
-      if (result.ok) setCurrent(previous => ({ ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : previous!.editorCandidates }));
+      if (result.ok) setCurrent(previous => physicalFixture({ ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : previous!.editorCandidates }));
       return result;
     };
       const target = current ? { kind: current.kind, canonicalName: current.canonicalName } : null;
@@ -374,6 +444,155 @@ describe('PresetEditorDialogContent', () => {
     expect(onSelectPreset).toHaveBeenCalledWith('Unsupported');
   });
 
+  it('uses native physical/variant/motion bindings for SF/HF values, edits, resets, tooltips and search', async()=>{
+    const source=u1Fixture(); const h=await controlledPrinter(source);
+    await selectExtruder(3);
+    expect(document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]')).toHaveProperty('value','0.6');
+    let input=document.querySelector('[data-testid="preset-editor-input-retraction_length"]') as HTMLInputElement;
+    expect(input.value).toBe('1.2');
+    expect(document.querySelector('[data-testid="preset-editor-source-retraction_length"]')?.textContent).toBe('1.2');
+    expect(document.querySelector('[data-testid="preset-editor-field-retraction_length"]')?.getAttribute('title')).toContain('retraction_length[4]');
+    await changeInput(input,'2.4');await press(input,'Enter');
+    expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({action:'set-element',key:'retraction_length',index:4,value:2.4}));
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    await selectFlow(3,'HF');
+    expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('value','1.3');
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    await enterSearch('retraction_length');
+    expect(document.querySelectorAll('[data-testid="preset-editor-input-retraction_length"]')).toHaveLength(1);
+    expect(document.querySelector('[data-testid="preset-editor-field-retraction_length"]')?.getAttribute('title')).toContain('retraction_length[5]');
+    await enterSearch('');
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-motion-ability"]'));
+    input=document.querySelector('[data-testid="preset-editor-input-machine_max_speed_e"]') as HTMLInputElement;
+    expect(input.value).toBe('110');
+    await changeInput(input,'210');await press(input,'Enter');
+    expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({key:'machine_max_speed_e',index:10,value:210}));
+    await click(document.querySelector('[data-testid="preset-editor-reset-field-machine_max_speed_e"]'));
+    expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({action:'reset-field',key:'machine_max_speed_e',index:10}));
+    await selectFlow(3,'SF');
+    expect(document.querySelector('[data-testid="preset-editor-input-machine_max_speed_e"]')).toHaveProperty('value','108');
+    expect(document.body.textContent).not.toMatch(/Silent/);
+    await selectExtruder(3);await click(document.querySelector('[data-testid="preset-editor-reset-field-retraction_length"]'));
+    expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({action:'reset-field',key:'retraction_length',index:4}));
+  });
+
+  it('keeps per-nozzle flows local, hides shared-only categories and opens an unselected popup without selecting it',async()=>{
+    const source=u1Fixture();const h=await controlledPrinter(source);
+    await selectExtruder(3);
+    await click(document.querySelector('[data-testid="preset-editor-flow-2"]'));
+    expect(document.querySelector('[data-testid="preset-editor-extruder-3"]')?.getAttribute('aria-pressed')).toBe('true');
+    await press(document.querySelector('[data-testid="preset-editor-flow-2"]')!,'Escape');
+    await selectFlow(2,'SF');
+    expect(document.querySelector('[data-testid="preset-editor-extruder-2"]')?.getAttribute('aria-pressed')).toBe('true');
+    await selectFlow(3,'HF');await click(document.querySelector('[data-testid="preset-editor-extruder-2"]'));
+    expect(document.querySelector('[data-testid="preset-editor-flow-2"]')?.textContent).toContain('SF');
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-notes"]'));
+    expect(document.querySelector('[data-testid="preset-editor-extruder-switch"]')).toBeNull();
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]'));
+    await click(document.querySelector('[data-testid="preset-editor-extruder-3"]'));
+    expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('HF');
+    expect(h.onMutate).not.toHaveBeenCalled();expect(h.getSnapshot()).toEqual(source);
+  });
+
+  it('initializes active entries from native hints, carries inactive choices, and preserves valid view on receipts/history',async()=>{
+    const source=u1Fixture();const h=await controlledPrinter(source);
+    await selectExtruder(2);
+    expect(document.querySelector('[data-testid="preset-editor-flow-2"]')?.textContent).toContain('HF');
+    // Head 3's native initial hint is SF even when the project flow was Hybrid.
+    await selectFlow(3,'HF');
+    await h.update({...source,revision:2,editorSelection:{...source.editorSelection,nozzles:source.editorSelection.nozzles.map(n=>({...n,initialChoiceId:`head-${n.extruderIndex}-0`}))}});
+    expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('HF');
+    await h.update(u1Fixture({name:'Other U1',active:false,defaults:[0,0,0,0]}),1);
+    expect(document.querySelector('[data-testid="preset-editor-extruder-3"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('HF');
+    await h.update(u1Fixture({name:'SF only',active:false,flows:[0]}),2);
+    expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('SF');
+    await h.update(u1Fixture({name:'HF default',active:false,flows:[1],defaults:[1,1,1,1]}),3);
+    expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('HF');
+    await h.update(source,4);
+    expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('SF');
+    expect(document.querySelector('[data-testid="preset-editor-flow-2"]')?.textContent).toContain('HF');
+    await selectFlow(3,'HF');await h.update({...source,revision:3});
+    expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('HF');
+    await h.update(u1Fixture({name:'Single',active:false,count:1,flows:[0]}),5);
+    expect(document.querySelector('[data-testid="preset-editor-extruder-switch"]')).toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('value','0.8');
+    await h.update(u1Fixture({name:'Single dual',active:false,count:1}),6);
+    expect(document.querySelector('[data-testid="preset-editor-flow-1"]')?.getAttribute('aria-label')).toBe('Printer editing flow');
+    expect(document.querySelector('[data-testid="preset-editor-extruder-1"]')).toBeNull();
+    await selectFlow(1,'High Flow');
+    await h.update(null);await h.update(source,7);
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]'));
+    expect(document.querySelector('[data-testid="preset-editor-extruder-1"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(h.onMutate).not.toHaveBeenCalled();
+  });
+
+  it('keeps unavailable mappings read-only and excludes them from atomic reset while valid short vectors use Source fallback',async()=>{
+    const source=u1Fixture();
+    const ret=source.editorSelection.fieldBindings.retraction_length;
+    if(ret.kind!=='per_selection')throw Error('mapping');
+    const snapshot:PresetDraftSnapshot={...source,overrides:{emit_machine_limits_to_gcode:'0'},
+      effectiveValues:{...source.effectiveValues,emit_machine_limits_to_gcode:'0'},
+      editorVectors:{...source.editorVectors,nozzle_diameter:{...source.editorVectors.nozzle_diameter,sourceValues:[0.4],effectiveValues:[0.5],
+          overrideValues:[null,null,{value:0.5},null]},
+        machine_max_speed_e:{...source.editorVectors.machine_max_speed_e,overrideValues:Array.from({length:16},(_,i)=>i===10?{value:110}:null)}},
+      editorSelection:{...source.editorSelection,fieldBindings:{...source.editorSelection.fieldBindings,
+        retraction_length:{kind:'per_selection',bindings:ret.bindings.map((b,i)=>i===5?{kind:'unavailable'}:b)}}}};
+    const h=await controlledPrinter(snapshot);await selectExtruder(3);await selectFlow(3,'HF');
+    expect(document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]')).toHaveProperty('value','0.5');
+    expect(document.querySelector('[data-testid="preset-editor-source-nozzle_diameter"]')?.textContent).toBe('0.4');
+    expect(document.querySelector('[data-testid="preset-editor-effective-retraction_length"]')?.textContent).toBe('Unavailable');
+    expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-field-retraction_length"]')?.getAttribute('title')).not.toContain('Default:');
+    await click(document.querySelector('[data-testid="preset-editor-reset-category-extruder"]'));
+    const reset=h.onMutate.mock.calls.at(-1)![0];
+    expect(reset).toMatchObject({action:'reset-category',fields:expect.arrayContaining([{key:'nozzle_diameter',kind:'indexed',index:2}])});
+    if(reset.action!=='reset-category')throw Error('expected category');
+    expect(reset.fields.map(field=>field.key)).not.toContain('retraction_length');
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-motion-ability"]'));
+    // The explicit motion value equals Source; ownership, rather than value
+    // inequality, drives all three levels of highlighting.
+    for(const id of ['preset-editor-option-label-machine_max_speed_e','preset-editor-group-title-motion-ability-speed-limitation','preset-editor-page-tab-motion-ability']) {
+      const element=document.querySelector(`[data-testid="${id}"]`)??document.getElementById(id);
+      expect(element?.getAttribute('data-draft-override-highlight')).toBe('true');
+    }
+    await click(document.querySelector('[data-testid="preset-editor-reset-category-motion-ability"]'));
+    expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({action:'reset-category',fields:expect.arrayContaining([
+      {key:'machine_max_speed_e',kind:'indexed',index:10},{key:'emit_machine_limits_to_gcode',kind:'shared'},
+    ])}));
+    expect(h.getSnapshot().editorVectors.machine_max_speed_e.overrideValues[10]).toBeNull();
+  });
+
+  it.each([true,false])('navigates once during invalid/pending edits and keeps delayed receipt feedback on its captured binding (success=%s)',async success=>{
+    const source=u1Fixture();let complete!:(result:PresetDraftMutationResult)=>void;
+    const h=await controlledPrinter(source,()=>new Promise(resolve=>{complete=resolve;}));
+    await selectExtruder(3);
+    let input=document.querySelector('[data-testid="preset-editor-input-retraction_length"]') as HTMLInputElement;
+    await changeInput(input,'bad');await press(input,'Enter');
+    expect(document.querySelector('[data-testid="preset-editor-error-retraction_length"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-preset"]')).toHaveProperty('disabled',true);
+    await selectFlow(3,'HF');
+    expect(h.onMutate).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="preset-editor-error-retraction_length"]')).toBeNull();
+    await selectFlow(3,'SF');
+    input=document.querySelector('[data-testid="preset-editor-input-retraction_length"]') as HTMLInputElement;
+    expect(input.value).toBe('1.2');await changeInput(input,'2.4');
+    await act(async()=>input.blur());
+    expect(h.onMutate).toHaveBeenCalledOnce();
+    const captured=h.onMutate.mock.calls[0][0];
+    expect(captured).toMatchObject({canonicalName:source.canonicalName,key:'retraction_length',index:4,value:2.4});
+    await click(document.querySelector('[data-testid="preset-editor-extruder-1"]'));
+    await selectFlow(1,'HF');
+    expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('value','0.9');
+    expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('disabled',true);
+    await act(async()=>complete(success?mutationSuccess(source,captured):{ok:false,error:'Rejected old binding'}));
+    expect(document.querySelector('[data-testid="preset-editor-extruder-1"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('value','0.9');
+    expect(document.querySelector('[data-testid="preset-editor-error-retraction_length"]')).toBeNull();
+    await selectFlow(3,'SF');
+    expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('value',success?'2.4':'1.2');
+  });
+
   it('reads and edits each Extruder index, preserving other values and indexing search/tooltips', async () => {
     const base = snapshotFor('printer');
     const makeVector = (values: number[]): PresetDraftEditorVector => ({ ...base.editorBindings.nozzle_diameter!, indexCount: values.length, overrideValues: values.map(() => null), sourceValues: values, effectiveValues: values });
@@ -388,7 +607,7 @@ describe('PresetEditorDialogContent', () => {
     await mount(current, vi.fn(), undefined, async request => {
       requests.push(request); const result = mutationSuccess(current, request); if (result.ok) current = { ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : current.editorCandidates }; return result;
     });
-    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-3"]'));
+    await selectExtruder(3);
     expect(document.querySelector('[data-testid="preset-editor-effective-nozzle_diameter"]')?.textContent).toBe('0.6');
     expect(document.querySelector('[data-testid="preset-editor-effective-min_layer_height"]')?.textContent).toBe('0.12');
     expect(document.querySelector('[data-testid="preset-editor-field-min_layer_height"]')?.getAttribute('title')).toContain('min_layer_height[2]');
@@ -397,48 +616,15 @@ describe('PresetEditorDialogContent', () => {
     await changeInput(input, '0.15'); await press(input, 'Enter');
     expect(requests.at(-1)).toMatchObject({ action: 'set-element', key: 'min_layer_height', index: 2, value: 0.15 });
     expect(current.editorVectors?.min_layer_height.effectiveValues).toEqual([0.08, 0.08, 0.15, 0.12]);
-    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-3"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
-    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-1"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    await selectExtruder(1);
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    await selectExtruder(3);
     await click(document.querySelector('[data-testid="preset-editor-reset-field-min_layer_height"]'));
     expect(requests.at(-1)).toMatchObject({ action: 'reset-field', key: 'min_layer_height', index: 2 });
     expect(current.editorVectors?.min_layer_height.effectiveValues).toEqual([0.08, 0.08, 0.12, 0.12]);
     await enterSearch('nozzle_diameter');
-    expect([...document.querySelectorAll('[data-testid="preset-editor-effective-nozzle_diameter"]')].map(node => node.textContent)).toEqual(['0.4', '0.4', '0.6', '0.6']);
-  });
-
-  it('keeps legacy displayed edits and category reset on one binding before native selection navigation is connected', async () => {
-    const base = snapshotFor('printer');
-    const nozzles = [0.4,0.4,0.4,0.4], sourceRetractions = [0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8];
-    const retractions = [...sourceRetractions]; retractions[4] = 1.6;
-    const vector = (source: number[], effective = source): PresetDraftEditorVector => ({
-      ...base.editorBindings.nozzle_diameter!, scalarType:'float', indexCount:source.length,
-      sourceValues:source,effectiveValues:effective,overrideValues:source.map((value,index) => value === effective[index] ? null : {value:effective[index]}),
-    });
-    let current: PresetDraftSnapshot = {...base,
-      sourceValues:{...base.sourceValues,nozzle_diameter:JSON.stringify(nozzles),retraction_length:JSON.stringify(sourceRetractions)},
-      effectiveValues:{...base.effectiveValues,nozzle_diameter:JSON.stringify(nozzles),retraction_length:JSON.stringify(retractions)},
-      optionMetadata:{...base.optionMetadata,retraction_length:{type:'floats',label:'Retraction length'}},
-      editorVectors:{...base.editorVectors,nozzle_diameter:vector(nozzles),retraction_length:vector(sourceRetractions,retractions)},
-      editorSelection:{...base.editorSelection,fieldBindings:{...base.editorSelection.fieldBindings,
-        retraction_length:{kind:'per_selection',bindings:[0,1,2,3,4,5,6,7].map(index => ({kind:'indexed',index}))},
-      }},
-    };
-    const requests: PresetDraftMutationRequest[]=[];
-    await mount(current,vi.fn(),undefined,async request => {
-      requests.push(request); const result=mutationSuccess(current,request);
-      if (result.ok) current={...result,editorCandidates:current.editorCandidates}; return result;
-    });
-    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-3"]'));
-    const input=document.querySelector('[data-testid="preset-editor-input-retraction_length"]') as HTMLInputElement;
-    expect(input.value).toBe('0.8');
-    await changeInput(input,'1.3'); await press(input,'Enter');
-    expect(requests.at(-1)).toMatchObject({action:'set-element',key:'retraction_length',index:2,value:1.3});
-    await click(document.querySelector('[data-testid="preset-editor-reset-category-extruder-3"]'));
-    expect(requests.at(-1)).toMatchObject({action:'reset-category',fields:expect.arrayContaining([
-      {key:'retraction_length',kind:'indexed',index:2},
-    ])});
-    expect(current.editorVectors.retraction_length.effectiveValues[2]).toBe(0.8);
-    expect(current.editorVectors.retraction_length.effectiveValues[4]).toBe(1.6);
+    expect([...document.querySelectorAll('[data-testid="preset-editor-effective-nozzle_diameter"]')].map(node => node.textContent)).toEqual(['0.6']);
   });
 
   it.each(['reset-field', 'reset-category'] as const)('highlights explicit equal-value vector overrides until %s', async action => {
@@ -456,12 +642,12 @@ describe('PresetEditorDialogContent', () => {
       return result;
     });
     await mount(current, vi.fn(), undefined, onMutate);
-    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
+    await selectExtruder(2);
     expect((document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]') as HTMLInputElement).value).toBe('0.6');
     expect(document.querySelector('[data-testid="preset-editor-option-label-nozzle_diameter"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
     for (const index of [2])
-      expect(document.querySelector(`[data-testid="preset-editor-page-tab-extruder-${index}"]`)?.getAttribute('data-draft-override-highlight')).toBe('true');
-    const reset = document.querySelector('[data-testid="preset-editor-reset-category-extruder-2"]') as HTMLButtonElement;
+      expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    const reset = document.querySelector('[data-testid="preset-editor-reset-category-extruder"]') as HTMLButtonElement;
     expect(reset.disabled).toBe(false);
     await click(action === 'reset-field' ? document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]') : reset);
     expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({ action,
@@ -484,16 +670,15 @@ describe('PresetEditorDialogContent', () => {
       const result = mutationSuccess(current, request); if (result.ok) current = { ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : current.editorCandidates }; return result;
     });
     await mount(current, vi.fn(), undefined, onMutate);
-    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
+    await selectExtruder(2);
     await click(document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]'));
     expect(current.overrides.nozzle_diameter).toEqual([{value: 0.4}, null]);
     expect(current.modified).toBe(true);
-    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-1"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
-    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
     expect(document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]')).toBeNull();
-    expect((document.querySelector('[data-testid="preset-editor-reset-category-extruder-2"]') as HTMLButtonElement).disabled).toBe(true);
-    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-1"]'));
-    expect((document.querySelector('[data-testid="preset-editor-reset-category-extruder-1"]') as HTMLButtonElement).disabled).toBe(false);
+    expect((document.querySelector('[data-testid="preset-editor-reset-category-extruder"]') as HTMLButtonElement).disabled).toBe(true);
+    await selectExtruder(1);
+    expect((document.querySelector('[data-testid="preset-editor-reset-category-extruder"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('keeps the selected Extruder page when a mutation resolves a new canonical Printer source', async () => {
@@ -507,11 +692,11 @@ describe('PresetEditorDialogContent', () => {
       return result.ok ? { ...result, ...current, editorCandidates: { kind: 'replace' as const, items: current.editorCandidates } } : result;
     });
     await mount(current, vi.fn(), undefined, onMutate);
-    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
+    await selectExtruder(2);
     const input = document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]') as HTMLInputElement;
     await changeInput(input, '0.4'); await press(input, 'Enter');
     expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer Resolved');
-    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]')?.getAttribute('aria-selected')).toBe('true');
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('aria-selected')).toBe('true');
     const resolvedInput = document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]') as HTMLInputElement;
     expect(resolvedInput.value).toBe('0.4');
     await changeInput(resolvedInput, '0.5'); await press(resolvedInput, 'Enter');
@@ -529,7 +714,7 @@ describe('PresetEditorDialogContent', () => {
     await mount(current, vi.fn(), undefined, async request => {
       requests.push(request); const result = mutationSuccess(current, request); if (result.ok) current = { ...result, editorCandidates: result.editorCandidates.kind === 'replace' ? result.editorCandidates.items : current.editorCandidates }; return result;
     });
-    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
+    await selectExtruder(2);
     const input = document.querySelector('[data-testid="preset-editor-input-extruder_offset"]') as HTMLInputElement;
     expect(input.value).toBe('1, 2');
     await changeInput(input, '3, 4'); await press(input, 'Enter');
@@ -538,7 +723,7 @@ describe('PresetEditorDialogContent', () => {
     await changeTextarea(area, polygon.map(point => `${point.x}, ${point.y}`).join('\n'));
     await act(async () => area.blur());
     expect(requests.at(-1)).toMatchObject({ action: 'set-element', scalarType: 'points', index: 1, value: polygon });
-    await click(document.querySelector('[data-testid="preset-editor-reset-category-extruder-2"]'));
+    await click(document.querySelector('[data-testid="preset-editor-reset-category-extruder"]'));
     expect(requests.at(-1)).toMatchObject({ action: 'reset-category', fields: expect.arrayContaining([{key: 'extruder_offset', kind: 'indexed', index: 1}]) });
   });
 
@@ -548,11 +733,10 @@ describe('PresetEditorDialogContent', () => {
       await mount(snapshotFor(manifest.kind));
       const pageTabs = [...document.querySelectorAll('[role="tablist"] [role="tab"]')]
         .map((tab) => tab.textContent ?? '');
-      expect(pageTabs).toEqual(manifest.pages.flatMap((page) => page.id === 'extruder'
-        ? ['Extruder 1', 'Extruder 2'] : [page.title]));
+      expect(pageTabs).toEqual(manifest.pages.map(page => page.title));
 
       for (const [pageIndex, page] of manifest.pages.entries()) {
-        const pageId = page.id === 'extruder' ? 'extruder-1' : page.id;
+        const pageId = page.id;
         if (pageIndex > 0 || page.id === 'extruder')
           await click(document.querySelector(`[data-testid="preset-editor-page-tab-${pageId}"]`));
         expect(groupHeadings(pageId)).toEqual(page.groups.map((optionGroup) => optionGroup.title));
@@ -561,7 +745,7 @@ describe('PresetEditorDialogContent', () => {
     },
   );
 
-  it('expands the Printer Extruder template from the effective native scalar count', async () => {
+  it('keeps one Printer Extruder page and selects native physical choices', async () => {
     const source = snapshotFor('printer');
     const template = PRINTER_PRESET_EDITOR_MANIFEST.pages.find((page) => page.id === 'extruder');
     if (!template) throw new Error('expected the explicit Printer Extruder page template');
@@ -569,17 +753,16 @@ describe('PresetEditorDialogContent', () => {
     await mount(source);
     const pageTabs = [...document.querySelectorAll('[role="tablist"] [role="tab"]')]
       .map((tab) => tab.textContent ?? '');
-    expect(pageTabs).toEqual(PRINTER_PRESET_EDITOR_MANIFEST.pages.flatMap((page) =>
-      page.id === 'extruder' ? ['Extruder 1', 'Extruder 2'] : [page.title]));
+    expect(pageTabs).toEqual(PRINTER_PRESET_EDITOR_MANIFEST.pages.map(page => page.title));
 
     for (const index of [1, 2]) {
-      const pageId = `extruder-${index}`;
-      await click(document.querySelector(`[data-testid="preset-editor-page-tab-${pageId}"]`));
+      const pageId = 'extruder';
+      await selectExtruder(index);
       expect(groupHeadings(pageId)).toEqual(template.groups.map((optionGroup) => optionGroup.title));
       expect(visibleFieldKeys(pageId)).toEqual(template.groups.flatMap((optionGroup) =>
         optionGroup.fields.map((field) => field.key)));
       expect(document.querySelector('[data-testid="preset-editor-context-nozzle_diameter"]')?.textContent)
-        .toContain(`Extruder ${index} / Basic information`);
+        .toContain('Extruder / Basic information');
       expect(document.querySelector('[data-testid="preset-editor-field-nozzle_diameter"]')?.getAttribute('data-field-access'))
         .toBe('editable');
     }
@@ -1188,6 +1371,40 @@ describe('PresetEditorDialog session ownership', () => {
     await click(document.querySelector('[data-testid="preset-editor-preset"]'));
     await click(document.querySelector(`[role="option"][title="${name}"]`));
   }
+
+  it('retains nozzle and independent flows across Undo/Redo refresh, and reinitializes only when entering the active source', async()=>{
+    const source=u1Fixture();
+    const other=u1Fixture({name:'Other U1',active:false});
+    const candidates=[source.editorCandidates[0],other.editorCandidates[0]];
+    let current=source;
+    const getDraft=vi.fn(async(_kind,name)=>({...current,...(name===other.canonicalName?other:{}),editorCandidates:candidates}));
+    await mountSession(getDraft);
+    await selectExtruder(3);await selectFlow(3,'HF');await selectFlow(1,'HF');
+    await click(document.querySelector('[data-testid="preset-editor-extruder-3"]'));
+    const redo=mutationSuccess(source,{kind:'printer',canonicalName:source.canonicalName,expectedRevision:1,
+      action:'set-element',key:'retraction_length',index:5,scalarType:'float',value:2.5});
+    if(!redo.ok)throw Error('receipt');
+    current={...redo,editorCandidates:candidates};
+    for(const next of [current,source,current]) {
+      current=next;
+      await act(async()=>{
+        useHistoryRestoreStore.getState().setPhase('restoring');
+        useHistoryRestoreStore.getState().advanceRevision();
+      });
+      await act(async()=>useHistoryRestoreStore.getState().setPhase('idle'));
+      expect(document.querySelector('[data-testid="preset-editor-extruder-3"]')?.getAttribute('aria-pressed')).toBe('true');
+      expect(document.querySelector('[data-testid="preset-editor-flow-1"]')?.textContent).toContain('HF');
+      expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('HF');
+      expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('value',next===source?'1.3':'2.5');
+    }
+    await choose(other.canonicalName);
+    expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('HF');
+    await choose(source.canonicalName);
+    expect(document.querySelector('[data-testid="preset-editor-extruder-3"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('SF');
+    expect(document.querySelector('[data-testid="preset-editor-flow-1"]')?.textContent).toContain('SF');
+    expect(commitPresetDraftMutation).not.toHaveBeenCalled();
+  });
 
   it('acknowledges a committed edit after recovery fails and blocks resubmission while allowing close', async () => {
     const base = snapshotFor('printer');

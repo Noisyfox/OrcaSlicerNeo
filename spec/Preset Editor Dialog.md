@@ -437,7 +437,7 @@ remains in its existing serialized vector form. Filament scalar G-code and
 notes fields use multiline text controls and are editable through that native
 element binding. Printer scalar machine G-code remains read-only.
 
-Printer Extruder pages use complete typed native Source and Effective vectors.
+The Printer Extruder page uses complete typed native Source and Effective vectors.
 The internal snapshot contract requires these vectors; native no longer sends
 the previous first-element `editor_bindings` payload. The typed client derives
 generic first-element views from vectors for the Filament controls. All producers,
@@ -509,15 +509,18 @@ and enclosing application history transaction. They do not introduce a second
 Print draft or history root. Whole-option operations remain distinct actions.
 
 The native contracts supply element editing, mixed-field atomic resets and
-native mapping metadata. The existing editor still assembles category requests
-from its displayed bindings; native selection navigation remains separate work.
-The accepted, not-yet-implemented selection interface is owned by
+native mapping metadata. The Printer editor consumes that metadata throughout
+its single Extruder page, motion fields, Source/Effective values, tooltips,
+search, edits, resets and ownership highlights. Category resets combine each
+current native binding with shared fields; unavailable mappings remain read-only
+and contribute no reset target. Native motion bindings retain their stride of
+two, with only the normal value presented and no Silent controls.
+
+The complete selection interface is owned by
 [Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md),
-including the single Printer Extruder page, independent editor selections, and
-category-dependent switch visibility. It also owns how the interface assembles
-the current selection plus shared fields into category reset, and single-group
-motion-limit presentation without Silent controls. Those interface extensions
-are not yet implemented. Extruder/variant navigation is immediate like category navigation,
+including independent editor selections and category-dependent switch visibility.
+Printer selection is implemented; Filament and Project Print selectors remain
+separate increments. Printer extruder/flow navigation is immediate like category navigation,
 including during field submission or with invalid input; dispatched writes
 remain bound to their original fields. Opening an editor starts at the first
 selection. Printer browsing retains valid nozzle and per-nozzle editing-flow
@@ -529,7 +532,7 @@ fallbacks owned by the switch specification. Cross-extruder copy is outside
 that feature's accepted scope.
 A valid vector index is not a physical Extruder ID.
 
-The accepted Printer switch uses sidebar-style nozzle cards with flow dropdowns
+The Printer switch uses sidebar-style nozzle cards with flow dropdowns
 for multiple nozzles. A single nozzle with multiple editing flows instead uses
 an ordinary variant dropdown without nozzle information; a single nozzle with
 one flow hides it. Improved rejection feedback after navigating away remains

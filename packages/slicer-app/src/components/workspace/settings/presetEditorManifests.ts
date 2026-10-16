@@ -22,7 +22,6 @@ export interface PresetEditorManifestPage {
   readonly id: string;
   readonly title: string;
   readonly groups: readonly PresetEditorManifestGroup[];
-  readonly extruderIndex?: number;
 }
 
 export interface PresetEditorManifest {

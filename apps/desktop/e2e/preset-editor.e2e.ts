@@ -177,14 +177,19 @@ async function editClosedEnumField(page: Page, key: string): Promise<{ before: s
   return { before, after };
 }
 
-test('U1 Extruder pages edit their own native index and follow canonical diameter transitions', async () => {
-  test.skip(!REAL, 'Requires the real U1 profile vectors and native diameter transaction');
+test('U1 single Extruder page maps per-nozzle flows and keeps direct diameter edits in their source', async () => {
+  test.skip(!REAL, 'Requires the real U1 physical, variant and motion vectors');
   const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    if (process.env.VITE_SCOPED_CONFIGURATION_GATE === '1') {
+      await page.waitForFunction(() => Boolean((window as any).__orcaScopedConfigurationGate));
+      const execution = await page.evaluate(() => (window as any).__orcaScopedConfigurationGate.execution());
+      expect(execution.threaded).toBe(process.env.VITE_SCOPED_CONFIGURATION_GATE_VARIANT === 'threaded');
+    }
     await page.locator('#app-tab-prepare').click();
     await page.getByTestId('preset-select').click();
     const popup = page.locator('[data-slot="combobox-content"]');
@@ -196,37 +201,90 @@ test('U1 Extruder pages edit their own native index and follow canonical diamete
     await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4+0.6');
     await page.getByTestId('preset-edit-printer').click();
     await expect(page.getByTestId('preset-editor-title')).toHaveText('Snapmaker U1 (0.4+0.6 nozzle)');
+    await page.getByTestId('preset-editor-page-tab-extruder').click();
+    await expect(page.getByRole('tab', { name: 'Extruder', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('tab', { name: /^Extruder \d/ })).toHaveCount(0);
+    const cardTops = await page.getByTestId('preset-editor-extruder-switch').locator('.preset-editor-toolhead')
+      .evaluateAll(cards => cards.map(card => card.getBoundingClientRect().top));
+    expect(cardTops).toHaveLength(4);
+    expect(new Set(cardTops).size).toBe(1);
+    for (const index of [1,2,3,4]) {
+      const button = await page.getByTestId(`preset-editor-extruder-${index}`).boundingBox();
+      const flow = await page.getByTestId(`preset-editor-flow-${index}`).boundingBox();
+      expect(button && flow && button.y + button.height <= flow.y + 1).toBe(true);
+    }
     for (const [index, diameter, minimum, maximum] of [
       [1, '0.4', '0.08', '0.32'], [2, '0.4', '0.08', '0.32'],
       [3, '0.6', '0.12', '0.48'], [4, '0.6', '0.12', '0.48'],
     ] as const) {
-      await page.getByTestId(`preset-editor-page-tab-extruder-${index}`).click();
+      await page.getByTestId(`preset-editor-extruder-${index}`).click();
       await expect(page.getByTestId('preset-editor-input-nozzle_diameter')).toHaveValue(diameter);
       await expect(page.getByTestId('preset-editor-input-min_layer_height')).toHaveValue(minimum);
       await expect(page.getByTestId('preset-editor-input-max_layer_height')).toHaveValue(maximum);
     }
-    await page.getByTestId('preset-editor-page-tab-extruder-3').click();
+    await page.getByTestId('preset-editor-extruder-3').click();
+    // A popup alone preserves the selected nozzle; selecting a flow chooses it.
+    await page.getByTestId('preset-editor-flow-2').click();
+    await expect(page.getByTestId('preset-editor-extruder-3')).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('Escape');
+    await page.getByTestId('preset-editor-flow-2').click();
+    await page.getByRole('option', { name: 'HF', exact: true }).click();
+    await expect(page.getByTestId('preset-editor-extruder-2')).toHaveAttribute('aria-pressed', 'true');
+    await page.getByTestId('preset-editor-extruder-3').click();
+    const retraction = page.getByTestId('preset-editor-input-retraction_length');
+    const sfRetraction = await retraction.inputValue();
+    await retraction.fill('invalid'); await retraction.press('Enter');
+    await expect(page.getByTestId('preset-editor-error-retraction_length')).toBeVisible();
+    await page.getByTestId('preset-editor-extruder-1').click();
+    await expect(page.getByTestId('preset-editor-extruder-1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('preset-editor-error-retraction_length')).toHaveCount(0);
+    await page.getByTestId('preset-editor-extruder-3').click();
+    // Blur submits the original SF field while the same click selects T1.
+    await retraction.fill('1.24');
+    await page.getByTestId('preset-editor-extruder-1').click();
+    await expect(page.getByTestId('preset-editor-extruder-1')).toHaveAttribute('aria-pressed', 'true');
+    await expect(retraction).toBeEnabled();
+    await page.getByTestId('preset-editor-extruder-3').click();
+    await expect(retraction).toHaveValue('1.24');
+    await expect(page.getByTestId('preset-editor-field-retraction_length')).toHaveAttribute('title', /retraction_length\[4\]/);
+    await page.getByTestId('preset-editor-flow-3').click();
+    await page.getByRole('option', { name: 'HF', exact: true }).click();
+    await expect(page.getByTestId('preset-editor-field-retraction_length')).toHaveAttribute('title', /retraction_length\[5\]/);
+    await expect(retraction).not.toHaveValue('1.24');
+    await page.getByTestId('preset-editor-page-tab-motion-ability').click();
+    await expect(page.getByTestId('preset-editor-field-machine_max_speed_e')).toHaveAttribute('title', /machine_max_speed_e\[10\]/);
+    await expect(page.getByTestId('preset-editor-dialog')).not.toContainText('Silent');
+    await page.getByTestId('preset-editor-page-tab-notes').click();
+    await expect(page.getByTestId('preset-editor-extruder-switch')).toHaveCount(0);
+    await page.getByTestId('preset-editor-page-tab-extruder').click();
+    await expect(page.getByTestId('preset-editor-flow-3')).toContainText('HF');
+    await page.getByTestId('preset-editor-flow-3').click();
+    await page.getByRole('option', { name: 'SF', exact: true }).click();
+    await expect(retraction).toHaveValue('1.24');
+    await page.getByTestId('preset-editor-reset-field-retraction_length').click();
+    await expect(retraction).toHaveValue(sfRetraction);
+    await page.screenshot({ path: resolve(DESKTOP_ROOT, '../../.vitest/extruder-step3-printer.png') });
     const minimum = page.getByTestId('preset-editor-input-min_layer_height');
     await minimum.fill('0.15'); await minimum.press('Enter');
     await expect(minimum).toHaveValue('0.15');
-    await expect(page.getByTestId('preset-editor-page-tab-extruder-3')).toHaveAttribute('data-draft-override-highlight', 'true');
-    await expect(page.getByTestId('preset-editor-page-tab-extruder-1')).toHaveAttribute('data-draft-override-highlight', 'false');
-    await page.getByTestId('preset-editor-page-tab-extruder-1').click();
+    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'true');
+    await page.getByTestId('preset-editor-extruder-1').click();
+    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'false');
     await minimum.fill('0.1'); await minimum.press('Enter');
     await expect(minimum).toHaveValue('0.1');
-    await page.getByTestId('preset-editor-page-tab-extruder-3').click();
-    await page.getByTestId('preset-editor-reset-category-extruder-3').click();
+    await page.getByTestId('preset-editor-extruder-3').click();
+    await page.getByTestId('preset-editor-reset-category-extruder').click();
     await expect(minimum).toHaveValue('0.12');
-    await expect(page.getByTestId('preset-editor-reset-category-extruder-3')).toBeDisabled();
+    await expect(page.getByTestId('preset-editor-reset-category-extruder')).toBeDisabled();
     await expect(page.getByTestId('preset-editor-reset-field-min_layer_height')).toHaveCount(0);
-    await expect(page.getByTestId('preset-editor-page-tab-extruder-3')).toHaveAttribute('data-draft-override-highlight', 'false');
-    await expect(page.getByTestId('preset-editor-page-tab-extruder-1')).toHaveAttribute('data-draft-override-highlight', 'true');
-    await page.getByTestId('preset-editor-page-tab-extruder-1').click();
+    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'false');
+    await page.getByTestId('preset-editor-extruder-1').click();
+    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'true');
     await expect(minimum).toHaveValue('0.1');
-    await page.getByTestId('preset-editor-reset-category-extruder-1').click();
+    await page.getByTestId('preset-editor-reset-category-extruder').click();
     await expect(minimum).toHaveValue('0.08');
     for (const index of [3, 4]) {
-      await page.getByTestId(`preset-editor-page-tab-extruder-${index}`).click();
+      await page.getByTestId(`preset-editor-extruder-${index}`).click();
       const diameter = page.getByTestId('preset-editor-input-nozzle_diameter');
       await expect(diameter).toHaveValue('0.6');
       await diameter.fill('0.4'); await diameter.press('Enter');
@@ -236,11 +294,11 @@ test('U1 Extruder pages edit their own native index and follow canonical diamete
         pending: await diameter.isDisabled(),
       }), { timeout: 15_000 }).toEqual({ effective: '0.4', errors: [], pending: false });
     }
-    await expect(page.getByTestId('preset-editor-title')).toHaveText('Snapmaker U1 (0.4 nozzle)');
+    await expect(page.getByTestId('preset-editor-title')).toHaveText('Snapmaker U1 (0.4+0.6 nozzle)');
     await minimum.fill('0.1'); await minimum.press('Enter');
     await expect(minimum).toHaveValue('0.1');
     await page.getByTestId('preset-editor-close').click();
-    await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4');
+    await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4+0.6');
   } finally { await app.close(); }
 });
 
@@ -275,20 +333,22 @@ test('Multi diameter writes matching Source stay highlighted and resettable in t
       await page.getByTestId('printer-tab-device').click();
       await expect(marker).toHaveCount(1);
       await page.getByTestId('preset-edit-printer').click();
-      await page.getByTestId('preset-editor-page-tab-extruder-3').click();
+      await page.getByTestId('preset-editor-page-tab-extruder').click();
+      await page.getByTestId('preset-editor-extruder-3').click();
       await expect(page.getByTestId('preset-editor-project-draft')).toHaveText('Project draft');
       await expect(page.getByTestId('preset-editor-input-nozzle_diameter')).toHaveValue('0.6');
       await expect(page.getByTestId('preset-editor-option-label-nozzle_diameter')).toHaveAttribute('data-draft-override-highlight', 'true');
-      await page.getByTestId(action === 'field' ? 'preset-editor-reset-field-nozzle_diameter' : 'preset-editor-reset-category-extruder-3').click();
+      await page.getByTestId(action === 'field' ? 'preset-editor-reset-field-nozzle_diameter' : 'preset-editor-reset-category-extruder').click();
       await expect(page.getByTestId('preset-editor-project-draft')).toHaveCount(0);
       await expect(page.getByTestId('preset-editor-option-label-nozzle_diameter')).toHaveAttribute('data-draft-override-highlight', 'false');
-      await expect(page.getByTestId('preset-editor-reset-category-extruder-3')).toBeDisabled();
+      await expect(page.getByTestId('preset-editor-reset-category-extruder')).toBeDisabled();
       await page.getByTestId('preset-editor-close').click();
       await expect(marker).toHaveCount(0);
       await page.getByTestId('history-undo').click();
       await expect(marker).toHaveCount(1);
       await page.getByTestId('preset-edit-printer').click();
-      await page.getByTestId('preset-editor-page-tab-extruder-3').click();
+      await page.getByTestId('preset-editor-page-tab-extruder').click();
+      await page.getByTestId('preset-editor-extruder-3').click();
       await expect(page.getByTestId('preset-editor-input-nozzle_diameter')).toHaveValue('0.6');
       await expect(page.getByTestId('preset-editor-reset-field-nozzle_diameter')).toBeEnabled();
       await page.getByTestId('preset-editor-close').click();
