@@ -7,7 +7,7 @@ export const APP_TABS = ['home', 'prepare', 'preview', 'device'] as const;
 /** Top-level application page used by the shared menu policy. */
 export type AppTab = (typeof APP_TABS)[number];
 
-export type MenuCommandId =
+export type StaticMenuCommandId =
   | 'new-project'
   | 'open-project'
   | 'save-project'
@@ -23,10 +23,29 @@ export type MenuCommandId =
   | 'open-configuration-folder'
   | 'open-file-manager';
 
+export type RecentProjectMenuCommandId = `open-recent:${string}`;
+export type MenuCommandId = StaticMenuCommandId | RecentProjectMenuCommandId;
+
+export function recentProjectMenuCommand(id: string): RecentProjectMenuCommandId {
+  return `open-recent:${encodeURIComponent(id)}`;
+}
+
+export function isRecentProjectMenuCommand(value: unknown): value is RecentProjectMenuCommandId {
+  if (typeof value !== 'string' || !value.startsWith('open-recent:') || value.length > 256) return false;
+  const encoded = value.slice('open-recent:'.length);
+  try { return encoded.length > 0 && encodeURIComponent(decodeURIComponent(encoded)) === encoded; }
+  catch { return false; }
+}
+
+export function recentProjectIdFromMenuCommand(command: RecentProjectMenuCommandId): string {
+  return decodeURIComponent(command.slice('open-recent:'.length));
+}
+
 export interface MenuItem {
   /** Stable identifier for rendering and automated tests. */
   testId: string;
   label: string;
+  /** A leaf without a command is a disabled informational item. */
   command?: MenuCommandId;
   separator?: boolean;
   submenu?: readonly MenuItem[];
@@ -38,7 +57,7 @@ export interface MenuGroup {
   items: readonly MenuItem[];
 }
 
-/** The complete static menu replacement sent to a host. */
+/** The complete menu replacement sent to a host, including recent entries. */
 export interface MenuModel {
   version: 1;
   menuMode: TitlebarMenuMode;
@@ -53,8 +72,9 @@ export interface MenuItemState {
   checked?: boolean;
 }
 
-/** Complete per-command state table synchronized to every host surface. */
-export type MenuItemStates = Readonly<Record<MenuCommandId, MenuItemState>>;
+/** Complete fixed-command state table plus the current recent-entry states. */
+export type MenuItemStates = Readonly<Record<StaticMenuCommandId, MenuItemState>
+  & Partial<Record<RecentProjectMenuCommandId, MenuItemState>>>;
 
 /** Snapshot fields owned by the shared selector before item states are derived. */
 export type MenuStateSnapshotInput = Omit<MenuStateSnapshot, 'items'>;

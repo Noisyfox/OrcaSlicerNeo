@@ -9,6 +9,12 @@ test('Web Home opens a local project but keeps recent history empty after return
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await expect(page.getByTestId('home-recent-empty')).toBeVisible();
+  await page.getByTestId('titlebar-menu-trigger').click();
+  await page.getByTestId('menu-file-trigger').press('ArrowRight');
+  await expect(page.getByTestId('file-recent-projects')).toBeVisible();
+  await page.getByTestId('file-recent-projects').press('ArrowRight');
+  await expect(page.getByTestId('file-recent-empty')).toBeDisabled();
+  await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
   await page.screenshot({ path: testInfo.outputPath('home.png') });
   await page.getByTestId('home-new-project').click();
   await expect(page.locator('#app-panel-workspace')).toHaveAttribute('aria-hidden', 'false');

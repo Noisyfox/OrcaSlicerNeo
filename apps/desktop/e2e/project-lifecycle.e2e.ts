@@ -386,6 +386,59 @@ test('Home opens and creates projects, persists Orca recent history and manages 
 });
 
 
+test('File recent projects opens the selected entry and follows Home removal and clearing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-file-recent-'));
+  const first = join(dir, 'first.3mf'), second = join(dir, 'second.3mf');
+  copyFileSync(MODEL_PATH, first); copyFileSync(MODEL_PATH, second);
+  writeFileSync(join(dir, 'OrcaSlicerNeo.conf'), JSON.stringify({ recent_projects: { '001': first, '002': second } }));
+  const { app } = await launchProjectApp(dir);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('home-recent-list').locator('li')).toHaveCount(2, { timeout: 30_000 });
+    const entries = await page.evaluate(() => (window as unknown as {
+      orca: { recentProjects: { list(): Promise<Array<{ id: string; displayName: string }>> } };
+    }).orca.recentProjects.list());
+    const id = `file-recent-${entries.find(entry => entry.displayName === 'second.3mf')!.id}`;
+    const openMenu = async () => {
+      await page.getByTestId('titlebar-menu-trigger').click();
+      await page.getByTestId('menu-file-trigger').press('ArrowRight');
+      await expect(page.getByTestId('file-recent-projects')).toBeVisible();
+      await page.getByTestId('file-recent-projects').press('ArrowRight');
+    };
+    if (process.platform === 'darwin') {
+      await expect.poll(() => app.evaluate(({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled, id)).toBe(true);
+      await app.evaluate(({ Menu }, id) => Menu.getApplicationMenu()!.getMenuItemById(id)!.click(), id);
+    } else {
+      await openMenu();
+      await expect(page.getByTestId(id)).toHaveText('second.3mf');
+      await page.getByTestId(id).click();
+    }
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('second');
+    await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
+    await page.locator('#app-tab-home').click();
+    await page.getByRole('button', { name: 'Open second.3mf', exact: true }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Remove from recent' }).click();
+    await expect(page.getByTestId('home-recent-list').locator('li')).toHaveCount(1);
+    if (process.platform === 'darwin') {
+      await expect.poll(() => app.evaluate(({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id) == null, id)).toBe(true);
+    } else {
+      await openMenu();
+      await expect(page.getByTestId(id)).toHaveCount(0);
+      await expect(page.getByTestId(`file-recent-${entries.find(entry => entry.displayName === 'first.3mf')!.id}`)).toHaveText('first.3mf');
+      await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+    }
+    await page.getByTestId('home-clear-recent').click();
+    await expect(page.getByTestId('home-recent-empty')).toBeVisible();
+    if (process.platform === 'darwin') {
+      await expect.poll(() => app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('file-recent-empty')?.enabled)).toBe(false);
+    } else {
+      await openMenu();
+      await expect(page.getByTestId('file-recent-empty')).toBeDisabled();
+    }
+    expect(existsSync(first)).toBe(true); expect(existsSync(second)).toBe(true);
+  } finally { await app.close(); }
+});
+
 test('Home displays an embedded Orca 3MF thumbnail and retains it after restart', async ({}, testInfo) => {
   const source = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/project-compatibility/orca-upstream-flowrate.3mf');
   const first = await launchProjectApp(undefined, source);

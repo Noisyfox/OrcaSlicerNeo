@@ -1,5 +1,6 @@
 import {
   APP_TABS,
+  isRecentProjectMenuCommand,
   type MenuCommandId,
   type MenuItem,
   type MenuModel,
@@ -135,7 +136,9 @@ function cloneMenuItem(value: unknown, depth: number, seen: Set<MenuCommandId>):
   }
   if (command !== undefined && (!isMenuCommandId(command) || seen.has(command))) return null;
   if (submenu !== undefined && (!Array.isArray(submenu) || submenu.length > MAX_MENU_ITEMS || command !== undefined)) return null;
-  if (command === undefined && submenu === undefined) return null;
+  if (command === undefined && submenu === undefined) {
+    return value.label ? { testId: value.testId, label: value.label } : null;
+  }
 
   if (submenu !== undefined) {
     const children: MenuItem[] = [];
@@ -188,8 +191,12 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
   const rawItems = value.items;
 
   const items = {} as Record<MenuCommandId, { enabled: boolean; checked?: boolean }>;
-  if (Object.keys(rawItems).length !== MENU_STATE_COMMANDS.length) return null;
-  for (const command of MENU_STATE_COMMANDS) {
+  const commands = Object.keys(rawItems);
+  if (commands.length < MENU_STATE_COMMANDS.length || commands.length > MENU_STATE_COMMANDS.length + 18) return null;
+  if (!MENU_STATE_COMMANDS.every(command => Object.hasOwn(rawItems, command))) return null;
+  for (const key of commands) {
+    if (!(MENU_STATE_COMMANDS as readonly string[]).includes(key) && !isRecentProjectMenuCommand(key)) return null;
+    const command = key as MenuCommandId;
     const item = rawItems[command];
     if (!isRecord(item) || typeof item.enabled !== 'boolean' || (item.checked !== undefined && typeof item.checked !== 'boolean')) return null;
     items[command] = item.checked === undefined
@@ -246,10 +253,12 @@ function templateForItem(
   if (item.separator) return { type: 'separator' };
   if (item.submenu) {
     return {
+      id: item.testId,
       label: item.label,
       submenu: item.submenu.map((child) => templateForItem(child, state, onCommand, getCurrentState)),
     };
   }
+  if (!item.command) return { id: item.testId, label: item.label, enabled: false };
   const command = item.command!;
   const itemState = getCurrentState().items[command];
   return {

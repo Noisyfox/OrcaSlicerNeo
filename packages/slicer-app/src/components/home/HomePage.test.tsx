@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NO_RECENT_PROJECTS, PlatformProvider, type PlatformCapabilities, type RecentProjectsCapability } from '@orca/platform-contract';
 import { HomePage } from './HomePage';
+import { useRecentProjects } from '@/recentProjects';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let dispose = () => {};
@@ -14,7 +15,12 @@ async function render(recentProjects: RecentProjectsCapability = NO_RECENT_PROJE
   const onOpen = vi.fn(async () => {}), onCreate = vi.fn(async () => {}), onOpenRecent = vi.fn(async (_id: string) => {});
   const props = { active: true, canOpen: true, canCreate: true, onOpen, onCreate, onOpenRecent };
   const platform = { recentProjects } as PlatformCapabilities;
-  const update = async (next = {}) => { await act(async () => root.render(<PlatformProvider value={platform}><HomePage {...props} {...next} /></PlatformProvider>)); };
+  function TestHome(next: Partial<typeof props>) {
+    const values = { ...props, ...next };
+    const history = useRecentProjects(values.active ? 'home' : 'prepare');
+    return <HomePage {...values} history={history} />;
+  }
+  const update = async (next = {}) => { await act(async () => root.render(<PlatformProvider value={platform}><TestHome {...next} /></PlatformProvider>)); };
   await update();
   dispose = () => { act(() => root.unmount()); container.remove(); };
   return { container, onOpen, onCreate, onOpenRecent, update };

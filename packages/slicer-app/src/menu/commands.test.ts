@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MenuStateSnapshot, PlatformCapabilities } from '@orca/platform-contract';
 import { createCommandDispatcher, registerNativeMenuCommands, type CommandActions } from './commands';
+import { recentProjectMenuCommand } from '@orca/platform-contract';
 
 function snapshot(enabled: Partial<Record<keyof MenuStateSnapshot['items'], boolean>> = {}): MenuStateSnapshot {
   const state = (command: keyof MenuStateSnapshot['items']) => ({
@@ -48,6 +49,19 @@ function actions(): CommandActions {
 }
 
 describe('shared menu command dispatcher', () => {
+  it('opens the opaque recent id and rejects removed or disabled recent commands', async () => {
+    const command = recentProjectMenuCommand('opaque / unicode 模型');
+    const openRecentProject = vi.fn(async (_id: string) => {});
+    let current: MenuStateSnapshot = { ...snapshot(), items: { ...snapshot().items, [command]: { enabled: true } } };
+    const dispatcher = createCommandDispatcher({ getSnapshot: () => current, actions: { ...actions(), openRecentProject } });
+    await expect(dispatcher.dispatch(command)).resolves.toBe(true);
+    expect(openRecentProject).toHaveBeenCalledWith('opaque / unicode 模型');
+    current = snapshot();
+    await expect(dispatcher.dispatch(command)).resolves.toBe(false);
+    current = { ...current, items: { ...current.items, [command]: { enabled: false } } };
+    await expect(dispatcher.dispatch(command)).resolves.toBe(false);
+    expect(openRecentProject).toHaveBeenCalledOnce();
+  });
   it('rejects disabled and startup/slicing commands before invoking actions', async () => {
     const calls = actions();
     let current = snapshot({ 'add-model': false, slice: false });

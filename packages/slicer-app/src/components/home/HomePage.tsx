@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Box, FilePlus2, FolderOpen, FolderSearch, History, MoreHorizontal, Trash2 } from 'lucide-react';
 import { usePlatform, type RecentProject } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
+import type { RecentProjectsHistory } from '@/recentProjects';
 
 interface HomePageProps {
   active: boolean;
   canOpen: boolean;
   canCreate: boolean;
+  history: RecentProjectsHistory;
   onOpen(): Promise<unknown>;
   onCreate(): Promise<unknown>;
   onOpenRecent(id: string): Promise<unknown>;
@@ -50,29 +52,12 @@ function RecentProjectMenuItems({ context = false, disabled, missing, onReveal, 
   </>;
 }
 
-export function HomePage({ active, canOpen, canCreate, onOpen, onCreate, onOpenRecent }: HomePageProps) {
+export function HomePage({ active, canOpen, canCreate, history, onOpen, onCreate, onOpenRecent }: HomePageProps) {
   const { recentProjects } = usePlatform();
-  const [projects, setProjects] = useState<RecentProject[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { projects, loading, error: historyError, refresh } = history;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
-  const refreshSequence = useRef(0);
-  const refresh = useCallback(async () => {
-    const sequence = ++refreshSequence.current;
-    try {
-      const next = await recentProjects.list();
-      if (sequence === refreshSequence.current) { setProjects(next); setError(null); }
-    } catch { if (sequence === refreshSequence.current) setError('Recent projects could not be loaded.'); }
-    finally { if (sequence === refreshSequence.current) setLoading(false); }
-  }, [recentProjects]);
-  useEffect(() => {
-    if (!active) return;
-    void refresh();
-    const onFocus = () => { void refresh(); };
-    window.addEventListener('focus', onFocus);
-    return () => { ++refreshSequence.current; window.removeEventListener('focus', onFocus); };
-  }, [active, refresh]);
 
   const run = async (action: () => Promise<unknown>, failure: string) => {
     if (inFlight.current) return;
@@ -105,7 +90,7 @@ export function HomePage({ active, canOpen, canCreate, onOpen, onCreate, onOpenR
             {projects.length > 0 && <Button variant="outline" disabled={disabled} data-testid="home-clear-recent"
               onClick={() => void run(() => recentProjects.clear(), 'Recent projects could not be cleared.')}><Trash2 />Clear all</Button>}
           </div>
-          {error && <p role="alert" className="mb-4 text-sm text-destructive">{error}</p>}
+          {(error || historyError) && <p role="alert" className="mb-4 text-sm text-destructive">{error || historyError}</p>}
           {loading ? <p role="status" className="text-sm text-muted-foreground">Loading recent projects…</p>
             : projects.length === 0 ? <div data-testid="home-recent-empty" className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border text-muted-foreground">
               <History className="size-10 opacity-50" />

@@ -6,6 +6,7 @@
 // ----------------------------------------------------------------
 
 import type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
+import { isRecentProjectMenuCommand } from '../../../../packages/platform-contract/src/menu';
 import type { PrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
 import type { PrinterTransportBody } from '../../../../packages/printer-control/src/transport';
 
@@ -65,7 +66,7 @@ export const MENU_COMMAND_IDS = [
 ] as const satisfies readonly MenuCommandId[];
 
 export function isMenuCommandId(value: unknown): value is MenuCommandId {
-  return typeof value === 'string' && (MENU_COMMAND_IDS as readonly string[]).includes(value);
+  return typeof value === 'string' && ((MENU_COMMAND_IDS as readonly string[]).includes(value) || isRecentProjectMenuCommand(value));
 }
 
 export type HostCommandId = 'quit' | 'open-configuration-folder';

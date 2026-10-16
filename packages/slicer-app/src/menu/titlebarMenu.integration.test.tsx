@@ -46,7 +46,7 @@ function items(chrome: PlatformChrome, raw = input()) {
 }
 
 function enabled(state: ReturnType<typeof buildMenuStateSnapshot>, command: MenuCommandId) {
-  return state.items[command].enabled;
+  return state.items[command]?.enabled ?? false;
 }
 
 describe('shared titlebar menu integration projection', () => {

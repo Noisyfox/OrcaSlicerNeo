@@ -77,6 +77,11 @@ describe('Electron preload bridge', () => {
     handler({}, 'arbitrary-channel');
     expect(listener).toHaveBeenCalledWith('quit');
     expect(listener).toHaveBeenCalledOnce();
+    handler({}, 'open-recent:opaque-id');
+    handler({}, 'open-recent:');
+    handler({}, 'open-recent:%ZZ');
+    expect(listener).toHaveBeenLastCalledWith('open-recent:opaque-id');
+    expect(listener).toHaveBeenCalledTimes(2);
 
     cleanup();
     expect(electronMocks.removeListener).toHaveBeenCalledWith(Ipc.nativeMenuCommand, handler);
