@@ -131,7 +131,7 @@ export function verifyNativeProjectArchive(input) {
   // A project may carry small slice_info bookkeeping, but never embeds the
   // derived per-plate G-code, preview, or thumbnail payloads.
   const derivedArtifacts = entries.map((entry) => entry.name).filter((name) =>
-    /(?:gcode|preview|thumbnail|\.png$)/i.test(name));
+    /^Metadata\//i.test(name) && /(?:gcode|preview|thumbnail|\.png$)/i.test(name));
   return { plates, derivedArtifacts, entryNames: entries.map((entry) => entry.name) };
 }
 

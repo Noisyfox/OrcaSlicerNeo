@@ -6,6 +6,7 @@
 #include "libslic3r/GCode/Thumbnails.hpp"
 
 #include <algorithm>
+#include <boost/algorithm/string/predicate.hpp>
 #include <atomic>
 #include <cctype>
 #include <cmath>
@@ -118,6 +119,7 @@ json close_project_session()
 
     bridge_state.painting.reset();
     bridge_state.model = Model{};
+    bridge_state.project_auxiliaries.reset();
     bridge_state.pending_membership_instance_ids.clear();
     bridge_state.presets.reset_project_embedded_presets();
     Neo::Bridge::UserPresets::reset_session();
@@ -788,6 +790,35 @@ void remove_project_temp_path(const std::string& path)
     std::remove((path + ".tmp").c_str());
 }
 
+// Retain compressed entries, including zero-byte files and directory records.
+// Never unpack opaque attachments into the Model's temporary directory.
+std::unique_ptr<BridgeState::ProjectAuxiliaries> stage_project_auxiliaries(const std::string& source)
+{
+    auto result = std::make_unique<BridgeState::ProjectAuxiliaries>();
+    result->path = next_project_temp_path(".aux.zip");
+    Slic3r::MZ_Archive reader, writer;
+    if (!Slic3r::open_zip_reader(&reader.arch, source))
+        throw Slic3r::RuntimeError("Cannot read project attachments");
+    struct ReaderCloser { mz_zip_archive& archive; ~ReaderCloser() { Slic3r::close_zip_reader(&archive); } } rc{reader.arch};
+    if (!Slic3r::open_zip_writer(&writer.arch, result->path))
+        throw Slic3r::RuntimeError("Cannot stage project attachments");
+    struct WriterCloser { mz_zip_archive& archive; ~WriterCloser() { Slic3r::close_zip_writer(&archive); } } wc{writer.arch};
+    for (mz_uint i = 0; i < mz_zip_reader_get_num_files(&reader.arch); ++i) {
+        mz_zip_archive_file_stat stat;
+        if (!mz_zip_reader_file_stat(&reader.arch, i, &stat))
+            throw Slic3r::RuntimeError("Cannot read project attachment entry");
+        const std::string name = Slic3r::decode_archive_entry_path(&reader.arch, stat);
+        if (boost::algorithm::istarts_with(name, "Auxiliaries/") ||
+            name == "[Content_Types].xml" || name == "_rels/.rels") {
+            if (!mz_zip_writer_add_from_zip_reader(&writer.arch, &reader.arch, i))
+                throw Slic3r::RuntimeError("Cannot retain project attachment: " + name);
+        }
+    }
+    if (!mz_zip_writer_finalize_archive(&writer.arch))
+        throw Slic3r::RuntimeError("Cannot finalize project attachments");
+    return result;
+}
+
 struct ProjectPresetWarningDetails {
     bool modified_printer_gcode = false;
     bool modified_filament_gcode = false;
@@ -924,6 +955,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 }
             }
         }
+        auto auxiliary_candidate = geometry_only ? nullptr : stage_project_auxiliaries(path);
         publish_slicer_progress(20, "Loading project model");
 
         DynamicPrintConfig imported_config;
@@ -938,7 +970,7 @@ static const char* orc_load_project_impl(const char* data, int len,
         // candidate for both modes, then discard config/preset state for the
         // geometry-only commit below.
         const LoadStrategy strategy = LoadStrategy::LoadModel | LoadStrategy::LoadConfig |
-                                       LoadStrategy::LoadAuxiliary | LoadStrategy::AddDefaultInstances;
+                                       LoadStrategy::AddDefaultInstances;
         const bool loaded = load_bbs_3mf(load_path.c_str(), &imported_config, &substitutions,
                                           &imported, &plate_data, &project_presets,
                                           &is_bbl_3mf, &is_orca_3mf, &file_version,
@@ -1210,6 +1242,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                     state().inject_project_commit_failure = false;
                     throw Slic3r::RuntimeError("injected project commit failure after publication");
                 }
+                state().project_auxiliaries = std::move(auxiliary_candidate);
                 committed = true;
             } catch (...) {
                 state().inject_project_commit_failure = false;
@@ -1422,6 +1455,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         StoreParams params;
         params.path = path;
         params.model = &state().model;
+        if (state().project_auxiliaries) params.auxiliary_archive = state().project_auxiliaries->path;
         params.plate_data_list = plates;
         // The edited Print preset is a separate native copy.  Mirror it into
         // the selected project-embedded record immediately before the

@@ -74,6 +74,30 @@
   paths as display metadata for the File menu. Shared preferences do not store
   paths, and shared code cannot use display paths to access files.
 
+## Imported project attachments
+
+Project open retains every `Auxiliaries/` ZIP entry, including zero-byte files,
+Unicode names, nested and empty directories, unknown file types and custom
+covers in `.thumbnails`. Save and Save As preserve attachment paths and
+uncompressed bytes exactly; ZIP container bytes need not be identical. Relevant
+package content types and internal root relationships are retained, including
+the standard thumbnail and Bambu small/middle cover relationships. Generated
+model/configuration entries are never copied from the old archive.
+
+Compressed attachments have a Worker-owned project-session lifetime independent
+of `Model`, its backup directory and history roots. Editing and Undo/Redo retain
+this owner; geometry-only import neither replaces it nor imports source
+attachments. New Project and replacement project load release it. Failed loads
+follow the existing close-first lifecycle and cannot retain the prior project's
+attachments. Attachment staging or writing failures fail the operation rather
+than silently dropping files. No attachment editor is introduced.
+
+The real-WASM regression entry point is
+`node packages/slicer-wasm/harness/project-auxiliaries-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
+It compares paths and SHA-256 hashes after immediate save, edit, Undo, Redo and
+reopen, and verifies custom covers, content types, geometry-only import and
+project replacement/failure. The same harness accepts the threaded artifact.
+
 ## Project identity and unsaved changes
 
 - An opened project uses its source-file base name as its project name. A new

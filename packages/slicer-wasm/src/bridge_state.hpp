@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdio>
 #include <cstdint>
 #include <map>
 #include <limits>
@@ -57,6 +58,13 @@ struct BridgeState {
     // counter makes every accepted draft command an observable history root,
     // including a reset that leaves an already-empty overlay unchanged.
     std::uint64_t preset_draft_revision = 0;
+    // Immutable imported archive assets belong to the project, not Model copies
+    // or history roots. Geometry-only imports never acquire this owner.
+    struct ProjectAuxiliaries {
+        std::string path;
+        ~ProjectAuxiliaries() { if (!path.empty()) std::remove(path.c_str()); }
+    };
+    std::unique_ptr<ProjectAuxiliaries> project_auxiliaries;
     Model       model;
     Painting::Sessions painting;
     std::uint64_t painting_derived_version = 0;
