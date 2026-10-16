@@ -332,7 +332,7 @@ test('Home opens and creates projects, persists Orca recent history and manages 
     await expect(page.getByTestId('home-recent-list')).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('home.png') });
     await page.getByRole('button', { name: 'Actions for picked-project.3mf', exact: true }).click();
-    const labels = await page.getByRole('menuitem').allTextContents();
+    const labels = await page.locator('[data-slot="dropdown-menu-content"]').getByRole('menuitem').allTextContents();
     expect(labels).toEqual(['Show in folder', 'Remove from recent']);
     await expect(page.getByRole('menuitem', { name: 'Remove from recent' })).toHaveAttribute('data-variant', 'destructive');
     await page.keyboard.press('Escape');
@@ -341,7 +341,7 @@ test('Home opens and creates projects, persists Orca recent history and manages 
     // The preview, filename/footer, and outer edge all own the same menu.
     for (const position of [{ x: 90, y: 90 }, { x: 30, y: 215 }, { x: 182, y: 128 }]) {
       await card.click({ button: 'right', position });
-      await expect(page.getByRole('menuitem')).toHaveText(labels);
+      await expect(page.locator('[data-slot="context-menu-content"]').getByRole('menuitem')).toHaveText(labels);
       await expect(page.getByRole('menuitem', { name: 'Remove from recent' })).toHaveAttribute('data-variant', 'destructive');
       await expect(page.getByTestId('home-page')).toBeVisible();
       if (position.x === 90) {
@@ -421,6 +421,7 @@ test('held thumbnails do not block progressive cards, project open/save or recen
   type HeldRequests = { requests: Array<{ id: string; resolve(url: string | null): void }> };
   try {
     const page = await app.firstWindow();
+    await expect(page.getByTestId('home-open-project')).toBeEnabled({ timeout: 30_000 });
     await app.evaluate(({ ipcMain }) => {
       const state: HeldRequests = { requests: [] };
       (globalThis as unknown as { heldThumbnails: HeldRequests }).heldThumbnails = state;
