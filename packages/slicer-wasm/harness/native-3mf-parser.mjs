@@ -129,9 +129,9 @@ export function verifyNativeProjectArchive(input) {
   const plates = parseNativePlates(xml);
   if (plates.length === 0) throw new Error('native project has no plate records');
   // A project may carry small slice_info bookkeeping, but never embeds the
-  // derived per-plate G-code, preview, or thumbnail payloads.
+  // derived G-code/Preview payloads; ordinary saved plate PNGs are permitted.
   const derivedArtifacts = entries.map((entry) => entry.name).filter((name) =>
-    /^Metadata\//i.test(name) && /(?:gcode|preview|thumbnail|\.png$)/i.test(name));
+    /^Metadata\//i.test(name) && !/^Metadata\/plate_\d+(?:_small)?\.png$/.test(name) && /(?:gcode|preview|thumbnail|\.png$)/i.test(name));
   return { plates, derivedArtifacts, entryNames: entries.map((entry) => entry.name) };
 }
 

@@ -201,7 +201,7 @@ assert.equal(ok(call('orc_get_preset_snapshot')).project_config.layer_height, '0
 
 // Only ordinary Orca embedded profiles cross the 3MF boundary.
 ok(call('orc_add_shape', ['Cube', 'local preset roundtrip']));
-const exported = ok(call('orc_export_project'));
+const exported = ok(call('orc_export_project', ['string'], ['{}']));
 const bytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + exported.bytes_length);
 Module._free(Number(exported.bytes_ptr));
 for (const entry of readZipEntries(bytes).filter(entry => /Metadata\/.+\.(config|json)$/.test(entry.name)))

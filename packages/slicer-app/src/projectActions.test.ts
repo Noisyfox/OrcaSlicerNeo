@@ -1,3 +1,6 @@
+import { captureProjectThumbnails } from './components/workspace/projectThumbnails';
+import { cancelProjectOperation } from './projectActions';
+vi.mock('@/components/workspace/projectThumbnails', () => ({ captureProjectThumbnails: vi.fn(async () => ({ expectedRevision: 1, thumbnails: [] })) }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NO_RECENT_PROJECTS } from '@orca/platform-contract';
 import type { PlatformCapabilities, ProjectInput, UserPreferences } from '@orca/platform-contract';
@@ -464,6 +467,20 @@ describe('transactional project actions', () => {
     expect(useProjectStore.getState()).toMatchObject({ hasContent: true, dirty: false, projectFileName: 'Robot.3mf' });
     expect((await saveProjectAs(platform)).status).toBe('ok');
     expect(projects.saveAs).toHaveBeenCalled();
+  });
+
+  it.each(['failure', 'cancel'])('keeps dirty state and avoids host writes after thumbnail %s', async (mode) => {
+    const { platform, runtime, projects } = platformFor();
+    useProjectStore.setState({ hasContent: true, dirty: true });
+    vi.mocked(captureProjectThumbnails).mockImplementationOnce(async (_runtime, signal) => {
+      if (mode === 'cancel') { await cancelProjectOperation(platform); signal.throwIfAborted(); }
+      throw new Error('thumbnail failed');
+    });
+    expect((await saveProject(platform)).status).toBe(mode === 'cancel' ? 'cancelled' : 'failed');
+    expect(runtime.exportProject).not.toHaveBeenCalled();
+    expect(projects.save).not.toHaveBeenCalled();
+    expect(runtime.markHistorySaved).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().dirty).toBe(true);
   });
 
   it('cancelled saving of a parameter-only project retains its unsaved changes', async () => {

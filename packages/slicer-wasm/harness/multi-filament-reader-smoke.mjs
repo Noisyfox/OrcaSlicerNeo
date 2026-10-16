@@ -108,7 +108,7 @@ for (const [name, maps, expected] of [
 
   // Check persisted state too: projection-only padding would leave short maps
   // in the project, especially nozzle maps whose snapshot fallback is 1.
-  const exported = callJson('orc_export_project');
+  const exported = callJson('orc_export_project', ['string'], ['{}']);
   assert.equal(exported.ok, true, `${name}: ${JSON.stringify(exported)}`);
   const savedBytes = Module.HEAPU8.slice(Number(exported.bytes_ptr),
     Number(exported.bytes_ptr) + Number(exported.bytes_length));

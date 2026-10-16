@@ -111,7 +111,7 @@ async function generateFixture(Module) {
   check('fixture generation second plate', plate.ok === true && plate.plates?.length === 2);
   const second = callJson(Module, 'orc_add_shape', ['string', 'string'], ['Cube', 'Second Plate Cube']);
   check('fixture generation second model', second.ok === true && second.objects === 2);
-  const exported = callJson(Module, 'orc_export_project');
+  const exported = callJson(Module, 'orc_export_project', ['string'], ['{}']);
   if (!exported.ok) throw new Error(`fixture generation export failed: ${JSON.stringify(exported)}`);
   const bytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length));
   Module._free(Number(exported.bytes_ptr));
@@ -197,7 +197,7 @@ if (!Module || !nativeFixture || !checkFixture(fixtureBytes)) {
     check(`canonical comparison detects controlled ${label} difference`, !equalCanonical(actual, changed));
   }
 
-  const exported = callJson(Module, 'orc_export_project');
+  const exported = callJson(Module, 'orc_export_project', ['string'], ['{}']);
   const output = exported.ok ? Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length)) : new Uint8Array();
   if (exported.ok) Module._free(Number(exported.bytes_ptr));
   check('Neo output omits all Neo-private project metadata',

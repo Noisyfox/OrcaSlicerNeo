@@ -6,6 +6,7 @@
 #include "libslic3r/GCode/Thumbnails.hpp"
 
 #include <algorithm>
+#include <emscripten/heap.h>
 #include <boost/algorithm/string/predicate.hpp>
 #include <atomic>
 #include <cctype>
@@ -1409,11 +1410,36 @@ EMSCRIPTEN_KEEPALIVE const char* orc_import_project_geometry(const char* data, i
 // selection and layout state is reconstructed when the project is opened.
 // Export the complete active multi-plate project. The resulting archive is
 // native Orca-readable and contains no derived g-code/preview artifacts.
-EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
+EMSCRIPTEN_KEEPALIVE const char* orc_export_project(const char* request_json) {
     const std::string path = next_project_temp_path(".3mf");
     try {
         ensure_plate_session_state();
         rebuild_plate_membership(false);
+        const json request = request_json ? json::parse(request_json) : json::object();
+        std::map<std::string, ThumbnailData> thumbnails;
+        if (request.contains("thumbnails")) {
+            if (!request.at("expected_revision").is_number_unsigned() ||
+                request.at("expected_revision").get<std::uint64_t>() != state().history_revision)
+                throw Slic3r::RuntimeError("Project thumbnails are stale");
+            const auto& images = request.at("thumbnails");
+            if (!images.is_array() || images.size() != state().plate_session_plates.size())
+                throw Slic3r::RuntimeError("Project thumbnails must cover every plate");
+            for (const auto& image : images) {
+                const auto id = image.at("plate_id").get<std::string>();
+                const auto pointer = image.at("pixels_ptr").get<std::uint64_t>();
+                constexpr size_t length = 512 * 512 * 4;
+                if (image.at("width") != 512 || image.at("height") != 512 ||
+                    image.at("pixels_length") != length || !pointer ||
+                    pointer > emscripten_get_heap_size() || length > emscripten_get_heap_size() - pointer ||
+                    thumbnails.count(id) || std::none_of(state().plate_session_plates.begin(), state().plate_session_plates.end(),
+                        [&](const auto& plate) { return plate.id == id; }))
+                    throw Slic3r::RuntimeError("Invalid project plate thumbnail");
+                auto& thumbnail = thumbnails[id];
+                thumbnail.width = thumbnail.height = 512;
+                const auto* bytes = reinterpret_cast<const unsigned char*>(static_cast<uintptr_t>(pointer));
+                thumbnail.pixels.assign(bytes, bytes + length);
+            }
+        }
         std::vector<std::unique_ptr<PlateData>> owned;
         PlateDataPtrs plates;
         owned.reserve(state().plate_session_plates.size());
@@ -1435,6 +1461,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
             auto plate = std::make_unique<PlateData>(static_cast<int>(owned.size()), object_instances, runtime.locked);
             plate->plate_name = runtime.name;
             plate->config = runtime.settings;
+            if (auto image = thumbnails.find(runtime.id); image != thumbnails.end())
+                plate->plate_thumbnail = std::move(image->second);
             plates.push_back(plate.get());
             owned.push_back(std::move(plate));
         }
@@ -1457,6 +1485,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         params.model = &state().model;
         if (state().project_auxiliaries) params.auxiliary_archive = state().project_auxiliaries->path;
         params.plate_data_list = plates;
+        if (!thumbnails.empty()) for (auto* plate : plates)
+            params.thumbnail_data.push_back(&plate->plate_thumbnail);
         // The edited Print preset is a separate native copy.  Mirror it into
         // the selected project-embedded record immediately before the
         // standard BBS exporter enumerates embedded presets; no private
@@ -1470,7 +1500,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         params.config = &config;
         params.strategy = SaveStrategy::ShareMesh |
                           SaveStrategy::Zip64 | SaveStrategy::Silence |
-                          SaveStrategy::SkipStatic | SaveStrategy::SkipAuxiliary;
+                          SaveStrategy::SkipAuxiliary;
         // BBS's exporter launches nested parallel_for jobs.  Running that
         // exporter in a one-slot arena keeps the bridge request deterministic
         // and avoids nested-pool starvation in the threaded WASM worker.

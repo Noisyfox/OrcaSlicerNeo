@@ -28,7 +28,7 @@ assert.ok(printer); assert.equal(callJson('orc_select_preset', ['string', 'strin
 let snapshot = callJson('orc_get_filament_session_snapshot');
 for (let count = 1; count < 64; count++) snapshot = request('orc_add_filament_slot', { version: 1, revision: snapshot.revisions.session }).result.snapshot;
 assert.equal(snapshot.slots.length, 64);
-const exported = callJson('orc_export_project'); assert.equal(exported.ok, true, JSON.stringify(exported));
+const exported = callJson('orc_export_project', ['string'], ['{}']); assert.equal(exported.ok, true, JSON.stringify(exported));
 const bytes = readBytes(exported.bytes_ptr, exported.bytes_length);
 const privateEntries = readZipEntries(bytes).filter(({ name }) => name.startsWith('Metadata/orca_neo_'));
 assert.deepEqual(privateEntries, [], 'writer must not persist Neo-private project metadata');

@@ -59,7 +59,9 @@
 - **Save Project** writes an Orca/Bambu-compatible BBS 3MF file with the
   `.3mf` extension. It preserves model, object and part semantics, plate membership/layout,
   instance transforms, and eligible project/per-plate settings.
-- Normal project saves do not embed a slice result, G-code, or thumbnails.
+- Normal UI project saves embed ordinary plate thumbnails (512×512 PNG and
+  native 128×128 small PNG) for every plate, including empty plates. They do
+  not embed slice results, G-code, top/pick/no-light or calibration previews.
   G-code export and send-to-printer remain independent operations.
 - Electron provides **Save Project** and **Save Project As…**. Save Project
   overwrites the current project file when the host has an in-memory source
@@ -73,6 +75,33 @@
   recent paths in its host configuration as described below and supplies full
   paths as display metadata for the File menu. Shared preferences do not store
   paths, and shared code cannot use display paths to access files.
+
+### Ordinary plate thumbnails
+
+Save holds the existing project mutation reservation while settling painting,
+waiting for the current geometry projection, rendering, exporting, and writing.
+The shared Three.js plate scene uses printable model parts, plate-local transforms,
+filament colours and painting; selection, gizmos and the active viewport camera
+are excluded. Rendering uses one disposable offscreen renderer and yields between
+plates. It does not depend on plate-list visibility or its thumbnail cache.
+
+Raw bottom-up RGBA crosses the typed client/Worker boundary. Native export checks
+the history revision, complete stable plate-ID coverage and exact 512×512 byte
+length, then passes images to Orca's standard PNG/small-thumbnail writer. Rejected
+images or rendering failures fail Save without marking the project clean. Cancel
+is supported before the host write starts. Headless exports may omit images.
+
+Each plate temporarily uses 1 MiB per RGBA copy; the complete request is retained
+until export completes. GPU targets are released between plates and native/client
+buffers are released on both success and failure. No mobile-specific optimization
+or persistent image cache is introduced in this phase.
+
+Native verification:
+
+```sh
+node packages/slicer-wasm/harness/project-thumbnails-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+node packages/slicer-wasm/harness/project-auxiliaries-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --thumbnails
+```
 
 ## Imported project attachments
 
@@ -92,8 +121,16 @@ follow the existing close-first lifecycle and cannot retain the prior project's
 attachments. Attachment staging or writing failures fail the operation rather
 than silently dropping files. No attachment editor is introduced.
 
+The compressed sidecar uses `/tmp`. Electron threaded mode mounts this directory
+through NODEFS onto a host-owned temporary directory, avoiding persistent MEMFS
+attachment storage. Web and Electron serial fallback use MEMFS. This reduces
+persistent JavaScript heap use on the disk-backed path; it does not eliminate
+transient archive buffers or shrink the WASM linear-memory high-water mark.
+
 The real-WASM regression entry point is
 `node packages/slicer-wasm/harness/project-auxiliaries-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
+Add `--thumbnails` to cover saves with generated images; on the threaded artifact,
+add `--native-tmp` to verify disk-backed staging and cleanup.
 It compares paths and SHA-256 hashes after immediate save, edit, Undo, Redo and
 reopen, and verifies custom covers, content types, geometry-only import and
 project replacement/failure. The same harness accepts the threaded artifact.

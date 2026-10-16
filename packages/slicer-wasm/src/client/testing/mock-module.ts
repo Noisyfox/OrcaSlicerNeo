@@ -3408,7 +3408,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const path = `/tmp/plate-result-${plateId}-${receipt.resultGeneration}.gcode`;
       return { ok: true, path, file_name: `${request.filename_base || 'output'}.gcode` };
     },
-    orc_export_project() {
+    orc_export_project(_requestJson: string) {
       exportedNativeScopedConfig = clone(nativeScopedConfig);
       const archive = new TextEncoder().encode(JSON.stringify({
         format: 'bbs-3mf', objects: buildStructure(), plate_count: 1,
@@ -3627,7 +3627,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number'] },
     orc_get_slice_result: { ret: 'number', args: ['string', 'number', 'number'] },
     orc_export_gcode_plate: { ret: 'number', args: ['string'] },
-    orc_export_project: { ret: 'number', args: [] },
+    orc_export_project: { ret: 'number', args: ['string'] },
     orc_read_gcode_chunk: { ret: 'number', args: ['string', 'number', 'number', 'number', 'number', 'number'] },
     orc_read_gcode_lines: { ret: 'number', args: ['string', 'number', 'number', 'number', 'number', 'number'] },
     orc_cancel: { ret: 'number', args: [] },

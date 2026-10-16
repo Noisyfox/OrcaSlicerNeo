@@ -121,7 +121,7 @@ function setProjectSupportRouting(selector) {
 for (const selector of ['support-base', 'support-interface']) setProjectSupportRouting(selector);
 const expectedConfig = callJson('orc_get_preset_snapshot', [], []).project_config;
 const preservedKeys = [...auditedKeys, ...dedicatedKeys].filter(key => typeof expectedConfig[key] === 'string');
-const emptyExport = callJson('orc_export_project', [], []);
+const emptyExport = callJson('orc_export_project', ['string'], ['{}']);
 check('export settings-only project', emptyExport.ok === true && emptyExport.objects === 0 && emptyExport.bytes_length > 4);
 if (emptyExport.ok) {
   const emptyBytes = readAndFree(emptyExport.bytes_ptr, emptyExport.bytes_length);
@@ -208,7 +208,7 @@ const seededResult = getSliceResult(callJson, seededSlice.receipt);
 check('old-session result is publishable before replacement', seededResult.ok === true,
       JSON.stringify(seededResult));
 
-const exported = callJson('orc_export_project', [], []);
+const exported = callJson('orc_export_project', ['string'], ['{}']);
 check('export native BBS 3MF', exported.ok === true && exported.bytes_ptr > 0 && exported.bytes_length > 4,
       JSON.stringify(exported));
 const project = exported.ok ? readAndFree(exported.bytes_ptr, exported.bytes_length) : new Uint8Array();
@@ -349,7 +349,7 @@ check('missing archive rotation inherits instead of retaining or seeding an over
 const inherited = absentLoaded.preset_snapshot?.project_config?.wipe_tower_rotation_angle;
 check('missing archive rotation restores the Print baseline', inherited === initialConfig.wipe_tower_rotation_angle);
 check('explicitly set the inherited rotation', setNativeScopedConfig(callJson, 'project', undefined, 'wipe_tower_rotation_angle', inherited).ok === true);
-const equalExport = callJson('orc_export_project', [], []);
+const equalExport = callJson('orc_export_project', ['string'], ['{}']);
 check('export Print scalar at its baseline', equalExport.ok === true);
 if (equalExport.ok) {
   const equalBytes = readAndFree(equalExport.bytes_ptr, equalExport.bytes_length);

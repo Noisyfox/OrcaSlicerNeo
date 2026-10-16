@@ -25,12 +25,14 @@ export const coordinatePaintingRpc = enqueuePaintingOperation;
 /** Save owns one revision reservation from export through the host write.
  * Its checkpoint callback is already inside that reservation, never requeued. */
 export function runProjectSaveOperation<T>(
-  runtime: Pick<SlicerRuntime, 'markHistorySaved'>,
+  runtime: Pick<SlicerRuntime, 'markHistorySaved' | 'getHistoryStatus'>,
   context: () => HistoryContext,
-  operation: (markSaved: () => Promise<HistoryStatus>) => Promise<T>,
+  operation: (markSaved: () => Promise<HistoryStatus>, readRevision: () => Promise<number>) => Promise<T>,
 ): Promise<T> {
-  return runProjectMutationOperation(() => operation(async () =>
-    projectHistoryStatus(await runtime.markHistorySaved(context()))));
+  return runProjectMutationOperation(() => operation(
+    async () => projectHistoryStatus(await runtime.markHistorySaved(context())),
+    async () => (await runtime.getHistoryStatus()).revision,
+  ));
 }
 
 export type HistoryMutationResult<T> = {

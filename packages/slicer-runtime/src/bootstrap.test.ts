@@ -1,10 +1,26 @@
 import { MOCK_PROFILE_ACTIVATION } from '@slicer/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { startWorker, type WorkerMessage } from '../../slicer-wasm/src/client';
 import { createMockModule } from '@slicer/testing';
-import { createRuntimeBootstrap, detectRuntimeCapabilities, resolveRuntimeAsset, selectRuntimeArtifact, type WorkerTransport } from './bootstrap';
+import { createWorkerTransport, createRuntimeBootstrap, detectRuntimeCapabilities, resolveRuntimeAsset, selectRuntimeArtifact, type WorkerTransport } from './bootstrap';
 
 describe('portable runtime bootstrap', () => {
+  it('transfers owned thumbnail buffers into the browser Worker', () => {
+    let delivered: WorkerMessage | undefined;
+    vi.stubGlobal('Worker', class {
+      postMessage(message: WorkerMessage, transfer: Transferable[]) {
+        delivered = structuredClone(message, { transfer });
+      }
+    });
+    try {
+      const transport = createWorkerTransport('/worker.js');
+      const rgba = new Uint8Array([1, 2, 3, 4]);
+      transport.post({ type: 'request', id: 1, op: 'exportProject', args: [{ thumbnails: [{ rgba }] }] }, [rgba.buffer]);
+      expect(rgba.byteLength).toBe(0);
+      expect(delivered).toMatchObject({ args: [{ thumbnails: [{ rgba: new Uint8Array([1, 2, 3, 4]) }] }] });
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('does not resurrect readiness when initialization finishes after a fatal transport error', async () => {
     let receive!: (message: WorkerMessage) => void;
     let initialized!: () => void;

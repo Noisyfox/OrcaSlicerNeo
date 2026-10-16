@@ -142,7 +142,7 @@ function readBytes(pointer, length) {
   return bytes;
 }
 function exportProject() {
-  const exported = callJson('orc_export_project');
+  const exported = callJson('orc_export_project', ['string'], ['{}']);
   assert.equal(exported.ok, true, JSON.stringify(exported));
   const bytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length));
   Module._free(Number(exported.bytes_ptr));

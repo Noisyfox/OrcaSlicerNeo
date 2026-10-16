@@ -2,11 +2,19 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
+import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fixtureProfileOptions, createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 import { readZipEntries, writeStoredZip, verifyNativeProjectArchive } from './native-3mf-parser.mjs';
 import { setNativeScopedConfig } from './native-scoped-command.mjs';
 const Module = await (await loadModuleFactory(process.argv[2]))({ noInitialRun: true, print: () => {}, printErr: console.error });
+const nativeTmp = process.argv.includes('--native-tmp') ? mkdtempSync(resolve(tmpdir(), 'neo-aux-')) : undefined;
+if (nativeTmp) {
+  assert.ok(Module.FS.filesystems.NODEFS, 'threaded Electron filesystem backend');
+  Module.FS.mount(Module.FS.filesystems.NODEFS, { root: nativeTmp }, '/tmp');
+  process.on('exit', () => rmSync(nativeTmp, { recursive: true, force: true }));
+}
 await installProfilePackages(Module, createNodeProfileSource(resolve(import.meta.dirname, '../../profile-resources/dist')));
 const call = (name, types = [], args = []) => {
   const p = Number(Module.ccall(name, 'number', types, args));
@@ -14,7 +22,19 @@ const call = (name, types = [], args = []) => {
 };
 const ok = r => { assert.equal(r.ok, true, JSON.stringify(r)); return r; };
 const exportProject = () => {
-  const r = ok(call('orc_export_project'));
+  let r;
+  if (process.argv.includes('--thumbnails')) {
+    const rgba = new Uint8Array(512 * 512 * 4);
+    const pointer = Number(Module._malloc(rgba.length)); Module.HEAPU8.set(rgba, pointer);
+    try {
+      const session = ok(call('orc_get_plate_session_snapshot'));
+      r = ok(call('orc_export_project', ['string'], [JSON.stringify({
+        expected_revision: call('orc_history_status').revision,
+        thumbnails: session.plates.map(plate => ({ plate_id: plate.plate_id,
+          width: 512, height: 512, pixels_ptr: pointer, pixels_length: rgba.length })),
+      })]));
+    } finally { Module._free(pointer); }
+  } else r = ok(call('orc_export_project', ['string'], ['{}']));
   try { return Module.HEAPU8.slice(Number(r.bytes_ptr), Number(r.bytes_ptr) + r.bytes_length); }
   finally { Module._free(Number(r.bytes_ptr)); }
 };
@@ -65,6 +85,11 @@ const audit = (bytes,label) => {
 };
 ok(load(fixture));
 assert.equal(Module.FS.readdir('/tmp').filter(n=>n.endsWith('.aux.zip')).length,1);
+if (nativeTmp) {
+  const diskFile = readdirSync(nativeTmp).find(name => name.endsWith('.aux.zip'));
+  assert.ok(diskFile); assert.ok(statSync(resolve(nativeTmp,diskFile)).size > 0);
+  console.log('PASS attachment storage is backed by the host temporary directory');
+}
 audit(exportProject(),'immediate save (including zero-byte file)');
 const context = JSON.stringify({ selection:{mode:'object',objectIds:[],partIds:[],instanceIds:[]},activePlateId:null,gizmo:null,nativeScopedConfig:{} });
 const tx = ok(call('orc_history_begin',['string','string','string','string'],['Edit project','project',context,'']));
@@ -81,7 +106,7 @@ ok(load(bare,true));
 audit(exportProject(),'geometry-only import preserves current attachments');
 const assetFile = Module.FS.readdir('/tmp').find(n=>n.endsWith('.aux.zip'));
 Module.FS.unlink(`/tmp/${assetFile}`);
-assert.notEqual(call('orc_export_project').ok,true,'missing attachment storage must fail save');
+assert.notEqual(call('orc_export_project', ['string'], ['{}']).ok,true,'missing attachment storage must fail save');
 ok(call('orc_close_project'));
 assert.equal(readZipEntries(exportProject()).filter(e=>e.name.startsWith('Auxiliaries/')).length,0);
 ok(load(bare));
@@ -91,5 +116,6 @@ ok(call('orc_test_inject_project_commit_failure'));
 assert.notEqual(load(fixture).ok,true);
 assert.equal(readZipEntries(exportProject()).filter(e=>e.name.startsWith('Auxiliaries/')).length,0);
 assert.equal(Module.FS.readdir('/tmp').filter(n=>n.endsWith('.aux.zip')).length,0);
+if (nativeTmp) assert.equal(readdirSync(nativeTmp).filter(name=>name.endsWith('.aux.zip')).length,0);
 console.log('PASS New/replacement/failed-load release attachment storage');
 process.exit(0);

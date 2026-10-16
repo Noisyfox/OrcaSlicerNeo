@@ -223,7 +223,7 @@ function buildGolden(Module) {
     }
   }
   structure = requireOk('golden typed structure', callJson(Module, 'orc_get_model_structure'));
-  const exported = requireOk('export golden project', callJson(Module, 'orc_export_project'));
+  const exported = requireOk('export golden project', callJson(Module, 'orc_export_project', ['string'], ['{}']));
   const bytes = withLayerRange(readAndFree(Module, exported));
   return { bytes, normalized: normalizedSnapshot(Module), structure };
 }
@@ -235,7 +235,7 @@ function loadProject(Module, bytes, name) {
 }
 
 function exportProject(Module) {
-  return readAndFree(Module, requireOk('export project', callJson(Module, 'orc_export_project')));
+  return readAndFree(Module, requireOk('export project', callJson(Module, 'orc_export_project', ['string'], ['{}'])));
 }
 
 let failures = 0;

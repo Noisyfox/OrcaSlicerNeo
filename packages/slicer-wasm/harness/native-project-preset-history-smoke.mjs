@@ -184,7 +184,7 @@ requireOk('restore Fuzzy thickness for save', setNativeScopedConfig(callJson, 'p
 // A native Process child is ordinary project data, not a printer/filament
 // G-code warning. Exercise the writer and reader rather than mocking flags.
 requireOk('add roundtrip geometry', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Warning fixture']));
-const exported = requireOk('save Process override', callJson('orc_export_project'));
+const exported = requireOk('save Process override', callJson('orc_export_project', ['string'], ['{}']));
 const projectBytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + exported.bytes_length);
 Module._free(Number(exported.bytes_ptr));
 checkPrintProjection('Export retains the live child and source display', presetSnapshot());

@@ -942,7 +942,7 @@ historyCheck('Delete Plate undo restores current plate and member flags',
   deleteUndoSession.current_plate_id === fixturePlateThree &&
   deleteUndoSession.instances.some((item) => item.object_index === 2 && item.plate_id === fixturePlateTwo && !item.parked) &&
   deleteUndoSession.instances.some((item) => item.object_index === 3 && item.plate_id === fixturePlateThree && item.out_of_bounds));
-const paintedRestoreExport = callJson('orc_export_project', [], []);
+const paintedRestoreExport = callJson('orc_export_project', ['string'], ['{}']);
 historyCheck('painted history restore exports a native project',
   paintedRestoreExport.ok === true && paintedRestoreExport.bytes_ptr > 0 &&
   paintedRestoreExport.bytes_length > 0, JSON.stringify(paintedRestoreExport));

@@ -1,3 +1,4 @@
+import { readZipEntries } from '../../../packages/slicer-wasm/harness/native-3mf-parser.mjs';
 import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
 import { expectCurrentPlate, clickPlateControl } from '../../desktop/e2e/plate-controls.helpers';
 import { test, expect, configuredActivation } from './browser-fixture';
@@ -236,7 +237,23 @@ test('Web project save downloads its suggested filename and establishes a clean 
   await expect(page.getByTestId('titlebar-project-name')).toHaveText('Untitled Project *');
   const download = page.waitForEvent('download');
   await page.keyboard.press('ControlOrMeta+s');
-  expect((await download).suggestedFilename()).toBe('Untitled.3mf');
+  const saved = await download;
+  expect(saved.suggestedFilename()).toBe('Untitled.3mf');
+  const entries = readZipEntries(await readFile((await saved.path())!));
+  for (const [name, size] of [['Metadata/plate_1.png', 512], ['Metadata/plate_1_small.png', 128]] as const) {
+    const image = entries.find((entry: { name: string }) => entry.name === name);
+    expect(image).toBeTruthy();
+    const png = Buffer.from(image.content);
+    expect(png.readUInt32BE(16)).toBe(size); expect(png.readUInt32BE(20)).toBe(size);
+    const visiblePixels = await page.evaluate(async (base64) => {
+      const image = new Image(); image.src = `data:image/png;base64,${base64}`; await image.decode();
+      const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+      const ctx = canvas.getContext('2d')!; ctx.drawImage(image, 0, 0);
+      return ctx.getImageData(0, 0, image.width, image.height).data.filter((value, i) => i % 4 === 3 && value > 0).length;
+    }, png.toString('base64'));
+    expect(visiblePixels).toBeGreaterThan(size * size / 10);
+    expect(visiblePixels).toBeLessThan(size * size);
+  }
   await expect(page.getByTestId('titlebar-project-name')).toHaveText('Untitled Project');
   await expect(page.getByTestId('project-progress-dialog')).toHaveCount(0);
 });

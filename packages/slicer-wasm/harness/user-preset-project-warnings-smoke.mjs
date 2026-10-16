@@ -23,7 +23,7 @@ function save(kind, source, name) {
   ok(request('orc_finish_user_preset', { token: receipt.token, commit: true }));
 }
 function exportProject() {
-  const result = ok(call('orc_export_project'));
+  const result = ok(call('orc_export_project', ['string'], ['{}']));
   const bytes = Module.HEAPU8.slice(Number(result.bytes_ptr), Number(result.bytes_ptr) + result.bytes_length);
   Module._free(Number(result.bytes_ptr));
   const entry = readZipEntries(bytes).find(value => value.name === 'Metadata/project_settings.config');

@@ -105,7 +105,7 @@ function exportedPaint() {
   return new TextDecoder().decode(readZipEntries(bytes).find(e => e.name === '3D/3dmodel.model').content);
 }
 function exportedBytes() {
-  const result = ok(call('orc_export_project'));
+  const result = ok(call('orc_export_project', ['string'], ['{}']));
   const bytes = Module.HEAPU8.slice(result.bytes_ptr, result.bytes_ptr + result.bytes_length); Module._free(result.bytes_ptr);
   return bytes;
 }

@@ -97,7 +97,7 @@ assert.doesNotMatch(textured, /^G28 Z Z_OFFSET -0\.07\s*$/m);
 pass('real U1 High Temp/Textured first+other bed temperatures and High Temp Z_OFFSET branch');
 must(setNativeScopedConfig(call, 'project', undefined, 'curr_bed_type', 'Engineering Plate'));
 must(setNativeScopedConfig(call, 'plate', plate, 'curr_bed_type', 'High Temp Plate'));
-const exported = must(call('orc_export_project'));
+const exported = must(call('orc_export_project', ['string'], ['{}']));
 const bytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length)); Module._free(Number(exported.bytes_ptr));
 transition(A, 'High Temp Plate');
 const ptr = Number(Module._malloc(bytes.length)); Module.HEAPU8.set(bytes, ptr);

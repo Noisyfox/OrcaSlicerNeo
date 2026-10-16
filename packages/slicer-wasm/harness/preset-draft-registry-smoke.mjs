@@ -487,7 +487,7 @@ assert.equal(dormantDraft.modified, true);
 
 // Save through Orca's ordinary BBS writer: it must flatten effective values
 // into project_settings.config without persisting a Neo-private draft object.
-const exported = callJson('orc_export_project');
+const exported = callJson('orc_export_project', ['string'], ['{}']);
 assert.equal(exported.ok, true, JSON.stringify(exported));
 const exportedBytes = readBytes(exported.bytes_ptr, exported.bytes_length);
 const archive = readZipEntries(exportedBytes);
@@ -609,7 +609,7 @@ mutateDraft('set', 'filament', embeddedSource,
   { key: 'filament_density', value: '1.33' });
 assert.equal(callJson('orc_get_preset_snapshot').project_config.filament_density, '1.33,1.33');
 
-const embeddedExport = callJson('orc_export_project');
+const embeddedExport = callJson('orc_export_project', ['string'], ['{}']);
 assert.equal(embeddedExport.ok, true, JSON.stringify(embeddedExport));
 const embeddedBytes = readBytes(embeddedExport.bytes_ptr, embeddedExport.bytes_length);
 const embeddedArchive = readZipEntries(embeddedBytes);

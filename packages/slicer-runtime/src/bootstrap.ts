@@ -41,7 +41,7 @@ export interface RuntimeBootstrapOptions {
 export function createWorkerTransport(workerUrl: string | URL): WorkerTransport {
   const worker = new Worker(workerUrl, { type: 'module' });
   return {
-    post: (message) => worker.postMessage(message),
+    post: (message, transfer) => worker.postMessage(message, transfer ?? []),
     onMessage: (listener) => worker.addEventListener('message', (event) => listener(event.data)),
   };
 }
