@@ -248,3 +248,13 @@ export function projectScopedConfigurationFields(args: {
 export function localKeysForTarget(snapshot: NativeScopedConfigSnapshot, target: NativeScopedConfigTarget): string[] {
   return Object.keys(valuesForScope(snapshot, target.scope, target.id === undefined ? undefined : String(target.id)));
 }
+
+/** Catalogue only. Object/Part values and ownership come from the typed native
+ * editor read, including while a different target's snapshot is loading. */
+export function scopedConfigurationCatalogue(metadata: OptionMetadata, resolution: ScopedTargetResolution): ScopedConfigurationField[] {
+  if (resolution.scope !== 'object' && resolution.scope !== 'part') return [];
+  const scope = resolution.scope;
+  return Object.entries(metadata).filter(([key, meta]) => isKeyEligibleForScope(key, meta, scope))
+    .map(([key, meta]) => ({ key, label: meta.label ?? meta.full_label ?? key, category: meta.category ?? 'General',
+      meta, value: null, mixed: false, source: 'preset', local: false, resettable: true }));
+}

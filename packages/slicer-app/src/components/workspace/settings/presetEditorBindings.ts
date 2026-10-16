@@ -4,7 +4,7 @@ import type { ConfigEditorElementBinding, ConfigEditorSnapshot, PresetDraftEdito
 export type EditorFieldTarget = ConfigEditorElementBinding | { readonly kind: 'shared' };
 
 /** Element selection belongs to the native snapshot, never to page numbering. */
-export function editorFieldTarget(snapshot: ConfigEditorSnapshot, key: string, choiceId: string | null): EditorFieldTarget {
+export function editorFieldTarget(snapshot: Pick<ConfigEditorSnapshot, 'editorSelection'>, key: string, choiceId: string | null): EditorFieldTarget {
   if (key === 'extruders_count') return { kind: 'shared' };
   const field = snapshot.editorSelection.fieldBindings[key];
   if (field?.kind === 'shared') return field;

@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { createClient, createMockModule, MOCK_PROFILE_ACTIVATION, type ConfigEditorSnapshot } from '@slicer/client';
+import { createClient, createMockModule, MOCK_PROFILE_ACTIVATION, type ConfigEditorSnapshot, type ScopedConfigEditorSnapshot } from '@slicer/client';
 import { DEFAULT_USER_PREFERENCES, PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useSettingsStore } from '@/stores/useSettingsStore';
@@ -11,11 +11,13 @@ import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { Selection } from '../viewport/Selection';
+import { glVolumeCollection } from '../viewport/GLVolume';
+import { projectFullModelMesh } from '../viewport/modelMeshProjection';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import { printChoiceFlow } from './PrintEditorSelection';
-import { elementText, parsePrintElement, printDirtyChoiceIds, printHasLocalOverrides, projectPrintField } from './printEditorProjection';
-import { commitPrintConfigurationMutation, readPrintConfigEditor, waitForConfigurationMutations } from './configurationActions';
+import { elementText, parsePrintElement, printDirtyChoiceIds, printHasLocalOverrides, projectPrintField, scopedPrintField, scopedDirtyChoiceIds, scopedHasLocalOverrides } from './printEditorProjection';
+import { commitPrintConfigurationMutation, readPrintConfigEditor, waitForConfigurationMutations, commitScopedEditorMutation } from './configurationActions';
 
 let root:Root|undefined;
 let container:HTMLDivElement;
@@ -38,22 +40,31 @@ async function type(value:string,enter=true){
   return input;
 }
 async function setup(scopedFixture=false){
+  glVolumeCollection.clear();useObjectListStore.getState().setStructure([]);
   useProjectStore.getState().reset();useHistoryNavigationStore.getState().reset();useHistoryRestoreStore.setState({phase:'idle',revision:0});
   const module=createMockModule({metadataKeys:{
-    layer_height:{type:'float',category:'Speed',scopes:['project','object']},
+    layer_height:{type:'float',category:'Speed',scopes:['project','object','part']},
     print_sequence:{type:'enum',category:'Speed',scopes:['project','plate'],enum_values:['by layer','by object']},
     curr_bed_type:{type:'enum',category:'Speed',scopes:['project','plate'],enum_values:['High Temp Plate','Textured PEI Plate']},
-    outer_wall_speed:{type:'floats',category:'Speed',scopes:['project','object'],min:0},
-    enable_overhang_speed:{type:'bools',category:'Speed',scopes:['project','object']},
-    small_perimeter_speed:{type:'floats_or_percents',category:'Speed',scopes:['project','object']},
+    outer_wall_speed:{type:'floats',category:'Speed',scopes:['project','object','part'],min:0},
+    enable_overhang_speed:{type:'bools',category:'Speed',scopes:['project','object','part']},
+    small_perimeter_speed:{type:'floats_or_percents',category:'Speed',scopes:['project','object','part']},
   }});
   const runtime=createClient(async()=>module);await runtime.init(MOCK_PROFILE_ACTIVATION);await runtime.resetHistory(context);
   let controller:SceneInteractionController|null=null;
+  let objects: Awaited<ReturnType<typeof runtime.getModelStructure>>['objects']=[];
+  let selectionIndices=[0];let selectedParts:number[]|null=null;let selectionKind='object';
   if(scopedFixture){
     await runtime.addShape('Cube','Scoped object');
-    const structure=await runtime.getModelStructure();const object=structure.objects[0];
+    await runtime.addShape('Cube','Second object');
+    let structure=await runtime.getModelStructure();const object=structure.objects[0];
+    await runtime.addVolume({objectId:object.id,instanceId:object.instances[0].id,volumeType:'parameter_modifier',shape:'Cube'});
+    await runtime.addVolume({objectId:object.id,instanceId:object.instances[0].id,volumeType:'parameter_modifier',shape:'Cube'});
+    structure=await runtime.getModelStructure(); objects=structure.objects;
+    await runtime.resetHistory(context);
     useObjectListStore.getState().setStructure(structure.objects);
-    controller={selection:new Selection(),computeSelectionKind:()=> 'object',selectedVolumes:()=>[{buffer:{objectId:object.id,volumeId:object.volumes[0].id}}]} as unknown as SceneInteractionController;
+    glVolumeCollection.replace(projectFullModelMesh(await runtime.getModelMesh()));
+    controller={selection:new Selection(),computeSelectionKind:()=>selectionKind,selectedVolumes:()=>selectedParts ? selectedParts.map(index=>({buffer:{objectId:objects[0].id,volumeId:objects[0].volumes[index].id}})) : selectionIndices.map(index=>({buffer:{objectId:objects[index].id,volumeId:objects[index].volumes[0].id}}))} as unknown as SceneInteractionController;
   }
   const profile=await runtime.getProfileSnapshot();if(!profile.ok)throw Error(profile.error);
   useSettingsStore.getState().hydrateProfileSnapshot(profile);
@@ -70,11 +81,23 @@ async function setup(scopedFixture=false){
     const snapshot={...result,editorSelection:{...result.editorSelection,choices,firstChoiceId:choices[0].id}};
     return project?project(snapshot):snapshot;
   });
+  let scopedProject:((snapshot:ScopedConfigEditorSnapshot)=>ScopedConfigEditorSnapshot)|undefined;
+  const nativeScopedRead=runtime.getScopedConfigEditor.bind(runtime);
+  const scopedRead=vi.spyOn(runtime,'getScopedConfigEditor').mockImplementation(async request=>{
+    const result=await nativeScopedRead(request);if(!result.ok)return result;
+    const mapping=await read();if(!mapping.ok)throw Error(mapping.error);
+    const snapshot={...result,editorSelection:{...result.editorSelection,choices:mapping.editorSelection.choices,firstChoiceId:mapping.editorSelection.firstChoiceId}};
+    return scopedProject?scopedProject(snapshot):snapshot;
+  });
+  const nativeMutate=runtime.mutateNativeScopedConfig.bind(runtime);
   const mutate=vi.spyOn(runtime,'mutateNativeScopedConfig');
   const platform={runtime,preferences:{load:async()=>structuredClone(DEFAULT_USER_PREFERENCES),save:async()=>{}}} as unknown as PlatformCapabilities;
   container=document.createElement('div');document.body.append(container);root=createRoot(container);
   await act(async()=>root!.render(<PlatformProvider value={platform}><TooltipProvider><ScopedConfigurationPanel sceneInteraction={controller} /></TooltipProvider></PlatformProvider>));
-  return {runtime,platform,read,mutate,project:(next:typeof project)=>{project=next;},refresh:async()=>act(async()=>{useHistoryRestoreStore.getState().advanceRevision();})};
+  return {runtime,platform,read,scopedRead,nativeScopedRead,nativeMutate,objects,
+    select:async(indices:number[],kind='object')=>act(async()=>{selectionIndices=indices;selectedParts=null;selectionKind=kind;controller!.selection.replaceIds(indices.map(index=>String(objects[index].id)));}),
+    selectParts:async(indices:number[])=>act(async()=>{selectedParts=indices;selectionKind='part';controller!.selection.replaceIds(indices.map(index=>String(objects[0].volumes[index].id)));}),
+    scoped:(next:typeof scopedProject)=>{scopedProject=next;},mutate,project:(next:typeof project)=>{project=next;},refresh:async()=>act(async()=>{useHistoryRestoreStore.getState().advanceRevision();})};
 }
 
 it('uses loaded Hybrid choices, one captured typed mutation/history operation, mapped ownership, reset and scoped boundaries',async()=>{
@@ -204,8 +227,8 @@ it.each([true,false])('navigates invalid/pending Print fields immediately and co
   await type('invalid');expect(h.mutate).not.toHaveBeenCalled();
   await choose('T2 SF');expect(document.querySelector('[data-testid="config-error-outer_wall_speed"]')).toBeNull();
   await choose('T1 HF');
-  const native=h.mutate.getMockImplementation()??h.runtime.mutateNativeScopedConfig.bind(h.runtime);
   // Capture the original method before replacing the spy implementation.
+  const native=h.nativeMutate;
   let finish!:()=>void;
   const gate=new Promise<void>(resolve=>{finish=resolve;});
   h.mutate.mockImplementationOnce(async request=>{await gate;if(!success)return {ok:false,version:1,error:'Rejected old element'};return native(request);});
@@ -337,15 +360,203 @@ it('discards field-local errors when a removed variant ordinal is reused for ano
   expect(document.querySelector<HTMLInputElement>('[data-testid="config-input-outer_wall_speed"]')?.value).toBe('220');
 });
 
-it('keeps Object whole-option edits on their existing scoped path instead of adopting the Project element',async()=>{
+it('edits Object native elements independently from the Project element',async()=>{
   const h=await setup(true);await click('config-page-Speed');await choose('T1 HF');await type('230');
   const project=await h.runtime.getPrintConfigEditor();
   await click('config-mode-scoped');await click('config-page-Speed');
   const field=document.querySelector('[data-testid="config-field-outer_wall_speed"]')!;
-  expect(field.hasAttribute('data-native-index')).toBe(false);
-  await type('205,235,245');
-  expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({operation:'set',targets:[{scope:'object',id:expect.any(String)}],key:'outer_wall_speed',value:'205,235,245'}));
+  expect(field.getAttribute('data-native-index')).toBe('0');
+  await type('205');
+  expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({operation:'set-element',targets:[{scope:'object',id:expect.any(String)}],key:'outer_wall_speed',index:0,value:205}));
   expect(await h.runtime.getPrintConfigEditor()).toMatchObject({editorVectors:(project as ConfigEditorSnapshot).editorVectors});
+});
+
+const targetDirty=()=>document.querySelector('[data-testid="scoped-target-label"]')?.getAttribute('data-dirty');
+const speedInput=()=>document.querySelector<HTMLInputElement>('[data-testid="config-input-outer_wall_speed"]');
+async function scopedEdit(h:Awaited<ReturnType<typeof setup>>,indices:number[],index:number,value:number|null,scope:'object'|'part'='object'){
+  const targets=indices.map(i=>({scope,id:String(scope==='object'?h.objects[i].id:h.objects[i].volumes[0].id)}));
+  await act(async()=>{
+    const read=await h.nativeScopedRead({version:1,targets});if(!read.ok)throw Error(read.error);
+    await commitScopedEditorMutation(h.platform,{version:1,operation:'set-element',targets,expectedRevision:read.revision,
+      key:'outer_wall_speed',index,scalarType:'float',value},targets);
+  });
+}
+
+it('unions selected owners only, preserves global dirty across nozzles/search/pages, and atomically resets current elements',async()=>{
+  const h=await setup(true);
+  await act(async()=>{const read=await h.runtime.getPrintConfigEditor();if(!read.ok)throw Error(read.error);
+    await commitPrintConfigurationMutation(h.platform,{version:1,operation:'set-element',targets:[{scope:'project'}],expectedRevision:read.revision,key:'outer_wall_speed',index:1,scalarType:'float',value:220});});
+  await click('config-mode-scoped');await click('config-page-Speed');await choose('T1 HF');
+  expect(targetDirty()).toBe('false');expect(dirtyChoices()).toEqual([]);
+  await type('220',false); // unchanged value needs an explicit ownership operation
+  await scopedEdit(h,[0],1,220);await scopedEdit(h,[1],2,260);
+  await h.select([0,1]);expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T1 HF','T2 SF']);
+  await choose('T2 SF');expect(speedInput()?.placeholder).toBe('Mixed');expect(speedInput()?.value).toBe('');
+  expect(document.querySelector('[data-testid="config-nozzle-icon-outer_wall_speed"]')).not.toBeNull();
+  await choose('T1 SF');expect(speedInput()?.value).toBe('200');expect(targetDirty()).toBe('true');
+  const reads=h.scopedRead.mock.calls.length,history=await h.runtime.getHistoryStatus();await choose('T1 HF');
+  expect(h.scopedRead).toHaveBeenCalledTimes(reads);expect(await h.runtime.getHistoryStatus()).toEqual(history);
+  await click('config-page-Quality');expect(document.querySelector('[data-testid="print-editor-selection"]')).toBeNull();expect(targetDirty()).toBe('true');
+  await click('config-page-Speed');expect(selectedChoice()).toBe('T1 HF');
+  await act(async()=>document.querySelector<HTMLButtonElement>('[aria-label="Search settings"]')!.click());
+  await act(async()=>{const search=document.querySelector<HTMLInputElement>('[data-testid="scoped-config-search"]')!;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(search,'Overhang');search.dispatchEvent(new Event('input',{bubbles:true}));});
+  expect(speedInput()).toBeNull();expect(dirtyChoices()).toEqual(['T1 HF','T2 SF']);
+  await act(async()=>document.querySelector<HTMLButtonElement>('[aria-label="Search settings"]')!.click());
+  await act(async()=>document.querySelector<HTMLElement>('[data-testid="config-category-toggle-Other layers speed"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10})));
+  await click('config-reset-category-Speed');
+  expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({operation:'reset-fields',targets:h.objects.map(o=>({scope:'object',id:String(o.id)})),
+    fields:expect.arrayContaining([{key:'outer_wall_speed',kind:'indexed',index:1},{key:'layer_height',kind:'shared'}])}));
+  expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T2 SF']);
+  await choose('T2 SF');await click('config-reset-outer_wall_speed');expect(targetDirty()).toBe('false');
+  await act(async()=>{await h.runtime.undoHistory();useHistoryRestoreStore.getState().advanceRevision();});
+  expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T2 SF']);expect(selectedChoice()).toBe('T2 SF');
+  await act(async()=>{await h.runtime.redoHistory();useHistoryRestoreStore.getState().advanceRevision();});expect(targetDirty()).toBe('false');
+  await scopedEdit(h,[0],0,205);await scopedEdit(h,[1],2,265);await h.select([0]);await click('config-reset-all');
+  expect(targetDirty()).toBe('false');await h.select([1]);expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T2 SF']);
+});
+
+it('uses per-element Part provenance and separates mixed values from mixed inherited sources',async()=>{
+  const h=await setup(true);await scopedEdit(h,[0],0,200);
+  await click('config-mode-scoped');await h.select([0],'part');await click('config-page-Speed');
+  const target={scope:'part' as const,id:String(h.objects[0].volumes[0].id)};
+  const read=await h.runtime.getScopedConfigEditor({version:1,targets:[target]});if(!read.ok)throw Error(read.error);
+  const field={key:'outer_wall_speed',label:'Outer wall',category:'Speed',meta:{type:'floats' as const},value:null,mixed:false,source:'preset' as const,local:false,resettable:true};
+  expect(scopedPrintField(field,read,'ordinal-0')).toMatchObject({source:'object',local:false,editor:{inheritedSource:'object',source:200}});
+  expect(scopedPrintField(field,read,'ordinal-1')).toMatchObject({source:'preset',local:false,editor:{inheritedSource:'preset',source:220}});
+  expect(targetDirty()).toBe('false');await choose('T1 HF');await type('225');
+  expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({targets:[target],operation:'set-element',index:1}));
+  expect(targetDirty()).toBe('true');await click('config-reset-outer_wall_speed');expect(targetDirty()).toBe('false');
+  await h.selectParts([0,1]);await type('226');
+  expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({targets:h.objects[0].volumes.slice(0,2).map(volume=>({scope:'part',id:String(volume.id)})),index:1,value:226}));
+  await click('config-reset-all');expect(targetDirty()).toBe('false');
+  const parent=await h.nativeScopedRead({version:1,targets:[{scope:'object',id:String(h.objects[0].id)}]});
+  expect(parent).toMatchObject({targets:[{editorVectors:{outer_wall_speed:{overrideValues:[{value:200},null,null]}}}]});
+  const inherited=read.targets[0];
+  const sameValuesDifferentSources={...read,targets:[inherited,{...inherited,target:{scope:'part' as const,id:'another'},sourceScopes:{...inherited.sourceScopes,indexed:{...inherited.sourceScopes.indexed,outer_wall_speed:['preset','preset','preset'] as const}}}]};
+  expect(scopedPrintField(field,sameValuesDifferentSources,'ordinal-0')).toMatchObject({value:'200',mixed:false,source:'mixed',editor:{sourceMixed:false,inheritedSource:'mixed'}});
+  const mixedValues={...sameValuesDifferentSources,targets:[inherited,{...inherited,editorVectors:{...inherited.editorVectors,outer_wall_speed:{...inherited.editorVectors.outer_wall_speed,effectiveValues:[201,220,240]}}}]};
+  expect(scopedPrintField(field,mixedValues,'ordinal-0')).toMatchObject({value:null,mixed:true,source:'object'});
+});
+
+it('keeps whole-target ownership with unavailable/short native mappings and excludes them from category reset',async()=>{
+  const h=await setup(true);await scopedEdit(h,[0],1,225);
+  h.scoped(snapshot=>({...snapshot,editorSelection:{...snapshot.editorSelection,fieldBindings:{...snapshot.editorSelection.fieldBindings,
+    outer_wall_speed:{kind:'per_selection',bindings:[{kind:'indexed',index:0},{kind:'unavailable'},{kind:'indexed',index:2}]}}},
+    targets:snapshot.targets.map(target=>({...target,editorVectors:{...target.editorVectors,outer_wall_speed:{...target.editorVectors.outer_wall_speed,
+      sourceValues:[200],effectiveValues:[200]}}}))}));
+  await click('config-mode-scoped');await click('config-page-Speed');await choose('T1 HF');
+  expect(speedInput()?.textContent).toBe('Unavailable');expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual([]);
+  expect(document.querySelector('[data-testid="config-nozzle-icon-outer_wall_speed"]')).not.toBeNull();
+  await choose('T2 SF');expect(speedInput()?.value).toBe('200');expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual([]);
+  await choose('T1 HF');
+  await act(async()=>{const targets=[{scope:'object' as const,id:String(h.objects[0].id)}];await commitScopedEditorMutation(h.platform,{version:1,operation:'set',targets,key:'layer_height',value:'0.17'},targets);});
+  await act(async()=>document.querySelector<HTMLElement>('[data-testid="config-category-toggle-Other layers speed"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10})));
+  await click('config-reset-category-Speed');
+  const category=h.mutate.mock.calls.at(-1)![0];expect(category.operation).toBe('reset-fields');
+  if(category.operation==='reset-fields')expect(category.fields.some(field=>field.key==='outer_wall_speed')).toBe(false);
+  expect(targetDirty()).toBe('true');
+  await click('config-reset-all');expect(targetDirty()).toBe('false');
+  expect(h.mutate).toHaveBeenLastCalledWith({version:1,operation:'reset-all',targets:[{scope:'object',id:String(h.objects[0].id)}]});
+});
+
+it('keeps native shared ownership out of nozzle markers and all-nil legacy vectors out of whole-target dirtiness',async()=>{
+  const h=await setup(true);await click('config-mode-scoped');await click('config-page-Speed');
+  await act(async()=>{const targets=[{scope:'object' as const,id:String(h.objects[0].id)}];await commitScopedEditorMutation(h.platform,
+    {version:1,operation:'set',targets,key:'layer_height',value:'0.17'},targets);});
+  expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual([]);expect(document.querySelector('[data-testid="config-nozzle-icon-layer_height"]')).toBeNull();
+  await click('config-reset-all');await act(async()=>{const targets=[{scope:'object' as const,id:String(h.objects[0].id)}];await commitScopedEditorMutation(h.platform,
+    {version:1,operation:'set',targets,key:'outer_wall_speed',value:'[null,null,null]'},targets);});
+  expect(targetDirty()).toBe('false');expect(dirtyChoices()).toEqual([]);
+});
+
+it('edits a mixed native boolean through its actual value checkbox without nullable controls',async()=>{
+  vi.stubGlobal('PointerEvent',MouseEvent);
+  const h=await setup(true);const target={scope:'object' as const,id:String(h.objects[1].id)};
+  await act(async()=>{const read=await h.nativeScopedRead({version:1,targets:[target]});if(!read.ok)throw Error(read.error);
+    await commitScopedEditorMutation(h.platform,{version:1,operation:'set-element',targets:[target],expectedRevision:read.revision,
+      key:'enable_overhang_speed',scalarType:'bool',index:0,value:false},[target]);});
+  await click('config-mode-scoped');await h.select([0,1]);await click('config-page-Speed');
+  const checkbox=document.querySelector<HTMLElement>('[data-testid="config-input-enable_overhang_speed"]')!;
+  expect(checkbox.getAttribute('aria-checked')).toBe('mixed');
+  await act(async()=>checkbox.click());
+  expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({operation:'set-element',targets:h.objects.map(o=>({scope:'object',id:String(o.id)})),key:'enable_overhang_speed',value:true,index:0}));
+  expect(document.querySelector('[data-testid^="config-null-"]')).toBeNull();
+});
+
+it('retains semantic selection through target loading, mode changes and reordered ordinals without old-target fields',async()=>{
+  const h=await setup(true);await click('config-mode-scoped');await click('config-page-Speed');await choose('T2 SF');
+  const original=h.scopedRead.getMockImplementation()!;let release!:()=>void;
+  const held=new Promise<void>(resolve=>{release=resolve;});
+  h.scopedRead.mockImplementationOnce(async request=>{const result=await original(request);await held;return result;});
+  await h.select([1]);expect(speedInput()).toBeNull();expect(selectedChoice()).toBe('T2 SF');
+  await choose('T1 HF');expect(selectedChoice()).toBe('T1 HF');await h.select([0]);
+  await act(async()=>release());expect(speedInput()?.value).toBe('220');expect(selectedChoice()).toBe('T1 HF');
+  await click('config-mode-project');await click('config-mode-scoped');expect(selectedChoice()).toBe('T1 HF');
+  h.scoped(snapshot=>({...snapshot,editorSelection:{...snapshot.editorSelection,choices:[...snapshot.editorSelection.choices].reverse().map((choice,i)=>({...choice,id:`new-${i}`})),firstChoiceId:'new-0',
+    fieldBindings:Object.fromEntries(Object.entries(snapshot.editorSelection.fieldBindings).map(([key,binding])=>[key,binding.kind==='shared'?binding:{...binding,bindings:[...binding.bindings].reverse()}]))}}));
+  await h.refresh();expect(selectedChoice()).toBe('T1 HF');expect(speedInput()?.value).toBe('220');
+  await h.select([],'empty');expect(document.querySelector('[data-testid="print-editor-selection"]')).toBeNull();expect(document.querySelector('[data-testid="scoped-invalid-selection"]')).not.toBeNull();
+  await h.select([0]);expect(selectedChoice()).toBe('T1 HF');
+});
+
+it.each(['project-change','new-entry'] as const)('disables reused target fields until a fresh read after %s while hidden',async change=>{
+  const h=await setup(true);await click('config-mode-scoped');await click('config-page-Speed');await choose('T2 SF');
+  await click('config-mode-project');const scopedReads=h.scopedRead.mock.calls.length;
+  if(change==='project-change')await act(async()=>{const read=await h.runtime.getPrintConfigEditor();if(!read.ok)throw Error(read.error);
+    await commitPrintConfigurationMutation(h.platform,{version:1,operation:'set-element',targets:[{scope:'project'}],expectedRevision:read.revision,key:'outer_wall_speed',index:2,scalarType:'float',value:245});});
+  else {await act(async()=>useSettingsStore.getState().enterPrintPreset());h.scoped(snapshot=>({...snapshot,editorSelection:{...snapshot.editorSelection,firstChoiceId:'ordinal-2',choices:[snapshot.editorSelection.choices[2],...snapshot.editorSelection.choices.slice(0,2)],fieldBindings:Object.fromEntries(Object.entries(snapshot.editorSelection.fieldBindings).map(([key,binding])=>[key,binding.kind==='shared'?binding:{...binding,bindings:[binding.bindings[2],...binding.bindings.slice(0,2)]}]))}}));}
+  expect(h.scopedRead).toHaveBeenCalledTimes(scopedReads);
+  const original=h.scopedRead.getMockImplementation()!;let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
+  h.scopedRead.mockImplementationOnce(async request=>{const result=await original(request);await held;return result;});
+  await click('config-mode-scoped');expect(speedInput()).toBeNull();expect(selectedChoice()).toBe(change==='project-change'?'T2 SF':undefined);
+  await act(async()=>release());expect(selectedChoice()).toBe('T2 SF');expect(speedInput()?.value).toBe(change==='project-change'?'245':'240');
+});
+
+it.each([true,false])('navigates immediately with invalid/pending Scoped edits and isolates late receipts (success=%s)',async success=>{
+  const h=await setup(true);await click('config-mode-scoped');await click('config-page-Speed');await choose('T1 HF');
+  await type(''); // numeric invalid input cannot write nil
+  expect(h.mutate).not.toHaveBeenCalled();expect(document.querySelector('[data-testid="config-error-outer_wall_speed"]')).not.toBeNull();
+  await choose('T2 SF');expect(document.querySelector('[data-testid="config-error-outer_wall_speed"]')).toBeNull();await choose('T1 HF');
+  // vi.spyOn's original implementation is retained separately to avoid recursion.
+  const execute=h.nativeMutate;let release!:()=>void;let started!:()=>void;
+  const held=new Promise<void>(resolve=>{release=resolve;}),entered=new Promise<void>(resolve=>{started=resolve;});
+  h.mutate.mockImplementationOnce(async request=>{started();await held;if(!success)return {ok:false,version:1,error:'Rejected old Scoped edit'};return execute(request);});
+  await type('229');await entered;await h.select([1]);await choose('T2 SF');expect(selectedChoice()).toBe('T2 SF');
+  await act(async()=>release());await act(async()=>waitForConfigurationMutations());
+  expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({targets:[{scope:'object',id:String(h.objects[0].id)}],index:1,value:229}));
+  expect(selectedChoice()).toBe('T2 SF');expect(speedInput()?.value).toBe('240');expect(targetDirty()).toBe('false');
+  await h.select([0]);await choose('T1 HF');expect(speedInput()?.value).toBe(success?'229':'220');expect(document.querySelector('[data-testid="config-error-outer_wall_speed"]')).toBeNull();
+});
+
+it('does not relabel an old mutation read as fresh after the native Project context advances',async()=>{
+  const h=await setup(true);await click('config-mode-scoped');await click('config-page-Speed');await choose('T1 HF');
+  const original=h.scopedRead.getMockImplementation()!;let oldRead!:ScopedConfigEditorSnapshot;
+  let releaseOld!:()=>void,releaseFresh!:()=>void,entered!:()=>void;
+  const oldHeld=new Promise<void>(resolve=>{releaseOld=resolve;}),freshHeld=new Promise<void>(resolve=>{releaseFresh=resolve;}),started=new Promise<void>(resolve=>{entered=resolve;});
+  h.scopedRead.mockImplementation(async request=>{const result=await original(request);await freshHeld;return result;});
+  h.scopedRead.mockImplementationOnce(async request=>{const result=await original(request);if(!result.ok)throw Error(result.error);oldRead=result;entered();await oldHeld;return result;});
+  await type('229');await started;await choose('T2 SF');
+  await act(async()=>{
+    const result=await h.nativeMutate({version:1,operation:'set-element',targets:[{scope:'project'}],expectedRevision:oldRead.revision,
+      key:'outer_wall_speed',scalarType:'float',index:2,value:245});if(!result.ok)throw Error(result.error);
+    if(result.profileSnapshot)useSettingsStore.getState().hydrateProfileSnapshot(result.profileSnapshot);
+    useSettingsStore.getState().setConfigurationMode('scoped');useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
+  });
+  await act(async()=>releaseOld());await act(async()=>waitForConfigurationMutations());
+  expect(speedInput()).toBeNull(); // old revision cannot become enabled under the new stamp
+  await act(async()=>releaseFresh());expect(selectedChoice()).toBe('T2 SF');expect(speedInput()?.value).toBe('245');
+});
+
+it('uses native first-choice fallback and hides the Scoped strip for one choice or shared-only pages',async()=>{
+  const h=await setup(true);await click('config-mode-scoped');await click('config-page-Speed');await choose('T2 SF');
+  h.scoped(snapshot=>({...snapshot,editorSelection:{...snapshot.editorSelection,choices:snapshot.editorSelection.choices.slice(0,1),firstChoiceId:'ordinal-0',
+    fieldBindings:Object.fromEntries(Object.entries(snapshot.editorSelection.fieldBindings).map(([key,binding])=>[key,binding.kind==='shared'?binding:{...binding,bindings:binding.bindings.slice(0,1)}]))}}));
+  await h.refresh();expect(document.querySelector('[data-testid="print-editor-selection"]')).toBeNull();expect(speedInput()?.value).toBe('200');
+  h.scoped(undefined);await h.refresh();expect(selectedChoice()).toBe('T1 SF');
+  await choose('T2 SF');await click('config-page-Quality');expect(document.querySelector('[data-testid="print-editor-selection"]')).toBeNull();
+  await click('config-page-Speed');expect(selectedChoice()).toBe('T2 SF');
+  h.scoped(snapshot=>({...snapshot,targets:snapshot.targets.map(target=>({...target,editorVectors:{...target.editorVectors,outer_wall_speed:{...target.editorVectors.outer_wall_speed,readOnly:true}}}))}));
+  await h.refresh();expect(speedInput()?.textContent).toBe('240');expect(speedInput()?.tagName).toBe('SPAN');
 });
 
 

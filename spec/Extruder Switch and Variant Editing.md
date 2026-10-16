@@ -1,13 +1,13 @@
 # Extruder Switch and Variant Editing
 
-**Date:** 2026-10-16
+**Date:** 2026-10-17
 
 **Status:** Implemented in the shared Electron and Web application. Native
 mappings, atomic resets, the diameter-editing boundary, and Printer, Filament
 and Project Print selection are delivered. Objects-mode Scoped element editing
-has passed the native/client gate and awaits UI integration in section 10.1. Original
-integrated verification and independent parent acceptance are complete under
-section 10. Improved delayed
+has passed both independent acceptance gates in section 10.1. Integrated
+verification and independent parent acceptance are complete under section 10.
+Improved delayed
 rejection feedback after navigation remains deferred.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
@@ -206,11 +206,10 @@ focus and activation, and keeps the selected choice visible after selection or
 resize. Its leading nozzle glyph has no action; cross-extruder sync/copy remains
 deferred. Printer and Filament selectors retain their existing presentation.
 
-Project Print field labels reserve an aligned nozzle-icon gutter. Only native
+Project Print and Objects-mode field labels reserve an aligned nozzle-icon gutter. Only native
 `per_selection` fields receive the glyph, including an individually unavailable
-mapping; shared fields leave the gutter empty. Object/Part/Plate views retain
-their existing ownership. The pending Scoped extension applies this same strip
-and aligned glyph gutter to Objects-mode object/part/modifier fields. The
+mapping; shared fields leave the gutter empty. Object/Part views use their
+existing native owners with this same strip and aligned glyph gutter. The
 dedicated Plates page retains its current presentation.
 
 A switch is visible when selection is applicable and the active category
@@ -438,9 +437,9 @@ on another selection's field.
 
 ## 8. Scope boundaries
 
-Delivered selection covers Printer, Filament, and Project Print. The pending
-two-increment extension covers Objects-mode object/instance and part/modifier
-element editing under the existing selection rules. Dedicated Plate element
+Selection is implemented for Printer, Filament, Project Print and Objects-mode
+object/instance and part/modifier element editing under the existing selection
+rules. Dedicated Plate element
 editing, invalid/mixed-hierarchy selections and new assignment/topology controls
 remain outside scope; an invalid Objects selection never falls back to Project.
 The existing manifest/catalogue still determines which fields are exposed;
@@ -514,17 +513,17 @@ roadmap or milestone status.
 
 ### 10.1 Objects-mode Scoped extension
 
-These two gates extend the delivered feature. Increment A's native/client
-contract has passed independent acceptance; increment B's production
-UI integration remains pending. The single-agent, parent-acceptance and commit
-ordering rules above continue to apply. Increment B starts only after A is
-accepted and committed. The read/mutation boundary is specified in
-[Scoped Configuration section 3.1](Project%20and%20Scoped%20Configuration.md#31-pending-objectpart-indexed-contract).
+These two accepted gates extend the delivered feature. Increment A's native/client
+contract and increment B's production UI integration have passed independent
+acceptance. The single-agent, parent-acceptance and commit ordering rules above
+were retained; increment B started after A was accepted and committed.
+The read/mutation boundary is specified in
+[Scoped Configuration section 3.1](Project%20and%20Scoped%20Configuration.md#31-objectpart-indexed-contract).
 
 | Increment | Complete deliverable | Independent acceptance gate | State |
 | --- | --- | --- | --- |
 | A. Native Scoped indexed contract | Add one typed selected-target editor read with native project-flow choices and per-target inherited Source, Effective, local ownership and source scopes. Extend the canonical `set-element`/`reset-fields` commands to Object/Part target sets using native nullable `ModelConfig` storage, preserving the existing owner/history/export path. Update bridge, typed client/runtime, mocks and fixtures together. Existing whole-option Scoped UI remains functional. | Real native regressions and native-to-typed-client decoding prove multi-object and part/modifier Source composition, distinct SF/HF/Hybrid mappings, mixed indexed/shared atomic writes/resets, full-batch rollback including a late invalid target, revision checks, one history entry/Undo/Redo, nil versus Source-equivalent ownership, native singleton normalization and sparse/short/unavailable handling. Change parents after edit/reset to prove unowned slots still inherit. Native 3MF export/reopen and actual slicing verify persisted sparse values/ownership and effective object/region results. Affected package suites/typechecks, both native quick builds, comprehensive scoped contracts on one variant and startup/thread/fallback smoke on the other pass before parent review. | Accepted |
-| B. Scoped surface and integrated delivery | Wire the shared strip/glyphs/native fields to Objects-mode single/multiple objects/instances and valid sibling parts/modifiers. Preserve per-target Source/mixed handling, union local dirty markers, selection lifetime, current-element/shared category resets, whole-selected-target Reset All, immediate target/nozzle navigation and captured pending writes. Keep Project/Printer/Filament and dedicated Plates behavior intact. Reconcile delivery prose. | Component/runtime tests cover mixed values and source scopes, parent versus local ownership, two dirty targets/nozzles, category/all reset and history, search/page scope, single-choice/hide/overflow, missing/short bindings, semantic reconciliation, invalid/pending target changes and delayed receipts. Repository suites/typechecks and a fresh real primary-host journey prove native multi-selection editing/reset/history, current assets/variant and rendered icon/orange behavior. Existing Project/Printer/Filament/Plate regressions remain green. Parent independently reviews and reruns decisive integration before commit. | Planned |
+| B. Scoped surface and integrated delivery | Wire the shared strip/glyphs/native fields to Objects-mode single/multiple objects/instances and valid sibling parts/modifiers. Preserve per-target Source/mixed handling, union local dirty markers, selection lifetime, current-element/shared category resets, whole-selected-target Reset All, immediate target/nozzle navigation and captured pending writes. Keep Project/Printer/Filament and dedicated Plates behavior intact. Reconcile delivery prose. | Component/runtime tests cover mixed values and source scopes, parent versus local ownership, two dirty targets/nozzles, category/all reset and history, search/page scope, single-choice/hide/overflow, missing/short bindings, semantic reconciliation, invalid/pending target changes and delayed receipts. Repository suites/typechecks and a fresh real primary-host journey prove native multi-selection editing/reset/history, current assets/variant and rendered icon/orange behavior. Existing Project/Printer/Filament/Plate regressions remain green. Parent independently reviews and reruns decisive integration before commit. | Accepted |
 
 Native build/test procedure follows the existing driver help and testing guide:
 quick-build both variants with the Windows driver, extend the existing indexed

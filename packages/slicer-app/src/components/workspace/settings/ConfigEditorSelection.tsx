@@ -11,8 +11,8 @@ export function useConfigEditorSelection(metadata: Selection | null, entry: numb
   const choices = metadata?.choices ?? [];
   const retained = view.entry === entry ? choices.find(choice => editorChoiceIdentity(choice) === view.identity) : undefined;
   const selected = retained ?? choices.find(choice => choice.id === metadata?.firstChoiceId);
-  const identity = selected ? editorChoiceIdentity(selected) : null;
-  if (view.entry !== entry || view.identity !== identity) setView({ entry, identity });
+  const identity = selected ? editorChoiceIdentity(selected) : metadata ? null : view.entry === entry ? view.identity : null;
+  if (view.entry !== entry || (metadata && view.identity !== identity)) setView({ entry, identity });
   return { choiceId: selected?.id ?? null, identity,
     select: (id: string | null) => {
       const choice = choices.find(choice => choice.id === id);

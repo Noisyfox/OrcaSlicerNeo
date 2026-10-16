@@ -1,6 +1,6 @@
 import { _electron } from './electron-fixture';
 import { expect, test, type Page } from '@playwright/test';
-import type { ConfigEditorSnapshot } from '@slicer/client';
+import type { ConfigEditorSnapshot, ScopedConfigEditorSnapshot } from '@slicer/client';
 import { basename, resolve } from 'node:path';
 import { statSync } from 'node:fs';
 import { openProjectMenu, waitForProjectLoad } from './project-menu';
@@ -18,7 +18,7 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
   try{
     const page=await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:60_000});
-    await installSliceReceiptObserver(page,['getPrintConfigEditor','mutateNativeScopedConfig']);
+    await installSliceReceiptObserver(page,['getPrintConfigEditor','getScopedConfigEditor','mutateNativeScopedConfig']);
     await page.locator('#app-tab-prepare').click();
     await openProjectMenu(page,app);await waitForProjectLoad(page);
     await expect.poll(()=>page.evaluate(()=>(window as any).__orcaE2e.projectLoadEvidence())).toMatchObject({receipt:{sourceDisplayName:basename(fixture!),sourceByteLength:statSync(fixture!).size,nativeResult:{ok:true,mode:'project'}}});
@@ -172,6 +172,84 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     await expect(page.getByTestId('preset-editor-input-filament_retraction_length')).toHaveCount(0);
     await page.getByTestId('preset-editor-close').click();await expect(hfChoice).toHaveAttribute('aria-pressed','true');
     await expect(page.getByTestId('filament-preset-1')).toHaveAttribute('title',rackSource!);
+    // The same native choices bind selected Object/Part owners independently.
+    await page.getByTestId('config-mode-scoped').click();
+    const structure=()=>page.evaluate(()=>(window as any).__orcaScopedConfigurationGate.snapshot().objects as {id:number;volumes:{id:number;type:string}[]}[]);
+    const originalObject=(await structure())[0];
+    const objectButton=(id:number)=>page.getByTestId(`object-${id}`).locator(':scope > div > button.object-list-row');
+    await objectButton(originalObject.id).click({button:'right'});await page.getByTestId('objectlist-clone').click();
+    await expect.poll(async()=>(await structure()).length).toBe(2);
+    const scopedObjects=await structure();
+    const modifierKey=process.platform==='darwin'?'Meta':'Control';
+    const selectObjects=async(ids:number[])=>{
+      for(const [index,id]of ids.entries())await objectButton(id).click({position:{x:50,y:10},modifiers:index?[modifierKey]:[]});
+      await expect(page.getByTestId('scoped-target-label')).toHaveText(ids.length===1?/Object:/:`${ids.length} objects`);
+    };
+    const nativeScoped=async()=>{
+      const receipts=await readSliceReceipts(page) as {direction:string;op:string;result?:ScopedConfigEditorSnapshot}[];
+      const result=receipts.reverse().find(receipt=>receipt.direction==='response'&&receipt.op==='getScopedConfigEditor'&&receipt.result?.ok)?.result;
+      if(!result)throw Error('Missing native Scoped editor response');return result;
+    };
+    const selectedOwners=async()=>{await expect(speed).toBeEnabled();return nativeScoped();};
+    await selectObjects([scopedObjects[0].id]);await page.getByTestId('config-page-Speed').click();await hfChoice.click();await expect(speed).toBeEnabled();
+    await expect(page.getByTestId('config-field-outer_wall_speed')).toHaveAttribute('data-native-index','5');
+    await expect(page.getByTestId('scoped-target-label')).toHaveAttribute('data-dirty','false');
+    await speed.fill('187');await speed.press('Enter');await expect(speed).toHaveValue('187');await expect(speed).toBeEnabled();
+    await selectObjects([scopedObjects[1].id]);await expect(hfChoice).toHaveAttribute('aria-pressed','true');
+    await expect(speed).toBeEnabled();await speed.fill('188');await speed.press('Enter');await expect(speed).toHaveValue('188');await expect(speed).toBeEnabled();
+    await selectObjects(scopedObjects.map(object=>object.id));await expect(speed).toHaveAttribute('placeholder','Mixed');
+    await expect(page.getByTestId('scoped-target-label')).toHaveAttribute('data-dirty','true');await expect(hfChoice).toHaveAttribute('data-dirty','true');
+    const owned=await selectedOwners();expect(owned.targets).toHaveLength(2);
+    expect(owned.targets.map(target=>target.editorVectors.outer_wall_speed.overrideValues[5])).toEqual([{value:187},{value:188}]);
+    const beforeScopedView=await page.evaluate(()=>(window as any).__orcaScopedConfigurationGate.snapshot().status);
+    const requestsBeforeScopedView=(await readSliceReceipts(page) as {direction:string;op:string}[]).filter(receipt=>receipt.direction==='request'&&['getScopedConfigEditor','mutateNativeScopedConfig'].includes(receipt.op)).length;
+    await sfChoice.click();await expect(speed).not.toHaveAttribute('placeholder','Mixed');
+    await expect(page.getByTestId('scoped-target-label')).toHaveAttribute('data-dirty','true');await expect(hfChoice).toHaveAttribute('data-dirty','true');
+    for(const line of await hfChoice.locator('span span').all())await expect(line).toHaveCSS('color',dirtyColour);
+    await expect(page.getByTestId('scoped-target-label')).toHaveCSS('color',dirtyColour);
+    expect(await page.evaluate(()=>(window as any).__orcaScopedConfigurationGate.snapshot().status)).toEqual(beforeScopedView);
+    expect((await readSliceReceipts(page) as {direction:string;op:string}[]).filter(receipt=>receipt.direction==='request'&&['getScopedConfigEditor','mutateNativeScopedConfig'].includes(receipt.op))).toHaveLength(requestsBeforeScopedView);
+    await expect(page.getByTestId('config-nozzle-icon-outer_wall_speed')).toBeVisible();await sfChoice.focus();await page.mouse.move(1000,700);
+    await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/scoped-extruder-dirty-multiselect.png')});
+    await hfChoice.click();await speed.fill('189');await speed.press('Enter');await expect(speed).toHaveValue('189');await expect(speed).toBeEnabled();
+    const beforeReset=await page.evaluate(()=>(window as any).__orcaScopedConfigurationGate.snapshot().status.undoEntries.length);
+    await page.getByTestId('config-category-toggle-Other layers speed').click({button:'right'});await page.getByTestId('config-reset-category-Speed').click();
+    await expect(speed).toHaveValue(sourceBefore);await expect(speed).toBeEnabled();
+    expect(await page.evaluate(()=>(window as any).__orcaScopedConfigurationGate.snapshot().status.undoEntries.length)).toBe(beforeReset+1);
+    await expect(page.getByTestId('scoped-target-label')).toHaveAttribute('data-dirty','false');
+    await page.getByTestId('history-undo').click();await expect(speed).toHaveValue('189');await expect(hfChoice).toHaveAttribute('aria-pressed','true');
+    await page.getByTestId('history-redo').click();await expect(speed).toHaveValue(sourceBefore);await expect(speed).toBeEnabled();
+    // A real sibling Part + modifier selection keeps inherited Object ownership
+    // separate from the selected volumes' local ownership and Reset All.
+    await selectObjects([originalObject.id]);await sfChoice.click();await speed.fill('186');await speed.press('Enter');await expect(speed).toHaveValue('186');await expect(speed).toBeEnabled();
+    await objectButton(originalObject.id).click({button:'right'});await page.getByTestId('objectlist-add-parameter_modifier').click();
+    await page.getByTestId('objectlist-add-parameter_modifier-Cube').click();
+    await expect.poll(async()=>(await structure())[0].volumes.length).toBe(2);
+    await objectButton(originalObject.id).click({button:'right'});await page.getByTestId('objectlist-add-parameter_modifier').click();
+    await page.getByTestId('objectlist-add-parameter_modifier-Cube').click();
+    await expect.poll(async()=>(await structure())[0].volumes.length).toBe(3);
+    // A proper subset remains a Part selection; all volumes intentionally classify as Object.
+    const volumes=(await structure())[0].volumes.slice(0,2);
+    expect(volumes.some(volume=>volume.type==='parameter_modifier')).toBe(true);
+    const partButton=(id:number)=>page.getByTestId(`part-${id}`).locator(':scope > button.object-list-row');
+    if(!await partButton(volumes[0].id).isVisible())await page.getByTestId(`object-expand-${originalObject.id}`).click();
+    await partButton(volumes[0].id).click({position:{x:50,y:10}});await partButton(volumes[1].id).click({position:{x:50,y:10},modifiers:[modifierKey]});
+    await expect(page.getByTestId('scoped-target-label')).toHaveText('2 volumes');await expect(speed).toHaveValue('186');await expect(speed).toBeEnabled();
+    await expect(page.getByTestId('scoped-target-label')).toHaveAttribute('data-dirty','false');await expect(sfChoice).toHaveAttribute('data-dirty','false');
+    expect((await selectedOwners()).targets.map(target=>target.sourceScopes.indexed.outer_wall_speed[4])).toEqual(['object','object']);
+    await hfChoice.click();await speed.fill('177');await speed.press('Enter');await expect(speed).toHaveValue('177');await expect(speed).toBeEnabled();
+    const volumeOwned=await selectedOwners();expect(volumeOwned.targets.map(target=>target.target)).toEqual(volumes.map(volume=>({scope:'part',id:String(volume.id)})));
+    expect(volumeOwned.targets.map(target=>target.editorVectors.outer_wall_speed.overrideValues[5])).toEqual([{value:177},{value:177}]);
+    await hfChoice.focus();await page.mouse.move(1000,700);await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/scoped-extruder-part-modifier.png')});
+    await page.getByTestId('config-reset-all').click();await expect(speed).toHaveValue(sourceBefore);await expect(speed).toBeEnabled();
+    await expect(page.getByTestId('scoped-target-label')).toHaveAttribute('data-dirty','false');
+    await selectObjects([originalObject.id]);await sfChoice.click();await expect(speed).toHaveValue('186');await expect(sfChoice).toHaveAttribute('data-dirty','true');
+    await page.getByTestId('config-reset-all').click();await expect(page.getByTestId('scoped-target-label')).toHaveAttribute('data-dirty','false');
+    await page.getByTestId('config-mode-project').click();await expect(hfChoice).toHaveAttribute('aria-pressed','true');await expect(processProfile).toHaveAttribute('data-dirty','false');
+    await page.getByTestId('config-mode-plates').click();await expect(selection).toHaveCount(0);
+    await expect(page.getByTestId('config-nozzle-icon-spiral_mode')).toHaveCount(0);
+    await page.getByTestId('config-input-spiral_mode').click();await expect(page.getByTestId('config-reset-spiral_mode')).toBeVisible();
+    await page.getByTestId('config-reset-spiral_mode').click();await expect(page.getByTestId('config-reset-spiral_mode')).toHaveCount(0);
   }finally{await app.close();}
 });
 

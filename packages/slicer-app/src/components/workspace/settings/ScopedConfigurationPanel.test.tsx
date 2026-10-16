@@ -26,6 +26,17 @@ function sharedPrintPlatform() {
     return {ok:true,canonicalName:state.selectedPrint,revision:1,sourceValues,effectiveValues,
       optionMetadata:Object.fromEntries(keys.map(key=>[key,state.metadata![key]])),editorVectors:{},editorBindings:{},editorSelection:{kind:'print',activeSource:true,choices:[],nozzles:[],firstChoiceId:null,
         fieldBindings:Object.fromEntries(keys.map(key=>[key,{kind:'shared'}]))}};
+  },getScopedConfigEditor:async(request:{targets:{scope:'object'|'part';id:string}[]})=>{
+    const state=useSettingsStore.getState();
+    const keys=Object.keys(state.metadata??{}).filter(key=>state.metadata![key].scopes?.includes(request.targets[0].scope) && !/gcode/i.test(key));
+    return {ok:true,revision:state.nativeScopedConfigRevision,optionMetadata:state.metadata,
+      editorSelection:{kind:'print',activeSource:true,choices:[],nozzles:[],firstChoiceId:null,fieldBindings:Object.fromEntries(keys.map(key=>[key,{kind:'shared'}]))},
+      targets:request.targets.map(target=>{
+        const local=(target.scope==='object'?state.nativeScopedConfig.objects:state.nativeScopedConfig.parts)[target.id]??{};
+        const source=Object.fromEntries(keys.map(key=>[key,state.nativeScopedConfig.project[key]??state.baseValues[key]??'']));
+        return {target,sourceValues:source,effectiveValues:{...source,...local},editorVectors:{},editorBindings:{},
+          localKeys:keys.filter(key=>Object.hasOwn(local,key)),sourceScopes:{indexed:{},shared:Object.fromEntries(keys.map(key=>[key,Object.hasOwn(state.nativeScopedConfig.project,key)?'project':'preset']))}};
+      })};
   }}} as unknown as PlatformCapabilities;
 }
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -311,10 +322,10 @@ describe('scoped field drafts', () => {
     expect(walls.getAttribute('data-local-override-highlight')).toBe('true');
     expect(await resetDisabled('Walls', 'Strength')).toBe(false);
     expect(button('config-reset-all').disabled).toBe(false);
-    await act(async () => useSettingsStore.setState({ nativeScopedConfig: {
+    await act(async () => useSettingsStore.setState({ nativeScopedConfigRevision:(useSettingsStore.getState().nativeScopedConfigRevision??0)+1,nativeScopedConfig: {
       project: {}, plates: {}, parts: {}, objects: { '42': { machine_gcode: 'G28' } },
     } }));
-    expect(walls.getAttribute('data-local-override-highlight')).toBe('false');
+    expect(button('config-category-toggle-Walls').getAttribute('data-local-override-highlight')).toBe('false');
     expect(button('config-page-Strength').classList.contains('config-override-label')).toBe(false);
     expect(await resetDisabled('Walls', 'Strength')).toBe(true);
     expect(button('config-reset-all').disabled).toBe(true);

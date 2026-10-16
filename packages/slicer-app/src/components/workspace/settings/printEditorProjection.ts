@@ -1,5 +1,5 @@
 import { configVectorElementAt } from '@slicer/client';
-import type { ConfigEditorSnapshot, OptionMeta, PresetDraftEditorVector, PresetDraftVectorValue } from '@slicer/client';
+import type { ConfigEditorSnapshot, OptionMeta, PresetDraftEditorVector, PresetDraftVectorValue, ScopedConfigEditorSnapshot, ScopedConfigEditorTarget } from '@slicer/client';
 import { editorFieldTarget, type EditorFieldTarget } from './presetEditorBindings';
 import type { ScopedConfigurationField } from './scopedConfigurationProjection';
 
@@ -11,10 +11,14 @@ export interface PrintFieldElement {
   readonly effective: PresetDraftVectorValue | undefined;
   readonly revision: number;
   readonly metadata?: OptionMeta;
+  readonly targets?: readonly ScopedConfigEditorTarget[];
+  readonly sourceMixed?: boolean;
+  readonly inheritedSource?: ScopedConfigurationField['source'];
 }
 
 export function elementText(value: PresetDraftVectorValue | undefined, vector?: PresetDraftEditorVector): string {
   if (value == null) return '';
+  if (typeof value === 'string') return value;
   if (Array.isArray(value)) return value.map(point => `${point.x}, ${point.y}`).join('\n');
   if (typeof value === 'object') {
     if ('x' in value) return `${value.x}, ${value.y}`;
@@ -27,7 +31,7 @@ export function elementText(value: PresetDraftVectorValue | undefined, vector?: 
 
 /** The Print snapshot contains only its native owner's options. Absence from
  * fieldBindings alone is not evidence that an owned option is shared. */
-export function printOwnsField(snapshot: ConfigEditorSnapshot, key: string): boolean {
+export function printOwnsField(snapshot: Pick<ConfigEditorSnapshot, 'sourceValues' | 'effectiveValues'>, key: string): boolean {
   return Object.hasOwn(snapshot.sourceValues, key) || Object.hasOwn(snapshot.effectiveValues, key);
 }
 
@@ -40,7 +44,7 @@ export function printHasLocalOverrides(snapshot: ConfigEditorSnapshot | null, pr
 
 /** Choice markers cover the supported active page, including search-hidden fields.
  * Ownership never uses the short-vector value fallback or a guessed index. */
-export function printDirtyChoiceIds(snapshot: ConfigEditorSnapshot | null, pageKeys: readonly string[]): ReadonlySet<string> {
+export function printDirtyChoiceIds(snapshot: Pick<ConfigEditorSnapshot, 'sourceValues' | 'effectiveValues' | 'editorVectors' | 'editorSelection'> | null, pageKeys: readonly string[]): ReadonlySet<string> {
   const dirty = new Set<string>();
   if (!snapshot) return dirty;
   for (const key of pageKeys) {
@@ -53,6 +57,43 @@ export function printDirtyChoiceIds(snapshot: ConfigEditorSnapshot | null, pageK
     }
   }
   return dirty;
+}
+
+export function scopedDirtyChoiceIds(snapshot: ScopedConfigEditorSnapshot | null, pageKeys: readonly string[]): ReadonlySet<string> {
+  return new Set(snapshot?.targets.flatMap(target => [...printDirtyChoiceIds({ ...target, editorSelection: snapshot.editorSelection }, pageKeys)]) ?? []);
+}
+
+/** Native localKeys already excludes nil-only vectors and other authorities.
+ * Global ownership must not depend on the active mapping or visible catalogue. */
+export function scopedHasLocalOverrides(snapshot: ScopedConfigEditorSnapshot | null): boolean {
+  return snapshot?.targets.some(target => target.localKeys.length > 0) ?? false;
+}
+
+export function scopedPrintField(field: ScopedConfigurationField, snapshot: ScopedConfigEditorSnapshot, choiceId: string | null): ScopedConfigurationField {
+  const target = editorFieldTarget(snapshot, field.key, choiceId);
+  const vector = snapshot.targets[0]?.editorVectors[field.key];
+  const entries = snapshot.targets.map(owner => {
+    const values = owner.editorVectors[field.key];
+    const source = target.kind === 'indexed' && values ? configVectorElementAt(values, values.sourceValues, target.index) : owner.sourceValues[field.key];
+    const effective = target.kind === 'indexed' && values ? configVectorElementAt(values, values.effectiveValues, target.index) : owner.effectiveValues[field.key];
+    const local = target.kind === 'indexed' ? values?.overrideValues[target.index] != null : target.kind === 'shared' && owner.localKeys.includes(field.key);
+    const inherited = target.kind === 'indexed' ? owner.sourceScopes.indexed[field.key]?.[target.index] : owner.sourceScopes.shared[field.key];
+    return { source, effective, local, inherited, origin: local ? owner.target.scope : inherited };
+  });
+  const first = entries[0];
+  const unavailable = target.kind === 'unavailable' || !first || entries.some(entry => entry.effective === undefined || entry.inherited === undefined) || (target.kind === 'indexed' && !vector);
+  const mixed = entries.some(entry => JSON.stringify(entry.effective) !== JSON.stringify(first?.effective));
+  const sourceMixed = entries.some(entry => JSON.stringify(entry.source) !== JSON.stringify(first?.source));
+  const origin = entries.every(entry => entry.origin === first?.origin) ? first?.origin : 'mixed';
+  const inherited = entries.every(entry => entry.inherited === first?.inherited) ? first?.inherited : 'mixed';
+  return { ...field, value: unavailable ? 'Unavailable' : mixed ? null : elementText(first.effective, vector), mixed,
+    source: origin ?? 'preset', local: !unavailable && entries.some(entry => entry.local), resettable: !unavailable && !vector?.readOnly,
+    meta: target.kind === 'indexed' && vector ? { ...field.meta, type: vector.scalarType === 'point' || vector.scalarType === 'points' ? 'string' : vector.scalarType,
+      ...(vector.enumOptions ? { enum_values: vector.enumOptions.map(option => option.name), enum_labels: vector.enumOptions.map(option => option.label) } : {}) } : field.meta,
+    editor: { perSelection: snapshot.editorSelection.fieldBindings[field.key]?.kind === 'per_selection', target: unavailable ? { kind: 'unavailable' } : target,
+      vector, source: first?.source, effective: first?.effective, revision: snapshot.revision, metadata: snapshot.optionMetadata[field.key],
+      targets: snapshot.targets.map(owner => owner.target), sourceMixed, inheritedSource: inherited },
+  };
 }
 
 export function projectPrintField(field: ScopedConfigurationField, snapshot: ConfigEditorSnapshot | null, choiceId: string | null): ScopedConfigurationField {

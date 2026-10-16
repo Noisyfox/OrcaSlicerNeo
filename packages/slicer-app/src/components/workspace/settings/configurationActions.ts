@@ -161,6 +161,25 @@ export function readPrintConfigEditor(platform: PlatformCapabilities) {
   return configurationMutationQueue.then(() => runProjectMutationOperation(() => platform.runtime.getPrintConfigEditor()));
 }
 
+export function readScopedConfigEditor(platform: PlatformCapabilities, targets: readonly import('@slicer/client').ScopedConfigEditorTarget[]) {
+  return configurationMutationQueue.then(() => runProjectMutationOperation(() => platform.runtime.getScopedConfigEditor({ version: 1, targets })));
+}
+
+/** Refresh exactly the captured owners under the same publication reservation. */
+export function commitScopedEditorMutation(platform: PlatformCapabilities, request: NativeScopedConfigMutationRequest,
+  targets: readonly import('@slicer/client').ScopedConfigEditorTarget[]) {
+  if (!paintingCommandAllowed()) return Promise.reject(new Error('Finish the current editing operation first'));
+  const task = configurationMutationQueue.then(async () => {
+    let editor: import('@slicer/client').ScopedConfigEditorSnapshotResult | undefined;
+    await commitScopedConfigurationMutationNow(platform, request, async () => { editor = await platform.runtime.getScopedConfigEditor({ version: 1, targets }); });
+    if (!editor) throw new Error('Scoped configuration operation was not published');
+    if (!editor.ok) throw new Error(editor.error);
+    return editor;
+  });
+  configurationMutationQueue = task.then(() => undefined, () => undefined);
+  return task;
+}
+
 /** Keep the typed Print refresh within the same command's publication lease. */
 export function commitPrintConfigurationMutation(platform: PlatformCapabilities, request: NativeScopedConfigMutationRequest) {
   if (!paintingCommandAllowed()) return Promise.reject(new Error('Finish the current editing operation first'));
