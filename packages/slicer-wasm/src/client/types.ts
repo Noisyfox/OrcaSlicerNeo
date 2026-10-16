@@ -1114,8 +1114,9 @@ export type ExportGcodeResult =
 /** Fresh ordinary plate images, with WebGL bottom-up RGBA rows. */
 export interface ProjectPlateThumbnail {
   plateId: string;
-  width: 512;
-  height: 512;
+  /** Positive integer dimensions, within the native PNG encoder's limits. */
+  width: number;
+  height: number;
   /** Export takes ownership; Worker transports may detach this buffer. */
   rgba: Uint8Array;
 }

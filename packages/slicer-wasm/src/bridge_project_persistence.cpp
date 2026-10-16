@@ -1426,16 +1426,26 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project(const char* request_json) {
                 throw Slic3r::RuntimeError("Project thumbnails must cover every plate");
             for (const auto& image : images) {
                 const auto id = image.at("plate_id").get<std::string>();
+                for (const auto* field : {"width", "height", "pixels_length", "pixels_ptr"})
+                    if (!image.at(field).is_number_unsigned())
+                        throw Slic3r::RuntimeError("Invalid project plate thumbnail");
+                const auto width = image.at("width").get<std::uint64_t>();
+                const auto height = image.at("height").get<std::uint64_t>();
+                // The native miniz encoder stores only 16-bit dimensions.
+                if (!width || !height || width > 0xffff || height > 0xffff)
+                    throw Slic3r::RuntimeError("Invalid project plate thumbnail");
                 const auto pointer = image.at("pixels_ptr").get<std::uint64_t>();
-                constexpr size_t length = 512 * 512 * 4;
-                if (image.at("width") != 512 || image.at("height") != 512 ||
-                    image.at("pixels_length") != length || !pointer ||
+                const std::uint64_t length = width * height * 4;
+                // miniz calculates 57 + (width * 4 + 1) * height in int.
+                if (length + height > std::numeric_limits<int>::max() - 57 ||
+                    image.at("pixels_length").get<std::uint64_t>() != length || !pointer ||
                     pointer > emscripten_get_heap_size() || length > emscripten_get_heap_size() - pointer ||
                     thumbnails.count(id) || std::none_of(state().plate_session_plates.begin(), state().plate_session_plates.end(),
                         [&](const auto& plate) { return plate.id == id; }))
                     throw Slic3r::RuntimeError("Invalid project plate thumbnail");
                 auto& thumbnail = thumbnails[id];
-                thumbnail.width = thumbnail.height = 512;
+                thumbnail.width = static_cast<unsigned int>(width);
+                thumbnail.height = static_cast<unsigned int>(height);
                 const auto* bytes = reinterpret_cast<const unsigned char*>(static_cast<uintptr_t>(pointer));
                 thumbnail.pixels.assign(bytes, bytes + length);
             }

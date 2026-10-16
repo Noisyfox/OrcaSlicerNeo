@@ -3238,8 +3238,14 @@ export function createClient(
         if (!Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 0)
           throw new RangeError('invalid project thumbnail revision');
         for (const image of request.thumbnails) {
-          if (!image.plateId || ids.has(image.plateId) || image.width !== 512 || image.height !== 512 ||
-              !(image.rgba instanceof Uint8Array) || image.rgba.byteLength !== 512 * 512 * 4)
+          // miniz writes 16-bit PNG dimensions and computes its scanline
+          // buffer capacity (57 + (width * 4 + 1) * height) as a signed int.
+          const length = image.width * image.height * 4;
+          if (!image.plateId || ids.has(image.plateId) ||
+              !Number.isInteger(image.width) || image.width <= 0 || image.width > 0xffff ||
+              !Number.isInteger(image.height) || image.height <= 0 || image.height > 0xffff ||
+              length + image.height > 0x7fffffff - 57 ||
+              !(image.rgba instanceof Uint8Array) || image.rgba.byteLength !== length)
             throw new RangeError('invalid project plate thumbnail');
           ids.add(image.plateId);
         }

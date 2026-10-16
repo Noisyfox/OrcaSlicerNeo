@@ -2895,38 +2895,57 @@ describe('SlicerClient bridge contract', () => {
     expect(new TextDecoder().decode(r.bytes)).toContain('bbs-3mf');
   });
 
-  it.each([false, true])('releases thumbnail buffers after export (native throw=%s)', async (fail) => {
+  it.each([
+    { width: 512, height: 512, fail: false },
+    { width: 512, height: 512, fail: true },
+    { width: 300, height: 500, fail: false },
+    { width: 300, height: 500, fail: true },
+    { width: 64, height: 96, fail: false },
+    { width: 1, height: 1, fail: false },
+    { width: 65535, height: 1, fail: false },
+    { width: 1, height: 65535, fail: false },
+  ])('exports $width×$height thumbnails and frees buffers (native throw=$fail)', async ({ width, height, fail }) => {
     const module = createMockModule();
     const original = module.ccall;
     let pointer = 0;
-    const rgba = new Uint8Array(512 * 512 * 4).fill(137);
+    const rgba = new Uint8Array(width * height * 4).fill(137);
     module.ccall = (name, ret, types, args) => {
       if (name === 'orc_export_project') {
         const request = JSON.parse(String(args[0]));
         expect(request.expected_revision).toBe(7);
+        expect(request.thumbnails[0]).toMatchObject({ width, height, pixels_length: rgba.length });
         pointer = request.thumbnails[0].pixels_ptr;
-        expect(module.HEAPU8.slice(pointer, pointer + rgba.length)).toEqual(rgba);
+        const copied = module.HEAPU8.subarray(pointer, pointer + rgba.length);
+        expect(copied.length).toBe(rgba.length);
+        expect(copied.every((value, index) => value === rgba[index])).toBe(true);
         if (fail) throw new Error('native export failed');
       }
       return original(name, ret, types, args);
     };
     const client = createClient(async () => module);
     const result = client.exportProject({ expectedRevision: 7,
-      thumbnails: [{ plateId: 'plate-1', width: 512, height: 512, rgba }] });
+      thumbnails: [{ plateId: 'plate-1', width, height, rgba }] });
     if (fail) await expect(result).rejects.toThrow('native export failed');
     else expect((await result).ok).toBe(true);
     expect(pointer).toBeGreaterThan(0);
     expect(module._freedPointers).toContain(pointer);
   });
 
-  it('rejects invalid thumbnail bytes before invoking native export', async () => {
+  it.each([
+    [0, 1, 4], [-1, 1, 4], [1.5, 1, 4], [NaN, 1, 4], [Infinity, 1, 4],
+    [1, 0, 4], [1, -1, 4], [1, 1.5, 4], [1, NaN, 4], [1, Infinity, 4],
+    [65536, 1, 4], [1, 65536, 4], [32768, 16384, 4], [65535, 65535, 4],
+    [512, 512, 4], [64, 96, 64 * 96 * 4 - 1], [64, 96, 64 * 96 * 4 + 1],
+  ])('rejects invalid thumbnail %s×%s with %s bytes before allocation', async (width, height, length) => {
     const module = createMockModule();
     const call = vi.spyOn(module, 'ccall');
+    const allocate = vi.spyOn(module, '_malloc');
     const client = createClient(async () => module);
     await expect(client.exportProject({ expectedRevision: 1,
-      thumbnails: [{ plateId: 'plate-1', width: 512, height: 512, rgba: new Uint8Array(4) }] }))
+      thumbnails: [{ plateId: 'plate-1', width, height, rgba: new Uint8Array(length) }] }))
       .rejects.toThrow('invalid project plate thumbnail');
     expect(call).not.toHaveBeenCalled();
+    expect(allocate).not.toHaveBeenCalled();
   });
 
   it('exportProject frees the native archive buffer when reading fails', async () => {

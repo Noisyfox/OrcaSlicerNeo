@@ -86,8 +86,15 @@ are excluded. Rendering uses one disposable offscreen renderer and yields betwee
 plates. It does not depend on plate-list visibility or its thumbnail cache.
 
 Raw bottom-up RGBA crosses the typed client/Worker boundary. Native export checks
-the history revision, complete stable plate-ID coverage and exact 512×512 byte
-length, then passes images to Orca's standard PNG/small-thumbnail writer. Rejected
+the history revision, complete stable plate-ID coverage and RGBA byte length
+(`width × height × 4`), then passes images to Orca's standard PNG/small-thumbnail
+writer. The generator defaults to 512×512; the interface accepts positive integer
+widths and heights up to 65535, including rectangular and sub-128 images. This
+limit comes from the current miniz PNG encoder, not the 3MF format. Its scanline
+allocation (`57 + (width × 4 + 1) × height`) must also fit a signed 32-bit integer,
+and the input buffer must fit the WASM heap. The small image remains 128×128:
+downsampling averages source blocks across the entire image, while upsampling
+repeats pixels independently along each axis. Rejected
 images, lost graphics contexts or rendering failures fail Save without marking
 the project clean. Thumbnail generation and project export/write do not offer
 progress cancellation. The host Save As dialog may still be cancelled. Headless
