@@ -53,6 +53,8 @@ const png = new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf
 const aux = [
   { name:'Auxiliaries/说明/empty.txt', content: new Uint8Array() },
   { name:'Auxiliaries/说明/附件.bin', content: new Uint8Array([0,255,128,1,2,0]) },
+  { name:'Auxiliaries/percent%20.bin', content: new Uint8Array([10,20,30]) },
+  { name:'Auxiliaries/UPPER.TXT', content: enc('Case insensitive extension') },
   { name:'Auxiliaries/notes.txt', content: enc('Keep exactly\r\n<&>\r\n') },
   { name:'Auxiliaries/empty-directory/', content: new Uint8Array() },
   { name:'Auxiliaries/.thumbnails/custom cover.png', content: png },
@@ -60,7 +62,7 @@ const aux = [
 ];
 const parts = readZipEntries(bare);
 const types = parts.find(e => e.name === '[Content_Types].xml');
-types.content = enc(text(parts,types.name).replace('</Types>', '<Default Extension="txt" ContentType="text/plain"/><Override PartName="/Auxiliaries/说明/附件.bin" ContentType="application/x-test-opaque"/></Types>'));
+types.content = enc(text(parts,types.name).replace('</Types>', '<Override PartName="/Auxiliaries/percent%2520.bin" ContentType="application/x-test-percent"/><Default Extension="txt" ContentType="text/plain"/><Override PartName="/Auxiliaries/说明/附件.bin" ContentType="application/x-test-opaque"/></Types>'));
 const rels = parts.find(e => e.name === '_rels/.rels');
 const prefix = 'http://schemas.';
 rels.content = enc(`<?xml version="1.0"?><Relationships xmlns="${prefix}openxmlformats.org/package/2006/relationships"><Relationship Id="model" Target="/3D/3dmodel.model" Type="${prefix}microsoft.com/3dmanufacturing/2013/01/3dmodel"/>${[
@@ -79,7 +81,8 @@ const audit = (bytes,label) => {
   assert.equal((relationships.match(/Target="\/Auxiliaries\/.thumbnails\/custom%20cover.png"/g)??[]).length,3,label);
   assert.match(relationships,/urn:test:notes/);
   assert.match(text(entries,'[Content_Types].xml'),/application\/x-test-opaque/);
-  assert.match(text(entries,'[Content_Types].xml'),/text\/plain/);
+  assert.match(text(entries,'[Content_Types].xml'),/PartName="\/Auxiliaries\/UPPER.TXT" ContentType="text\/plain"/);
+  assert.match(text(entries,'[Content_Types].xml'),/PartName="\/Auxiliaries\/percent%2520.bin" ContentType="application\/x-test-percent"/);
   console.log(`PASS ${label}: ${aux.length} exact attachment paths and SHA-256 hashes, custom cover relationships`);
   return bytes;
 };
@@ -100,10 +103,27 @@ ok(call('orc_history_undo'));
 audit(exportProject(),'save after Undo');
 ok(call('orc_history_redo'));
 const saved = audit(exportProject(),'save after Redo');
+const deleteTx = ok(call('orc_history_begin',['string','string','string','string'],['Delete model','project',context,'']));
+const ids = ok(call('orc_get_model_structure')).objects.map(object => object.id);
+ok(call('orc_delete_objects',['string'],[JSON.stringify(ids)]));
+call('orc_history_commit',['string','string'],[deleteTx.transactionId,context]);
+assert.equal(ok(call('orc_get_model_structure')).objects.length,0);
+audit(exportProject(),'save after deleting all models');
+ok(call('orc_history_undo'));
+assert.equal(ok(call('orc_get_model_structure')).objects.length,ids.length);
+audit(exportProject(),'save after model-reconstructing Undo');
+ok(call('orc_history_redo'));
+assert.equal(ok(call('orc_get_model_structure')).objects.length,0);
+audit(exportProject(),'save after model-deleting Redo');
 ok(load(saved));
 audit(exportProject(),'reopen and save again');
 ok(load(bare,true));
 audit(exportProject(),'geometry-only import preserves current attachments');
+const standardOnly = parts.map(entry => entry.name === '_rels/.rels'
+  ? { ...entry, content: enc(text(parts,entry.name).replace(/<Relationship[^>]*Type="http:\/\/schemas.bambulab.com\/package\/2021\/cover-thumbnail-(?:middle|small)"\/>/g,'')) }
+  : entry);
+ok(load(writeStoredZip([...standardOnly,...aux])));
+audit(exportProject(),'standard-only custom cover remains the display cover');
 const assetFile = Module.FS.readdir('/tmp').find(n=>n.endsWith('.aux.zip'));
 Module.FS.unlink(`/tmp/${assetFile}`);
 assert.notEqual(call('orc_export_project', ['string'], ['{}']).ok,true,'missing attachment storage must fail save');

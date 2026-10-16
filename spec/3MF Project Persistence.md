@@ -88,7 +88,7 @@ plates. It does not depend on plate-list visibility or its thumbnail cache.
 Raw bottom-up RGBA crosses the typed client/Worker boundary. Native export checks
 the history revision, complete stable plate-ID coverage and exact 512×512 byte
 length, then passes images to Orca's standard PNG/small-thumbnail writer. Rejected
-images or rendering failures fail Save without marking the project clean. Cancel
+images, lost graphics contexts or rendering failures fail Save without marking the project clean. Cancel
 is supported before the host write starts. Headless exports may omit images.
 
 Each plate temporarily uses 1 MiB per RGBA copy; the complete request is retained
@@ -110,7 +110,10 @@ Unicode names, nested and empty directories, unknown file types and custom
 covers in `.thumbnails`. Save and Save As preserve attachment paths and
 uncompressed bytes exactly; ZIP container bytes need not be identical. Relevant
 package content types and internal root relationships are retained, including
-the standard thumbnail and Bambu small/middle cover relationships. Generated
+the standard thumbnail and Bambu small/middle cover relationships. A standard-only
+custom cover is also used for missing Bambu cover sizes so generated plate images
+do not hide it in consumers that prefer those relationships. Content-type part
+URIs are escaped separately from ZIP filenames, including literal percent signs. Generated
 model/configuration entries are never copied from the old archive.
 
 Compressed attachments have a Worker-owned project-session lifetime independent

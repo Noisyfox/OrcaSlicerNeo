@@ -9,21 +9,24 @@ export function createThumbnailRenderer() {
   let renderer: THREE.WebGLRenderer | undefined;
   const renderPixels = (parts: readonly PlateThumbnailPart[], size: number): Uint8Array => {
     renderer ??= new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    if (renderer.getContext().isContextLost()) throw new Error('Thumbnail graphics context was lost');
     renderer.setSize(size, size, false);
     const target = new THREE.WebGLRenderTarget(size, size, { samples: Math.min(4, renderer.capabilities.maxSamples) });
     target.texture.colorSpace = THREE.SRGBColorSpace;
-    const projection = createPlateThumbnailScene(parts);
+    let projection: ReturnType<typeof createPlateThumbnailScene> | undefined;
     try {
+      projection = createPlateThumbnailScene(parts);
       renderer.setRenderTarget(target);
       renderer.setClearColor(0x000000, 0);
       renderer.render(projection.scene, projection.camera);
       const pixels = new Uint8Array(size * size * 4);
       renderer.readRenderTargetPixels(target, 0, 0, size, size, pixels);
+      if (renderer.getContext().isContextLost()) throw new Error('Thumbnail graphics context was lost');
       return pixels;
     } finally {
       renderer.setRenderTarget(null);
       target.dispose();
-      projection.dispose();
+      projection?.dispose();
     }
   };
   return {
