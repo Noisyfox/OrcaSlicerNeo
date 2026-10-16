@@ -26,8 +26,8 @@ describe('Orca recent project configuration', () => {
     expect(document.recent_projects['001']).toBe(files[5]);
     expect(decodeRecentProjects(document)).toHaveLength(18);
     const reloaded = await new RecentProjectsRepository(config).list();
-    expect(reloaded[0]).toMatchObject({ displayName: 'project-5.3mf', missing: false });
-    expect(JSON.stringify(reloaded)).not.toContain(files[5]);
+    expect(reloaded[0]).toMatchObject({ displayName: 'project-5.3mf', displayPath: files[5], missing: false });
+    expect(reloaded[0].id).not.toBe(files[5]);
   });
   it('resolves only listed ids, retains missing files, removes entries without deleting files', async () => {
     const { repo, config, files } = await fixture();

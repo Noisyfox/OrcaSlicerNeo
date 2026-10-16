@@ -407,10 +407,11 @@ test('File recent projects opens the selected entry and follows Home removal and
     };
     if (process.platform === 'darwin') {
       await expect.poll(() => app.evaluate(({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled, id)).toBe(true);
+      await expect.poll(() => app.evaluate(({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.label, id)).toBe(second);
       await app.evaluate(({ Menu }, id) => Menu.getApplicationMenu()!.getMenuItemById(id)!.click(), id);
     } else {
       await openMenu();
-      await expect(page.getByTestId(id)).toHaveText('second.3mf');
+      await expect(page.getByTestId(id)).toHaveText(second);
       await page.getByTestId(id).click();
     }
     await expect(page.getByTestId('titlebar-project-name')).toHaveText('second');
@@ -424,7 +425,7 @@ test('File recent projects opens the selected entry and follows Home removal and
     } else {
       await openMenu();
       await expect(page.getByTestId(id)).toHaveCount(0);
-      await expect(page.getByTestId(`file-recent-${entries.find(entry => entry.displayName === 'first.3mf')!.id}`)).toHaveText('first.3mf');
+      await expect(page.getByTestId(`file-recent-${entries.find(entry => entry.displayName === 'first.3mf')!.id}`)).toHaveText(first);
       await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
     }
     await page.getByTestId('home-clear-recent').click();

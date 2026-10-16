@@ -54,7 +54,7 @@ export class RecentProjectsRepository {
       return Promise.all(paths.map(async (path) => {
         let modifiedAt: number | null = null;
         try { const file = await stat(path); if (file.isFile()) modifiedAt = file.mtimeMs; } catch { /* Missing or inaccessible. */ }
-        return { id: this.idFor(path), displayName: basename(path), modifiedAt, missing: modifiedAt === null };
+        return { id: this.idFor(path), displayName: basename(path), displayPath: path, modifiedAt, missing: modifiedAt === null };
       }));
     });
   }

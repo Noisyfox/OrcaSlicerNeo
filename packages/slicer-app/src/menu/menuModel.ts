@@ -49,7 +49,7 @@ export function buildMenuModel(
     item('file-new-project', 'New Project', 'new-project'),
     item('file-open-project', 'Open Project…', 'open-project'),
     { testId: 'file-recent-projects', label: 'Recent projects', submenu: recentProjects.length
-      ? recentProjects.slice(0, 18).map(project => item(`file-recent-${project.id}`, project.displayName, recentProjectMenuCommand(project.id)))
+      ? recentProjects.slice(0, 18).map(project => item(`file-recent-${project.id}`, project.displayPath, recentProjectMenuCommand(project.id)))
       : [{ testId: 'file-recent-empty', label: 'No recent projects' }] },
     item('file-save-project', 'Save Project', 'save-project'),
     item('file-save-project-as', 'Save Project As…', 'save-project-as'),

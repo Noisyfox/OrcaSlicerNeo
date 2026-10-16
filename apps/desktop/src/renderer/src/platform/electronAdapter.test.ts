@@ -359,7 +359,7 @@ it('propagates host preferences save rejection and setup cannot apply an unsaved
 
 it('opens recent projects through private location tokens and never accepts a fabricated location', async () => {
   const record = vi.fn(async () => {});
-  const list = vi.fn(async () => [{ id: 'recent-id', displayName: 'Robot.3mf', modifiedAt: 1, missing: false }]);
+  const list = vi.fn(async () => [{ id: 'recent-id', displayName: 'Robot.3mf', displayPath: '/projects/Robot.3mf', modifiedAt: 1, missing: false }]);
   const { adapter } = setup({ recentProjects: {
     list, record, thumbnail: vi.fn(async (id: string) => id === 'recent-id' ? 'data:image/png;base64,png' : null),
     open: vi.fn(async () => ({ canceled: false, displayName: 'Robot.3mf', locationToken: 'private-token', bytes: new ArrayBuffer(2) })),

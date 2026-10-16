@@ -69,9 +69,10 @@
   leaves the session and its dirty state unchanged.
 - The Web host provides **Save Project** as a new `.3mf` download on every
   invocation. It does not attempt to overwrite a previously downloaded file.
-- The project file path remains host-private. Electron persists recent paths
-  in its host configuration as described below; paths never enter shared
-  preferences or shared application state.
+- The project file's writable location remains host-private. Electron persists
+  recent paths in its host configuration as described below and supplies full
+  paths as display metadata for the File menu. Shared preferences do not store
+  paths, and shared code cannot use display paths to access files.
 
 ## Project identity and unsaved changes
 
@@ -309,7 +310,9 @@ invalidate an already committed project open/save. Updates are serialized and
 atomically replace the configuration; unrelated keys are preserved. A malformed
 configuration reports an error instead of being overwritten. Clearing and
 removing history never delete project files. The host supplies opaque entry IDs
-and display metadata; only the Electron adapter retains project location tokens.
+and display metadata, including the full display path for recent-menu labels;
+only the Electron adapter retains project location tokens. Open, reveal and
+remove resolve the entry ID in the host, never a renderer-supplied display path.
 The Web host returns an empty list and does not persist or reopen recent files.
 
 Autosave, crash recovery and automatic startup reopening remain deferred.

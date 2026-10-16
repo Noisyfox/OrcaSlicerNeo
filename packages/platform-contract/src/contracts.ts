@@ -80,10 +80,12 @@ export interface ProjectFileCapability {
   saveAs(input: ProjectInput): Promise<ProjectSaveAsResult>;
 }
 
-/** Host paths stay private; ids are only meaningful to the supplying host. */
+/** Operations use host-owned ids; the supplied path is display metadata only. */
 export interface RecentProject {
   id: string;
   displayName: string;
+  /** Full source path for menu labels; never an operation token. */
+  displayPath: string;
   modifiedAt: number | null;
   missing: boolean;
 }

@@ -32,12 +32,15 @@ project-load policy and dirty-project confirmation. Recent cards use the same
 open flow. Actions follow the shared command availability during editing,
 loading, slicing and dialogs; a cancelled operation keeps the current page.
 File → Recent projects exposes the same ordered history in rendered menus and
-the macOS native menu. Home and menus share one metadata list, refreshed after
+the macOS native menu, displaying each full source path to distinguish files
+with the same basename. Home cards retain their filename labels. Home and menus
+share one metadata list, refreshed after
 open/save, history changes, navigation and window focus. Empty history shows a
 disabled No recent projects item. Each command carries the opaque recent ID,
 so reordering cannot retarget an old menu item and removed entries fail the
 current command-state check. Host validation accepts at most 18 recent commands
-alongside the complete fixed command table; no user paths enter the menu model.
+alongside the complete fixed command table. Full paths are display-only labels;
+all file operations continue to use opaque IDs.
 
 Electron cards show the filename and local last-modified time, or File is
 missing. Right-clicking anywhere on a card opens the same actions as its ellipsis

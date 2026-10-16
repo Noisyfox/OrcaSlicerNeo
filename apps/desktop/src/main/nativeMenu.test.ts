@@ -52,9 +52,10 @@ function fakeMenu() {
 describe('Electron native menu boundary', () => {
   it('validates bounded recent commands, renders empty history disabled, and rejects stale native clicks', () => {
     const command = recentProjectMenuCommand('opaque-id');
+    const displayPath = `C:\\${'nested-directory\\'.repeat(24)}Model.3mf`;
     const model: MenuModel = { ...STARTUP_DISABLED_MENU_MODEL, menus: STARTUP_DISABLED_MENU_MODEL.menus.map((menu, index) => index ? menu : {
       ...menu, items: [...menu.items, { testId: 'file-recent-projects', label: 'Recent projects', submenu: [
-        { testId: 'file-recent-opaque-id', label: 'Model.3mf', command },
+        { testId: 'file-recent-opaque-id', label: displayPath, command },
         { testId: 'file-recent-empty', label: 'No recent projects' },
       ] }],
     }) };
@@ -66,6 +67,7 @@ describe('Electron native menu boundary', () => {
     expect(validateMenuStateSnapshot(state(Object.fromEntries(Array.from({ length: 19 }, (_, i) => [recentProjectMenuCommand(String(i)), { enabled: true }]))))).toBeNull();
     const onCommand = vi.fn();
     const submenu = buildNativeMenuTemplate(model, current, onCommand, () => current)[0].submenu!.at(-1)!.submenu!;
+    expect(submenu[0].label).toBe(displayPath);
     expect(submenu[1]).toMatchObject({ label: 'No recent projects', enabled: false });
     submenu[0].click!();
     expect(onCommand).toHaveBeenCalledWith(command);

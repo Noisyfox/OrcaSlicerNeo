@@ -64,11 +64,11 @@ describe('buildMenuModel', () => {
   });
 
   it('projects recent entries by stable id, with a disabled empty placeholder and current availability', () => {
-    const projects = [{ id: 'one', displayName: 'First.3mf', modifiedAt: 1, missing: false },
-      { id: 'two', displayName: 'Second.3mf', modifiedAt: null, missing: true }];
+    const projects = [{ id: 'one', displayName: 'Model.3mf', displayPath: '/projects/first/Model.3mf', modifiedAt: 1, missing: false },
+      { id: 'two', displayName: 'Model.3mf', displayPath: 'C:\\projects\\second\\Model.3mf', modifiedAt: null, missing: true }];
     const recent = (state = buildMenuStateSnapshot(input(), web), entries = projects) =>
       buildMenuModel(state, web, entries).menus[0].items.find(item => item.testId === 'file-recent-projects')!.submenu!;
-    expect(recent()).toEqual(projects.map(project => ({ testId: `file-recent-${project.id}`, label: project.displayName, command: recentProjectMenuCommand(project.id) })));
+    expect(recent()).toEqual(projects.map(project => ({ testId: `file-recent-${project.id}`, label: project.displayPath, command: recentProjectMenuCommand(project.id) })));
     expect(recent(undefined, [])).toEqual([{ testId: 'file-recent-empty', label: 'No recent projects' }]);
     const ready = buildMenuStateSnapshot(input(), web, projects);
     expect(ready.items[recentProjectMenuCommand('two')]?.enabled).toBe(true);

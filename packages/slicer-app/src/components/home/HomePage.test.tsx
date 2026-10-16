@@ -31,7 +31,7 @@ describe('Home page', () => {
   it('renders the embedded PNG, falls back on decode failure and accepts a refreshed image', async () => {
     let thumbnailUrl = 'data:image/png;base64,first';
     const { container } = await render({ ...NO_RECENT_PROJECTS, thumbnail: async () => thumbnailUrl,
-      list: async () => [{ id: 'opaque', displayName: 'Robot.3mf', modifiedAt: 1, missing: false }],
+      list: async () => [{ id: 'opaque', displayName: 'Robot.3mf', displayPath: '/projects/Robot.3mf', modifiedAt: 1, missing: false }],
     });
     const button = container.querySelector('button[aria-label="Open Robot.3mf"]')!;
     expect(button.querySelector('img')?.getAttribute('src')).toBe(thumbnailUrl);
@@ -43,7 +43,7 @@ describe('Home page', () => {
     expect(button.querySelector('img')?.getAttribute('src')).toBe(thumbnailUrl);
   });
   it('shows the list immediately, fills images independently, and keeps commands enabled while another image waits', async () => {
-    const entries = ['slow', 'fast'].map(id => ({ id, displayName: `${id}.3mf`, modifiedAt: 1, missing: false }));
+    const entries = ['slow', 'fast'].map(id => ({ id, displayName: `${id}.3mf`, displayPath: `/projects/${id}.3mf`, modifiedAt: 1, missing: false }));
     const releases = new Map<string, (url: string) => void>();
     const thumbnail = vi.fn((id: string) => new Promise<string>(resolve => releases.set(id, resolve)));
     const { container, onOpenRecent, onCreate } = await render({ ...NO_RECENT_PROJECTS, list: async () => entries, thumbnail });
@@ -60,7 +60,7 @@ describe('Home page', () => {
     expect(container.querySelector('[data-testid="home-open-project"]')?.hasAttribute('disabled')).toBe(false);
   });
   it('ignores old thumbnail responses after a refresh, tab change and removal', async () => {
-    const project = { id: 'opaque', displayName: 'Robot.3mf', modifiedAt: 1, missing: false };
+    const project = { id: 'opaque', displayName: 'Robot.3mf', displayPath: '/projects/Robot.3mf', modifiedAt: 1, missing: false };
     let entries = [project];
     const releases: Array<(url: string) => void> = [];
     const { container, update } = await render({ ...NO_RECENT_PROJECTS,
@@ -83,7 +83,7 @@ describe('Home page', () => {
   });
   it('contains a thumbnail failure without failing the list or disabling actions', async () => {
     const { container } = await render({ ...NO_RECENT_PROJECTS,
-      list: async () => [{ id: 'opaque', displayName: 'Robot.3mf', modifiedAt: 1, missing: false }],
+      list: async () => [{ id: 'opaque', displayName: 'Robot.3mf', displayPath: '/projects/Robot.3mf', modifiedAt: 1, missing: false }],
       thumbnail: async () => { throw new Error('worker gone'); },
     });
     expect(container.textContent).toContain('Robot.3mf');
@@ -100,7 +100,7 @@ describe('Home page', () => {
   });
   it('opens a missing record by id and honors command availability', async () => {
     const { container, onOpenRecent, update } = await render({ ...NO_RECENT_PROJECTS,
-      list: async () => [{ id: 'opaque', displayName: '<Robot>.3mf', modifiedAt: null, missing: true }],
+      list: async () => [{ id: 'opaque', displayName: '<Robot>.3mf', displayPath: '/projects/<Robot>.3mf', modifiedAt: null, missing: true }],
     });
     expect(container.textContent).toContain('File is missing');
     const button = container.querySelector('button[aria-label="Open <Robot>.3mf"]');
@@ -110,7 +110,7 @@ describe('Home page', () => {
     expect(container.querySelector('[data-testid="home-new-project"]')?.hasAttribute('disabled')).toBe(true);
   });
   it('keeps history visible when clearing fails and can retry successfully', async () => {
-    let entries = [{ id: 'opaque', displayName: 'Robot.3mf', modifiedAt: 1, missing: false }];
+    let entries = [{ id: 'opaque', displayName: 'Robot.3mf', displayPath: '/projects/Robot.3mf', modifiedAt: 1, missing: false }];
     const clear = vi.fn<() => Promise<void>>(async () => { throw new Error('disk full'); });
     const { container } = await render({ ...NO_RECENT_PROJECTS, list: async () => entries, clear });
     await click(container.querySelector('[data-testid="home-clear-recent"]'));

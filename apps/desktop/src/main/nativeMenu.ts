@@ -14,6 +14,7 @@ const BOOT_PHASES = ['starting', 'ready', 'failed', 'setup'] as const;
 const SLICER_STATUSES = ['idle', 'slicing', 'done', 'error'] as const;
 const MAX_MENU_DEPTH = 8;
 const MAX_MENU_ITEMS = 128;
+const MAX_RECENT_PATH_LABEL_LENGTH = 32768;
 const MENU_STATE_COMMANDS = [
   'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences', 'setup-wizard',
   'open-configuration-folder',
@@ -114,8 +115,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isString(value: unknown): value is string {
-  return typeof value === 'string' && value.length <= 256;
+function isString(value: unknown, maxLength = 256): value is string {
+  return typeof value === 'string' && value.length <= maxLength;
 }
 
 function isOneOf<T extends readonly string[]>(values: T, value: unknown): value is T[number] {
@@ -123,7 +124,8 @@ function isOneOf<T extends readonly string[]>(values: T, value: unknown): value 
 }
 
 function cloneMenuItem(value: unknown, depth: number, seen: Set<MenuCommandId>): MenuItem | null {
-  if (depth > MAX_MENU_DEPTH || !isRecord(value) || !isString(value.testId) || !isString(value.label)) return null;
+  if (depth > MAX_MENU_DEPTH || !isRecord(value) || !isString(value.testId)) return null;
+  if (!isString(value.label, isRecentProjectMenuCommand(value.command) ? MAX_RECENT_PATH_LABEL_LENGTH : 256)) return null;
 
   const separator = value.separator;
   const command = value.command;
