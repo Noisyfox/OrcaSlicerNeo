@@ -28,6 +28,10 @@ await import('./index');
 const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
 
 describe('Electron preload bridge', () => {
+  it('requests one thumbnail by opaque recent id over its own channel', async () => {
+    await bridge.recentProjects.thumbnail('recent-id');
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.recentThumbnail, 'recent-id');
+  });
   it('exposes only narrow menu/source operations and fixed channels', async () => {
     const model = { version: 1 as const, menuMode: 'native' as const, menus: [] };
     const snapshot = {
@@ -73,6 +77,11 @@ describe('Electron preload bridge', () => {
     handler({}, 'arbitrary-channel');
     expect(listener).toHaveBeenCalledWith('quit');
     expect(listener).toHaveBeenCalledOnce();
+    handler({}, 'open-recent:opaque-id');
+    handler({}, 'open-recent:');
+    handler({}, 'open-recent:%ZZ');
+    expect(listener).toHaveBeenLastCalledWith('open-recent:opaque-id');
+    expect(listener).toHaveBeenCalledTimes(2);
 
     cleanup();
     expect(electronMocks.removeListener).toHaveBeenCalledWith(Ipc.nativeMenuCommand, handler);

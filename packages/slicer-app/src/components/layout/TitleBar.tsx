@@ -71,7 +71,7 @@ function MenuItems({
           );
         }
 
-        if (!item.command) return null;
+        if (!item.command) return <MenubarItem key={item.testId} data-testid={item.testId} disabled>{item.label}</MenubarItem>;
         const itemState = state.items[item.command];
         const enabled = itemState?.enabled ?? false;
         return (

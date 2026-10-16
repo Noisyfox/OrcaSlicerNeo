@@ -18,6 +18,8 @@ files:
 # asar decompression. (Main serves out/renderer over http; its fs reads are
 # asar-aware either way — unpacking is a load-time win, not a requirement.)
 asarUnpack:
+  # The preview Node Worker and any shared output chunks use normal Node file IO.
+  - out/main/**
   - out/renderer/wasm/**
   # Profile ZIPs are runtime inputs fetched by the shared Worker. Keep the
   # complete package tree outside asar so packaged failure probes (and support

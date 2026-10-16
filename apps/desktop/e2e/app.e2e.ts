@@ -181,7 +181,7 @@ async function launchApp({
     console.log(`[e2e display] ${JSON.stringify(display)}`);
     ciDisplayLogged = true;
   }
-  // The production app deliberately starts on the blank Home tab. Existing
+  // The production app deliberately starts on the Home tab. Existing
   // flow tests exercise the workspace, so opt them into Prepare at the test
   // boundary rather than weakening the product default.
   if (initialTab === 'prepare') {
@@ -191,7 +191,7 @@ async function launchApp({
   return { app, exportPath };
 }
 
-test('starts on blank Home and keeps the workspace DOM mounted across tabs', async () => {
+test('starts on Home and keeps the workspace DOM mounted across tabs', async () => {
   const { app } = await launchApp({ initialTab: 'home' });
   try {
     const page = await app.firstWindow();

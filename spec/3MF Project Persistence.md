@@ -69,8 +69,10 @@
   leaves the session and its dirty state unchanged.
 - The Web host provides **Save Project** as a new `.3mf` download on every
   invocation. It does not attempt to overwrite a previously downloaded file.
-- The project file path is host-private, in-memory session data. It is not
-  stored in shared preferences or made available to the shared application.
+- The project file's writable location remains host-private. Electron persists
+  recent paths in its host configuration as described below and supplies full
+  paths as display metadata for the File menu. Shared preferences do not store
+  paths, and shared code cannot use display paths to access files.
 
 ## Project identity and unsaved changes
 
@@ -292,9 +294,28 @@ render the dialog and a nonterminal native stage before the load result commits.
 
 ## Persistence boundary
 
-The first release provides only explicit project open and save operations. It
-does not add autosave, crash recovery, a recent-project list, or automatic
-reopening of the last project at startup.
+The application provides explicit project open/save and the
+[Home recent-project list](Application%20Shell.md#home-page). Electron stores
+history in `OrcaSlicerNeo.conf` inside its `userData` configuration directory,
+using Orca AppConfig's JSON format:
+
+```json
+{ "recent_projects": { "001": "/absolute/path/latest.3mf", "002": "/absolute/path/older.3mf" } }
+```
+
+Successful project opens and saves move the path to the front, deduplicate it
+and retain at most 18 entries, matching Orca's default history size. Cancelled
+or rejected loads/saves do not add entries. History write failure does not
+invalidate an already committed project open/save. Updates are serialized and
+atomically replace the configuration; unrelated keys are preserved. A malformed
+configuration reports an error instead of being overwritten. Clearing and
+removing history never delete project files. The host supplies opaque entry IDs
+and display metadata, including the full display path for recent-menu labels;
+only the Electron adapter retains project location tokens. Open, reveal and
+remove resolve the entry ID in the host, never a renderer-supplied display path.
+The Web host returns an empty list and does not persist or reopen recent files.
+
+Autosave, crash recovery and automatic startup reopening remain deferred.
 
 It also does not introduce product-level compressed-file or decompressed-archive
 size quotas for 3MF input. Resource-limit policy is deferred; a runtime

@@ -6,6 +6,7 @@
 // ----------------------------------------------------------------
 
 import type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
+import { isRecentProjectMenuCommand } from '../../../../packages/platform-contract/src/menu';
 import type { PrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
 import type { PrinterTransportBody } from '../../../../packages/printer-control/src/transport';
 
@@ -23,6 +24,13 @@ export const Ipc = {
   projectOpenDropped: 'project:openDropped',
   projectSave: 'project:save',
   projectSaveAs: 'project:saveAs',
+  recentList: 'recent:list',
+  recentThumbnail: 'recent:thumbnail',
+  recentOpen: 'recent:open',
+  recentRecord: 'recent:record',
+  recentRemove: 'recent:remove',
+  recentClear: 'recent:clear',
+  recentReveal: 'recent:reveal',
   preferencesLoad: 'preferences:load',
   preferencesSave: 'preferences:save',
   printerConfigurationLoad: 'printerConfiguration:load',
@@ -58,7 +66,7 @@ export const MENU_COMMAND_IDS = [
 ] as const satisfies readonly MenuCommandId[];
 
 export function isMenuCommandId(value: unknown): value is MenuCommandId {
-  return typeof value === 'string' && (MENU_COMMAND_IDS as readonly string[]).includes(value);
+  return typeof value === 'string' && ((MENU_COMMAND_IDS as readonly string[]).includes(value) || isRecentProjectMenuCommand(value));
 }
 
 export type HostCommandId = 'quit' | 'open-configuration-folder';
@@ -78,6 +86,15 @@ export interface ElectronBridge {
     openDropped(paths: string[]): Promise<ProjectOpenIpcResult>;
     save(locationToken: string | null, defaultName: string, bytes: ArrayBuffer): Promise<ProjectSaveIpcResult>;
     saveAs(defaultName: string, bytes: ArrayBuffer): Promise<ProjectSaveIpcResult>;
+  };
+  recentProjects: {
+    list(): Promise<import('../../../../packages/platform-contract/src/contracts').RecentProject[]>;
+    thumbnail(id: string): Promise<string | null>;
+    open(id: string): Promise<ProjectOpenIpcResult>;
+    record(locationToken: string): Promise<void>;
+    remove(id: string): Promise<void>;
+    clear(): Promise<void>;
+    reveal(id: string): Promise<void>;
   };
   lifecycle: {
     onCloseRequest(listener: () => void | Promise<void>): () => void;

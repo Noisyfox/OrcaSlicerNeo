@@ -1,5 +1,6 @@
 import {
   APP_TABS,
+  isRecentProjectMenuCommand,
   type MenuCommandId,
   type MenuItem,
   type MenuModel,
@@ -13,6 +14,7 @@ const BOOT_PHASES = ['starting', 'ready', 'failed', 'setup'] as const;
 const SLICER_STATUSES = ['idle', 'slicing', 'done', 'error'] as const;
 const MAX_MENU_DEPTH = 8;
 const MAX_MENU_ITEMS = 128;
+const MAX_RECENT_PATH_LABEL_LENGTH = 32768;
 const MENU_STATE_COMMANDS = [
   'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences', 'setup-wizard',
   'open-configuration-folder',
@@ -113,8 +115,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isString(value: unknown): value is string {
-  return typeof value === 'string' && value.length <= 256;
+function isString(value: unknown, maxLength = 256): value is string {
+  return typeof value === 'string' && value.length <= maxLength;
 }
 
 function isOneOf<T extends readonly string[]>(values: T, value: unknown): value is T[number] {
@@ -122,7 +124,8 @@ function isOneOf<T extends readonly string[]>(values: T, value: unknown): value 
 }
 
 function cloneMenuItem(value: unknown, depth: number, seen: Set<MenuCommandId>): MenuItem | null {
-  if (depth > MAX_MENU_DEPTH || !isRecord(value) || !isString(value.testId) || !isString(value.label)) return null;
+  if (depth > MAX_MENU_DEPTH || !isRecord(value) || !isString(value.testId)) return null;
+  if (!isString(value.label, isRecentProjectMenuCommand(value.command) ? MAX_RECENT_PATH_LABEL_LENGTH : 256)) return null;
 
   const separator = value.separator;
   const command = value.command;
@@ -135,7 +138,9 @@ function cloneMenuItem(value: unknown, depth: number, seen: Set<MenuCommandId>):
   }
   if (command !== undefined && (!isMenuCommandId(command) || seen.has(command))) return null;
   if (submenu !== undefined && (!Array.isArray(submenu) || submenu.length > MAX_MENU_ITEMS || command !== undefined)) return null;
-  if (command === undefined && submenu === undefined) return null;
+  if (command === undefined && submenu === undefined) {
+    return value.label ? { testId: value.testId, label: value.label } : null;
+  }
 
   if (submenu !== undefined) {
     const children: MenuItem[] = [];
@@ -188,8 +193,12 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
   const rawItems = value.items;
 
   const items = {} as Record<MenuCommandId, { enabled: boolean; checked?: boolean }>;
-  if (Object.keys(rawItems).length !== MENU_STATE_COMMANDS.length) return null;
-  for (const command of MENU_STATE_COMMANDS) {
+  const commands = Object.keys(rawItems);
+  if (commands.length < MENU_STATE_COMMANDS.length || commands.length > MENU_STATE_COMMANDS.length + 18) return null;
+  if (!MENU_STATE_COMMANDS.every(command => Object.hasOwn(rawItems, command))) return null;
+  for (const key of commands) {
+    if (!(MENU_STATE_COMMANDS as readonly string[]).includes(key) && !isRecentProjectMenuCommand(key)) return null;
+    const command = key as MenuCommandId;
     const item = rawItems[command];
     if (!isRecord(item) || typeof item.enabled !== 'boolean' || (item.checked !== undefined && typeof item.checked !== 'boolean')) return null;
     items[command] = item.checked === undefined
@@ -246,10 +255,12 @@ function templateForItem(
   if (item.separator) return { type: 'separator' };
   if (item.submenu) {
     return {
+      id: item.testId,
       label: item.label,
       submenu: item.submenu.map((child) => templateForItem(child, state, onCommand, getCurrentState)),
     };
   }
+  if (!item.command) return { id: item.testId, label: item.label, enabled: false };
   const command = item.command!;
   const itemState = getCurrentState().items[command];
   return {

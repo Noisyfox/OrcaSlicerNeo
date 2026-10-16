@@ -190,3 +190,16 @@ it('propagates browser persistence rejection without publishing unsaved in-memor
  await expect(adapter.preferences.save({ ...original, profileActivation: { models: [], filaments: ['PLA'] } })).rejects.toThrow('quota exceeded');
  expect((await adapter.preferences.load()).profileActivation).toEqual(original.profileActivation);
 });
+
+it('keeps every recent operation empty without storing browser file locations', async () => {
+  const adapter = createBrowserAdapter({} as never);
+  const before = { ...localStorage };
+  await adapter.recentProjects.record({} as never);
+  await adapter.recentProjects.remove('anything');
+  await adapter.recentProjects.clear();
+  await adapter.recentProjects.reveal('anything');
+  expect(await adapter.recentProjects.open('anything')).toEqual({ status: 'cancelled' });
+  expect(await adapter.recentProjects.list()).toEqual([]);
+  expect(await adapter.recentProjects.thumbnail('anything')).toBeNull();
+  expect({ ...localStorage }).toEqual(before);
+});

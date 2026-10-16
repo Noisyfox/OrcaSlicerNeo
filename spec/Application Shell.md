@@ -1,6 +1,6 @@
 # Application Shell
 
-**Updated:** 2026-10-11
+**Updated:** 2026-10-16
 **Status:** Delivered behavior
 **Scope:** Shared layout, desktop window chrome, menus and diagnostics.
 
@@ -22,6 +22,75 @@ window quits Electron on all platforms after the project-close guard succeeds.
 The packaged renderer uses a guarded loopback HTTP origin; Electron WASM runs
 in the utility process, as specified by
 [Native Python Plugin Architecture](Native%20Python%20Plugin%20Architecture.md).
+
+## Home page
+
+Home starts with New project and Open project action cards above a Recent
+projects grid, without an account/login sidebar. New project enters Prepare
+after creating a clean session. Open project accepts 3MF and uses the existing
+project-load policy and dirty-project confirmation. Recent cards use the same
+open flow. Actions follow the shared command availability during editing,
+loading, slicing and dialogs; a cancelled operation keeps the current page.
+File → Recent projects exposes the same ordered history in rendered menus and
+the macOS native menu, displaying each full source path to distinguish files
+with the same basename. Home cards retain their filename labels. Home and menus
+share one metadata list, refreshed after
+open/save, history changes, navigation and window focus. Empty history shows a
+disabled No recent projects item. Each command carries the opaque recent ID,
+so reordering cannot retarget an old menu item and removed entries fail the
+current command-state check. Host validation accepts at most 18 recent commands
+alongside the complete fixed command table. Full paths are display-only labels;
+all file operations continue to use opaque IDs.
+
+Electron cards show the filename and local last-modified time, or File is
+missing. Right-clicking anywhere on a card opens the same actions as its ellipsis
+menu: reveal the file in its folder or remove the history entry. Remove from
+recent uses the red destructive style in both menus; Clear all removes history
+only. Missing/inaccessible file opens show an
+error and retain the record for explicit removal. Home refreshes on entry and
+window focus. The recent-list response contains file metadata only and returns
+without waiting for thumbnails. Each visible Home card independently requests
+its image after the list appears, displaying the file icon until it arrives.
+Thumbnail requests never hold the recent-operation queue or delay project
+open/save completion, removal, clearing, or navigation. Late results from a
+previous list, inactive Home page, or removed entry cannot repopulate the UI.
+
+A dedicated Electron Node Worker extracts an embedded PNG from the 3MF ZIP using Orca's
+`_BBS_3MF_Importer::get_thumbnail` selection: read `_rels/.rels`, prefer the
+Bambu `cover-thumbnail-middle` relationship, then a standard PNG thumbnail;
+when neither specifies a target, use `Metadata/plate_1.png`. Missing or malformed
+relationships, unavailable images and image decode failures use the file icon.
+Recent cards have fixed 184 × 256 CSS-pixel dimensions and wrap into rows
+without stretching to fill the window. The image region is 184 × 184, matching
+Orca's square thumbnail size. Images preserve their aspect ratio and cover the
+square, cropping excess edges so opaque images leave no exposed backing colour.
+The fixed-height footer truncates long names and timestamps,
+so content and window size cannot change card geometry.
+
+The preview Worker reads only the ZIP directory, relationships and selected
+image, parses XML and encodes PNG data URLs. All extraction work and caching
+stay off the renderer and main event loops, separate from the slicer utility
+and WASM Worker. It serializes preview extraction on its own queue to avoid
+flooding filesystem/zlib IO. Previews, including absent previews, are cached
+in Worker memory by file modification/change time and size, invalidated on
+file changes and released when history is removed. Removed in-flight results
+are discarded. The Worker starts lazily, terminates on application shutdown,
+and settles failed requests as missing previews; a later request can recreate
+it. Its bundled entry and shared chunks are unpacked for packaged Node use.
+No geometry is loaded into WASM and no extracted files are written.
+Optional preview decoding is bounded to 1 MiB of relationships and 8 MiB of PNG
+data; these limits do not restrict project opening. Only PNG data URLs cross
+the platform boundary; images are not saved into the recent-history config.
+Normal Neo project saves still omit thumbnails, as specified in
+[3MF Project Persistence](3MF%20Project%20Persistence.md#project-save-behaviour).
+Browser history stays empty and all recent operations are no-ops.
+The persistence contract is owned by
+[3MF Project Persistence](3MF%20Project%20Persistence.md#persistence-boundary).
+
+The shared Home page fills the area between titlebar and status bar without
+an outer frame or corner rounding, with internal scrolling and wrapping action
+cards. Mobile support remains deferred; it introduces no additional WASM work or
+model copies.
 
 ## Titlebar and menus
 

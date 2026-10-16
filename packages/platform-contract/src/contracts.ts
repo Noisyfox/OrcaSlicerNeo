@@ -80,6 +80,38 @@ export interface ProjectFileCapability {
   saveAs(input: ProjectInput): Promise<ProjectSaveAsResult>;
 }
 
+/** Operations use host-owned ids; the supplied path is display metadata only. */
+export interface RecentProject {
+  id: string;
+  displayName: string;
+  /** Full source path for menu labels; never an operation token. */
+  displayPath: string;
+  modifiedAt: number | null;
+  missing: boolean;
+}
+
+export interface RecentProjectsCapability {
+  list(): Promise<RecentProject[]>;
+  /** Independent background request; never awaited by history or project operations. */
+  thumbnail(id: string): Promise<string | null>;
+  open(id: string): Promise<ProjectOpenResult>;
+  record(location: OpaqueProjectLocation): Promise<void>;
+  remove(id: string): Promise<void>;
+  clear(): Promise<void>;
+  reveal(id: string): Promise<void>;
+}
+
+/** Web cannot reopen a user path. It intentionally keeps no recent history. */
+export const NO_RECENT_PROJECTS: RecentProjectsCapability = {
+  async list() { return []; },
+  async thumbnail() { return null; },
+  async open() { return { status: 'cancelled' }; },
+  async record() {},
+  async remove() {},
+  async clear() {},
+  async reveal() {},
+};
+
 export interface ProjectDropFile {
   name: string;
   arrayBuffer(): Promise<ArrayBuffer>;
@@ -388,6 +420,7 @@ export interface PlatformCapabilities {
   exports: GcodeExporter;
   downloads: FileDownloader;
   projects: ProjectFileCapability;
+  recentProjects: RecentProjectsCapability;
   preferences: UserPreferencesRepository;
   printers: { configuration: PrinterConfigurationRepository; transport: PrinterTransport };
   webview: WebViewHost;

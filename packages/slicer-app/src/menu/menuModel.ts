@@ -9,6 +9,7 @@ import type {
   TitlebarMenuMode,
 } from '@orca/platform-contract';
 import { isPrepareTab, isWorkspaceTab } from '../components/layout/appTabs';
+import { recentProjectMenuCommand, type RecentProject } from '@orca/platform-contract';
 
 function item(testId: string, label: string, command: MenuCommandId): MenuItem {
   return { testId, label, command };
@@ -32,6 +33,7 @@ export function resolveMenuMode(chrome: PlatformChrome): TitlebarMenuMode {
 export function buildMenuModel(
   snapshot: MenuStateSnapshot,
   chrome: PlatformChrome,
+  recentProjects: readonly RecentProject[] = [],
 ): MenuModel {
   const menuMode = resolveMenuMode(chrome);
   const isElectron = snapshot.host.isElectron && chrome.kind === 'desktop';
@@ -46,6 +48,9 @@ export function buildMenuModel(
     separator('file-separator-before-project'),
     item('file-new-project', 'New Project', 'new-project'),
     item('file-open-project', 'Open Project…', 'open-project'),
+    { testId: 'file-recent-projects', label: 'Recent projects', submenu: recentProjects.length
+      ? recentProjects.slice(0, 18).map(project => item(`file-recent-${project.id}`, project.displayPath, recentProjectMenuCommand(project.id)))
+      : [{ testId: 'file-recent-empty', label: 'No recent projects' }] },
     item('file-save-project', 'Save Project', 'save-project'),
     item('file-save-project-as', 'Save Project As…', 'save-project-as'),
     item('file-setup-wizard', 'Setup Wizard…', 'setup-wizard'),
@@ -82,12 +87,13 @@ function isElectronHost(snapshot: MenuStateSnapshotInput, chrome: PlatformChrome
 
 /**
  * Derive every command's dynamic state from the same raw shared-app snapshot
- * used to build the static model. `checked` is false for the non-checkable
+ * used to build the menu model. `checked` is false for the non-checkable
  * commands in this menu, while remaining part of the host-facing state shape.
  */
 export function deriveMenuItemStates(
   snapshot: MenuStateSnapshotInput,
   chrome: PlatformChrome,
+  recentProjects: readonly RecentProject[] = [],
 ): MenuItemStates {
   const project = snapshot.project;
   const ready = snapshot.boot.phase === 'ready';
@@ -123,7 +129,9 @@ export function deriveMenuItemStates(
     // unlike project and model operations it remains available before init.
     'open-file-manager': state(!modal),
   };
-  return states;
+  return { ...states, ...Object.fromEntries(recentProjects.slice(0, 18).map(project =>
+    [recentProjectMenuCommand(project.id), state(projectActionsEnabled)],
+  )) };
 }
 
 /**
@@ -138,10 +146,11 @@ export function deriveMenuItemStates(
 export function buildMenuStateSnapshot(
   snapshot: MenuStateSnapshotInput,
   chrome: PlatformChrome,
+  recentProjects: readonly RecentProject[] = [],
 ): MenuStateSnapshot {
   return {
     ...snapshot,
     slicer: { ...snapshot.slicer, progress: snapshot.slicer.progress / 100 },
-    items: deriveMenuItemStates(snapshot, chrome),
+    items: deriveMenuItemStates(snapshot, chrome, recentProjects),
   };
 }
