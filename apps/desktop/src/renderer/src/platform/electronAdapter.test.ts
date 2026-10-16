@@ -28,7 +28,7 @@ function setup(overrides: Record<string, unknown> = {}) {
       saveAs: vi.fn(async () => ({ canceled: false, locationToken: 'project-token', displayName: 'project.3mf' })),
     };
     const recentProjects = {
-      list: vi.fn(async () => []), open: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
+      list: vi.fn(async () => []), thumbnail: vi.fn(async () => null), open: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
       record: vi.fn(async () => {}), remove: vi.fn(async () => {}), clear: vi.fn(async () => {}), reveal: vi.fn(async () => {}),
     };
     const host = { preferences: { load, save }, projects, recentProjects, printers: { configuration: { load: configurationLoad, save: configurationSave }, transport }, menu, externalLinks, platform: 'win32', ...overrides };
@@ -359,13 +359,14 @@ it('propagates host preferences save rejection and setup cannot apply an unsaved
 
 it('opens recent projects through private location tokens and never accepts a fabricated location', async () => {
   const record = vi.fn(async () => {});
-  const list = vi.fn(async () => [{ id: 'recent-id', displayName: 'Robot.3mf', modifiedAt: 1, thumbnailUrl: null, missing: false }]);
+  const list = vi.fn(async () => [{ id: 'recent-id', displayName: 'Robot.3mf', modifiedAt: 1, missing: false }]);
   const { adapter } = setup({ recentProjects: {
-    list, record,
+    list, record, thumbnail: vi.fn(async (id: string) => id === 'recent-id' ? 'data:image/png;base64,png' : null),
     open: vi.fn(async () => ({ canceled: false, displayName: 'Robot.3mf', locationToken: 'private-token', bytes: new ArrayBuffer(2) })),
     remove: vi.fn(), clear: vi.fn(), reveal: vi.fn(),
   } });
   expect(await adapter.recentProjects.list()).toEqual(await list());
+  expect(await adapter.recentProjects.thumbnail('recent-id')).toBe('data:image/png;base64,png');
   const opened = await adapter.recentProjects.open('recent-id');
   expect(opened.status).toBe('ok');
   if (opened.status !== 'ok') throw new Error('Expected an opened project');

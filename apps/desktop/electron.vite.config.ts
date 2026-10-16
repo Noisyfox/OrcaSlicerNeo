@@ -27,10 +27,11 @@ export default defineConfig(({ mode }) => {
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       } },
-      build: { rollupOptions: { input: {
+      build: { externalizeDeps: { exclude: ['yauzl', 'saxes'] }, rollupOptions: { input: {
         index: resolve('src/main/index.ts'),
         'slicer-host': resolve('src/utility/slicer-host.ts'),
         'slicer-worker': resolve('src/utility/slicer-worker.ts'),
+        'recent-thumbnail-worker': resolve('src/utility/recent-thumbnail-worker.ts'),
       } } },
     },
     preload: { resolve: { alias: { '@orca/printer-control': resolve(printerControlRoot, 'index.ts') } } },

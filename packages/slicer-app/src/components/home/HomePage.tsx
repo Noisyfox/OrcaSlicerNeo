@@ -13,8 +13,21 @@ interface HomePageProps {
   onOpenRecent(id: string): Promise<unknown>;
 }
 
-function RecentProjectThumbnail({ url }: { url: string | null }) {
+function RecentProjectThumbnail({ project, active }: { project: RecentProject; active: boolean }) {
+  const { recentProjects } = usePlatform();
+  const [image, setImage] = useState<{ id: string; modifiedAt: number | null; url: string | null } | null>(null);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!active || project.missing) return;
+    let current = true;
+    void recentProjects.thumbnail(project.id).then(url => {
+      if (current) setImage({ id: project.id, modifiedAt: project.modifiedAt, url });
+    }).catch(() => {
+      if (current) setImage({ id: project.id, modifiedAt: project.modifiedAt, url: null });
+    });
+    return () => { current = false; };
+  }, [active, project, recentProjects]);
+  const url = !project.missing && image?.id === project.id && image.modifiedAt === project.modifiedAt ? image.url : null;
   return <div className="flex h-36 items-center justify-center overflow-hidden rounded-t-xl bg-muted/40">
     {url && url !== failedUrl
       ? <img src={url} alt="" className="h-full w-full object-contain" onError={() => setFailedUrl(url)} />
@@ -87,7 +100,7 @@ export function HomePage({ active, canOpen, canCreate, onOpen, onCreate, onOpenR
                 <button type="button" disabled={disabled} aria-label={`Open ${project.displayName}`}
                   className="block w-full rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   onClick={() => void run(() => onOpenRecent(project.id), 'This project is no longer available or could not be opened.')}>
-                  <RecentProjectThumbnail url={project.thumbnailUrl} />
+                  <RecentProjectThumbnail project={project} active={active} />
                   <div className="space-y-1 p-4 pr-9">
                     <p className="truncate text-sm font-medium" title={project.displayName}>{project.displayName}</p>
                     <p className="text-xs text-muted-foreground">{project.missing ? 'File is missing' : project.modifiedAt !== null ? new Date(project.modifiedAt).toLocaleString() : ''}</p>

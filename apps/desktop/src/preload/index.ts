@@ -46,6 +46,7 @@ const bridge: ElectronBridge = {
 
   recentProjects: {
     list: () => ipcRenderer.invoke(Ipc.recentList),
+    thumbnail: (id) => ipcRenderer.invoke(Ipc.recentThumbnail, id),
     open: (id) => ipcRenderer.invoke(Ipc.recentOpen, id),
     record: (token) => ipcRenderer.invoke(Ipc.recentRecord, token),
     remove: (id) => ipcRenderer.invoke(Ipc.recentRemove, id),

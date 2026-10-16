@@ -85,13 +85,13 @@ export interface RecentProject {
   id: string;
   displayName: string;
   modifiedAt: number | null;
-  /** Host-extracted embedded PNG, never a filesystem URL. */
-  thumbnailUrl: string | null;
   missing: boolean;
 }
 
 export interface RecentProjectsCapability {
   list(): Promise<RecentProject[]>;
+  /** Independent background request; never awaited by history or project operations. */
+  thumbnail(id: string): Promise<string | null>;
   open(id: string): Promise<ProjectOpenResult>;
   record(location: OpaqueProjectLocation): Promise<void>;
   remove(id: string): Promise<void>;
@@ -102,6 +102,7 @@ export interface RecentProjectsCapability {
 /** Web cannot reopen a user path. It intentionally keeps no recent history. */
 export const NO_RECENT_PROJECTS: RecentProjectsCapability = {
   async list() { return []; },
+  async thumbnail() { return null; },
   async open() { return { status: 'cancelled' }; },
   async record() {},
   async remove() {},

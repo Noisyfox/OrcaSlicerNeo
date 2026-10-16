@@ -24,6 +24,7 @@ export const Ipc = {
   projectSave: 'project:save',
   projectSaveAs: 'project:saveAs',
   recentList: 'recent:list',
+  recentThumbnail: 'recent:thumbnail',
   recentOpen: 'recent:open',
   recentRecord: 'recent:record',
   recentRemove: 'recent:remove',
@@ -87,6 +88,7 @@ export interface ElectronBridge {
   };
   recentProjects: {
     list(): Promise<import('../../../../packages/platform-contract/src/contracts').RecentProject[]>;
+    thumbnail(id: string): Promise<string | null>;
     open(id: string): Promise<ProjectOpenIpcResult>;
     record(locationToken: string): Promise<void>;
     remove(id: string): Promise<void>;

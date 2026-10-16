@@ -17,7 +17,7 @@ export const fakeCapabilities: PlatformCapabilities = {
     async saveAs() { return { status: 'cancelled' as const }; },
   } satisfies ProjectFileCapability,
   recentProjects: {
-    async list() { return []; }, async open() { return { status: 'cancelled' }; },
+    async list() { return []; }, async thumbnail() { return null; }, async open() { return { status: 'cancelled' }; },
     async record() {}, async remove() {}, async clear() {}, async reveal() {},
   },
   preferences: { async load() { throw new Error(); }, async save() {} } satisfies UserPreferencesRepository,

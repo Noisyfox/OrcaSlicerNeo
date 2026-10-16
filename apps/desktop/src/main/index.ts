@@ -19,6 +19,7 @@ import {
 import { configureWebViewAttachPolicy, configureWebViewGuest } from './webviewSecurity';
 import { writeFileAtomically } from './atomicFile';
 import { RecentProjectsRepository } from './recentProjects';
+import { RecentThumbnailWorker } from './recentThumbnailWorker';
 import { summarizeElectronMemory } from './memoryIpc';
 import { attachSlicerUtility, stopSlicerUtilities } from './slicerUtility';
 import { rendererIsolationHeaders } from './sessionHeaders';
@@ -252,12 +253,20 @@ function registerIpc(): void {
     await writeFile(path, Buffer.from(bytes));
   });
 
+  const thumbnailWorker = new RecentThumbnailWorker();
+  app.once('will-quit', () => thumbnailWorker.dispose());
   const recentProjects = new RecentProjectsRepository(preferencesPersisted()
-    ? join(dirname(preferencesPath()), 'OrcaSlicerNeo.conf') : null);
+    ? join(dirname(preferencesPath()), 'OrcaSlicerNeo.conf') : null,
+    paths => thumbnailWorker.retain(paths));
   const requireRecentSender = (sender: WebContents): void => {
     if (!isCurrentRenderer(sender)) throw new Error('Invalid recent project sender');
   };
   ipcMain.handle(Ipc.recentList, (event) => { requireRecentSender(event.sender); return recentProjects.list(); });
+  ipcMain.handle(Ipc.recentThumbnail, async (event, id: unknown) => {
+    requireRecentSender(event.sender);
+    const path = await recentProjects.resolve(id);
+    return thumbnailWorker.read(path);
+  });
   ipcMain.handle(Ipc.recentRecord, async (event, token: unknown) => {
     requireRecentSender(event.sender);
     const path = typeof token === 'string' ? projectLocations.get(token) : undefined;

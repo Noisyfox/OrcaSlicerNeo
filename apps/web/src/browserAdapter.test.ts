@@ -200,5 +200,6 @@ it('keeps every recent operation empty without storing browser file locations', 
   await adapter.recentProjects.reveal('anything');
   expect(await adapter.recentProjects.open('anything')).toEqual({ status: 'cancelled' });
   expect(await adapter.recentProjects.list()).toEqual([]);
+  expect(await adapter.recentProjects.thumbnail('anything')).toBeNull();
   expect({ ...localStorage }).toEqual(before);
 });

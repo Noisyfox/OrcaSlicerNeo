@@ -4,9 +4,10 @@ import { _electron } from './electron-fixture';
 // actual Electron IPC/preload/adapter/shared-action boundary without a native
 // WASM dependency.
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, renameSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { readProjectThumbnail } from '../src/utility/projectThumbnail';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
@@ -387,4 +388,83 @@ test('Home displays an embedded Orca 3MF thumbnail and retains it after restart'
     await expect(image).toHaveAttribute('src', original!, { timeout: 30_000 });
     await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
   } finally { await app.close(); }
+});
+
+
+test('held thumbnails do not block progressive cards, project open/save or recent removal/clear', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-held-thumbnails-'));
+  const source = join(dir, 'picked-project.3mf'), other = join(dir, 'other.3mf');
+  copyFileSync(MODEL_PATH, source); copyFileSync(MODEL_PATH, other);
+  writeFileSync(join(dir, 'OrcaSlicerNeo.conf'), JSON.stringify({ recent_projects: { '001': source, '002': other } }));
+  const { app, savePath } = await launchProjectApp(dir);
+  type HeldRequests = { requests: Array<{ id: string; resolve(url: string | null): void }> };
+  try {
+    const page = await app.firstWindow();
+    await app.evaluate(({ ipcMain }) => {
+      const state: HeldRequests = { requests: [] };
+      (globalThis as unknown as { heldThumbnails: HeldRequests }).heldThumbnails = state;
+      // Test-owned IPC replacement; production artifacts contain no delay hook.
+      ipcMain.removeHandler('recent:thumbnail');
+      ipcMain.handle('recent:thumbnail', (_event, id: string) => new Promise(resolve => state.requests.push({ id, resolve })));
+    });
+    await page.reload();
+    const cards = page.getByTestId('home-recent-list');
+    await expect(cards.locator('li')).toHaveCount(2, { timeout: 30_000 });
+    await expect(page.getByTestId('home-open-project')).toBeEnabled();
+    await expect(page.getByTestId('home-new-project')).toBeEnabled();
+    await expect(cards.locator('img')).toHaveCount(0);
+    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { heldThumbnails: HeldRequests }).heldThumbnails.requests.length)).toBeGreaterThanOrEqual(2);
+    const entries = await page.evaluate(() => (window as unknown as {
+      orca: { recentProjects: { list(): Promise<Array<{ id: string; displayName: string }>> } };
+    }).orca.recentProjects.list());
+    const fastId = entries.find(entry => entry.displayName === 'other.3mf')!.id;
+    const image = await readProjectThumbnail(resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/project-compatibility/orca-upstream-flowrate.3mf'));
+    expect(image).not.toBeNull();
+    await app.evaluate((_electron, { id, url }) => {
+      const state = (globalThis as unknown as { heldThumbnails: HeldRequests }).heldThumbnails;
+      for (const request of state.requests) if (request.id === id) request.resolve(url);
+    }, { id: fastId, url: image });
+    await expect(page.getByRole('button', { name: 'Open other.3mf', exact: true }).locator('img')).toHaveAttribute('src', image!);
+    const slow = page.getByRole('button', { name: 'Open picked-project.3mf', exact: true });
+    await expect(slow.locator('img')).toHaveCount(0);
+    await slow.click();
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('picked-project');
+    await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
+    await page.keyboard.press('ControlOrMeta+Shift+s');
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('saved-project');
+    await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
+    expect(existsSync(savePath)).toBe(true);
+    await page.locator('#app-tab-home').click();
+    await expect(cards.locator('li')).toHaveCount(3);
+    await page.getByRole('button', { name: 'Actions for picked-project.3mf', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Remove from recent' }).click();
+    await expect(cards.locator('li')).toHaveCount(2);
+    await page.getByTestId('home-clear-recent').click();
+    await expect(page.getByTestId('home-recent-empty')).toBeVisible();
+    await expect(page.getByTestId('home-open-project')).toBeEnabled();
+    await app.evaluate(() => {
+      for (const request of (globalThis as unknown as { heldThumbnails: HeldRequests }).heldThumbnails.requests) request.resolve('data:image/png;base64,late');
+    });
+    await expect(page.getByTestId('home-recent-empty')).toBeVisible();
+    expect(existsSync(source)).toBe(true); expect(existsSync(savePath)).toBe(true);
+  } finally { await app.close(); }
+});
+
+test('built thumbnail Worker reads a ZIP64 project without node_modules alongside it', async () => {
+  const { Worker } = await import('node:worker_threads');
+  const { cp, mkdtemp, rm } = await import('node:fs/promises');
+  const dir = await mkdtemp(join(tmpdir(), 'neo-standalone-thumbnail-'));
+  let worker: InstanceType<typeof Worker> | undefined;
+  try {
+    await cp(join(DESKTOP_ROOT, 'out/main'), dir, { recursive: true });
+    const path = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/project-compatibility/orca-upstream-flowrate.3mf');
+    worker = new Worker(join(dir, 'recent-thumbnail-worker.js'));
+    const url = await new Promise<string | null>((resolve, reject) => {
+      worker!.once('error', reject);
+      worker!.once('message', (reply: { requestId: number; url: string | null }) => resolve(reply.url));
+      worker!.postMessage({ type: 'retain', paths: [path] });
+      worker!.postMessage({ type: 'read', requestId: 1, path });
+    });
+    expect(url).toMatch(/^data:image\/png;base64,/);
+  } finally { await worker?.terminate(); await rm(dir, { recursive: true, force: true }); }
 });

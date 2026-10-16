@@ -36,17 +36,31 @@ Electron cards show the filename and local last-modified time, or File is
 missing. Card actions reveal the file in its folder or remove the history
 entry; Clear all removes history only. Missing/inaccessible file opens show an
 error and retain the record for explicit removal. Home refreshes on entry and
-window focus. Electron extracts an embedded PNG from the 3MF ZIP using Orca's
+window focus. The recent-list response contains file metadata only and returns
+without waiting for thumbnails. Each visible Home card independently requests
+its image after the list appears, displaying the file icon until it arrives.
+Thumbnail requests never hold the recent-operation queue or delay project
+open/save completion, removal, clearing, or navigation. Late results from a
+previous list, inactive Home page, or removed entry cannot repopulate the UI.
+
+A dedicated Electron Node Worker extracts an embedded PNG from the 3MF ZIP using Orca's
 `_BBS_3MF_Importer::get_thumbnail` selection: read `_rels/.rels`, prefer the
 Bambu `cover-thumbnail-middle` relationship, then a standard PNG thumbnail;
 when neither specifies a target, use `Metadata/plate_1.png`. Missing or malformed
 relationships, unavailable images and image decode failures use the file icon.
 The image fits inside the existing card without cropping or layout changes.
 
-The host reads only the ZIP directory, relationships and selected image,
-without loading geometry into WASM or writing extracted files. Previews,
-including absent previews, are cached in memory by file modification/change
-time and size, invalidated on file changes and released when history is removed.
+The preview Worker reads only the ZIP directory, relationships and selected
+image, parses XML and encodes PNG data URLs. All extraction work and caching
+stay off the renderer and main event loops, separate from the slicer utility
+and WASM Worker. It serializes preview extraction on its own queue to avoid
+flooding filesystem/zlib IO. Previews, including absent previews, are cached
+in Worker memory by file modification/change time and size, invalidated on
+file changes and released when history is removed. Removed in-flight results
+are discarded. The Worker starts lazily, terminates on application shutdown,
+and settles failed requests as missing previews; a later request can recreate
+it. Its bundled entry and shared chunks are unpacked for packaged Node use.
+No geometry is loaded into WASM and no extracted files are written.
 Optional preview decoding is bounded to 1 MiB of relationships and 8 MiB of PNG
 data; these limits do not restrict project opening. Only PNG data URLs cross
 the platform boundary; images are not saved into the recent-history config.

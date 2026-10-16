@@ -217,6 +217,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     projects: projectCapability,
     recentProjects: {
       list: () => host.recentProjects.list(),
+      thumbnail: (id) => host.recentProjects.thumbnail(id),
       async open(id) {
         try {
           const result = await host.recentProjects.open(id);
