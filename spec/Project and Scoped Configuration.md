@@ -68,6 +68,15 @@ respects native metadata bounds. Field Reset is an orange icon beside its
 label; category Reset remains available through a group header's context menu,
 explicitly naming the native category it resets.
 
+Project's applicable categories show a compact horizontal nozzle-choice strip
+with the physical number, effective diameter and actual project flow. Native
+Hybrid SF/HF choices stay distinct. The strip scrolls for overflow, preserves
+keyboard access and keeps the selected choice visible on resize. A shared
+label gutter displays Orca's nozzle glyph only for native per-selection Print
+fields; shared fields have no glyph. This presentation follows
+[Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md)
+and does not add cross-extruder copy/sync commands or change Scoped/Plate views.
+
 - **Project** edits and displays project-wide values, regardless of the current
   selection. Its value path is `Preset → Project`.
 - **Scoped** edits the target resolved from the current model selection. Its

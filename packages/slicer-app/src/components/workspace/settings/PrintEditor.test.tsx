@@ -13,21 +13,22 @@ import { useObjectListStore } from '../objectList/useObjectListStore';
 import { Selection } from '../viewport/Selection';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
+import { printChoiceFlow } from './PrintEditorSelection';
 import { elementText, parsePrintElement, projectPrintField } from './printEditorProjection';
 import { commitPrintConfigurationMutation, readPrintConfigEditor, waitForConfigurationMutations } from './configurationActions';
 
 let root:Root|undefined;
 let container:HTMLDivElement;
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
-afterEach(async()=>{await act(async()=>root?.unmount());container?.remove();await waitForConfigurationMutations();});
+afterEach(async()=>{await act(async()=>root?.unmount());container?.remove();await waitForConfigurationMutations();vi.unstubAllGlobals();vi.restoreAllMocks();});
 const context={selection:{mode:'object' as const,objectIds:[],partIds:[],instanceIds:[]},activePlateId:null,gizmo:null,nativeScopedConfig:{}};
 
 async function click(id:string){await act(async()=>{(document.querySelector(`[data-testid="${id}"]`) as HTMLElement).click();});}
 async function choose(label:string){
-  await click('print-editor-selection');
-  const option=[...document.querySelectorAll<HTMLElement>('[role="option"]')].find(option=>option.textContent===label)!;
-  await act(async()=>{option.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true}));option.dispatchEvent(new MouseEvent('click',{bubbles:true,detail:1}));});
+  const option=[...document.querySelectorAll<HTMLElement>('[data-testid="print-editor-selection"] button')].find(option=>option.getAttribute('aria-label')===label)!;
+  await act(async()=>option.click());
 }
+const selectedChoice=()=>document.querySelector('[data-testid="print-editor-selection"] [aria-pressed="true"]')?.getAttribute('aria-label');
 async function type(value:string,enter=true){
   const input=document.querySelector<HTMLInputElement>('[data-testid="config-input-outer_wall_speed"]')!;
   await act(async()=>{input.focus();Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));});
@@ -77,7 +78,10 @@ async function setup(scopedFixture=false){
 it('uses loaded Hybrid choices, one captured typed mutation/history operation, mapped ownership, reset and scoped boundaries',async()=>{
   const h=await setup();
   expect(document.querySelector('[data-testid="print-editor-selection"]')).toBeNull();
+  expect(document.querySelector('[data-testid="config-nozzle-gutter-layer_height"]')).not.toBeNull();
+  expect(document.querySelector('[data-testid="config-nozzle-icon-layer_height"]')).toBeNull();
   await click('config-page-Speed');
+  expect(document.querySelector('[data-testid="config-nozzle-icon-outer_wall_speed"]')).not.toBeNull();
   const reads=h.read.mock.calls.length;
   await choose('T1 HF');
   expect(h.read).toHaveBeenCalledTimes(reads);expect(h.mutate).not.toHaveBeenCalled();
@@ -103,13 +107,13 @@ it('uses loaded Hybrid choices, one captured typed mutation/history operation, m
   ])}));
   expect((await h.runtime.getHistoryStatus()).undoEntries).toHaveLength(history.undoEntries.length+1);
   await act(async()=>{await h.runtime.undoHistory();useHistoryRestoreStore.getState().advanceRevision();});
-  expect(input().value).toBe('228');expect(document.querySelector('[data-testid="print-editor-selection"]')?.textContent).toContain('T1 HF');
+  expect(input().value).toBe('228');expect(selectedChoice()).toBe('T1 HF');
   await act(async()=>{await h.runtime.redoHistory();useHistoryRestoreStore.getState().advanceRevision();});expect(input().value).toBe('220');
   await click('config-mode-scoped');expect(document.querySelector('[data-testid="print-editor-selection"]')).toBeNull();
   await click('config-mode-plates');expect(document.querySelector('[data-testid="print-editor-selection"]')).toBeNull();
-  await click('config-mode-project');expect(document.querySelector('[data-testid="print-editor-selection"]')?.textContent).toContain('T1 HF');
+  await click('config-mode-project');expect(selectedChoice()).toBe('T1 HF');
   await act(async()=>useSettingsStore.getState().enterPrintPreset());
-  expect(document.querySelector('[data-testid="print-editor-selection"]')?.textContent).toContain('T1 SF');
+  expect(selectedChoice()).toBe('T1 SF');
 });
 
 it.each([true,false])('navigates invalid/pending Print fields immediately and confines late receipts (success=%s)',async success=>{
@@ -125,7 +129,7 @@ it.each([true,false])('navigates invalid/pending Print fields immediately and co
   const input=await type('229',false);await act(async()=>input.blur());
   await choose('T2 SF');expect(document.querySelector<HTMLInputElement>('[data-testid="config-input-outer_wall_speed"]')?.value).toBe('240');
   await act(async()=>finish());
-  expect(document.querySelector('[data-testid="print-editor-selection"]')?.textContent).toContain('T2 SF');
+  expect(selectedChoice()).toBe('T2 SF');
   expect(document.querySelector('[data-testid="config-error-outer_wall_speed"]')).toBeNull();
   await choose('T1 HF');expect(document.querySelector<HTMLInputElement>('[data-testid="config-input-outer_wall_speed"]')?.value).toBe(success?'229':'220');
 });
@@ -136,9 +140,10 @@ it('reconciles semantic identity on ordinal reorder, missing mappings and bounde
     choices:[snapshot.editorSelection.choices[1],snapshot.editorSelection.choices[0],snapshot.editorSelection.choices[2]].map((choice,index)=>({...choice,id:`ordinal-${index}`})),
     fieldBindings:{...snapshot.editorSelection.fieldBindings,outer_wall_speed:{kind:'per_selection',bindings:[{kind:'indexed',index:1},{kind:'indexed',index:0},{kind:'unavailable'}]}}},
     editorVectors:{...snapshot.editorVectors,outer_wall_speed:{...snapshot.editorVectors.outer_wall_speed,effectiveValues:[200],sourceValues:[200]}}}));
-  await h.refresh();expect(document.querySelector('[data-testid="print-editor-selection"]')?.textContent).toContain('T1 HF');
+  await h.refresh();expect(selectedChoice()).toBe('T1 HF');
   expect(document.querySelector<HTMLInputElement>('[data-testid="config-input-outer_wall_speed"]')?.value).toBe('200');
   await choose('T2 SF');expect(document.querySelector('[data-testid="config-input-outer_wall_speed"]')?.textContent).toBe('Unavailable');
+  expect(document.querySelector('[data-testid="config-nozzle-icon-outer_wall_speed"]')).not.toBeNull();
   expect(document.querySelector('[data-testid="config-reset-outer_wall_speed"]')).toBeNull();
   await act(async()=>{await commitPrintConfigurationMutation(h.platform,{version:1,operation:'set',targets:[{scope:'project'}],key:'layer_height',value:'0.17'});});
   await act(async()=>{document.querySelector('[data-testid="config-category-toggle-Other layers speed"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10}));});
@@ -146,6 +151,53 @@ it('reconciles semantic identity on ordinal reorder, missing mappings and bounde
   const reset=h.mutate.mock.calls.at(-1)![0];
   expect(reset.operation).toBe('reset-fields');
   if(reset.operation==='reset-fields')expect(reset.fields.some(field=>field.key==='outer_wall_speed')).toBe(false);
+});
+
+it('renders actual effective nozzle diameters and native flow labels without changing bindings or allowing deselection',async()=>{
+  const h=await setup();
+  await act(async()=>useSettingsStore.getState().setValues({nozzle_diameter:'0.4, 0.6'}));
+  await click('config-page-Speed');
+  const options=()=>[...document.querySelectorAll<HTMLElement>('[data-testid="print-editor-selection"] button')];
+  expect(options().map(option=>option.textContent)).toEqual(['10.4 SF','10.4 HF','20.6 SF']);
+  await choose('T1 HF');await choose('T1 HF');expect(selectedChoice()).toBe('T1 HF');
+  expect(h.mutate).not.toHaveBeenCalled();
+  await act(async()=>useSettingsStore.getState().setValues({nozzle_diameter:'0.8'}));
+  expect(options()[2].textContent).toBe('20.8 SF'); // bounded display fallback, no native remapping
+  await click('config-mode-scoped');
+  expect(document.querySelector('[data-testid^="config-nozzle-icon-"]')).toBeNull();
+  expect(document.querySelector('[data-testid^="config-nozzle-gutter-"]')).toBeNull();
+});
+
+it.each([[0,'SF'],[1,'HF'],[2,'Hybrid'],[3,'TPU HF'],[5,'E3D HF'],[6,'XHF'],[4,'Unknown native variant']] as const)
+  ('formats native flow %s as %s',async(flowType,label)=>{
+    const h=await setup();const snapshot=await readPrintConfigEditor(h.platform);if(!snapshot.ok)throw Error(snapshot.error);
+    expect(printChoiceFlow({...snapshot.editorSelection.choices[0],flowType,variant:'Unknown native variant'})).toBe(label);
+  });
+
+it('keeps a many-choice strip in one row with keyboard focus and selected visibility on resize',async()=>{
+  let resized:()=>void=()=>{};
+  vi.stubGlobal('ResizeObserver',class {
+    constructor(private callback:()=>void){}
+    observe(target:Element){if(target.getAttribute('data-testid')==='print-editor-selection-scroll')resized=this.callback;}
+    disconnect(){}
+  });
+  const h=await setup();
+  h.project(snapshot=>({...snapshot,editorSelection:{...snapshot.editorSelection,choices:Array.from({length:12},(_,index)=>({
+    ...snapshot.editorSelection.choices[0],id:`many-${index}`,extruderIndex:index,label:`Nozzle ${index+1}`,variant:`Variant ${index}`,
+  })),firstChoiceId:'many-0',fieldBindings:Object.fromEntries(Object.entries(snapshot.editorSelection.fieldBindings).map(([key,binding])=>[key,
+    binding.kind==='shared'?binding:{...binding,bindings:Array.from({length:12},(_,index)=>binding.bindings[index]??{kind:'unavailable' as const})}]))}}));
+  await h.refresh();await click('config-page-Speed');
+  const scroller=document.querySelector<HTMLElement>('[data-testid="print-editor-selection-scroll"]')!;
+  const buttons=[...scroller.querySelectorAll<HTMLButtonElement>('button')];
+  expect(buttons).toHaveLength(12);
+  vi.spyOn(scroller,'getBoundingClientRect').mockReturnValue({left:0,right:120} as DOMRect);
+  vi.spyOn(buttons[11],'getBoundingClientRect').mockReturnValue({left:180,right:240} as DOMRect);
+  await choose('Nozzle 12');expect(selectedChoice()).toBe('Nozzle 12');expect(scroller.scrollLeft).toBe(120);
+  scroller.scrollLeft=0;await act(async()=>resized());expect(scroller.scrollLeft).toBe(120);
+  vi.spyOn(buttons[0],'getBoundingClientRect').mockReturnValue({left:-60,right:0} as DOMRect);
+  await act(async()=>buttons[0].focus());expect(scroller.scrollLeft).toBe(60);
+  await act(async()=>buttons[0].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true})));
+  expect(document.activeElement).toBe(buttons[1]);expect(h.mutate).not.toHaveBeenCalled();
 });
 
 it.each([
@@ -187,7 +239,7 @@ it('ignores a completed stale read after explicit Print preset entry',async()=>{
   const vector=stale.editorVectors.outer_wall_speed;
   await act(async()=>finish({...stale,editorVectors:{...stale.editorVectors,outer_wall_speed:{...vector,effectiveValues:[999,999,999]}}}));
   expect(document.querySelector<HTMLInputElement>('[data-testid="config-input-outer_wall_speed"]')?.value).toBe('200');
-  expect(document.querySelector('[data-testid="print-editor-selection"]')?.textContent).toContain('T1 SF');
+  expect(selectedChoice()).toBe('T1 SF');
 });
 
 it('discards field-local errors when a removed variant ordinal is reused for another semantic choice',async()=>{
@@ -252,7 +304,9 @@ it('distinguishes external whole options from genuinely unavailable Print-owned 
     expect(projectPrintField(field,snapshot,'ordinal-1')).toBe(field);
   }
   const field={key:'outer_wall_speed',label:'Speed',category:'Speed',meta:{type:'floats' as const},value:'200',mixed:false,source:'preset' as const,local:false,resettable:true};
-  expect(projectPrintField(field,{...snapshot,editorSelection:{...snapshot.editorSelection,fieldBindings:{}}},'ordinal-0')).toMatchObject({value:'Unavailable',resettable:false,editor:{target:{kind:'unavailable'}}});
+  expect(projectPrintField(field,{...snapshot,editorSelection:{...snapshot.editorSelection,fieldBindings:{}}},'ordinal-0')).toMatchObject({value:'Unavailable',resettable:false,editor:{perSelection:false,target:{kind:'unavailable'}}});
+  // A vector's existence/length alone must not manufacture a per-selection glyph.
+  expect(projectPrintField(field,{...snapshot,editorSelection:{...snapshot.editorSelection,fieldBindings:{outer_wall_speed:{kind:'shared'}}}},'ordinal-0')).toBe(field);
 });
 
 

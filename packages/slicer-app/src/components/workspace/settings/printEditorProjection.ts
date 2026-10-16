@@ -4,6 +4,7 @@ import { editorFieldTarget, type EditorFieldTarget } from './presetEditorBinding
 import type { ScopedConfigurationField } from './scopedConfigurationProjection';
 
 export interface PrintFieldElement {
+  readonly perSelection?: boolean;
   readonly target: EditorFieldTarget;
   readonly vector?: PresetDraftEditorVector;
   readonly source: PresetDraftVectorValue | undefined;
@@ -43,7 +44,8 @@ export function projectPrintField(field: ScopedConfigurationField, snapshot: Con
     source: local ? 'project' : 'preset', resettable: !unavailable && !vector?.readOnly,
     meta: vector ? { ...field.meta, type: vector.scalarType === 'point' || vector.scalarType === 'points' ? 'string' : vector.scalarType,
       ...(vector.enumOptions ? {enum_values:vector.enumOptions.map(option=>option.name), enum_labels:vector.enumOptions.map(option=>option.label)} : {}) } : field.meta,
-    editor: { target: unavailable ? {kind:'unavailable'} : target, vector, source, effective, revision: snapshot.revision, metadata:snapshot.optionMetadata[field.key] },
+    editor: { perSelection: snapshot.editorSelection.fieldBindings[field.key]?.kind === 'per_selection',
+      target: unavailable ? {kind:'unavailable'} : target, vector, source, effective, revision: snapshot.revision, metadata:snapshot.optionMetadata[field.key] },
   };
 }
 

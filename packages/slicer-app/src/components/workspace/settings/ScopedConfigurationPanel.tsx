@@ -9,7 +9,9 @@ import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { ConfigEditorSelection, useConfigEditorSelection } from './ConfigEditorSelection';
+import { useConfigEditorSelection } from './ConfigEditorSelection';
+import { PrintEditorSelection } from './PrintEditorSelection';
+import { NozzleIcon } from '@/components/ui/nozzle-icon';
 import { usePrintConfigEditor } from './usePrintConfigEditor';
 import { elementText, parsePrintElement, printOwnsField, projectPrintField } from './printEditorProjection';
 import { editorFieldTarget, fieldViewKey } from './presetEditorBindings';
@@ -69,7 +71,9 @@ export const ScopedField = memo(function ScopedField({
   onCommit,
   onReset,
   disabled = false,
+  selectionGutter = false,
 }: {
+  selectionGutter?: boolean;
   disabled?: boolean;
   field: ScopedConfigurationField;
   targets: readonly ScopedConfigurationTarget[];
@@ -193,6 +197,9 @@ export const ScopedField = memo(function ScopedField({
     <div data-testid={`config-field-${field.key}`} data-native-index={editor?.target.kind==='indexed'?editor.target.index:undefined} className="space-y-0.5">
       <div className={row}>
         <div className="flex min-w-0 items-center gap-1">
+        {selectionGutter && <span className="flex size-4 shrink-0 items-center" data-testid={`config-nozzle-gutter-${field.key}`}>
+          {editor?.perSelection && <NozzleIcon className="size-4 text-muted-foreground" data-testid={`config-nozzle-icon-${field.key}`} />}
+        </span>}
         <TooltipFor content={<span className="whitespace-pre-line">{optionHelp}</span>} nonInteractive>
           <Label
             htmlFor={`scoped-${field.key}`}
@@ -214,7 +221,7 @@ export const ScopedField = memo(function ScopedField({
     </div>
   );
 }, (previous, next) => previous.targets === next.targets
-  && previous.onCommit === next.onCommit && previous.onReset === next.onReset && previous.disabled === next.disabled
+  && previous.onCommit === next.onCommit && previous.onReset === next.onReset && previous.disabled === next.disabled && previous.selectionGutter === next.selectionGutter
   && (Object.keys(previous.field) as Array<keyof ScopedConfigurationField>)
     .every((key) => previous.field[key] === next.field[key]));
 
@@ -441,8 +448,8 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         </div>}
         {mode==='project' && printEditor.snapshot && printEditor.snapshot.editorSelection.choices.length>1 &&
           categories.some(category=>category.fields.some(field=>printEditor.snapshot!.editorSelection.fieldBindings[field.key]?.kind==='per_selection')) &&
-          <ConfigEditorSelection metadata={printEditor.snapshot.editorSelection} choiceId={printSelection.choiceId} onSelect={printSelection.select}
-            disabled={printEditor.refreshing} testId="print-editor-selection" label="Print nozzle" />}
+          <PrintEditorSelection metadata={printEditor.snapshot.editorSelection} choiceId={printSelection.choiceId} onSelect={printSelection.select}
+            disabled={printEditor.refreshing} />}
         {mode==='project' && printEditor.error && <p role="alert" className="text-xs text-destructive">{printEditor.error}</p>}
   </div>;
   const optionsBody = (
@@ -482,7 +489,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
                   {startsSection && <div data-testid={`config-section-${section}`} className="mt-1 flex items-center gap-2 px-1 text-module font-semibold text-muted-foreground">
                     {section}<span className="h-px flex-1 bg-border" />
                   </div>}
-                  <ScopedField disabled={(field.key === 'curr_bed_type' && bedTypeDisabled) || (mode==='project' &&
+                  <ScopedField selectionGutter={mode==='project'} disabled={(field.key === 'curr_bed_type' && bedTypeDisabled) || (mode==='project' &&
                     (!printEditor.snapshot || (printOwnsField(printEditor.snapshot,field.key) &&
                       (printEditor.pending || printEditor.refreshing || printEditor.error!==null))))}
                     field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />

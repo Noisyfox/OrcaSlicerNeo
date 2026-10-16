@@ -164,6 +164,20 @@ native default-flow normalization cannot produce a valid field mapping.
 
 ## 4. Switch visibility
 
+Project Print uses a compact, full-width horizontal nozzle strip. Each choice
+shows its one-based physical nozzle number above the effective project diameter
+and native flow label (SF, HF, XHF, or another supported flow). Hybrid entries
+for the same physical nozzle remain separate SF/HF choices. The strip uses the
+primary selected colour, scrolls horizontally when needed, supports keyboard
+focus and activation, and keeps the selected choice visible after selection or
+resize. Its leading nozzle glyph has no action; cross-extruder sync/copy remains
+deferred. Printer and Filament selectors retain their existing presentation.
+
+Project Print field labels reserve an aligned nozzle-icon gutter. Only native
+`per_selection` fields receive the glyph, including an individually unavailable
+mapping; shared fields leave the gutter empty. Object/Part/Plate views retain
+their existing presentation and ownership.
+
 A switch is visible when selection is applicable and the active category
 contains fields that participate in its extruder/variant mapping. Visibility is
 derived from those bindings rather than a hard-coded list of category names.
