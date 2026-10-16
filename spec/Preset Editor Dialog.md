@@ -496,6 +496,12 @@ fallbacks owned by the switch specification. Cross-extruder copy is outside
 that feature's accepted scope.
 A valid vector index is not a physical Extruder ID.
 
+The accepted Printer switch uses sidebar-style nozzle cards with flow dropdowns
+for multiple nozzles. A single nozzle with multiple editing flows instead uses
+an ordinary variant dropdown without nozzle information; a single nozzle with
+one flow hides it. Improved rejection feedback after navigating away remains
+deferred, preserving the current category-tab feedback behavior.
+
 The accepted switch design separates diameter-editing entry points. A direct
 `nozzle_diameter` field edit changes the current Printer preset's draft while
 retaining its canonical source. Sidebar toolhead-size dropdowns retain automatic

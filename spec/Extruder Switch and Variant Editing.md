@@ -2,11 +2,8 @@
 
 **Date:** 2026-10-16
 
-**Status:** Accepted design direction, selection/navigation behavior, category
-reset scope, motion-limit presentation, input/navigation ordering, diameter-edit
-entry points, unavailable-mapping presentation, flow-context ownership,
-history-selection behavior, and nozzle-card flow selectors. Failure recovery
-and acceptance decisions remain open. Not implemented.
+**Status:** Accepted design; not implemented. Improved delayed rejection
+feedback after navigation remains deferred.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
 preset editors and Project Print settings. This is a peer specification to
@@ -37,6 +34,13 @@ shared React interface:
   atomic operation, including shared fields in the same category.
 - Print retains its existing Project-owned preset; this feature does not add a
   parallel Print draft or history root.
+
+The editor snapshot must provide enough native mapping metadata for all
+presented choices to navigate using the existing typed Source/Effective vectors.
+Category, extruder, and editing-flow navigation must not require a mutation or
+a new native lookup before presenting the selected binding. Mapping metadata
+identifies shared fields, resolved native elements, and unavailable mappings;
+it does not duplicate complete value vectors for each choice.
 
 The [shared architecture](Web-Electron%20Shared%20Application%20Architecture.md)
 remains authoritative for package and host boundaries. Both Electron and Web
@@ -170,10 +174,15 @@ Shared fields retain their shared configuration meaning when displayed beside
 mapped fields. Selecting an extruder does not manufacture per-extruder copies
 of those fields.
 
-### 4.1 Printer nozzle cards
+The Printer selector is applicable when the edited preset has multiple physical
+nozzles or its single nozzle has multiple supported editing flows. A single
+nozzle with only one editing flow hides the selector. Hidden selectors still
+use their valid selection/default for field binding.
 
-The Printer switch uses one selectable card per physical nozzle, following the
-sidebar nozzle-card presentation owned by
+### 4.1 Multiple Printer nozzles
+
+For multiple nozzles, the Printer switch uses one selectable card per physical
+nozzle, following the sidebar nozzle-card presentation owned by
 [Application Shell](Application%20Shell.md#native-toolhead-selection-and-editing).
 The card keeps the nozzle number and effective diameter, with a flow dropdown
 replacing the lower flow-text line. That dropdown displays the nozzle's current
@@ -184,6 +193,14 @@ Choosing a flow from a card's dropdown also selects that nozzle and immediately
 presents its corresponding parameters, including when another nozzle was
 previously selected. Opening the dropdown alone does not change selection.
 The immediate navigation rules in section 7 also apply to flow selection.
+
+### 4.2 Single Printer nozzle
+
+When a single nozzle supports multiple editing flows, use an ordinary variant
+dropdown, following the sidebar's single-nozzle control presentation. It shows
+only the editing-flow choice, with no nozzle number, diameter, or nozzle-card
+layout. Its choices, initialization, isolation from project flow, and immediate
+navigation follow the same contracts as the multi-nozzle flow dropdowns.
 
 ## 5. Native field binding
 
@@ -291,6 +308,28 @@ force. Switching to a different preset retains the preset picker's existing
 pending-submission and invalid-input guards; those guards are not imposed on
 category or extruder/variant navigation.
 
+### 7.1 Revisions, failures, and deferred feedback
+
+Revision validation, mutation serialization, rollback, and receipt publication
+retain the existing [Preset Editor](Preset%20Editor%20Dialog.md) and
+[Project and Scoped Configuration](Project%20and%20Scoped%20Configuration.md)
+contracts. A view change does not retry an operation against another revision
+or change its captured targets. A refreshed snapshot revalidates current
+presentation choices under section 3 rather than resetting valid selections.
+
+An edit that committed before projection resynchronization failed remains a
+committed edit. The existing editor recovery contract continues to acknowledge
+its receipt, report the refresh error, and disable further edits until reopening;
+the mutation is not resubmitted. This feature does not introduce another
+recovery path.
+
+Ordinary rejection feedback after leaving a field follows the current
+category-tab behavior. A new cross-selection notification, retained rejection
+store, or restoration of rejected field text on return is deferred. Delivery
+does not require such feedback to remain visible after navigation. This deferral
+does not permit rejected values to enter configuration or old feedback to appear
+on another selection's field.
+
 ## 8. Scope boundaries
 
 The accepted feature covers Printer, Filament, and Project Print selection.
@@ -303,14 +342,33 @@ capability and is not included in this accepted direction. The switch also
 does not add preset management, material-to-extruder assignment controls, or
 printer topology editing.
 
-## 9. Open decisions
+## 9. Acceptance and verification
 
-The following contracts still require clarification before implementation:
+Implementation must establish the following behavior; these are required checks,
+not evidence that the feature has been delivered:
 
-- Revision changes and failure recovery within the existing editor contracts.
-- Required behavioral acceptance cases and applicable native/host verification.
+| Area | Required coverage |
+| --- | --- |
+| Native bindings | A real multi-nozzle preset such as U1 distinguishes physical, variant, and motion indices for SF/HF. Other nozzles, flow variants, and unexposed motion slots retain their values and ownership. |
+| Consistent projections | Source, Effective, tooltips, edits, resets, search, and selected-field/group/category highlighting address the same binding. Explicit Source-equivalent element ownership remains observable. |
+| Flow isolation | Each Printer nozzle retains its own editing flow. Viewing another flow creates no configuration/history change and cannot change Project Print's actual flow choices. Hybrid initializes the editor as SF. |
+| Selection transitions | Project-current Printer entry initializes from project flow; other Printer presets retain valid choices and use native defaults when unavailable. Filament exposes its complete native variant list. Category navigation, Undo/Redo, and close/reopen follow section 3. |
+| Presentation | Multi-nozzle cards, the single-nozzle variant dropdown, the single-choice hidden state, and category-dependent visibility follow section 4. Hidden state retains its selection. |
+| Immediate navigation | Valid input, invalid input, and a pending submission do not require a second click to change nozzle/flow. Delayed receipts affect their captured bindings and do not redirect the view or leak local field state. |
+| Atomic reset | A category containing mixed native indices and shared fields resets once, preserves other selections, and creates one undoable operation. Rejection cannot leave a partially reset category. |
+| Missing data | Missing native mappings are read-only and excluded from reset. A valid mapping with a short vector retains the existing bounded value fallback; missing mappings never substitute index zero. |
+| Diameter entry points | Direct editor diameter changes retain the current canonical preset and draft. Sidebar toolhead-size changes retain automatic preset matching and their existing transition behavior. |
 
-Open decisions are not implemented guarantees. The existing editor and scoped
-configuration contracts remain in force until an explicitly accepted extension
-replaces the relevant behavior. Verification scope follows the
-[testing guidelines](../doc/testing_guidelines.md).
+Extend the existing [indexed-editor smoke coverage](../packages/slicer-wasm/harness/extruder-indexed-editor-smoke.mjs)
+with real native mapping and mixed-index reset checks. Shared component tests
+cover selection transitions, presentation, and controlled pending/rejected
+responses. Mocked UI evidence does not replace real native index/ownership
+verification.
+
+Verification scope follows the [testing guidelines](../doc/testing_guidelines.md):
+affected package checks during implementation; repository checks, a primary-host
+journey, and affected real-WASM host integration before code handoff. Common
+bridge changes require both WASM quick builds, comprehensive contract coverage
+on one variant, and variant-specific smoke on the other. Full release
+qualification remains the repository's release gate. Documentation-only work
+does not claim any of this product coverage.
