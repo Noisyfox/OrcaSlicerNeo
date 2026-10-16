@@ -4,8 +4,9 @@
 
 **Status:** Accepted design direction, selection/navigation behavior, category
 reset scope, motion-limit presentation, input/navigation ordering, diameter-edit
-entry points, and unavailable-mapping presentation. Remaining flow-context,
-history/transition, recovery, and acceptance decisions are open. Not implemented.
+entry points, unavailable-mapping presentation, flow-context ownership, and
+history-selection behavior. Flow-selector presentation, failure recovery, and
+acceptance decisions remain open. Not implemented.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
 preset editors and Project Print settings. This is a peer specification to
@@ -64,7 +65,7 @@ changes do not silently revise the accepted behavior recorded here.
 
 | Editing surface | Meaning of selection |
 | --- | --- |
-| Printer preset editor | A physical extruder whose fields may bind to physical-extruder or variant elements. |
+| Printer preset editor | A physical extruder and its independently selected editing flow type; fields may bind to physical-extruder or variant elements. |
 | Filament preset editor | A native Filament variant, identified by drive and nozzle-volume type rather than a physical extruder ID. |
 | Project Print settings | A physical extruder and its applicable nozzle-volume variant; native Hybrid choices can expose separate SF/HF entries. |
 
@@ -88,17 +89,66 @@ Selection is presentation state: selecting an entry changes which native
 elements are presented for editing and does not itself edit configuration,
 change material assignments, or create a project-history entry.
 
-Opening or reopening an editor starts at the first available selection. An
-explicit user change to another preset also selects that preset's first
-available entry. Closing/reopening the editor does not restore its previous
-extruder/variant selection, and this feature adds no per-preset or persistent
-selection memory.
+### 3.1 Project flow and Printer editing flow
 
-These initialization rules do not reset selection on category navigation or
-ordinary receipt publication. History restore and other transitions that alter
-available choices require separate selection rules and remain open. Editing a
-Printer diameter in this dialog does not automatically change its canonical
-source, as specified in section 5.3.
+Project Print's nozzle choices and field bindings always follow the actual
+project `nozzle_volume_type` context, including the native SF/HF choices for a
+Hybrid nozzle. Printer-editor browsing cannot change that context.
+
+The Printer preset editor instead keeps an editing flow choice for each
+physical nozzle. Selecting a nozzle presents fields for that nozzle's editing
+flow; selecting another editing flow changes that nozzle's parameter view.
+Choices, defaults, and field mappings come from the browsed Printer preset's
+native metadata, including its current draft. The project's actual flow is an
+initialization input when entering its current Printer preset, not the source
+of choices for every browsed preset.
+
+These per-nozzle flow choices are presentation state. They do not change
+project flow, edit the Printer draft or its default-flow fields, select a
+different project preset, or create history entries. Each nozzle retains its
+editing flow when another nozzle or category is selected.
+
+### 3.2 Opening and preset changes
+
+Opening or reopening an editor starts at its first available extruder/variant.
+Closing discards its presentation selections; this feature adds no persistent
+or per-preset selection cache.
+
+When the Printer editor opens on or explicitly enters the project's current
+Printer preset, initialize each nozzle's editing flow from the project's actual
+flow, subject to that preset's native available choices and defaults. The user
+can then select another editing flow independently. Ordinary receipt refreshes
+do not repeat this initialization or overwrite a valid user choice. Returning
+from another preset to the project's current preset initializes from project
+flow again.
+
+When switching to any other Printer preset, retain the currently selected
+physical nozzle and per-nozzle editing flows wherever they remain available.
+An unavailable physical nozzle falls back to the first available nozzle; an
+unavailable editing flow falls back to the target nozzle's native default,
+using the existing native normalization rules. Opening on another preset has
+no previous choices to retain and starts with its native default flows. This
+retention carries the current view forward rather than restoring an earlier
+view cached for that preset.
+
+An explicit Filament or Project Print preset change still selects its first
+available variant/nozzle entry. All surfaces retain selection on category
+navigation. Editing a Printer diameter in the dialog does not automatically
+change its canonical source, as specified in section 5.3.
+
+### 3.3 History and refreshed choices
+
+Undo/Redo retains the currently viewed extruder/variant and Printer editing
+flows while they remain available in the restored configuration. History does
+not restore earlier presentation selections. An unavailable extruder/variant
+falls back to the first available entry; an unavailable Printer editing flow
+uses the nozzle's native default as above. Ordinary receipt publication does
+not reset otherwise valid presentation choices.
+
+Choice availability and a field's native mapping are distinct. A missing mapping
+for an individual field does not select another nozzle or flow to make that
+field editable. Section 5.2 governs its unavailable presentation, including when
+native default-flow normalization cannot produce a valid field mapping.
 
 ## 4. Switch visibility
 
@@ -237,10 +287,8 @@ printer topology editing.
 
 The following contracts still require clarification before implementation:
 
-- Flow-context resolution when browsing a Printer preset that is not the
-  project's active Printer.
-- Selection handling for history restore and other transitions that change
-  available choices, plus revision changes and failure recovery.
+- Presentation of per-nozzle editing-flow choices in the Printer switch.
+- Revision changes and failure recovery within the existing editor contracts.
 - Required behavioral acceptance cases and applicable native/host verification.
 
 Open decisions are not implemented guarantees. The existing editor and scoped

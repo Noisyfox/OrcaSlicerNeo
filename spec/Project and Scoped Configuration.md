@@ -184,7 +184,9 @@ transaction as ordinary scoped edits. They currently accept one Project target;
 Object, Part and Plate element editing remains deferred. The accepted design
 for Project Print variant selection is owned by
 [Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md)
-and is not yet implemented.
+and is not yet implemented. Its nozzle choices and bindings follow the actual
+project flow context. Independent Printer-editor flow choices only change that
+editor's parameter view and do not change Project Print's flow context.
 
 The initial validation behavior is intentionally limited:
 

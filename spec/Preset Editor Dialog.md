@@ -486,9 +486,14 @@ category-reset scope (current selection plus shared fields) and single-group
 motion-limit presentation without Silent controls. Those extensions are not yet
 implemented. Extruder/variant navigation is immediate like category navigation,
 including during field submission or with invalid input; dispatched writes
-remain bound to their original fields. Opening an editor or explicitly changing
-its preset starts at the first selection. Cross-extruder copy is outside that
-feature's accepted scope.
+remain bound to their original fields. Opening an editor starts at the first
+selection. Printer browsing retains valid nozzle and per-nozzle editing-flow
+choices across other presets; entering the project's current Printer preset
+initializes editing flows from actual project flow. Editing-flow choices remain
+local to the editor and do not change project flow. Filament preset changes
+start at the first variant. Undo/Redo retains valid current selections, with
+fallbacks owned by the switch specification. Cross-extruder copy is outside
+that feature's accepted scope.
 A valid vector index is not a physical Extruder ID.
 
 The accepted switch design separates diameter-editing entry points. A direct
