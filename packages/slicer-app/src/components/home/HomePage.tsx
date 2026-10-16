@@ -28,9 +28,9 @@ function RecentProjectThumbnail({ project, active }: { project: RecentProject; a
     return () => { current = false; };
   }, [active, project, recentProjects]);
   const url = !project.missing && image?.id === project.id && image.modifiedAt === project.modifiedAt ? image.url : null;
-  return <div className="flex h-36 items-center justify-center overflow-hidden rounded-t-xl bg-muted/40">
+  return <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-t-xl bg-muted/40">
     {url && url !== failedUrl
-      ? <img src={url} alt="" className="h-full w-full object-contain" onError={() => setFailedUrl(url)} />
+      ? <img src={url} alt="" className="h-full w-full object-fill" onError={() => setFailedUrl(url)} />
       : <Box className="size-14 text-muted-foreground/50" />}
   </div>;
 }
@@ -95,15 +95,15 @@ export function HomePage({ active, canOpen, canCreate, onOpen, onCreate, onOpenR
             : projects.length === 0 ? <div data-testid="home-recent-empty" className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border text-muted-foreground">
               <History className="size-10 opacity-50" />
               <p className="text-sm">No recent projects</p>
-            </div> : <ul data-testid="home-recent-list" className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-5">
-              {projects.map(project => <li key={project.id} className="relative min-w-0 rounded-xl border border-border bg-card transition-colors hover:border-primary">
+            </div> : <ul data-testid="home-recent-list" className="grid grid-cols-[repeat(auto-fill,184px)] gap-5">
+              {projects.map(project => <li key={project.id} className="relative h-[256px] w-[184px] rounded-xl bg-card ring-1 ring-border transition-shadow hover:ring-primary">
                 <button type="button" disabled={disabled} aria-label={`Open ${project.displayName}`}
-                  className="block w-full rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  className="block h-full w-full rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                   onClick={() => void run(() => onOpenRecent(project.id), 'This project is no longer available or could not be opened.')}>
                   <RecentProjectThumbnail project={project} active={active} />
-                  <div className="space-y-1 p-4 pr-9">
+                  <div className="h-[72px] space-y-1 p-4 pr-9">
                     <p className="truncate text-sm font-medium" title={project.displayName}>{project.displayName}</p>
-                    <p className="text-xs text-muted-foreground">{project.missing ? 'File is missing' : project.modifiedAt !== null ? new Date(project.modifiedAt).toLocaleString() : ''}</p>
+                    <p className="truncate text-xs text-muted-foreground">{project.missing ? 'File is missing' : project.modifiedAt !== null ? new Date(project.modifiedAt).toLocaleString() : ''}</p>
                   </div>
                 </button>
                 <DropdownMenu>

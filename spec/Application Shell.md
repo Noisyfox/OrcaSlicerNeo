@@ -48,7 +48,12 @@ A dedicated Electron Node Worker extracts an embedded PNG from the 3MF ZIP using
 Bambu `cover-thumbnail-middle` relationship, then a standard PNG thumbnail;
 when neither specifies a target, use `Metadata/plate_1.png`. Missing or malformed
 relationships, unavailable images and image decode failures use the file icon.
-The image fits inside the existing card without cropping or layout changes.
+Recent cards have fixed 184 × 256 CSS-pixel dimensions and wrap into rows
+without stretching to fill the window. The image region is 184 × 184, matching
+Orca's square thumbnail size. Images fill both dimensions without cropping;
+non-square previews are resized to the square so opaque images leave no exposed
+backing colour. The fixed-height footer truncates long names and timestamps,
+so content and window size cannot change card geometry.
 
 The preview Worker reads only the ZIP directory, relationships and selected
 image, parses XML and encodes PNG data URLs. All extraction work and caching
