@@ -75,8 +75,10 @@ Browser history stays empty and all recent operations are no-ops.
 The persistence contract is owned by
 [3MF Project Persistence](3MF%20Project%20Persistence.md#persistence-boundary).
 
-The shared Home page has internal scrolling and wrapping action cards. Mobile
-support remains deferred; it introduces no additional WASM work or model copies.
+The shared Home page fills the area between titlebar and status bar without
+an outer frame or corner rounding, with internal scrolling and wrapping action
+cards. Mobile support remains deferred; it introduces no additional WASM work or
+model copies.
 
 ## Titlebar and menus
 

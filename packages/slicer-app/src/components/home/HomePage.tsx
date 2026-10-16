@@ -68,7 +68,7 @@ export function HomePage({ active, canOpen, canCreate, onOpen, onCreate, onOpenR
   };
   const disabled = busy || !canOpen;
   return (
-    <main data-testid="home-page" className="min-h-0 min-w-0 flex-1 overflow-auto rounded-lg bg-background p-8 text-foreground">
+    <main data-testid="home-page" className="min-h-0 min-w-0 flex-1 overflow-auto bg-background p-8 text-foreground">
       <div className="mx-auto max-w-6xl space-y-10">
         <div className="flex flex-wrap gap-5" aria-label="Project actions">
           <Button data-testid="home-new-project" variant="outline" disabled={busy || !canCreate}
