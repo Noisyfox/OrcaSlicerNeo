@@ -3,9 +3,9 @@
 **Date:** 2026-10-16
 
 **Status:** Accepted design direction, selection/navigation behavior, category
-reset scope, motion-limit presentation, and input/navigation ordering.
-Remaining choice, automatic-transition, recovery, and acceptance decisions are
-open. Not implemented.
+reset scope, motion-limit presentation, input/navigation ordering, diameter-edit
+entry points, and unavailable-mapping presentation. Remaining flow-context,
+history/transition, recovery, and acceptance decisions are open. Not implemented.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
 preset editors and Project Print settings. This is a peer specification to
@@ -68,6 +68,12 @@ changes do not silently revise the accepted behavior recorded here.
 | Filament preset editor | A native Filament variant, identified by drive and nozzle-volume type rather than a physical extruder ID. |
 | Project Print settings | A physical extruder and its applicable nozzle-volume variant; native Hybrid choices can expose separate SF/HF entries. |
 
+The Filament switch exposes every variant in the edited preset's native
+`filament_extruder_variant` list, in native order. It does not filter those
+choices by the project's current Printer, so a variant that is unused by that
+Printer can still be edited. This choice list belongs to the browsed Filament
+preset and does not change project material assignments.
+
 Each editing surface owns its selection independently. Selecting an extruder
 in Printer does not select a corresponding entry in Filament or Project Print.
 A Filament variant may serve multiple physical extruders and does not imply a
@@ -89,9 +95,10 @@ extruder/variant selection, and this feature adds no per-preset or persistent
 selection memory.
 
 These initialization rules do not reset selection on category navigation or
-ordinary receipt publication. Automatic canonical-source transitions, history
-restore, and printer-topology changes require separate selection rules and
-remain open.
+ordinary receipt publication. History restore and other transitions that alter
+available choices require separate selection rules and remain open. Editing a
+Printer diameter in this dialog does not automatically change its canonical
+source, as specified in section 5.3.
 
 ## 4. Switch visibility
 
@@ -108,12 +115,14 @@ Shared fields retain their shared configuration meaning when displayed beside
 mapped fields. Selecting an extruder does not manufacture per-extruder copies
 of those fields.
 
-## 5. Native binding and motion-limit presentation
+## 5. Native field binding
 
 Field indices follow Orca's current native rules. In particular, motion-limit
 parameters retain their native two-element stride per variant. A single group
 of visible controls does not change that stride, compact the vectors, or make
 the physical extruder number the motion-limit index.
+
+### 5.1 Motion-limit presentation
 
 The interface exposes one group of motion-limit values for the current
 selection, without any Silent-related option, toggle, selector, or additional
@@ -124,6 +133,40 @@ establish a requirement to expose that capability in Neo.
 Reads, edits, tooltips, highlighting, and resets for the visible motion fields
 use their resolved native indices. Other native elements retain their values
 and ownership when those fields are edited or reset.
+
+### 5.2 Unavailable mappings
+
+A field with no native element mapping for the current selection remains in
+the category as a read-only, unavailable field. Its presentation explains that
+the selection has no corresponding mapping. Other fields with valid bindings
+remain usable under their ordinary editing rules.
+
+The unavailable field must not display, edit, highlight, or reset an element
+belonging to another selection. It offers no field reset and contributes no
+target to category reset. The category's other valid, resettable bindings still
+participate in their normal atomic reset.
+
+Missing mapping is distinct from a short serialized vector: once native mapping
+has resolved a valid index, the existing bounded first-element fallback for a
+nonempty short vector remains authoritative. Missing mapping must not invent
+index zero or otherwise substitute another selection's binding.
+
+### 5.3 Diameter-editing entry points
+
+Sidebar toolhead-size dropdowns retain their existing automatic Printer-preset
+matching and toolhead-transition behavior, owned by
+[Application Shell](Application%20Shell.md).
+
+Editing `nozzle_diameter` directly in the Printer preset dialog instead changes
+the corresponding element of the current preset's draft, under the existing
+native field validation and mutation contract. The editor retains the same
+canonical preset identity; the field edit does not search for or automatically
+select another Printer preset. Accepted values remain effective through the
+existing draft and explicit preset-save lifecycle.
+
+This is an accepted change to the delivered editor's current forwarding into
+the sidebar-style toolhead transaction, and is not yet implemented. The two
+entry points must remain distinct when the switch feature is delivered.
 
 ## 6. Category reset
 
@@ -194,10 +237,10 @@ printer topology editing.
 
 The following contracts still require clarification before implementation:
 
-- Detailed flow-type choices, presentation when a native mapping is unavailable,
-  and treatment of any future conditionally hidden fields during reset.
-- Selection handling for automatic canonical-source transitions, history restore,
-  and topology changes, plus revision changes and failure recovery.
+- Flow-context resolution when browsing a Printer preset that is not the
+  project's active Printer.
+- Selection handling for history restore and other transitions that change
+  available choices, plus revision changes and failure recovery.
 - Required behavioral acceptance cases and applicable native/host verification.
 
 Open decisions are not implemented guarantees. The existing editor and scoped

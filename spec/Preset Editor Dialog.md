@@ -491,14 +491,18 @@ its preset starts at the first selection. Cross-extruder copy is outside that
 feature's accepted scope.
 A valid vector index is not a physical Extruder ID.
 
-Diameter edits reuse the native toolhead transition, including exact profile
-combination matching, and the editor follows the resulting canonical source.
-The open Extruder page remains selected through that canonical source change.
-Source, Effective, tooltips, search and history refresh all use the same page
-index. Field reset restores only that element; Extruder category reset restores
-that index across the page in one atomic history entry. Extruder field/group/tab
-highlights reflect native ownership of the selected element, including explicit
-Source-equivalent values.
+The accepted switch design separates diameter-editing entry points. A direct
+`nozzle_diameter` field edit changes the current Printer preset's draft while
+retaining its canonical source. Sidebar toolhead-size dropdowns retain automatic
+profile matching. This replaces the delivered editor's forwarding into the
+toolhead transition and is not yet implemented; the full boundary is owned by
+[Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md).
+
+Source, Effective, tooltips, search and history refresh use the same displayed
+field binding. Field reset restores only that element; category reset applies
+the explicit current-selection bindings and shared fields in one atomic history
+entry. Extruder field/group/tab highlights reflect native ownership of the
+selected element, including explicit Source-equivalent values.
 These typed vectors are response projections, not additional native history or
 project-file state. Both hosts retain their desktop input model; mobile support
 remains deferred.
