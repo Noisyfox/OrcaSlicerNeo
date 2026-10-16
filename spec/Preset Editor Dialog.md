@@ -480,8 +480,10 @@ This delivered increment supplies element mechanisms only. The accepted,
 not-yet-implemented selection and mapping design is owned by
 [Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md),
 including the single Printer Extruder page, independent editor selections, and
-category-dependent switch visibility. Detailed motion-mode and reset decisions
-remain open there; cross-extruder copy is outside that feature's accepted scope.
+category-dependent switch visibility. It also owns the accepted mixed-index
+category-reset scope (current selection plus shared fields) and single-group
+motion-limit presentation without Silent controls. Those extensions are not yet
+implemented; cross-extruder copy is outside that feature's accepted scope.
 A valid vector index is not a physical Extruder ID.
 
 Diameter edits reuse the native toolhead transition, including exact profile

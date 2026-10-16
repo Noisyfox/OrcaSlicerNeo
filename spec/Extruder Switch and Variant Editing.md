@@ -2,8 +2,9 @@
 
 **Date:** 2026-10-16
 
-**Status:** Accepted design direction and selection/navigation behavior;
-remaining editing, lifecycle, and acceptance decisions are open. Not implemented.
+**Status:** Accepted design direction, selection/navigation behavior, category
+reset scope, and motion-limit presentation. Remaining choice, lifecycle, and
+acceptance decisions are open. Not implemented.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
 preset editors and Project Print settings. This is a peer specification to
@@ -31,7 +32,7 @@ shared React interface:
   resets must resolve through the same field binding. A physical extruder ID
   is not assumed to equal an option's vector index.
 - Category reset must support fields that resolve to different indices in one
-  atomic operation. The detailed reset scope remains an open decision.
+  atomic operation, including shared fields in the same category.
 - Print retains its existing Project-owned preset; this feature does not add a
   parallel Print draft or history root.
 
@@ -99,7 +100,48 @@ Shared fields retain their shared configuration meaning when displayed beside
 mapped fields. Selecting an extruder does not manufacture per-extruder copies
 of those fields.
 
-## 5. Scope boundaries
+## 5. Native binding and motion-limit presentation
+
+Field indices follow Orca's current native rules. In particular, motion-limit
+parameters retain their native two-element stride per variant. A single group
+of visible controls does not change that stride, compact the vectors, or make
+the physical extruder number the motion-limit index.
+
+The interface exposes one group of motion-limit values for the current
+selection, without any Silent-related option, toggle, selector, or additional
+column. The native reference defaults `silent_mode` to false and treats it as
+obsolete during configuration import; retained two-column GUI code does not
+establish a requirement to expose that capability in Neo.
+
+Reads, edits, tooltips, highlighting, and resets for the visible motion fields
+use their resolved native indices. Other native elements retain their values
+and ownership when those fields are edited or reset.
+
+## 6. Category reset
+
+`Reset category` restores the category's resettable fields from their existing
+Source/inheritance baseline as one atomic, undoable operation:
+
+- Each extruder/variant field resets only the element resolved for the current
+  selection. Other selections retain their edits and ownership.
+- Shared fields in that category reset once along with those mapped elements.
+  Because a shared field has one configuration value, restoring it affects all
+  extruders that use that value.
+- Fields outside the category are not part of the reset. The operation does
+  not become an all-extruder or whole-preset reset.
+
+For example, with independently modified T1 and T3 retraction parameters,
+resetting Extruder while T3 is selected retains T1's modifications. Resetting
+Motion ability while T3 is selected also restores that category's shared
+settings, such as `emit_machine_limits_to_gcode`.
+
+The explicit batch must express each target field's resolved index, or its
+shared-field reset, and validate the complete request before changing state.
+Partial success is not an accepted outcome. Existing native ownership and
+history remain authoritative; issuing a sequence of independent field resets
+does not meet the category-reset contract.
+
+## 7. Scope boundaries
 
 The accepted feature covers Printer, Filament, and Project Print selection.
 Object, Part, and Plate element-editing extensions are outside this scope.
@@ -111,12 +153,12 @@ capability and is not included in this accepted direction. The switch also
 does not add preset management, material-to-extruder assignment controls, or
 printer topology editing.
 
-## 6. Open decisions
+## 8. Open decisions
 
 The following contracts still require clarification before implementation:
 
-- Detailed field binding and flow/motion-mode presentation, category-reset
-  scope, and treatment of shared and hidden fields during reset.
+- Detailed flow-type choices, presentation when a native mapping is unavailable,
+  and treatment of any future conditionally hidden fields during reset.
 - Selection initialization and invalidation when an editor or preset changes,
   pending/invalid input behavior, revision changes, and failure recovery.
 - Required behavioral acceptance cases and applicable native/host verification.
