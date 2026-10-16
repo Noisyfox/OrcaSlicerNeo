@@ -137,23 +137,13 @@ const revisionWaiters = new Map<number, Set<RevisionWaiter>>();
  * loader effect has finished; an older revision is rejected as soon as a
  * newer replacement wins.
  */
-export function waitForGLVolumeRevision(revision: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.reject(signal.reason);
+export function waitForGLVolumeRevision(revision: number): Promise<void> {
   if (glVolumeCollection.revision === revision) return Promise.resolve();
   if (glVolumeCollection.revision > revision)
     return Promise.reject(new Error(`GL mesh revision ${revision} was superseded`));
   return new Promise<void>((resolve, reject) => {
     const waiters = revisionWaiters.get(revision) ?? new Set<RevisionWaiter>();
-    const cleanup = () => signal?.removeEventListener('abort', abort);
-    const waiter = { resolve: () => { cleanup(); resolve(); }, reject: (error: Error) => { cleanup(); reject(error); } };
-    const abort = () => {
-      waiters.delete(waiter);
-      if (!waiters.size) revisionWaiters.delete(revision);
-      cleanup();
-      reject(signal?.reason);
-    };
-    signal?.addEventListener('abort', abort, { once: true });
-    waiters.add(waiter);
+    waiters.add({ resolve, reject });
     revisionWaiters.set(revision, waiters);
   });
 }

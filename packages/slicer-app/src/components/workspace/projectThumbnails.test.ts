@@ -32,14 +32,23 @@ describe('save thumbnails', () => {
     expect(renderer.renderPixels).toHaveBeenCalledOnce();
     expect(renderer.dispose).toHaveBeenCalledOnce();
   });
-  it('can cancel while waiting for the current geometry projection', async () => {
+  it('defers cancellation until the current geometry projection finishes', async () => {
     useObjectListStore.setState({ structure: [{} as never] });
-    useSettingsStore.setState({ modelRevision: glVolumeCollection.revision + 1 });
+    const revision = glVolumeCollection.revision + 1;
+    useSettingsStore.setState({ modelRevision: revision });
     const controller = new AbortController();
     const result = captureProjectThumbnails(runtime, controller.signal, 42);
+    let settled = false;
+    const outcome = result.then(
+      () => { settled = true; return undefined; },
+      error => { settled = true; return error; },
+    );
     await new Promise(resolve => setTimeout(resolve, 0));
     controller.abort();
-    await expect(result).rejects.toThrow();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    glVolumeCollection.clear(revision);
+    expect(await outcome).toBe(controller.signal.reason);
     expect(createThumbnailRenderer).not.toHaveBeenCalled();
   });
   it('propagates rendering failures instead of exporting stale images', async () => {

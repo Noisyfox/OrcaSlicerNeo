@@ -89,7 +89,9 @@ Raw bottom-up RGBA crosses the typed client/Worker boundary. Native export check
 the history revision, complete stable plate-ID coverage and exact 512×512 byte
 length, then passes images to Orca's standard PNG/small-thumbnail writer. Rejected
 images, lost graphics contexts or rendering failures fail Save without marking the project clean. Cancel
-is supported before the host write starts. Headless exports may omit images.
+is supported before the host write starts, but does not interrupt the wait for
+the current geometry projection; requests during that wait take effect after it
+finishes. Headless exports may omit images.
 
 Each plate temporarily uses 1 MiB per RGBA copy; the complete request is retained
 until export completes. GPU targets are released between plates and native/client

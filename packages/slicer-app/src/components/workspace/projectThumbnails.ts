@@ -16,7 +16,7 @@ export async function captureProjectThumbnails(
   const session = await runtime.getPlateSessionSnapshot();
   if ('error' in session) throw new Error(session.error);
   const structure = useObjectListStore.getState().structure;
-  if (structure.length) await waitForGLVolumeRevision(useSettingsStore.getState().modelRevision, signal);
+  if (structure.length) await waitForGLVolumeRevision(useSettingsStore.getState().modelRevision);
   signal.throwIfAborted();
   const renderer = createThumbnailRenderer();
   const thumbnails: ExportProjectRequest['thumbnails'] = [];
