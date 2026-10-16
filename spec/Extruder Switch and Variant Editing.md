@@ -272,6 +272,27 @@ The native editor mutation writes the active or browsed source's draft directly.
 The sidebar command owns its separate toolhead transaction and automatic
 matching. These entry points remain distinct when selection controls are added.
 
+### 5.4 Process dirty indicators
+
+Project Print nozzle choices show both label lines in the semantic modified
+colour when that choice owns a per-selection override on the active supported
+settings page. The marker scans that page's unfiltered fields, so search does
+not conceal an override merely by hiding its field. Other pages and shared
+settings do not mark that nozzle; selecting a dirty choice retains the primary
+selected background.
+
+The complete Process profile's modified indicator and Reset All availability
+are independent of the selected nozzle, active page, search and individual
+mapping availability. They aggregate native Print-owned local settings and
+all explicit vector element ownership, including an explicit Source-equivalent
+or null value and unexposed Print options. Other domains in the native Project
+map, such as bed type and Printer flow/routing, do not make Process dirty.
+Missing mappings do not mark another choice, and short-vector value fallback
+does not supply ownership for an unowned index. Field, group and tab highlights
+retain their existing selected-binding scope; field/category resets still
+preserve every other selection's ownership. Reset All keeps its existing
+native whole-Process reset rules.
+
 ## 6. Category reset
 
 `Reset category` restores the category's resettable fields from their existing

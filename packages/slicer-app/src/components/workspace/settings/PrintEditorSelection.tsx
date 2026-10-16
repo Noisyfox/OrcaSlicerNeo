@@ -3,13 +3,15 @@ import type { ConfigEditorChoice, ConfigEditorSelection } from '@slicer/client';
 import { NozzleIcon } from '@/components/ui/nozzle-icon';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { cn } from 'cn';
 
 // Native NozzleVolumeType labels, not vector-index or variant calculations.
 export function printChoiceFlow(choice: ConfigEditorChoice): string {
   return ({ 0: 'SF', 1: 'HF', 2: 'Hybrid', 3: 'TPU HF', 5: 'E3D HF', 6: 'XHF' } as Record<number, string>)[choice.flowType ?? -1] ?? choice.variant;
 }
 
-export function PrintEditorSelection({ metadata, choiceId, onSelect, disabled }: {
+export function PrintEditorSelection({ metadata, choiceId, onSelect, disabled, dirtyChoiceIds }: {
+  dirtyChoiceIds: ReadonlySet<string>;
   metadata: ConfigEditorSelection;
   choiceId: string | null;
   onSelect: (id: string | null) => void;
@@ -42,11 +44,12 @@ export function PrintEditorSelection({ metadata, choiceId, onSelect, disabled }:
         onFocusCapture={event => reveal((event.target as HTMLElement).closest<HTMLElement>('[data-slot="toggle-group-item"]'))}>
         {metadata.choices.map(choice => {
           const diameter = choice.extruderIndex === null ? '—' : diameters[choice.extruderIndex] ?? diameters[0] ?? '—';
+          const dirty = dirtyChoiceIds.has(choice.id);
           return <ToggleGroupItem key={choice.id} value={choice.id} aria-label={choice.label} title={`${choice.label}: ${diameter} mm ${printChoiceFlow(choice)}`}
-            data-choice-id={choice.id}>
+            data-choice-id={choice.id} data-dirty={dirty ? 'true' : 'false'}>
             <span className="flex flex-col items-center">
-              <span className="text-foreground">{choice.extruderIndex === null ? '—' : choice.extruderIndex + 1}</span>
-              <span className="text-muted-foreground">{diameter} {printChoiceFlow(choice)}</span>
+              <span className={cn(dirty ? 'text-config-override' : 'text-foreground')}>{choice.extruderIndex === null ? '—' : choice.extruderIndex + 1}</span>
+              <span className={cn(dirty ? 'text-config-override' : 'text-muted-foreground')}>{diameter} {printChoiceFlow(choice)}</span>
             </span>
           </ToggleGroupItem>;
         })}

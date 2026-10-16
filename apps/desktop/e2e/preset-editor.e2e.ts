@@ -24,6 +24,19 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     await expect.poll(()=>page.evaluate(()=>(window as any).__orcaE2e.projectLoadEvidence())).toMatchObject({receipt:{sourceDisplayName:basename(fixture!),sourceByteLength:statSync(fixture!).size,nativeResult:{ok:true,mode:'project'}}});
     await page.waitForFunction(()=>Boolean((window as any).__orcaScopedConfigurationGate));
     expect(await page.evaluate(async()=>(await (window as any).__orcaScopedConfigurationGate.execution()).threaded)).toBe(false);
+    const processProfile=page.getByTestId('config-process-profile');
+    // The exported fixture intentionally contains Print edits on several indices.
+    await expect(processProfile).toHaveAttribute('data-dirty','true');
+    await page.getByTestId('config-reset-all').click();
+    await expect(processProfile).toHaveAttribute('data-dirty','false');
+    const {cleanProfileColour,dirtyColour}=await page.evaluate(()=>{
+      const colour=(token:string)=>{
+        const reference=document.createElement('span');reference.style.color=`var(${token})`;document.body.append(reference);
+        const value=getComputedStyle(reference).color;reference.remove();return value;
+      };
+      return {cleanProfileColour:colour('--color-foreground'),dirtyColour:colour('--color-config-override')};
+    });
+    await expect(page.getByTestId('process-preset-select')).toHaveCSS('color',cleanProfileColour);
     // Shared Print controls keep whole-option ownership beside the mapped editor.
     await page.getByTestId('config-page-Other').click();
     const sequence=page.getByTestId('config-input-print_sequence');
@@ -34,8 +47,11 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     const sequenceAfter=sequenceChoices.find(label=>label.trim().toLowerCase()!==sequenceBefore?.trim().toLowerCase())!;
     await page.getByRole('option',{name:sequenceAfter,exact:true}).click();
     await expect(sequence).toContainText(sequenceAfter);await expect(sequence).toBeEnabled();
+    await expect(processProfile).toHaveAttribute('data-dirty','true');
+    await expect(page.locator('[data-testid="print-editor-selection"] [data-dirty="true"]')).toHaveCount(0);
     await page.getByTestId('config-reset-print_sequence').click();
     await expect(sequence).toContainText(sequenceBefore!);
+    await expect(processProfile).toHaveAttribute('data-dirty','false');
     await expect(page.getByTestId('config-field-curr_bed_type')).toHaveCount(0);
     await page.getByTestId('config-page-Speed').click();
     const selection=page.getByTestId('print-editor-selection');await expect(selection).toBeVisible();
@@ -71,19 +87,43 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
       expectedRevision:revision,key:'outer_wall_speed',index:5,scalarType:'float',value:null}),nullable.revision);
     await expect(speed).toHaveValue('');await expect(speed).toBeEnabled();
     await expect.poll(async()=>(await nativePrint())?.editorVectors.outer_wall_speed.effectiveValues[5]).toBeNull();
+    await expect(hfChoice).toHaveAttribute('data-dirty','true');
+    await expect(sfChoice).toHaveAttribute('data-dirty','false');
+    await expect(processProfile).toHaveAttribute('data-dirty','true');
+    for(const line of await hfChoice.locator('span span').all())await expect(line).toHaveCSS('color',dirtyColour);
     const mutationCount=(await readSliceReceipts(page) as any[]).filter(receipt=>receipt.direction==='request' && receipt.op==='mutateNativeScopedConfig').length;
     await speed.press('Enter');
     expect((await readSliceReceipts(page) as any[]).filter(receipt=>receipt.direction==='request' && receipt.op==='mutateNativeScopedConfig')).toHaveLength(mutationCount);
     expect((await nativePrint()).editorVectors.outer_wall_speed.effectiveValues[5]).toBeNull();
     await speed.fill('187');await speed.press('Enter');await expect(speed).toBeEnabled();
     await expect(speed).toHaveValue('187');
+    await expect(hfChoice).toBeEnabled();
+    const beforeNavigation=await page.evaluate(()=>(window as any).__orcaScopedConfigurationGate.snapshot().status);
+    const writesBeforeNavigation=(await readSliceReceipts(page) as {direction:string;op:string}[]).filter(receipt=>receipt.direction==='request' && receipt.op==='mutateNativeScopedConfig').length;
     await sfChoice.click();
     await expect(page.getByTestId('config-field-outer_wall_speed')).toHaveAttribute('data-native-index','4');
     await expect(speed).not.toHaveValue('187');
+    expect(await page.evaluate(()=>(window as any).__orcaScopedConfigurationGate.snapshot().status)).toEqual(beforeNavigation);
+    expect((await readSliceReceipts(page) as {direction:string;op:string}[]).filter(receipt=>receipt.direction==='request' && receipt.op==='mutateNativeScopedConfig')).toHaveLength(writesBeforeNavigation);
+    await expect(hfChoice).toHaveAttribute('data-dirty','true');await expect(sfChoice).toHaveAttribute('data-dirty','false');
+    await expect(processProfile).toHaveAttribute('data-dirty','true');await expect(page.getByTestId('config-reset-all')).toBeEnabled();
+    await expect(page.getByTestId('process-preset-select')).toHaveCSS('color',dirtyColour);
+    for(const line of await hfChoice.locator('span span').all())await expect(line).toHaveCSS('color',dirtyColour);
+    await sfChoice.focus();await page.mouse.move(1000,700);
+    await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/print-dirty-inactive-hf.png')});
+    await speed.fill('186');await speed.press('Enter');await expect(speed).toBeEnabled();
+    await expect(sfChoice).toHaveAttribute('data-dirty','true');await expect(hfChoice).toHaveAttribute('data-dirty','true');
+    await page.getByTestId('config-reset-outer_wall_speed').click();
+    await expect(sfChoice).toHaveAttribute('data-dirty','false');await expect(hfChoice).toHaveAttribute('data-dirty','true');
+    await expect(processProfile).toHaveAttribute('data-dirty','true');
     await hfChoice.click();
     await page.getByTestId('config-reset-outer_wall_speed').click();await expect(speed).toHaveValue(sourceBefore);
+    await expect(hfChoice).toHaveAttribute('data-dirty','false');await expect(processProfile).toHaveAttribute('data-dirty','false');
+    await expect(page.getByTestId('process-preset-select')).toHaveCSS('color',cleanProfileColour);
     await page.getByTestId('history-undo').click();await expect(speed).toHaveValue('187');await expect(hfChoice).toHaveAttribute('aria-pressed','true');
+    await expect(hfChoice).toHaveAttribute('data-dirty','true');await expect(processProfile).toHaveAttribute('data-dirty','true');
     await page.getByTestId('history-redo').click();await expect(speed).toHaveValue(sourceBefore);
+    await expect(hfChoice).toHaveAttribute('data-dirty','false');await expect(processProfile).toHaveAttribute('data-dirty','false');
     await expect(hfChoice).toBeEnabled();await hfChoice.focus();await page.mouse.move(1000,700);
     await expect(page.locator('[data-slot="tooltip-content"]').filter({hasText:'Redo'})).toHaveCount(0);
     await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/print-extruder-strip-normal.png')});

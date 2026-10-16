@@ -134,8 +134,8 @@ the parent preset: a value equal to that baseline is not a modified parameter.
 Explicit local ownership described below applies to sparse scoped settings,
 dedicated project settings and Print vector element overrides.
 
-Editable option labels are orange (`#F1754E`) when the displayed scope has a
-local override. Inherited values, value controls, and `Mixed` placeholders are
+Editable option labels use the orange `--color-config-override` token when the
+displayed scope has a local override. Inherited values, value controls, and `Mixed` placeholders are
 not highlighted. For a multi-selection, the label is highlighted if at least
 one target owns a local value. The existing object list also shows a
 non-interactive marker for model items with supported local overrides; editing
@@ -152,6 +152,18 @@ local override is removed.
 `Reset All` is enabled only when the current mode and target(s) have supported
 local overrides; a category's Reset is enabled only when that category has
 one. An explicit local value counts even when it equals the inherited value.
+
+In Project mode, the Process preset indicator and Reset All aggregate the
+whole native Print owner across every nozzle and page, including explicit
+vector ownership whose value is null or equals Source. Switching to a clean
+or unavailable nozzle cannot clear that indicator or block Reset All. External
+Project domains, including bed type and Printer routing/flow, are excluded by
+the native Print snapshot's ownership. Each nozzle choice separately marks
+both its number and diameter/flow line in the modified colour for its native
+per-selection overrides on the active page, scanning the unfiltered supported
+fields. Shared settings make Process dirty without marking every nozzle.
+Selected field/group/tab highlights and category reset targets remain scoped
+to the current binding; Reset All retains its native whole-owner semantics.
 
 Scoped presents the complete set of options supported for the resolved scope,
 grouped by category, with search across categories. For a same-scope

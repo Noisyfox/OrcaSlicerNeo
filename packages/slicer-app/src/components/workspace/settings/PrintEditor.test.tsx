@@ -14,7 +14,7 @@ import { Selection } from '../viewport/Selection';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import { printChoiceFlow } from './PrintEditorSelection';
-import { elementText, parsePrintElement, projectPrintField } from './printEditorProjection';
+import { elementText, parsePrintElement, printDirtyChoiceIds, printHasLocalOverrides, projectPrintField } from './printEditorProjection';
 import { commitPrintConfigurationMutation, readPrintConfigEditor, waitForConfigurationMutations } from './configurationActions';
 
 let root:Root|undefined;
@@ -29,6 +29,8 @@ async function choose(label:string){
   await act(async()=>option.click());
 }
 const selectedChoice=()=>document.querySelector('[data-testid="print-editor-selection"] [aria-pressed="true"]')?.getAttribute('aria-label');
+const profileDirty=()=>document.querySelector('[data-testid="config-process-profile"]')?.getAttribute('data-dirty');
+const dirtyChoices=()=>[...document.querySelectorAll('[data-testid="print-editor-selection"] [data-dirty="true"]')].map(choice=>choice.getAttribute('aria-label'));
 async function type(value:string,enter=true){
   const input=document.querySelector<HTMLInputElement>('[data-testid="config-input-outer_wall_speed"]')!;
   await act(async()=>{input.focus();Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));});
@@ -114,6 +116,87 @@ it('uses loaded Hybrid choices, one captured typed mutation/history operation, m
   await click('config-mode-project');expect(selectedChoice()).toBe('T1 HF');
   await act(async()=>useSettingsStore.getState().enterPrintPreset());
   expect(selectedChoice()).toBe('T1 SF');
+});
+
+it('aggregates explicit Process ownership across nozzles while field/category resets and history stay selected',async()=>{
+  const h=await setup();await click('config-page-Speed');
+  expect(profileDirty()).toBe('false');expect(dirtyChoices()).toEqual([]);
+  await choose('T1 HF');await type('225');await type('220'); // Explicit Source-equivalent ownership is dirty.
+  expect(dirtyChoices()).toEqual(['T1 HF']);expect(profileDirty()).toBe('true');
+  const history=await h.runtime.getHistoryStatus();const writes=h.mutate.mock.calls.length;const reads=h.read.mock.calls.length;
+  await choose('T2 SF');
+  expect(h.mutate).toHaveBeenCalledTimes(writes);expect(h.read).toHaveBeenCalledTimes(reads);
+  expect(await h.runtime.getHistoryStatus()).toEqual(history);
+  expect(profileDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T1 HF']);
+  expect((document.querySelector('[data-testid="config-reset-all"]') as HTMLButtonElement).disabled).toBe(false);
+  expect(document.querySelector('[data-testid="config-option-label-outer_wall_speed"]')?.getAttribute('data-local-override-highlight')).toBe('false');
+  await type('245');expect(dirtyChoices()).toEqual(['T1 HF','T2 SF']);
+  await click('config-reset-outer_wall_speed');expect(dirtyChoices()).toEqual(['T1 HF']);expect(profileDirty()).toBe('true');
+  await type('246');
+  await act(async()=>document.querySelector('[data-testid="config-category-toggle-Other layers speed"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10})));
+  await click('config-reset-category-Speed');
+  expect(dirtyChoices()).toEqual(['T1 HF']);expect(profileDirty()).toBe('true');
+  await choose('T1 HF');await click('config-reset-outer_wall_speed');
+  expect(dirtyChoices()).toEqual([]);expect(profileDirty()).toBe('false');
+  expect((document.querySelector('[data-testid="config-reset-all"]') as HTMLButtonElement).disabled).toBe(true);
+  await act(async()=>{await h.runtime.undoHistory();useHistoryRestoreStore.getState().advanceRevision();});
+  expect(profileDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T1 HF']);expect(selectedChoice()).toBe('T1 HF');
+  await act(async()=>{await h.runtime.redoHistory();useHistoryRestoreStore.getState().advanceRevision();});
+  expect(profileDirty()).toBe('false');expect(dirtyChoices()).toEqual([]);
+});
+
+it('keeps active-page nozzle markers and whole-profile ownership independent of search and other pages/shared fields',async()=>{
+  const h=await setup();await click('config-page-Speed');await choose('T1 HF');await type('225');
+  h.project(snapshot=>({...snapshot,sourceValues:{...snapshot.sourceValues,line_width:'0.4,0.4,0.4'},effectiveValues:{...snapshot.effectiveValues,line_width:'0.4,0.4,0.4'},
+    editorSelection:{...snapshot.editorSelection,fieldBindings:{...snapshot.editorSelection.fieldBindings,line_width:snapshot.editorSelection.fieldBindings.outer_wall_speed}},
+    editorVectors:{...snapshot.editorVectors,line_width:{...snapshot.editorVectors.outer_wall_speed,sourceValues:[0.4,0.4,0.4],effectiveValues:[0.4,0.4,0.4],overrideValues:[null,null,null]}}}));
+  await act(async()=>useSettingsStore.getState().setMetadata({...useSettingsStore.getState().metadata,line_width:{type:'floats',category:'Quality',scopes:['project']}}));
+  await h.refresh();await click('config-page-Quality');
+  expect(document.querySelector('[data-testid="print-editor-selection"]')).not.toBeNull();
+  expect(dirtyChoices()).toEqual([]);expect(profileDirty()).toBe('true');
+  await click('config-page-Speed');expect(dirtyChoices()).toEqual(['T1 HF']);
+  const searchToggle=document.querySelector<HTMLButtonElement>('[aria-label="Search settings"]')!;
+  await act(async()=>searchToggle.click());
+  const search=document.querySelector<HTMLInputElement>('[data-testid="scoped-config-search"]')!;
+  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(search,'Overhang');search.dispatchEvent(new Event('input',{bubbles:true}));});
+  expect(document.querySelector('[data-testid="config-field-outer_wall_speed"]')).toBeNull();
+  expect(dirtyChoices()).toEqual(['T1 HF']);expect(profileDirty()).toBe('true');
+  await act(async()=>searchToggle.click());await click('config-reset-all');
+  expect(profileDirty()).toBe('false');expect(dirtyChoices()).toEqual([]);
+  await act(async()=>{await commitPrintConfigurationMutation(h.platform,{version:1,operation:'set',targets:[{scope:'project'}],key:'layer_height',value:'0.17'});});
+  expect(profileDirty()).toBe('true');expect(dirtyChoices()).toEqual([]);
+  await choose('T2 SF');expect(profileDirty()).toBe('true');expect(dirtyChoices()).toEqual([]);
+  await click('config-reset-all');expect(profileDirty()).toBe('false');
+});
+
+it('allows whole-profile Reset All when its only dirty element is unavailable in the current mapping',async()=>{
+  const h=await setup();await click('config-page-Speed');await choose('T1 HF');await type('227');
+  h.project(snapshot=>({...snapshot,editorSelection:{...snapshot.editorSelection,fieldBindings:{...snapshot.editorSelection.fieldBindings,
+    outer_wall_speed:{kind:'per_selection',bindings:[{kind:'indexed',index:0},{kind:'unavailable'},{kind:'indexed',index:2}]}}}}));
+  await h.refresh();expect(document.querySelector('[data-testid="config-input-outer_wall_speed"]')?.textContent).toBe('Unavailable');
+  expect(profileDirty()).toBe('true');expect(dirtyChoices()).toEqual([]);
+  expect((document.querySelector('[data-testid="config-reset-all"]') as HTMLButtonElement).disabled).toBe(false);
+  await click('config-reset-all');expect(h.mutate).toHaveBeenLastCalledWith({version:1,operation:'reset-all',targets:[{scope:'project'}]});
+  expect(profileDirty()).toBe('false');
+  const snapshot=await h.runtime.getPrintConfigEditor();if(!snapshot.ok)throw Error(snapshot.error);
+  expect(snapshot.editorVectors.outer_wall_speed.overrideValues).toEqual([null,null,null]);
+});
+
+it('uses native ownership and resolved indices without short-vector fallback or external project-domain dirtiness',async()=>{
+  const h=await setup();const source=await h.runtime.getPrintConfigEditor();if(!source.ok)throw Error(source.error);
+  const vector=source.editorVectors.outer_wall_speed;
+  const snapshot={...source,editorSelection:{...source.editorSelection,fieldBindings:{...source.editorSelection.fieldBindings,
+    outer_wall_speed:{kind:'per_selection' as const,bindings:[{kind:'indexed' as const,index:2},{kind:'unavailable' as const},{kind:'indexed' as const,index:1}]}}},
+    editorVectors:{...source.editorVectors,outer_wall_speed:{...vector,effectiveValues:[200],sourceValues:[200],overrideValues:[{value:null},null,{value:240}]}}};
+  expect([...printDirtyChoiceIds(snapshot,['outer_wall_speed'])]).toEqual(['ordinal-0']); // Native index 2; null/value-equal owners both remain explicit.
+  expect([...printDirtyChoiceIds({...snapshot,editorVectors:{...snapshot.editorVectors,outer_wall_speed:{...snapshot.editorVectors.outer_wall_speed,overrideValues:[{value:null}]}}},['outer_wall_speed'])]).toEqual([]);
+  expect(printHasLocalOverrides(snapshot,{})).toBe(true); // Even ownership with no available choice is globally dirty.
+  const nilOwner={...source,editorVectors:{...source.editorVectors,outer_wall_speed:{...vector,overrideValues:[{value:null},null,null]}}};
+  expect([...printDirtyChoiceIds(nilOwner,['outer_wall_speed'])]).toEqual(['ordinal-0']);
+  expect(printHasLocalOverrides(source,{curr_bed_type:'Textured PEI Plate',nozzle_volume_type:'Hybrid'})).toBe(false);
+  const hidden={...source,sourceValues:{...source.sourceValues,unexposed_print_option:'baseline'},effectiveValues:{...source.effectiveValues,unexposed_print_option:'local'}};
+  expect(printHasLocalOverrides(hidden,{unexposed_print_option:'local'})).toBe(true);
+  expect([...printDirtyChoiceIds(hidden,['unexposed_print_option'])]).toEqual([]);
 });
 
 it.each([true,false])('navigates invalid/pending Print fields immediately and confines late receipts (success=%s)',async success=>{

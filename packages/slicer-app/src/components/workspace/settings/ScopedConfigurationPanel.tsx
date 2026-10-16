@@ -13,7 +13,7 @@ import { useConfigEditorSelection } from './ConfigEditorSelection';
 import { PrintEditorSelection } from './PrintEditorSelection';
 import { NozzleIcon } from '@/components/ui/nozzle-icon';
 import { usePrintConfigEditor } from './usePrintConfigEditor';
-import { elementText, parsePrintElement, printOwnsField, projectPrintField } from './printEditorProjection';
+import { elementText, parsePrintElement, printDirtyChoiceIds, printHasLocalOverrides, printOwnsField, projectPrintField } from './printEditorProjection';
 import { editorFieldTarget, fieldViewKey } from './presetEditorBindings';
 import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
@@ -339,7 +339,10 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const highlightedCategories = useMemo(() => new Set(allFields
     .filter((field) => field.local && field.resettable)
     .map((field) => field.category)), [allFields]);
-  const hasLocalOverrides = highlightedCategories.size > 0;
+  const hasLocalOverrides = mode === 'project' ? printHasLocalOverrides(printEditor.snapshot, snapshot.project) : highlightedCategories.size > 0;
+  const dirtyChoiceIds = useMemo(() => printDirtyChoiceIds(printEditor.snapshot,
+    availablePages.find(page => page.title === selectedPage)?.groups.flatMap(group => group.keys).filter(key => allFields.some(field => field.key === key)) ?? []),
+  [printEditor.snapshot, availablePages, selectedPage, allFields]);
 
   const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
     if (mode !== 'project' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
@@ -407,7 +410,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const resetAll = async () => {
     if (mode !== 'project' && resolution.scope === 'invalid') return;
     const targets = mode === 'project' ? [{ scope: 'project', label: 'Project' } as const] : resolution.targets;
-    const hasLocal = targets.some((target) => localKeysForTarget(snapshot, target).some((key) => allFields.some((field) => field.key === key && field.resettable)));
+    const hasLocal = mode === 'project' ? hasLocalOverrides : targets.some((target) => localKeysForTarget(snapshot, target).some((key) => allFields.some((field) => field.key === key && field.resettable)));
     if (!hasLocal) return;
     const request: NativeScopedConfigMutationRequest = { version: 1, operation: 'reset-all', targets: targetRequestTargets(targets) };
     try {
@@ -420,7 +423,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
           <TooltipFor content="Reset all local overrides"><Button type="button" variant="ghost" size="icon-xs"
             className="size-5 shrink-0 text-config-override [&>svg]:size-3" aria-label="Reset All" data-testid="config-reset-all"
             disabled={!hasLocalOverrides || (mode !== 'project' && resolution.scope === 'invalid')} onClick={() => void resetAll()}><RotateCcw /></Button></TooltipFor>
-          {mode === 'project' ? <div className={cn("min-w-0 flex-1", hasLocalOverrides && "[&_button[data-slot=combobox-trigger]]:text-config-override")}>{projectContent}</div> :
+          {mode === 'project' ? <div data-testid="config-process-profile" data-dirty={hasLocalOverrides ? 'true' : 'false'} className={cn("min-w-0 flex-1", hasLocalOverrides && "[&_button[data-slot=combobox-trigger]]:text-config-override")}>{projectContent}</div> :
             <span data-testid="scoped-target-label" className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{resolution.label}</span>}
           {mode === 'project' && <span data-testid="scoped-target-label" className="sr-only">Project</span>}
           <TooltipFor content="Search settings"><Button type="button" variant="ghost" size="icon-xs" className="size-6 shrink-0 rounded-sm bg-control-background text-input-button-foreground hover:text-muted-foreground aria-expanded:bg-control-background aria-expanded:text-input-button-foreground"
@@ -449,7 +452,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         {mode==='project' && printEditor.snapshot && printEditor.snapshot.editorSelection.choices.length>1 &&
           categories.some(category=>category.fields.some(field=>printEditor.snapshot!.editorSelection.fieldBindings[field.key]?.kind==='per_selection')) &&
           <PrintEditorSelection metadata={printEditor.snapshot.editorSelection} choiceId={printSelection.choiceId} onSelect={printSelection.select}
-            disabled={printEditor.refreshing} />}
+            disabled={printEditor.refreshing} dirtyChoiceIds={dirtyChoiceIds} />}
         {mode==='project' && printEditor.error && <p role="alert" className="text-xs text-destructive">{printEditor.error}</p>}
   </div>;
   const optionsBody = (

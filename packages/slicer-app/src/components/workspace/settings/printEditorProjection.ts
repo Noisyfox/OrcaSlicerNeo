@@ -31,6 +31,30 @@ export function printOwnsField(snapshot: ConfigEditorSnapshot, key: string): boo
   return Object.hasOwn(snapshot.sourceValues, key) || Object.hasOwn(snapshot.effectiveValues, key);
 }
 
+/** Whole Process ownership is independent of the current page/nozzle mapping. */
+export function printHasLocalOverrides(snapshot: ConfigEditorSnapshot | null, project: Readonly<Record<string, string>>): boolean {
+  if (!snapshot) return false;
+  return Object.keys(project).some(key => printOwnsField(snapshot, key)) ||
+    Object.entries(snapshot.editorVectors).some(([key, vector]) => printOwnsField(snapshot, key) && vector.overrideValues.some(value => value != null));
+}
+
+/** Choice markers cover the supported active page, including search-hidden fields.
+ * Ownership never uses the short-vector value fallback or a guessed index. */
+export function printDirtyChoiceIds(snapshot: ConfigEditorSnapshot | null, pageKeys: readonly string[]): ReadonlySet<string> {
+  const dirty = new Set<string>();
+  if (!snapshot) return dirty;
+  for (const key of pageKeys) {
+    if (!printOwnsField(snapshot, key) || snapshot.editorSelection.fieldBindings[key]?.kind !== 'per_selection') continue;
+    const vector = snapshot.editorVectors[key];
+    if (!vector) continue;
+    for (const choice of snapshot.editorSelection.choices) {
+      const target = editorFieldTarget(snapshot, key, choice.id);
+      if (target.kind === 'indexed' && vector.overrideValues[target.index] != null) dirty.add(choice.id);
+    }
+  }
+  return dirty;
+}
+
 export function projectPrintField(field: ScopedConfigurationField, snapshot: ConfigEditorSnapshot | null, choiceId: string | null): ScopedConfigurationField {
   if (!snapshot || !printOwnsField(snapshot, field.key)) return field;
   const target = editorFieldTarget(snapshot, field.key, choiceId);
