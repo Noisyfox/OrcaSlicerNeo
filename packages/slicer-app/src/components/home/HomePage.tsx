@@ -108,7 +108,7 @@ export function HomePage({ active, canOpen, canCreate, onOpen, onCreate, onOpenR
                 </button>
                 <DropdownMenu>
                   <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="absolute right-2 bottom-7" disabled={disabled} aria-label={`Actions for ${project.displayName}`} />}><MoreHorizontal /></DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" className="w-max whitespace-nowrap">
                     <DropdownMenuItem disabled={disabled || project.missing} onClick={() => void run(() => recentProjects.reveal(project.id), 'The file could not be located.')}><FolderSearch />Show in folder</DropdownMenuItem>
                     <DropdownMenuItem disabled={disabled} onClick={() => void run(() => recentProjects.remove(project.id), 'The recent project could not be removed.')}><Trash2 />Remove from recent</DropdownMenuItem>
                   </DropdownMenuContent>
