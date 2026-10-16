@@ -172,6 +172,7 @@ describe('Workspace ownership', () => {
         effectiveValues: {},
         optionMetadata: {},
         editorBindings: {}, editorVectors: {},
+        editorSelection: { kind, activeSource: false, choices: [], firstChoiceId: null, nozzles: [], fieldBindings: {} },
         revision: 3,
       })),
     };
@@ -209,7 +210,9 @@ describe('Workspace ownership', () => {
         ? { ok: false, error: 'Preset read failed', errorCode: 'runtime_failure' }
         : { ok: true, kind, canonicalName, editorCandidates: candidates, draftExists: false, modified: false,
           overrides: {}, sourceValues: { printable_height: '256' }, effectiveValues: { printable_height: '256' },
-          optionMetadata: {}, editorBindings: {}, editorVectors: {}, revision: 1 }),
+          optionMetadata: {}, editorBindings: {}, editorVectors: {},
+          editorSelection: { kind, activeSource: false, choices: [], firstChoiceId: null, nozzles: [],
+            fieldBindings: { printable_height: { kind: 'shared' } } }, revision: 1 }),
       selectProfile: vi.fn(), selectPrinterWithRememberedRack: vi.fn(), selectFilamentSlotPreset: vi.fn(),
     };
     platform.runtime = runtime as unknown as PlatformCapabilities['runtime'];
@@ -253,6 +256,8 @@ describe('Workspace ownership', () => {
       effectiveValues: { printable_height: height },
       optionMetadata: { printable_height: { type: 'float' as const, min: 0, max: 256 } },
       editorBindings: {}, editorVectors: {},
+      editorSelection: { kind, activeSource: false, choices: [], firstChoiceId: null, nozzles: [],
+        fieldBindings: { printable_height: { kind: 'shared' } } },
       revision,
     });
     const runtime = {

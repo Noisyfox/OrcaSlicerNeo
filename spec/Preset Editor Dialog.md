@@ -462,6 +462,29 @@ vectors use their own length. Short values retain native first-element
 semantics; null is preserved and an empty printable-region group remains valid.
 `configVectorElementAt` supplies the same bounded read to presentation code.
 
+Every Printer, Filament and Print editor snapshot also requires
+`editor_selection` (`editorSelection` in the typed client). It contains ordered
+`choices`, a nullable `first_choice_id`, and `field_bindings` for every effective
+option. A field is `shared`, or has a `per_selection` binding array aligned with
+the choices. Each entry is `indexed` with a native vector index, or explicitly
+`unavailable`. Indexed entries reference the existing Source/Effective vectors
+and their `index_count`; the projection does not repeat values per choice.
+An unavailable entry must not be replaced by index zero. The bounded value
+fallback applies only after an indexed entry has resolved.
+
+Choices carry stable IDs within their native selection context, a native
+variant name, native drive/flow enum values, and a nullable zero-based physical
+`extruder_index` (null for Filament variants). Printer `nozzles` additionally
+carry `default_choice_id` and `initial_choice_id` for each physical nozzle;
+either can be null when it has no supported editor flow. `active_source`
+identifies the project's current Printer source. Its initial-flow hints use
+actual project flow, while other Printer sources use their native defaults.
+These are entry-time hints: ordinary receipt refreshes do not request selection
+initialization. Printer choices/defaults/mappings use the browsed effective
+configuration, including its draft, and expose SF/HF only; Hybrid normalizes
+to SF. Filament exposes its complete native variant list in native order.
+Print choices use the actual project flow and expand Hybrid into SF/HF entries.
+
 Draft `set-element`, indexed `reset-field`, and indexed `reset-category` share
 that implementation for both Printer and Filament. Resets restore only the
 specified element from Source by clearing its override entry; only a vector
@@ -477,8 +500,8 @@ Project Print owner, embedded-preset materialization, configuration publication,
 and enclosing application history transaction. They do not introduce a second
 Print draft or history root. Whole-option operations remain distinct actions.
 
-This delivered increment supplies element mechanisms only. The accepted,
-not-yet-implemented selection and mapping design is owned by
+The delivered contracts supply element editing and native mapping metadata.
+The accepted, not-yet-implemented selection interface is owned by
 [Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md),
 including the single Printer Extruder page, independent editor selections, and
 category-dependent switch visibility. It also owns the accepted mixed-index

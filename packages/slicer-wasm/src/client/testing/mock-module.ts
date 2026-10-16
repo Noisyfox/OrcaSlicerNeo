@@ -677,6 +677,24 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         gui_type: 'undefined', gui_flags: '', source_values: clone(option.values), effective_values: clone(printEditorValues(key)), index_count: 3,
         override_values: printVectorOverrides[key] ?? option.values.map(() => null),
       }])),
+      editor_selection: mockEditorSelection('print', Object.keys(printEditorOptions),
+        Object.fromEntries(Object.keys(printEditorOptions).map(key => [key, 3])), true),
+    };
+  }
+  // Deliberate synthetic fixtures, not an implementation of native variant rules.
+  function mockEditorSelection(kind: 'printer' | 'filament' | 'print', keys: string[], counts: Record<string, number>, activeSource: boolean) {
+    const count = kind === 'printer' ? counts.nozzle_diameter ?? 0 : Math.max(0, ...Object.values(counts));
+    const choices = Array.from({ length: count }, (_, index) => ({
+      id: `mock-${index}`, label: kind === 'filament' ? `Variant ${index + 1}` : `Extruder ${index + 1}`,
+      extruder_index: kind === 'filament' ? null : index, variant: 'Direct Drive Standard', extruder_type: 0, flow_type: 0,
+    }));
+    return { kind, active_source: activeSource, choices, first_choice_id: choices[0]?.id ?? null,
+      nozzles: kind === 'printer' ? choices.map(c => ({ extruder_index: c.extruder_index,
+        default_choice_id: c.id, initial_choice_id: c.id })) : [],
+      field_bindings: Object.fromEntries(keys.map(key => [key, counts[key] === undefined ? { kind: 'shared' } : {
+        kind: 'per_selection', bindings: choices.map((_, index) => index < counts[key]
+          ? { kind: 'indexed', index } : { kind: 'unavailable' }),
+      }])),
     };
   }
   function presetDraftRegistrySnapshot() {
@@ -720,7 +738,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         .sort((a, b) => Number(b.compatible) - Number(a.compatible) || Number(b.modified) - Number(a.modified)) } : {}),
       overrides, source_values: sourceValues, effective_values: { ...sourceValues, ...Object.fromEntries(Object.entries(overrides).map(([key, value]) =>
         [key, Array.isArray(value) ? serializePresetEditorValues(editorValuesFor(kind, canonicalName, key)!) : value])) },
-      option_metadata: optionMetadata, editor_vectors: vectors, revision: historyRevision };
+      option_metadata: optionMetadata, editor_vectors: vectors,
+      editor_selection: mockEditorSelection(kind, Object.keys(sourceValues),
+        Object.fromEntries(Object.entries(vectors).map(([key, vector]) => [key, (vector as { index_count: number }).index_count])),
+        kind === 'printer' && canonicalName === selected.printer), revision: historyRevision };
   }
   function nativePresetDraftHistoryContext() {
     return {

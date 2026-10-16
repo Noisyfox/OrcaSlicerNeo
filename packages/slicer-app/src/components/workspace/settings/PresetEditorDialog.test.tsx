@@ -137,6 +137,8 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
     overrides: options.modified ? (kind === 'printer' ? { printable_height: '245' } : { filament_flow_ratio: [{value: 0.92}, null] }) : {},
     sourceValues,
     effectiveValues,
+    editorSelection: { kind, activeSource: kind === 'printer', choices: [], firstChoiceId: null, nozzles: [],
+      fieldBindings: Object.fromEntries(Object.keys(effectiveValues).map(key => [key, { kind: 'shared' as const }])) },
     optionMetadata,
     editorBindings,
     editorVectors: Object.fromEntries(Object.entries(editorBindings).map(([key, binding]) => [key, {

@@ -49,6 +49,7 @@ import type {
   PresetDraftSnapshotResult, PresetDraftValues, PresetDraftError, PresetEditorCandidate, PresetDraftEditorBinding, PresetDraftEditorEnumOption,
   PresetDraftEditorGuiType, PresetDraftEditorScalarType, PresetDraftEditorValue,
   PresetDraftEditorVector, PresetDraftVectorValue, ConfigVectorOverride, ConfigEditorSnapshotResult,
+  ConfigEditorSelection, ConfigEditorChoice, ConfigEditorFieldBinding, ConfigEditorElementBinding,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -1214,6 +1215,57 @@ function normalizePresetDraftEditorBindings(
   return result;
 }
 
+function normalizeEditorSelection(raw: unknown, kind: unknown, values: Record<string, string>,
+  vectors: Record<string, PresetDraftEditorVector>): ConfigEditorSelection | undefined {
+  const integer = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
+  const nullableInteger = (v: unknown): v is number | null => v === null || integer(v);
+  if (!isRecord(raw) || raw.kind !== kind || typeof raw.active_source !== 'boolean' ||
+      !Array.isArray(raw.choices) || !Array.isArray(raw.nozzles) || !isRecord(raw.field_bindings)) return;
+  const choices: ConfigEditorChoice[] = [];
+  for (const choice of raw.choices) {
+    if (!isRecord(choice) || typeof choice.id !== 'string' || !choice.id ||
+        choices.some(c => c.id === choice.id) || typeof choice.label !== 'string' ||
+        typeof choice.variant !== 'string' || !nullableInteger(choice.extruder_index) ||
+        !nullableInteger(choice.extruder_type) || !nullableInteger(choice.flow_type) ||
+        (kind === 'filament' ? choice.extruder_index !== null : choice.extruder_index === null) ||
+        (kind === 'printer' && choice.flow_type !== 0 && choice.flow_type !== 1)) return;
+    choices.push({ id: choice.id, label: choice.label, variant: choice.variant,
+      extruderIndex: choice.extruder_index, extruderType: choice.extruder_type, flowType: choice.flow_type });
+  }
+  if (raw.first_choice_id !== (choices[0]?.id ?? null)) return;
+  const nozzles: ConfigEditorSelection['nozzles'][number][] = [];
+  for (const nozzle of raw.nozzles) {
+    if (kind !== 'printer' || !isRecord(nozzle) || !integer(nozzle.extruder_index) ||
+        nozzle.extruder_index !== nozzles.length) return;
+    const hasChoices = choices.some(c => c.extruderIndex === nozzle.extruder_index);
+    const validChoice = (id: unknown): id is string | null => (id === null && !hasChoices) ||
+      choices.some(c => c.id === id && c.extruderIndex === nozzle.extruder_index);
+    if (!validChoice(nozzle.default_choice_id) || !validChoice(nozzle.initial_choice_id)) return;
+    nozzles.push({ extruderIndex: nozzle.extruder_index, defaultChoiceId: nozzle.default_choice_id,
+      initialChoiceId: nozzle.initial_choice_id });
+  }
+  if (kind === 'printer' && (nozzles.length !== (vectors.nozzle_diameter?.indexCount ?? 0) ||
+      choices.some(c => !nozzles.some(n => n.extruderIndex === c.extruderIndex)))) return;
+  const fieldBindings: Record<string, ConfigEditorFieldBinding> = {};
+  if (Object.keys(raw.field_bindings).length !== Object.keys(values).length) return;
+  for (const [key, field] of Object.entries(raw.field_bindings)) {
+    if (!Object.hasOwn(values, key) || !isRecord(field)) return;
+    if (field.kind === 'shared') { fieldBindings[key] = { kind: 'shared' }; continue; }
+    if (field.kind !== 'per_selection' || !Array.isArray(field.bindings) || field.bindings.length !== choices.length) return;
+    const bindings: ConfigEditorElementBinding[] = [];
+    for (const binding of field.bindings) {
+      if (!isRecord(binding)) return;
+      if (binding.kind === 'unavailable') bindings.push({ kind: 'unavailable' });
+      else if (binding.kind === 'indexed' && integer(binding.index) && vectors[key] && binding.index < vectors[key].indexCount)
+        bindings.push({ kind: 'indexed', index: binding.index });
+      else return;
+    }
+    fieldBindings[key] = { kind: 'per_selection', bindings };
+  }
+  return { kind: kind as ConfigEditorSelection['kind'], activeSource: raw.active_source, choices,
+    firstChoiceId: raw.first_choice_id as string | null, nozzles, fieldBindings };
+}
+
 function normalizeConfigEditorSnapshot(raw: unknown): ConfigEditorSnapshotResult {
   if (!isRecord(raw)) return { ok: false, error: 'invalid preset draft response', errorCode: 'invalid_response' };
   if (raw.ok !== true) {
@@ -1292,8 +1344,10 @@ function normalizeConfigEditorSnapshot(raw: unknown): ConfigEditorSnapshotResult
       }
     }
   }
+  const editorSelection = normalizeEditorSelection(raw.editor_selection, raw.kind, effectiveValues, editorVectors);
+  if (!editorSelection) return { ok: false, error: 'invalid editor selection mapping', errorCode: 'invalid_response' };
   return { ok: true, canonicalName: raw.canonical_name, sourceValues, effectiveValues,
-    optionMetadata, editorBindings, editorVectors, revision: raw.revision as number };
+    optionMetadata, editorBindings, editorVectors, editorSelection, revision: raw.revision as number };
 }
 
 function normalizePresetDraftValues(raw: unknown): PresetDraftValues | PresetDraftError {

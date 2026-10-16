@@ -27,6 +27,7 @@
 #include "bridge_plate.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_profiles.hpp"
+#include "bridge_preset_drafts.hpp"
 #include "bridge_user_presets.hpp"
 #include "libslic3r/Exception.hpp"
 
@@ -1238,9 +1239,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_print_config_editor() {
         auto vectors = ConfigElements::vectors_json(source, edited.config, Preset::TYPE_PRINT, vector_overrides);
         for (auto it = vectors.begin(); it != vectors.end(); )
             if (!ScopedConfig::is_project_print_override_key(it.key())) it = vectors.erase(it); else ++it;
+        const auto printer = PresetDrafts::effective_preset_config(state().presets, state().preset_drafts,
+            Preset::TYPE_PRINTER, state().presets.printers.get_selected_preset_name());
+        auto selection = ConfigElements::selection_json(edited.config, Preset::TYPE_PRINT, printer,
+            state().presets.project_config, true, effective, vectors);
         return ScopedConfig::duplicate_json(json{{"ok", true}, {"kind", "print"}, {"canonical_name", edited.name},
             {"source_values", originals}, {"effective_values", effective}, {"option_metadata", metadata},
-            {"editor_vectors", vectors}, {"revision", state().history_revision}}.dump());
+            {"editor_vectors", vectors}, {"editor_selection", std::move(selection)}, {"revision", state().history_revision}}.dump());
     } catch (const std::exception& error) {
         return ScopedConfig::native_configuration_error_json("native_validation_failure", error.what());
     }

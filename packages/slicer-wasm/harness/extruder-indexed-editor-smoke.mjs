@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages, fixtureProfileOptions } from './profile-installer.mjs';
+import { readZipEntries, replaceEntry } from './native-3mf-parser.mjs';
 
 const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 
@@ -47,6 +48,71 @@ const values = key => read().editor_vectors[key].effective_values;
 assert.deepEqual(values('nozzle_diameter'), [0.4, 0.4, 0.6, 0.6]);
 assert.deepEqual(values('min_layer_height'), [0.08, 0.08, 0.12, 0.12]);
 assert.deepEqual(values('max_layer_height'), [0.32, 0.32, 0.48, 0.48]);
+
+// Native mapping oracle: physical head 3 is element 2, its SF/HF variants
+// are 4/5, and normal motion columns retain the native stride of two (8/10).
+const choiceBinding = (snapshot, key, head, flow) => {
+  const selection = snapshot.editor_selection;
+  const index = selection.choices.findIndex(c => c.extruder_index === head && c.flow_type === flow);
+  assert.ok(index >= 0, `choice for head ${head}, flow ${flow}`);
+  const field = selection.field_bindings[key];
+  assert.equal(field.kind, 'per_selection', key);
+  return field.bindings[index];
+};
+const mapping = read();
+assert.equal(mapping.editor_selection.active_source, true);
+assert.deepEqual(mapping.editor_selection.choices.map(c => [c.extruder_index, c.flow_type]),
+  [[0,0],[0,1],[1,0],[1,1],[2,0],[2,1],[3,0],[3,1]]);
+for (const [flow, variant, motion] of [[0,4,8],[1,5,10]]) {
+  assert.deepEqual(choiceBinding(mapping, 'nozzle_diameter', 2, flow), {kind: 'indexed', index: 2});
+  assert.deepEqual(choiceBinding(mapping, 'retraction_length', 2, flow), {kind: 'indexed', index: variant});
+  assert.deepEqual(choiceBinding(mapping, 'machine_max_speed_e', 2, flow), {kind: 'indexed', index: motion});
+}
+assert.deepEqual(mapping.editor_selection.field_bindings.emit_machine_limits_to_gcode, {kind: 'shared'});
+assert.deepEqual(mapping.editor_selection.nozzles.map(n => [n.default_choice_id, n.initial_choice_id]),
+  Array.from({length: 4}, (_, head) => [`extruder-${head}-flow-0`, `extruder-${head}-flow-0`]));
+// Native default_filament_profile intentionally stays short on multi-nozzle printers.
+assert.equal(mapping.editor_vectors.default_filament_profile.source_values.length, 1);
+assert.equal(mapping.editor_vectors.default_filament_profile.index_count, 4);
+assert.deepEqual(choiceBinding(mapping, 'default_filament_profile', 2, 1), {kind: 'indexed', index: 2});
+assert.equal(read().revision, mapping.revision, 'selection navigation metadata is a pure read');
+
+// Browsed defaults/drafts and topology must not be borrowed from the active project.
+const inactiveName = 'Snapmaker U1 (0.4 nozzle)';
+const inactiveRead = () => must(call('orc_get_preset_draft', ['string','string'], ['printer', inactiveName]));
+const inactiveSet = (key, value) => must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({
+  history_context: editingContext, kind: 'printer', canonical_name: inactiveName, action: 'set',
+  key, value, expected_revision: inactiveRead().revision,
+})]));
+inactiveSet('default_nozzle_volume_type', 'High Flow,High Flow,Hybrid,Standard');
+let inactive = inactiveRead();
+assert.equal(inactive.editor_selection.active_source, false);
+assert.equal(inactive.editor_selection.nozzles[1].default_choice_id, 'extruder-1-flow-1');
+assert.equal(inactive.editor_selection.nozzles[1].initial_choice_id, 'extruder-1-flow-1');
+assert.equal(inactive.editor_selection.nozzles[2].default_choice_id, 'extruder-2-flow-0', 'Hybrid native default normalizes to SF');
+inactiveSet('extruder_variant_list', 'Direct Drive High Flow;Direct Drive Standard;Direct Drive Standard,Direct Drive High Flow;Direct Drive Standard');
+inactive = inactiveRead();
+assert.deepEqual(inactive.editor_selection.choices.map(c => [c.extruder_index,c.flow_type]), [[0,1],[1,0],[2,0],[2,1],[3,0]]);
+assert.equal(inactive.editor_selection.nozzles[1].default_choice_id, 'extruder-1-flow-0', 'unavailable default uses first native supported editor flow');
+assert.deepEqual(read().editor_selection, mapping.editor_selection, 'browsing another Printer does not change active context');
+// A valid choice and its physical fields survive a missing native variant map.
+inactiveSet('printer_extruder_id', '1,1,1,1,1,1,1,1');
+inactive = inactiveRead();
+assert.deepEqual(choiceBinding(inactive, 'retraction_length', 2, 1), {kind: 'unavailable'});
+assert.deepEqual(choiceBinding(inactive, 'machine_max_speed_e', 2, 0), {kind: 'unavailable'});
+assert.deepEqual(choiceBinding(inactive, 'nozzle_diameter', 2, 1), {kind: 'indexed', index: 2});
+assert.equal(inactive.editor_selection.choices.length, 5, 'missing fields do not retarget the selection');
+// Dispose test-only inactive drafts so the existing history probes stay independent.
+must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext,
+  kind: 'printer', canonical_name: inactiveName, action: 'reset-preset', expected_revision: inactive.revision })]));
+const single = must(call('orc_get_preset_draft', ['string','string'], ['printer', 'Bambu Lab X1 Carbon 0.4 nozzle']));
+assert.equal(single.editor_selection.nozzles.length, 1, 'browsed single-head topology is independent of active four-head U1');
+assert.ok(single.editor_selection.choices.every(c => c.extruder_index === 0));
+mutate({action: 'set', key: 'default_nozzle_volume_type', value: 'High Flow,High Flow,Hybrid,Standard'});
+const activeDefaults = read();
+assert.equal(activeDefaults.editor_selection.nozzles[1].default_choice_id, 'extruder-1-flow-1');
+assert.equal(activeDefaults.editor_selection.nozzles[1].initial_choice_id, 'extruder-1-flow-0', 'active source initializes from project actual SF, not the browsed default HF');
+mutate({action: 'reset-field', key: 'default_nozzle_volume_type'});
 
 // The sidebar Multi. command and editor must agree after restoring a diameter.
 function diameter(value) {
@@ -167,6 +233,13 @@ function filamentMutate(body, accept = true) {
   return accept ? must(result) : result;
 }
 const baseFilament = readFilament();
+assert.deepEqual(baseFilament.editor_selection.choices.map(c => c.variant), [
+  'Direct Drive Standard', 'Direct Drive High Flow', 'Direct Drive Extra High Flow',
+  'Bowden Standard', 'Bowden High Flow', 'Bowden Extra High Flow',
+], 'all native Filament variants remain available, including Bowden and XHF unused by U1');
+assert.ok(baseFilament.editor_selection.choices.every(c => c.extruder_index === null));
+assert.deepEqual(baseFilament.editor_selection.field_bindings.filament_flow_ratio.bindings,
+  Array.from({length: 6}, (_, index) => ({kind: 'indexed', index})));
 const fi = baseFilament.editor_vectors.filament_flow_ratio.index_count - 1;
 assert.ok(fi > 0, 'native Filament has multiple variants');
 filamentMutate({ action: 'set-element', key: 'filament_flow_ratio', scalar_type: 'float', index: 0, value: 1.01 });
@@ -200,6 +273,10 @@ function printMutate(body, accept = true) {
   return result;
 }
 const basePrint = readPrint();
+assert.deepEqual(basePrint.editor_selection.choices.map(c => [c.extruder_index,c.flow_type]), [[0,0],[1,0],[2,0],[3,0]],
+  'Print choices follow actual project SF flow, independent of available Printer editing HF');
+assert.deepEqual(choiceBinding(basePrint, 'outer_wall_speed', 2, 0), {kind: 'indexed', index: 4});
+assert.deepEqual(basePrint.editor_selection.field_bindings.layer_height, {kind: 'shared'});
 const pi = basePrint.editor_vectors.outer_wall_speed.index_count - 1;
 assert.ok(pi > 0, 'Print preserves all variant columns');
 // Whole serialized values remain a distinct operation; element writes expand a short vector using its fallback.
@@ -235,5 +312,35 @@ must(call('orc_history_undo'));
 assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[pi], 175);
 must(call('orc_history_redo'));
 assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[pi], basePrint.editor_vectors.outer_wall_speed.source_values[pi]);
-console.log('PASS generic Printer/Filament/Print vectors, valid ranges, typed edits, atomic indexed reset and history');
+// Load actual project HF/Hybrid context through Orca's standard 3MF reader,
+// rather than a production test hook or a mock of the mapping function.
+const exported = must(call('orc_export_project'));
+const archiveBytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length));
+Module._free(Number(exported.bytes_ptr));
+const settingsName = 'Metadata/project_settings.config';
+const settingsEntry = readZipEntries(archiveBytes).find(entry => entry.name === settingsName);
+assert.ok(settingsEntry);
+const settings = JSON.parse(new TextDecoder().decode(settingsEntry.content));
+settings.nozzle_volume_type = ['Standard', 'High Flow', 'Hybrid', 'Standard'];
+settings.extruder_max_nozzle_count = ['1','1','2','1'];
+const hybridArchive = replaceEntry(archiveBytes, settingsName, JSON.stringify(settings));
+const archivePointer = Number(Module._malloc(hybridArchive.length));
+Module.HEAPU8.set(hybridArchive, archivePointer);
+try { must(call('orc_load_project', ['pointer','number','number','string'], [archivePointer, hybridArchive.length, 0, 'U1-Hybrid-mapping.3mf'])); }
+finally { Module._free(archivePointer); }
+const loadedProfile = must(call('orc_get_preset_snapshot'));
+printer = loadedProfile.printer.name;
+const hybridPrinter = read();
+assert.deepEqual(hybridPrinter.editor_selection.nozzles.map(n => n.initial_choice_id),
+  ['extruder-0-flow-0','extruder-1-flow-1','extruder-2-flow-0','extruder-3-flow-0'], 'actual Hybrid project flow initializes Printer as SF');
+assert.equal(hybridPrinter.editor_selection.choices.length, 8, 'project Hybrid does not add an editor parameter group');
+const hybridPrint = readPrint();
+assert.deepEqual(hybridPrint.editor_selection.choices.map(c => [c.extruder_index,c.flow_type]),
+  [[0,0],[1,1],[2,0],[2,1],[3,0]], 'Print follows actual HF/Hybrid project context');
+assert.deepEqual(choiceBinding(hybridPrint, 'outer_wall_speed', 2, 0), {kind: 'indexed', index: 4});
+assert.deepEqual(choiceBinding(hybridPrint, 'outer_wall_speed', 2, 1), {kind: 'indexed', index: 5});
+assert.deepEqual(choiceBinding(hybridPrinter, 'machine_max_speed_e', 2, 1), {kind: 'indexed', index: 10});
+assert.deepEqual(readFilament().editor_selection.choices.map(c => c.variant), baseFilament.editor_selection.choices.map(c => c.variant),
+  'Filament choices do not depend on project HF/Hybrid context');
+console.log('PASS native selections/defaults, physical/variant/stride-2 mappings, missing mappings, short vectors, full Filament variants, project HF/Hybrid context, typed edits/reset/history');
 process.exit(0);

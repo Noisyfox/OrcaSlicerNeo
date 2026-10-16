@@ -385,15 +385,21 @@ json draft_values_json(const Preset::Type type, const std::string& canonical_nam
         }
     }
     editor_vectors = ConfigElements::vectors_json(baseline_config, effective.config, type, override_values);
+    const bool active_source = type == Preset::TYPE_PRINTER &&
+        UserPresets::view_name(type, state().presets.printers.get_selected_preset_name()) == canonical_name;
+    auto effective_values = config_values_json(effective.config);
+    auto selection = ConfigElements::selection_json(effective.config, type, effective.config,
+        state().presets.project_config, active_source, effective_values, editor_vectors);
     return json{{"ok", true}, {"kind", kind_name(type)},
                 {"canonical_name", source->name},
                 {"draft_exists", overrides != nullptr || UserPresets::is_snapshot(type, canonical_name)},
                 {"modified", UserPresets::modified(type, canonical_name, effective.config)},
                 {"overrides", override_values},
                 {"source_values", config_values_json(baseline_config)},
-                {"effective_values", config_values_json(effective.config)},
+                {"effective_values", std::move(effective_values)},
                 {"option_metadata", std::move(source_metadata)},
                 {"editor_vectors", std::move(editor_vectors)},
+                {"editor_selection", std::move(selection)},
                 {"revision", state().history_revision}};
 }
 

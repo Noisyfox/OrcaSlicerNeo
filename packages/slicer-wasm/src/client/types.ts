@@ -540,6 +540,37 @@ export interface PresetDraftEditorVector extends Omit<PresetDraftEditorBinding,
   readonly overrideValues: readonly ConfigVectorOverride[];
 }
 
+export interface ConfigEditorChoice {
+  readonly id: string;
+  readonly label: string;
+  /** Zero-based physical nozzle; null for a Filament variant. */
+  readonly extruderIndex: number | null;
+  readonly variant: string;
+  /** Native enum values; null when a Filament variant name is unknown. */
+  readonly extruderType: number | null;
+  readonly flowType: number | null;
+}
+export type ConfigEditorElementBinding =
+  | { readonly kind: 'indexed'; readonly index: number }
+  | { readonly kind: 'unavailable' };
+export type ConfigEditorFieldBinding =
+  | { readonly kind: 'shared' }
+  | { readonly kind: 'per_selection'; readonly bindings: readonly ConfigEditorElementBinding[] };
+export interface ConfigEditorSelection {
+  readonly kind: 'printer' | 'filament' | 'print';
+  /** Project flow initializes Printer editing flows only when entering its active source. */
+  readonly activeSource: boolean;
+  readonly choices: readonly ConfigEditorChoice[];
+  readonly firstChoiceId: string | null;
+  readonly nozzles: readonly {
+    readonly extruderIndex: number;
+    readonly defaultChoiceId: string | null;
+    readonly initialChoiceId: string | null;
+  }[];
+  /** Bindings reference editorVectors; no values are repeated per choice. */
+  readonly fieldBindings: Readonly<Record<string, ConfigEditorFieldBinding>>;
+}
+
 /** Disposable typed vector projection shared by preset drafts and Print configuration. */
 export interface ConfigEditorSnapshot {
   readonly ok: true;
@@ -550,6 +581,7 @@ export interface ConfigEditorSnapshot {
   /** Client-derived first-element views; native sends only full vectors. */
   readonly editorBindings: Readonly<Record<string, PresetDraftEditorBinding>>;
   readonly editorVectors: Readonly<Record<string, PresetDraftEditorVector>>;
+  readonly editorSelection: ConfigEditorSelection;
   readonly revision: number;
 }
 export type ConfigEditorSnapshotResult = ConfigEditorSnapshot | PresetDraftError;

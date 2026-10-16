@@ -24,6 +24,52 @@ function wireColour(effective: string, provenance: 'preset' | 'user' = 'preset')
 }
 
 describe('SlicerClient bridge contract', () => {
+  it.each(['missing', 'duplicate-choice', 'wrong-default', 'null-default', 'missing-nozzle', 'bad-index', 'missing-field', 'bad-length'])(
+    'rejects %s native selection metadata rather than inventing a binding', async mode => {
+      const module = createMockModule();
+      const original = module.ccall;
+      module.ccall = (name, ret, types, args) => {
+        const pointer = original(name, ret, types, args);
+        if (name !== 'orc_get_preset_draft') return pointer;
+        const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
+        module._free(Number(pointer));
+        const selection = payload.editor_selection;
+        if (mode === 'missing') delete payload.editor_selection;
+        if (mode === 'duplicate-choice') selection.choices.push(selection.choices[0]);
+        if (mode === 'wrong-default') selection.nozzles[0].initial_choice_id = 'missing';
+        if (mode === 'null-default') selection.nozzles[0].default_choice_id = null;
+        if (mode === 'missing-nozzle') selection.nozzles = [];
+        if (mode === 'bad-index') selection.field_bindings.nozzle_diameter.bindings[0].index = 100;
+        if (mode === 'missing-field') delete selection.field_bindings.nozzle_diameter;
+        if (mode === 'bad-length') selection.field_bindings.nozzle_diameter.bindings = [];
+        const bytes = new TextEncoder().encode(JSON.stringify(payload) + '\0');
+        const replacement = module._malloc(bytes.length); module.HEAPU8.set(bytes, Number(replacement));
+        return replacement;
+      };
+      const client = createClient(async () => module); await client.init(MOCK_PROFILE_ACTIVATION);
+      expect(await client.getPresetDraft('printer', 'Bambu Lab X1 Carbon 0.4 nozzle'))
+        .toMatchObject({ ok: false, errorCode: 'invalid_response' });
+    });
+
+  it('preserves unavailable mappings and a valid native index beyond short serialized vectors', async () => {
+    const module = createMockModule(); const original = module.ccall;
+    module.ccall = (name, ret, types, args) => {
+      const pointer = original(name, ret, types, args);
+      if (name !== 'orc_get_print_config_editor') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer))); module._free(Number(pointer));
+      payload.editor_vectors.outer_wall_speed.source_values = [200];
+      payload.editor_vectors.outer_wall_speed.effective_values = [210];
+      payload.editor_selection.field_bindings.outer_wall_speed.bindings[1] = { kind: 'unavailable' };
+      const bytes = new TextEncoder().encode(JSON.stringify(payload) + '\0');
+      const replacement = module._malloc(bytes.length); module.HEAPU8.set(bytes, Number(replacement)); return replacement;
+    };
+    const client = createClient(async () => module); const snapshot = await client.getPrintConfigEditor();
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    expect(snapshot.editorSelection.fieldBindings.outer_wall_speed).toEqual({ kind: 'per_selection', bindings: [
+      { kind: 'indexed', index: 0 }, { kind: 'unavailable' }, { kind: 'indexed', index: 2 },
+    ] });
+    expect(snapshot.editorVectors.outer_wall_speed).toMatchObject({ indexCount: 3, sourceValues: [200], effectiveValues: [210] });
+  });
   const arrangement = { scope: 'all' as const, distance: 0, rotate: false, alignY: false, multipleMaterials: true, avoidCalibration: true,
     context: { selection: { mode: 'object' as const, objectIds: [], instanceIds: [], partIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} } };
   const arrangementCompletion = { ok: true, cancelled: false, changed: false, placed: 0, unplaced: [], plate_limit_reached: false };
