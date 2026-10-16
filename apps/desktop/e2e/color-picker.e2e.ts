@@ -258,7 +258,10 @@ test('keeps imported partitions until an explicit gradient edit is confirmed', a
     await page.getByRole('tab', { name: 'Gradient color 2', exact: true }).click();
     await editHex(page, '#445566');
     await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-    await expect.poll(stored).toEqual({ representative: '#112233', multiColour: '#112233 #445566', type: '0' });
+    // Retry parsing too: a read can overlap the main process's async write.
+    await expect(() => expect(stored()).toEqual({
+      representative: '#112233', multiColour: '#112233 #445566', type: '0',
+    })).toPass({ timeout: 5_000 });
   } finally { await app.close(); }
 });
 
@@ -481,8 +484,8 @@ test('edits seven gradient colors with compact controls and persists palette sta
       await editHex(page, colors[i]);
     }
     await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
-    await expect.poll(() => stored().colorPicker).toMatchObject({ ui: { sidebarOpen: true, paletteId: 'gradient' },
-      favorites: [{ kind: 'linear-gradient', colors: normalized }] });
+    await expect(() => expect(stored().colorPicker).toMatchObject({ ui: { sidebarOpen: true, paletteId: 'gradient' },
+      favorites: [{ kind: 'linear-gradient', colors: normalized }] })).toPass({ timeout: 5_000 });
     await hue.focus(); await hue.hover();
     await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(0);
     await popup.screenshot({ path: test.info().outputPath('seven-color-picker.png') });
@@ -493,9 +496,9 @@ test('edits seven gradient colors with compact controls and persists palette sta
     await expect(page.getByRole('tab', { name: 'Gradient color 7', exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: 'Favorite ' + normalized.join(' to '), exact: true }).click();
     await confirm.click();
-    await expect.poll(() => stored().rememberedFilamentRacks[printer].slots[0].native).toEqual({
+    await expect(() => expect(stored().rememberedFilamentRacks[printer].slots[0].native).toEqual({
       representative: normalized[0].toLowerCase(), multiColour: normalized.join(' ').toLowerCase(), type: '0',
-    });
+    })).toPass({ timeout: 5_000 });
     await page.getByTestId('filament-colour-1').click();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   } finally { await first.app.close(); }
