@@ -32,7 +32,7 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Profiles and activation | [Setup Wizard](../spec/Setup%20Wizard%20and%20Profile%20Activation.md), [Profile Compatibility](../spec/Profile%20Compatibility%20and%20Preset%20Selection.md) |
 | Local user presets and immutable versions; cloud design | [User Preset Repository and Versioning](../spec/User%20Preset%20Repository%20and%20Versioning.md) |
 | Configuration ownership and editors | [Scoped Configuration](../spec/Project%20and%20Scoped%20Configuration.md), [Preset Editor](../spec/Preset%20Editor%20Dialog.md) |
-| Extruder selection and variant editing | [Extruder Switch and Variant Editing](../spec/Extruder%20Switch%20and%20Variant%20Editing.md) |
+| Extruder editing and Sidebar project flow | [Extruder Switch and Variant Editing](../spec/Extruder%20Switch%20and%20Variant%20Editing.md) |
 | Painting and painted rendering | [Surface Painting](../spec/Surface%20Painting%20Architecture.md), [Painted Facets](../spec/Painted%20Facet%20Model%20Rendering.md) |
 | Colour editing | [Reusable Color Picker](../spec/Reusable%20Color%20Picker.md) |
 | Toolpath inspection and rendering | [G-code Preview](../spec/G-code%20Preview%20v2.md), [GPU Streaming Renderer](../spec/G-code%20Preview%20GPU%20Streaming%20Renderer.md) |

@@ -190,6 +190,19 @@ try {
   assert.equal(current.printer_picker.base_printer, current.printer.name);
   assert.deepEqual(flowValues(current.printer_picker), [[0, 1, 2, 3, 5, 6]], 'enum definition order keeps E3D identity 5');
   assert.equal(current.printer_picker.flows[0].actual, 0);
+  // The same small policy fixture also proves enum identity and the existing
+  // flow receipt/history contract on either native artifact variant.
+  const changedFlow = call('orc_set_project_flow', ['string'], [JSON.stringify({ index: 0, flow: 5,
+    expected_revision: call('orc_history_status').revision, history_context: editingContext })]);
+  assert.equal(changedFlow.ok, true, JSON.stringify(changedFlow));
+  assert.equal(changedFlow.profile_snapshot.printer_picker.flows[0].actual, 5);
+  assert.equal(changedFlow.filament_session.mappings.volume[0], 5);
+  const flowUndo = call('orc_history_undo');
+  assert.equal(flowUndo.profile_snapshot.printer_picker.flows[0].actual, 0);
+  const flowRedo = call('orc_history_redo');
+  assert.equal(flowRedo.profile_snapshot.printer_picker.flows[0].actual, 5);
+  assert.equal(call('orc_history_undo').ok, true);
+  current = snapshot();
   const historyBeforeRead = call('orc_history_status');
   const sessionBeforeRead = call('orc_get_filament_session_snapshot');
   assert.deepEqual(snapshot(), current);

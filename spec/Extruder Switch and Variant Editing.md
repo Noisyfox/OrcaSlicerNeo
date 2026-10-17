@@ -6,11 +6,10 @@
 mappings, atomic resets, the diameter-editing boundary, and Printer, Filament
 and Project Print selection are delivered. Objects-mode Scoped element editing
 has passed both independent acceptance gates in section 10.1. Integrated
-verification and independent parent acceptance are complete under section 10.
-Improved delayed
-rejection feedback after navigation remains deferred.
-The Sidebar project-flow extension in section 3.4 is accepted design work;
-implementation is pending.
+verification of those editor surfaces is complete under section 10.
+Sidebar project-flow selection, repair, preferences and history are implemented
+in section 3.4; final integrated acceptance is tracked in section 10.2. Improved
+delayed rejection feedback after editor navigation remains deferred.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
 preset editors, Project Print settings, and Objects-mode Scoped Print settings
@@ -197,7 +196,7 @@ for an individual field does not select another nozzle or flow to make that
 field editable. Section 5.2 governs its unavailable presentation, including when
 native default-flow normalization cannot produce a valid field mapping.
 
-### 3.4 Sidebar project-flow selection (accepted design; implementation pending)
+### 3.4 Sidebar project-flow selection
 
 The Sidebar flow combo changes the project's actual per-extruder
 `nozzle_volume_type`, independently of the Printer editor's presentation-only
@@ -207,7 +206,7 @@ project and Plate filament-volume mapping updates. Manual sub-nozzle quantity
 editing, quantity badges and new device-synchronization capabilities are outside
 this extension.
 
-The accepted implementation is bridge-owned native policy matching Orca's
+The implementation is bridge-owned native policy matching Orca's
 Sidebar candidate rules. It does not require extracting a shared policy into
 `libslic3r` or changing Orca GUI callers. TypeScript consumes the native choices
 and does not reproduce the flow-eligibility rules. The reference is
@@ -587,6 +586,19 @@ native-exported Hybrid fixture through their respective host boundaries, with
 artifact identity and runtime-variant checks. Mocked UI evidence does not
 replace real native index/ownership verification.
 
+Sidebar flow coverage uses the [native picker policy harness](../packages/slicer-wasm/harness/printer-picker-smoke.mjs)
+and [native transition/lifecycle harness](../packages/slicer-wasm/harness/native-printer-transition-smoke.mjs)
+for enum identity, mapping/flushing policy, atomic rejection/history, repair and
+native 3MF round trips. The [real Electron flow journey](../apps/desktop/e2e/project-flow.e2e.ts)
+uses a small native-exported two-head, two-Plate fixture with the current serial
+artifact. It checks rendered Project/Scoped contexts, manual flow history,
+valid-file priority, repaired-open dirty state, explicit save/reopen, and global
+preference boundaries. The [Web settings journey](../apps/web/e2e/bed-type-selector.e2e.ts)
+checks browser preference persistence through reload and the qualified serial
+fallback runtime. Threaded native startup/shared-memory and focused flow
+policy/command parity supplement that primary-host journey. This focused
+coverage does not claim the full dual-host, dual-variant release matrix.
+
 Verification scope follows the [testing guidelines](../doc/testing_guidelines.md):
 affected package checks during implementation; repository checks, a primary-host
 journey, and affected real-WASM host integration before code handoff. Common
@@ -662,7 +674,7 @@ review and execution of decisive checks, not only the agent's report.
 | 2. Atomic manual flow mutation | Add one validated, revision-checked native flow command through the typed client/runtime. Commit project flow, all-Plate filament-volume mappings, policy-controlled affected-head flushing, invalidation and the complete publication receipt atomically. Do not switch Printer presets or alter editor-only browsing selections. | Real native tests prove head isolation, Hybrid-to-Standard concrete mappings, all flushing policies and unaffected planes, invalid/stale request rollback, one history entry and exact Undo/Redo. Affected package suites/typechecks and native quick build/focused harness pass. Parent independently exercises mutation, failure and history cases before commit. | Accepted |
 | 3. Preferences, repair and project lifecycle | Implement base-Printer flow memory and its host-neutral storage contract. Restore memory only for new projects/explicit base-Printer changes; write it only for manual selections, with Hybrid stored as Standard. Integrate silent default-then-first repair into candidate-changing transactions and project opening, preserving valid file flows, marking repaired opens dirty, and creating no standalone repair history entry. Reads and history restores never repair. | Unit tests cover preference admission, lifetime, shared-host serialization and failed persistence boundaries. Real native cases prove repaired/empty candidates, active versus browsed drafts, transaction-coupled Undo/Redo, valid import priority, repaired-open dirty state without extra history, unchanged preferences on import/repair/history, and save/reopen round trips. Affected package checks and native quick build/harness pass, followed by parent review and independent lifecycle tests. | Accepted |
 | 4. Shared Sidebar controls | Enable existing single-nozzle and selected-toolhead flow Selects using native candidates and the flow command. Hide empty controls, retain existing layout and operation guards, publish one coherent receipt, refresh Project/Scoped flow contexts, and persist only an explicit accepted selection. Preserve independent Printer editing-flow browsing and other surfaces' valid selections. | Component tests and focused primary-host interaction cover both controls, actual enum values, empty choices, pending/rejected operations, flow context refresh, head/tab retention, project dirty state and preference writes. Affected package suites/typechecks and a primary-host journey pass. Parent independently reviews and exercises rendered integration before commit. | Accepted |
-| 5. Integrated delivery | Extend existing regression journeys for the complete flow lifecycle, repair integration findings through the same agent, and reconcile delivered/deferred statements in existing specifications. Add no planning or verification document. | Repository `pnpm test`/`pnpm typecheck`, both native quick builds, comprehensive flow/native contracts on one variant and startup/threading/fallback smoke on the other pass. A fresh real primary-host flow journey and affected Web/Electron host seams prove current artifacts, flow edits, history, import/save and preference boundaries under the testing guidelines. Parent independently inspects the complete diff and reruns decisive integrated checks before the final commit. | Pending |
+| 5. Integrated delivery | Extend existing regression journeys for the complete flow lifecycle, repair integration findings through the same agent, and reconcile delivered/deferred statements in existing specifications. Add no planning or verification document. | Repository `pnpm test`/`pnpm typecheck`, both native quick builds, comprehensive flow/native contracts on one variant and startup/threading/fallback smoke on the other pass. A fresh real primary-host flow journey and affected Web/Electron host seams prove current artifacts, flow edits, history, import/save and preference boundaries under the testing guidelines. Parent independently inspects the complete diff and reruns decisive integrated checks before the final commit. | Accepted |
 
 Every increment also requires `git diff --check` and verification of changed
 local documentation links and commands. Record execution evidence in commit/PR

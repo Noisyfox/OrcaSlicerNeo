@@ -5,6 +5,7 @@ import { fixtureProfileOptions } from './profile-installer.mjs';
 // node harness/native-printer-transition-smoke.mjs <out/serial/orca_slice.js>
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { argv } from 'node:process';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
@@ -429,6 +430,30 @@ assert.equal(plateRead().plates.length, 2, 'flow changes include a separate empt
 assert.deepEqual(plateRead().plates.map(plate => plate.settings.filament_map), ['1,2', '2,1']);
 const flowCommand = (index, flow, extra = {}) => request('orc_set_project_flow', { history_context: editingContext,
   index, flow, expected_revision: callJson('orc_history_status').revision, ...extra });
+// Optional real-host fixtures use the same native exporter and two-head
+// all-Plate contract as this harness. No private archive fields are introduced.
+const fixtureArgument = argv.indexOf('--flow-fixtures');
+if (fixtureArgument >= 0) {
+  const directory = resolve(repoRoot, argv[fixtureArgument + 1]);
+  await mkdir(directory, { recursive: true });
+  assert.equal(flowCommand(0, 1).ok, true);
+  assert.equal(flowCommand(1, 2).ok, true);
+  const exported = callJson('orc_export_project', ['string'], ['{}']);
+  assert.equal(exported.ok, true, JSON.stringify(exported));
+  let bytes;
+  try { bytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length)); }
+  finally { Module._free(Number(exported.bytes_ptr)); }
+  await writeFile(resolve(directory, 'valid-flow.3mf'), bytes);
+  const invalid = readZipEntries(bytes);
+  for (const entry of invalid) if (entry.name === 'Metadata/project_settings.config') {
+    const config = JSON.parse(decoder.decode(entry.content));
+    config.nozzle_volume_type = ['TPU High Flow', 'High Flow'];
+    entry.content = encoder.encode(JSON.stringify(config));
+  }
+  await writeFile(resolve(directory, 'invalid-flow.3mf'), writeStoredZip(invalid));
+  assert.equal(callJson('orc_history_undo').ok, true);
+  assert.equal(callJson('orc_history_undo').ok, true);
+}
 const flushRead = () => request('orc_get_flushing_volumes', { version: 1, revision: session().revisions.session });
 const policy = value => assert.equal(callJson('orc_set_auto_flush_policy', ['string'], [value]).ok, true);
 const flowState = () => ({ profile: presets().project_config,
