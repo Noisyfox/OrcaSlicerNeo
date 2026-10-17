@@ -226,10 +226,30 @@ When no candidates exist, hide the flow combo and preserve the current project
 flow. Do not invent an available flow or perform an automatic repair without
 a candidate.
 
-The repair trigger points, project-open behavior, history integration and flow
-preference lifetime remain subject to clarification. This section does not yet
-authorize applying repair during project import or history restoration. Current
-delivered Sidebar layout is described by
+Automatic repair is silent: update the project state and its displayed values
+without a toast or confirmation for the repair itself. Existing unsaved-project
+protection still applies when the operation changes project state.
+
+Remember the per-extruder flow vector across sessions, keyed by the base Printer
+preset name, following Orca's
+[Printer load and flow-selection paths](../packages/slicer-wasm/cpp/src/slic3r/GUI/Tab.cpp).
+When creating a project or explicitly switching base Printer, restore its
+remembered flows if present, otherwise use its defaults; validate restored values
+against the candidates and apply the repair rule above. Persist Hybrid as Standard
+in this preference only, leaving the current project's Hybrid flow unchanged.
+
+Opening a 3MF gives the file's valid project flows priority over local flow
+preferences. Do not overwrite a valid imported flow with a remembered value.
+An unavailable imported flow is silently repaired using the same default-then-first
+candidate rule, with associated mappings updated; an empty candidate list still
+preserves the imported value. A repair on project open marks the project as having
+unsaved changes instead of treating the repaired state as a clean load baseline.
+Only an explicit successful project save writes the repair to a file, through the
+existing [project persistence contract](3MF%20Project%20Persistence.md#project-identity-and-unsaved-changes).
+
+Other repair trigger points, history restoration, and whether imported or
+automatically repaired flows update the remembered preference remain subject to
+clarification. Current delivered Sidebar layout is described by
 [Application Shell](Application%20Shell.md#native-toolhead-selection-and-editing).
 
 ## 4. Switch visibility

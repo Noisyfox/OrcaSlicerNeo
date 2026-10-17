@@ -184,6 +184,11 @@ rules.
 - Model and layout changes, object-structure changes, project-setting changes,
   and preset-selection changes mark the project as having unsaved changes.
   Geometry-only import also marks the existing session as changed.
+- The accepted, not-yet-implemented
+  [Sidebar flow extension](Extruder%20Switch%20and%20Variant%20Editing.md#34-sidebar-project-flow-selection-accepted-design-implementation-pending)
+  preserves valid imported flows over local preferences. If an imported flow
+  requires automatic repair, the repaired project has unsaved changes and uses
+  the existing save protection below; loading never automatically saves the repair.
 - Before opening another project or creating a new project from a dirty
   session, the application offers **Save**, **Don't Save**, and **Cancel**.
   Cancel leaves the current session unchanged. Electron provides the same
