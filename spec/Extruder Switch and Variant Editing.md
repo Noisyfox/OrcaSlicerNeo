@@ -237,6 +237,9 @@ When creating a project or explicitly switching base Printer, restore its
 remembered flows if present, otherwise use its defaults; validate restored values
 against the candidates and apply the repair rule above. Persist Hybrid as Standard
 in this preference only, leaving the current project's Hybrid flow unchanged.
+Only an explicit user flow selection updates this preference. Project opening,
+automatic repair, and Undo/Redo do not overwrite it. Flow preferences are global
+application state and are not rolled back by project history.
 
 Opening a 3MF gives the file's valid project flows priority over local flow
 preferences. Do not overwrite a valid imported flow with a remembered value.
@@ -247,9 +250,19 @@ unsaved changes instead of treating the repaired state as a clean load baseline.
 Only an explicit successful project save writes the repair to a file, through the
 existing [project persistence contract](3MF%20Project%20Persistence.md#project-identity-and-unsaved-changes).
 
-Other repair trigger points, history restoration, and whether imported or
-automatically repaired flows update the remembered preference remain subject to
-clarification. Current delivered Sidebar layout is described by
+A manual flow selection creates one project-history entry covering the flow,
+associated mappings and flushing configuration together. Automatic repair creates
+no separate history entry. When a user operation such as a diameter or Printer
+change requires repair, include that repair in the initiating operation's atomic
+state transition and restore its before/after state together on Undo/Redo. For
+example, changing `0.4 / HF` to `0.2 / SF` through a diameter change and repair
+undoes to `0.4 / HF`, not `0.4 / SF`. Repair during project opening likewise creates
+no history entry, while still preserving the unsaved-change rule above. These
+rules use the existing [project history](Undo%20and%20Redo.md) ownership boundary.
+
+Other repair trigger points and whether history restoration itself may repair an
+unavailable restored flow remain subject to clarification. Current delivered
+Sidebar layout is described by
 [Application Shell](Application%20Shell.md#native-toolhead-selection-and-editing).
 
 ## 4. Switch visibility
