@@ -10,7 +10,7 @@ verification and independent parent acceptance are complete under section 10.
 Improved delayed
 rejection feedback after navigation remains deferred.
 The Sidebar project-flow extension in section 3.4 is accepted design work;
-implementation is pending and its remaining lifecycle decisions are open.
+implementation is pending.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
 preset editors, Project Print settings, and Objects-mode Scoped Print settings
@@ -215,6 +215,13 @@ and does not reproduce the flow-eligibility rules. The reference is
 [Plater.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp), including its
 per-extruder candidate construction and combo selection.
 
+Preserve native Sidebar candidate order and actual enum values rather than
+using dropdown positions as values. The HF and E3D HF diameter filters use the
+effective Printer's `printer_variant` string, not each extruder's physical
+`nozzle_diameter`: HF is excluded for `"0.2"` and for the X1E model exclusion;
+E3D HF is offered only for `"0.4"` or `"0.6"`, subject to the other native candidate
+rules. Editing a physical diameter alone does not redefine those filters.
+
 When candidates exist but the current project flow is unavailable, Neo must
 repair the actual project flow and associated mappings. Prefer that extruder's
 `default_nozzle_volume_type` if it is an available candidate; otherwise choose
@@ -225,6 +232,16 @@ that display fallback to the project.
 When no candidates exist, hide the flow combo and preserve the current project
 flow. Do not invent an available flow or perform an automatic repair without
 a candidate.
+
+Changing one extruder's actual flow updates the associated filament-volume
+mappings on all Plates without changing other extruders' mappings. Hybrid remains
+the project's selected flow but uses Standard in the corresponding concrete
+filament-volume mappings, following Orca. Flow-driven flushing recalculation
+respects the existing automatic-flushing policy: only the `all` policy recalculates
+the affected extruder's flushing values; `color change` and `disabled` do not
+trigger recalculation for a flow change. Other extruders' flushing values remain
+unchanged. The reference is the flow branch of `Tab::on_value_change()` in
+[Tab.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/Tab.cpp).
 
 Automatic repair is silent: update the project state and its displayed values
 without a toast or confirmation for the repair itself. Existing unsaved-project
@@ -260,9 +277,28 @@ undoes to `0.4 / HF`, not `0.4 / SF`. Repair during project opening likewise cre
 no history entry, while still preserving the unsaved-change rule above. These
 rules use the existing [project history](Undo%20and%20Redo.md) ownership boundary.
 
-Other repair trigger points and whether history restoration itself may repair an
-unavailable restored flow remain subject to clarification. Current delivered
-Sidebar layout is described by
+Undo/Redo restores the associated Printer configuration, project flows and mappings
+together; it does not run an additional repair after restoring the historical
+state. A flow that was available in a captured state must remain available when
+that complete state is restored. A mismatch caused by incomplete capture or
+restore is an implementation defect, not a reason to normalize history silently.
+
+Repair belongs to project opening and committed configuration transitions that
+change the active project's flow candidates. Reading snapshots or refreshing
+controls must not mutate project state. Printer-editor flow browsing remains
+presentation-only under section 3.1.
+
+Acceptance must cover candidate order and enum identity, `printer_variant` versus
+physical diameter filtering, Hybrid and nullable nozzle-count rules, empty
+candidates, default-then-first repair, all-Plate mapping updates and affected-head
+flushing under every policy. Real native history and 3MF tests must prove atomic
+Undo/Redo, no independent repair entry, repaired-open dirty state, and preservation
+of valid imported flows. Preference tests must distinguish explicit selections
+from import, repair and history, including Hybrid-to-Standard persistence. Both
+shared hosts use the same implementation; mocked UI results alone do not establish
+native mapping, persistence or history correctness.
+
+Current delivered Sidebar layout is described by
 [Application Shell](Application%20Shell.md#native-toolhead-selection-and-editing).
 
 ## 4. Switch visibility
