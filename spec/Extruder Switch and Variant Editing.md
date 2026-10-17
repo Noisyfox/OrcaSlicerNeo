@@ -643,3 +643,30 @@ than introducing another runner, and stage/build/copy before real-host testing.
 Production changes stay in the Neo bridge unless a demonstrated native-core
 blocker requires a separately accepted submodule change. Mock results never
 stand in for native storage, slicing or 3MF round-trip evidence.
+
+### 10.2 Sidebar project-flow extension
+
+Section 3.4 is implemented in the following independently verifiable increments
+on `dev/extruder-flow-combo-spec`. One `gpt-6.1-sol` agent with `medium` reasoning
+implements every increment, including repairs and self-verification. This is the
+flow extension's execution policy; the already accepted earlier increments retain
+their historical execution policy above. The implementation agent must not commit,
+delegate, or begin a later increment before the parent accepts and commits the
+current one. A failed self-check or parent acceptance returns to the same agent
+for repair and renewed verification. Parent acceptance requires independent source
+review and execution of decisive checks, not only the agent's report.
+
+| Increment | Complete deliverable | Independent acceptance gate | State |
+| --- | --- | --- | --- |
+| 1. Read-only native flow choices | Project each physical extruder's Sidebar flow candidates, actual flow and base Printer identity from effective native configuration. Update the typed client/runtime, mocks and fixtures as one contract. Keep the current flow controls read-only. | Native tests prove ordered enum identities, drive matching, Hybrid/nil gates, `printer_variant` rather than physical diameter filtering, X1E, sparse/empty lists, and pure reads without project/history changes. Affected package suites/typechecks and one variant's quick build/focused harness pass. Parent independently checks the policy against Orca and reruns decisive native cases. | Pending |
+| 2. Atomic manual flow mutation | Add one validated, revision-checked native flow command through the typed client/runtime. Commit project flow, all-Plate filament-volume mappings, policy-controlled affected-head flushing, invalidation and the complete publication receipt atomically. Do not switch Printer presets or alter editor-only browsing selections. | Real native tests prove head isolation, Hybrid-to-Standard concrete mappings, all flushing policies and unaffected planes, invalid/stale request rollback, one history entry and exact Undo/Redo. Affected package suites/typechecks and native quick build/focused harness pass. Parent independently exercises mutation, failure and history cases before commit. | Pending |
+| 3. Preferences, repair and project lifecycle | Implement base-Printer flow memory and its host-neutral storage contract. Restore memory only for new projects/explicit base-Printer changes; write it only for manual selections, with Hybrid stored as Standard. Integrate silent default-then-first repair into candidate-changing transactions and project opening, preserving valid file flows, marking repaired opens dirty, and creating no standalone repair history entry. Reads and history restores never repair. | Unit tests cover preference admission, lifetime, shared-host serialization and failed persistence boundaries. Real native cases prove repaired/empty candidates, active versus browsed drafts, transaction-coupled Undo/Redo, valid import priority, repaired-open dirty state without extra history, unchanged preferences on import/repair/history, and save/reopen round trips. Affected package checks and native quick build/harness pass, followed by parent review and independent lifecycle tests. | Pending |
+| 4. Shared Sidebar controls | Enable existing single-nozzle and selected-toolhead flow Selects using native candidates and the flow command. Hide empty controls, retain existing layout and operation guards, publish one coherent receipt, refresh Project/Scoped flow contexts, and persist only an explicit accepted selection. Preserve independent Printer editing-flow browsing and other surfaces' valid selections. | Component tests and focused primary-host interaction cover both controls, actual enum values, empty choices, pending/rejected operations, flow context refresh, head/tab retention, project dirty state and preference writes. Affected package suites/typechecks and a primary-host journey pass. Parent independently reviews and exercises rendered integration before commit. | Pending |
+| 5. Integrated delivery | Extend existing regression journeys for the complete flow lifecycle, repair integration findings through the same agent, and reconcile delivered/deferred statements in existing specifications. Add no planning or verification document. | Repository `pnpm test`/`pnpm typecheck`, both native quick builds, comprehensive flow/native contracts on one variant and startup/threading/fallback smoke on the other pass. A fresh real primary-host flow journey and affected Web/Electron host seams prove current artifacts, flow edits, history, import/save and preference boundaries under the testing guidelines. Parent independently inspects the complete diff and reruns decisive integrated checks before the final commit. | Pending |
+
+Every increment also requires `git diff --check` and verification of changed
+local documentation links and commands. Record execution evidence in commit/PR
+handoff results, not a new document. Mark an increment accepted only after parent
+acceptance. Both hosts and both WASM variants share one current contract; no
+legacy aliases or temporary response formats are introduced between increments.
+Grand Plan changes only if delivered work changes roadmap or milestone status.
