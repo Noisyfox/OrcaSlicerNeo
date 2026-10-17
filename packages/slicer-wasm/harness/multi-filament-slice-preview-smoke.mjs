@@ -69,7 +69,7 @@ for (const [slot, colour] of [[1, '#FF0000'], [alternate.slot, '#0000FF']]) {
 // The pinned native Print expands multi-variant filament vectors by their
 // standard BBS self-index/variant metadata. Keep each slot's complete native
 // span: two naked scalar values can instead describe two variants of slot 1.
-const configArchive = callJson('orc_export_project');
+const configArchive = callJson('orc_export_project', ['string'], ['{}']);
 assert.equal(configArchive.ok, true, JSON.stringify(configArchive));
 const configEntry = readZipEntries(readBytes(configArchive.bytes_ptr, configArchive.bytes_length))
   .find(entry => entry.name === 'Metadata/project_settings.config');

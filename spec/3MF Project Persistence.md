@@ -59,7 +59,9 @@
 - **Save Project** writes an Orca/Bambu-compatible BBS 3MF file with the
   `.3mf` extension. It preserves model, object and part semantics, plate membership/layout,
   instance transforms, and eligible project/per-plate settings.
-- Normal project saves do not embed a slice result, G-code, or thumbnails.
+- Normal UI project saves embed ordinary plate thumbnails (512×512 PNG and
+  native 128×128 small PNG) for every plate, including empty plates. They do
+  not embed slice results, G-code, top/pick/no-light or calibration previews.
   G-code export and send-to-printer remain independent operations.
 - Electron provides **Save Project** and **Save Project As…**. Save Project
   overwrites the current project file when the host has an in-memory source
@@ -73,6 +75,96 @@
   recent paths in its host configuration as described below and supplies full
   paths as display metadata for the File menu. Shared preferences do not store
   paths, and shared code cannot use display paths to access files.
+
+### Ordinary plate thumbnails
+
+Save holds the existing project mutation reservation while settling painting,
+waiting for the current geometry projection, rendering, exporting, and writing.
+The shared Three.js plate scene uses printable model parts, plate-local transforms,
+filament colours and painting; selection, gizmos and the active viewport camera
+are excluded. Rendering uses one disposable offscreen renderer and yields between
+plates. It does not depend on plate-list visibility or its thumbnail cache.
+
+Raw bottom-up RGBA crosses the typed client/Worker boundary. Native export checks
+the history revision, complete stable plate-ID coverage and RGBA byte length
+(`width × height × 4`), then passes images to Orca's standard PNG/small-thumbnail
+writer. The generator defaults to 512×512; the interface accepts positive integer
+widths and heights up to 65535, including rectangular and sub-128 images. This
+limit comes from the current miniz PNG encoder, not the 3MF format. Its scanline
+allocation (`57 + (width × 4 + 1) × height`) must also fit a signed 32-bit integer,
+and the input buffer must fit the WASM heap. The small image remains 128×128:
+downsampling averages source blocks across the entire image, while upsampling
+repeats pixels independently along each axis. Rejected
+images, lost graphics contexts or rendering failures fail Save without marking
+the project clean. Thumbnail generation and project export/write do not offer
+progress cancellation. The host Save As dialog may still be cancelled. Headless
+exports may omit images.
+
+Each plate temporarily uses 1 MiB per RGBA copy; the complete request is retained
+until export completes. GPU targets are released between plates and native/client
+buffers are released on both success and failure. No mobile-specific optimization
+or persistent image cache is introduced in this phase.
+
+Native verification:
+
+```sh
+node packages/slicer-wasm/harness/project-thumbnails-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+node packages/slicer-wasm/harness/project-auxiliaries-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --thumbnails
+```
+
+## Imported project attachments
+
+Project open enables native `LoadAuxiliary`; Save and Save As use the native
+auxiliary-directory writer without `SkipAuxiliary`. Attachment acceptance,
+filenames, zero-byte files, directory entries, content types and cover
+relationships follow the pinned desktop Orca implementation. The bridge does
+not retain unknown package declarations or repair relationships outside that
+native behavior. No attachment editor or extra ZIP sidecar is introduced.
+
+The native reader extracts attachments into the Model's backup directory under
+`/tmp/orcaslicer_model/.../Auxiliaries`. Model copies do not copy `backup_path`.
+Within one project, bridge replacements use `Model::load_from` to transfer the
+existing backup directory and native project metadata before moving the new
+Model into place. Undo/Redo, failed history publication, transaction abort,
+filament assignment, profile rollback and Clear Scene therefore retain the
+same directory without copying attachment files or storing them in history.
+Geometry-only imports do not acquire source attachments. Project close removes
+the old backup directory before resetting Model. Replacement loads follow the
+existing close-first policy; failed publication removes the incoming backup
+before restoring the fresh empty session.
+
+Electron threaded mode mounts `/tmp` through NODEFS onto a host-owned temporary
+directory, so extracted attachments live on disk. Web and Electron serial
+fallback use MEMFS. Disk-backed temporary storage does not eliminate transient
+archive buffers or shrink the WASM linear-memory high-water mark.
+
+The real-WASM regression entry point is
+`node packages/slicer-wasm/harness/project-auxiliaries-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
+Add `--thumbnails` to exercise generated plate images, and `--native-tmp` on the
+threaded artifact to verify disk-backed attachment files. It checks parameter
+and structural Undo/Redo, transaction abort, Clear Scene, repeated save/reopen,
+geometry-only import, project switching, close and failed project publication.
+Use `--lifecycle-only` to select these lifecycle checks without the cover-name
+matrix during focused iteration.
+A build configured with `NEO_PROJECT_HISTORY_TEST=ON` additionally accepts
+`--history-failures` to check reconciliation/publication failure in both Undo
+and Redo, plus failed profile activation, including successful saves after
+rollback. Filament routing publication failure is checked in normal builds.
+
+With `--thumbnails`, optional
+`--native-roundtrip /path/to/native-auxiliaries-roundtrip` compares
+attachment paths, file hashes, relevant content types and cover relationships
+with an unmodified desktop Orca load/save. The probe receives the same plate
+thumbnail input; unrelated built-in MIME defaults from a different desktop
+build are outside the comparison. Build
+`packages/slicer-wasm/harness/native-auxiliaries-roundtrip.cpp` against an existing
+desktop Orca build's libslic3r and dependencies. Optional
+`--native-reader /path/to/native-cover-reader` reads saved covers through desktop
+Orca's `bbs_3mf_get_thumbnail` and decodes them with wxWidgets; its source is
+`packages/slicer-wasm/harness/native-cover-reader.cpp`. Cover fixtures include
+spaces, Unicode and literal percent signs. Escaped targets and standard-only
+covers are compared against native behavior rather than given extra repair
+rules.
 
 ## Project identity and unsaved changes
 
@@ -261,14 +353,14 @@ every upstream sample.
 ## Long-running project operations
 
 - Project open and save show stage-level progress and disable conflicting
-  project commands. Save provides cancellation; open admits cancellation only
-  before the old project session closes. The post-close archive load is
-  non-cancellable in both WASM variants.
+  project commands. Save does not offer progress cancellation; open admits
+  cancellation only before the old project session closes. The post-close
+  archive load is non-cancellable in both WASM variants.
 - Cancelling open before close preserves the current session. A cancelled
   compatibility warning or failed load after close leaves the fresh empty
   session, as required by the project-replacement lifecycle above.
 - Project export completes into temporary WASM storage before bytes are passed
-  to a host. A cancelled or failed export, or a cancelled host save dialog,
+  to a host. A failed export or a cancelled host save dialog
   leaves the existing destination file unchanged and leaves the current
   project dirty.
 

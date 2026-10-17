@@ -494,7 +494,7 @@ json restore_timestamped_result(const Runtime& runtime,
             Neo::Bridge::ScopedConfig::restore_native_print_preset_history_state(
                 context.at("nativePrintPreset"));
         if (staged_filament_state) apply_mutable(state(), state().presets, std::move(*staged_filament_state));
-        state().model = std::move(staged_model);
+        Neo::Bridge::replace_model_preserving_project(state().model, std::move(staged_model));
         state().mutable_object_capture_cache.clear();
         restore_history_plate_session(plate_session, state().model);
         // The Project history root is an exact owner-aware replacement:
@@ -865,7 +865,7 @@ json restore_timestamped_result(const Runtime& runtime,
         if (print_preset_changed)
             Neo::Bridge::ScopedConfig::restore_native_print_preset_history_state(before_native_print_preset);
         if (before_filament_state) apply_mutable(state(), bundle, std::move(*before_filament_state));
-        state().model = std::move(before_model);
+        Neo::Bridge::replace_model_preserving_project(state().model, std::move(before_model));
         state().plate_session_plates = before_plates;
         bundle.project_config = before_project_config;
         bundle.prints.get_edited_preset().config = before_print_config;

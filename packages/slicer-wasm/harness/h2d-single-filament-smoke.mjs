@@ -97,7 +97,7 @@ for (const [name, body] of [['orc_delete_filament_slot', { slot: 1 }], ['orc_mer
   assert.deepEqual(session(), one);
   assert.deepEqual(call('orc_history_status'), history);
 }
-const exported = call('orc_export_project');
+const exported = call('orc_export_project', ['string'], ['{}']);
 assert.equal(exported.ok, true, JSON.stringify(exported));
 const bytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + exported.bytes_length);
 Module._free(Number(exported.bytes_ptr));
@@ -137,7 +137,7 @@ for (const [name, body] of [
   assert.deepEqual(session(), beforeInvalid, name);
   assert.deepEqual(call('orc_history_status'), beforeInvalidHistory, name);
 }
-const reexported = call('orc_export_project');
+const reexported = call('orc_export_project', ['string'], ['{}']);
 assert.equal(reexported.ok, true, JSON.stringify(reexported));
 const savedBytes = Module.HEAPU8.slice(Number(reexported.bytes_ptr), Number(reexported.bytes_ptr) + reexported.bytes_length);
 Module._free(Number(reexported.bytes_ptr));

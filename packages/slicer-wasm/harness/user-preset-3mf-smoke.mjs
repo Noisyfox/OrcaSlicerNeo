@@ -55,7 +55,7 @@ ok(request('orc_select_filament_slot_preset', { version: 1, revision: deviceRack
 let roundtripRack = ok(call('orc_get_filament_session_snapshot'));
 ok(request('orc_add_filament_slot', { version: 1, revision: roundtripRack.revisions.session }));
 function roundtripExport() {
-  const archive = ok(call('orc_export_project'));
+  const archive = ok(call('orc_export_project', ['string'], ['{}']));
   const content = Module.HEAPU8.slice(Number(archive.bytes_ptr), Number(archive.bytes_ptr) + archive.bytes_length);
   Module._free(Number(archive.bytes_ptr));
   for (const entry of readZipEntries(content).filter(entry => /Metadata\/.+\.(config|json)$/.test(entry.name)))

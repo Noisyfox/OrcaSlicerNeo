@@ -114,7 +114,7 @@ function loadProject(bytes, displayName) {
 }
 function establishFlexibleBaseline() {
   initFlexible();
-  const exported = callJson('orc_export_project');
+  const exported = callJson('orc_export_project', ['string'], ['{}']);
   assert.equal(exported.ok, true, JSON.stringify(exported));
   baselineProject = readBytes(exported.bytes_ptr, exported.bytes_length);
   // Export/import is the authoritative project boundary. Native plate
@@ -199,7 +199,7 @@ assert.deepEqual(callJson('orc_get_filament_session_snapshot'), capacitySnapshot
 // Capacity is also a persistence boundary: the complete 64-slot session and
 // its 64x64 native matrix must survive the real BBS 3MF writer and reader,
 // rather than only living in the in-memory command state.
-const exported64 = callJson('orc_export_project');
+const exported64 = callJson('orc_export_project', ['string'], ['{}']);
 assert.equal(exported64.ok, true, JSON.stringify(exported64));
 const project64 = readBytes(exported64.bytes_ptr, exported64.bytes_length);
 assert.deepEqual(readZipEntries(project64).filter(({ name }) => name.startsWith('Metadata/orca_neo_')), [],

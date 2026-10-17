@@ -108,7 +108,7 @@ let first = firstExportedLayerSteps(sliced.receipt);
 if (Math.abs(first.steps[0] - 0.24) >= 0.005)
   throw new Error(`project layer height did not reach the slice: ${JSON.stringify(first.steps)}`);
 
-const exportedProject = requireOk('export project', callJson('orc_export_project'));
+const exportedProject = requireOk('export project', callJson('orc_export_project', ['string'], ['{}']));
 const projectBytes = readAndFree(exportedProject.bytes_ptr, exportedProject.bytes_length);
 const exportedEntries = readZipEntries(projectBytes);
 if (exportedEntries.some((entry) => privateNeoEntryNames.includes(entry.name)))
@@ -163,7 +163,7 @@ requireOk('slice after round-trip', sliced);
 const second = firstExportedLayerSteps(sliced.receipt);
 if (Math.abs(second.steps[0] - 0.24) >= 0.005)
   throw new Error(`project layer height did not survive round-trip: ${JSON.stringify(second.steps)}`);
-const reloadedExport = requireOk('export after private metadata input', callJson('orc_export_project'));
+const reloadedExport = requireOk('export after private metadata input', callJson('orc_export_project', ['string'], ['{}']));
 const reloadedEntries = readZipEntries(readAndFree(reloadedExport.bytes_ptr, reloadedExport.bytes_length));
 if (reloadedEntries.some((entry) => privateNeoEntryNames.includes(entry.name)))
   throw new Error('private Neo metadata was reproduced after an ignored input');
@@ -184,7 +184,7 @@ if (typeof expectedExtruder !== 'string')
   throw new Error(`source object extruder assignment was not returned by native snapshot: ${JSON.stringify(sourceExtruderMutation)}`);
 requireOk('set source object override', setScoped('object', String(sourceObject.id), 'layer_height', '0.24'));
 requireOk('set source part override', setScoped('part', String(sourceVolume.id), 'layer_height', '0.28'));
-const geometrySource = requireOk('export geometry-only source', callJson('orc_export_project'));
+const geometrySource = requireOk('export geometry-only source', callJson('orc_export_project', ['string'], ['{}']));
 const geometrySourceBytes = readAndFree(geometrySource.bytes_ptr, geometrySource.bytes_length);
 const sourceObjectIds = new Set((sourceStructure.objects ?? []).map((object) => String(object.id)));
 const geometryPtr = writeBytes(geometrySourceBytes);

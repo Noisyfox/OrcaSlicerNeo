@@ -443,7 +443,7 @@ assert.notEqual(normalized.project.curr_bed_type, 'retired-invalid-bed');
 // Export/import creates independent embedded project sources, including the
 // printer's current own draft. Candidate-only activation preserves this source;
 // added global models also preserve the independent embedded Printer.
-const exported = must(c('orc_export_project'));
+const exported = must(c('orc_export_project', ['string'], ['{}']));
 let bytes = detailed.Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length));
 const archive = readZipEntries(bytes);
 const decode = new TextDecoder(), encode = new TextEncoder();

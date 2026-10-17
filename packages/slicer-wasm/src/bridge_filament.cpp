@@ -1530,7 +1530,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             if (!HistoryMetadata::begin_timestamped_operation(state(), label, before_context))
                 throw std::runtime_error("could not capture filament assignment history predecessor");
             history_started = true;
-            state().model = std::move(staged_model);
+            Neo::Bridge::replace_model_preserving_project(state().model, std::move(staged_model));
             state().plate_session_plates = std::move(staged_plates);
             ensure_plate_session_state();
             Neo::Bridge::PrimeTower::normalize_coordinate_positions();

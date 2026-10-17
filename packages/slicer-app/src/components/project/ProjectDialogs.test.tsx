@@ -82,7 +82,7 @@ describe('project dialogs', () => {
 
   it('renders cancellable progress through the shadcn progress primitive', async () => {
     const onCancel = vi.fn();
-    await renderDialog(<ProjectProgressDialog operation={{ phase: 'saving', progress: 42, message: 'Saving…', cancellable: true }} onCancel={onCancel} />);
+    await renderDialog(<ProjectProgressDialog operation={{ phase: 'loading', progress: 42, message: 'Opening project', cancellable: true }} onCancel={onCancel} />);
     const progress = document.querySelector('[data-testid="project-progress"]');
     expect(progress?.getAttribute('role')).toBe('progressbar');
     expect(progress?.getAttribute('aria-valuenow')).toBe('42');
@@ -91,12 +91,15 @@ describe('project dialogs', () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  it('renders model-import progress as the shared global modal without cancellation', async () => {
-    await renderDialog(<ProjectProgressDialog operation={{ phase: 'model-import', progress: 50, message: 'Imported 1 of 2 model(s)', cancellable: false }} onCancel={vi.fn()} />);
-    expect(document.body.textContent).toContain('Importing model(s)');
-    expect(document.body.textContent).toContain('Imported 1 of 2 model(s)');
+  it.each([
+    { phase: 'model-import' as const, title: 'Importing model(s)', message: 'Imported 1 of 2 model(s)', label: 'Model import progress' },
+    { phase: 'saving' as const, title: 'Saving project', message: 'Rendering plate thumbnails', label: 'Project operation progress' },
+  ])('renders $phase progress as the shared global modal without cancellation', async ({ phase, title, message, label }) => {
+    await renderDialog(<ProjectProgressDialog operation={{ phase, progress: 50, message, cancellable: false }} onCancel={vi.fn()} />);
+    expect(document.body.textContent).toContain(title);
+    expect(document.body.textContent).toContain(message);
     expect(document.querySelector('[data-testid="project-progress-dialog"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="project-progress"]')?.getAttribute('aria-label')).toBe('Model import progress');
+    expect(document.querySelector('[data-testid="project-progress"]')?.getAttribute('aria-label')).toBe(label);
     expect(document.querySelector('[data-testid="project-progress-cancel"]')).toBeNull();
   });
 

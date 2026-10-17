@@ -1176,6 +1176,21 @@ export type ExportGcodeResult =
   | { ok: true; fileName: string; bytes: Uint8Array }
   | { ok: false; status: Exclude<ResultReadStatus, 'ok'>; error: string };
 
+/** Fresh ordinary plate images, with WebGL bottom-up RGBA rows. */
+export interface ProjectPlateThumbnail {
+  plateId: string;
+  /** Positive integer dimensions, within the native PNG encoder's limits. */
+  width: number;
+  height: number;
+  /** Export takes ownership; Worker transports may detach this buffer. */
+  rgba: Uint8Array;
+}
+export interface ExportProjectRequest {
+  expectedRevision: number;
+  /** Exactly one image for every authoritative plate, including empty plates. */
+  thumbnails: ProjectPlateThumbnail[];
+}
+
 export interface ExportProjectResult {
   ok: boolean;
   /** Native temporary path, for diagnostics only; never a host path. */
@@ -1729,7 +1744,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   /** Export only the captured current plate's completed result. */
   exportGcodePlate(request: ExportGcodeRequest): Promise<ExportGcodeResult>;
   /** Export the complete active plate session as a native-compatible BBS 3MF archive. */
-  exportProject(): Promise<ExportProjectResult>;
+  exportProject(request?: ExportProjectRequest): Promise<ExportProjectResult>;
   cancel(): Promise<CancelResult>;
   /** Read the C++ boost::log file sink output from MEMFS. */
   readLog(): Promise<ReadLogResult>;

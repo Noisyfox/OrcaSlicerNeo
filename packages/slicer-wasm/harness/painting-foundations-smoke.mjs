@@ -131,7 +131,7 @@ const preview = (tool, settings, pointer) =>
 const cancel = () =>
   update("orc_painting_stroke_cancel", { strokeId: session.strokeId });
 function savedFields() {
-  const result = ok(call("orc_export_project"));
+  const result = ok(call('orc_export_project', ['string'], ['{}']));
   try {
     const entries = readZipEntries(
       Module.HEAPU8.slice(

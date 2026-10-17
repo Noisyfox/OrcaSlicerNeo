@@ -77,7 +77,7 @@ must(request('orc_delete_filament_slot', { slot: 4 })); assert.deepEqual(editor(
 
 // Production 3MF round trip persists custom matrix and multipliers.
 must(call('orc_add_shape', ['string', 'string'], ['Cube', 'Flushing persistence']));
-const exported = call('orc_export_project');
+const exported = call('orc_export_project', ['string'], ['{}']);
 assert.equal(exported.ok, true, JSON.stringify(exported));
 const bytes = Module.HEAPU8.slice(exported.bytes_ptr, exported.bytes_ptr + exported.bytes_length); Module._free(exported.bytes_ptr);
 const data = Module._malloc(bytes.length); Module.HEAPU8.set(bytes, data);

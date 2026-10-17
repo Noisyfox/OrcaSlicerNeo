@@ -1,3 +1,4 @@
+vi.mock('@/components/workspace/projectThumbnails', () => ({ captureProjectThumbnails: vi.fn(async () => ({ expectedRevision: 1, thumbnails: [] })) }));
 import { MOCK_PROFILE_ACTIVATION } from '@slicer/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createClient, createMockModule } from '@slicer/client';

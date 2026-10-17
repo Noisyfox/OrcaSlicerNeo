@@ -1,3 +1,4 @@
+import { captureProjectThumbnails } from './components/workspace/projectThumbnails';
 import { paintingCommandAllowed, closePaintingForCommand, resetPaintingProjectPalette, paintingSessionActive } from './components/workspace/viewport/gizmo/painting/projectCommands';
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
 import type { PlateSessionMutation, ProjectLoadResult, SlicerClient } from '@slicer/client';
@@ -77,7 +78,7 @@ export function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
   return notices;
 }
 function setOperation(phase: Parameters<ReturnType<typeof useProjectStore.getState>['setOperation']>[0]['phase'], progress = 0, message?: string): void {
-  useProjectStore.getState().setOperation({ phase, progress, message, cancellable: phase === 'loading' || phase === 'saving' });
+  useProjectStore.getState().setOperation({ phase, progress, message, cancellable: phase === 'loading' });
 }
 function waitForProjectProgressPaint(): Promise<void> {
   return new Promise((resolve) => {
@@ -156,16 +157,19 @@ export function saveProjectAs(platform: PlatformCapabilities): Promise<ProjectAc
 }
 async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean): Promise<ProjectActionResult> {
   if (!paintingCommandAllowed()) return { status: 'cancelled' };
-  return runProjectSaveOperation(runtimeOf(platform), projectedHistoryContext, async (markSaved) => {
+  return runProjectSaveOperation(runtimeOf(platform), projectedHistoryContext, async (markSaved, readRevision) => {
     const session = useProjectStore.getState();
     if (!session.hasContent && !session.dirty) return errorResult(new Error('there is no project to save'));
-    setOperation('saving', 0, 'Exporting project');
+    setOperation('saving', 0, 'Rendering plate thumbnails');
     try {
       if (paintingSessionActive()) {
         const settled = await platform.runtime.settlePainting();
         if ('error' in settled) throw new Error(settled.error);
       }
-      const exported = await runtimeOf(platform).exportProject();
+      const revision = await readRevision();
+      const images = await captureProjectThumbnails(runtimeOf(platform), revision);
+      setOperation('saving', 30, 'Exporting project');
+      const exported = await runtimeOf(platform).exportProject(images);
       if (!exported.ok) throw new Error(exported.error ?? 'project export failed');
       setOperation('saving', 70, 'Writing project');
       const request = { displayName: `${session.projectName || 'Untitled'}.3mf`, bytes: exported.bytes, location: session.location };
@@ -179,7 +183,9 @@ async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean):
       await rememberProject(platform, saved.location);
       setOperation('completed', 100);
       return { status: 'ok' };
-    } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
+    } catch (error) {
+      setOperation('failed', 0, errorText(error)); return errorResult(error);
+    }
   });
 }
 export async function newProject(platform: PlatformCapabilities, options: ProjectActionOptions = {}): Promise<ProjectActionResult> {

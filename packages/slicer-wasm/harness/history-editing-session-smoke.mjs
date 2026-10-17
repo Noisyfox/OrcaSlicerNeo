@@ -259,7 +259,7 @@ check('session IDs remain fresh across history clear', postResetOpen.sessionId !
   JSON.stringify({ resetStaleId, newId: postResetOpen.sessionId }));
 requireOk('close fresh post-reset session', closeSession({ sessionId: postResetOpen.sessionId }));
 
-const exported = requireOk('export real model for project replacement', callJson('orc_export_project'));
+const exported = requireOk('export real model for project replacement', callJson('orc_export_project', ['string'], ['{}']));
 const projectBytes = Module.HEAPU8.slice(Number(exported.bytes_ptr),
   Number(exported.bytes_ptr) + Number(exported.bytes_length));
 Module._free(Number(exported.bytes_ptr));

@@ -411,7 +411,8 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject, op, startedAt: historyNow() });
       try {
-        transport.post({ type: 'request', id, op, args, serialTerminalEpoch });
+        transport.post({ type: 'request', id, op, args, serialTerminalEpoch },
+          op === 'exportProject' ? collectTransferables(args) : undefined);
       } catch (error) {
         pending.delete(id);
         if (op === 'arrange') arrangementActive = false;

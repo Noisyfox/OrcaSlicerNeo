@@ -81,7 +81,8 @@ No geometry is loaded into WASM and no extracted files are written.
 Optional preview decoding is bounded to 1 MiB of relationships and 8 MiB of PNG
 data; these limits do not restrict project opening. Only PNG data URLs cross
 the platform boundary; images are not saved into the recent-history config.
-Normal Neo project saves still omit thumbnails, as specified in
+Normal Neo project saves include fresh ordinary plate thumbnails and preserve
+imported custom covers, as specified in
 [3MF Project Persistence](3MF%20Project%20Persistence.md#project-save-behaviour).
 Browser history stays empty and all recent operations are no-ops.
 The persistence contract is owned by

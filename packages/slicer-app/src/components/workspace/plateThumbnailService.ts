@@ -7,33 +7,41 @@ type Entry = { key: string; url?: string; promise: Promise<string | undefined>; 
 /** One lazily created WebGL context for the entire list. */
 export function createThumbnailRenderer() {
   let renderer: THREE.WebGLRenderer | undefined;
+  const renderPixels = (parts: readonly PlateThumbnailPart[], size: number): Uint8Array => {
+    renderer ??= new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    if (renderer.getContext().isContextLost()) throw new Error('Thumbnail graphics context was lost');
+    renderer.setSize(size, size, false);
+    const target = new THREE.WebGLRenderTarget(size, size, { samples: Math.min(4, renderer.capabilities.maxSamples) });
+    target.texture.colorSpace = THREE.SRGBColorSpace;
+    let projection: ReturnType<typeof createPlateThumbnailScene> | undefined;
+    try {
+      projection = createPlateThumbnailScene(parts);
+      renderer.setRenderTarget(target);
+      renderer.setClearColor(0x000000, 0);
+      renderer.render(projection.scene, projection.camera);
+      const pixels = new Uint8Array(size * size * 4);
+      renderer.readRenderTargetPixels(target, 0, 0, size, size, pixels);
+      if (renderer.getContext().isContextLost()) throw new Error('Thumbnail graphics context was lost');
+      return pixels;
+    } finally {
+      renderer.setRenderTarget(null);
+      target.dispose();
+      projection?.dispose();
+    }
+  };
   return {
+    renderPixels,
     async render(parts: readonly PlateThumbnailPart[], size: number): Promise<Blob> {
-      renderer ??= new THREE.WebGLRenderer({ alpha: true, antialias: true });
-      renderer.setSize(size, size, false);
-      const target = new THREE.WebGLRenderTarget(size, size, { samples: Math.min(4, renderer.capabilities.maxSamples) });
-      target.texture.colorSpace = THREE.SRGBColorSpace;
-      const projection = createPlateThumbnailScene(parts);
-      try {
-        renderer.setRenderTarget(target);
-        renderer.setClearColor(0x000000, 0);
-        renderer.render(projection.scene, projection.camera);
-        const pixels = new Uint8Array(size * size * 4);
-        renderer.readRenderTargetPixels(target, 0, 0, size, size, pixels);
-        const canvas = document.createElement('canvas');
-        canvas.width = canvas.height = size;
-        const context = canvas.getContext('2d');
-        if (!context) throw new Error('Thumbnail image encoding unavailable');
-        const data = context.createImageData(size, size);
-        for (let row = 0; row < size; row++) data.data.set(pixels.subarray(row * size * 4, (row + 1) * size * 4), (size - row - 1) * size * 4);
-        context.putImageData(data, 0, 0);
-        // Release GPU resources before asynchronous PNG encoding can outlive the owner.
-        return new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Thumbnail encoding failed')), 'image/png'));
-      } finally {
-        renderer.setRenderTarget(null);
-        target.dispose();
-        projection.dispose();
-      }
+      const pixels = renderPixels(parts, size);
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Thumbnail image encoding unavailable');
+      const data = context.createImageData(size, size);
+      for (let row = 0; row < size; row++) data.data.set(pixels.subarray(row * size * 4, (row + 1) * size * 4), (size - row - 1) * size * 4);
+      context.putImageData(data, 0, 0);
+      // Release GPU resources before asynchronous PNG encoding can outlive the owner.
+      return new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Thumbnail encoding failed')), 'image/png'));
     },
     dispose() { renderer?.dispose(); renderer?.forceContextLoss(); renderer = undefined; },
   };

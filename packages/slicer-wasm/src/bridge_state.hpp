@@ -173,6 +173,8 @@ struct BridgeState {
 
 BridgeState& state();
 
+void replace_model_preserving_project(Model& current, Model&& replacement);
+
 inline std::uint64_t allocate_plate_input_stamp(BridgeState& bridge_state)
 {
     if (bridge_state.next_plate_input_stamp == std::numeric_limits<std::uint64_t>::max())

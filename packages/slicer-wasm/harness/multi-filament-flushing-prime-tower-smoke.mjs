@@ -62,7 +62,7 @@ const importedSnapshot = installImportedMatrix(2, 110);
 // Prove the production project-load path, rather than only the test fixture:
 // export the native matrix into a BBS 3MF, clear the session, and reload it.
 assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', 'flush roundtrip']).ok, true);
-const exported = callJson('orc_export_project');
+const exported = callJson('orc_export_project', ['string'], ['{}']);
 assert.equal(exported.ok, true, JSON.stringify(exported));
 const exportedBytes = readBytes(exported.bytes_ptr, exported.bytes_length);
 assert.equal(callJson('orc_clear_model').ok, true);

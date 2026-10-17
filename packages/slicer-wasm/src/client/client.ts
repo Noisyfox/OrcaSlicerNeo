@@ -29,7 +29,7 @@ import type {
   ModelMutationResult, ModelPlateSessionMutation, ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, ModelScenePatchResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
-  ExportGcodeRequest, ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
+  ExportGcodeRequest, ExportGcodeResult, ExportProjectRequest, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   AddVolumeRequest, AddVolumeResult, ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
@@ -3352,27 +3352,58 @@ export function createClient(
       return { ok: true, fileName: r.file_name, bytes };
     },
 
-    async exportProject(): Promise<ExportProjectResult> {
+    async exportProject(request?: ExportProjectRequest): Promise<ExportProjectResult> {
+      if (request) {
+        const ids = new Set<string>();
+        if (!Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 0)
+          throw new RangeError('invalid project thumbnail revision');
+        for (const image of request.thumbnails) {
+          // miniz writes 16-bit PNG dimensions and computes its scanline
+          // buffer capacity (57 + (width * 4 + 1) * height) as a signed int.
+          const length = image.width * image.height * 4;
+          if (!image.plateId || ids.has(image.plateId) ||
+              !Number.isInteger(image.width) || image.width <= 0 || image.width > 0xffff ||
+              !Number.isInteger(image.height) || image.height <= 0 || image.height > 0xffff ||
+              length + image.height > 0x7fffffff - 57 ||
+              !(image.rgba instanceof Uint8Array) || image.rgba.byteLength !== length)
+            throw new RangeError('invalid project plate thumbnail');
+          ids.add(image.plateId);
+        }
+      }
       const m = await module();
-      const r = callJson(m, 'orc_export_project', [], []) as {
-        ok: boolean; path?: string; bytes_ptr?: number; bytes_length?: number;
-        objects?: number; plate_count?: number; error?: string;
-      };
-      if (!r.ok) return {
-        ok: false, path: r.path ?? '', bytes: new Uint8Array(0), error: r.error,
-      };
-      const bytesPtr = Number(r.bytes_ptr ?? 0);
+      const allocations: number[] = [];
       try {
-        const length = Number(r.bytes_length ?? 0);
-        if (!Number.isSafeInteger(length) || length < 0 || !bytesPtr)
-          throw new Error('project export bridge returned an invalid byte buffer');
-        const bytes = m.HEAPU8.slice(bytesPtr, bytesPtr + length);
-        return {
-          ok: true, path: r.path ?? '', bytes,
-          objects: Number(r.objects ?? 0), plateCount: Number(r.plate_count ?? 1),
+        const thumbnails = request?.thumbnails.map(image => {
+          const pointer = m._malloc(image.rgba.byteLength);
+          if (!pointer) throw new Error('project thumbnail allocation failed');
+          allocations.push(pointer);
+          m.HEAPU8.set(image.rgba, pointer);
+          return { plate_id: image.plateId, width: image.width, height: image.height,
+            pixels_ptr: pointer, pixels_length: image.rgba.byteLength };
+        });
+        const r = callJson(m, 'orc_export_project', ['string'], [JSON.stringify(request
+          ? { expected_revision: request.expectedRevision, thumbnails } : {})]) as {
+          ok: boolean; path?: string; bytes_ptr?: number; bytes_length?: number;
+          objects?: number; plate_count?: number; error?: string;
         };
+        if (!r.ok) return {
+          ok: false, path: r.path ?? '', bytes: new Uint8Array(0), error: r.error,
+        };
+        const bytesPtr = Number(r.bytes_ptr ?? 0);
+        try {
+          const length = Number(r.bytes_length ?? 0);
+          if (!Number.isSafeInteger(length) || length < 0 || !bytesPtr)
+            throw new Error('project export bridge returned an invalid byte buffer');
+          const bytes = m.HEAPU8.slice(bytesPtr, bytesPtr + length);
+          return {
+            ok: true, path: r.path ?? '', bytes,
+            objects: Number(r.objects ?? 0), plateCount: Number(r.plate_count ?? 1),
+          };
+        } finally {
+          if (bytesPtr) m._free(bytesPtr);
+        }
       } finally {
-        if (bytesPtr) m._free(bytesPtr);
+        for (const pointer of allocations) m._free(pointer);
       }
     },
 

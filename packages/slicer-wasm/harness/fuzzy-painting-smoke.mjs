@@ -56,7 +56,7 @@ function paint(state, x = 98, y = 103, erase = false) {
   assert.ok(session.strokeId); return commit();
 }
 function savedBytes() {
-  const result = ok(call('orc_export_project'));
+  const result = ok(call('orc_export_project', ['string'], ['{}']));
   try { return Module.HEAPU8.slice(result.bytes_ptr, result.bytes_ptr + result.bytes_length); } finally { Module._free(result.bytes_ptr); }
 }
 const modelXml = bytes => new TextDecoder().decode(readZipEntries(bytes).find(e => e.name === '3D/3dmodel.model').content);

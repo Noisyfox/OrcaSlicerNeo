@@ -444,7 +444,10 @@ describe('worker protocol', () => {
     const loaded = await workerClient.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'saved.3mf', (percent) => events.push(percent));
     expect(loaded.ok).toBe(true);
     expect(events).toContain(100);
-    const exported = await workerClient.exportProject();
+    const rgba = new Uint8Array(512 * 512 * 4);
+    const exported = await workerClient.exportProject({ expectedRevision: 1,
+      thumbnails: [{ plateId: 'plate-1', width: 512, height: 512, rgba }] });
+    expect(channel.transfers.some(items => items.includes(rgba.buffer))).toBe(true);
     expect(exported.ok).toBe(true);
     expect(exported.bytes.byteLength).toBeGreaterThan(0);
     const transfer = channel.transfers.find((items) => items.includes(exported.bytes.buffer));

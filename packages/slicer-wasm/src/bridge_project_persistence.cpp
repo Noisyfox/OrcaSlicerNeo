@@ -6,6 +6,8 @@
 #include "libslic3r/GCode/Thumbnails.hpp"
 
 #include <algorithm>
+#include <emscripten/heap.h>
+#include <boost/algorithm/string/predicate.hpp>
 #include <atomic>
 #include <cctype>
 #include <cmath>
@@ -117,6 +119,7 @@ json close_project_session()
     invalidate_preview_source();
 
     bridge_state.painting.reset();
+    bridge_state.model.remove_backup_path_if_exist();
     bridge_state.model = Model{};
     bridge_state.pending_membership_instance_ids.clear();
     bridge_state.presets.reset_project_embedded_presets();
@@ -937,8 +940,9 @@ static const char* orc_load_project_impl(const char* data, int len,
         // project archive.  Read the complete archive into the isolated
         // candidate for both modes, then discard config/preset state for the
         // geometry-only commit below.
-        const LoadStrategy strategy = LoadStrategy::LoadModel | LoadStrategy::LoadConfig |
-                                       LoadStrategy::LoadAuxiliary | LoadStrategy::AddDefaultInstances;
+        LoadStrategy strategy = LoadStrategy::LoadModel | LoadStrategy::LoadConfig |
+                                LoadStrategy::AddDefaultInstances;
+        if (!geometry_only) strategy = strategy | LoadStrategy::LoadAuxiliary;
         const bool loaded = load_bbs_3mf(load_path.c_str(), &imported_config, &substitutions,
                                           &imported, &plate_data, &project_presets,
                                           &is_bbl_3mf, &is_orca_3mf, &file_version,
@@ -1213,6 +1217,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 committed = true;
             } catch (...) {
                 state().inject_project_commit_failure = false;
+                state().model.remove_backup_path_if_exist();
                 state().model = std::move(rollback.model);
                 state().mutable_object_capture_cache.clear();
                 state().presets = std::move(rollback.presets);
@@ -1376,11 +1381,46 @@ EMSCRIPTEN_KEEPALIVE const char* orc_import_project_geometry(const char* data, i
 // selection and layout state is reconstructed when the project is opened.
 // Export the complete active multi-plate project. The resulting archive is
 // native Orca-readable and contains no derived g-code/preview artifacts.
-EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
+EMSCRIPTEN_KEEPALIVE const char* orc_export_project(const char* request_json) {
     const std::string path = next_project_temp_path(".3mf");
     try {
         ensure_plate_session_state();
         rebuild_plate_membership(false);
+        const json request = request_json ? json::parse(request_json) : json::object();
+        std::map<std::string, ThumbnailData> thumbnails;
+        if (request.contains("thumbnails")) {
+            if (!request.at("expected_revision").is_number_unsigned() ||
+                request.at("expected_revision").get<std::uint64_t>() != state().history_revision)
+                throw Slic3r::RuntimeError("Project thumbnails are stale");
+            const auto& images = request.at("thumbnails");
+            if (!images.is_array() || images.size() != state().plate_session_plates.size())
+                throw Slic3r::RuntimeError("Project thumbnails must cover every plate");
+            for (const auto& image : images) {
+                const auto id = image.at("plate_id").get<std::string>();
+                for (const auto* field : {"width", "height", "pixels_length", "pixels_ptr"})
+                    if (!image.at(field).is_number_unsigned())
+                        throw Slic3r::RuntimeError("Invalid project plate thumbnail");
+                const auto width = image.at("width").get<std::uint64_t>();
+                const auto height = image.at("height").get<std::uint64_t>();
+                // The native miniz encoder stores only 16-bit dimensions.
+                if (!width || !height || width > 0xffff || height > 0xffff)
+                    throw Slic3r::RuntimeError("Invalid project plate thumbnail");
+                const auto pointer = image.at("pixels_ptr").get<std::uint64_t>();
+                const std::uint64_t length = width * height * 4;
+                // miniz calculates 57 + (width * 4 + 1) * height in int.
+                if (length + height > std::numeric_limits<int>::max() - 57 ||
+                    image.at("pixels_length").get<std::uint64_t>() != length || !pointer ||
+                    pointer > emscripten_get_heap_size() || length > emscripten_get_heap_size() - pointer ||
+                    thumbnails.count(id) || std::none_of(state().plate_session_plates.begin(), state().plate_session_plates.end(),
+                        [&](const auto& plate) { return plate.id == id; }))
+                    throw Slic3r::RuntimeError("Invalid project plate thumbnail");
+                auto& thumbnail = thumbnails[id];
+                thumbnail.width = static_cast<unsigned int>(width);
+                thumbnail.height = static_cast<unsigned int>(height);
+                const auto* bytes = reinterpret_cast<const unsigned char*>(static_cast<uintptr_t>(pointer));
+                thumbnail.pixels.assign(bytes, bytes + length);
+            }
+        }
         std::vector<std::unique_ptr<PlateData>> owned;
         PlateDataPtrs plates;
         owned.reserve(state().plate_session_plates.size());
@@ -1402,6 +1442,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
             auto plate = std::make_unique<PlateData>(static_cast<int>(owned.size()), object_instances, runtime.locked);
             plate->plate_name = runtime.name;
             plate->config = runtime.settings;
+            if (auto image = thumbnails.find(runtime.id); image != thumbnails.end())
+                plate->plate_thumbnail = std::move(image->second);
             plates.push_back(plate.get());
             owned.push_back(std::move(plate));
         }
@@ -1423,6 +1465,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         params.path = path;
         params.model = &state().model;
         params.plate_data_list = plates;
+        if (!thumbnails.empty()) for (auto* plate : plates)
+            params.thumbnail_data.push_back(&plate->plate_thumbnail);
         // The edited Print preset is a separate native copy.  Mirror it into
         // the selected project-embedded record immediately before the
         // standard BBS exporter enumerates embedded presets; no private
@@ -1435,8 +1479,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         for (auto& preset : exported_presets) params.project_presets.push_back(&preset);
         params.config = &config;
         params.strategy = SaveStrategy::ShareMesh |
-                          SaveStrategy::Zip64 | SaveStrategy::Silence |
-                          SaveStrategy::SkipStatic | SaveStrategy::SkipAuxiliary;
+                          SaveStrategy::Zip64 | SaveStrategy::Silence;
         // BBS's exporter launches nested parallel_for jobs.  Running that
         // exporter in a one-slot arena keeps the bridge request deterministic
         // and avoids nested-pool starvation in the threaded WASM worker.
