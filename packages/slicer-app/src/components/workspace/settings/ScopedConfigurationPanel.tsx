@@ -534,7 +534,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
                   {startsSection && <div data-testid={`config-section-${section}`} className="mt-1 flex items-center gap-2 px-1 text-module font-semibold text-muted-foreground">
                     {section}<span className="h-px flex-1 bg-border" />
                   </div>}
-                  <ScopedField selectionGutter={mode!=='plates'} disabled={(mode==='scoped' && (scopedEditor.pending || scopedEditor.refreshing || scopedEditor.error!==null)) || (field.key === 'curr_bed_type' && bedTypeDisabled) || (mode==='project' &&
+                  <ScopedField selectionGutter={mode!=='plates' && (selectionMetadata?.choices.length??0)>1} disabled={(mode==='scoped' && (scopedEditor.pending || scopedEditor.refreshing || scopedEditor.error!==null)) || (field.key === 'curr_bed_type' && bedTypeDisabled) || (mode==='project' &&
                     (!printEditor.snapshot || (printOwnsField(printEditor.snapshot,field.key) &&
                       (printEditor.pending || printEditor.refreshing || printEditor.error!==null))))}
                     field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />
