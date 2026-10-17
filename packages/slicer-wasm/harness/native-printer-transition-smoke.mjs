@@ -511,3 +511,229 @@ for (const invalid of [{ index: -1 }, { index: 2 }, { flow: 4 }, { flow: 0.5 },
   assert.deepEqual(callJson('orc_history_status'), before.history, 'rejection leaves history and dirty status untouched');
 }
 console.log('manual project flow passed: both heads, all Plates, Hybrid mappings, per-head flushing policies, atomic rejection/publication rollback, exact Undo/Redo');
+
+// Base-name memory is host-owned configuration, outside project history.
+const flowMemory = { [flowPrinter]: [1, 1] };
+const configureFlows = (memory, initialize_new_project = false) => {
+  const result = request('orc_configure_project_flow_memory', { memory, initialize_new_project });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  return result;
+};
+const loadFlowBytes = bytes => {
+  const pointer = Number(Module._malloc(bytes.length)); Module.HEAPU8.set(bytes, pointer);
+  try { return callJson('orc_load_project', ['pointer', 'number', 'number', 'string'], [pointer, bytes.length, 0, 'flow-lifecycle.3mf']); }
+  finally { Module._free(pointer); }
+};
+configureFlows(flowMemory);
+let validOpen = loadFlowBytes(flowBytes);
+assert.equal(validOpen.ok, true, JSON.stringify(validOpen));
+assert.equal(validOpen.preset_snapshot.project_config.nozzle_volume_type, 'Standard,Standard', 'valid file flow takes priority over local memory');
+assert.equal(validOpen.history_status.dirty, false);
+assert.deepEqual(validOpen.history_status.undoEntries, []);
+let sameBase = transition(flowPrinter, null);
+assert.equal(sameBase.ok, true, JSON.stringify(sameBase));
+assert.equal(sameBase.profile_snapshot.project_config.nozzle_volume_type, 'Standard,Standard', 'same-base explicit selection retains valid live file flows');
+const otherBase = transition('Bambu Lab H2D 0.6 nozzle', null);
+assert.equal(otherBase.ok, true, JSON.stringify(otherBase));
+const restoredBase = transition(flowPrinter, null);
+assert.equal(restoredBase.ok, true, JSON.stringify(restoredBase));
+assert.equal(restoredBase.profile_snapshot.project_config.nozzle_volume_type, 'High Flow,High Flow', 'explicit base change restores its own memory');
+
+// Fresh-project initialization is explicit, history-free, and uses defaults
+// for unremembered physical heads; unavailable memory still follows repair.
+assert.equal(callJson('orc_close_project').ok, true);
+assert.equal(callJson('orc_select_preset', ['string', 'string'], ['printer', flowPrinter]).ok, true);
+const freshHistory = callJson('orc_history_status');
+configureFlows({ [flowPrinter]: [1] }, true);
+assert.equal(presets().project_config.nozzle_volume_type, 'High Flow,Standard');
+assert.deepEqual(callJson('orc_history_status'), freshHistory, 'initialization creates no history frame');
+configureFlows({ [flowPrinter]: [0, 0] });
+const repairFlush = flushRead();
+const repairCustom = repairFlush.matrix.map((_, index) => Math.floor(index / repairFlush.dimension) % repairFlush.dimension === index % repairFlush.dimension ? 0 : 1200 + index);
+assert.equal(request('orc_set_flushing_volumes', { version: 1, revision: session().revisions.session,
+  matrix: repairCustom, multipliers: repairFlush.multipliers }).ok, true);
+const beforeRepair = flowState();
+const beforeRepairHistory = callJson('orc_history_status');
+const repairedDiameter = setDraft('printer', flowPrinter, 'printer_variant', '0.2');
+assert.equal(repairedDiameter.history_entry_delta, 1);
+assert.equal(presets().project_config.nozzle_volume_type, 'Standard,Standard');
+assert.deepEqual(session().flushing.matrix.slice(4), repairCustom.slice(4), 'candidate-only active draft repair preserves the other custom flushing plane');
+assert.equal(callJson('orc_history_status').undoEntries.length, beforeRepairHistory.undoEntries.length + 1);
+const afterRepair = flowState();
+assert.equal(callJson('orc_history_undo').ok, true);
+assert.deepEqual(flowState(), beforeRepair, 'Undo restores Printer variant, flow and mappings as one initiating transaction');
+assert.equal(presets().project_config.nozzle_volume_type, 'High Flow,Standard', 'history does not apply the newer Standard memory');
+assert.equal(callJson('orc_history_redo').ok, true);
+assert.deepEqual(flowState(), afterRepair);
+for (const flushPolicy of ['color change', 'disabled']) {
+  policy(flushPolicy);
+  setDraft('printer', flowPrinter, 'printer_variant', '0.4');
+  assert.equal(flowCommand(0, 1).ok, true);
+  const editor = flushRead();
+  const custom = editor.matrix.map((_, index) => Math.floor(index / editor.dimension) % editor.dimension === index % editor.dimension ? 0 : 1300 + index);
+  assert.equal(request('orc_set_flushing_volumes', { version: 1, revision: session().revisions.session,
+    matrix: custom, multipliers: editor.multipliers }).ok, true);
+  setDraft('printer', flowPrinter, 'printer_variant', '0.2');
+  assert.deepEqual(session().flushing.matrix, custom, `${flushPolicy} suppresses automatic repair flushing`);
+}
+policy('all');
+setDraft('printer', flowPrinter, 'printer_variant', '0.4');
+assert.equal(flowCommand(0, 1).ok, true);
+setDraft('printer', flowPrinter, 'default_nozzle_volume_type', 'E3D High Flow,Standard');
+const nativeDefaultRepair = setDraft('printer', flowPrinter, 'printer_model', 'Bambu Lab X1E');
+assert.equal(nativeDefaultRepair.history_entry_delta, 1);
+assert.equal(presets().printer_picker.flows[0].actual, 5, 'repair prefers available native default E3D over first Standard');
+setDraft('printer', flowPrinter, 'extruder_variant_list', '"Direct Drive High Flow";"Direct Drive Standard"');
+assert.deepEqual(presets().printer_picker.flows[0].choices, []);
+assert.equal(presets().printer_picker.flows[0].actual, 5, 'empty candidates preserve raw actual without repair');
+setDraft('printer', flowPrinter, 'printer_model', 'Bambu Lab H2D');
+assert.equal(presets().printer_picker.flows[0].actual, 1, 'unavailable default falls back to first native candidate');
+const inactiveFlush = flushRead();
+const inactiveCustom = inactiveFlush.matrix.map((_, index) => Math.floor(index / inactiveFlush.dimension) % inactiveFlush.dimension === index % inactiveFlush.dimension ? 0 : 1400 + index);
+assert.equal(request('orc_set_flushing_volumes', { version: 1, revision: session().revisions.session,
+  matrix: inactiveCustom, multipliers: inactiveFlush.multipliers }).ok, true);
+const activeConfigBeforeInactiveEdit = presets().project_config;
+setDraft('printer', 'Bambu Lab P1P 0.4 nozzle', 'printer_variant', '0.2');
+assert.deepEqual(presets().project_config, activeConfigBeforeInactiveEdit, 'inactive Printer browsing/editing cannot repair active project flow');
+
+// An invalid imported flow is repaired silently before the replacement root.
+// This root has no saved checkpoint and no separate repair entry; only an
+// explicit successful save may establish a saved checkpoint afterward.
+const repairedEntries = readZipEntries(flowBytes);
+for (const entry of repairedEntries) if (entry.name === 'Metadata/project_settings.config') {
+  const config = JSON.parse(decoder.decode(entry.content));
+  config.nozzle_volume_type = ['TPU High Flow', 'High Flow'];
+  config.flush_volumes_matrix = ['0', '901', '902', '0', '0', '905', '906', '0'];
+  entry.content = encoder.encode(JSON.stringify(config));
+}
+const repairedOpen = loadFlowBytes(writeStoredZip(repairedEntries));
+assert.equal(repairedOpen.ok, true, JSON.stringify(repairedOpen));
+assert.equal(repairedOpen.preset_snapshot.project_config.nozzle_volume_type, 'Standard,High Flow');
+assert.equal(repairedOpen.history_status.dirty, true, 'repaired open remains unsaved');
+assert.equal(repairedOpen.history_status.savedCheckpoint, null);
+assert.deepEqual(repairedOpen.history_status.undoEntries, [], 'repair does not create an independently undoable entry');
+assert.deepEqual(session().flushing.matrix.slice(4), [0, 905, 906, 0], 'import repair preserves the other head custom flushing plane');
+assert.deepEqual(plateRead().plates.map(plate => plate.settings.filament_volume_map), ['0,0', '1,0']);
+const pureRepairedOpen = { project: presets(), session: session(), plates: plateRead(), history: callJson('orc_history_status') };
+assert.deepEqual({ project: presets(), session: session(), plates: plateRead(), history: callJson('orc_history_status') }, pureRepairedOpen);
+const savedRepair = callJson('orc_export_project', ['string'], ['{}']);
+assert.equal(savedRepair.ok, true, JSON.stringify(savedRepair));
+let savedRepairBytes;
+try { savedRepairBytes = Module.HEAPU8.slice(Number(savedRepair.bytes_ptr), Number(savedRepair.bytes_ptr) + Number(savedRepair.bytes_length)); }
+finally { Module._free(Number(savedRepair.bytes_ptr)); }
+assert.equal(callJson('orc_history_status').dirty, true, 'export preparation alone does not save the corrected file');
+assert.equal(callJson('orc_history_mark_saved', ['string'], [JSON.stringify(editingContext)]).dirty, false);
+const reopenedRepair = loadFlowBytes(savedRepairBytes);
+assert.equal(reopenedRepair.ok, true, JSON.stringify(reopenedRepair));
+assert.equal(reopenedRepair.preset_snapshot.project_config.nozzle_volume_type, 'Standard,High Flow');
+assert.equal(reopenedRepair.history_status.dirty, false, 'corrected saved archive reopens clean');
+assert.deepEqual(plateRead().plates.map(plate => plate.settings.filament_volume_map), ['0,0', '1,0']);
+assert.ok(!decoder.decode(readZipEntries(savedRepairBytes).find(entry => entry.name === 'Metadata/project_settings.config').content).includes('sidebar_flow_memory'));
+console.log('flow lifecycle passed: memory/base lifetime, active-only default/first repair, one-frame history, valid-file priority, dirty repaired open, custom flushing and native save/reopen');
+
+// True concrete enum identities survive the native Plate metadata round-trip,
+// including Plates whose map mode continues to inherit from the project.
+const concreteRack = transition(flowPrinter, [solidSlot(seed.preset, '#FF0000'), solidSlot(seed.preset, '#00FF00')]);
+assert.equal(concreteRack.ok, true, JSON.stringify(concreteRack));
+setDraft('printer', flowPrinter, 'extruder_variant_list', '"Direct Drive Standard;Direct Drive E3D High Flow";"Direct Drive High Flow"');
+const concreteFlow = flowCommand(0, 5);
+assert.equal(concreteFlow.ok, true, JSON.stringify(concreteFlow));
+const concreteBeforeSave = plateRead().plates.map(plate => plate.settings);
+const concreteSave = callJson('orc_export_project', ['string'], ['{}']);
+assert.equal(concreteSave.ok, true, JSON.stringify(concreteSave));
+let concreteBytes;
+try { concreteBytes = Module.HEAPU8.slice(Number(concreteSave.bytes_ptr), Number(concreteSave.bytes_ptr) + Number(concreteSave.bytes_length)); }
+finally { Module._free(Number(concreteSave.bytes_ptr)); }
+assert.equal(loadFlowBytes(concreteBytes).ok, true);
+assert.equal(presets().project_config.nozzle_volume_type, 'E3D High Flow,High Flow');
+assert.deepEqual(plateRead().plates.map(plate => plate.settings), concreteBeforeSave, 'all local maps and inherited mode survive native save/reopen');
+console.log('native concrete enum and inherited Plate mode save/reopen passed');
+
+assert.equal(callJson('orc_test_inject_project_commit_failure').ok, true);
+const rejectedRepairOpen = loadFlowBytes(writeStoredZip(repairedEntries));
+assert.equal(rejectedRepairOpen.ok, undefined);
+assert.match(rejectedRepairOpen.error, /injected project commit failure/);
+assert.equal(callJson('orc_history_status').dirty, false, 'failed repaired import rolls back to the closed clean root');
+assert.deepEqual(callJson('orc_history_status').undoEntries, []);
+assert.equal(callJson('orc_get_model_structure').objects.length, 0);
+console.log('repaired import late publication rollback passed');
+
+// Drive/variant bindings are real flushing inputs, even when the actual flow
+// remains Standard. Inspect the native expanded configuration as the oracle.
+assert.equal(loadFlowBytes(flowBytes).ok, true);
+assert.equal(transition(flowPrinter, [solidSlot(seed.preset, '#FF0000'), solidSlot(seed.preset, '#00FF00')]).ok, true);
+setDraft('printer', flowPrinter, 'extruder_type', 'Direct Drive,Direct Drive');
+setDraft('printer', flowPrinter, 'extruder_variant_list', '"Direct Drive Standard,Bowden Standard";"Direct Drive Standard"');
+setDraft('printer', flowPrinter, 'printer_extruder_variant', '"Direct Drive Standard";"Bowden Standard";"Direct Drive E3D High Flow";"Direct Drive Standard";"Direct Drive High Flow";"Direct Drive TPU High Flow";"Direct Drive E3D High Flow"');
+setDraft('printer', flowPrinter, 'nozzle_volume', '130,900,133,145,148,148,148');
+assert.equal(presets().project_config.nozzle_volume_type, 'Standard,Standard');
+assert.equal(presets().project_config.nozzle_volume, '130,145', 'Direct Drive binds the first real nozzle-volume variant');
+for (const flushPolicy of ['all', 'color change', 'disabled']) {
+  policy(flushPolicy);
+  setDraft('printer', flowPrinter, 'extruder_type', 'Direct Drive,Direct Drive');
+  const beforeDrive = flushRead();
+  const custom = beforeDrive.matrix.map((_, index) => Math.floor(index / beforeDrive.dimension) % beforeDrive.dimension === index % beforeDrive.dimension ? 0 : 1550 + index);
+  assert.equal(request('orc_set_flushing_volumes', { version: 1, revision: session().revisions.session,
+    matrix: custom, multipliers: beforeDrive.multipliers }).ok, true);
+  setDraft('printer', flowPrinter, 'extruder_type', 'Bowden,Direct Drive');
+  assert.equal(presets().project_config.nozzle_volume_type, 'Standard,Standard', 'drive change retains valid actual flows');
+  assert.equal(presets().project_config.nozzle_volume, '900,145', 'Bowden binds its distinct native nozzle-volume variant');
+  const afterDrive = flushRead();
+  assert.notDeepEqual(afterDrive.defaults.slice(0, 4), beforeDrive.defaults.slice(0, 4), 'native minimum input changes the calculated flushing plane');
+  assert.deepEqual(afterDrive.matrix, flushPolicy === 'all' ? afterDrive.defaults : custom, 'drive edits retain existing generic automatic flushing policy');
+}
+console.log('drive-bound native flushing passed: effective nozzle_volume 130 -> 900 with unchanged Standard flow, all three policies');
+
+// User-preset deletion is another rollback-safe active Printer transition.
+// Use its actual native fallback, with one physical head before and after.
+policy('all');
+assert.equal(callJson('orc_close_project').ok, true);
+const deleteFallback = presets().printers.find(row => row.is_visible && !row.name.includes('[snapshot')).name;
+assert.equal(callJson('orc_select_preset', ['string', 'string'], ['printer', deleteFallback]).ok, true);
+let lastUserPresetChange;
+const userPreset = (action, canonical_name, extra = {}, commit = true) => {
+  const prepared = request('orc_prepare_user_preset', { history_context: editingContext, action, kind: 'printer',
+    canonical_name, expected_revision: callJson('orc_history_status').revision, ...extra });
+  assert.equal(prepared.ok, true, JSON.stringify(prepared));
+  lastUserPresetChange = prepared.change;
+  const finished = request('orc_finish_user_preset', { token: prepared.token, commit });
+  assert.equal(finished.ok, true, JSON.stringify(finished));
+  return prepared.result;
+};
+const localFlowPrinter = 'Neo Flow Delete Printer';
+userPreset('save-as', deleteFallback, { name: localFlowPrinter });
+const localFlowFile = `/user/default/${lastUserPresetChange.path}`;
+const localFlowFileBeforeDelete = Module.FS.readFile(localFlowFile, { encoding: 'utf8' });
+setDraft('printer', localFlowPrinter, 'printer_variant', '0.4');
+setDraft('printer', localFlowPrinter, 'printer_model', 'Bambu Lab H2D');
+setDraft('printer', localFlowPrinter, 'extruder_type', 'Direct Drive');
+setDraft('printer', localFlowPrinter, 'extruder_variant_list', 'Direct Drive Standard,Direct Drive High Flow');
+assert.equal(flowCommand(0, 1).ok, true);
+const beforeDelete = { config: presets().project_config, mappings: session().mappings,
+  flushing: session().flushing, plates: plateRead(), history: callJson('orc_history_status') };
+userPreset('delete', localFlowPrinter, {}, false);
+assert.deepEqual({ config: presets().project_config, mappings: session().mappings,
+  flushing: session().flushing, plates: plateRead(), history: callJson('orc_history_status') }, beforeDelete,
+  'rejected durable deletion restores flow, mappings, flushing, Plates and history');
+assert.equal(presets().printer.name, localFlowPrinter);
+assert.equal(Module.FS.readFile(localFlowFile, { encoding: 'utf8' }), localFlowFileBeforeDelete, 'rejected durable transaction retains the saved JSON');
+const deletedFlow = userPreset('delete', localFlowPrinter);
+assert.equal(deletedFlow.history_entry_delta, 1);
+assert.equal(Module.FS.analyzePath(localFlowFile).exists, false, 'accepted durable deletion removes only the user head file');
+assert.equal(deletedFlow.profile_snapshot.printer.name, deleteFallback);
+assert.ok(!deletedFlow.profile_snapshot.printer_picker.flows[0].choices.some(choice => choice.value === 1), 'native fallback rejects the deleted source High Flow');
+assert.equal(deletedFlow.profile_snapshot.printer_picker.flows[0].actual, 0);
+assert.equal(deletedFlow.history_status.undoEntries.length, beforeDelete.history.undoEntries.length + 1, 'deletion repair has no extra history entry');
+const afterDelete = { config: presets().project_config, mappings: session().mappings,
+  flushing: session().flushing, plates: plateRead().plates.map(plate => plate.settings) };
+assert.equal(callJson('orc_history_undo').ok, true);
+assert.equal(presets().printer_picker.flows[0].actual, 1, 'Undo restores retained source and High Flow together');
+assert.match(presets().printer.name, /Neo Flow Delete Printer \[snapshot /, 'Undo uses the existing retained source identity');
+assert.deepEqual(presets().project_config, { ...beforeDelete.config,
+  printer_settings_id: presets().printer.name }, 'every effective value is restored alongside the retained identity');
+assert.deepEqual(session().mappings, beforeDelete.mappings);
+assert.deepEqual(session().flushing, beforeDelete.flushing);
+assert.equal(callJson('orc_history_redo').ok, true);
+assert.deepEqual({ config: presets().project_config, mappings: session().mappings,
+  flushing: session().flushing, plates: plateRead().plates.map(plate => plate.settings) }, afterDelete);
+console.log('active user Printer deletion flow repair passed: native fallback, one frame, exact Undo/Redo and rejected durable transaction rollback');

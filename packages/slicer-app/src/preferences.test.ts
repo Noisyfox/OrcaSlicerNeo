@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { applyRememberedFilamentRackFromRepository, rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreBootstrapSession, restoreSelections, publishRememberedBedType, loadRememberedBedTypeFromRepository, seedRememberedBedType } from './preferences';
+import { applyRememberedFilamentRackFromRepository, rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreBootstrapSession, restoreSelections, publishRememberedBedType, loadRememberedBedTypeFromRepository, seedRememberedBedType, configureProjectFlowPreferences, commitProjectFlow } from './preferences';
 import type { UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
 import type { ProfileSnapshot } from '@slicer/client';
+import { createClient, createMockModule, MOCK_PROFILE_ACTIVATION } from '@slicer/client';
 
 const prefs: UserPreferences = {
   version: 1,
@@ -243,6 +244,7 @@ describe('selection restoration', () => {
     const getRack = vi.fn(async () => { calls.push('get-rack'); return getRack.mock.calls.length === 1 ? current : finalRack; });
     const result = await restoreBootstrapSession({
       setAutoFlushPolicy: vi.fn(async () => ({ ok: true })),
+      configureProjectFlowMemory: vi.fn(async () => { calls.push('seed-flow'); return { ok: true as const }; }),
       mutateNativeScopedConfig: vi.fn(async () => { calls.push('seed-bed'); return { ok: true, nativeScopedConfig: { kind: 'full' } } as never; }),
       getProfileSnapshot: vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(resolved),
       selectProfile: vi.fn(async (kind) => { calls.push(`select-${kind}`); return resolved; }),
@@ -253,7 +255,7 @@ describe('selection restoration', () => {
       selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null,
       nativeScopedConfig: { project: {}, objects: {}, parts: {}, plates: {} },
     });
-    expect(calls).toEqual(['select-printer', 'select-print', 'get-rack', 'apply-rack', 'seed-bed', 'reset-history', 'get-rack']);
+    expect(calls).toEqual(['select-printer', 'select-print', 'get-rack', 'apply-rack', 'seed-bed', 'seed-flow', 'reset-history', 'get-rack']);
     expect(result.filament).toBe(finalRack);
     expect(result.history).toMatchObject({ dirty: false, canUndo: false, undoEntries: [] });
   });
@@ -288,5 +290,86 @@ describe('bed preference memory', () => {
     selected.bedType = { ...selected.bedType, supportsSelection: false };
     await seedRememberedBedType(runtime, 'Textured PEI Plate');
     expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledOnce();
+  });
+});
+
+
+describe('base Printer project-flow preferences', () => {
+  const context = { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] },
+    activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+  async function fixture() {
+    const runtime = createClient(async () => createMockModule());
+    await runtime.init(MOCK_PROFILE_ACTIVATION);
+    const profile = await runtime.getProfileSnapshot();
+    if (!profile.ok) throw new Error(profile.error);
+    let stored: UserPreferences = structuredClone(prefs);
+    const repository = { load: vi.fn(async () => structuredClone(stored)),
+      save: vi.fn(async (next: UserPreferences) => { stored = structuredClone(next); }) };
+    return { runtime, profile, repository, stored: () => stored };
+  }
+  it('seeds only a fresh project, preserves live same-base flow, and stores Hybrid as Standard after publication', async () => {
+    const f = await fixture(); const base = f.profile.printerPicker.basePrinter;
+    await f.repository.save({ ...prefs, rememberedProjectFlows: { [base]: [1] } });
+    const history = await f.runtime.getHistoryStatus();
+    await configureProjectFlowPreferences(f.repository, f.runtime, true);
+    expect(await f.runtime.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
+    expect(await f.runtime.getHistoryStatus()).toEqual(history);
+    const publish = vi.fn(async () => { expect(f.stored().rememberedProjectFlows![base]).toEqual([1]); });
+    const changed = await commitProjectFlow(f.runtime, f.repository,
+      { index: 0, flow: 2, expectedRevision: history.revision, context }, publish);
+    expect(changed).toMatchObject({ ok: true, profileSnapshot: { printerPicker: { flows: [{ actual: 2 }] } } });
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(f.stored().rememberedProjectFlows![base]).toEqual([0]);
+    await configureProjectFlowPreferences(f.repository, f.runtime, false);
+    const same = await f.runtime.selectPrinterWithRememberedRack(f.profile.printer.name, null, null, context);
+    expect(same).toMatchObject({ ok: true, profileSnapshot: { printerPicker: { flows: [{ actual: 2 }] } } });
+    const saves = f.repository.save.mock.calls.length;
+    await f.runtime.undoHistory(); await f.runtime.redoHistory();
+    expect(f.repository.save).toHaveBeenCalledTimes(saves);
+    expect(f.stored().rememberedProjectFlows![base]).toEqual([0]);
+  });
+  it('remembers the known native prefix when later physical heads have no actual flow', async () => {
+    const f = await fixture();
+    const runtime = { setProjectFlow: async (...args: Parameters<typeof f.runtime.setProjectFlow>) => {
+      const result = await f.runtime.setProjectFlow(...args);
+      if (result.ok) result.profileSnapshot.printerPicker.flows.push({ actual: null, choices: [] });
+      return result;
+    } };
+    const result = await commitProjectFlow(runtime, f.repository,
+      { index: 0, flow: 1, expectedRevision: (await f.runtime.getHistoryStatus()).revision, context }, () => {});
+    expect(result.ok).toBe(true);
+    expect(f.stored().rememberedProjectFlows![f.profile.printerPicker.basePrinter]).toEqual([1]);
+  });
+  it('keeps accepted native state on persistence failure and never persists rejection or failed publication', async () => {
+    const f = await fixture(); const publish = vi.fn(); const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    f.repository.save.mockRejectedValueOnce(new Error('disk full'));
+    const accepted = await commitProjectFlow(f.runtime, f.repository,
+      { index: 0, flow: 1, expectedRevision: (await f.runtime.getHistoryStatus()).revision, context }, publish);
+    expect(accepted.ok).toBe(true); expect(publish).toHaveBeenCalledTimes(1);
+    expect(await f.runtime.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
+    expect(f.stored().rememberedProjectFlows).toBeUndefined();
+    const writes = f.repository.save.mock.calls.length;
+    const rejected = await commitProjectFlow(f.runtime, f.repository, { index: 0, flow: 0, expectedRevision: 999, context }, publish);
+    expect(rejected.ok).toBe(false); expect(f.repository.save).toHaveBeenCalledTimes(writes);
+    await expect(commitProjectFlow(f.runtime, f.repository,
+      { index: 0, flow: 2, expectedRevision: (await f.runtime.getHistoryStatus()).revision, context }, () => { throw new Error('publication failed'); }))
+      .rejects.toThrow('publication failed');
+    expect(f.repository.save).toHaveBeenCalledTimes(writes);
+    expect(await f.runtime.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 2 }] } });
+    log.mockRestore();
+  });
+  it('serializes global read/modify/write with unrelated preferences and loads after queued writes', async () => {
+    const a = await fixture(); const b = await fixture();
+    await b.runtime.selectProfile('printer', 'Bambu Lab P1S 0.4 nozzle');
+    await Promise.all([
+      commitProjectFlow(a.runtime, a.repository, { index: 0, flow: 1, expectedRevision: (await a.runtime.getHistoryStatus()).revision, context }, () => {}),
+      commitProjectFlow(b.runtime, a.repository, { index: 0, flow: 1, expectedRevision: (await b.runtime.getHistoryStatus()).revision, context }, () => {}),
+      publishRememberedBedType(a.repository, 'Other', 'High Temp Plate'),
+    ]);
+    expect(Object.keys(a.stored().rememberedProjectFlows!)).toHaveLength(2);
+    expect(a.stored().rememberedBedTypes.Other).toBe('High Temp Plate');
+    expect(a.stored().selectedProfiles).toEqual(prefs.selectedProfiles);
+    await configureProjectFlowPreferences(a.repository, a.runtime, true);
+    expect(await a.runtime.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
   });
 });

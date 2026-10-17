@@ -71,6 +71,7 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
         ...(load.nativeScopedConfig === undefined ? { nativeScopedConfig: scopedConfigTransport } : {}),
         ...(load.historyStatus === undefined ? { historyStatus: loadedHistoryStatus } : {}) };
     }),
+    configureProjectFlowMemory: vi.fn(async () => ({ ok: true })),
     closeProject: vi.fn(async () => ({ ok: true, plateSession: freshPlateSession })),
     importProjectGeometry: vi.fn(async () => ({ bedTypeNormalization: null, ok: true, objects: 2, instances: 2, mode: 'geometry-only' as const, compatibility: 'generic' as const, projectSettingsAvailable: false })),
     clearModel: vi.fn(async () => ({ ok: true })),
@@ -127,6 +128,17 @@ describe('transactional project actions', () => {
     expect(result.status).toBe('ok');
     expect(platform.recentProjects.record).toHaveBeenCalledWith(location);
     expect(useProjectStore.getState().location).not.toBe(location);
+  });
+  it('publishes a repaired project open as dirty without saving, seeding memory or adding an entry', async () => {
+    const dirtyHistory = { ...loadedHistoryStatus, dirty: true, savedCheckpoint: null };
+    const { platform, runtime, projects } = platformFor({ historyStatus: dirtyHistory });
+    projects.open.mockResolvedValue({ status: 'ok', input });
+    expect((await openProject(platform)).status).toBe('ok');
+    expect(useProjectStore.getState().dirty).toBe(true);
+    expect(runtime.markHistorySaved).not.toHaveBeenCalled();
+    expect(runtime.configureProjectFlowMemory).not.toHaveBeenCalled();
+    expect(projects.save).not.toHaveBeenCalled();
+    expect(dirtyHistory.undoEntries).toEqual([]);
   });
   it('does not add rejected project loads to history', async () => {
     const { platform, projects } = platformFor({ ok: false });

@@ -431,6 +431,30 @@ bool geometry_inputs_changed(const PresetDraftRegistry::Overrides* before,
     return has_change(old_values, new_values) || has_change(new_values, old_values);
 }
 
+// This metadata does not itself change flushing inputs. Drive/variant-list
+// edits retain the generic refresh because they can change vector bindings. A resulting
+// actual flow repair recalculates only its physical head through the shared
+// flow primitive; an all-plane draft refresh would overwrite other custom planes.
+bool only_flow_candidate_inputs_changed(const PresetDraftRegistry::Overrides* before,
+                                       const PresetDraftRegistry::Overrides* after)
+{
+    static const std::set<std::string> candidate_keys{
+        "printer_variant", "printer_model",
+        "extruder_max_nozzle_count", "default_nozzle_volume_type"
+    };
+    const PresetDraftRegistry::Overrides empty;
+    const auto& old_values = before ? *before : empty;
+    const auto& new_values = after ? *after : empty;
+    const auto other_change = [&](const auto& left, const auto& right) {
+        for (const auto& [key, value] : left) {
+            const auto found = right.find(key);
+            if ((found == right.end() || found->second != value) && !candidate_keys.count(key)) return true;
+        }
+        return false;
+    };
+    return !other_change(old_values, new_values) && !other_change(new_values, old_values);
+}
+
 // These Filament values cannot change collection identity/compatibility or
 // project/model slot references. Flushing and every other small projection are
 // still rebuilt. Unknown keys deliberately retain the full receipt.
@@ -667,7 +691,10 @@ json mutate_draft_json(const json& request)
         const bool refresh_geometry = result_name != canonical_name || geometry_inputs_changed(
             before_drafts.find(type, canonical_name), state().preset_drafts.find(type, canonical_name));
         auto& bundle = state().presets;
-        if (refresh_geometry && (type == Preset::TYPE_FILAMENT || type == Preset::TYPE_PRINTER) &&
+        const bool flow_candidate_edit = type == Preset::TYPE_PRINTER &&
+            result_name == canonical_name && only_flow_candidate_inputs_changed(
+                before_drafts.find(type, canonical_name), state().preset_drafts.find(type, canonical_name));
+        if (refresh_geometry && !flow_candidate_edit && (type == Preset::TYPE_FILAMENT || type == Preset::TYPE_PRINTER) &&
             bundle.printers.get_selected_preset().printer_technology() == ptFFF)
             Filament::Commands::auto_recalculate_filament_flush(bundle, -1, false);
 
@@ -682,6 +709,8 @@ json mutate_draft_json(const json& request)
                 Profiles::normalize_bed_types(true);
         }
 
+        if (type == Preset::TYPE_PRINTER && canonical_name == before_printer_name)
+            Profiles::repair_project_flows();
         const json plate_session = refresh_geometry
             ? PlateSession::shared_configuration_mutation_snapshot()
             : PlateSession::configuration_mutation_snapshot(

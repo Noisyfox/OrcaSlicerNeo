@@ -162,6 +162,8 @@ export interface UserPreferences {
   rememberedFilamentRacks?: Record<string, RememberedFilamentRack>;
   /** Native serialized global bed choice, keyed by canonical printer name. */
   rememberedBedTypes: Record<string, string>;
+  /** Concrete native flow enums, keyed by native base Printer preset name. */
+  rememberedProjectFlows?: Record<string, number[]>;
   ui: {
     sidebarWidth?: number;
     rightSidebarWidth?: number;
@@ -314,7 +316,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
     return { ...DEFAULT_USER_PREFERENCES, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
-  const v = value as { autoFlushPolicy?: unknown; profileActivation?: unknown; colorPicker?: { favorites?: unknown; ui?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown };
+  const v = value as { autoFlushPolicy?: unknown; profileActivation?: unknown; colorPicker?: { favorites?: unknown; ui?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown; rememberedProjectFlows?: unknown };
   const profileActivation = normalizeProfileActivation(v.profileActivation);
   const selectedProfiles = v.selectedProfiles ?? {};
   const ui = v.ui ?? {};
@@ -348,9 +350,17 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
         Object.defineProperty(rememberedBedTypes, printer, { value: bed, enumerable: true, configurable: true, writable: true });
     }
   }
+  const rememberedProjectFlows: Record<string, number[]> = {};
+  if (v.rememberedProjectFlows && typeof v.rememberedProjectFlows === 'object' && !Array.isArray(v.rememberedProjectFlows))
+    for (const [base, flows] of Object.entries(v.rememberedProjectFlows)) {
+      if (base && base.length <= 1024 && Array.isArray(flows) && flows.length > 0 && flows.length <= 64 &&
+          flows.every(flow => Number.isInteger(flow) && [0, 1, 3, 5, 6].includes(flow)))
+        Object.defineProperty(rememberedProjectFlows, base, { value: [...flows], enumerable: true, configurable: true, writable: true });
+    }
   return {
     version: 1,
     rememberedBedTypes,
+    ...(Object.keys(rememberedProjectFlows).length ? { rememberedProjectFlows } : {}),
     ...(profileActivation ? { profileActivation } : {}),
     ...(v.colorPicker && typeof v.colorPicker === 'object' ? { colorPicker: { favorites: normalizeColorFavorites(v.colorPicker.favorites),
       ...(v.colorPicker.ui ? { ui: normalizeColorPickerUi(v.colorPicker.ui) } : {}) } } : {}),

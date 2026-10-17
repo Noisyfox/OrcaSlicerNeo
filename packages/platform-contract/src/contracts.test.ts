@@ -3,6 +3,17 @@ import { MODEL_FILE_ACCEPT, MODEL_FILE_EXTENSIONS, normalizeGcodeTextWindowGeome
 import { normalizePrinterConfigurationDocument } from '@orca/printer-control';
 
 describe('user preferences', () => {
+  it('admits independent concrete base-Printer flow vectors at both host storage boundaries', () => {
+    const source = { version: 1, rememberedProjectFlows: JSON.parse('{"A":[0,1,3,5,6],"__proto__":[1],"Hybrid":[2],"reserved":[4],"empty":[],"bad":[null]}') };
+    const result = normalizeUserPreferences(source);
+    expect(Object.keys(result.rememberedProjectFlows!)).toEqual(['A', '__proto__']);
+    expect(result.rememberedProjectFlows!.A).toEqual([0, 1, 3, 5, 6]);
+    expect(Object.hasOwn(result.rememberedProjectFlows!, '__proto__')).toBe(true);
+    source.rememberedProjectFlows.A[0] = 6;
+    expect(result.rememberedProjectFlows!.A[0]).toBe(0);
+    for (const rememberedProjectFlows of [[], { P: Array(65).fill(0) }, { P: ['1'] }, { P: [NaN] }, { P: [1.5] }])
+      expect(normalizeUserPreferences({ version: 1, rememberedProjectFlows }).rememberedProjectFlows).toBeUndefined();
+  });
   it('normalizes independent serialized bed memory without accepting malformed values', () => {
     const normalized = normalizeUserPreferences({ version: 1, rememberedBedTypes: {
       A: 'Textured PEI Plate', B: 'High Temp Plate', empty: '', whitespace: '  ', numeric: 3, object: { value: 'x' }, large: 'x'.repeat(257),

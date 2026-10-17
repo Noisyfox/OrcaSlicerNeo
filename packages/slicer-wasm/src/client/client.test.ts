@@ -1341,6 +1341,23 @@ describe('SlicerClient bridge contract', () => {
     expect(await client.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', null, null, presetContext)).toMatchObject({ ok: true });
   });
 
+  it('configures admitted base flow memory and seeds only an explicit empty fresh project without history', async () => {
+    const c = makeClient(); const before = await c.getProfileSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const base = before.printerPicker.basePrinter; const history = await c.getHistoryStatus();
+    for (const memory of [{ [base]: [2] }, { [base]: [4] }, { [base]: [] }, { [base]: [null] }])
+      expect(await c.configureProjectFlowMemory(memory as Record<string, number[]>, false)).toMatchObject({ ok: false });
+    expect(await c.getProfileSnapshot()).toEqual(before);
+    expect(await c.configureProjectFlowMemory({ [base]: [1] }, false)).toEqual({ ok: true });
+    expect(await c.getProfileSnapshot()).toEqual(before);
+    expect(await c.configureProjectFlowMemory({ [base]: [1] }, true)).toEqual({ ok: true });
+    expect(await c.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
+    expect(await c.getHistoryStatus()).toEqual(history);
+    await c.addShape('Cube', 'loaded project');
+    expect(await c.configureProjectFlowMemory({ [base]: [0] }, true)).toMatchObject({ ok: false });
+    expect(await c.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
+  });
+
   it('sets the actual project flow through one coherent native receipt and rejects stale/unavailable choices', async () => {
     const c = makeClient();
     const before = await c.getProfileSnapshot();
@@ -1366,6 +1383,15 @@ describe('SlicerClient bridge contract', () => {
     const hybrid = await c.setProjectFlow(0, 2, (await c.getHistoryStatus()).revision, presetContext);
     expect(hybrid).toMatchObject({ ok: true, profileSnapshot: { printerPicker: { flows: [{ actual: 2 }] } },
       filamentSession: { mappings: { volume: [0] } } });
+  });
+
+  it('applies the shared mock flow primitive to every slot routed to the physical head', async () => {
+    const c = makeClient();
+    const rack = await c.getFilamentSessionSnapshot();
+    if (!rack.ok) throw new Error(rack.error);
+    expect((await c.addFilamentSlot({ version: 1, revision: rack.revisions.session })).ok).toBe(true);
+    const result = await c.setProjectFlow(0, 1, (await c.getHistoryStatus()).revision, presetContext);
+    expect(result).toMatchObject({ ok: true, filamentSession: { mappings: { filament: [1, 1], volume: [1, 1] } } });
   });
 
   it('rejects project flow inside an existing history transaction', async () => {

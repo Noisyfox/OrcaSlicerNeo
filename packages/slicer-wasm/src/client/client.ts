@@ -2624,6 +2624,14 @@ export function createClient(
       );
     },
 
+    async configureProjectFlowMemory(memory: Record<string, number[]>, initializeNewProject: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
+      const m = await module();
+      const raw = callJson(m, 'orc_configure_project_flow_memory', ['string'],
+        [JSON.stringify({ memory, initialize_new_project: initializeNewProject })]);
+      if (isRecord(raw) && raw.ok === true) return { ok: true };
+      return { ok: false, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid native flow preference response' };
+    },
+
     async setProjectFlow(index: number, flow: number, expectedRevision: number, context: HistoryContext): Promise<PrinterTransitionResult> {
       const m = await module();
       return normalizePrinterTransition(callJson(m, 'orc_set_project_flow', ['string'],

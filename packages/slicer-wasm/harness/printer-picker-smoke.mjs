@@ -207,12 +207,12 @@ try {
   setPrinter('extruder_type', 'Direct Drive');
   assert.deepEqual(flowValues(setPrinter('extruder_variant_list', 'Direct Drive Hybrid')), [[2]], 'explicit Hybrid string is eligible even with nil count');
   assert.deepEqual(flowValues(setPrinter('extruder_variant_list', 'unmatched')), [[]], 'empty candidates preserve actual flow');
-  assert.equal(snapshot().printer_picker.flows[0].actual, 0);
-  const importFlows = flows => {
+  assert.equal(snapshot().printer_picker.flows[0].actual, 2, 'empty candidates preserve the repaired Hybrid actual');
+  const importFlows = (flows, printer = 'Compatibility Beta 0.6 nozzle') => {
     const entries = readZipEntries(buildIndependentReader3mf());
     const project = entries.find(entry => entry.name === 'Metadata/project_settings.config');
     const config = JSON.parse(new TextDecoder().decode(project.content));
-    config.printer_settings_id = 'Compatibility Beta 0.6 nozzle';
+    config.printer_settings_id = printer;
     config.nozzle_volume_type = flows;
     project.content = new TextEncoder().encode(JSON.stringify(config));
     const bytes = writeStoredZip(entries);
@@ -225,14 +225,19 @@ try {
   };
   importFlows(['High Flow', 'E3D High Flow']);
   current = select('Compatibility Beta 0.6 nozzle');
-  assert.deepEqual(current.printer_picker.flows.map(flow => flow.actual), [1, 5], 'unavailable actual enum values survive reads');
+  assert.deepEqual(current.printer_picker.flows.map(flow => flow.actual), [0, 0], 'unavailable imported enums are repaired before pure reads');
   assert.deepEqual(flowValues(current.printer_picker), [[0, 2], [0, 2]]);
   const invalidBefore = snapshot();
   const invalidHistory = call('orc_history_status');
   const invalidSession = call('orc_get_filament_session_snapshot');
   assert.deepEqual(snapshot(), invalidBefore);
-  assert.deepEqual(call('orc_history_status'), invalidHistory, 'invalid-flow reads create no repair history');
-  assert.deepEqual(call('orc_get_filament_session_snapshot'), invalidSession, 'invalid-flow reads preserve mappings');
+  assert.deepEqual(call('orc_history_status'), invalidHistory, 'post-load reads create no repair history');
+  assert.deepEqual(call('orc_get_filament_session_snapshot'), invalidSession, 'post-load reads preserve mappings');
+  importFlows(['Standard', 'E3D High Flow'], 'Compatibility Alpha 0.4HS nozzle');
+  const emptyImported = snapshot();
+  assert.equal(emptyImported.printer_picker.flows[1].actual, 5, 'empty candidates preserve an unavailable imported actual');
+  assert.deepEqual(emptyImported.printer_picker.flows[1].choices, []);
+  assert.deepEqual(snapshot(), emptyImported, 'empty-candidate reads stay pure');
   importFlows(['Standard', 'Standard']);
   current = select('Compatibility Beta 0.6 nozzle');
   assert.deepEqual(flowValues(current.printer_picker), [[0, 2], [0, 2]], 'short max count uses get_at first entry across drives');
@@ -240,7 +245,7 @@ try {
   assert.deepEqual(flowValues(current.printer_picker), [[0, 2], []], 'short variants hide the missing head');
   current = select('Compatibility Alpha 0.4HS nozzle');
   assert.deepEqual(flowValues(current.printer_picker), [[0, 2], []], 'short drives hide the missing head');
-  importFlows(['Standard']);
+  importFlows(['Standard'], 'Compatibility Beta 0.4 nozzle');
   current = select('Compatibility Beta 0.4 nozzle');
   assert.deepEqual(flowValues(current.printer_picker), [[0], []], 'empty max counts do not offer Hybrid; short actual flow hides the missing head');
   assert.equal(current.printer_picker.flows[1].actual, null, 'missing actual is not invented');

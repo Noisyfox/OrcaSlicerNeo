@@ -1,4 +1,4 @@
-import type { ProfileSnapshot } from '@slicer/client';
+import type { PrinterTransitionResult, PrinterTransitionSuccess, ProfileSnapshot } from '@slicer/client';
 import type { RememberedFilamentRack, UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
 import { loadUserPreferences, updateUserPreferences } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, SlicerClient } from '@slicer/client';
@@ -191,7 +191,7 @@ export async function restoreSelections(
  * compatibility, then history is reset so boot exposes one clean baseline. */
 export async function restoreBootstrapSession(
   runtime: Pick<SlicerClient, 'getProfileSnapshot' | 'selectProfile' |
-    'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack' | 'resetHistory' | 'mutateNativeScopedConfig' | 'setAutoFlushPolicy'>,
+    'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack' | 'resetHistory' | 'mutateNativeScopedConfig' | 'setAutoFlushPolicy' | 'configureProjectFlowMemory'>,
   preferences: UserPreferences,
   context: HistoryContext,
 ): Promise<RestoredBootstrapSession> {
@@ -206,6 +206,11 @@ export async function restoreBootstrapSession(
     restored.snapshot = snapshot;
     restored.preferences = resolvedPreferences(preferences, snapshot);
   }
+  const flows = await runtime.configureProjectFlowMemory(preferences.rememberedProjectFlows ?? {}, true);
+  if (!flows.ok) throw new Error(flows.error ?? 'fresh project flow seed failed');
+  const seededFlows = await runtime.getProfileSnapshot();
+  if (!seededFlows.ok) throw new Error(seededFlows.error ?? 'fresh project flow projection unavailable');
+  restored.snapshot = seededFlows;
   const history = await resetProjectHistory(runtime, context);
   const filament = useFilamentSessionStore.getState().snapshot ?? await runtime.getFilamentSessionSnapshot();
   if (!filament.ok) throw new Error(filament.error ?? 'filament session unavailable after bootstrap');
@@ -256,5 +261,48 @@ export async function seedRememberedBedType(
   const result = await runtime.mutateNativeScopedConfig({ version: 1, operation: 'set',
     targets: [{ scope: 'project' }], key: 'curr_bed_type', value: bed });
   if (!result.ok) throw new Error(result.error);
+  return result;
+}
+
+/** Configure the native cache without restoring an open project's live flow.
+ * Only bootstrap/New Project request the explicit fresh-project seed. */
+export async function configureProjectFlowPreferences(
+  repository: UserPreferencesRepository,
+  runtime: Pick<SlicerClient, 'configureProjectFlowMemory'>,
+  initializeNewProject: boolean,
+): Promise<void> {
+  let memory: Record<string, number[]> = {};
+  try { memory = (await loadUserPreferences(repository)).rememberedProjectFlows ?? {}; }
+  catch (error) { console.warn('flow preferences unavailable; using native defaults', error); }
+  const snapshot = await runtime.configureProjectFlowMemory(memory, initializeNewProject);
+  if (!snapshot.ok) throw new Error(snapshot.error ?? 'flow preferences could not be configured');
+}
+
+/** A successful manual selection publishes its committed project receipt
+ * before best-effort global preference IO. Import, repair and history never
+ * enter this path, and persistence failure cannot reject/retry a native commit. */
+export async function commitProjectFlow(
+  runtime: Pick<SlicerClient, 'setProjectFlow'>,
+  repository: UserPreferencesRepository,
+  request: { index: number; flow: number; expectedRevision: number; context: HistoryContext },
+  publish: (result: PrinterTransitionSuccess) => void | Promise<void>,
+): Promise<PrinterTransitionResult> {
+  const result = await runtime.setProjectFlow(request.index, request.flow, request.expectedRevision, request.context);
+  if (!result.ok) return result;
+  await publish(result);
+  const base = result.profileSnapshot.printerPicker.basePrinter;
+  // A native short actual vector projects trailing null heads. Preserve its
+  // known prefix so an accepted choice still becomes memory without inventing
+  // values for those unavailable heads; fresh restoration uses their defaults.
+  const actual = result.profileSnapshot.printerPicker.flows;
+  const missing = actual.findIndex(flow => flow.actual === null);
+  const flows = actual.slice(0, missing < 0 ? actual.length : missing).map(flow => flow.actual === 2 ? 0 : flow.actual);
+  if (!base || !flows.length || !flows.every(flow => flow !== null && [0, 1, 3, 5, 6].includes(flow))) return result;
+  const admitted = flows as number[];
+  try {
+    await updateUserPreferences(repository, current => ({ ...current,
+      rememberedProjectFlows: { ...current.rememberedProjectFlows, [base]: admitted },
+    }));
+  } catch (error) { console.error('flow preference save failed; keeping committed project state', error); }
   return result;
 }

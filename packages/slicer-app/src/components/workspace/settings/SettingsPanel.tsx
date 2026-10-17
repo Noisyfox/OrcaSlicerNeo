@@ -1,3 +1,4 @@
+import { configureProjectFlowPreferences } from '@/preferences';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
 import { useRef, useState, type ReactNode } from 'react';
@@ -84,6 +85,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
     setPresetTransitionPending(true);
     try {
       await runProjectMutationOperation(async () => {
+        await configureProjectFlowPreferences(platform.preferences, platform.runtime, false);
         const transition = await platform.runtime.setToolheadDiameter(activeToolhead, Number(value), history.revision,
           historyContextForStructure(sceneInteraction));
         if (!transition.ok) throw new Error(transition.error);
@@ -173,6 +175,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             platform.preferences, name,
           );
           const rememberedBed = await loadRememberedBedTypeFromRepository(platform.preferences, name);
+          await configureProjectFlowPreferences(platform.preferences, platform.runtime, false);
           const transition = await platform.runtime.selectPrinterWithRememberedRack(name, rememberedRack, rememberedBed,
             historyContextForStructure(sceneInteraction));
           if (!transition.ok) throw new Error(transition.error ?? 'Printer transition failed');

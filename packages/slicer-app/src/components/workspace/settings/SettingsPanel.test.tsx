@@ -166,6 +166,7 @@ function makePlatform(
         }),
         selectProfile: vi.fn(selectProfile),
         selectPrinterWithRememberedRack: vi.fn(selectPrinterWithRememberedRack),
+        configureProjectFlowMemory: vi.fn(async () => ({ ok: true })),
         setToolheadDiameter: vi.fn(async () => printerTransition()),
         revalidateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: {
           version: 1 as const, revision: 0, kind: 'full' as const,
@@ -614,7 +615,7 @@ describe('SettingsPanel preset transitions', () => {
     const { platform, repository, preferences } = makePlatform(async () => resolvedSnapshot);
     repository.load.mockResolvedValueOnce(preferences).mockResolvedValueOnce(preferences)
       .mockResolvedValueOnce(preferences).mockResolvedValueOnce(preferences)
-      .mockRejectedValueOnce(new Error('storage unavailable'));
+      .mockResolvedValueOnce(preferences).mockRejectedValueOnce(new Error('storage unavailable'));
     const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { container, root } = await render(platform);
     roots.push(root);

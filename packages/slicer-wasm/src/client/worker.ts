@@ -73,7 +73,7 @@ const restrictedWhileSerialSlicing = new Set([
   'openHistorySession', 'closeHistorySession', 'resetHistory', 'movePrimeTower', 'resetPlateSession',
   'selectPlate', 'addPlate', 'deletePlate', 'recomputePlateMembership',
   'markSharedConfigurationMutation', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
-  'mutatePresetDraft', 'revalidateNativeScopedConfig', 'selectProfile', 'selectPrinterWithRememberedRack', 'setToolheadDiameter', 'setProjectFlow', 'addModel', 'closeProject',
+  'mutatePresetDraft', 'revalidateNativeScopedConfig', 'selectProfile', 'selectPrinterWithRememberedRack', 'setToolheadDiameter', 'setProjectFlow', 'configureProjectFlowMemory', 'addModel', 'closeProject',
   'loadProject', 'importProjectGeometry', 'addShape', 'addVolume', 'clearModel',
   'setInstanceOffset', 'setModelTransform', 'setModelTransforms', 'deleteObjects',
   'deleteVolumes', 'cloneObjects', 'reorderObjects', 'reorderVolumes',
@@ -400,7 +400,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     if (arrangementActive && restrictedWhileSerialSlicing.has(op)) return Promise.reject(new Error('arrangement_busy'));
     if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op)) {
       if (op === 'arrange' || op === 'openHistorySession' || op === 'closeHistorySession' || setupWizardOperations.has(op)) return Promise.reject(new Error('slice_busy'));
-      if (op === 'setProjectFlow') return Promise.resolve({ ok: false, error: 'slice_busy', errorCode: 'slice_busy' });
+      if (op === 'setProjectFlow' || op === 'configureProjectFlowMemory') return Promise.resolve({ ok: false, error: 'slice_busy', errorCode: 'slice_busy' });
       return Promise.resolve({ error: 'slice_busy' });
     }
     if (op === 'slice' || op === 'slicePlate') {

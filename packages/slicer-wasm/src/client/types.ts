@@ -1734,6 +1734,9 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   /** Match the complete ordered nozzle vector, or edit only this toolhead's
    * Printer draft. Commits exactly one history entry with an atomic receipt. */
   setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
+  /** Configure host-owned base-Printer flow memory. Fresh-project seeding is
+   * explicit and runs before the host establishes its new clean baseline. */
+  configureProjectFlowMemory(memory: Record<string, number[]>, initializeNewProject: boolean): Promise<{ ok: true } | { ok: false; error: string }>;
   /** Native Sidebar flow choice, independent of Printer editor browsing. */
   setProjectFlow(index: number, flow: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
   arrange(request: ArrangementRequest, onProgress?: (percent: number, text: string) => void): Promise<ArrangementResult>;
