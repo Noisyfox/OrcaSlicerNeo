@@ -12,6 +12,7 @@ import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { sliceModel } from '../actions/sliceActions';
 import { SettingsPanel } from './SettingsPanel';
+import * as paintingCommands from '../viewport/gizmo/painting/projectCommands';
 
 vi.mock('./MovePanel', () => ({ MovePanel: () => null }));
 vi.mock('./RotatePanel', () => ({ RotatePanel: () => null }));
@@ -168,6 +169,7 @@ function makePlatform(
         selectPrinterWithRememberedRack: vi.fn(selectPrinterWithRememberedRack),
         configureProjectFlowMemory: vi.fn(async () => ({ ok: true })),
         setToolheadDiameter: vi.fn(async () => printerTransition()),
+        setProjectFlow: vi.fn(async (_index: number, _flow: number, _revision: number, _context: unknown): Promise<PrinterTransitionResult> => printerTransition()),
         revalidateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: {
           version: 1 as const, revision: 0, kind: 'full' as const,
           snapshot: { project: { curr_bed_type: 'Textured PEI Plate' }, objects: {}, parts: {}, plates: {} }, removedTargets: [],
@@ -369,21 +371,138 @@ describe('SettingsPanel preset transitions', () => {
     expect(highlighted()).toBeNull();
   });
 
-  it.each(['Standard', 'High Flow'])('shows the single-nozzle %s flow type as a read-only combo', async (flow) => {
+  const flowChoices = [
+    { value: 0, label: 'Standard' }, { value: 1, label: 'High Flow' }, { value: 2, label: 'Hybrid' },
+    { value: 3, label: 'TPU High Flow' }, { value: 5, label: 'E3D High Flow' }, { value: 6, label: 'Extra High Flow' },
+  ];
+  const flowSnapshot = (actual = [0], choices = actual.map(() => flowChoices)): ProfileSnapshot => ({
+    ...initialSnapshot,
+    printerPicker: { ...initialSnapshot.printerPicker, flows: actual.map((value, index) => ({ actual: value, choices: choices[index] })) },
+    project_config: { nozzle_diameter: actual.map(() => '0.4').join(','),
+      nozzle_volume_type: actual.map(value => flowChoices.find(choice => choice.value === value)!.label).join(','), layer_height: '0.12' },
+  });
+  const flowReceipt = (snapshot: ProfileSnapshot) => {
+    const receipt = printerTransition(snapshot) as Extract<PrinterTransitionResult, { ok: true }>;
+    return { ...receipt, mutation: { ...receipt.mutation, kind: 'set-project-flow' as const } };
+  };
+  async function chooseFlow(container: HTMLElement, trigger: string, label: string) {
+    await act(async () => (container.querySelector(`[data-testid="${trigger}"]`) as HTMLElement).click());
+    const option = [...document.querySelectorAll<HTMLElement>('[data-slot="select-item"]')].find(item => item.textContent === label);
+    expect(option).toBeDefined();
+    await act(async () => {
+      option!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      option!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
+  }
+
+  it.each(['project', 'scoped', 'plates'] as const)('commits single-nozzle E3D enum 5 and retains %s configuration mode', async mode => {
     resetStores();
-    useSettingsStore.setState({ values: { nozzle_diameter: '0.4', nozzle_volume_type: flow } });
-    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    useSettingsStore.getState().hydrateProfileSnapshot(flowSnapshot());
+    useSettingsStore.getState().setConfigurationMode(mode);
+    const receipt = flowReceipt(flowSnapshot([5]));
+    useHistoryNavigationStore.getState().setStatus({ ...receipt.historyStatus, revision: 0 });
+    useProjectStore.setState({ scope: 'project', dirty: false });
+    const { platform, runtime, repository, preferences } = makePlatform(async () => initialSnapshot);
+    runtime.setProjectFlow.mockResolvedValue(receipt);
+    repository.save.mockImplementation(async next => {
+      expect(useSettingsStore.getState().values.nozzle_volume_type).toBe('E3D High Flow');
+      expect(useProjectStore.getState().dirty).toBe(true);
+      Object.assign(preferences, next);
+    });
     const { container, root } = await render(platform); roots.push(root);
-    const row = container.querySelector('[data-testid="printer-nozzle-row"]')!;
-    const control = row.querySelector<HTMLButtonElement>('[data-testid="nozzle-flow-select"]')!;
-    expect(control.textContent).toContain(flow);
-    expect(control.disabled).toBe(true);
-    expect(row.querySelector('[data-testid="nozzle-variant-select"]')).not.toBeNull();
-    expect(row.querySelector('[data-testid="nozzle-extruder-1"]')).toBeNull();
-    await act(async () => control.click());
-    expect(document.querySelector('[data-slot="select-content"]')).toBeNull();
+    const reads = runtime.getPrintConfigEditor.mock.calls.length;
+    await chooseFlow(container, 'nozzle-flow-select', 'E3D High Flow');
+    expect(runtime.setProjectFlow).toHaveBeenCalledWith(0, 5, 0, expect.objectContaining({ gizmo: null, nativeScopedConfig: expect.any(Object) }));
+    expect(container.querySelector('[data-testid="nozzle-flow-select"]')?.textContent).toContain('E3D High Flow');
+    expect(useSettingsStore.getState().configurationMode).toBe(mode);
+    expect(useSettingsStore.getState().values.layer_height).toBe('0.12');
+    expect(preferences.rememberedProjectFlows).toEqual({ 'Fixture printer': [5] });
+    expect(repository.save).toHaveBeenCalledTimes(1);
     expect(runtime.selectPrinterWithRememberedRack).not.toHaveBeenCalled();
-    expect(useSettingsStore.getState().values.nozzle_volume_type).toBe(flow);
+    expect(runtime.mutateNativeScopedConfig).not.toHaveBeenCalled();
+    expect(runtime.runProjectHistoryTransaction).not.toHaveBeenCalled();
+    if (mode === 'project') expect(runtime.getPrintConfigEditor.mock.calls.length).toBeGreaterThan(reads);
+  });
+
+  it('commits active head Hybrid while retaining Multi, head and independent configuration mode; locks pending controls', async () => {
+    resetStores();
+    useSettingsStore.getState().hydrateProfileSnapshot(flowSnapshot([0, 1]));
+    useSettingsStore.getState().setConfigurationMode('plates');
+    const receipt = flowReceipt(flowSnapshot([0, 2]));
+    useHistoryNavigationStore.getState().setStatus({ ...receipt.historyStatus, revision: 0 });
+    let finish!: (result: PrinterTransitionResult) => void;
+    const pending = new Promise<PrinterTransitionResult>(resolve => { finish = resolve; });
+    const { platform, runtime, repository, preferences } = makePlatform(async () => initialSnapshot);
+    runtime.setProjectFlow.mockReturnValue(pending);
+    const { container, root } = await render(platform); roots.push(root);
+    await act(async () => (container.querySelector('[data-testid="nozzle-extruder-2"]') as HTMLElement).click());
+    await chooseFlow(container, 'toolhead-flow-select', 'Hybrid');
+    expect(runtime.setProjectFlow).toHaveBeenCalledWith(1, 2, 0, expect.any(Object));
+    for (const id of ['toolhead-1', 'toolhead-2', 'toolhead-flow-select', 'toolhead-diameter-select', 'nozzle-variant-select'])
+      expect(container.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)?.disabled).toBe(true);
+    await act(async () => (container.querySelector('[data-testid="toolhead-1"]') as HTMLElement).click());
+    expect(repository.save).not.toHaveBeenCalled();
+    await act(async () => { finish(receipt); await pending; });
+    expect(container.querySelector('[data-testid="printer-tab-multi"]')?.getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('[data-testid="toolhead-2"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelector('[data-testid="toolhead-flow-select"]')?.textContent).toContain('Hybrid');
+    expect(container.querySelector('[data-testid="nozzle-extruder-2"]')?.textContent).toContain('Hybrid');
+    expect(useSettingsStore.getState().configurationMode).toBe('plates');
+    expect(preferences.rememberedProjectFlows).toEqual({ 'Fixture printer': [0, 0] });
+    // Read/history/import publication uses native snapshots directly and never enters manual preference publication.
+    const writes = repository.save.mock.calls.length;
+    await act(async () => useSettingsStore.getState().hydrateProfileSnapshot(flowSnapshot([1, 1])));
+    expect(repository.save).toHaveBeenCalledTimes(writes);
+    expect(runtime.setProjectFlow).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides only the native empty candidate combo and gives the single-nozzle row to diameter', async () => {
+    resetStores();
+    useSettingsStore.getState().hydrateProfileSnapshot(flowSnapshot([0], [[]]));
+    const { platform, runtime } = makePlatform(async () => initialSnapshot);
+    const { container, root } = await render(platform); roots.push(root);
+    expect(container.querySelector('[data-testid="nozzle-flow-select"]')).toBeNull();
+    expect(container.querySelector('.printer-nozzle-align-bed')).toBeNull();
+    expect(container.querySelector('[data-testid="nozzle-variant-select"]')).not.toBeNull();
+    await act(async () => useSettingsStore.getState().hydrateProfileSnapshot(flowSnapshot([0, 1], [flowChoices, []])));
+    await act(async () => (container.querySelector('[data-testid="nozzle-extruder-2"]') as HTMLElement).click());
+    expect(container.querySelector('[data-testid="toolhead-flow-select"]')).toBeNull();
+    expect(container.querySelector('[data-testid="toolhead-diameter-select"]')).not.toBeNull();
+    await act(async () => (container.querySelector('[data-testid="toolhead-1"]') as HTMLElement).click());
+    expect(container.querySelector('[data-testid="toolhead-flow-select"]')).not.toBeNull();
+    await act(async () => useSettingsStore.getState().hydrateProfileSnapshot(flowSnapshot([1], [[flowChoices[1]]])));
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="nozzle-flow-select"]')?.disabled).toBe(false);
+    expect(runtime.setProjectFlow).not.toHaveBeenCalled();
+  });
+
+  it('rejects stale flow without publishing dirty state or writing preferences', async () => {
+    resetStores();
+    const before = flowSnapshot(); useSettingsStore.getState().hydrateProfileSnapshot(before);
+    useHistoryNavigationStore.getState().setStatus({ ...(flowReceipt(before)).historyStatus, revision: 7 });
+    useProjectStore.setState({ dirty: false });
+    const { platform, runtime, repository } = makePlatform(async () => initialSnapshot);
+    runtime.setProjectFlow.mockResolvedValue({ ok: false, errorCode: 'stale_revision', error: 'stale captured revision', revision: 8 });
+    const { container, root } = await render(platform); roots.push(root);
+    await chooseFlow(container, 'nozzle-flow-select', 'High Flow');
+    expect(runtime.setProjectFlow).toHaveBeenCalledWith(0, 1, 7, expect.any(Object));
+    expect(useSettingsStore.getState().values.nozzle_volume_type).toBe('Standard');
+    expect(container.querySelector('[data-testid="nozzle-flow-select"]')?.textContent).toContain('Standard');
+    expect(useProjectStore.getState().dirty).toBe(false);
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(useSlicerStore.getState().error).toContain('stale captured revision');
+  });
+
+  it.each(['serial', 'loading', 'mutation', 'painting'])('guards flow commands during %s', async guard => {
+    resetStores(); useSettingsStore.getState().hydrateProfileSnapshot(flowSnapshot());
+    const { platform, runtime } = makePlatform(async () => initialSnapshot);
+    if (guard === 'serial') useSlicerStore.setState({ status: 'slicing' });
+    if (guard === 'loading') useProjectStore.getState().setOperation({ phase: 'loading' });
+    if (guard === 'mutation') useProjectStore.getState().beginProjectMutation();
+    if (guard === 'painting') vi.spyOn(paintingCommands, 'paintingCommandAllowed').mockReturnValue(false);
+    const { container, root } = await render(platform); roots.push(root);
+    if (guard === 'painting') await chooseFlow(container, 'nozzle-flow-select', 'High Flow');
+    else expect(container.querySelector<HTMLButtonElement>('[data-testid="nozzle-flow-select"]')?.disabled).toBe(true);
+    expect(runtime.setProjectFlow).not.toHaveBeenCalled();
   });
 
   it('switches a named/mixed variant through the existing atomic Printer transaction and locks Nozzle', async () => {

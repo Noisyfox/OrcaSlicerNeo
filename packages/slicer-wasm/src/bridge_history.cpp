@@ -475,6 +475,7 @@ json restore_timestamped_result(const Runtime& runtime,
     if (target_printer_name.empty())
         throw std::runtime_error("history native Printer selection is empty");
     bool profile_selection_changed = false;
+    bool project_flow_changed = false;
     json restored_profile_snapshot;
     std::set<std::string> affected_plates;
     std::unique_ptr<Neo::Painting::Session> reconciled_painting;
@@ -538,7 +539,13 @@ json restore_timestamped_result(const Runtime& runtime,
         Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
         profile_selection_changed = before_printer_name != bundle.printers.get_selected_preset_name() ||
             before_print_name != bundle.prints.get_selected_preset_name();
-        if (profile_selection_changed || preset_drafts_changed || filament_changed)
+        const auto* before_flows = before_project_config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
+        const auto* restored_flows = bundle.project_config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
+        project_flow_changed = (before_flows == nullptr) != (restored_flows == nullptr) ||
+            (before_flows && restored_flows && before_flows->values != restored_flows->values);
+        // Actual flow lives in the project root. Its restore must refresh the
+        // existing native picker/context projection even when no preset moved.
+        if (profile_selection_changed || preset_drafts_changed || filament_changed || project_flow_changed)
             restored_profile_snapshot = Neo::Bridge::Profiles::preset_snapshot_json();
         // A history restore publishes only the plates whose native input
         // changed. Project/filament roots fan out to every plate; model
@@ -816,7 +823,7 @@ json restore_timestamped_result(const Runtime& runtime,
                                 {"presetDrafts", preset_drafts_changed},
                                 {"profileSelection", profile_selection_changed},
                                 {"primeTower", true}, {"preview", "all"}}}};
-        if (profile_selection_changed || preset_drafts_changed || filament_changed)
+        if (profile_selection_changed || preset_drafts_changed || filament_changed || project_flow_changed)
             result["profile_snapshot"] = std::move(restored_profile_snapshot);
         Neo::Bridge::Performance::record("history_restore", {
             {"model_staging_deserialization", restore_timings.model_staging_deserialization_ms},

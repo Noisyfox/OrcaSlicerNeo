@@ -1375,10 +1375,12 @@ describe('SlicerClient bridge contract', () => {
     expect(await c.setProjectFlow(0, 2, history.revision, presetContext)).toMatchObject({ ok: false, errorCode: 'stale_revision' });
     expect(await c.setProjectFlow(0, 4, history.revision + 1, presetContext)).toMatchObject({ ok: false, errorCode: 'invalid_request' });
     expect(await c.getHistoryStatus()).toMatchObject({ revision: history.revision + 1 });
-    await c.undoHistory();
+    expect(await c.undoHistory()).toMatchObject({ ok: true, impact: { profileSelection: false, presetDrafts: false },
+      profileSnapshot: { printerPicker: { flows: [{ actual: 0 }] } } });
     expect(await c.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 0 }] } });
     expect(await c.getFilamentSessionSnapshot()).toMatchObject({ mappings: { volume: [0] } });
-    await c.redoHistory();
+    expect(await c.redoHistory()).toMatchObject({ ok: true, impact: { profileSelection: false, presetDrafts: false },
+      profileSnapshot: { printerPicker: { flows: [{ actual: 1 }] } } });
     expect(await c.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
     const hybrid = await c.setProjectFlow(0, 2, (await c.getHistoryStatus()).revision, presetContext);
     expect(hybrid).toMatchObject({ ok: true, profileSnapshot: { printerPicker: { flows: [{ actual: 2 }] } },
@@ -1423,6 +1425,21 @@ describe('SlicerClient bridge contract', () => {
       expect(await client.setProjectFlow(0, 1, (await client.getHistoryStatus()).revision, presetContext))
         .toMatchObject({ ok: false, errorCode: 'invalid_response' });
     });
+
+  it('validates the optional native flow-only history profile projection without requiring a profile identity change', async () => {
+    const module = createMockModule(); const original = module.ccall;
+    module.ccall = (name, ret, types, args) => {
+      const pointer = original(name, ret, types, args);
+      if (name !== 'orc_history_undo') return pointer;
+      const raw = JSON.parse(module.UTF8ToString(Number(pointer))); module._free(Number(pointer));
+      delete raw.profile_snapshot.printer_picker;
+      const bytes = new TextEncoder().encode(JSON.stringify(raw) + '\0');
+      const result = module._malloc(bytes.length); module.HEAPU8.set(bytes, result); return result;
+    };
+    const client = createClient(async () => module);
+    expect((await client.setProjectFlow(0, 1, (await client.getHistoryStatus()).revision, presetContext)).ok).toBe(true);
+    await expect(client.undoHistory()).rejects.toThrow('invalid history profile snapshot');
+  });
 
   it('selectPrinterWithRememberedRack returns one complete native commit receipt', async () => {
     const c = makeClient();

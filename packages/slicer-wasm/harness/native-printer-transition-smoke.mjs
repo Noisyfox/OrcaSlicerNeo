@@ -474,9 +474,16 @@ for (const flushPolicy of ['all', 'color change', 'disabled']) {
   } else assert.deepEqual(afterFlush.matrix, custom, `${flushPolicy} does not recalculate for flow`);
   const afterFlow = flowState();
   assert.deepEqual(afterFlow.draft, beforeFlow.draft, 'flow selection does not edit or browse Printer draft');
-  assert.equal(callJson('orc_history_undo').ok, true);
+  const flowUndoReceipt = callJson('orc_history_undo');
+  assert.equal(flowUndoReceipt.ok, true);
+  assert.equal(flowUndoReceipt.impact.profileSelection, false);
+  assert.equal(flowUndoReceipt.impact.presetDrafts, false);
+  assert.equal(flowUndoReceipt.profile_snapshot.printer_picker.flows[1].actual, 0, 'flow-only Undo publishes actual SF in its native receipt');
   assert.deepEqual(flowState(), beforeFlow, 'one Undo restores flow, every Plate mapping and custom flushing together');
-  assert.equal(callJson('orc_history_redo').ok, true);
+  const flowRedoReceipt = callJson('orc_history_redo');
+  assert.equal(flowRedoReceipt.ok, true);
+  assert.equal(flowRedoReceipt.impact.profileSelection, false);
+  assert.equal(flowRedoReceipt.profile_snapshot.printer_picker.flows[1].actual, 1, 'flow-only Redo publishes actual HF in its native receipt');
   assert.deepEqual(flowState(), afterFlow, 'one Redo restores the complete accepted flow state');
 }
 const hybrid = flowCommand(1, 2);

@@ -1256,6 +1256,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     restoreHistoryState(entry);
     const presetDraftsChanged = beforeDraftRegistry !== JSON.stringify(entry.presetDraftRegistry);
     const profileSelection = JSON.stringify(beforeState.selectedProfiles) !== JSON.stringify(entry.selectedProfiles);
+    const projectFlowChanged = beforeState.nativeScopedConfig.project.nozzle_volume_type !== entry.nativeScopedConfig.project.nozzle_volume_type;
     if (presetDraftsChanged || profileSelection)
       for (const id of plateIds)
         plateInputRevisions[id] = Math.max(beforePlateInputRevisions[id] ?? 0, plateInputRevisions[id] ?? 0) + 1;
@@ -1273,7 +1274,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() },
       native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), entryId: entry.id,
       affected_plate_ids: presetDraftsChanged || profileSelection ? [...plateIds] : affectedHistoryPlateIds(beforeState, entry),
-      ...(profileSelection || presetDraftsChanged ? { profile_snapshot: snapshot() } : {}),
+      ...(profileSelection || presetDraftsChanged || projectFlowChanged ? { profile_snapshot: snapshot() } : {}),
       scene_delta: sceneDelta,
       impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, nativeScopedConfig: true,
           presetDrafts: presetDraftsChanged, profileSelection, selectionContext: true, primeTower: true, preview: 'all' } };
