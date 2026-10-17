@@ -198,9 +198,9 @@ export const ScopedField = memo(function ScopedField({
   return (
     <div data-testid={`config-field-${field.key}`} data-native-index={editor?.target.kind==='indexed'?editor.target.index:undefined} className="space-y-0.5">
       <div className={row}>
-        <div className="flex min-w-0 items-center gap-1">
-        {selectionGutter && <span className="flex size-4 shrink-0 items-center" data-testid={`config-nozzle-gutter-${field.key}`}>
-          {editor?.perSelection && <NozzleIcon className="size-4 text-muted-foreground" data-testid={`config-nozzle-icon-${field.key}`} />}
+        <div className={cn("flex min-w-0 items-center", selectionGutter ? "gap-0.5" : "gap-1")}>
+        {selectionGutter && <span className="flex h-4 w-2.5 shrink-0 items-center justify-center" data-testid={`config-nozzle-gutter-${field.key}`}>
+          {editor?.perSelection && <NozzleIcon className="size-4 shrink-0 translate-y-px text-muted-foreground" data-testid={`config-nozzle-icon-${field.key}`} />}
         </span>}
         <TooltipFor content={<span className="whitespace-pre-line">{optionHelp}</span>} nonInteractive>
           <Label

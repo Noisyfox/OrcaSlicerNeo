@@ -210,6 +210,8 @@ deferred. Printer and Filament selectors retain their existing presentation.
 Project Print and Objects-mode field labels reserve an aligned nozzle-icon gutter
 only when there are multiple native extruder/variant choices. A printer with
 only one effective choice shows neither option glyphs nor their empty gutter.
+Glyphs stay close to their labels in a narrow gutter, with a small downward
+optical offset to center them against each row's text.
 Only native `per_selection` fields receive the glyph, including an individually unavailable
 mapping; shared fields leave the gutter empty. Object/Part views use their
 existing native owners with this same strip and aligned glyph gutter. The
