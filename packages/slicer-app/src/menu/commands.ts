@@ -3,12 +3,15 @@ import type {
   MenuCommandId,
   MenuStateSnapshot,
   PlatformCapabilities,
+  StaticMenuCommandId,
 } from '@orca/platform-contract';
+import { isRecentProjectMenuCommand, recentProjectIdFromMenuCommand } from '@orca/platform-contract';
 
 export interface CommandActions {
   openConfigurationFolder?: () => Promise<void>;
   newProject?: () => Promise<void>;
   openProject?: () => Promise<void>;
+  openRecentProject?: (id: string) => Promise<void>;
   saveProject?: () => Promise<void>;
   saveProjectAs?: () => Promise<void>;
   setupWizard?: () => Promise<void>;
@@ -59,7 +62,9 @@ export function createCommandDispatcher({
 
       inFlight.add(command);
       try {
-        const action = actions[commandToAction(command)];
+        const action = isRecentProjectMenuCommand(command)
+          ? actions.openRecentProject && (() => actions.openRecentProject!(recentProjectIdFromMenuCommand(command)))
+          : actions[commandToAction(command)];
         if (!action) return false;
         await action();
         return active;
@@ -83,7 +88,7 @@ export function createCommandDispatcher({
   };
 }
 
-function commandToAction(command: MenuCommandId): keyof CommandActions {
+function commandToAction(command: StaticMenuCommandId): Exclude<keyof CommandActions, 'openRecentProject'> {
   switch (command) {
     case 'new-project': return 'newProject';
     case 'open-project': return 'openProject';

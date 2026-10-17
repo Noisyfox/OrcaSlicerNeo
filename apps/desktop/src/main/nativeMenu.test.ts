@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
+import { recentProjectMenuCommand, type MenuModel, type MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
 import {
   STARTUP_DISABLED_MENU_MODEL,
   STARTUP_DISABLED_MENU_STATE,
@@ -8,6 +8,7 @@ import {
   handleHostCommand,
   openFixedSource,
   validateMenuStateSnapshot,
+  validateMenuModel,
 } from './nativeMenu';
 
 function state(overrides: Partial<MenuStateSnapshot['items']> = {}): MenuStateSnapshot {
@@ -49,6 +50,31 @@ function fakeMenu() {
 }
 
 describe('Electron native menu boundary', () => {
+  it('validates bounded recent commands, renders empty history disabled, and rejects stale native clicks', () => {
+    const command = recentProjectMenuCommand('opaque-id');
+    const displayPath = `C:\\${'nested-directory\\'.repeat(24)}Model.3mf`;
+    const model: MenuModel = { ...STARTUP_DISABLED_MENU_MODEL, menus: STARTUP_DISABLED_MENU_MODEL.menus.map((menu, index) => index ? menu : {
+      ...menu, items: [...menu.items, { testId: 'file-recent-projects', label: 'Recent projects', submenu: [
+        { testId: 'file-recent-opaque-id', label: displayPath, command },
+        { testId: 'file-recent-empty', label: 'No recent projects' },
+      ] }],
+    }) };
+    expect(validateMenuModel(model, 'native')).toEqual(model);
+    let current = state({ [command]: { enabled: true } });
+    expect(validateMenuStateSnapshot(current)).toEqual(current);
+    expect(validateMenuStateSnapshot({ ...current, items: { ...current.items, 'open-recent:%ZZ': { enabled: true } } })).toBeNull();
+    expect(validateMenuStateSnapshot({ ...current, items: { ...current.items, arbitrary: { enabled: true } } })).toBeNull();
+    expect(validateMenuStateSnapshot(state(Object.fromEntries(Array.from({ length: 19 }, (_, i) => [recentProjectMenuCommand(String(i)), { enabled: true }]))))).toBeNull();
+    const onCommand = vi.fn();
+    const submenu = buildNativeMenuTemplate(model, current, onCommand, () => current)[0].submenu!.at(-1)!.submenu!;
+    expect(submenu[0].label).toBe(displayPath);
+    expect(submenu[1]).toMatchObject({ label: 'No recent projects', enabled: false });
+    submenu[0].click!();
+    expect(onCommand).toHaveBeenCalledWith(command);
+    current = state();
+    submenu[0].click!();
+    expect(onCommand).toHaveBeenCalledOnce();
+  });
   it('requires the current project and complete command state', () => {
     const current = state();
     expect(validateMenuStateSnapshot({ ...current, scene: { hasModel: true } })).toBeNull();

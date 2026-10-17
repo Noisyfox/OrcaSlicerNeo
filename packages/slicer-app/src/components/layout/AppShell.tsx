@@ -6,6 +6,7 @@ import { scrollHorizontalListWithWheel } from './horizontalWheelScroll';
 export interface AppPagePanelProps {
   active: boolean;
   prewarming?: boolean;
+  inset?: boolean;
   id: string;
   labelledBy: string;
   children: ReactNode;
@@ -16,7 +17,7 @@ export interface AppPagePanelProps {
  * and layout-neutral. Stateful pages (the WebGL scene and printer console)
  * therefore survive navigation without receiving input while hidden.
  */
-export function AppPagePanel({ active, prewarming = false, id, labelledBy, children }: AppPagePanelProps) {
+export function AppPagePanel({ active, prewarming = false, inset = true, id, labelledBy, children }: AppPagePanelProps) {
   return (
     <div
       id={id}
@@ -26,7 +27,7 @@ export function AppPagePanel({ active, prewarming = false, id, labelledBy, child
       hidden={!active && !prewarming}
       inert={!active}
       data-workspace-overlay-host={id === 'app-panel-workspace' ? '' : undefined}
-      className={`relative flex min-h-0 flex-1 px-1${prewarming && !active ? ' invisible absolute inset-0' : ''}`}
+      className={`relative flex min-h-0 flex-1${inset ? ' px-1' : ''}${prewarming && !active ? ' invisible absolute inset-0' : ''}`}
     >
       {children}
     </div>
@@ -54,7 +55,7 @@ export function AppShell({ titleBar, home, workspace, device, activeTab = 'home'
     <div className="flex h-full flex-col bg-titlebar-tab">
       {titleBar}
       <div className="relative flex min-h-0 flex-1">
-        <AppPagePanel active={activeTab === 'home'} id="app-panel-home" labelledBy="app-tab-home">
+        <AppPagePanel active={activeTab === 'home'} inset={false} id="app-panel-home" labelledBy="app-tab-home">
           {home}
         </AppPagePanel>
         <AppPagePanel active={isWorkspaceTab(activeTab)} prewarming={prewarmWorkspace} id="app-panel-workspace" labelledBy={`app-tab-${activeTab}`}>

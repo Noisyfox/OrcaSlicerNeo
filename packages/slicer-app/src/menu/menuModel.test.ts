@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { MenuCommandId, MenuStateSnapshotInput, PlatformChrome } from '@orca/platform-contract';
+import type { MenuCommandId, StaticMenuCommandId, MenuStateSnapshotInput, PlatformChrome } from '@orca/platform-contract';
 import { buildMenuModel, buildMenuStateSnapshot, deriveMenuItemStates, resolveMenuMode } from './menuModel';
+import { recentProjectMenuCommand } from '@orca/platform-contract';
 
 function input(overrides: Partial<MenuStateSnapshotInput> = {}): MenuStateSnapshotInput {
   return {
@@ -30,7 +31,7 @@ function commandItem(model: ReturnType<typeof buildMenuModel>, command: MenuComm
   return model.menus.flatMap((menu) => menu.items).find((item) => item.command === command);
 }
 
-function stateFor(snapshot: ReturnType<typeof buildMenuStateSnapshot>, command: MenuCommandId) {
+function stateFor(snapshot: ReturnType<typeof buildMenuStateSnapshot>, command: StaticMenuCommandId) {
   return snapshot.items[command];
 }
 
@@ -49,29 +50,44 @@ describe('buildMenuModel', () => {
     expect(resolveMenuMode(mac)).toBe('native');
   });
 
-  it('keeps MenuModel static and preserves exact File/Help ordering', () => {
+  it('preserves exact File/Help ordering and keeps command state separate', () => {
     const state = buildMenuStateSnapshot(input({ host: { isElectron: true, menuMode: 'custom' } }), windows);
     const model = buildMenuModel(state, windows);
     expect(model.menus.map((menu) => menu.label)).toEqual(['File', 'Help']);
     expect(menuItems(model, 'File').map((item) => item.label)).toEqual([
       'Add Model', 'Clear Scene', 'Slice', 'Export G-code', '', 'New Project', 'Open Project…',
-      'Save Project', 'Save Project As…', 'Setup Wizard…', 'Preferences…', '', 'Exit',
+      'Recent projects', 'Save Project', 'Save Project As…', 'Setup Wizard…', 'Preferences…', '', 'Exit',
     ]);
     expect(menuItems(model, 'Help').map((item) => item.label)).toEqual(['Show Configuration Folder', 'File Manager…', '', 'AGPL-3.0 source']);
     expect(model.menus.flatMap((menu) => menu.items).every((item) => !('enabled' in item))).toBe(true);
     expect(JSON.stringify(model)).not.toMatch(/gizmo|view|cube|shortcut/i);
   });
 
+  it('projects recent entries by stable id, with a disabled empty placeholder and current availability', () => {
+    const projects = [{ id: 'one', displayName: 'Model.3mf', displayPath: '/projects/first/Model.3mf', modifiedAt: 1, missing: false },
+      { id: 'two', displayName: 'Model.3mf', displayPath: 'C:\\projects\\second\\Model.3mf', modifiedAt: null, missing: true }];
+    const recent = (state = buildMenuStateSnapshot(input(), web), entries = projects) =>
+      buildMenuModel(state, web, entries).menus[0].items.find(item => item.testId === 'file-recent-projects')!.submenu!;
+    expect(recent()).toEqual(projects.map(project => ({ testId: `file-recent-${project.id}`, label: project.displayPath, command: recentProjectMenuCommand(project.id) })));
+    expect(recent(undefined, [])).toEqual([{ testId: 'file-recent-empty', label: 'No recent projects' }]);
+    const ready = buildMenuStateSnapshot(input(), web, projects);
+    expect(ready.items[recentProjectMenuCommand('two')]?.enabled).toBe(true);
+    const loading = input({ project: { hasContent: true, dirty: false, operation: { phase: 'loading', progress: 0, cancellable: false } } });
+    expect(buildMenuStateSnapshot(loading, web, projects).items[recentProjectMenuCommand('one')]?.enabled).toBe(false);
+    const removed = buildMenuStateSnapshot(input(), web, projects.slice(1));
+    expect(removed.items[recentProjectMenuCommand('one')]).toBeUndefined();
+  });
+
   it('keeps project actions disabled and File Manager available for startup diagnostics', () => {
     const state = buildMenuStateSnapshot(input({ boot: { phase: 'starting', error: null } }), web);
-    expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(state, id as MenuCommandId).enabled)).toEqual([
+    expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(state, id as StaticMenuCommandId).enabled)).toEqual([
       false, false, false, false,
     ]);
     expect(stateFor(state, 'open-source')).toEqual({ enabled: true, checked: false });
     expect(stateFor(state, 'open-file-manager')).toEqual({ enabled: true, checked: false });
 
     const failed = buildMenuStateSnapshot(input({ boot: { phase: 'failed', error: 'profile load failed' } }), web);
-    expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(failed, id as MenuCommandId).enabled)).toEqual([
+    expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(failed, id as StaticMenuCommandId).enabled)).toEqual([
       false, false, false, false,
     ]);
     expect(stateFor(failed, 'open-file-manager')).toEqual({ enabled: true, checked: false });
@@ -120,7 +136,7 @@ describe('buildMenuModel', () => {
       result: { hasResult: true, exported: false },
       slicer: { status: 'slicing', progress: 50, error: null },
     }), web);
-    expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(slicing, id as MenuCommandId).enabled)).toEqual([
+    expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(slicing, id as StaticMenuCommandId).enabled)).toEqual([
       false, false, false, false,
     ]);
 
@@ -129,7 +145,7 @@ describe('buildMenuModel', () => {
       result: { hasResult: true, exported: false },
       slicer: { status: 'slicing', progress: 50, error: null, threaded: true },
     }), web);
-    expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(threaded, id as MenuCommandId).enabled)).toEqual([
+    expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(threaded, id as StaticMenuCommandId).enabled)).toEqual([
       true, true, false, false,
     ]);
 
@@ -258,7 +274,7 @@ describe('buildMenuModel', () => {
 
 it('blocks the complete menu during setup and disables wizard admission while editing or slicing', () => {
  const modal = buildMenuStateSnapshot(input({ boot: { phase: 'setup', error: null } }), windows);
- expect(Object.values(modal.items).every(item => !item.enabled)).toBe(true);
+ expect(Object.values(modal.items).every(item => !item?.enabled)).toBe(true);
  expect(buildMenuModel(modal, windows).menus.flatMap(menu => menu.items).filter(item => item.command === 'setup-wizard')).toHaveLength(1);
  expect(buildMenuStateSnapshot(input({ scene: { hasModel: true, arranging: false, editing: true } }), windows).items['setup-wizard'].enabled).toBe(false);
  expect(buildMenuStateSnapshot(input({ slicer: { status: 'slicing', progress: 0, error: null, threaded: true } }), windows).items['setup-wizard'].enabled).toBe(false);

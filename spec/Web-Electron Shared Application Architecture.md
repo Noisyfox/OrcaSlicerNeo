@@ -149,6 +149,14 @@ interface PlatformCapabilities {
   retains an absolute source path in its host-private, in-memory session data
   for a future seamless model-reload feature; it is neither rendered by the
   common UI nor persisted in the first release. Web has no equivalent path.
+  Electron separately persists project recent paths behind its host-owned
+  [Home history capability](3MF%20Project%20Persistence.md#persistence-boundary);
+  shared state receives opaque IDs and display metadata, including full paths
+  used only as recent-menu labels. File access still resolves IDs in the host.
+  Recent PNG previews
+  are requested separately and extracted/cached by a dedicated Electron Node
+  Worker, independent of the slicer Worker and recent/project operation queues;
+  see [Home](Application%20Shell.md#home-page).
 - Both hosts route file drops through the shared model/project import
   contracts; see [Model Import](Model%20Import.md).
 - `BrandBar` styling uses the injected `chrome` capability rather than a

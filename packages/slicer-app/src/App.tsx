@@ -3,6 +3,7 @@ import { paintingCommandAllowed, closePaintingForCommand, paintingSessionActive 
 // client init → atomic preset snapshot → option metadata → settings store)
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { HomePage } from './components/home/HomePage';
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
 import { SliceButton } from './components/workspace/SliceButton';
@@ -51,6 +52,7 @@ import { SetupWizard } from './components/wizard/SetupWizard';
 import { publishSetupWizardApplication } from './components/wizard/setupWizardPublication';
 import type { SetupCompletionResult } from './components/wizard/setupWizardCompletion';
 import { ArrangementStatus } from './components/workspace/arrangement/ArrangementControls';
+import { useRecentProjects } from './recentProjects';
 
 declare const __ORCA_E2E__: boolean;
 
@@ -112,6 +114,8 @@ function AppContent() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState('Loading preferences...');
   const [activeTab, setActiveTab] = useState<AppTab>('home');
+  const recentHistory = useRecentProjects(activeTab);
+  const refreshRecentProjects = recentHistory.refresh;
   const [leftSidebarVisible, setLeftSidebarVisible] = useState(true);
   const [rightSidebarVisible, setRightSidebarVisible] = useState(true);
   const sidebarVisibilityRef = useRef({ left: true, right: true });
@@ -245,13 +249,21 @@ function AppContent() {
     reportProjectFailure(result);
     if (result.status === 'ok') setActiveTab('prepare');
   }, [decideDirty, platform, reportProjectFailure]);
-  const runOpenProject = useCallback(async () => {
+  const runOpenProject = useCallback(async (recentId?: string) => {
     projectLoadReceiptRef.current = null;
-    const result = await openProject(platform, { chooseLoad, decideDirty, confirmProjectLoad });
+    let inputs: ProjectInput[] | undefined;
+    if (recentId) {
+      const picked = await platform.recentProjects.open(recentId);
+      if (picked.status === 'failed') throw picked.error;
+      if (picked.status !== 'ok') return;
+      inputs = [picked.input];
+    }
+    const result = await openProject(platform, { inputs, chooseLoad, decideDirty, confirmProjectLoad });
     if (result.status === 'ok' && result.loadReceipt) projectLoadReceiptRef.current = result.loadReceipt;
     reportProjectFailure(result);
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
-  }, [chooseLoad, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
+    void refreshRecentProjects();
+  }, [chooseLoad, confirmProjectLoad, decideDirty, platform, refreshRecentProjects, reportProjectFailure]);
   const runCloseRequest = useCallback(async () => {
     // Startup has not admitted a user project yet. Querying the
     // Worker here can block the native close handshake while init/profile
@@ -278,7 +290,8 @@ function AppContent() {
   const runSaveProject = useCallback(async (asCopy = false) => {
     const result = asCopy ? await saveProjectAs(platform) : await saveProject(platform);
     reportProjectFailure(result);
-  }, [platform, reportProjectFailure]);
+    void refreshRecentProjects();
+  }, [platform, refreshRecentProjects, reportProjectFailure]);
   const openPreferences = useCallback(async () => {
     try { setPreferences(await platform.preferences.load()); } catch { setPreferences(null); }
     setDialog('preferences');
@@ -323,13 +336,14 @@ function AppContent() {
       isElectron: platform.chrome.kind === 'desktop',
       menuMode: resolveMenuMode(platform.chrome),
     },
-  }, platform.chrome), [
+  }, platform.chrome, recentHistory.projects), [
     boot,
     setup,
     activeTab,
     bootError,
     modelLoaded,
     platform.chrome,
+    recentHistory.projects,
     progress,
     resultExported,
     slicerError,
@@ -338,8 +352,8 @@ function AppContent() {
     workspaceEditing, arranging, paintingPhase, mutationPending, historyTransaction, filamentPending, historyRestoring, dialog,
   ]);
   const menuModel = useMemo(
-    () => buildMenuModel(menuState, platform.chrome),
-    [menuState, platform.chrome],
+    () => buildMenuModel(menuState, platform.chrome, recentHistory.projects),
+    [menuState, platform.chrome, recentHistory.projects],
   );
   const menuStateRef = useRef(menuState);
   menuStateRef.current = menuState;
@@ -348,6 +362,10 @@ function AppContent() {
     actions: {
       newProject: runNewProject,
       openProject: runOpenProject,
+      openRecentProject: async id => {
+        try { await runOpenProject(id); }
+        catch (error) { reportProjectFailure({ status: 'failed', error }); }
+      },
       saveProject: () => runSaveProject(false),
       saveProjectAs: () => runSaveProject(true),
       preferences: openPreferences,
@@ -364,7 +382,7 @@ function AppContent() {
       openFileManager,
       quit: async () => { await platform.menu.execute('quit'); },
     },
-  }), [handleModelAdded, openFileManager, openPreferences, platform, requestPreviewSlice, runNewProject, runOpenProject, runSaveProject]);
+  }), [handleModelAdded, openFileManager, openPreferences, platform, reportProjectFailure, requestPreviewSlice, runNewProject, runOpenProject, runSaveProject]);
 
   // Strict Mode replays layout effects during development. Keep activation
   // and disposal next to the native subscription so replay cannot leave the
@@ -670,7 +688,12 @@ function AppContent() {
         titleBar={titleBar}
         activeTab={activeTab}
         prewarmWorkspace={prewarmingWorkspace}
-        home={<div data-testid="home-page" />}
+        home={<HomePage active={activeTab === 'home'} history={recentHistory} canOpen={menuState.items['open-project'].enabled} canCreate={menuState.items['new-project'].enabled}
+          onOpen={() => dispatcher.dispatch('open-project')} onCreate={() => dispatcher.dispatch('new-project')}
+          onOpenRecent={async (id) => {
+            if (!menuStateRef.current.items['open-project'].enabled || !paintingCommandAllowed()) return;
+            await runOpenProject(id);
+          }} />}
         workspace={<Workspace leftSidebarVisible={leftSidebarVisible} rightSidebarVisible={rightSidebarVisible} actionControls={<SliceButton activeTab={workspaceTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />} activeTab={workspaceTab} onEditingSessionChange={setWorkspaceEditing} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
         device={<DevicePanel />}
         status={<StatusBar />}
