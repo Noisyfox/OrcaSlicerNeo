@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { basename, dirname, join } from 'node:path';
+import { appendFile, mkdtemp, readFile, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { writeFileAtomically, type AtomicFileDependencies } from './atomicFile';
 
 function dependencies(overrides: Partial<AtomicFileDependencies> = {}): any {
@@ -11,7 +13,7 @@ function dependencies(overrides: Partial<AtomicFileDependencies> = {}): any {
   };
 }
 
-describe('atomic project writes', () => {
+describe('atomic file writes', () => {
   it('writes a unique sibling temporary file before replacing the target', async () => {
     const fs = dependencies();
     const target = join('projects', 'scene.3mf');
@@ -22,6 +24,30 @@ describe('atomic project writes', () => {
     expect(fs.writeFile).toHaveBeenCalledWith(temporary, expect.any(Uint8Array), { flag: 'wx' });
     expect(fs.rename).toHaveBeenCalledWith(temporary, target);
     expect(fs.unlink).not.toHaveBeenCalled();
+  });
+
+  it('keeps preferences readable while a replacement document is only partially written', async () => {
+    const directory=await mkdtemp(join(tmpdir(),'neo-atomic-preferences-'));
+    const target=join(directory,'preferences.json');
+    const before={version:1,colorPicker:{favorites:[]}};
+    const after={version:1,colorPicker:{favorites:[{kind:'solid',color:'#123456'}]}};
+    await writeFile(target,JSON.stringify(before));
+    let started!:()=>void,release!:()=>void;
+    const partial=new Promise<void>(resolve=>{started=resolve;});
+    const resume=new Promise<void>(resolve=>{release=resolve;});
+    const pending=writeFileAtomically(target,Buffer.from(JSON.stringify(after)),{
+      writeFile:async(path,bytes,options)=>{
+        await writeFile(path,bytes.slice(0,12),options);started();await resume;
+        await appendFile(path,bytes.slice(12));
+      },rename,unlink,
+    });
+    try {
+      await partial;
+      // Direct parse deliberately exposes any empty/partial published document.
+      expect(JSON.parse(await readFile(target,'utf8'))).toEqual(before);
+      release();await pending;
+      expect(JSON.parse(await readFile(target,'utf8'))).toEqual(after);
+    } finally {release();await pending;await unlink(target);await rmdir(directory);}
   });
 
   it('cleans up the temporary file and preserves the target when writing fails', async () => {

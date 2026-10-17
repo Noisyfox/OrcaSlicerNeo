@@ -161,6 +161,18 @@ describe('SlicerClient bridge contract', () => {
     expect(await client.getScopedConfigEditor({version:1,targets:[{scope:'object',id:structure.objects[0].id}]}))
       .toMatchObject({ok:false,errorCode:'invalid_response'});
   });
+  it('keeps object/part-only shared Process enums in native-shaped scoped snapshots and mutations', async () => {
+    const client=makeClient();await client.init(MOCK_PROFILE_ACTIVATION);await client.addShape('Cube','scoped enum');
+    const structure=await client.getModelStructure();if(!structure.ok)throw Error(structure.error);
+    const targets=[{scope:'object' as const,id:structure.objects[0].id}];
+    const before=await client.getScopedConfigEditor({version:1,targets});if(!before.ok)throw Error(before.error);
+    expect(before.optionMetadata.sparse_infill_pattern.scopes).toEqual(['object','part']);
+    expect(before.editorSelection.fieldBindings.sparse_infill_pattern).toEqual({kind:'shared'});
+    expect(before.targets[0]).toMatchObject({sourceValues:{sparse_infill_pattern:'grid'},effectiveValues:{sparse_infill_pattern:'grid'},sourceScopes:{shared:{sparse_infill_pattern:'preset'}}});
+    expect(await client.mutateNativeScopedConfig({version:1,operation:'set',targets,key:'sparse_infill_pattern',value:'gyroid'})).toMatchObject({ok:true});
+    const after=await client.getScopedConfigEditor({version:1,targets});if(!after.ok)throw Error(after.error);
+    expect(after.targets[0]).toMatchObject({sourceValues:{sparse_infill_pattern:'grid'},effectiveValues:{sparse_infill_pattern:'gyroid'},localKeys:expect.arrayContaining(['sparse_infill_pattern'])});
+  });
   const arrangement = { scope: 'all' as const, distance: 0, rotate: false, alignY: false, multipleMaterials: true, avoidCalibration: true,
     context: { selection: { mode: 'object' as const, objectIds: [], instanceIds: [], partIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} } };
   const arrangementCompletion = { ok: true, cancelled: false, changed: false, placed: 0, unplaced: [], plate_limit_reached: false };

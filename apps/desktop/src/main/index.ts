@@ -343,10 +343,8 @@ function registerIpc(): void {
 
   ipcMain.handle(Ipc.preferencesSave, async (_event, json: unknown): Promise<void> => {
     if (!preferencesPersisted()) return;
-    // Round-trip through stringify so a corrupt partial write can never be
-    // served back to the bridge; atomic-ish via tmp + rename is overkill for
-    // this file's size, a plain write is fine (single writer: the renderer).
-    await writeFile(preferencesPath(), JSON.stringify(json, null, 2), 'utf8');
+    // Publish the complete document so readers never observe a truncated save.
+    await writeFileAtomically(preferencesPath(), Buffer.from(JSON.stringify(json, null, 2), 'utf8'));
   });
 
   ipcMain.handle(Ipc.memorySample, async (event) => {

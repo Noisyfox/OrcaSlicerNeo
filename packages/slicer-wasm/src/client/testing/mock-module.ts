@@ -671,9 +671,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return values === undefined ? [...printEditorOptions[key].values] : parseMockEditorValue(values, printEditorOptions[key]);
   }
   function printConfigEditor() {
-    const shared = Object.fromEntries(Object.entries(metadata).filter(([key,meta])=>meta.scopes?.includes('project') &&
+    // Print owns the baseline even for fields editable only on Objects/Parts.
+    // Scope eligibility controls editing, not inclusion in inherited sources.
+    const shared = Object.fromEntries(Object.entries(metadata).filter(([key,meta])=>meta.scopes?.some(scope=>['project','object','part'].includes(scope)) &&
       !['curr_bed_type','filament_map_mode','filament_map','filament_volume_map','printable_area','gcode_flavor'].includes(key))
-      .map(([key])=>[key,key==='layer_height'?'0.2':key==='print_sequence'?'by layer':key==='wipe_tower_rotation_angle'?'0':'']));
+      .map(([key,meta])=>[key,key==='layer_height'?'0.2':key==='print_sequence'?'by layer':key==='wipe_tower_rotation_angle'?'0':meta.enum_values?.[0]??'']));
     const keys=[...new Set([...Object.keys(shared),...Object.keys(printEditorOptions)])];
     return { ok: true, kind: 'print', canonical_name: selected.print, revision: historyRevision,
       source_values: { ...shared, ...Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, serializePresetEditorValues(option.values)])) },

@@ -375,7 +375,11 @@ test('sidebar panels resize independently and configuration controls keep their 
     await expect(label).toHaveCSS('font-size', '13px');
     await expect(page.getByTestId('config-input-layer_height')).toHaveCSS('font-size', '13px');
     await expect(group).toHaveCSS('font-size', '11px');
-    expect((await label.boundingBox())!.x).toBeCloseTo((await group.boundingBox())!.x + 4, 2);
+    const gutter=page.getByTestId('config-nozzle-gutter-layer_height');
+    await expect(page.getByTestId('config-nozzle-icon-layer_height')).toHaveCount(0);
+    const gutterBox=(await gutter.boundingBox())!;
+    expect(gutterBox.x).toBeCloseTo((await group.boundingBox())!.x + 4, 2);
+    expect((await label.boundingBox())!.x).toBeCloseTo(gutterBox.x + gutterBox.width + 4, 2);
     await expect(page.getByTestId('config-input-layer_height').locator('..')).toHaveCSS('background-color', 'rgb(27, 27, 29)');
     await page.getByTestId('config-input-layer_height').fill('0.3');
     await page.getByTestId('config-input-layer_height').press('Enter');
