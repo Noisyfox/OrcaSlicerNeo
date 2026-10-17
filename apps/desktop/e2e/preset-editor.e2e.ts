@@ -43,6 +43,7 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     await expect(sequence).toBeEnabled();
     const sequenceBefore=await sequence.locator('[data-slot="select-value"]').textContent();
     await sequence.click();
+    await expect(page.getByRole('option')).toHaveCount(2);
     const sequenceChoices=await page.getByRole('option').allTextContents();
     const sequenceAfter=sequenceChoices.find(label=>label.trim().toLowerCase()!==sequenceBefore?.trim().toLowerCase())!;
     await page.getByRole('option',{name:sequenceAfter,exact:true}).click();
@@ -138,6 +139,23 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
       return choice.left>=view.left-1 && choice.right<=view.right+1;
     });
     await expect.poll(selectedVisible).toBe(true);
+    const beforeWheel=await page.evaluate(()=>(window as any).__orcaScopedConfigurationGate.snapshot().status);
+    const requestsBeforeWheel=(await readSliceReceipts(page) as {direction:string;op:string}[]).filter(receipt=>receipt.direction==='request').length;
+    const verticalPositions=()=>scroll.evaluate(element=>{
+      const tops:number[]=[];for(let owner=element.parentElement;owner;owner=owner.parentElement)tops.push(owner.scrollTop);return tops;
+    });
+    const beforeVertical=await verticalPositions();
+    await scroll.evaluate(element=>{element.scrollLeft=0;});await scroll.hover();
+    await page.mouse.wheel(0,10000);
+    await expect.poll(()=>scroll.evaluate(element=>element.scrollLeft)).toBeGreaterThan(0);
+    await expect.poll(()=>scroll.evaluate(element=>Math.abs(element.scrollLeft-(element.scrollWidth-element.clientWidth)))).toBeLessThan(1);
+    const wheelEnd=await scroll.evaluate(element=>element.scrollLeft);
+    await page.mouse.wheel(0,-35);
+    await expect.poll(()=>scroll.evaluate(element=>element.scrollLeft)).toBeLessThan(wheelEnd);
+    expect(await verticalPositions()).toEqual(beforeVertical);
+    await expect(hfChoice).toHaveAttribute('aria-pressed','true');
+    expect(await page.evaluate(()=>(window as any).__orcaScopedConfigurationGate.snapshot().status)).toEqual(beforeWheel);
+    expect((await readSliceReceipts(page) as {direction:string;op:string}[]).filter(receipt=>receipt.direction==='request')).toHaveLength(requestsBeforeWheel);
     await sfChoice.click();await hfChoice.click();await expect.poll(selectedVisible).toBe(true);
     await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/print-extruder-strip-narrow.png')});
     for(let step=0;step<Math.ceil((originalWidth-220)/16);step++)await resizer.press('ArrowRight');

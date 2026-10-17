@@ -38,7 +38,7 @@ export function PrintEditorSelection({ metadata, choiceId, onSelect, disabled, d
 
   return <div className="flex w-full min-w-0 items-center gap-1 rounded-sm bg-control-background p-1" data-testid="print-editor-selection">
     <NozzleIcon className="size-4 shrink-0 text-muted-foreground" />
-    <div ref={viewport} className="relative min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:thin]" data-testid="print-editor-selection-scroll">
+    <div ref={viewport} data-horizontal-scroll="" className="relative min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:thin]" data-testid="print-editor-selection-scroll">
       <ToggleGroup aria-label="Print nozzle" variant="nozzle" size="nozzle" spacing={1} className="min-w-full"
         value={choiceId ? [choiceId] : []} disabled={disabled} onValueChange={values => { if (values[0]) onSelect(values[0]); }}
         onFocusCapture={event => reveal((event.target as HTMLElement).closest<HTMLElement>('[data-slot="toggle-group-item"]'))}>

@@ -201,7 +201,8 @@ Project Print uses a compact, full-width horizontal nozzle strip. Each choice
 shows its one-based physical nozzle number above the effective project diameter
 and native flow label (SF, HF, XHF, or another supported flow). Hybrid entries
 for the same physical nozzle remain separate SF/HF choices. The strip uses the
-primary selected colour, scrolls horizontally when needed, supports keyboard
+primary selected colour, scrolls horizontally with ordinary wheel input under the
+[global horizontal-list rule](Application%20Shell.md#overflowing-tab-bars), supports keyboard
 focus and activation, and keeps the selected choice visible after selection or
 resize. Its leading nozzle glyph has no action; cross-extruder sync/copy remains
 deferred. Printer and Filament selectors retain their existing presentation.
