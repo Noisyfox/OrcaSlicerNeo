@@ -996,6 +996,7 @@ json select_printer_with_remembered_rack_json(const json& request)
         SlicingPipeline::invalidate_preview_source();
 
         filament_snapshot["revisions"]["session"] = bridge.history_revision;
+        filament_snapshot["revisions"]["project"] = bridge.history_revision;
         const auto native_scoped_config = ScopedConfig::native_scoped_config_full_transport(bridge.history_revision);
         const auto history_status = HistoryMetadata::history_status_json(bridge);
         const json receipt{{"kind", "select-printer-with-remembered-rack"},
@@ -1018,6 +1019,117 @@ json select_printer_with_remembered_rack_json(const json& request)
     } catch (...) {
         rollback();
         return transition_error("native_validation_failure", "unknown Printer transition failure");
+    }
+}
+
+json set_project_flow_json(const json& request)
+{
+    auto& bridge = state();
+    auto& bundle = bridge.presets;
+    if (!request.is_object() || !request.contains("index") || !request["index"].is_number_unsigned() ||
+        !request.contains("flow") || !request["flow"].is_number_integer() ||
+        !request.contains("expected_revision") || !request["expected_revision"].is_number_unsigned() ||
+        !request.contains("history_context"))
+        return transition_error("invalid_request", "Project flow index, enum value, revision and history context are required");
+    const auto editing_context = HistoryMetadata::parse_history_context(request["history_context"].dump().c_str());
+    if (request["expected_revision"].get<std::uint64_t>() != bridge.history_revision)
+        return transition_error("stale_revision", "Project flow revision is stale");
+    if (bridge.active_history_transaction || bridge.history_disabled)
+        return transition_error("history_unavailable", "Project flow requires an independent history transaction");
+    const auto index = request["index"].get<std::uint64_t>();
+    const auto printer = PresetDrafts::effective_printer_config();
+    const auto choices = sidebar_flow_choices_json(printer);
+    if (index >= choices.size() || std::none_of(choices[index]["choices"].begin(), choices[index]["choices"].end(),
+            [&](const json& choice) { return choice["value"] == request["flow"]; }))
+        return transition_error("invalid_request", "Project flow is unavailable for this physical extruder");
+    const int flow = request["flow"].get<int>();
+    const int concrete = flow == nvtHybrid ? nvtStandard : flow;
+    const auto before_filament = Filament::Session::filament_session_snapshot_json();
+    if (!before_filament.value("ok", false)) return before_filament;
+    const auto global_map = before_filament.at("mappings").at("filament").get<std::vector<int>>();
+    const auto global_volumes = before_filament.at("mappings").at("volume").get<std::vector<int>>();
+    auto staged_project = bundle.project_config;
+    auto staged_plates = bridge.plate_session_plates;
+    staged_project.option<ConfigOptionEnumsGeneric>("nozzle_volume_type")->values[index] = flow;
+    // Each local routing vector independently inherits the project vector when
+    // absent/empty (PartPlate::get_real_filament_*_maps). Materialize local
+    // volume ownership only when a local routing override requires it.
+    const auto update_map = [&](DynamicPrintConfig& config, const bool project) {
+        const auto* local_map = config.opt<ConfigOptionInts>("filament_map");
+        const auto* local_volumes = config.opt<ConfigOptionInts>("filament_volume_map");
+        const bool has_map = local_map && !local_map->empty();
+        const bool has_volumes = local_volumes && !local_volumes->empty();
+        if (!project && !has_map && !has_volumes) return;
+        auto map = project || !has_map ? global_map : local_map->values;
+        auto volumes = project || !has_volumes ? global_volumes : local_volumes->values;
+        if (map.size() > global_map.size() || volumes.size() > global_map.size())
+            throw std::runtime_error("per-plate filament routing exceeds material slot count");
+        map.resize(global_map.size(), 1);
+        volumes.resize(global_map.size(), nvtStandard);
+        for (size_t slot = 0; slot < map.size(); ++slot)
+            if (map[slot] == int(index + 1)) volumes[slot] = concrete;
+        config.set_key_value("filament_volume_map", new ConfigOptionInts(std::move(volumes)));
+    };
+    update_map(staged_project, true);
+    for (auto& plate : staged_plates) {
+        update_map(plate.settings, false);
+        plate.settings_metadata = Filament::State::config_metadata_json(plate.settings);
+    }
+
+    Filament::Commands::validate_filament_candidate_components(bundle.filament_presets, staged_project,
+        printer, int(choices.size()), printer.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor(),
+        bridge.model, staged_plates, ScopedConfig::native_scoped_config_snapshot());
+    const auto revision_before = bridge.history_revision;
+    const auto before_project = bundle.project_config;
+    const auto before_plates = bridge.plate_session_plates;
+    const auto before_revisions = bridge.plate_input_revisions;
+    const auto before_lifecycle = bridge.plate_runtime_registry.capture_lifecycle();
+    const auto before_pending = bridge.pending_membership_instance_ids;
+    const auto before_live_context = bridge.history_live_context;
+    const auto before_context = HistoryMetadata::canonical_history_context(bridge, editing_context,
+        PlateSession::plate_session_snapshot_json(), Filament::State::history_state_json(bundle));
+    if (!HistoryMetadata::begin_timestamped_operation(bridge, "Set Project Flow", before_context))
+        return transition_error("history_capture_failed", "could not capture project flow predecessor");
+    bool committed = false;
+    try {
+        bundle.project_config = std::move(staged_project);
+        bridge.plate_session_plates = std::move(staged_plates);
+        Filament::Commands::auto_recalculate_flow_flush(bundle, index);
+        const auto affected = PlateSession::all_plate_ids();
+        auto plates = PlateSession::configuration_mutation_snapshot(affected, {"project-flow"});
+        auto profile = preset_snapshot_json();
+        auto filament = Filament::Session::filament_session_snapshot_json();
+        if (!filament.value("ok", false)) throw std::runtime_error(filament.value("error", "invalid flow filament session"));
+        auto scoped = ScopedConfig::native_scoped_config_full_transport(revision_before + 1);
+        auto after_context = HistoryMetadata::canonical_history_context(bridge, editing_context,
+            plates, Filament::State::history_state_json(bundle));
+        // Test the last fallible publication boundary before the single commit.
+        if (request.value("inject_failure_stage", "") == "before-publication")
+            throw std::runtime_error("injected project flow publication failure");
+        if (!HistoryMetadata::commit_timestamped_operation(bridge, after_context))
+            throw std::runtime_error("history rejected project flow change");
+        committed = true;
+        SlicingPipeline::invalidate_preview_source();
+        filament["revisions"]["session"] = bridge.history_revision;
+        filament["revisions"]["project"] = bridge.history_revision;
+        const auto history = HistoryMetadata::history_status_json(bridge);
+        return {{"ok", true}, {"profile_snapshot", std::move(profile)}, {"filament_session", std::move(filament)},
+            {"plate_session", std::move(plates)}, {"native_scoped_config", std::move(scoped)}, {"history_status", history},
+            {"mutation", {{"kind", "set-project-flow"}, {"history_entry_delta", 1}, {"revision_before", revision_before},
+                {"revision_after", bridge.history_revision}, {"dirty", history.value("dirty", false)},
+                {"all_plate_results_invalidated", true}, {"affected_plate_ids", affected}}}};
+    } catch (...) {
+        if (!committed) {
+            HistoryMetadata::abort_timestamped_operation(bridge);
+            bundle.project_config = before_project;
+            bridge.plate_session_plates = before_plates;
+            bridge.plate_input_revisions = before_revisions;
+            bridge.plate_runtime_registry.restore_lifecycle(before_lifecycle);
+            bridge.history_live_context = before_live_context;
+            bridge.pending_membership_instance_ids = before_pending;
+            PrimeTower::invalidate_projection_cache();
+        }
+        throw;
     }
 }
 
@@ -1461,6 +1573,15 @@ const char* apply_activation()
 } // namespace Slic3r::Neo::Bridge::Profiles
 
 extern "C" {
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_project_flow(const char* request)
+{
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    try { return duplicate_json(set_project_flow_json(json::parse(request ? request : "")).dump()); }
+    catch (const std::exception& error) {
+        return duplicate_json(json{{"ok", false}, {"error", error.what()}, {"error_code", "native_validation_failure"}}.dump());
+    }
+}
 
 EMSCRIPTEN_KEEPALIVE const char* orc_set_toolhead_diameter(const char* request)
 {

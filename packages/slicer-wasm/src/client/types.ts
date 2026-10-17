@@ -1443,7 +1443,7 @@ export interface RememberedFilamentRackPreference {
 }
 
 export interface PrinterTransitionMutationReceipt {
-  readonly kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter';
+  readonly kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow';
   readonly historyEntryDelta: 1;
   readonly revisionBefore: number;
   readonly revisionAfter: number;
@@ -1452,7 +1452,7 @@ export interface PrinterTransitionMutationReceipt {
   readonly affectedPlateIds: readonly string[];
 }
 
-/** One committed native Printer + remembered-rack transition. */
+/** One committed native Printer configuration or project-flow transition. */
 export interface PrinterTransitionSuccess {
   readonly ok: true;
   readonly profileSnapshot: ProfileSnapshot;
@@ -1734,6 +1734,8 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   /** Match the complete ordered nozzle vector, or edit only this toolhead's
    * Printer draft. Commits exactly one history entry with an atomic receipt. */
   setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
+  /** Native Sidebar flow choice, independent of Printer editor browsing. */
+  setProjectFlow(index: number, flow: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
   arrange(request: ArrangementRequest, onProgress?: (percent: number, text: string) => void): Promise<ArrangementResult>;
   cancelArrangement(): Promise<{ ok: true } | { ok: false; error: string }>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;

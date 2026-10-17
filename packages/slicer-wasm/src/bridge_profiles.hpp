@@ -40,6 +40,7 @@ BedType supported_default_bed_type(const BedTypeCapabilities& capabilities);
 std::set<std::string> normalize_bed_types(bool reset_global);
 json select_printer_with_remembered_rack_json(const json& request);
 json set_toolhead_diameter_json(const json& request);
+json set_project_flow_json(const json& request);
 const json& option_metadata_json();
 const char* init_profiles(const json& activation);
 

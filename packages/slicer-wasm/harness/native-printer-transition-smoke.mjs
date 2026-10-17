@@ -392,3 +392,122 @@ const importedRedo = callJson('orc_history_redo');
 assert.equal(importedRedo.ok, true, JSON.stringify(importedRedo));
 assert.deepEqual(exportedReferences(), shortenedRefs);
 console.log('shorter rack normalizes imported painting/tool events/plate maps with complete Undo/Redo');
+
+// Manual Sidebar flow is a narrow project command. It keeps Printer drafts,
+// canonical selection and every unrelated flushing plane intact.
+const flowEntries = readZipEntries(buildIndependentReader3mf());
+for (const entry of flowEntries) {
+  if (entry.name === 'Metadata/project_settings.config') {
+    const config = JSON.parse(decoder.decode(entry.content));
+    Object.assign(config, { printer_settings_id: 'Bambu Lab H2D 0.4 nozzle',
+      nozzle_volume_type: ['Standard', 'Standard'], filament_map: ['1', '2'],
+      filament_volume_map: ['0', '0'], filament_nozzle_map: ['0', '0'] });
+    entry.content = encoder.encode(JSON.stringify(config));
+  }
+  if (entry.name === 'Metadata/model_settings.config') {
+    entry.content = encoder.encode(decoder.decode(entry.content)
+      .replace('filament_maps" value="1 1"', 'filament_maps" value="1 2"')
+      .replace('</plate><assemble>', '</plate><plate><metadata key="plater_id" value="2"/>' +
+        '<metadata key="plater_name" value="Empty flow plate"/><metadata key="filament_maps" value="2 1"/>' +
+        '<metadata key="filament_volume_maps" value="1 1"/></plate><assemble>'));
+  }
+}
+const flowBytes = writeStoredZip(flowEntries);
+const flowPointer = Number(Module._malloc(flowBytes.length));
+Module.HEAPU8.set(flowBytes, flowPointer);
+try {
+  const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+    [flowPointer, flowBytes.length, 0, 'dual-head-flow.3mf']);
+  assert.equal(loaded.ok, true, JSON.stringify(loaded));
+} finally { Module._free(flowPointer); }
+const flowPrinter = 'Bambu Lab H2D 0.4 nozzle';
+const flowSeed = transition(flowPrinter, [solidSlot(seed.preset, '#FF0000'), solidSlot(seed.preset, '#00FF00')]);
+assert.equal(flowSeed.ok, true, JSON.stringify(flowSeed));
+setDraft('printer', flowPrinter, 'extruder_max_nozzle_count', '2,2');
+const plateRead = () => callJson('orc_get_plate_session_snapshot');
+assert.equal(plateRead().plates.length, 2, 'flow changes include a separate empty Plate');
+assert.deepEqual(plateRead().plates.map(plate => plate.settings.filament_map), ['1,2', '2,1']);
+const flowCommand = (index, flow, extra = {}) => request('orc_set_project_flow', { history_context: editingContext,
+  index, flow, expected_revision: callJson('orc_history_status').revision, ...extra });
+const flushRead = () => request('orc_get_flushing_volumes', { version: 1, revision: session().revisions.session });
+const policy = value => assert.equal(callJson('orc_set_auto_flush_policy', ['string'], [value]).ok, true);
+const flowState = () => ({ profile: presets().project_config,
+  printer: presets().printer, print: presets().print, modified: presets().modified_presets,
+  mappings: session().mappings, flushing: session().flushing,
+  plates: plateRead().plates.map(plate => ({ id: plate.plate_id, settings: plate.settings, origin: plate.origin })),
+  draft: draft('printer', flowPrinter).effective_values });
+for (const flushPolicy of ['all', 'color change', 'disabled']) {
+  policy(flushPolicy);
+  const resetFlow = flowCommand(1, 0);
+  assert.equal(resetFlow.ok, true, JSON.stringify(resetFlow));
+  const editor = flushRead();
+  assert.equal(editor.ok, true, JSON.stringify(editor));
+  assert.equal(editor.planes, 2);
+  const planeSize = editor.dimension ** 2;
+  const custom = editor.matrix.map((_, index) => Math.floor(index / editor.dimension) % editor.dimension === index % editor.dimension ? 0 : 900 + index);
+  const saved = request('orc_set_flushing_volumes', { version: 1, revision: session().revisions.session,
+    matrix: custom, multipliers: [0.75, 1.25] });
+  assert.equal(saved.ok, true, JSON.stringify(saved));
+  const beforeFlow = flowState();
+  const beforeHistory = callJson('orc_history_status');
+  const changed = flowCommand(1, 1);
+  assert.equal(changed.ok, true, JSON.stringify(changed));
+  assert.equal(changed.mutation.kind, 'set-project-flow');
+  assert.equal(changed.mutation.history_entry_delta, 1);
+  assert.equal(changed.mutation.revision_before, beforeHistory.revision);
+  assert.equal(changed.mutation.revision_after, beforeHistory.revision + 1);
+  assert.equal(changed.history_status.dirty, true);
+  assert.equal(changed.native_scoped_config.kind, 'full');
+  assert.equal(changed.native_scoped_config.revision, changed.history_status.revision);
+  assert.deepEqual(changed.mutation.affected_plate_ids, plateRead().plates.map(plate => plate.plate_id).sort());
+  assert.deepEqual(changed.plate_session.affected_plate_ids, changed.mutation.affected_plate_ids);
+  assert.deepEqual(changed.profile_snapshot.printer, beforeFlow.printer, 'flow command keeps canonical Printer');
+  assert.equal(changed.profile_snapshot.project_config.nozzle_volume_type, 'Standard,High Flow');
+  assert.deepEqual(changed.filament_session.mappings.volume, [0, 1]);
+  assert.deepEqual(plateRead().plates.map(plate => plate.settings.filament_volume_map), ['0,1', '1,1'], 'all Plates use their own head routing');
+  const afterFlush = flushRead();
+  assert.deepEqual(afterFlush.matrix.slice(0, planeSize), custom.slice(0, planeSize), 'unaffected custom flushing plane survives');
+  assert.deepEqual(afterFlush.multipliers, [0.75, 1.25], 'flow does not normalize flushing multipliers');
+  if (flushPolicy === 'all') {
+    assert.deepEqual(afterFlush.matrix.slice(planeSize), afterFlush.defaults.slice(planeSize));
+    assert.notDeepEqual(afterFlush.matrix.slice(planeSize), custom.slice(planeSize));
+  } else assert.deepEqual(afterFlush.matrix, custom, `${flushPolicy} does not recalculate for flow`);
+  const afterFlow = flowState();
+  assert.deepEqual(afterFlow.draft, beforeFlow.draft, 'flow selection does not edit or browse Printer draft');
+  assert.equal(callJson('orc_history_undo').ok, true);
+  assert.deepEqual(flowState(), beforeFlow, 'one Undo restores flow, every Plate mapping and custom flushing together');
+  assert.equal(callJson('orc_history_redo').ok, true);
+  assert.deepEqual(flowState(), afterFlow, 'one Redo restores the complete accepted flow state');
+}
+const hybrid = flowCommand(1, 2);
+assert.equal(hybrid.ok, true, JSON.stringify(hybrid));
+assert.equal(hybrid.profile_snapshot.project_config.nozzle_volume_type, 'Standard,Hybrid');
+assert.deepEqual(hybrid.filament_session.mappings.volume, [0, 0]);
+assert.deepEqual(plateRead().plates.map(plate => plate.settings.filament_volume_map), ['0,0', '0,1'], 'Hybrid uses concrete Standard on every Plate');
+const headZero = flowCommand(0, 1);
+assert.equal(headZero.ok, true, JSON.stringify(headZero));
+assert.equal(headZero.profile_snapshot.project_config.nozzle_volume_type, 'High Flow,Hybrid', 'physical head zero leaves the other actual flow intact');
+assert.deepEqual(plateRead().plates.map(plate => plate.settings.filament_volume_map), ['1,0', '0,1']);
+const e3d = flowCommand(0, 5);
+assert.equal(e3d.ok, true, JSON.stringify(e3d));
+assert.equal(e3d.profile_snapshot.project_config.nozzle_volume_type, 'E3D High Flow,Hybrid', 'E3D uses native enum 5 rather than combo position 4');
+assert.deepEqual(e3d.filament_session.mappings.volume, [5, 0]);
+assert.deepEqual(plateRead().plates.map(plate => plate.settings.filament_volume_map), ['5,0', '0,5']);
+const sameChoiceBefore = flowState();
+const sameChoiceRevision = callJson('orc_history_status').revision;
+const sameChoice = flowCommand(0, 5);
+assert.equal(sameChoice.ok, true, JSON.stringify(sameChoice));
+assert.equal(sameChoice.mutation.history_entry_delta, 1, 'an explicit repeated selection keeps the existing manual-command receipt contract');
+assert.equal(sameChoice.history_status.revision, sameChoiceRevision + 1);
+assert.deepEqual(flowState(), sameChoiceBefore, 'reselecting the actual flow keeps semantic values unchanged');
+policy('all'); // The late injected failure must also roll back recalculated flushing.
+for (const invalid of [{ index: -1 }, { index: 2 }, { flow: 4 }, { flow: 0.5 },
+  { expected_revision: callJson('orc_history_status').revision - 1 }, { inject_failure_stage: 'before-publication' }]) {
+  const before = { state: flowState(), plates: plateRead(), history: callJson('orc_history_status') };
+  const rejected = flowCommand(1, 1, invalid);
+  assert.equal(rejected.ok, false, JSON.stringify(rejected));
+  assert.deepEqual(flowState(), before.state, 'rejection restores every flow/mapping/flush value');
+  assert.deepEqual(plateRead(), before.plates, 'rejection restores plate input revisions and presentation lifecycle');
+  assert.deepEqual(callJson('orc_history_status'), before.history, 'rejection leaves history and dirty status untouched');
+}
+console.log('manual project flow passed: both heads, all Plates, Hybrid mappings, per-head flushing policies, atomic rejection/publication rollback, exact Undo/Redo');

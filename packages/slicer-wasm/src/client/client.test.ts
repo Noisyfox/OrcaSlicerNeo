@@ -1341,6 +1341,63 @@ describe('SlicerClient bridge contract', () => {
     expect(await client.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', null, null, presetContext)).toMatchObject({ ok: true });
   });
 
+  it('sets the actual project flow through one coherent native receipt and rejects stale/unavailable choices', async () => {
+    const c = makeClient();
+    const before = await c.getProfileSnapshot();
+    const history = await c.getHistoryStatus();
+    const result = await c.setProjectFlow(0, 1, history.revision, presetContext);
+    expect(result).toMatchObject({ ok: true,
+      profileSnapshot: { printer: before.ok ? before.printer : undefined,
+        printerPicker: { flows: [{ actual: 1 }] }, project_config: { nozzle_volume_type: 'High Flow' } },
+      mutation: { kind: 'set-project-flow', historyEntryDelta: 1, revisionBefore: history.revision,
+        revisionAfter: history.revision + 1, allPlateResultsInvalidated: true },
+      filamentSession: { mappings: { volume: [1] } },
+      historyStatus: { revision: history.revision + 1, dirty: true, canUndo: true },
+      nativeScopedConfig: { kind: 'full', revision: history.revision + 1 },
+    });
+    expect(await c.setProjectFlow(0, 2, history.revision, presetContext)).toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    expect(await c.setProjectFlow(0, 4, history.revision + 1, presetContext)).toMatchObject({ ok: false, errorCode: 'invalid_request' });
+    expect(await c.getHistoryStatus()).toMatchObject({ revision: history.revision + 1 });
+    await c.undoHistory();
+    expect(await c.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 0 }] } });
+    expect(await c.getFilamentSessionSnapshot()).toMatchObject({ mappings: { volume: [0] } });
+    await c.redoHistory();
+    expect(await c.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
+    const hybrid = await c.setProjectFlow(0, 2, (await c.getHistoryStatus()).revision, presetContext);
+    expect(hybrid).toMatchObject({ ok: true, profileSnapshot: { printerPicker: { flows: [{ actual: 2 }] } },
+      filamentSession: { mappings: { volume: [0] } } });
+  });
+
+  it('rejects project flow inside an existing history transaction', async () => {
+    const client = makeClient();
+    const before = await client.getProfileSnapshot();
+    const transaction = await client.beginHistory('Flow admission', 'project', presetContext);
+    expect(await client.setProjectFlow(0, 1, (await client.getHistoryStatus()).revision, presetContext))
+      .toMatchObject({ ok: false, errorCode: 'history_unavailable' });
+    expect(await client.getProfileSnapshot()).toEqual(before);
+    await client.commitHistory(transaction, presetContext);
+  });
+
+  it.each(['missing-filament', 'stale-project', 'wrong-kind', 'plate-mismatch'])(
+    'rejects an incoherent native project-flow receipt: %s', async defect => {
+      const module = createMockModule(); const original = module.ccall;
+      module.ccall = (name, ret, types, args) => {
+        const pointer = original(name, ret, types, args);
+        if (name !== 'orc_set_project_flow') return pointer;
+        const raw = JSON.parse(module.UTF8ToString(Number(pointer)));
+        module._free(Number(pointer));
+        if (defect === 'missing-filament') delete raw.filament_session;
+        if (defect === 'stale-project') raw.filament_session.revisions.project -= 1;
+        if (defect === 'wrong-kind') raw.mutation.kind = 'set-toolhead-diameter';
+        if (defect === 'plate-mismatch') raw.mutation.affected_plate_ids = [];
+        const bytes = new TextEncoder().encode(JSON.stringify(raw) + '\0');
+        const result = module._malloc(bytes.length); module.HEAPU8.set(bytes, result); return result;
+      };
+      const client = createClient(async () => module);
+      expect(await client.setProjectFlow(0, 1, (await client.getHistoryStatus()).revision, presetContext))
+        .toMatchObject({ ok: false, errorCode: 'invalid_response' });
+    });
+
   it('selectPrinterWithRememberedRack returns one complete native commit receipt', async () => {
     const c = makeClient();
     const before = await c.getHistoryStatus();

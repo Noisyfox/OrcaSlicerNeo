@@ -49,13 +49,14 @@ try {
   // Preserve hand-written short lists: SEMM profiles do not normalize physical
   // extruder vectors. These are loaded through the real native profile loader.
   for (const [file, drives, variants, defaults] of [
-    ['beta.json', ['Direct Drive', 'Direct Drive'], ['Direct Drive Standard'], ['Standard']],
+    ['beta.json', ['Direct Drive', 'Direct Drive'], ['Direct Drive Standard', 'Direct Drive Standard'], ['Standard']],
+    ['alpha-0.4+0.6.json', ['Direct Drive', 'Direct Drive'], ['Direct Drive Standard'], ['Standard', 'Standard']],
     ['alpha-0.4HS.json', ['Direct Drive'], ['Direct Drive Standard', 'Direct Drive Standard'], ['Standard', 'Standard']],
     ['beta-0.6.json', ['Direct Drive', 'Bowden'], ['Direct Drive Standard', 'Bowden Standard'], ['Standard', 'Standard']],
   ]) {
     const path = join(source, 'CompatibilityFixture/machine', file);
     const profile = await readJson(path);
-    await writeJson(path, { ...profile, single_extruder_multi_material: '1', nozzle_diameter: ['0.4', '0.4'],
+    await writeJson(path, { ...profile, single_extruder_multi_material: '1', nozzle_diameter: file === 'alpha-0.4+0.6.json' ? profile.nozzle_diameter : ['0.4', '0.4'],
       extruder_type: drives, extruder_variant_list: variants, default_nozzle_volume_type: defaults,
       extruder_max_nozzle_count: file === 'beta.json' ? [] : ['2'] });
   }
@@ -235,8 +236,8 @@ try {
   importFlows(['Standard', 'Standard']);
   current = select('Compatibility Beta 0.6 nozzle');
   assert.deepEqual(flowValues(current.printer_picker), [[0, 2], [0, 2]], 'short max count uses get_at first entry across drives');
-  current = select('Compatibility Beta 0.4 nozzle');
-  assert.deepEqual(flowValues(current.printer_picker), [[0], []], 'short variants hide the missing head');
+  current = select('Compatibility Alpha 0.4+0.6 nozzle');
+  assert.deepEqual(flowValues(current.printer_picker), [[0, 2], []], 'short variants hide the missing head');
   current = select('Compatibility Alpha 0.4HS nozzle');
   assert.deepEqual(flowValues(current.printer_picker), [[0, 2], []], 'short drives hide the missing head');
   importFlows(['Standard']);

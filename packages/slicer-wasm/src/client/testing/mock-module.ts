@@ -420,7 +420,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       ok: true,
       printer_picker: {
         base_printer: current.name,
-        flows: ((editorValuesFor('printer', current.name, 'nozzle_diameter') ?? []) as number[]).map(() => ({ actual: 0, choices: [{ value: 0, label: 'Standard' }] })),
+        flows: ((editorValuesFor('printer', current.name, 'nozzle_diameter') ?? []) as number[]).map((_, index) => ({
+          actual: ['Standard', 'High Flow', 'Hybrid'].indexOf((nativeScopedConfig.project.nozzle_volume_type ?? 'Standard').split(',')[index] ?? 'Standard'),
+          choices: [{ value: 0, label: 'Standard' }, { value: 1, label: 'High Flow' }, { value: 2, label: 'Hybrid' }],
+        })),
         nozzle_diameters: [...new Set((editorValuesFor('printer', current.name, 'nozzle_diameter') ?? []) as number[])].sort((a, b) => a - b),
         items: pickerItems,
         selected_id: pickerItems.length ? JSON.stringify(['model', current.vendor_id, current.model]) : '',
@@ -541,6 +544,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let primeTowerProjectionState: any;
 
   type MockHistoryState = {
+    filamentSessionState?: unknown;
     modelLoaded: boolean;
     objectTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
     objectVolumeTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
@@ -1035,7 +1039,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   function captureHistoryState(): MockHistoryState {
     return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
       instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions,
-      nativeScopedConfig, selectedProfiles: selected, presetDraftRegistry, presetDraftRevision, printVectorOverrides,
+      nativeScopedConfig, selectedProfiles: selected, presetDraftRegistry, presetDraftRevision, printVectorOverrides, filamentSessionState,
       primeTowerProjection: primeTowerProjectionState });
   }
   function restoreHistoryState(snapshot: MockHistoryState): void {
@@ -1051,6 +1055,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateOrigins = clone(snapshot.plateOrigins);
     plateInputRevisions = clone(snapshot.plateInputRevisions);
     nativeScopedConfig = clone(snapshot.nativeScopedConfig ?? emptyNativeScopedConfig());
+    filamentSessionState = snapshot.filamentSessionState === undefined ? undefined : clone(snapshot.filamentSessionState);
     Object.assign(selected, snapshot.selectedProfiles);
     presetDraftRegistry = clone(snapshot.presetDraftRegistry);
     printVectorOverrides = clone(snapshot.printVectorOverrides);
@@ -2765,6 +2770,58 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       return snapshot();
     },
+    orc_set_project_flow(requestJson: string) {
+      const request = JSON.parse(requestJson);
+      const fail = (error_code: string, error: string) => ({ ok: false, error_code, error });
+      try { validateHistoryContext(request.history_context); }
+      catch { return fail('invalid_request', 'Invalid flow history context'); }
+      if (request.expected_revision !== historyRevision) return fail('stale_revision', 'Project flow revision is stale');
+      if (historyTransaction) return fail('history_unavailable', 'Project flow requires an independent history transaction');
+      const picker = (snapshot() as any).printer_picker;
+      if (!Number.isInteger(request.index) || request.index < 0 ||
+          !picker.flows[request.index]?.choices.some((choice: any) => choice.value === request.flow))
+        return fail('invalid_request', 'Unavailable project flow');
+      const before = historyRevision;
+      if (historyEntries.length === 0) {
+        historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(nativePresetDraftHistoryContext()) });
+        historyCursor = 0; savedHistoryCursor = 0;
+      }
+      const flows = picker.flows.map((flow: any) => flow.actual);
+      flows[request.index] = request.flow;
+      nativeScopedConfig.project.nozzle_volume_type = flows.map((value: number) => ['Standard', 'High Flow', 'Hybrid'][value]).join(',');
+      const rack = clone(filamentSessionSnapshot()) as any;
+      const previousVolumes = [...rack.mappings.volume];
+      const concrete = request.flow === 2 ? 0 : request.flow;
+      rack.mappings.volume = previousVolumes.map((value: number, index: number) =>
+        rack.mappings.filament[index] === request.index + 1 ? concrete : value);
+      nativeScopedConfig.project.filament_volume_map = rack.mappings.volume.join(',');
+      for (const local of Object.values(nativeScopedConfig.plates)) {
+        const map = local.filament_map?.split(',').map(Number) ?? rack.mappings.filament;
+        const volumes = local.filament_volume_map?.split(',').map(Number) ?? previousVolumes;
+        local.filament_volume_map = volumes.map((value: number, index: number) =>
+          map[index] === request.index + 1 ? concrete : value).join(',');
+      }
+      if (autoFlushPolicy === 'all') {
+        const n = rack.flushing.matrix_dimension;
+        for (let from = 0; from < n; ++from) for (let to = 0; to < n; ++to)
+          rack.flushing.matrix[request.index * n * n + from * n + to] = from === to ? 0 : 280;
+      }
+      filamentSessionState = rack;
+      historyRevision += 1;
+      rack.revisions.session = historyRevision;
+      rack.revisions.project = historyRevision;
+      const plates = plateMutation('project-flow', [...plateIds], [...plateIds]);
+      historyEntries.splice(historyCursor + 1);
+      historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
+        label: 'Set Project Flow', category: 'project', context: clone(nativePresetDraftHistoryContext()) });
+      historyCursor = historyEntries.length - 1;
+      if (editingSession) editingSession.hasEffectiveCommit = true;
+      const status = historyStatus();
+      return { ok: true, profile_snapshot: snapshot(), filament_session: filamentSessionSnapshot(),
+        plate_session: plates, history_status: status, native_scoped_config: nativeScopedConfigFullTransport(),
+        mutation: { kind: 'set-project-flow', history_entry_delta: 1, revision_before: before, revision_after: historyRevision,
+          dirty: status.dirty, all_plate_results_invalidated: true, affected_plate_ids: plates.affected_plate_ids } };
+    },
     orc_set_toolhead_diameter(requestJson: string) {
       let request: any;
       try { request = JSON.parse(requestJson); }
@@ -3706,6 +3763,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_reset: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_select_printer_with_remembered_rack: { ret: 'number', args: ['string'] },
+    orc_set_project_flow: { ret: 'number', args: ['string'] },
     orc_set_toolhead_diameter: { ret: 'number', args: ['string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_user_preset_info: { ret: 'number', args: ['string', 'string'] },

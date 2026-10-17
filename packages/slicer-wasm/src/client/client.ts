@@ -1521,7 +1521,7 @@ function normalizePresetDraftMutation(raw: unknown, target: PresetDraftMutationR
     plateSession, filamentSession, historyStatus, nativeScopedConfig, profileSnapshot: profile } as Extract<PresetDraftMutationResult, { ok: true }>;
 }
 
-function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter'): PrinterTransitionResult {
+function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow'): PrinterTransitionResult {
   const invalid = (error: string): PrinterTransitionResult => ({
     ok: false, error, errorCode: 'invalid_response',
   });
@@ -1547,6 +1547,8 @@ function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-rem
   const mutation = isRecord(raw.mutation) ? raw.mutation : undefined;
   if (!nativeScopedConfig || nativeScopedConfig.kind !== 'full' ||
       nativeScopedConfig.revision !== historyStatus.revision ||
+      filamentSession.revisions.session !== historyStatus.revision ||
+      filamentSession.revisions.project !== historyStatus.revision ||
       !mutation || mutation.kind !== kind ||
       mutation.history_entry_delta !== 1 || !Number.isSafeInteger(mutation.revision_before) ||
       !Number.isSafeInteger(mutation.revision_after) || mutation.revision_after !== historyStatus.revision ||
@@ -2620,6 +2622,12 @@ export function createClient(
         callJson(m, 'orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify(request)]),
         'select-printer-with-remembered-rack',
       );
+    },
+
+    async setProjectFlow(index: number, flow: number, expectedRevision: number, context: HistoryContext): Promise<PrinterTransitionResult> {
+      const m = await module();
+      return normalizePrinterTransition(callJson(m, 'orc_set_project_flow', ['string'],
+        [JSON.stringify({ index, flow, expected_revision: expectedRevision, history_context: context })]), 'set-project-flow');
     },
 
     async setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: HistoryContext): Promise<PrinterTransitionResult> {
