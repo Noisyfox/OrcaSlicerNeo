@@ -33,6 +33,7 @@ struct ImportedPlateRecord {
     bool invalid_index = false;
     std::string name;
     bool locked = false;
+    std::optional<std::vector<int>> filament_volume_maps;
     json opaque_metadata = json::array();
 };
 

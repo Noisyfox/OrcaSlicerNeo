@@ -1,3 +1,4 @@
+import { commitProjectFlow, configureProjectFlowPreferences } from '@/preferences';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
 import { useRef, useState, type ReactNode } from 'react';
@@ -84,6 +85,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
     setPresetTransitionPending(true);
     try {
       await runProjectMutationOperation(async () => {
+        await configureProjectFlowPreferences(platform.preferences, platform.runtime, false);
         const transition = await platform.runtime.setToolheadDiameter(activeToolhead, Number(value), history.revision,
           historyContextForStructure(sceneInteraction));
         if (!transition.ok) throw new Error(transition.error);
@@ -92,6 +94,37 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
       });
     } catch (error) { setError(`select toolhead diameter: ${String(error)}`); }
     finally { selectionPending.current = false; setPresetTransitionPending(false); }
+  }
+
+  async function handleSelectFlow(index: number, flow: number) {
+    if (selectionPending.current || controlsDisabled || !paintingCommandAllowed()) return;
+    const history = useHistoryNavigationStore.getState().status;
+    if (!history) { setError('Flow configuration requires initialized project history'); return; }
+    const request = { index, flow, expectedRevision: history.revision,
+      context: historyContextForStructure(sceneInteraction) };
+    selectionPending.current = true;
+    setPresetTransitionPending(true);
+    try {
+      await runProjectMutationOperation(async () => {
+        const result = await commitProjectFlow(platform.runtime, platform.preferences, request, publishPrinterTransition);
+        if (!result.ok) throw new Error(result.error);
+      });
+    } catch (error) { setError(`select nozzle flow: ${String(error)}`); }
+    finally { selectionPending.current = false; setPresetTransitionPending(false); }
+  }
+
+  function flowSelect(index: number, testId: string, label: string, single = false) {
+    const flow = printerPicker!.flows[index];
+    if (!flow?.choices.length) return null;
+    return <Select items={flow.choices} value={flow.actual} disabled={controlsDisabled}
+      onValueChange={value => value !== null && void handleSelectFlow(index, value)}>
+      <SelectTrigger variant="sidebar" className={cn('min-w-0 flex-1', single && 'printer-flow-selector')}
+        aria-label={label} data-testid={testId}>
+        <SelectValue>{flow.choices.find(choice => choice.value === flow.actual)?.label ?? '—'}</SelectValue>
+      </SelectTrigger>
+      <SelectContent><SelectGroup>{flow.choices.map(choice =>
+        <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}</SelectGroup></SelectContent>
+    </Select>;
   }
 
   async function handleSelectBed(value: string) {
@@ -112,7 +145,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
       if (status.revision === transition.historyStatus.revision) {
         const configurationMode = useSettingsStore.getState().configurationMode;
         useSettingsStore.getState().hydrateProfileSnapshot(transition.profileSnapshot);
-        if (transition.mutation.kind === 'set-toolhead-diameter')
+        if (transition.mutation.kind === 'set-toolhead-diameter' || transition.mutation.kind === 'set-project-flow')
           useSettingsStore.getState().setConfigurationMode(configurationMode);
         const scoped = useSettingsStore.getState().applyNativeScopedConfigTransport(
           transition.nativeScopedConfig,
@@ -173,6 +206,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             platform.preferences, name,
           );
           const rememberedBed = await loadRememberedBedTypeFromRepository(platform.preferences, name);
+          await configureProjectFlowPreferences(platform.preferences, platform.runtime, false);
           const transition = await platform.runtime.selectPrinterWithRememberedRack(name, rememberedRack, rememberedBed,
             historyContextForStructure(sceneInteraction));
           if (!transition.ok) throw new Error(transition.error ?? 'Printer transition failed');
@@ -270,7 +304,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
           <Button type="button" variant="settings" size="icon-sm"
             aria-label="Sync nozzle" title="Sync nozzle" data-testid="nozzle-sync-placeholder"
             disabled={controlsDisabled}><RefreshCw data-icon="inline-start" /></Button>
-          <div className={cn('flex min-w-0 flex-1 items-center', multiExtruder ? 'gap-1 printer-nozzle-multi-controls' : 'printer-nozzle-single-controls', !multiExtruder && bedVisible && 'printer-nozzle-align-bed')}>
+          <div className={cn('flex min-w-0 flex-1 items-center', multiExtruder ? 'gap-1 printer-nozzle-multi-controls' : 'printer-nozzle-single-controls', !multiExtruder && bedVisible && !!printerPicker.flows[0]?.choices.length && 'printer-nozzle-align-bed')}>
           <Select items={printerPicker.variants.map(item => ({ value: item.value, label: item.value }))}
             value={printerPicker.selectedVariant || null}
             disabled={controlsDisabled || printerPicker.variants.length === 0}
@@ -289,12 +323,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
               <SelectItem key={item.value} value={item.value}>{item.value}</SelectItem>
             )}</SelectGroup></SelectContent>
           </Select>
-          {!multiExtruder && <Select value={nozzleVolumeTypes[0] ?? null} disabled>
-            <SelectTrigger variant="sidebar" className="min-w-0 flex-1 printer-flow-selector" aria-label="Nozzle flow type"
-              data-testid="nozzle-flow-select" title="Flow type selection is not available yet">
-              <SelectValue>{nozzleVolumeTypes[0] ?? '—'}</SelectValue>
-            </SelectTrigger>
-          </Select>}
+          {!multiExtruder && flowSelect(0, 'nozzle-flow-select', 'Nozzle flow type', true)}
           {multiExtruder && <div className="printer-nozzle-extruders" aria-label="Extruder nozzles">
             {nozzleDiameters.map((diameter, index) => {
               // Native ConfigOptionVector::get_at repeats its first value for
@@ -340,12 +369,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
                 <SelectItem key={diameter} value={String(diameter)}>{diameter}</SelectItem>
               )}</SelectGroup></SelectContent>
             </Select>
-            <Select value={nozzleVolumeTypes[activeToolhead] ?? nozzleVolumeTypes[0] ?? null} disabled>
-              <SelectTrigger variant="sidebar" className="min-w-0 flex-1" aria-label="Toolhead flow type"
-                data-testid="toolhead-flow-select" title="Flow type selection is not available yet">
-                <SelectValue>{nozzleVolumeTypes[activeToolhead] ?? nozzleVolumeTypes[0] ?? '—'}</SelectValue>
-              </SelectTrigger>
-            </Select>
+            {flowSelect(activeToolhead, 'toolhead-flow-select', 'Toolhead flow type')}
           </div>
         </div>}
       </div>

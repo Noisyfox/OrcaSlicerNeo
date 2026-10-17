@@ -48,6 +48,7 @@ namespace {
 
 struct ProfileTransitionState {
     std::string printer;
+    std::string base_printer;
     std::string print;
     std::string filament;
     std::vector<std::string> filament_presets;
@@ -63,7 +64,9 @@ struct ProfileTransitionState {
 ProfileTransitionState capture_profile_transition_state()
 {
     const auto& bundle = state().presets;
-    return {bundle.printers.get_selected_preset_name(),
+    const auto& selected = bundle.printers.get_selected_preset();
+    const auto* base = bundle.printers.get_preset_base(selected);
+    return {bundle.printers.get_selected_preset_name(), base ? base->name : selected.name,
             bundle.prints.get_selected_preset_name(),
             bundle.filaments.get_selected_preset_name(),
             bundle.filament_presets,
@@ -565,6 +568,44 @@ std::set<std::string> normalize_bed_types(bool reset_global)
     return removed;
 }
 
+// Read-only Sidebar::update_presets/update_extruder_variant policy.
+json sidebar_flow_choices_json(const DynamicPrintConfig& printer)
+{
+    const auto* nozzles = printer.opt<ConfigOptionFloats>("nozzle_diameter");
+    const auto* variants = printer.opt<ConfigOptionStrings>("extruder_variant_list");
+    const auto* drives = printer.opt<ConfigOptionEnumsGeneric>("extruder_type");
+    const auto* counts = printer.opt<ConfigOptionIntsNullable>("extruder_max_nozzle_count");
+    const auto* actual = state().presets.project_config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
+    const auto* drive_def = print_config_def.get("extruder_type");
+    const auto* flow_def = print_config_def.get("nozzle_volume_type");
+    const std::string variant = printer.opt_string("printer_variant");
+    const std::string model = printer.opt_string("printer_model");
+    json result = json::array();
+    for (size_t index = 0; nozzles && index < nozzles->size(); ++index) {
+        json choices = json::array();
+        const bool has_actual = actual && index < actual->size();
+        if (variants && drives && drive_def && flow_def && has_actual &&
+            index < variants->size() && index < drives->size() &&
+            drives->values[index] >= 0 && size_t(drives->values[index]) < drive_def->enum_labels.size()) {
+            const auto& drive = drive_def->enum_labels[drives->values[index]];
+            // get_at deliberately falls back to entry zero, like Orca. Empty
+            // storage and nullable nil must not accidentally offer Hybrid.
+            const int count = counts && !counts->empty() ? counts->get_at(index) : 1;
+            for (size_t i = 0; i < flow_def->enum_labels.size(); ++i) {
+                const int flow = flow_def->enum_keys_map->at(flow_def->enum_values[i]);
+                if (variants->values[index].find(drive + " " + flow_def->enum_labels[i]) == std::string::npos &&
+                    !(count > 1 && count != ConfigOptionIntsNullable::nil_value() && flow == nvtHybrid)) continue;
+                if (flow == nvtE3DHighFlow && variant != "0.4" && variant != "0.6") continue;
+                if (flow == nvtHighFlow && (variant == "0.2" || model == "Bambu Lab X1E")) continue;
+                choices.push_back({{"value", flow}, {"label", flow_def->enum_labels[i]}});
+            }
+        }
+        result.push_back({{"actual", has_actual ? json(actual->values[index]) : json(nullptr)},
+                          {"choices", std::move(choices)}});
+    }
+    return result;
+}
+
 // Presentation identities are separate from canonical profile names. Restrict
 // Orca's resolver to the admitted vendor/model candidates; its global fallback
 // may otherwise return an invisible profile or a same-name model from a vendor.
@@ -655,7 +696,12 @@ json printer_picker_json(const DynamicPrintConfig& effective)
         const auto* candidate = preset.config.opt<ConfigOptionFloats>("nozzle_diameter");
         if (candidate) diameters.insert(candidate->values.begin(), candidate->values.end());
     }
-    return {{"items", std::move(items)}, {"selected_id", selected_id},
+    const Preset* base = bundle.printers.get_preset_base(selected);
+    const auto printer = PresetDrafts::effective_preset_config(
+        bundle, state().preset_drafts, Preset::TYPE_PRINTER, selected.name);
+    return {{"base_printer", base ? base->name : selected.name},
+            {"flows", sidebar_flow_choices_json(printer)},
+            {"items", std::move(items)}, {"selected_id", selected_id},
             {"variants", std::move(variants)}, {"selected_variant", current_variant},
             {"nozzle_diameters", diameters}};
 }
@@ -746,6 +792,8 @@ std::optional<std::vector<RememberedSlot>> parse_remembered_slots(const json& ra
 }
 
 // Shared mutation primitive. Callers own history publication and full rollback.
+std::string base_printer_name(const Preset& selected);
+
 void apply_printer_transition_state(const ProfileTransitionState& before_profiles,
     const std::optional<std::vector<RememberedSlot>>& remembered_slots,
     const json& remembered_bed, const bool printer_changed)
@@ -846,6 +894,8 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
         }
     }
     validate_profile_transition(before_profiles.project_config, before_profiles.filament_presets.size());
+    repair_project_flows(base_printer_name(bundle.printers.get_selected_preset()) !=
+        before_profiles.base_printer);
 }
 
 json select_printer_with_remembered_rack_json(const json& request)
@@ -953,6 +1003,7 @@ json select_printer_with_remembered_rack_json(const json& request)
         SlicingPipeline::invalidate_preview_source();
 
         filament_snapshot["revisions"]["session"] = bridge.history_revision;
+        filament_snapshot["revisions"]["project"] = bridge.history_revision;
         const auto native_scoped_config = ScopedConfig::native_scoped_config_full_transport(bridge.history_revision);
         const auto history_status = HistoryMetadata::history_status_json(bridge);
         const json receipt{{"kind", "select-printer-with-remembered-rack"},
@@ -975,6 +1026,198 @@ json select_printer_with_remembered_rack_json(const json& request)
     } catch (...) {
         rollback();
         return transition_error("native_validation_failure", "unknown Printer transition failure");
+    }
+}
+
+void apply_project_flow(const size_t index, const int flow)
+{
+    auto& bridge = state();
+    auto& bundle = bridge.presets;
+    const int concrete = flow == nvtHybrid ? nvtStandard : flow;
+    const auto before_filament = Filament::Session::filament_session_snapshot_json();
+    if (!before_filament.value("ok", false)) throw std::runtime_error(before_filament.value("error", "flow mapping unavailable"));
+    const auto global_map = before_filament.at("mappings").at("filament").get<std::vector<int>>();
+    const auto global_volumes = before_filament.at("mappings").at("volume").get<std::vector<int>>();
+
+    bundle.project_config.option<ConfigOptionEnumsGeneric>("nozzle_volume_type")->values[index] = flow;
+    // Each local routing vector independently inherits the project vector when
+    // absent/empty (PartPlate::get_real_filament_*_maps). Materialize local
+    // volume ownership only when a local routing override requires it.
+    const auto update_map = [&](DynamicPrintConfig& config, const bool project) {
+        const auto* local_map = config.opt<ConfigOptionInts>("filament_map");
+        const auto* local_volumes = config.opt<ConfigOptionInts>("filament_volume_map");
+        const bool has_map = local_map && !local_map->empty();
+        const bool has_volumes = local_volumes && !local_volumes->empty();
+        if (!project && !has_map && !has_volumes) return;
+        auto map = project || !has_map ? global_map : local_map->values;
+        auto volumes = project || !has_volumes ? global_volumes : local_volumes->values;
+        if (map.size() > global_map.size() || volumes.size() > global_map.size())
+            throw std::runtime_error("per-plate filament routing exceeds material slot count");
+        map.resize(global_map.size(), 1);
+        volumes.resize(global_map.size(), nvtStandard);
+        for (size_t slot = 0; slot < map.size(); ++slot)
+            if (map[slot] == int(index + 1)) volumes[slot] = concrete;
+        config.set_key_value("filament_volume_map", new ConfigOptionInts(std::move(volumes)));
+    };
+    update_map(bundle.project_config, true);
+    for (auto& plate : bridge.plate_session_plates) {
+        update_map(plate.settings, false);
+        plate.settings_metadata = Filament::State::config_metadata_json(plate.settings);
+    }
+
+    Filament::Commands::auto_recalculate_flow_flush(bundle, index);
+}
+
+std::string base_printer_name(const Preset& selected)
+{
+    const auto* base = state().presets.printers.get_preset_base(selected);
+    return base ? base->name : selected.name;
+}
+
+// This is called only inside a committing transition or fresh-project load.
+// Snapshot reads and timestamped history restoration never call it.
+bool repair_project_flows(const bool restore_memory)
+{
+    auto& bundle = state().presets;
+    const auto printer = PresetDrafts::effective_printer_config();
+    const auto* defaults = printer.opt<ConfigOptionEnumsGeneric>("default_nozzle_volume_type");
+    auto* actual = bundle.project_config.option<ConfigOptionEnumsGeneric>("nozzle_volume_type", true);
+    const auto before = actual->values;
+    if (restore_memory) {
+        const auto* nozzles = printer.opt<ConfigOptionFloats>("nozzle_diameter");
+        const auto memory = json::parse(state().profile_config.get("sidebar_flow_memory"), nullptr, false);
+        const auto base = base_printer_name(bundle.printers.get_selected_preset());
+        const json remembered = memory.is_object() && memory.contains(base) ? memory.at(base) : json::array();
+        actual->values.clear();
+        for (size_t i = 0; nozzles && i < nozzles->size(); ++i)
+            actual->values.push_back(i < remembered.size() ? remembered[i].get<int>() :
+                defaults && !defaults->empty() ? defaults->get_at(i) : int(nvtStandard));
+    }
+    const auto projection = sidebar_flow_choices_json(printer);
+    bool changed = false;
+    for (size_t index = 0; index < projection.size(); ++index) {
+        const auto& choices = projection[index]["choices"];
+        if (choices.empty()) {
+            if (index < before.size() && index < actual->values.size()) actual->values[index] = before[index];
+            continue;
+        }
+        const auto available = [&](int value) { return std::any_of(choices.begin(), choices.end(),
+            [&](const json& choice) { return choice["value"] == value; }); };
+        int flow = actual->values[index];
+        if (!available(flow)) {
+            const int fallback = defaults && !defaults->empty() ? defaults->get_at(index) : int(nvtStandard);
+            flow = available(fallback) ? fallback : choices.front()["value"].get<int>();
+        }
+        if (index >= before.size() || before[index] != flow || actual->values[index] != flow) {
+            apply_project_flow(index, flow);
+            changed = true;
+        }
+    }
+    return changed || before != actual->values;
+}
+
+json configure_project_flow_memory(const json& request)
+{
+    if (!request.is_object() || !request.contains("memory") || !request["memory"].is_object() ||
+        !request.contains("initialize_new_project") || !request["initialize_new_project"].is_boolean())
+        throw std::runtime_error("flow memory and fresh-project intent are required");
+    for (const auto& [base, flows] : request["memory"].items()) {
+        if (base.empty() || base.size() > 4096 || !flows.is_array() || flows.empty() || flows.size() > 64)
+            throw std::runtime_error("invalid base Printer flow memory");
+        for (const auto& flow : flows)
+            if (!flow.is_number_integer() || !get_valid_nozzle_volume_type().count(NozzleVolumeType(flow.get<int>())))
+                throw std::runtime_error("flow memory requires concrete native enum values");
+    }
+    if (request["initialize_new_project"].get<bool>() && !state().model.objects.empty())
+        throw std::runtime_error("only an empty new project may seed flow preferences");
+    const auto previous_memory = state().profile_config.get("sidebar_flow_memory");
+    const auto previous_project = state().presets.project_config;
+    const auto previous_plates = state().plate_session_plates;
+    try {
+        state().profile_config.set("sidebar_flow_memory", request["memory"].dump());
+        if (request["initialize_new_project"].get<bool>()) repair_project_flows(true);
+        return {{"ok", true}};
+    } catch (...) {
+        state().profile_config.set("sidebar_flow_memory", previous_memory);
+        state().presets.project_config = previous_project;
+        state().plate_session_plates = previous_plates;
+        throw;
+    }
+}
+
+json set_project_flow_json(const json& request)
+{
+    auto& bridge = state();
+    auto& bundle = bridge.presets;
+    if (!request.is_object() || !request.contains("index") || !request["index"].is_number_unsigned() ||
+        !request.contains("flow") || !request["flow"].is_number_integer() ||
+        !request.contains("expected_revision") || !request["expected_revision"].is_number_unsigned() ||
+        !request.contains("history_context"))
+        return transition_error("invalid_request", "Project flow index, enum value, revision and history context are required");
+    const auto editing_context = HistoryMetadata::parse_history_context(request["history_context"].dump().c_str());
+    if (request["expected_revision"].get<std::uint64_t>() != bridge.history_revision)
+        return transition_error("stale_revision", "Project flow revision is stale");
+    if (bridge.active_history_transaction || bridge.history_disabled)
+        return transition_error("history_unavailable", "Project flow requires an independent history transaction");
+    const auto index = request["index"].get<std::uint64_t>();
+    const auto printer = PresetDrafts::effective_printer_config();
+    const auto choices = sidebar_flow_choices_json(printer);
+    if (index >= choices.size() || std::none_of(choices[index]["choices"].begin(), choices[index]["choices"].end(),
+            [&](const json& choice) { return choice["value"] == request["flow"]; }))
+        return transition_error("invalid_request", "Project flow is unavailable for this physical extruder");
+    const int flow = request["flow"].get<int>();
+    const auto revision_before = bridge.history_revision;
+    const auto before_project = bundle.project_config;
+    const auto before_plates = bridge.plate_session_plates;
+    const auto before_revisions = bridge.plate_input_revisions;
+    const auto before_lifecycle = bridge.plate_runtime_registry.capture_lifecycle();
+    const auto before_pending = bridge.pending_membership_instance_ids;
+    const auto before_live_context = bridge.history_live_context;
+    const auto before_context = HistoryMetadata::canonical_history_context(bridge, editing_context,
+        PlateSession::plate_session_snapshot_json(), Filament::State::history_state_json(bundle));
+    if (!HistoryMetadata::begin_timestamped_operation(bridge, "Set Project Flow", before_context))
+        return transition_error("history_capture_failed", "could not capture project flow predecessor");
+    bool committed = false;
+    try {
+        apply_project_flow(index, flow);
+        Filament::Commands::validate_filament_candidate_components(bundle.filament_presets, bundle.project_config,
+            printer, int(choices.size()), printer.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor(),
+            bridge.model, bridge.plate_session_plates, ScopedConfig::native_scoped_config_snapshot());
+        const auto affected = PlateSession::all_plate_ids();
+        auto plates = PlateSession::configuration_mutation_snapshot(affected, {"project-flow"});
+        auto profile = preset_snapshot_json();
+        auto filament = Filament::Session::filament_session_snapshot_json();
+        if (!filament.value("ok", false)) throw std::runtime_error(filament.value("error", "invalid flow filament session"));
+        auto scoped = ScopedConfig::native_scoped_config_full_transport(revision_before + 1);
+        auto after_context = HistoryMetadata::canonical_history_context(bridge, editing_context,
+            plates, Filament::State::history_state_json(bundle));
+        // Test the last fallible publication boundary before the single commit.
+        if (request.value("inject_failure_stage", "") == "before-publication")
+            throw std::runtime_error("injected project flow publication failure");
+        if (!HistoryMetadata::commit_timestamped_operation(bridge, after_context))
+            throw std::runtime_error("history rejected project flow change");
+        committed = true;
+        SlicingPipeline::invalidate_preview_source();
+        filament["revisions"]["session"] = bridge.history_revision;
+        filament["revisions"]["project"] = bridge.history_revision;
+        const auto history = HistoryMetadata::history_status_json(bridge);
+        return {{"ok", true}, {"profile_snapshot", std::move(profile)}, {"filament_session", std::move(filament)},
+            {"plate_session", std::move(plates)}, {"native_scoped_config", std::move(scoped)}, {"history_status", history},
+            {"mutation", {{"kind", "set-project-flow"}, {"history_entry_delta", 1}, {"revision_before", revision_before},
+                {"revision_after", bridge.history_revision}, {"dirty", history.value("dirty", false)},
+                {"all_plate_results_invalidated", true}, {"affected_plate_ids", affected}}}};
+    } catch (...) {
+        if (!committed) {
+            HistoryMetadata::abort_timestamped_operation(bridge);
+            bundle.project_config = before_project;
+            bridge.plate_session_plates = before_plates;
+            bridge.plate_input_revisions = before_revisions;
+            bridge.plate_runtime_registry.restore_lifecycle(before_lifecycle);
+            bridge.history_live_context = before_live_context;
+            bridge.pending_membership_instance_ids = before_pending;
+            PrimeTower::invalidate_projection_cache();
+        }
+        throw;
     }
 }
 
@@ -1195,6 +1438,7 @@ json prepare_activation(const json& request)
         if (!bed.is_string() || bed.get<std::string>().empty()) throw std::runtime_error("invalid remembered bed type");
     auto config = std::make_unique<AppConfig>();
     configure_activation(*config, activation);
+    config->set("sidebar_flow_memory", state().profile_config.get("sidebar_flow_memory"));
     config->set("presets", PRESET_PRINTER_NAME, state().presets.printers.get_selected_preset_name());
     auto bundle = std::make_unique<PresetBundle>();
     // The full native API needs only the live vendor metadata for its pre-load
@@ -1419,6 +1663,22 @@ const char* apply_activation()
 
 extern "C" {
 
+EMSCRIPTEN_KEEPALIVE const char* orc_configure_project_flow_memory(const char* request)
+{
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    try { return duplicate_json(configure_project_flow_memory(json::parse(request ? request : "")).dump()); }
+    catch (const std::exception& error) { return error_json(error.what()); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_project_flow(const char* request)
+{
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    try { return duplicate_json(set_project_flow_json(json::parse(request ? request : "")).dump()); }
+    catch (const std::exception& error) {
+        return duplicate_json(json{{"ok", false}, {"error", error.what()}, {"error_code", "native_validation_failure"}}.dump());
+    }
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_set_toolhead_diameter(const char* request)
 {
     using namespace Slic3r::Neo::Bridge::Profiles;
@@ -1510,6 +1770,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const 
                 state().presets.update_compatible(PresetSelectCompatibleType::Always);
                 state().presets.update_multi_material_filament_presets();
                 Profiles::normalize_bed_types(true);
+                Profiles::repair_project_flows(Profiles::base_printer_name(state().presets.printers.get_selected_preset()) !=
+                    before.base_printer);
             } else if (kind == "print") {
                 state().presets.update_compatible(PresetSelectCompatibleType::Never,
                                                    PresetSelectCompatibleType::Always);

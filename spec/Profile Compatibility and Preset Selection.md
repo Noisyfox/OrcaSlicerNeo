@@ -58,11 +58,16 @@ considers them compatible.
   variant-less profile's physical display fallback is trigger text only and
   does not create an extra choice.
 - The row beneath Printer/Bed contains an inert Sync icon button and a Nozzle
-  variant selector. Single-nozzle printers also show a read-only Flow selector
-  beside it, displaying the effective first `nozzle_volume_type` value. Sync
-  has no action. Named profile variants containing "High Flow" remain valid
+  variant selector. Single-nozzle printers also show a Flow selector beside it;
+  Multi. exposes the selected physical head's Flow selector. Native enum choices
+  and actual project values drive both controls; empty candidates hide them.
+  Sync has no action. Named profile variants containing "High Flow" remain valid
   variant choices.
-- Both selectors use the existing canonical Printer transition. Preferences,
+- Printer and Nozzle variant selectors use the canonical Printer transition.
+  Flow selection uses its dedicated atomic project command and preserves preset
+  identity. Its repair, base-Printer memory, 3MF and history rules belong to
+  [Sidebar project-flow selection](Extruder%20Switch%20and%20Variant%20Editing.md#34-sidebar-project-flow-selection).
+  Preferences,
   projects, editor actions, and history continue referring to actual profile
   names. Import, draft edits, startup, and Undo/Redo refresh the native picker.
   Single-variant printers still display their current variant.

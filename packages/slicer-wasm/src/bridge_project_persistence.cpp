@@ -86,7 +86,7 @@ json project_history_context()
     return default_history_context(state(), plate_session_snapshot_json(), history_state_json(state().presets));
 }
 
-void establish_clean_history_baseline()
+void establish_clean_history_baseline(const bool saved = true)
 {
     state().filament_slot_ids.clear();
     state().painting.reset();
@@ -102,7 +102,7 @@ void establish_clean_history_baseline()
     // before the first edit and must not stale an already-retained root.
     (void) HistoryMetadata::capture_history_roots(state(), state().history_live_context);
     HistoryMetadata::advance_history_epoch(state());
-    state().history.mark_current_as_saved();
+    if (saved) state().history.mark_current_as_saved();
 }
 
 json close_project_session()
@@ -602,6 +602,19 @@ std::vector<ImportedPlateRecord> parse_plate_records(const std::string& xml)
                 } else if (*key == "plater_name") record.name = *value;
                 else if (*key == "lock") {
                     record.locked = *value == "true" || *value == "1";
+                } else if (*key == "filament_volume_maps") {
+                    // Preserve the native concrete enum values: the GUI reader
+                    // currently clamps all values above High Flow to Standard.
+                    std::istringstream values(*value);
+                    std::vector<int> parsed;
+                    int flow;
+                    while (values >> flow) {
+                        if (!get_valid_nozzle_volume_type().count(NozzleVolumeType(flow)))
+                            throw Slic3r::RuntimeError("invalid plate filament volume map");
+                        parsed.push_back(flow);
+                    }
+                    if (!values.eof()) throw Slic3r::RuntimeError("invalid plate filament volume map");
+                    record.filament_volume_maps = std::move(parsed);
                 } else if (!is_native_plate_metadata_key(*key)) {
                     record.opaque_metadata.push_back({{"key", *key}, {"value", *value}});
                 }
@@ -765,7 +778,13 @@ std::vector<BridgeState::PlateSessionPlate> build_plate_session_from_records(
         // archives without a raw model-settings record.
         plate.locked = raw ? raw->locked : (native ? native->locked : false);
         if (native) plate.settings = native->config;
-        plate.settings_metadata = native ? config_metadata_json(native->config) : json::object();
+        if (raw && raw->filament_volume_maps)
+            plate.settings.set_key_value("filament_volume_map", new ConfigOptionInts(*raw->filament_volume_maps));
+        // Default is the native archive sentinel for inherited map mode.
+        // Keep that inheritance implicit in the live Plate configuration.
+        if (const auto* mode = plate.settings.option("filament_map_mode"); mode && mode->getInt() == int(FilamentMapMode::fmmDefault))
+            plate.settings.erase("filament_map_mode");
+        plate.settings_metadata = config_metadata_json(plate.settings);
         if (raw) plate.opaque_metadata = raw->opaque_metadata;
         result.push_back(std::move(plate));
     }
@@ -1209,7 +1228,8 @@ static const char* orc_load_project_impl(const char* data, int len,
                 // history baseline only after that normalization so no dirty
                 // entry is created. A later explicit save persists it.
                 Neo::Bridge::PrimeTower::normalize_coordinate_positions();
-                establish_clean_history_baseline();
+                const bool flow_repaired = Neo::Bridge::Profiles::repair_project_flows();
+                establish_clean_history_baseline(!flow_repaired);
                 if (state().inject_project_commit_failure) {
                     state().inject_project_commit_failure = false;
                     throw Slic3r::RuntimeError("injected project commit failure after publication");
@@ -1442,6 +1462,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project(const char* request_json) {
             auto plate = std::make_unique<PlateData>(static_cast<int>(owned.size()), object_instances, runtime.locked);
             plate->plate_name = runtime.name;
             plate->config = runtime.settings;
+            // The native writer emits local maps only when a mode is present.
+            // Its Default sentinel retains global mode inheritance without
+            // materializing a local mode override in the live project.
+            if (!plate->config.has("filament_map_mode") &&
+                (plate->config.has("filament_map") || plate->config.has("filament_volume_map")))
+                plate->config.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode::fmmDefault));
             if (auto image = thumbnails.find(runtime.id); image != thumbnails.end())
                 plate->plate_thumbnail = std::move(image->second);
             plates.push_back(plate.get());

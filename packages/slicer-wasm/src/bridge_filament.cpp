@@ -449,9 +449,14 @@ void validate_plate_filament_state(const BridgeState::PlateSessionPlate& plate,
         if (const auto* values = plate.settings.opt<ConfigOptionInts>(key)) {
             if (values->values.size() != count)
                 throw FilamentCommandFailure("unsupported_reference", "malformed per-plate filament map");
-            for (const int value : values->values)
-                if (value < 0 || value > nozzle_count)
-                    throw FilamentCommandFailure("unsupported_reference", "per-plate filament map is out of range");
+            for (const int value : values->values) {
+                // Volume entries are concrete NozzleVolumeType identities,
+                // not physical-head indices (E3D is 5 even on two heads).
+                const bool valid = std::string(key) == "filament_volume_map"
+                    ? get_valid_nozzle_volume_type().count(NozzleVolumeType(value)) != 0
+                    : value >= 0 && value <= nozzle_count;
+                if (!valid) throw FilamentCommandFailure("unsupported_reference", "per-plate filament map is out of range");
+            }
         }
     }
     if (const auto* first = plate.settings.opt<ConfigOptionInts>("first_layer_print_sequence")) {
@@ -812,6 +817,19 @@ std::vector<double> calculate_filament_flush(const PresetBundle& bundle)
 void recalculate_filament_flush(PresetBundle& bundle)
 {
     bundle.project_config.option<ConfigOptionFloats>("flush_volumes_matrix", true)->values = calculate_filament_flush(bundle);
+}
+
+// Flow changes recalculate one entire physical-head plane only under "all".
+void auto_recalculate_flow_flush(PresetBundle& bundle, const std::size_t extruder)
+{
+    if (state().profile_config.get("auto_calculate_flush") != "all") return;
+    const auto calculated = calculate_filament_flush(bundle);
+    auto* matrix = bundle.project_config.option<ConfigOptionFloats>("flush_volumes_matrix");
+    const auto plane_size = bundle.filament_presets.size() * bundle.filament_presets.size();
+    if (!matrix || matrix->size() != calculated.size() || (extruder + 1) * plane_size > calculated.size())
+        throw FilamentCommandFailure("native_validation_failure", "invalid flushing matrix for project flow change");
+    std::copy_n(calculated.begin() + extruder * plane_size, plane_size,
+                matrix->values.begin() + extruder * plane_size);
 }
 
 // Preference is host-owned, outside project history. Topology still normalizes

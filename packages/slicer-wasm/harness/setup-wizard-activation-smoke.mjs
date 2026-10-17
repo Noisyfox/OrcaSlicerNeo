@@ -12,7 +12,7 @@ const factory = await loadModuleFactory(resolve(process.argv[2]));
 const activation = { models: [{ vendor: 'CompatibilityFixture', model: 'Compatibility Alpha', nozzle_diameter: ['0.4'] },
   { vendor: 'ExtraFixture', model: 'extra:Compatibility Alpha', nozzle_diameter: ['0.4'] }],
   filaments: ['Alpha Explicit Filament', 'extra:Alpha Explicit Filament'] };
-async function start(record, transitionFixture = false, withoutLibrary = false) {
+async function start(record, transitionFixture = false, withoutLibrary = false, flowFixture = false) {
   const Module = await factory({ noInitialRun: true, print: () => {}, printErr: () => {} });
   const FS = Module.FS;
   async function copy(directory, target) {
@@ -54,7 +54,10 @@ async function start(record, transitionFixture = false, withoutLibrary = false) 
     const edit = (path, values) => FS.writeFile(path, JSON.stringify({ ...JSON.parse(FS.readFile(path, { encoding: 'utf8' })), ...values }));
     edit('/profiles/CompatibilityFixture/machine/alpha.json', { support_multi_bed_types: '1' });
     edit('/profiles/CompatibilityFixture/machine/beta.json', { support_multi_bed_types: '1',
-      printable_area: ['0x0', '150x0', '150x150', '0x150'], nozzle_diameter: ['0.4', '0.4'] });
+      printable_area: ['0x0', '150x0', '150x150', '0x150'], nozzle_diameter: ['0.4', '0.4'],
+      ...(flowFixture ? { extruder_type: ['Direct Drive', 'Direct Drive'],
+        extruder_variant_list: ['Direct Drive Standard', 'Direct Drive High Flow'],
+        default_nozzle_volume_type: ['Standard', 'Standard'] } : {}) });
     const variant = { ...JSON.parse(FS.readFile('/profiles/CompatibilityFixture/machine/beta.json', { encoding: 'utf8' })),
       name: 'Compatibility Beta 0.6 nozzle', printer_variant: '0.6', nozzle_diameter: ['0.6', '0.6'] };
     FS.writeFile('/profiles/CompatibilityFixture/machine/beta-06.json', JSON.stringify(variant));
@@ -85,6 +88,30 @@ async function start(record, transitionFixture = false, withoutLibrary = false) 
 }
 function preparation(record) { return { activation: record, remembered_filament_racks: {}, remembered_bed_types: {} }; }
 function must(result) { assert.equal(result.ok, true, JSON.stringify(result)); return result; }
+async function flowActivationSmoke() {
+// Isolated native flow fixture leaves the existing activation/export oracle
+// unchanged while exercising cache transfer, fallback repair and rollback.
+const flowBase = { models: [activation.models[0]], filaments: ['Alpha Explicit Filament'] };
+const B = 'Compatibility Beta 0.4 nozzle';
+const betaOnly = { models: [{ vendor: 'CompatibilityFixture', model: 'Compatibility Beta', nozzle_diameter: ['0.4'] }], filaments: ['Beta Explicit Filament'] };
+const flowActivation = await start(flowBase, true, false, true);
+const fc = flowActivation.call;
+must(fc('orc_configure_project_flow_memory', ['string'], [JSON.stringify({ memory: { [B]: [1, 1] }, initialize_new_project: false })]));
+must(fc('orc_open_setup_wizard_catalogue'));
+flowActivation.links(betaOnly);
+must(fc('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(betaOnly))]));
+const beforeFlowActivation = { profile: fc('orc_get_preset_snapshot'), rack: fc('orc_get_filament_session_snapshot'), history: fc('orc_history_status') };
+must(fc('orc_test_inject_profile_activation_failure'));
+assert.equal(fc('orc_apply_profile_activation').ok, false);
+assert.deepEqual({ profile: fc('orc_get_preset_snapshot'), rack: fc('orc_get_filament_session_snapshot'), history: fc('orc_history_status') }, beforeFlowActivation);
+const flowApplied = must(fc('orc_apply_profile_activation'));
+assert.equal(flowApplied.profile_snapshot.project_config.nozzle_volume_type, 'Standard,High Flow',
+  'activation restores base memory and repairs unavailable head zero to its native default');
+assert.deepEqual(flowApplied.filament_session.mappings.volume, flowApplied.filament_session.mappings.filament.map(head => head === 2 ? 1 : 0));
+assert.deepEqual(flowApplied.history_status.undoEntries, [], 'activation repair creates no separate history frame');
+console.log('setup flow activation passed: base memory cache, default repair, complete failed publication rollback');
+}
+if (process.argv.includes('--flow-only')) { await flowActivationSmoke(); process.exit(0); }
 const session = await start(activation);
 const { call, FS } = session;
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },

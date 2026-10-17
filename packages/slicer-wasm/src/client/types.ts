@@ -415,6 +415,10 @@ export interface BedTypeCapabilities {
 
 /** Native presentation projection; all targets remain canonical profile names. */
 export interface PrinterPicker {
+  /** Canonical native base preset identity, for flow preference storage. */
+  basePrinter: string;
+  /** Physical-extruder order. Missing actual slots stay null; reads never repair. */
+  flows: Array<{ actual: number | null; choices: Array<{ value: number; label: string }> }>;
   /** Physical diameters from installed profiles of the selected vendor/model. */
   nozzleDiameters: number[];
   items: Array<{ id: string; label: string; preset: string }>;
@@ -1439,7 +1443,7 @@ export interface RememberedFilamentRackPreference {
 }
 
 export interface PrinterTransitionMutationReceipt {
-  readonly kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter';
+  readonly kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow';
   readonly historyEntryDelta: 1;
   readonly revisionBefore: number;
   readonly revisionAfter: number;
@@ -1448,7 +1452,7 @@ export interface PrinterTransitionMutationReceipt {
   readonly affectedPlateIds: readonly string[];
 }
 
-/** One committed native Printer + remembered-rack transition. */
+/** One committed native Printer configuration or project-flow transition. */
 export interface PrinterTransitionSuccess {
   readonly ok: true;
   readonly profileSnapshot: ProfileSnapshot;
@@ -1730,6 +1734,11 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   /** Match the complete ordered nozzle vector, or edit only this toolhead's
    * Printer draft. Commits exactly one history entry with an atomic receipt. */
   setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
+  /** Configure host-owned base-Printer flow memory. Fresh-project seeding is
+   * explicit and runs before the host establishes its new clean baseline. */
+  configureProjectFlowMemory(memory: Record<string, number[]>, initializeNewProject: boolean): Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Native Sidebar flow choice, independent of Printer editor browsing. */
+  setProjectFlow(index: number, flow: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
   arrange(request: ArrangementRequest, onProgress?: (percent: number, text: string) => void): Promise<ArrangementResult>;
   cancelArrangement(): Promise<{ ok: true } | { ok: false; error: string }>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;

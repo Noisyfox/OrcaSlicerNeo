@@ -17,7 +17,7 @@ const input: ProjectInput = { displayName: 'Robot.3mf', bytes: new Uint8Array([8
 const snapshot: ProfileSnapshot = {
   ok: true,
   modifiedPresets: { printer: [], filament: [] },
-  printerPicker: { items: [{ id: 'project', label: 'Project printer', preset: 'Project printer' }], selectedId: 'project', variants: [], nozzleDiameters: [0.4], selectedVariant: '' },
+  printerPicker: { basePrinter: 'Fixture printer', flows: [], items: [{ id: 'project', label: 'Project printer', preset: 'Project printer' }], selectedId: 'project', variants: [], nozzleDiameters: [0.4], selectedVariant: '' },
   printers: [{ name: 'System printer', label: 'System printer', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: false }, { name: 'Project printer', label: 'Project printer', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   prints: [{ name: 'System process', label: 'System process', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: false }, { name: 'Project process', label: 'Project process', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   filamentCatalog: [{ name: 'Project filament', label: 'Project filament', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '' }],
@@ -71,6 +71,7 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
         ...(load.nativeScopedConfig === undefined ? { nativeScopedConfig: scopedConfigTransport } : {}),
         ...(load.historyStatus === undefined ? { historyStatus: loadedHistoryStatus } : {}) };
     }),
+    configureProjectFlowMemory: vi.fn(async () => ({ ok: true })),
     closeProject: vi.fn(async () => ({ ok: true, plateSession: freshPlateSession })),
     importProjectGeometry: vi.fn(async () => ({ bedTypeNormalization: null, ok: true, objects: 2, instances: 2, mode: 'geometry-only' as const, compatibility: 'generic' as const, projectSettingsAvailable: false })),
     clearModel: vi.fn(async () => ({ ok: true })),
@@ -127,6 +128,17 @@ describe('transactional project actions', () => {
     expect(result.status).toBe('ok');
     expect(platform.recentProjects.record).toHaveBeenCalledWith(location);
     expect(useProjectStore.getState().location).not.toBe(location);
+  });
+  it('publishes a repaired project open as dirty without saving, seeding memory or adding an entry', async () => {
+    const dirtyHistory = { ...loadedHistoryStatus, dirty: true, savedCheckpoint: null };
+    const { platform, runtime, projects } = platformFor({ historyStatus: dirtyHistory });
+    projects.open.mockResolvedValue({ status: 'ok', input });
+    expect((await openProject(platform)).status).toBe('ok');
+    expect(useProjectStore.getState().dirty).toBe(true);
+    expect(runtime.markHistorySaved).not.toHaveBeenCalled();
+    expect(runtime.configureProjectFlowMemory).not.toHaveBeenCalled();
+    expect(projects.save).not.toHaveBeenCalled();
+    expect(dirtyHistory.undoEntries).toEqual([]);
   });
   it('does not add rejected project loads to history', async () => {
     const { platform, projects } = platformFor({ ok: false });

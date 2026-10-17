@@ -656,6 +656,10 @@ json prepare(const json& request) {
             state().presets.update_compatible(PresetSelectCompatibleType::Always);
             state().presets.update_multi_material_filament_presets();
             Profiles::normalize_bed_types(type == Preset::TYPE_PRINTER);
+            // Source adoption/deletion may change active flow candidates.
+            // This automatic transition retains live valid flows; it never
+            // restores the explicit base-selection preference.
+            if (type == Preset::TYPE_PRINTER) Profiles::repair_project_flows();
         }
         const auto plate = affects_project ? PlateSession::shared_configuration_mutation_snapshot() : PlateSession::plate_session_snapshot_json();
         ++state().preset_draft_revision;

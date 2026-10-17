@@ -45,6 +45,16 @@ function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | 
 }
 
 describe('worker protocol', () => {
+  it('transports the dedicated project flow command and complete commit receipt', async () => {
+    const { workerClient: client } = setup();
+    await client.init(MOCK_PROFILE_ACTIVATION);
+    const before = await client.getHistoryStatus();
+    const result = await client.setProjectFlow(0, 1, before.revision, presetContext);
+    expect(result).toMatchObject({ ok: true, mutation: { kind: 'set-project-flow', historyEntryDelta: 1 },
+      profileSnapshot: { printerPicker: { flows: [{ actual: 1 }] } },
+      nativeScopedConfig: { kind: 'full', revision: before.revision + 1 } });
+  });
+
   it('transports scoped indexed inheritance, ownership, atomic rejection and reset without a preset owner', async () => {
     const { workerClient: client } = setup();
     await client.init(MOCK_PROFILE_ACTIVATION);
@@ -216,6 +226,8 @@ describe('worker protocol', () => {
     transport.emit({ type: 'runtime-state', threaded: false, serialTerminalEpoch: '0' });
     const slice = client.slice({});
     await expect(client.arrange(arrangement)).rejects.toThrow('slice_busy');
+    await expect(client.setProjectFlow(0, 1, 0, presetContext)).resolves.toMatchObject({ ok: false, errorCode: 'slice_busy' });
+    await expect(client.configureProjectFlowMemory({}, true)).resolves.toMatchObject({ ok: false, errorCode: 'slice_busy' });
     await expect(client.openSetupWizardCatalogue()).rejects.toThrow('slice_busy');
     await expect(client.closeSetupWizardCatalogue()).rejects.toThrow('slice_busy');
     await expect(client.prepareProfileActivation({ activation: { models: [], filaments: [] }, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).rejects.toThrow('slice_busy');

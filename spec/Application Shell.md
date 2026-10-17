@@ -589,12 +589,14 @@ already-consumed wheel events and Ctrl-wheel/pinch zoom retain native behavior.
 
 ### Native toolhead selection and editing
 
-- Single-nozzle printers show a read-only flow Select to the right of the
-  Nozzle variant selector, using the same sidebar control presentation and
-  the effective first `nozzle_volume_type` value. Flow editing remains deferred.
+Project-flow editing and candidate-repair behavior are
+specified in [Extruder Switch and Variant Editing section 3.4](Extruder%20Switch%20and%20Variant%20Editing.md#34-sidebar-project-flow-selection).
+
+- Single-nozzle printers show a flow Select to the right of the Nozzle variant
+  selector, using native candidates, enum values and the actual project flow.
   The single-nozzle row uses one continuous dark surface with a 3:2 split
-  between diameter and flow and a muted bold Nozzle label. Read-only flow
-  controls retain the existing shared disabled styling.
+  between diameter and flow and a muted bold Nozzle label. Empty native flow
+  candidates hide the flow control and let diameter occupy the row.
   When the bed selector is present, the diameter control's right edge aligns
   with the Printer selector above, accounting for the Sync button and row gaps.
   Flow text aligns with the bed-type text above through the matching left inset.
@@ -617,7 +619,10 @@ already-consumed wheel events and Ctrl-wheel/pinch zoom retain native behavior.
   Multi. toolhead cards share Device nozzle cards' 44px height and 14px line
   height, with a 44px default width; selection styling does not increase
   their height.
-  Flow type is displayed in a disabled selector; flow editing is deferred.
+  The selected head has a flow Select using its native candidates and actual
+  value; empty candidates hide it. Manual flow changes publish one native
+  receipt and retain the head, Multi. tab and lower configuration mode. Existing
+  pending, project-operation, painting and serial-slicing guards apply.
 
 - Diameter choices are numeric physical values projected by the bridge from
   installed visible profiles of the current vendor/model and the effective
@@ -631,7 +636,8 @@ already-consumed wheel events and Ctrl-wheel/pinch zoom retain native behavior.
 - A different matching profile uses the existing atomic Printer transition,
   compatibility refresh, and current-rack preservation. Otherwise the command
   edits only the selected nozzle's Printer draft through the native indexed
-  editor. Other nozzle entries and flow values remain unchanged in this path.
+  editor. Other physical nozzle entries remain unchanged; candidate changes
+  repair unavailable actual flows in the same transaction under section 3.4.
 - Both paths commit one undoable history entry and publish the complete
   profile, filament, plate, and scoped-configuration receipt, invalidating
   retained slice results. Stale revisions reject before mutation. The selected

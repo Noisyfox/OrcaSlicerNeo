@@ -6,9 +6,10 @@
 mappings, atomic resets, the diameter-editing boundary, and Printer, Filament
 and Project Print selection are delivered. Objects-mode Scoped element editing
 has passed both independent acceptance gates in section 10.1. Integrated
-verification and independent parent acceptance are complete under section 10.
-Improved delayed
-rejection feedback after navigation remains deferred.
+verification of those editor surfaces is complete under section 10.
+Sidebar project-flow selection, repair, preferences and history are implemented
+in section 3.4; final integrated acceptance is tracked in section 10.2. Improved
+delayed rejection feedback after editor navigation remains deferred.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
 preset editors, Project Print settings, and Objects-mode Scoped Print settings
@@ -194,6 +195,110 @@ Choice availability and a field's native mapping are distinct. A missing mapping
 for an individual field does not select another nozzle or flow to make that
 field editable. Section 5.2 governs its unavailable presentation, including when
 native default-flow normalization cannot produce a valid field mapping.
+
+### 3.4 Sidebar project-flow selection
+
+The Sidebar flow combo changes the project's actual per-extruder
+`nozzle_volume_type`, independently of the Printer editor's presentation-only
+editing flows in section 3.1. The scope includes single- and multi-extruder flow
+selection, Hybrid where offered by the native Sidebar rules, and the associated
+project and Plate filament-volume mapping updates. Manual sub-nozzle quantity
+editing, quantity badges and new device-synchronization capabilities are outside
+this extension.
+
+The implementation is bridge-owned native policy matching Orca's
+Sidebar candidate rules. It does not require extracting a shared policy into
+`libslic3r` or changing Orca GUI callers. TypeScript consumes the native choices
+and does not reproduce the flow-eligibility rules. The reference is
+`Sidebar::update_presets()` in
+[Plater.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp), including its
+per-extruder candidate construction and combo selection.
+
+Preserve native Sidebar candidate order and actual enum values rather than
+using dropdown positions as values. The HF and E3D HF diameter filters use the
+effective Printer's `printer_variant` string, not each extruder's physical
+`nozzle_diameter`: HF is excluded for `"0.2"` and for the X1E model exclusion;
+E3D HF is offered only for `"0.4"` or `"0.6"`, subject to the other native candidate
+rules. Editing a physical diameter alone does not redefine those filters.
+
+When candidates exist but the current project flow is unavailable, Neo must
+repair the actual project flow and associated mappings. Prefer that extruder's
+`default_nozzle_volume_type` if it is an available candidate; otherwise choose
+the first candidate in native Sidebar order. This intentionally differs from
+Orca's combo-refresh path, which displays the last candidate without writing
+that display fallback to the project.
+
+When no candidates exist, hide the flow combo and preserve the current project
+flow. Do not invent an available flow or perform an automatic repair without
+a candidate.
+
+Changing one extruder's actual flow updates the associated filament-volume
+mappings on all Plates without changing other extruders' mappings. Hybrid remains
+the project's selected flow but uses Standard in the corresponding concrete
+filament-volume mappings, following Orca. Flow-driven flushing recalculation
+respects the existing automatic-flushing policy: only the `all` policy recalculates
+the affected extruder's flushing values; `color change` and `disabled` do not
+trigger recalculation for a flow change. Other extruders' flushing values remain
+unchanged. The reference is the flow branch of `Tab::on_value_change()` in
+[Tab.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/Tab.cpp).
+
+Automatic repair is silent: update the project state and its displayed values
+without a toast or confirmation for the repair itself. Existing unsaved-project
+protection still applies when the operation changes project state.
+
+Remember the per-extruder flow vector across sessions, keyed by the base Printer
+preset name, following Orca's
+[Printer load and flow-selection paths](../packages/slicer-wasm/cpp/src/slic3r/GUI/Tab.cpp).
+When creating a project or explicitly switching base Printer, restore its
+remembered flows if present, otherwise use its defaults; validate restored values
+against the candidates and apply the repair rule above. Persist Hybrid as Standard
+in this preference only, leaving the current project's Hybrid flow unchanged.
+Only an explicit user flow selection updates this preference. Project opening,
+automatic repair, and Undo/Redo do not overwrite it. Flow preferences are global
+application state and are not rolled back by project history.
+
+Opening a 3MF gives the file's valid project flows priority over local flow
+preferences. Do not overwrite a valid imported flow with a remembered value.
+An unavailable imported flow is silently repaired using the same default-then-first
+candidate rule, with associated mappings updated; an empty candidate list still
+preserves the imported value. A repair on project open marks the project as having
+unsaved changes instead of treating the repaired state as a clean load baseline.
+Only an explicit successful project save writes the repair to a file, through the
+existing [project persistence contract](3MF%20Project%20Persistence.md#project-identity-and-unsaved-changes).
+
+A manual flow selection creates one project-history entry covering the flow,
+associated mappings and flushing configuration together. Automatic repair creates
+no separate history entry. When a user operation such as a diameter or Printer
+change requires repair, include that repair in the initiating operation's atomic
+state transition and restore its before/after state together on Undo/Redo. For
+example, changing `0.4 / HF` to `0.2 / SF` through a diameter change and repair
+undoes to `0.4 / HF`, not `0.4 / SF`. Repair during project opening likewise creates
+no history entry, while still preserving the unsaved-change rule above. These
+rules use the existing [project history](Undo%20and%20Redo.md) ownership boundary.
+
+Undo/Redo restores the associated Printer configuration, project flows and mappings
+together; it does not run an additional repair after restoring the historical
+state. A flow that was available in a captured state must remain available when
+that complete state is restored. A mismatch caused by incomplete capture or
+restore is an implementation defect, not a reason to normalize history silently.
+
+Repair belongs to project opening and committed configuration transitions that
+change the active project's flow candidates. Reading snapshots or refreshing
+controls must not mutate project state. Printer-editor flow browsing remains
+presentation-only under section 3.1.
+
+Acceptance must cover candidate order and enum identity, `printer_variant` versus
+physical diameter filtering, Hybrid and nullable nozzle-count rules, empty
+candidates, default-then-first repair, all-Plate mapping updates and affected-head
+flushing under every policy. Real native history and 3MF tests must prove atomic
+Undo/Redo, no independent repair entry, repaired-open dirty state, and preservation
+of valid imported flows. Preference tests must distinguish explicit selections
+from import, repair and history, including Hybrid-to-Standard persistence. Both
+shared hosts use the same implementation; mocked UI results alone do not establish
+native mapping, persistence or history correctness.
+
+Current delivered Sidebar layout is described by
+[Application Shell](Application%20Shell.md#native-toolhead-selection-and-editing).
 
 ## 4. Switch visibility
 
@@ -481,6 +586,19 @@ native-exported Hybrid fixture through their respective host boundaries, with
 artifact identity and runtime-variant checks. Mocked UI evidence does not
 replace real native index/ownership verification.
 
+Sidebar flow coverage uses the [native picker policy harness](../packages/slicer-wasm/harness/printer-picker-smoke.mjs)
+and [native transition/lifecycle harness](../packages/slicer-wasm/harness/native-printer-transition-smoke.mjs)
+for enum identity, mapping/flushing policy, atomic rejection/history, repair and
+native 3MF round trips. The [real Electron flow journey](../apps/desktop/e2e/project-flow.e2e.ts)
+uses a small native-exported two-head, two-Plate fixture with the current serial
+artifact. It checks rendered Project/Scoped contexts, manual flow history,
+valid-file priority, repaired-open dirty state, explicit save/reopen, and global
+preference boundaries. The [Web settings journey](../apps/web/e2e/bed-type-selector.e2e.ts)
+checks browser preference persistence through reload and the qualified serial
+fallback runtime. Threaded native startup/shared-memory and focused flow
+policy/command parity supplement that primary-host journey. This focused
+coverage does not claim the full dual-host, dual-variant release matrix.
+
 Verification scope follows the [testing guidelines](../doc/testing_guidelines.md):
 affected package checks during implementation; repository checks, a primary-host
 journey, and affected real-WASM host integration before code handoff. Common
@@ -537,3 +655,30 @@ than introducing another runner, and stage/build/copy before real-host testing.
 Production changes stay in the Neo bridge unless a demonstrated native-core
 blocker requires a separately accepted submodule change. Mock results never
 stand in for native storage, slicing or 3MF round-trip evidence.
+
+### 10.2 Sidebar project-flow extension
+
+Section 3.4 is implemented in the following independently verifiable increments
+on `dev/extruder-flow-combo-spec`. One `gpt-6.1-sol` agent with `medium` reasoning
+implements every increment, including repairs and self-verification. This is the
+flow extension's execution policy; the already accepted earlier increments retain
+their historical execution policy above. The implementation agent must not commit,
+delegate, or begin a later increment before the parent accepts and commits the
+current one. A failed self-check or parent acceptance returns to the same agent
+for repair and renewed verification. Parent acceptance requires independent source
+review and execution of decisive checks, not only the agent's report.
+
+| Increment | Complete deliverable | Independent acceptance gate | State |
+| --- | --- | --- | --- |
+| 1. Read-only native flow choices | Project each physical extruder's Sidebar flow candidates, actual flow and base Printer identity from effective native configuration. Update the typed client/runtime, mocks and fixtures as one contract. Keep the current flow controls read-only. | Native tests prove ordered enum identities, drive matching, Hybrid/nil gates, `printer_variant` rather than physical diameter filtering, X1E, sparse/empty lists, and pure reads without project/history changes. Affected package suites/typechecks and one variant's quick build/focused harness pass. Parent independently checks the policy against Orca and reruns decisive native cases. | Accepted |
+| 2. Atomic manual flow mutation | Add one validated, revision-checked native flow command through the typed client/runtime. Commit project flow, all-Plate filament-volume mappings, policy-controlled affected-head flushing, invalidation and the complete publication receipt atomically. Do not switch Printer presets or alter editor-only browsing selections. | Real native tests prove head isolation, Hybrid-to-Standard concrete mappings, all flushing policies and unaffected planes, invalid/stale request rollback, one history entry and exact Undo/Redo. Affected package suites/typechecks and native quick build/focused harness pass. Parent independently exercises mutation, failure and history cases before commit. | Accepted |
+| 3. Preferences, repair and project lifecycle | Implement base-Printer flow memory and its host-neutral storage contract. Restore memory only for new projects/explicit base-Printer changes; write it only for manual selections, with Hybrid stored as Standard. Integrate silent default-then-first repair into candidate-changing transactions and project opening, preserving valid file flows, marking repaired opens dirty, and creating no standalone repair history entry. Reads and history restores never repair. | Unit tests cover preference admission, lifetime, shared-host serialization and failed persistence boundaries. Real native cases prove repaired/empty candidates, active versus browsed drafts, transaction-coupled Undo/Redo, valid import priority, repaired-open dirty state without extra history, unchanged preferences on import/repair/history, and save/reopen round trips. Affected package checks and native quick build/harness pass, followed by parent review and independent lifecycle tests. | Accepted |
+| 4. Shared Sidebar controls | Enable existing single-nozzle and selected-toolhead flow Selects using native candidates and the flow command. Hide empty controls, retain existing layout and operation guards, publish one coherent receipt, refresh Project/Scoped flow contexts, and persist only an explicit accepted selection. Preserve independent Printer editing-flow browsing and other surfaces' valid selections. | Component tests and focused primary-host interaction cover both controls, actual enum values, empty choices, pending/rejected operations, flow context refresh, head/tab retention, project dirty state and preference writes. Affected package suites/typechecks and a primary-host journey pass. Parent independently reviews and exercises rendered integration before commit. | Accepted |
+| 5. Integrated delivery | Extend existing regression journeys for the complete flow lifecycle, repair integration findings through the same agent, and reconcile delivered/deferred statements in existing specifications. Add no planning or verification document. | Repository `pnpm test`/`pnpm typecheck`, both native quick builds, comprehensive flow/native contracts on one variant and startup/threading/fallback smoke on the other pass. A fresh real primary-host flow journey and affected Web/Electron host seams prove current artifacts, flow edits, history, import/save and preference boundaries under the testing guidelines. Parent independently inspects the complete diff and reruns decisive integrated checks before the final commit. | Accepted |
+
+Every increment also requires `git diff --check` and verification of changed
+local documentation links and commands. Record execution evidence in commit/PR
+handoff results, not a new document. Mark an increment accepted only after parent
+acceptance. Both hosts and both WASM variants share one current contract; no
+legacy aliases or temporary response formats are introduced between increments.
+Grand Plan changes only if delivered work changes roadmap or milestone status.

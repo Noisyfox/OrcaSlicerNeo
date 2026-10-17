@@ -1052,6 +1052,12 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>, includeCatalogue
   const printers = includeCatalogues ? raw.printers as ProfileSnapshot['printers'] : undefined;
   const printerNames = printers ? new Set(printers.map((printer) => printer.name)) : null;
   if (!isRecord(picker) || !Array.isArray(picker.items) ||
+      typeof picker.base_printer !== 'string' || !picker.base_printer ||
+      !Array.isArray(picker.flows) || picker.flows.some(flow => !isRecord(flow) ||
+        !(flow.actual === null || Number.isInteger(flow.actual)) || !Array.isArray(flow.choices) ||
+        flow.choices.some(choice => !isRecord(choice) || !Number.isInteger(choice.value) ||
+          typeof choice.label !== 'string' || !choice.label) ||
+        new Set(flow.choices.map(choice => choice.value)).size !== flow.choices.length) ||
       typeof picker.selected_id !== 'string' || typeof picker.selected_variant !== 'string' ||
       !Array.isArray(picker.nozzle_diameters) || picker.nozzle_diameters.some((diameter) =>
         typeof diameter !== 'number' || !Number.isFinite(diameter) || diameter <= 0) ||
@@ -1081,6 +1087,8 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>, includeCatalogue
   return {
     ok: true,
     printerPicker: {
+      basePrinter: picker.base_printer,
+      flows: picker.flows as Array<{ actual: number | null; choices: Array<{ value: number; label: string }> }>,
       nozzleDiameters: picker.nozzle_diameters as number[],
       items: picker.items.map((item) => ({ id: item.id as string, label: item.label as string, preset: item.preset as string })),
       selectedId: picker.selected_id,
@@ -1513,7 +1521,7 @@ function normalizePresetDraftMutation(raw: unknown, target: PresetDraftMutationR
     plateSession, filamentSession, historyStatus, nativeScopedConfig, profileSnapshot: profile } as Extract<PresetDraftMutationResult, { ok: true }>;
 }
 
-function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter'): PrinterTransitionResult {
+function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow'): PrinterTransitionResult {
   const invalid = (error: string): PrinterTransitionResult => ({
     ok: false, error, errorCode: 'invalid_response',
   });
@@ -1539,6 +1547,8 @@ function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-rem
   const mutation = isRecord(raw.mutation) ? raw.mutation : undefined;
   if (!nativeScopedConfig || nativeScopedConfig.kind !== 'full' ||
       nativeScopedConfig.revision !== historyStatus.revision ||
+      filamentSession.revisions.session !== historyStatus.revision ||
+      filamentSession.revisions.project !== historyStatus.revision ||
       !mutation || mutation.kind !== kind ||
       mutation.history_entry_delta !== 1 || !Number.isSafeInteger(mutation.revision_before) ||
       !Number.isSafeInteger(mutation.revision_after) || mutation.revision_after !== historyStatus.revision ||
@@ -2612,6 +2622,20 @@ export function createClient(
         callJson(m, 'orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify(request)]),
         'select-printer-with-remembered-rack',
       );
+    },
+
+    async configureProjectFlowMemory(memory: Record<string, number[]>, initializeNewProject: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
+      const m = await module();
+      const raw = callJson(m, 'orc_configure_project_flow_memory', ['string'],
+        [JSON.stringify({ memory, initialize_new_project: initializeNewProject })]);
+      if (isRecord(raw) && raw.ok === true) return { ok: true };
+      return { ok: false, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid native flow preference response' };
+    },
+
+    async setProjectFlow(index: number, flow: number, expectedRevision: number, context: HistoryContext): Promise<PrinterTransitionResult> {
+      const m = await module();
+      return normalizePrinterTransition(callJson(m, 'orc_set_project_flow', ['string'],
+        [JSON.stringify({ index, flow, expected_revision: expectedRevision, history_context: context })]), 'set-project-flow');
     },
 
     async setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: HistoryContext): Promise<PrinterTransitionResult> {

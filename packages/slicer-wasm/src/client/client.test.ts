@@ -1184,6 +1184,39 @@ describe('SlicerClient bridge contract', () => {
     expect(await client.getPlateSessionSnapshot()).toEqual(after);
   });
 
+  it('preserves ordered native flow identities, unavailable actual values and missing slots', async () => {
+    const module = createMockModule();
+    let flows: unknown = [
+      { actual: 4, choices: [{ value: 0, label: 'Standard' }, { value: 5, label: 'E3D High Flow' }] },
+      { actual: null, choices: [] },
+    ];
+    const original = module.ccall;
+    module.ccall = (name, returnType, argTypes, args) => {
+      const pointer = original(name, returnType, argTypes, args);
+      if (name !== 'orc_get_preset_snapshot') return pointer;
+      const raw = JSON.parse(module.UTF8ToString(Number(pointer)));
+      module._free(Number(pointer));
+      raw.printer_picker.base_printer = 'Canonical base';
+      raw.printer_picker.flows = flows;
+      const bytes = new TextEncoder().encode(JSON.stringify(raw) + '\0');
+      const replacement = module._malloc(bytes.length);
+      module.HEAPU8.set(bytes, replacement);
+      return replacement;
+    };
+    const client = createClient(async () => module);
+    expect(await client.getProfileSnapshot()).toMatchObject({
+      ok: true, printerPicker: { basePrinter: 'Canonical base', flows: [
+        { actual: 4, choices: [{ value: 0, label: 'Standard' }, { value: 5, label: 'E3D High Flow' }] },
+        { actual: null, choices: [] },
+      ] },
+    });
+    for (flows of [undefined, null, [{ choices: [] }], [{ actual: 0.5, choices: [] }],
+      [{ actual: null, choices: [{ value: 5, label: 'E3D' }, { value: 5, label: 'Duplicate' }] }],
+      [{ actual: 0, choices: [{ value: 5, label: '' }] }]]) {
+      expect(await client.getProfileSnapshot()).toEqual({ ok: false, error: 'Invalid native printer picker' });
+    }
+  });
+
   it.each([
     undefined,
     { items: [], selected_id: 4, variants: [], selected_variant: '' },
@@ -1306,6 +1339,106 @@ describe('SlicerClient bridge contract', () => {
     expect(await legacyCall('Bambu Lab P1S 0.4 nozzle', null)).toMatchObject({ ok: false, errorCode: 'invalid_request' });
     expect(await client.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', undefined as never, null, presetContext)).toMatchObject({ ok: false, errorCode: 'invalid_request' });
     expect(await client.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', null, null, presetContext)).toMatchObject({ ok: true });
+  });
+
+  it('configures admitted base flow memory and seeds only an explicit empty fresh project without history', async () => {
+    const c = makeClient(); const before = await c.getProfileSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const base = before.printerPicker.basePrinter; const history = await c.getHistoryStatus();
+    for (const memory of [{ [base]: [2] }, { [base]: [4] }, { [base]: [] }, { [base]: [null] }])
+      expect(await c.configureProjectFlowMemory(memory as Record<string, number[]>, false)).toMatchObject({ ok: false });
+    expect(await c.getProfileSnapshot()).toEqual(before);
+    expect(await c.configureProjectFlowMemory({ [base]: [1] }, false)).toEqual({ ok: true });
+    expect(await c.getProfileSnapshot()).toEqual(before);
+    expect(await c.configureProjectFlowMemory({ [base]: [1] }, true)).toEqual({ ok: true });
+    expect(await c.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
+    expect(await c.getHistoryStatus()).toEqual(history);
+    await c.addShape('Cube', 'loaded project');
+    expect(await c.configureProjectFlowMemory({ [base]: [0] }, true)).toMatchObject({ ok: false });
+    expect(await c.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
+  });
+
+  it('sets the actual project flow through one coherent native receipt and rejects stale/unavailable choices', async () => {
+    const c = makeClient();
+    const before = await c.getProfileSnapshot();
+    const history = await c.getHistoryStatus();
+    const result = await c.setProjectFlow(0, 1, history.revision, presetContext);
+    expect(result).toMatchObject({ ok: true,
+      profileSnapshot: { printer: before.ok ? before.printer : undefined,
+        printerPicker: { flows: [{ actual: 1 }] }, project_config: { nozzle_volume_type: 'High Flow' } },
+      mutation: { kind: 'set-project-flow', historyEntryDelta: 1, revisionBefore: history.revision,
+        revisionAfter: history.revision + 1, allPlateResultsInvalidated: true },
+      filamentSession: { mappings: { volume: [1] } },
+      historyStatus: { revision: history.revision + 1, dirty: true, canUndo: true },
+      nativeScopedConfig: { kind: 'full', revision: history.revision + 1 },
+    });
+    expect(await c.setProjectFlow(0, 2, history.revision, presetContext)).toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    expect(await c.setProjectFlow(0, 4, history.revision + 1, presetContext)).toMatchObject({ ok: false, errorCode: 'invalid_request' });
+    expect(await c.getHistoryStatus()).toMatchObject({ revision: history.revision + 1 });
+    expect(await c.undoHistory()).toMatchObject({ ok: true, impact: { profileSelection: false, presetDrafts: false },
+      profileSnapshot: { printerPicker: { flows: [{ actual: 0 }] } } });
+    expect(await c.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 0 }] } });
+    expect(await c.getFilamentSessionSnapshot()).toMatchObject({ mappings: { volume: [0] } });
+    expect(await c.redoHistory()).toMatchObject({ ok: true, impact: { profileSelection: false, presetDrafts: false },
+      profileSnapshot: { printerPicker: { flows: [{ actual: 1 }] } } });
+    expect(await c.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
+    const hybrid = await c.setProjectFlow(0, 2, (await c.getHistoryStatus()).revision, presetContext);
+    expect(hybrid).toMatchObject({ ok: true, profileSnapshot: { printerPicker: { flows: [{ actual: 2 }] } },
+      filamentSession: { mappings: { volume: [0] } } });
+  });
+
+  it('applies the shared mock flow primitive to every slot routed to the physical head', async () => {
+    const c = makeClient();
+    const rack = await c.getFilamentSessionSnapshot();
+    if (!rack.ok) throw new Error(rack.error);
+    expect((await c.addFilamentSlot({ version: 1, revision: rack.revisions.session })).ok).toBe(true);
+    const result = await c.setProjectFlow(0, 1, (await c.getHistoryStatus()).revision, presetContext);
+    expect(result).toMatchObject({ ok: true, filamentSession: { mappings: { filament: [1, 1], volume: [1, 1] } } });
+  });
+
+  it('rejects project flow inside an existing history transaction', async () => {
+    const client = makeClient();
+    const before = await client.getProfileSnapshot();
+    const transaction = await client.beginHistory('Flow admission', 'project', presetContext);
+    expect(await client.setProjectFlow(0, 1, (await client.getHistoryStatus()).revision, presetContext))
+      .toMatchObject({ ok: false, errorCode: 'history_unavailable' });
+    expect(await client.getProfileSnapshot()).toEqual(before);
+    await client.commitHistory(transaction, presetContext);
+  });
+
+  it.each(['missing-filament', 'stale-project', 'wrong-kind', 'plate-mismatch'])(
+    'rejects an incoherent native project-flow receipt: %s', async defect => {
+      const module = createMockModule(); const original = module.ccall;
+      module.ccall = (name, ret, types, args) => {
+        const pointer = original(name, ret, types, args);
+        if (name !== 'orc_set_project_flow') return pointer;
+        const raw = JSON.parse(module.UTF8ToString(Number(pointer)));
+        module._free(Number(pointer));
+        if (defect === 'missing-filament') delete raw.filament_session;
+        if (defect === 'stale-project') raw.filament_session.revisions.project -= 1;
+        if (defect === 'wrong-kind') raw.mutation.kind = 'set-toolhead-diameter';
+        if (defect === 'plate-mismatch') raw.mutation.affected_plate_ids = [];
+        const bytes = new TextEncoder().encode(JSON.stringify(raw) + '\0');
+        const result = module._malloc(bytes.length); module.HEAPU8.set(bytes, result); return result;
+      };
+      const client = createClient(async () => module);
+      expect(await client.setProjectFlow(0, 1, (await client.getHistoryStatus()).revision, presetContext))
+        .toMatchObject({ ok: false, errorCode: 'invalid_response' });
+    });
+
+  it('validates the optional native flow-only history profile projection without requiring a profile identity change', async () => {
+    const module = createMockModule(); const original = module.ccall;
+    module.ccall = (name, ret, types, args) => {
+      const pointer = original(name, ret, types, args);
+      if (name !== 'orc_history_undo') return pointer;
+      const raw = JSON.parse(module.UTF8ToString(Number(pointer))); module._free(Number(pointer));
+      delete raw.profile_snapshot.printer_picker;
+      const bytes = new TextEncoder().encode(JSON.stringify(raw) + '\0');
+      const result = module._malloc(bytes.length); module.HEAPU8.set(bytes, result); return result;
+    };
+    const client = createClient(async () => module);
+    expect((await client.setProjectFlow(0, 1, (await client.getHistoryStatus()).revision, presetContext)).ok).toBe(true);
+    await expect(client.undoHistory()).rejects.toThrow('invalid history profile snapshot');
   });
 
   it('selectPrinterWithRememberedRack returns one complete native commit receipt', async () => {

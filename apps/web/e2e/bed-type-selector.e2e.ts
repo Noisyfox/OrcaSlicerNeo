@@ -162,3 +162,42 @@ test('real bed selector uses native labels, global/local scope, keyboard and com
   await expect(global).toContainText(last);
   expect(pageErrors).toEqual([]);
 });
+
+test('flow memory uses browser preference persistence and the qualified runtime across reload', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.waitForFunction(() => Boolean((window as any).__orcaScopedConfigurationGate));
+  const execution = await page.evaluate(() => (window as any).__orcaScopedConfigurationGate.execution());
+  expect(execution.threaded).toBe(await page.evaluate(() => crossOriginIsolated));
+  if (!execution.threaded) {
+    const notice = page.getByRole('button', { name: 'Dismiss serial fallback notice' });
+    if (await notice.isVisible()) await notice.click();
+  }
+  await page.locator('#app-tab-prepare').click();
+  await page.getByTestId('preset-select').click();
+  const popup = page.locator('[data-slot="combobox-content"]');
+  await popup.getByPlaceholder('Search presets…').fill('Bambu Lab H2D');
+  await popup.getByRole('option', { name: 'Bambu Lab H2D', exact: true }).click();
+  const variant = page.getByTestId('nozzle-variant-select');
+  await expect(variant).toBeEnabled();
+  if (!(await variant.innerText()).includes('0.4')) {
+    await variant.click(); await page.getByRole('option', { name: '0.4', exact: true }).click();
+  }
+  await expect(variant).toBeEnabled();
+  await page.getByTestId('nozzle-extruder-1').click();
+  const flow = page.getByTestId('toolhead-flow-select');
+  await flow.click(); await page.getByRole('option', { name: 'High Flow', exact: true }).click();
+  await expect(flow).toContainText('High Flow'); await expect(flow).toBeEnabled();
+  const readMemory = () => page.evaluate(() => JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!).rememberedProjectFlows);
+  await expect.poll(async () => Object.values(await readMemory())).toContainEqual([1, 0]);
+  const memory = await readMemory();
+  await page.reload();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await page.getByTestId('nozzle-extruder-1').click();
+  await expect(flow).toContainText('High Flow');
+  expect(await readMemory()).toEqual(memory);
+  expect((await page.evaluate(() => (window as any).__orcaScopedConfigurationGate.execution())).threaded).toBe(execution.threaded);
+  expect(errors).toEqual([]);
+});
