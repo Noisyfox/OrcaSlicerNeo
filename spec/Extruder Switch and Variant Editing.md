@@ -9,6 +9,8 @@ has passed both independent acceptance gates in section 10.1. Integrated
 verification and independent parent acceptance are complete under section 10.
 Improved delayed
 rejection feedback after navigation remains deferred.
+The Sidebar project-flow extension in section 3.4 is accepted design work;
+implementation is pending and its remaining lifecycle decisions are open.
 
 **Scope:** Extruder and variant selection for the shared Printer and Filament
 preset editors, Project Print settings, and Objects-mode Scoped Print settings
@@ -194,6 +196,41 @@ Choice availability and a field's native mapping are distinct. A missing mapping
 for an individual field does not select another nozzle or flow to make that
 field editable. Section 5.2 governs its unavailable presentation, including when
 native default-flow normalization cannot produce a valid field mapping.
+
+### 3.4 Sidebar project-flow selection (accepted design; implementation pending)
+
+The Sidebar flow combo changes the project's actual per-extruder
+`nozzle_volume_type`, independently of the Printer editor's presentation-only
+editing flows in section 3.1. The scope includes single- and multi-extruder flow
+selection, Hybrid where offered by the native Sidebar rules, and the associated
+project and Plate filament-volume mapping updates. Manual sub-nozzle quantity
+editing, quantity badges and new device-synchronization capabilities are outside
+this extension.
+
+The accepted implementation is bridge-owned native policy matching Orca's
+Sidebar candidate rules. It does not require extracting a shared policy into
+`libslic3r` or changing Orca GUI callers. TypeScript consumes the native choices
+and does not reproduce the flow-eligibility rules. The reference is
+`Sidebar::update_presets()` in
+[Plater.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp), including its
+per-extruder candidate construction and combo selection.
+
+When candidates exist but the current project flow is unavailable, Neo must
+repair the actual project flow and associated mappings. Prefer that extruder's
+`default_nozzle_volume_type` if it is an available candidate; otherwise choose
+the first candidate in native Sidebar order. This intentionally differs from
+Orca's combo-refresh path, which displays the last candidate without writing
+that display fallback to the project.
+
+When no candidates exist, hide the flow combo and preserve the current project
+flow. Do not invent an available flow or perform an automatic repair without
+a candidate.
+
+The repair trigger points, project-open behavior, history integration and flow
+preference lifetime remain subject to clarification. This section does not yet
+authorize applying repair during project import or history restoration. Current
+delivered Sidebar layout is described by
+[Application Shell](Application%20Shell.md#native-toolhead-selection-and-editing).
 
 ## 4. Switch visibility
 

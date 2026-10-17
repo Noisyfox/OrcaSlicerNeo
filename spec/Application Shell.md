@@ -589,6 +589,11 @@ already-consumed wheel events and Ctrl-wheel/pinch zoom retain native behavior.
 
 ### Native toolhead selection and editing
 
+The accepted project-flow editing extension and candidate-repair behavior are
+specified in [Extruder Switch and Variant Editing section 3.4](Extruder%20Switch%20and%20Variant%20Editing.md#34-sidebar-project-flow-selection-accepted-design-implementation-pending).
+That extension is not implemented yet; the read-only flow controls below describe
+the currently delivered interface.
+
 - Single-nozzle printers show a read-only flow Select to the right of the
   Nozzle variant selector, using the same sidebar control presentation and
   the effective first `nozzle_volume_type` value. Flow editing remains deferred.
