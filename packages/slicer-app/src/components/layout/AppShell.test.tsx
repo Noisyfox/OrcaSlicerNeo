@@ -78,6 +78,18 @@ describe('AppShell top-level pages', () => {
     expect(device.hidden).toBe(true);
   });
 
+  it('handles horizontal-only portal lists while mounted and removes the wheel listener on unmount', async () => {
+    const container=document.createElement('div');document.body.append(container);root=createRoot(container);
+    await renderPage(container,'prepare');
+    const portal=document.createElement('div');portal.setAttribute('data-horizontal-scroll','');portal.style.overflowX='auto';
+    portal.innerHTML='<button>Nozzle</button>';document.body.append(portal);
+    Object.defineProperties(portal,{scrollWidth:{value:500},clientWidth:{value:100}});
+    const wheel=()=>{const event=new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:25});portal.firstElementChild!.dispatchEvent(event);return event;};
+    expect(wheel().defaultPrevented).toBe(true);expect(portal.scrollLeft).toBe(25);
+    await act(async()=>root!.unmount());root=undefined;portal.scrollLeft=0;
+    expect(wheel().defaultPrevented).toBe(false);expect(portal.scrollLeft).toBe(0);
+  });
+
   it('keeps a prewarming Workspace laid out but visually inaccessible', async () => {
     const container = document.createElement('div');
     document.body.append(container);

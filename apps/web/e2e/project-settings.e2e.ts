@@ -1,4 +1,8 @@
 import { test, expect } from './browser-fixture';
+import { readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { basename, resolve } from 'node:path';
+import { waitForProjectLoad } from '../../desktop/e2e/project-menu';
 
 
 test('real Project process catalogue includes object and region defaults and edits Fuzzy skin', async ({ page }) => {
@@ -92,4 +96,81 @@ test('real Project process catalogue includes object and region defaults and edi
     .toHaveAttribute('data-local-override-highlight', 'false');
   await expect(fuzzy).toContainText('All walls');
   await expect(page.getByTestId('config-error-fuzzy_skin')).toHaveCount(0);
+});
+
+
+test('real Web extruder editors use the served native variant across browser project import and Worker edits', async ({page,context})=>{
+  const fixture=process.env.ORCA_E2E_EXTRUDER_PROJECT;
+  test.skip(!fixture || process.env.VITE_SCOPED_CONFIGURATION_GATE!=='1','Requires native indexed-editor Hybrid fixture and the existing execution probe');
+  const root=resolve(import.meta.dirname,'../../..');
+  const variant=process.env.ORCA_WEB_NO_ISOLATION==='1'?'serial':'threaded';
+  const assets=new Map<string,{variant:string;served:string;deployed:string;expected:string}>();
+  // Worker bodies can be evicted from Chrome's inspector cache. Capture the
+  // production server response before forwarding those exact bytes to WASM.
+  await context.route('**/wasm/**/*',async route=>{
+    const match=new URL(route.request().url()).pathname.match(/\/wasm\/(serial|threaded)\/(orca_slice\.(?:js|wasm|data))$/);
+    if(!match)return route.continue();
+    const response=await route.fetch();const body=await response.body();
+    const deployed=await readFile(resolve(root,'apps/web/dist/wasm',variant,match[2]));
+    const native=await readFile(resolve(root,'packages/slicer-wasm/out',variant,match[2]));
+    // Production packaging strips unreachable Node branches from the loader.
+    const expected=match[2].endsWith('.js')?Buffer.from(native.toString('utf8')
+      .replace(/node:(module|worker_threads|fs|path|url|util)/g,'web-only-disabled:$1')
+      .replace(/globalThis\.process/g,'undefined')):native;
+    const hash=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
+    assets.set(match[2],{variant:match[1],served:hash(body),deployed:hash(deployed),expected:hash(expected)});
+    await route.fulfill({response,body});
+  });
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:120_000});
+  expect(await page.evaluate(()=>crossOriginIsolated)).toBe(variant==='threaded');
+  await expect(page.getByTestId('serial-fallback-status')).toHaveCount(variant==='serial'?1:0);
+  await page.locator('#app-tab-prepare').click();
+  await page.waitForFunction(()=>Boolean((window as any).__orcaScopedConfigurationGate));
+  expect(await page.evaluate(async()=>(await (window as any).__orcaScopedConfigurationGate.execution()).threaded)).toBe(variant==='threaded');
+  expect([...assets.keys()].sort()).toEqual(['orca_slice.data','orca_slice.js','orca_slice.wasm']);
+  for(const asset of assets.values()){expect(asset.variant).toBe(variant);expect(asset.served).toBe(asset.deployed);expect(asset.served).toBe(asset.expected);}
+  console.log('[extruder-web-artifacts]',JSON.stringify({variant,hashes:Object.fromEntries(assets)}));
+  const chooser=page.waitForEvent('filechooser');
+  await page.getByTestId('titlebar-menu-trigger').click();await page.getByTestId('menu-file-trigger').hover();
+  await page.locator('[data-slot="menubar-sub-content"]').hover({position:{x:8,y:8}});
+  await page.getByTestId('file-open-project').click();await (await chooser).setFiles(fixture!);
+  await waitForProjectLoad(page);
+  await expect.poll(()=>page.evaluate(()=>(window as any).__orcaE2e.projectLoadEvidence())).toMatchObject({receipt:{sourceDisplayName:basename(fixture!),sourceByteLength:(await stat(fixture!)).size,nativeResult:{ok:true,mode:'project'}}});
+  await page.getByTestId('config-page-Speed').click();
+  const selection=page.getByTestId('print-editor-selection');
+  const choices=await selection.getByRole('button').evaluateAll(buttons=>buttons.map(button=>button.getAttribute('aria-label')??''));expect(choices).toHaveLength(5);
+  const hf=choices.find(label=>/3/.test(label)&&/High Flow/.test(label))!;
+  const sf=choices.find(label=>/3/.test(label)&&/Standard/.test(label))!;
+  const hfChoice=selection.getByRole('button',{name:hf,exact:true});
+  const sfChoice=selection.getByRole('button',{name:sf,exact:true});
+  await hfChoice.click();await expect(hfChoice).toHaveAttribute('aria-pressed','true');
+  await expect(page.getByTestId('config-nozzle-icon-outer_wall_speed')).toBeVisible();
+  const speed=page.getByTestId('config-input-outer_wall_speed');const previous=await speed.inputValue();
+  await expect(page.getByTestId('config-field-outer_wall_speed')).toHaveAttribute('data-native-index','5');
+  await speed.fill('189');await speed.press('Enter');await expect(speed).toBeEnabled();await expect(speed).toHaveValue('189');
+  await sfChoice.click();
+  await expect(page.getByTestId('config-field-outer_wall_speed')).toHaveAttribute('data-native-index','4');await expect(speed).not.toHaveValue('189');
+  await hfChoice.click();
+  await page.getByTestId('history-undo').click();await expect(speed).toHaveValue(previous);await expect(hfChoice).toHaveAttribute('aria-pressed','true');
+  await expect(hfChoice).toBeEnabled();
+  await page.screenshot({path:resolve(root,`.vitest/print-extruder-strip-web-${variant}.png`)});
+  await page.getByTestId('preset-edit-printer').click();await page.getByTestId('preset-editor-page-tab-extruder').click();
+  await expect(page.getByTestId('preset-editor-flow-3')).toContainText('SF');
+  await page.getByTestId('preset-editor-flow-3').click();await page.getByRole('option',{name:'HF',exact:true}).click();
+  await expect(page.getByTestId('preset-editor-field-nozzle_diameter')).toHaveAttribute('title',/nozzle_diameter\[2\]/);
+  await expect(page.getByTestId('preset-editor-field-retraction_length')).toHaveAttribute('title',/retraction_length\[5\]/);
+  await page.getByTestId('preset-editor-close').click();await expect(hfChoice).toHaveAttribute('aria-pressed','true');
+  const rack=await page.getByTestId('filament-preset-1').getAttribute('title');
+  await page.getByTestId('filament-slot-1').click({button:'right'});await page.getByTestId('filament-edit-1').click();
+  await page.getByTestId('preset-editor-preset').click();await page.getByPlaceholder('Search presets to edit…').fill('Generic PLA');
+  await page.getByRole('option').and(page.getByTitle('Generic PLA @System',{exact:true})).click();
+  const filament=page.getByTestId('preset-editor-variant');await filament.click();await expect(page.getByRole('option')).toHaveCount(6);
+  await page.getByRole('option',{name:'Bowden Extra High Flow',exact:true}).click();
+  const ratio=page.getByTestId('preset-editor-input-filament_flow_ratio');const source=await page.getByTestId('preset-editor-source-filament_flow_ratio').textContent();
+  await ratio.fill('1.09');await ratio.press('Enter');await expect(ratio).toBeEnabled();await expect(ratio).toHaveValue('1.09');
+  await expect(page.getByTestId('preset-editor-field-filament_flow_ratio')).toHaveAttribute('title',/filament_flow_ratio\[5\]/);
+  await ratio.scrollIntoViewIfNeeded();await page.screenshot({path:resolve(root,`.vitest/extruder-step5-web-${variant}-filament.png`)});
+  await page.getByTestId('preset-editor-reset-field-filament_flow_ratio').click();await expect(ratio).toHaveValue(source!);
+  await page.getByTestId('preset-editor-close').click();await expect(page.getByTestId('filament-preset-1')).toHaveAttribute('title',rack!);
 });

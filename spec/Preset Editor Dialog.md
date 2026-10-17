@@ -358,9 +358,10 @@ and history receipts retain their existing contracts.
 Switching targets retains every accepted source-local draft, matching sidebar
 selection's draft retention. Returning to a source reads its existing overlay;
 no changes transfer between sources. Pending field submissions block switching,
-and invalid field input must be corrected before switching. A read failure
-retains the previous target and values; obsolete reads cannot publish into a
-closed or superseded editor. A successful switch clears field-local input and
+and invalid field input must be corrected before switching the preset target.
+These target-switch guards do not block setting-category navigation. A read
+failure retains the previous target and values; obsolete reads cannot publish
+into a closed or superseded editor. A successful switch clears field-local input and
 validation state while retaining a functional page when it exists on the new
 source. Undo/Redo refreshes the browsed target without following project preset
 selection. Dormant-draft persistence and existing mutation invalidation policy
@@ -429,14 +430,26 @@ custom G-code) is read-only until its control is implemented. It has no
 separate unsupported-feature notice in phase one.
 
 Where the native option is a vector of ordinary scalar values, the generic
-editor binds its first native element as one scalar control and preserves the
-remaining elements. Its displayed numeric, boolean, percent, nullable, and
+editor uses the current native selection's mapped element as one scalar control
+and preserves the remaining elements. Shared fields retain their native shared
+binding. Its displayed numeric, boolean, percent, nullable, and
 closed-enum semantics come from native element metadata; the stored option
 remains in its existing serialized vector form. Filament scalar G-code and
 notes fields use multiline text controls and are editable through that native
 element binding. Printer scalar machine G-code remains read-only.
 
-Printer Extruder pages use complete typed native Source and Effective vectors.
+Ordinary Printer, Filament and Project Print controls do not add a `Null`
+checkbox or a synthetic `Not set` choice. Native nil values remain intact in
+Source/Effective vectors; ordinary numeric controls show them as empty and
+remain editable. Only valid numeric input submits a value: clearing a numeric
+input never writes nil. Genuine boolean-value checkboxes remain available.
+The extra enable checkbox belongs only to Orca's dedicated Filament Setting
+Overrides interaction: checked enables a non-nil override, while unchecked
+uses the inherited Printer or Process value. Neo's Setting Overrides page
+remains read-only until that specialized interaction is implemented; generic
+nullable metadata does not unlock it.
+
+The Printer Extruder page uses complete typed native Source and Effective vectors.
 The internal snapshot contract requires these vectors; native no longer sends
 the previous first-element `editor_bindings` payload. The typed client derives
 generic first-element views from vectors for the Filament controls. All producers,
@@ -461,33 +474,98 @@ vectors use their own length. Short values retain native first-element
 semantics; null is preserved and an empty printable-region group remains valid.
 `configVectorElementAt` supplies the same bounded read to presentation code.
 
-Draft `set-element`, indexed `reset-field`, and indexed `reset-category` share
-that implementation for both Printer and Filament. Resets restore only the
-specified element from Source by clearing its override entry; only a vector
-with no explicitly owned entries removes its draft key. Explicit batch keys are validated before any history/state
-mutation. Scalar or structured options without an element editor are rejected.
+Every Printer, Filament and Print editor snapshot also requires
+`editor_selection` (`editorSelection` in the typed client). It contains ordered
+`choices`, a nullable `first_choice_id`, and `field_bindings` for every effective
+option. A field is `shared`, or has a `per_selection` binding array aligned with
+the choices. Each entry is `indexed` with a native vector index, or explicitly
+`unavailable`. Indexed entries reference the existing Source/Effective vectors
+and their `index_count`; the projection does not repeat values per choice.
+An unavailable entry must not be replaced by index zero. The bounded value
+fallback applies only after an indexed entry has resolved.
+
+Choices carry stable IDs within their native selection context, a native
+variant name, native drive/flow enum values, and a nullable zero-based physical
+`extruder_index` (null for Filament variants). Printer `nozzles` additionally
+carry `default_choice_id` and `initial_choice_id` for each physical nozzle;
+either can be null when it has no supported editor flow. `active_source`
+identifies the project's current Printer source. Its initial-flow hints use
+actual project flow, while other Printer sources use their native defaults.
+These are entry-time hints: ordinary receipt refreshes do not request selection
+initialization. Printer choices/defaults/mappings use the browsed effective
+configuration, including its draft, and expose SF/HF only; Hybrid normalizes
+to SF. Filament exposes its complete native variant list in native order.
+Print choices use the actual project flow and expand Hybrid into SF/HF entries.
+
+Draft `set-element`, indexed `reset-field`, and `reset-category` share that
+implementation for both Printer and Filament. A category request requires an
+explicit `fields` batch with unique option keys. Each target is either
+`{key, kind: 'indexed', index}` or `{key, kind: 'shared'}`. Indexed targets may
+resolve to different native indices in the same batch; they restore only that
+element from Source and clear its ownership, preserving other indices and their
+explicit Source-equivalent ownership. A shared target restores that entire
+shared option to its existing baseline. Selection-dependent fields require an
+index, and unavailable fields contribute no target. Native validation stages
+the complete batch on temporary configuration before history or publication;
+one changed category is one atomic, undoable operation. Invalid, duplicate,
+unsupported, out-of-range, or stale batches cannot partially reset a category.
+Scalar or structured options without an element editor reject indexed targets.
 
 Print uses `getPrintConfigEditor()` for complete typed Source/Effective vectors
 and the same range contract. It remains outside `PresetDraftRegistry`.
 `mutateNativeScopedConfig` accepts Project `set-element` (one typed value, its
-scalar type and index) and `reset-elements` (explicit unique keys and an index).
+scalar type and index) and `reset-fields` (the same explicit per-field batch).
 Both require the revision returned by the read. They retain the existing
 Project Print owner, embedded-preset materialization, configuration publication,
 and enclosing application history transaction. They do not introduce a second
 Print draft or history root. Whole-option operations remain distinct actions.
 
-This increment supplies element mechanisms only. Filament/Print variant pickers,
-per-field Extruder-to-Variant mapping, motion-mode controls, and cross-extruder
-copy remain separate work. A valid vector index is not a physical Extruder ID.
+The native contracts supply element editing, mixed-field atomic resets and
+native mapping metadata. The Printer editor consumes that metadata throughout
+its single Extruder page, motion fields, Source/Effective values, tooltips,
+search, edits, resets and ownership highlights. Category resets combine each
+current native binding with shared fields; unavailable mappings remain read-only
+and contribute no reset target. Native motion bindings retain their stride of
+two, with only the normal value presented and no Silent controls.
 
-Diameter edits reuse the native toolhead transition, including exact profile
-combination matching, and the editor follows the resulting canonical source.
-The open Extruder page remains selected through that canonical source change.
-Source, Effective, tooltips, search and history refresh all use the same page
-index. Field reset restores only that element; Extruder category reset restores
-that index across the page in one atomic history entry. Extruder field/group/tab
-highlights reflect native ownership of the selected element, including explicit
-Source-equivalent values.
+The complete selection interface is owned by
+[Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md),
+including independent editor selections and category-dependent switch visibility.
+Printer, Filament and Project Print selection are implemented. Extruder/variant
+navigation is immediate like category navigation,
+including during field submission or with invalid input; dispatched writes
+remain bound to their original fields. Opening an editor starts at the first
+selection. Printer browsing retains valid nozzle and per-nozzle editing-flow
+choices across other presets; entering the project's current Printer preset
+initializes editing flows from actual project flow. Editing-flow choices remain
+local to the editor and do not change project flow. Filament preset changes
+start at the first variant. The Filament dropdown exposes the complete ordered
+native variant list, including variants unused by the project Printer. It does
+not change rack assignments. Refreshed choices retain semantic drive/flow
+identity rather than a snapshot-local ordinal ID. Undo/Redo retains valid current selections, with
+fallbacks owned by the switch specification. Cross-extruder copy is outside
+that feature's accepted scope.
+A valid vector index is not a physical Extruder ID.
+
+The Printer switch uses sidebar-style nozzle cards with flow dropdowns
+for multiple nozzles. A single nozzle with multiple editing flows instead uses
+an ordinary variant dropdown without nozzle information; a single nozzle with
+one flow hides it. Improved rejection feedback after navigating away remains
+deferred, preserving the current category-tab feedback behavior.
+
+The accepted switch design separates diameter-editing entry points. A direct
+`nozzle_diameter` field edit changes the current Printer preset's draft while
+retaining its canonical source. Sidebar toolhead-size dropdowns retain automatic
+profile matching through its separate toolhead transaction. Editor element
+mutations write their own active or browsed source's draft even when another
+installed preset exactly matches the resulting diameters. The full boundary is owned by
+[Extruder Switch and Variant Editing](Extruder%20Switch%20and%20Variant%20Editing.md).
+
+Source, Effective, tooltips, search and history refresh use the same displayed
+field binding. Field reset restores only that element; category reset applies
+the explicit current-selection bindings and shared fields in one atomic history
+entry. Extruder field/group/tab highlights reflect native ownership of the
+selected element, including explicit Source-equivalent values.
 These typed vectors are response projections, not additional native history or
 project-file state. Both hosts retain their desktop input model; mobile support
 remains deferred.

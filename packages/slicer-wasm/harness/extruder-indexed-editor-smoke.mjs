@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages, fixtureProfileOptions } from './profile-installer.mjs';
+import { readZipEntries, replaceEntry } from './native-3mf-parser.mjs';
+import { callAsyncTask, exportGcode } from './async-task-mailbox.mjs';
 
 const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 
@@ -48,11 +51,88 @@ assert.deepEqual(values('nozzle_diameter'), [0.4, 0.4, 0.6, 0.6]);
 assert.deepEqual(values('min_layer_height'), [0.08, 0.08, 0.12, 0.12]);
 assert.deepEqual(values('max_layer_height'), [0.32, 0.32, 0.48, 0.48]);
 
+// Native mapping oracle: physical head 3 is element 2, its SF/HF variants
+// are 4/5, and normal motion columns retain the native stride of two (8/10).
+const choiceBinding = (snapshot, key, head, flow) => {
+  const selection = snapshot.editor_selection;
+  const index = selection.choices.findIndex(c => c.extruder_index === head && c.flow_type === flow);
+  assert.ok(index >= 0, `choice for head ${head}, flow ${flow}`);
+  const field = selection.field_bindings[key];
+  assert.equal(field.kind, 'per_selection', key);
+  return field.bindings[index];
+};
+const mapping = read();
+assert.equal(mapping.editor_selection.active_source, true);
+assert.deepEqual(mapping.editor_selection.choices.map(c => [c.extruder_index, c.flow_type]),
+  [[0,0],[0,1],[1,0],[1,1],[2,0],[2,1],[3,0],[3,1]]);
+for (const [flow, variant, motion] of [[0,4,8],[1,5,10]]) {
+  assert.deepEqual(choiceBinding(mapping, 'nozzle_diameter', 2, flow), {kind: 'indexed', index: 2});
+  assert.deepEqual(choiceBinding(mapping, 'retraction_length', 2, flow), {kind: 'indexed', index: variant});
+  assert.deepEqual(choiceBinding(mapping, 'machine_max_speed_e', 2, flow), {kind: 'indexed', index: motion});
+}
+assert.deepEqual(mapping.editor_selection.field_bindings.emit_machine_limits_to_gcode, {kind: 'shared'});
+assert.deepEqual(mapping.editor_selection.nozzles.map(n => [n.default_choice_id, n.initial_choice_id]),
+  Array.from({length: 4}, (_, head) => [`extruder-${head}-flow-0`, `extruder-${head}-flow-0`]));
+// Native default_filament_profile intentionally stays short on multi-nozzle printers.
+assert.equal(mapping.editor_vectors.default_filament_profile.source_values.length, 1);
+assert.equal(mapping.editor_vectors.default_filament_profile.index_count, 4);
+assert.deepEqual(choiceBinding(mapping, 'default_filament_profile', 2, 1), {kind: 'indexed', index: 2});
+assert.equal(read().revision, mapping.revision, 'selection navigation metadata is a pure read');
+
+// Browsed defaults/drafts and topology must not be borrowed from the active project.
+const inactiveName = 'Snapmaker U1 (0.4 nozzle)';
+const inactiveRead = () => must(call('orc_get_preset_draft', ['string','string'], ['printer', inactiveName]));
+const inactiveSet = (key, value) => must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({
+  history_context: editingContext, kind: 'printer', canonical_name: inactiveName, action: 'set',
+  key, value, expected_revision: inactiveRead().revision,
+})]));
+inactiveSet('default_nozzle_volume_type', 'High Flow,High Flow,Hybrid,Standard');
+let inactive = inactiveRead();
+assert.equal(inactive.editor_selection.active_source, false);
+assert.equal(inactive.editor_selection.nozzles[1].default_choice_id, 'extruder-1-flow-1');
+assert.equal(inactive.editor_selection.nozzles[1].initial_choice_id, 'extruder-1-flow-1');
+assert.equal(inactive.editor_selection.nozzles[2].default_choice_id, 'extruder-2-flow-0', 'Hybrid native default normalizes to SF');
+inactiveSet('extruder_variant_list', 'Direct Drive High Flow;Direct Drive Standard;Direct Drive Standard,Direct Drive High Flow;Direct Drive Standard');
+inactive = inactiveRead();
+assert.deepEqual(inactive.editor_selection.choices.map(c => [c.extruder_index,c.flow_type]), [[0,1],[1,0],[2,0],[2,1],[3,0]]);
+assert.equal(inactive.editor_selection.nozzles[1].default_choice_id, 'extruder-1-flow-0', 'unavailable default uses first native supported editor flow');
+assert.deepEqual(read().editor_selection, mapping.editor_selection, 'browsing another Printer does not change active context');
+// A valid choice and its physical fields survive a missing native variant map.
+inactiveSet('printer_extruder_id', '1,1,1,1,1,1,1,1');
+inactive = inactiveRead();
+assert.deepEqual(choiceBinding(inactive, 'retraction_length', 2, 1), {kind: 'unavailable'});
+assert.deepEqual(choiceBinding(inactive, 'machine_max_speed_e', 2, 0), {kind: 'unavailable'});
+assert.deepEqual(choiceBinding(inactive, 'nozzle_diameter', 2, 1), {kind: 'indexed', index: 2});
+assert.equal(inactive.editor_selection.choices.length, 5, 'missing fields do not retarget the selection');
+// Dispose test-only inactive drafts so the existing history probes stay independent.
+must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext,
+  kind: 'printer', canonical_name: inactiveName, action: 'reset-preset', expected_revision: inactive.revision })]));
+for (const index of [2,3]) {
+  const result = must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext,
+    kind: 'printer', canonical_name: inactiveName, action: 'set-element', key: 'nozzle_diameter', scalar_type: 'float',
+    index, value: 0.6, expected_revision: inactiveRead().revision })]));
+  assert.equal(result.canonical_name, inactiveName, 'inactive direct element edits retain their own source');
+  assert.equal(result.profile_snapshot.printer.name, printer, 'inactive diameter edits do not select the matching active source');
+}
+assert.deepEqual(inactiveRead().editor_vectors.nozzle_diameter.effective_values, mapping.editor_vectors.nozzle_diameter.effective_values);
+must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ history_context: editingContext,
+  kind: 'printer', canonical_name: inactiveName, action: 'reset-preset', expected_revision: inactiveRead().revision })]));
+const single = must(call('orc_get_preset_draft', ['string','string'], ['printer', 'Bambu Lab X1 Carbon 0.4 nozzle']));
+assert.equal(single.editor_selection.nozzles.length, 1, 'browsed single-head topology is independent of active four-head U1');
+assert.ok(single.editor_selection.choices.every(c => c.extruder_index === 0));
+mutate({action: 'set', key: 'default_nozzle_volume_type', value: 'High Flow,High Flow,Hybrid,Standard'});
+const activeDefaults = read();
+assert.equal(activeDefaults.editor_selection.nozzles[1].default_choice_id, 'extruder-1-flow-1');
+assert.equal(activeDefaults.editor_selection.nozzles[1].initial_choice_id, 'extruder-1-flow-0', 'active source initializes from project actual SF, not the browsed default HF');
+mutate({action: 'reset-field', key: 'default_nozzle_volume_type'});
+
 // The sidebar Multi. command and editor must agree after restoring a diameter.
-function diameter(value) {
-  return must(call('orc_set_toolhead_diameter', ['string'], [JSON.stringify({ history_context: editingContext,
-    index: 2, diameter: value, expected_revision: read().revision,
+function diameter(value, index = 2) {
+  const result = must(call('orc_set_toolhead_diameter', ['string'], [JSON.stringify({ history_context: editingContext,
+    index, diameter: value, expected_revision: read().revision,
   })]));
+  printer = result.profile_snapshot.printer.name;
+  return result;
 }
 const diameterChanged = diameter(0.4);
 assert.equal(read().modified, true);
@@ -134,7 +214,7 @@ const resetKeys = ['nozzle_diameter', 'nozzle_volume', 'extruder_printable_heigh
   'retract_restart_extra_toolchange', 'long_retractions_when_cut', 'retraction_distances_when_cut']
   .filter(key => Object.hasOwn(initial.source_values, key));
 for (const key of resetKeys) assert.ok(initial.editor_vectors[key], `native typed vector for ${key}`);
-mutate({ action: 'reset-category', keys: resetKeys, index: 2 });
+mutate({ action: 'reset-category', fields: resetKeys.map(key => ({key, kind: 'indexed', index: 2})) });
 assert.equal(values('retraction_length')[0], 1.1, 'category reset preserves the other Extruder');
 assert.equal(values('retraction_length')[2], 0.8);
 assert.deepEqual(values('extruder_offset')[2], initial.editor_vectors.extruder_offset.source_values[2]);
@@ -144,16 +224,88 @@ assert.deepEqual(values('extruder_printable_area')[2], polygon);
 must(call('orc_history_redo'));
 assert.deepEqual(values('extruder_printable_area'), []);
 
-// A diameter combination matching another canonical profile must publish that
-// source and its vectors in the same single-history mutation receipt.
+// Direct editor diameter changes retain their current canonical source even
+// when the effective combination exactly matches another installed preset.
+const directSource = printer;
 set('nozzle_diameter', 'float', 2, 0.4);
 restoreContext('orc_history_undo');
 restoreContext('orc_history_redo');
 set('nozzle_diameter', 'float', 3, 0.4);
 restoreContext('orc_history_undo');
 restoreContext('orc_history_redo');
-assert.equal(printer, 'Snapmaker U1 (0.4 nozzle)');
+assert.equal(printer, directSource);
+assert.equal(must(call('orc_get_preset_snapshot')).printer.name, directSource);
 assert.deepEqual(values('nozzle_diameter'), [0.4, 0.4, 0.4, 0.4]);
+assert.deepEqual(read().editor_vectors.nozzle_diameter.override_values, [null,null,{value: 0.4},{value: 0.4}]);
+// The separate sidebar command still matches canonical Printer profiles.
+mutate({action: 'reset-field', key: 'nozzle_diameter'});
+diameter(0.4, 2);
+const sidebarMatch = diameter(0.4, 3);
+assert.equal(printer, 'Snapmaker U1 (0.4 nozzle)');
+assert.equal(sidebarMatch.mutation.history_entry_delta, 1);
+restoreContext('orc_history_undo');
+assert.equal(must(call('orc_get_preset_snapshot')).printer.name, directSource);
+restoreContext('orc_history_redo');
+assert.equal(must(call('orc_get_preset_snapshot')).printer.name, printer);
+
+// One native category operation can mix T3 HF's physical/variant/motion indices
+// and shared fields. Explicit Source-equal ownership at other bindings survives.
+const mixedBase = read();
+const nativeValue = (snapshot, key, index) => {
+  const values = snapshot.editor_vectors[key].source_values;
+  return values[index < values.length ? index : 0];
+};
+const mappedField = (snapshot, key, head, flow) => ({key, ...choiceBinding(snapshot, key, head, flow)});
+const mixedFields = ['nozzle_diameter','retraction_length','machine_max_speed_e'].map(key => mappedField(mixedBase,key,2,1));
+mixedFields.push({key: 'emit_machine_limits_to_gcode', kind: 'shared'});
+assert.deepEqual(mixedFields.map(field => field.index ?? null), [2,5,10,null]);
+set('nozzle_diameter','float',1,nativeValue(mixedBase,'nozzle_diameter',1));
+set('nozzle_diameter','float',2,0.5);
+set('retraction_length','float',0,nativeValue(mixedBase,'retraction_length',0));
+set('retraction_length','float',5,1.9);
+set('machine_max_speed_e','float',8,nativeValue(mixedBase,'machine_max_speed_e',8));
+set('machine_max_speed_e','float',10,nativeValue(mixedBase,'machine_max_speed_e',10)+1);
+mutate({action:'set',key:'emit_machine_limits_to_gcode',value:mixedBase.source_values.emit_machine_limits_to_gcode === '0' ? '1' : '0'});
+const mixedBefore = read();
+const mixedHistory = call('orc_history_status');
+for (const body of [
+  {fields: []},
+  {fields: [...mixedFields,{key:'not_a_native_option',kind:'shared'}]},
+  {fields: [...mixedFields,mixedFields[0]]},
+  {fields: [...mixedFields.slice(0,2),{key:'machine_max_speed_e',kind:'indexed',index:16}]},
+  {fields: [mixedFields[0],{key:'emit_machine_limits_to_gcode',kind:'indexed',index:0}]},
+  {fields: [mixedFields[0],{key:'retraction_length',kind:'shared'}]},
+  {fields: [mixedFields[0],{key:'retraction_length',kind:'indexed',index:-1}]},
+  {fields: [mixedFields[0],{key:'retraction_length',kind:'indexed',index:1.5}]},
+  {fields: [mixedFields[0],{key:'emit_machine_limits_to_gcode',kind:'shared',index:0}]},
+  {fields: mixedFields,expected_revision: mixedBefore.revision-1},
+  {keys: ['nozzle_diameter'],index:2},
+]) {
+  assert.equal(mutate({action:'reset-category',...body},false).ok,false,JSON.stringify(body));
+  assert.deepEqual(read(),mixedBefore,'invalid batch cannot partially publish values or ownership');
+  assert.deepEqual(call('orc_history_status'),mixedHistory,'invalid batch adds no history');
+}
+mutate({action:'reset-category',fields:mixedFields});
+const mixedAfter = read();
+assert.equal(call('orc_history_status').undoEntries.length,mixedHistory.undoEntries.length+1);
+assert.equal(mixedAfter.canonical_name,mixedBefore.canonical_name);
+for (const field of mixedFields) {
+  if (field.kind === 'shared') {
+    assert.equal(mixedAfter.effective_values[field.key],mixedBase.source_values[field.key]);
+    assert.equal(Object.hasOwn(mixedAfter.overrides,field.key),false); continue;
+  }
+  const before = mixedBefore.editor_vectors[field.key], after = mixedAfter.editor_vectors[field.key];
+  for (let index=0; index<after.index_count; ++index) {
+    assert.deepEqual(after.override_values[index],index === field.index ? null : before.override_values[index]);
+    assert.deepEqual(after.effective_values[index],index === field.index ? nativeValue(mixedBase,field.key,index) : before.effective_values[index]);
+  }
+}
+restoreContext('orc_history_undo');
+assert.deepEqual(read().overrides,mixedBefore.overrides,'one Undo restores the whole mixed batch');
+assert.deepEqual(read().effective_values,mixedBefore.effective_values);
+restoreContext('orc_history_redo');
+assert.deepEqual(read().overrides,mixedAfter.overrides);
+assert.deepEqual(read().effective_values,mixedAfter.effective_values);
 
 // Variant counts are independent of physical extruder counts; U1 stores SF/HF columns.
 assert.equal(initial.editor_vectors.nozzle_diameter.index_count, 4);
@@ -167,6 +319,13 @@ function filamentMutate(body, accept = true) {
   return accept ? must(result) : result;
 }
 const baseFilament = readFilament();
+assert.deepEqual(baseFilament.editor_selection.choices.map(c => c.variant), [
+  'Direct Drive Standard', 'Direct Drive High Flow', 'Direct Drive Extra High Flow',
+  'Bowden Standard', 'Bowden High Flow', 'Bowden Extra High Flow',
+], 'all native Filament variants remain available, including Bowden and XHF unused by U1');
+assert.ok(baseFilament.editor_selection.choices.every(c => c.extruder_index === null));
+assert.deepEqual(baseFilament.editor_selection.field_bindings.filament_flow_ratio.bindings,
+  Array.from({length: 6}, (_, index) => ({kind: 'indexed', index})));
 const fi = baseFilament.editor_vectors.filament_flow_ratio.index_count - 1;
 assert.ok(fi > 0, 'native Filament has multiple variants');
 filamentMutate({ action: 'set-element', key: 'filament_flow_ratio', scalar_type: 'float', index: 0, value: 1.01 });
@@ -175,15 +334,47 @@ filamentMutate({ action: 'set-element', key: 'filament_retraction_length', scala
 assert.deepEqual(readFilament().editor_vectors.filament_retraction_length.override_values[fi], {value: null}, 'native nil is explicit ownership, distinct from sparse inheritance');
 filamentMutate({ action: 'set-element', key: 'filament_retraction_length', scalar_type: 'float', index: fi, value: 1.3 });
 const beforeInvalidReset = readFilament();
-assert.equal(filamentMutate({ action: 'reset-category', keys: ['filament_flow_ratio', 'filament_vendor'], index: fi }, false).ok, false);
+assert.equal(filamentMutate({ action: 'reset-category', fields: [{key: 'filament_flow_ratio', kind: 'indexed', index: fi}, {key: 'filament_vendor', kind: 'indexed', index: fi}] }, false).ok, false);
 assert.deepEqual(readFilament(), beforeInvalidReset, 'invalid batch resets leave all elements and history unchanged');
-filamentMutate({ action: 'reset-category', keys: ['filament_flow_ratio', 'filament_retraction_length'], index: fi });
+filamentMutate({ action: 'reset-category', fields: ['filament_flow_ratio', 'filament_retraction_length'].map(key => ({key, kind: 'indexed', index: fi})) });
 assert.equal(readFilament().editor_vectors.filament_flow_ratio.effective_values[0], 1.01);
 assert.equal(readFilament().editor_vectors.filament_flow_ratio.effective_values[fi], baseFilament.editor_vectors.filament_flow_ratio.source_values[fi]);
 assert.equal(readFilament().editor_vectors.filament_retraction_length.effective_values[fi], null, 'indexed reset restores nullable native source');
 must(call('orc_history_undo'));
 assert.equal(readFilament().editor_vectors.filament_flow_ratio.effective_values[fi], 1.02);
 must(call('orc_history_redo'));
+
+// Filament batches can reset different variant elements together with a
+// shared field without replacing the shared native draft owner.
+filamentMutate({action:'set-element',key:'filament_flow_ratio',scalar_type:'float',index:0,value:baseFilament.editor_vectors.filament_flow_ratio.source_values[0]});
+filamentMutate({action:'set-element',key:'filament_flow_ratio',scalar_type:'float',index:fi-1,value:1.08});
+filamentMutate({action:'set-element',key:'filament_retraction_length',scalar_type:'float',index:fi,value:1.4});
+filamentMutate({action:'set',key:'filament_vendor',value:'Batch vendor'});
+const filamentMixedBefore = readFilament(), filamentMixedHistory = call('orc_history_status');
+const filamentFields = [{key:'filament_flow_ratio',kind:'indexed',index:fi-1},
+  {key:'filament_retraction_length',kind:'indexed',index:fi},{key:'filament_vendor',kind:'shared'}];
+for (const fields of [ [...filamentFields,{key:'unknown_option',kind:'shared'}],
+  [filamentFields[0],{key:'filament_retraction_length',kind:'indexed',index:999}],
+  [...filamentFields,filamentFields[0]],
+]) {
+  assert.equal(filamentMutate({action:'reset-category',fields},false).ok,false);
+  assert.deepEqual(readFilament(),filamentMixedBefore);
+  assert.deepEqual(call('orc_history_status'),filamentMixedHistory);
+}
+const filamentMixedReceipt = filamentMutate({action:'reset-category',fields:filamentFields});
+assert.equal(filamentMixedReceipt.history_entry_delta,1);
+assert.equal(call('orc_history_status').undoEntries.length,filamentMixedHistory.undoEntries.length+1);
+const filamentMixedAfter = readFilament();
+assert.equal(filamentMixedAfter.canonical_name,filamentMixedBefore.canonical_name);
+assert.deepEqual(filamentMixedAfter.editor_vectors.filament_flow_ratio.override_values[0],
+  {value:baseFilament.editor_vectors.filament_flow_ratio.source_values[0]},'other Filament variant retains explicit Source-equal ownership');
+assert.equal(filamentMixedAfter.editor_vectors.filament_flow_ratio.override_values[fi-1],null);
+assert.equal(filamentMixedAfter.editor_vectors.filament_retraction_length.override_values[fi],null);
+assert.equal(filamentMixedAfter.effective_values.filament_vendor,baseFilament.source_values.filament_vendor);
+must(call('orc_history_undo'));
+assert.deepEqual(readFilament().overrides,filamentMixedBefore.overrides);
+must(call('orc_history_redo'));
+assert.deepEqual(readFilament().overrides,filamentMixedAfter.overrides);
 
 const readPrint = () => must(call('orc_get_print_config_editor'));
 const printHistoryContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
@@ -200,6 +391,32 @@ function printMutate(body, accept = true) {
   return result;
 }
 const basePrint = readPrint();
+assert.equal(Object.hasOwn(basePrint.source_values,'curr_bed_type'),false,'native Project storage is outside the Print owner');
+assert.equal(Object.hasOwn(basePrint.effective_values,'curr_bed_type'),false);
+assert.equal(Object.hasOwn(basePrint.editor_selection.field_bindings,'curr_bed_type'),false);
+assert.equal(Object.hasOwn(basePrint.source_values,'print_sequence'),true,'Print owns print_sequence');
+assert.deepEqual(basePrint.editor_selection.field_bindings.print_sequence,{kind:'shared'});
+// Audit the current renderer allowlist against Orca's Project ownership
+// catalogue and actual native exposure. Routing keys have no generic scope.
+const layoutSource=await readFile(resolve(root,'packages/slicer-app/src/components/workspace/settings/printSettingsLayout.ts'),'utf8');
+const projectPages=layoutSource.split('export const PRINT_SETTINGS_PAGES:')[1].split('// TabPrintModel')[0];
+const visibleProjectKeys=[...new Set([...projectPages.matchAll(/"([a-z][a-z0-9_]*)"/g)].map(match=>match[1]))];
+const bundleSource=await readFile(resolve(root,'packages/slicer-wasm/cpp/src/libslic3r/PresetBundle.cpp'),'utf8');
+const projectOptions=[...bundleSource.split('static std::vector<std::string> s_project_options {')[1].split('};')[0].matchAll(/"([a-z][a-z0-9_]*)"/g)].map(match=>match[1]);
+const catalogue=call('orc_get_option_metadata');
+const visibleProjectStorage=visibleProjectKeys.filter(key=>projectOptions.includes(key) && catalogue[key]?.scopes?.includes('project'));
+assert.deepEqual(visibleProjectStorage,[],'current Project pages cannot mix native project_config and Print owners');
+for(const key of visibleProjectKeys.filter(key=>/^(?:outer_wall|inner_wall|sparse_infill|internal_solid_infill|top_surface|bottom_surface)_filament_id$|^wipe_tower_filament$/.test(key)))
+  assert.equal(catalogue[key]?.scopes?.includes('project'),false,`${key} routing is not generic Project configuration`);
+const otherSequence=basePrint.source_values.print_sequence==='by layer'?'by object':'by layer';
+printMutate({operation:'set',key:'print_sequence',value:otherSequence});
+assert.equal(readPrint().effective_values.print_sequence,otherSequence,'shared Print setting keeps whole-option semantics');
+printMutate({operation:'reset',key:'print_sequence'});
+assert.equal(readPrint().effective_values.print_sequence,basePrint.source_values.print_sequence);
+assert.deepEqual(basePrint.editor_selection.choices.map(c => [c.extruder_index,c.flow_type]), [[0,0],[1,0],[2,0],[3,0]],
+  'Print choices follow actual project SF flow, independent of available Printer editing HF');
+assert.deepEqual(choiceBinding(basePrint, 'outer_wall_speed', 2, 0), {kind: 'indexed', index: 4});
+assert.deepEqual(basePrint.editor_selection.field_bindings.layer_height, {kind: 'shared'});
 const pi = basePrint.editor_vectors.outer_wall_speed.index_count - 1;
 assert.ok(pi > 0, 'Print preserves all variant columns');
 // Whole serialized values remain a distinct operation; element writes expand a short vector using its fallback.
@@ -222,11 +439,11 @@ for (const body of [
   { operation: 'set-element', key: 'outer_wall_speed', scalar_type: 'float', index: pi + 1, value: 1 },
   { operation: 'set-element', key: 'outer_wall_speed', scalar_type: 'bool', index: pi, value: false },
   { operation: 'set-element', key: 'small_perimeter_speed', scalar_type: 'float_or_percent', index: pi, value: { value: -1, percent: true } },
-  { operation: 'reset-elements', keys: ['outer_wall_speed', 'layer_height'], index: pi },
-  { operation: 'reset-elements', keys: ['outer_wall_speed'], index: pi, expected_revision: 0 },
+  { operation: 'reset-fields', fields: [{key: 'outer_wall_speed', kind: 'indexed', index: pi}, {key: 'layer_height', kind: 'indexed', index: pi}] },
+  { operation: 'reset-fields', fields: [{key: 'outer_wall_speed', kind: 'indexed', index: pi}], expected_revision: 0 },
 ]) assert.equal(printMutate(body, false).ok, false, JSON.stringify(body));
 assert.deepEqual(readPrint(), printBeforeRejections, 'Print rejections do not change owner, vectors or history');
-printMutate({ operation: 'reset-elements', keys: ['outer_wall_speed', 'enable_overhang_speed', 'small_perimeter_speed'], index: pi });
+printMutate({ operation: 'reset-fields', fields: ['outer_wall_speed', 'enable_overhang_speed', 'small_perimeter_speed'].map(key => ({key, kind: 'indexed', index: pi})) });
 assert.equal(readPrint().editor_vectors.outer_wall_speed.override_values[pi], null);
 assert.deepEqual(readPrint().editor_vectors.outer_wall_speed.override_values[0], {value: 100});
 assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[0], 100);
@@ -235,5 +452,263 @@ must(call('orc_history_undo'));
 assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[pi], 175);
 must(call('orc_history_redo'));
 assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[pi], basePrint.editor_vectors.outer_wall_speed.source_values[pi]);
-console.log('PASS generic Printer/Filament/Print vectors, valid ranges, typed edits, atomic indexed reset and history');
+// Project Print retains its native owner/history root for a mixed batch.
+printMutate({operation:'set-element',key:'outer_wall_speed',scalar_type:'float',index:0,value:basePrint.editor_vectors.outer_wall_speed.source_values[0]});
+printMutate({operation:'set-element',key:'outer_wall_speed',scalar_type:'float',index:pi,value:181});
+printMutate({operation:'set-element',key:'enable_overhang_speed',scalar_type:'bool',index:1,value:false});
+printMutate({operation:'set',key:'layer_height',value:'0.17'});
+const printMixedBefore = readPrint(), printMixedHistory = call('orc_history_status');
+const printFields = [{key:'outer_wall_speed',kind:'indexed',index:pi},
+  {key:'enable_overhang_speed',kind:'indexed',index:1},{key:'layer_height',kind:'shared'}];
+for (const body of [
+  {fields: [...printFields,{key:'not_a_native_option',kind:'shared'}]},
+  {fields: [printFields[0],{key:'enable_overhang_speed',kind:'indexed',index:999}]},
+  {fields: [...printFields,printFields[0]]},
+  {fields: [printFields[0],{key:'outer_wall_speed',kind:'shared'}]},
+  {fields: [printFields[0],{key:'curr_bed_type',kind:'shared'}]},
+  {fields: printFields,expected_revision:printMixedBefore.revision-1},
+  {fields: []},
+  {fields: [printFields[0],{key:'enable_overhang_speed',kind:'indexed',index:-1}]},
+  {operation:'reset-elements',keys:['outer_wall_speed'],index:pi},
+]) {
+  assert.equal(printMutate({operation:'reset-fields',...body},false).ok,false,JSON.stringify(body));
+  assert.deepEqual(readPrint(),printMixedBefore,'invalid Print batch leaves owner/values/ownership/revision unchanged');
+  assert.deepEqual(call('orc_history_status'),printMixedHistory);
+}
+printMutate({operation:'reset-fields',fields:printFields});
+const printMixedAfter = readPrint();
+assert.equal(printMixedAfter.canonical_name,printMixedBefore.canonical_name,'Print reset retains its existing native project preset');
+assert.equal(call('orc_history_status').undoEntries.length,printMixedHistory.undoEntries.length+1);
+assert.deepEqual(printMixedAfter.editor_vectors.outer_wall_speed.override_values[0],
+  {value:basePrint.editor_vectors.outer_wall_speed.source_values[0]});
+for (const field of printFields.filter(f => f.kind === 'indexed')) {
+  const before=printMixedBefore.editor_vectors[field.key],after=printMixedAfter.editor_vectors[field.key];
+  assert.deepEqual(after.override_values,before.override_values.map((entry,index) => index === field.index ? null : entry));
+}
+assert.equal(printMixedAfter.effective_values.layer_height,basePrint.source_values.layer_height);
+must(call('orc_history_undo'));
+assert.deepEqual(readPrint().editor_vectors,printMixedBefore.editor_vectors,'one Undo restores the entire Print batch');
+assert.deepEqual(readPrint().effective_values,printMixedBefore.effective_values);
+must(call('orc_history_redo'));
+assert.deepEqual(readPrint().editor_vectors,printMixedAfter.editor_vectors);
+assert.deepEqual(readPrint().effective_values,printMixedAfter.effective_values);
+// Load actual project HF/Hybrid context through Orca's standard 3MF reader,
+// rather than a production test hook or a mock of the mapping function.
+const exported = must(call('orc_export_project'));
+const archiveBytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length));
+Module._free(Number(exported.bytes_ptr));
+const settingsName = 'Metadata/project_settings.config';
+const settingsEntry = readZipEntries(archiveBytes).find(entry => entry.name === settingsName);
+assert.ok(settingsEntry);
+const settings = JSON.parse(new TextDecoder().decode(settingsEntry.content));
+settings.nozzle_volume_type = ['Standard', 'High Flow', 'Hybrid', 'Standard'];
+settings.extruder_max_nozzle_count = ['1','1','2','1'];
+const hybridArchive = replaceEntry(archiveBytes, settingsName, JSON.stringify(settings));
+// Optional real-host fixture: the same native-exported archive and project
+// flow context validated below, without a production injection mechanism.
+const fixtureArgument=process.argv.indexOf('--hybrid-fixture');
+if(fixtureArgument>=0) await writeFile(resolve(root,process.argv[fixtureArgument+1]),hybridArchive);
+const archivePointer = Number(Module._malloc(hybridArchive.length));
+Module.HEAPU8.set(hybridArchive, archivePointer);
+try { must(call('orc_load_project', ['pointer','number','number','string'], [archivePointer, hybridArchive.length, 0, 'U1-Hybrid-mapping.3mf'])); }
+finally { Module._free(archivePointer); }
+const loadedProfile = must(call('orc_get_preset_snapshot'));
+printer = loadedProfile.printer.name;
+const hybridPrinter = read();
+assert.deepEqual(hybridPrinter.editor_selection.nozzles.map(n => n.initial_choice_id),
+  ['extruder-0-flow-0','extruder-1-flow-1','extruder-2-flow-0','extruder-3-flow-0'], 'actual Hybrid project flow initializes Printer as SF');
+assert.equal(hybridPrinter.editor_selection.choices.length, 8, 'project Hybrid does not add an editor parameter group');
+const hybridPrint = readPrint();
+assert.deepEqual(hybridPrint.editor_selection.choices.map(c => [c.extruder_index,c.flow_type]),
+  [[0,0],[1,1],[2,0],[2,1],[3,0]], 'Print follows actual HF/Hybrid project context');
+assert.deepEqual(choiceBinding(hybridPrint, 'outer_wall_speed', 2, 0), {kind: 'indexed', index: 4});
+assert.deepEqual(choiceBinding(hybridPrint, 'outer_wall_speed', 2, 1), {kind: 'indexed', index: 5});
+assert.deepEqual(choiceBinding(hybridPrinter, 'machine_max_speed_e', 2, 1), {kind: 'indexed', index: 10});
+assert.deepEqual(readFilament().editor_selection.choices.map(c => c.variant), baseFilament.editor_selection.choices.map(c => c.variant),
+  'Filament choices do not depend on project HF/Hybrid context');
+// Scoped native owners use nullable ModelConfig slots, never Project's
+// explicit-owned-null sidecar. No UI or JS index inference participates here.
+const scopedStructure = must(call('orc_get_model_structure'));
+const scopeObject = {scope:'object',id:String(scopedStructure.objects[0].id)};
+const scopePart = {scope:'part',id:String(scopedStructure.objects[0].volumes[0].id)};
+const scopeRead = (targets=[scopeObject]) => must(call('orc_get_scoped_config_editor',['string'],[JSON.stringify({version:1,targets})]));
+const scopeRaw = () => must(call('orc_get_native_scoped_config')).native_scoped_config.snapshot;
+const scopeMutate = (targets, body, accept=true) => {
+  const beforeHistory=call('orc_history_status');
+  const tx=accept ? must(call('orc_history_begin',['string','string','string','string'],
+    ['Scoped indexed operation','project',JSON.stringify(editingContext),''])) : null;
+  const result=call('orc_mutate_native_scoped_config',['string'],[JSON.stringify({version:1,targets,
+    expected_revision:scopeRead([targets[0]]).revision,...body})]);
+  if(accept){must(result);const committed=call('orc_history_commit',['string','string'],[tx.transactionId,JSON.stringify(editingContext)]);
+    assert.equal(committed.status.undoEntries.length,beforeHistory.undoEntries.length+1,'one native scoped history entry');}
+  return result;
+};
+const scopeSet=(targets,index,value,key='outer_wall_speed',scalar_type='float')=>scopeMutate(targets,{operation:'set-element',key,index,value,scalar_type});
+const scopeValues=(target=scopeObject,key='outer_wall_speed')=>scopeRead([target]).targets[0].editor_vectors[key];
+const initialScoped=scopeRead();
+assert.deepEqual(initialScoped.editor_selection.choices,hybridPrint.editor_selection.choices,'same actual-project-flow choices');
+assert.deepEqual(initialScoped.editor_selection.field_bindings.outer_wall_speed,hybridPrint.editor_selection.field_bindings.outer_wall_speed,'same native mapped indices');
+assert.equal(Object.hasOwn(initialScoped,'canonical_name'),false,'a model owner is not a Print preset draft');
+assert.deepEqual(choiceBinding(initialScoped,'outer_wall_speed',2,0),{kind:'indexed',index:4});
+assert.deepEqual(choiceBinding(initialScoped,'outer_wall_speed',2,1),{kind:'indexed',index:5});
+assert.equal(initialScoped.targets[0].editor_vectors.outer_wall_speed.nullable,true);
+assert.equal(initialScoped.targets[0].local_keys.includes('outer_wall_speed'),false);
+const sharedVectors=Object.keys(initialScoped.targets[0].editor_vectors).filter(key=>initialScoped.editor_selection.field_bindings[key].kind==='shared');
+for(const key of sharedVectors) assert.equal(typeof initialScoped.targets[0].source_scopes.shared[key],'string',key);
+// Explicit Source-equal local values own only the requested slot.
+const baseScopeValues=scopeValues();
+const sourceAt=index=>baseScopeValues.source_values[index<baseScopeValues.source_values.length?index:0];
+scopeSet([scopeObject],4,sourceAt(4));
+assert.deepEqual(scopeValues().override_values.map((entry,index)=>entry===null?null:index),[null,null,null,null,4,null,null,null]);
+scopeSet([scopePart],5,51);
+let partRead=scopeRead([scopePart]).targets[0];
+assert.equal(partRead.source_scopes.indexed.outer_wall_speed[4],'object');
+assert.notEqual(partRead.source_scopes.indexed.outer_wall_speed[5],'object','parent raw key does not own its nil slots');
+assert.deepEqual(partRead.editor_vectors.outer_wall_speed.override_values[5],{value:51});
+scopeSet([scopeObject],5,61);
+assert.equal(scopeValues(scopePart).effective_values[5],51,'local Part value survives changed Object');
+scopeMutate([scopePart],{operation:'reset-fields',fields:[{key:'outer_wall_speed',kind:'indexed',index:5}]});
+scopeSet([scopeObject],5,62);
+assert.equal(scopeValues(scopePart).effective_values[5],62,'reset Part slot follows later Object edits');
+scopeSet([scopeObject],4,null);
+assert.equal(scopeRead([scopePart]).targets[0].source_scopes.indexed.outer_wall_speed[4],initialScoped.targets[0].source_scopes.indexed.outer_wall_speed[4]);
+// Native singleton is all-variant ownership. A non-singleton short vector is
+// sparse: normalize only already-owned entries, extending other slots with nil.
+scopeMutate([scopeObject],{operation:'set',key:'outer_wall_speed',value:'33'});
+assert.ok(scopeValues().override_values.every(entry=>entry?.value===33));
+scopeSet([scopeObject],4,34);
+assert.deepEqual(scopeValues().override_values,Array.from({length:8},(_,index)=>({value:index===4?34:33})));
+scopeMutate([scopeObject],{operation:'reset-fields',fields:[{key:'outer_wall_speed',kind:'indexed',index:4}]});
+assert.equal(scopeValues().override_values[4],null);
+assert.equal(scopeValues().override_values[7].value,33);
+scopeMutate([scopeObject],{operation:'set',key:'outer_wall_speed',value:'11,nil'});
+scopeSet([scopeObject],5,15);
+assert.deepEqual(scopeValues().override_values,[{value:11},null,null,null,null,{value:15},null,null]);
+scopeMutate([scopeObject],{operation:'set',key:'outer_wall_speed',value:'nil,nil'});
+assert.equal(scopeRead().targets[0].local_keys.includes('outer_wall_speed'),false,'legacy all-nil raw vectors are not dirty');
+assert.ok(scopeValues().override_values.every(entry=>entry===null));
+scopeSet([scopeObject],4,44);
+assert.deepEqual(scopeValues().override_values,[null,null,null,null,{value:44},null,null,null]);
+// Shared-vector source provenance, when the exposed native catalogue contains
+// such a field, follows whole-option composition rather than slot fallback.
+if(sharedVectors.length){
+  const key=sharedVectors[0], value=initialScoped.targets[0].effective_values[key];
+  scopeMutate([scopeObject],{operation:'set',key,value});
+  assert.equal(scopeRead([scopePart]).targets[0].source_scopes.shared[key],'object');
+  scopeMutate([scopeObject],{operation:'reset',key});
+}
+must(call('orc_add_shape',['string','string'],['Cube','second scoped target']));
+const secondObject=must(call('orc_get_model_structure')).objects[1];
+const objectTargets=[scopeObject,{scope:'object',id:String(secondObject.id)}];
+const partTargets=[scopePart,{scope:'part',id:String(secondObject.volumes[0].id)}];
+scopeMutate([objectTargets[0]],{operation:'set',key:'wall_loops',value:'3'});
+scopeMutate([objectTargets[1]],{operation:'set',key:'wall_loops',value:'5'});
+assert.deepEqual(scopeRead(partTargets).targets.map(target=>target.source_values.wall_loops),['3','5'],'each Part retains its own Object Source');
+assert.ok(scopeRead(partTargets).targets.every(target=>target.source_scopes.shared.wall_loops==='object'));
+scopeSet([objectTargets[0]],0,21);scopeSet([objectTargets[1]],1,22);
+assert.deepEqual(scopeRead(partTargets).targets.map(target=>target.source_scopes.indexed.outer_wall_speed.slice(0,2)),
+  [['object',initialScoped.targets[0].source_scopes.indexed.outer_wall_speed[1]],[initialScoped.targets[0].source_scopes.indexed.outer_wall_speed[0],'object']]);
+scopeMutate(objectTargets,{operation:'reset',key:'outer_wall_speed'});
+for(const targets of [objectTargets,partTargets]){
+  scopeSet(targets,4,73); scopeSet(targets,5,false,'enable_overhang_speed','bool');
+  scopeSet(targets,4,{value:45,percent:true},'small_perimeter_speed','float_or_percent');
+  scopeMutate(targets,{operation:'set',key:'wall_loops',value:'4'});
+  const before=scopeRead(targets), rawBefore=scopeRaw(), historyBefore=call('orc_history_status');
+  const fields=[{key:'outer_wall_speed',kind:'indexed',index:4},{key:'enable_overhang_speed',kind:'indexed',index:5},
+    {key:'small_perimeter_speed',kind:'indexed',index:4},{key:'wall_loops',kind:'shared'}];
+  for(const body of [
+    {operation:'reset-fields',fields:[...fields,{key:'layer_height',kind:'indexed',index:4}]},
+    {operation:'reset-fields',fields:[...fields,{key:'not_a_native_option',kind:'shared'}]},
+    {operation:'reset-fields',fields,targets:[...targets,{scope:targets[0].scope,id:'999999999'}]},
+    {operation:'reset-fields',fields,expected_revision:before.revision-1},
+    {operation:'set-element',key:'outer_wall_speed',index:8,scalar_type:'float',value:1},
+    {operation:'set-element',key:'outer_wall_speed',index:4,scalar_type:'bool',value:true},
+    {operation:'set-element',key:'outer_wall_speed',index:4,scalar_type:'float',value:-1},
+    {operation:'reset-fields',fields,targets:[targets[0],{scope:'plate',id:'plate-1'}]},
+  ]){
+    assert.equal(scopeMutate(targets,body,false).ok,false,JSON.stringify(body));
+    assert.deepEqual(scopeRead(targets),before,'full rejected batch leaves typed state and revision unchanged');
+    assert.deepEqual(scopeRaw(),rawBefore);assert.deepEqual(call('orc_history_status'),historyBefore);
+  }
+  scopeMutate(targets,{operation:'reset-fields',fields});
+  const after=scopeRead(targets);
+  assert.ok(after.targets.every(t=>!t.local_keys.includes('wall_loops') && !t.local_keys.includes('outer_wall_speed')));
+  must(call('orc_history_undo'));assert.deepEqual(scopeRead(targets).targets,before.targets);
+  must(call('orc_history_redo'));assert.deepEqual(scopeRead(targets).targets,after.targets);
+}
+// Read rejection also has no mutation/history side effects.
+for(const targets of [[],[scopeObject,scopePart],[{scope:'plate',id:'plate-1'}],[scopeObject,scopeObject]])
+  assert.equal(call('orc_get_scoped_config_editor',['string'],[JSON.stringify({version:1,targets})]).ok,false);
+// Source ownership is stable when Project changes after a sparse Object edit.
+scopeSet([scopeObject],4,44);
+printMutate({operation:'set-element',key:'outer_wall_speed',index:5,scalar_type:'float',value:null});
+assert.deepEqual(readPrint().editor_vectors.outer_wall_speed.override_values[5],{value:null},'Project null is explicit ownership');
+assert.equal(scopeValues().override_values[5],null,'Scoped nil inherits even an explicitly owned Project null');
+assert.equal(scopeValues().effective_values[5],null);
+printMutate({operation:'set-element',key:'outer_wall_speed',index:5,scalar_type:'float',value:65});
+assert.equal(scopeValues().effective_values[5],65);
+assert.equal(scopeRead().targets[0].source_scopes.indexed.outer_wall_speed[5],'project');
+assert.equal(scopeValues().override_values[5],null);
+// Actual slicing exercises both PrintObject (layer height) and PrintRegion
+// (outer-wall speed) native composition. Low speed avoids volumetric caps.
+must(call('orc_delete_objects',['string'],[JSON.stringify([Number(secondObject.id)])]));
+scopeMutate([scopeObject],{operation:'set',key:'layer_height',value:'0.24'});
+scopeSet([scopeObject],0,12);
+scopeSet([scopePart],0,10);
+const sliceScoped=async()=>{
+  const session=must(call('orc_get_plate_session_snapshot')), plate=session.current_plate_id;
+  const sliced=must(await callAsyncTask(call,'orc_slice_plate',['string','string','number'],['{}',plate,session.input_revisions[plate]]));
+  const exported=must(exportGcode(call,{receipt:sliced.receipt,filenameBase:''}));
+  const gcode=new TextDecoder().decode(Module.FS.readFile(exported.path));
+  let type='',feed=0;const outerFeeds=[];
+  for(const line of gcode.split('\n')){
+    if(line.startsWith(';TYPE:'))type=line.slice(6).trim();
+    const f=/\bF([\d.]+)/.exec(line);if(f)feed=Number(f[1]);
+    if(type==='Outer wall' && /^G1\b/.test(line) && /\b[XY]/.test(line) && /\bE[\d.]+/.test(line))outerFeeds.push(feed);
+  }
+  assert.ok(outerFeeds.some(feed=>Math.abs(feed-600)<1),'Part outer_wall_speed reaches native region G-code');
+  const z=[...new Set([...gcode.matchAll(/^;Z:\s*([\d.]+)/gm)].map(m=>Number(m[1])))];
+  assert.ok(z.slice(1).some((value,index)=>Math.abs(value-z[index]-0.24)<0.005),'Object layer_height reaches native object slicing');
+};
+await sliceScoped();
+const sourceEqualValue=scopeValues().source_values[4];
+scopeSet([scopeObject],4,sourceEqualValue);
+const sparseBefore=scopeValues().override_values,partBefore=scopeValues(scopePart).override_values;
+const scopedExport=must(call('orc_export_project'));
+const sparseArchive=Module.HEAPU8.slice(Number(scopedExport.bytes_ptr),Number(scopedExport.bytes_ptr)+Number(scopedExport.bytes_length));Module._free(Number(scopedExport.bytes_ptr));
+const sparseEntries=readZipEntries(sparseArchive);
+assert.ok(!sparseEntries.some(entry=>/orca_neo/.test(entry.name)),'sparse values use standard native archive owners');
+const modelSettings=sparseEntries.find(entry=>entry.name==='Metadata/model_settings.config');
+assert.ok(modelSettings && new TextDecoder().decode(modelSettings.content).includes('nil'),'native model settings serialize nil inheritance slots');
+const sparsePointer=Number(Module._malloc(sparseArchive.length));Module.HEAPU8.set(sparseArchive,sparsePointer);
+try{must(call('orc_load_project',['pointer','number','number','string'],[sparsePointer,sparseArchive.length,0,'Scoped-sparse-roundtrip.3mf']));}
+finally{Module._free(sparsePointer);}
+const reloadedObject=must(call('orc_get_model_structure')).objects[0];
+scopeObject.id=String(reloadedObject.id);scopePart.id=String(reloadedObject.volumes[0].id);
+assert.deepEqual(scopeValues().override_values,sparseBefore,'Object sparse native slots survive 3MF reopen');
+assert.deepEqual(scopeValues(scopePart).override_values,partBefore,'Part sparse native slots survive 3MF reopen');
+assert.deepEqual(scopeValues().override_values[4],{value:sourceEqualValue},'Source-equivalent non-nil ownership survives native export/import');
+await sliceScoped();
+printMutate({operation:'set-element',key:'outer_wall_speed',index:4,scalar_type:'float',value:77});
+assert.equal(scopeValues().effective_values[4],sourceEqualValue,'reopened Source-equal local slot remains fixed when Project changes');
+scopeSet([scopeObject],0,13);
+assert.equal(scopeValues(scopePart).effective_values[0],10);
+scopeSet([scopePart],0,null);
+scopeSet([scopeObject],0,14);
+assert.equal(scopeValues(scopePart).effective_values[0],14,'reopened reset Part slot follows later parent change');
+const missingExport=must(call('orc_export_project'));
+const missingBytes=Module.HEAPU8.slice(Number(missingExport.bytes_ptr),Number(missingExport.bytes_ptr)+Number(missingExport.bytes_length));Module._free(Number(missingExport.bytes_ptr));
+const missingSettings=JSON.parse(new TextDecoder().decode(readZipEntries(missingBytes).find(entry=>entry.name===settingsName).content));
+// Orca rebuilds Print variant identity columns while loading. An actual XHF
+// project flow on this SF/HF Printer is retained but has no native Print map.
+missingSettings.nozzle_volume_type[2]='Extra High Flow';
+const missingArchive=replaceEntry(missingBytes,settingsName,JSON.stringify(missingSettings));
+const missingPointer=Number(Module._malloc(missingArchive.length));Module.HEAPU8.set(missingArchive,missingPointer);
+try{must(call('orc_load_project',['pointer','number','number','string'],[missingPointer,missingArchive.length,0,'Scoped-missing-map.3mf']));}
+finally{Module._free(missingPointer);}
+scopeObject.id=String(must(call('orc_get_model_structure')).objects[0].id);
+const missingRead=scopeRead();
+assert.deepEqual(choiceBinding(missingRead,'outer_wall_speed',2,6),{kind:'unavailable'},'missing native Scoped mapping never falls back to index zero');
+assert.deepEqual(choiceBinding(missingRead,'outer_wall_speed',0,0),{kind:'indexed',index:0});
+console.log('PASS native mappings, atomic scoped/Project mixed reset/history, sparse ownership/provenance, singleton normalization, actual object/region slicing and 3MF round-trip; shared vectors:',sharedVectors);
 process.exit(0);

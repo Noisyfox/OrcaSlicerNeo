@@ -22,6 +22,8 @@ import type {
   PrimeTowerMoveResultOrError,
   NativeScopedConfigTarget, NativeScopedConfigTargetIdentity, NativeScopedConfigResultOrError,
   NativeScopedConfigMutationRequest,
+  ScopedConfigEditorRequest, ScopedConfigEditorSnapshotResult, ScopedConfigEditorTargetValues, ScopedConfigInheritedScope,
+  ConfigEditorSnapshot,
   NativeScopedConfigTransport, NativeScopedConfigFullTransport, NativeScopedConfigTargetReplacement,
   ConfigurationStatus,
   ModelMutationResult, ModelPlateSessionMutation, ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
@@ -49,6 +51,7 @@ import type {
   PresetDraftSnapshotResult, PresetDraftValues, PresetDraftError, PresetEditorCandidate, PresetDraftEditorBinding, PresetDraftEditorEnumOption,
   PresetDraftEditorGuiType, PresetDraftEditorScalarType, PresetDraftEditorValue,
   PresetDraftEditorVector, PresetDraftVectorValue, ConfigVectorOverride, ConfigEditorSnapshotResult,
+  ConfigEditorSelection, ConfigEditorChoice, ConfigEditorFieldBinding, ConfigEditorElementBinding,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -1214,6 +1217,57 @@ function normalizePresetDraftEditorBindings(
   return result;
 }
 
+function normalizeEditorSelection(raw: unknown, kind: unknown, values: Record<string, string>,
+  vectors: Record<string, PresetDraftEditorVector>): ConfigEditorSelection | undefined {
+  const integer = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
+  const nullableInteger = (v: unknown): v is number | null => v === null || integer(v);
+  if (!isRecord(raw) || raw.kind !== kind || typeof raw.active_source !== 'boolean' ||
+      !Array.isArray(raw.choices) || !Array.isArray(raw.nozzles) || !isRecord(raw.field_bindings)) return;
+  const choices: ConfigEditorChoice[] = [];
+  for (const choice of raw.choices) {
+    if (!isRecord(choice) || typeof choice.id !== 'string' || !choice.id ||
+        choices.some(c => c.id === choice.id) || typeof choice.label !== 'string' ||
+        typeof choice.variant !== 'string' || !nullableInteger(choice.extruder_index) ||
+        !nullableInteger(choice.extruder_type) || !nullableInteger(choice.flow_type) ||
+        (kind === 'filament' ? choice.extruder_index !== null : choice.extruder_index === null) ||
+        (kind === 'printer' && choice.flow_type !== 0 && choice.flow_type !== 1)) return;
+    choices.push({ id: choice.id, label: choice.label, variant: choice.variant,
+      extruderIndex: choice.extruder_index, extruderType: choice.extruder_type, flowType: choice.flow_type });
+  }
+  if (raw.first_choice_id !== (choices[0]?.id ?? null)) return;
+  const nozzles: ConfigEditorSelection['nozzles'][number][] = [];
+  for (const nozzle of raw.nozzles) {
+    if (kind !== 'printer' || !isRecord(nozzle) || !integer(nozzle.extruder_index) ||
+        nozzle.extruder_index !== nozzles.length) return;
+    const hasChoices = choices.some(c => c.extruderIndex === nozzle.extruder_index);
+    const validChoice = (id: unknown): id is string | null => (id === null && !hasChoices) ||
+      choices.some(c => c.id === id && c.extruderIndex === nozzle.extruder_index);
+    if (!validChoice(nozzle.default_choice_id) || !validChoice(nozzle.initial_choice_id)) return;
+    nozzles.push({ extruderIndex: nozzle.extruder_index, defaultChoiceId: nozzle.default_choice_id,
+      initialChoiceId: nozzle.initial_choice_id });
+  }
+  if (kind === 'printer' && (nozzles.length !== (vectors.nozzle_diameter?.indexCount ?? 0) ||
+      choices.some(c => !nozzles.some(n => n.extruderIndex === c.extruderIndex)))) return;
+  const fieldBindings: Record<string, ConfigEditorFieldBinding> = {};
+  if (Object.keys(raw.field_bindings).length !== Object.keys(values).length) return;
+  for (const [key, field] of Object.entries(raw.field_bindings)) {
+    if (!Object.hasOwn(values, key) || !isRecord(field)) return;
+    if (field.kind === 'shared') { fieldBindings[key] = { kind: 'shared' }; continue; }
+    if (field.kind !== 'per_selection' || !Array.isArray(field.bindings) || field.bindings.length !== choices.length) return;
+    const bindings: ConfigEditorElementBinding[] = [];
+    for (const binding of field.bindings) {
+      if (!isRecord(binding)) return;
+      if (binding.kind === 'unavailable') bindings.push({ kind: 'unavailable' });
+      else if (binding.kind === 'indexed' && integer(binding.index) && vectors[key] && binding.index < vectors[key].indexCount)
+        bindings.push({ kind: 'indexed', index: binding.index });
+      else return;
+    }
+    fieldBindings[key] = { kind: 'per_selection', bindings };
+  }
+  return { kind: kind as ConfigEditorSelection['kind'], activeSource: raw.active_source, choices,
+    firstChoiceId: raw.first_choice_id as string | null, nozzles, fieldBindings };
+}
+
 function normalizeConfigEditorSnapshot(raw: unknown): ConfigEditorSnapshotResult {
   if (!isRecord(raw)) return { ok: false, error: 'invalid preset draft response', errorCode: 'invalid_response' };
   if (raw.ok !== true) {
@@ -1223,12 +1277,18 @@ function normalizeConfigEditorSnapshot(raw: unknown): ConfigEditorSnapshotResult
       ...(typeof raw.error_code === 'string' ? { errorCode: raw.error_code } : {}),
       ...(Number.isSafeInteger(raw.revision) ? { revision: raw.revision as number } : {}) };
   }
+  if (typeof raw.canonical_name !== 'string' || !raw.canonical_name || !Number.isSafeInteger(raw.revision))
+    return { ok: false, error: 'invalid preset draft identity', errorCode: 'invalid_response' };
+  const projection = normalizeConfigEditorProjection(raw);
+  return projection.ok ? { ...projection, canonicalName: raw.canonical_name, revision: raw.revision as number } : projection;
+}
+
+type ConfigEditorProjection = Omit<ConfigEditorSnapshot, 'canonicalName' | 'revision'>;
+function normalizeConfigEditorProjection(raw: Record<string, unknown>): ConfigEditorProjection | PresetDraftError {
   const sourceValues = stringRecord(raw.source_values);
   const effectiveValues = stringRecord(raw.effective_values);
   if ((raw.kind !== 'printer' && raw.kind !== 'filament' && raw.kind !== 'print') ||
-      typeof raw.canonical_name !== 'string' || !raw.canonical_name ||
-      !sourceValues || !effectiveValues || !isRecord(raw.option_metadata) ||
-      !Number.isSafeInteger(raw.revision))
+      !sourceValues || !effectiveValues || !isRecord(raw.option_metadata))
     return { ok: false, error: 'invalid preset draft snapshot', errorCode: 'invalid_response' };
   const optionMetadata: OptionMetadata = {};
   for (const [key, value] of Object.entries(raw.option_metadata)) {
@@ -1292,8 +1352,64 @@ function normalizeConfigEditorSnapshot(raw: unknown): ConfigEditorSnapshotResult
       }
     }
   }
-  return { ok: true, canonicalName: raw.canonical_name, sourceValues, effectiveValues,
-    optionMetadata, editorBindings, editorVectors, revision: raw.revision as number };
+  const editorSelection = normalizeEditorSelection(raw.editor_selection, raw.kind, effectiveValues, editorVectors);
+  if (!editorSelection) return { ok: false, error: 'invalid editor selection mapping', errorCode: 'invalid_response' };
+  return { ok: true, sourceValues, effectiveValues,
+    optionMetadata, editorBindings, editorVectors, editorSelection };
+}
+
+function normalizeScopedConfigEditor(raw: unknown, request: ScopedConfigEditorRequest): ScopedConfigEditorSnapshotResult {
+  const invalid = (): PresetDraftError => ({ ok: false, error: 'invalid scoped editor response', errorCode: 'invalid_response' });
+  if (!isRecord(raw)) return invalid();
+  if (raw.ok === false && typeof raw.error === 'string') return { ok: false, error: raw.error,
+    ...(typeof raw.error_code === 'string' ? { errorCode: raw.error_code } : {}) };
+  if (raw.ok !== true || raw.version !== 1 || !Number.isSafeInteger(raw.revision) ||
+      !Array.isArray(raw.targets) || !raw.targets.length || raw.targets.length !== request.targets.length) return invalid();
+  const targets: ScopedConfigEditorTargetValues[] = [];
+  let common: ConfigEditorProjection | undefined;
+  const seen = new Set<string>();
+  for (const [index, target] of raw.targets.entries()) {
+    if (!isRecord(target) || !isRecord(target.target) || !['object', 'part'].includes(String(target.target.scope)) ||
+        typeof target.target.id !== 'string' || !target.target.id || target.target.scope !== request.targets[index]?.scope ||
+        target.target.id !== String(request.targets[index]?.id) || target.target.scope !== request.targets[0]?.scope ||
+        seen.has(target.target.id)) return invalid();
+    seen.add(target.target.id);
+    const projection = normalizeConfigEditorProjection({ ...target, kind: 'print',
+      editor_selection: raw.editor_selection, option_metadata: raw.option_metadata });
+    if (!projection.ok) return projection;
+    if (!Array.isArray(target.local_keys) || target.local_keys.some(key => typeof key !== 'string' ||
+        !Object.hasOwn(projection.effectiveValues, key)) || new Set(target.local_keys).size !== target.local_keys.length ||
+        !isRecord(target.source_scopes) || !isRecord(target.source_scopes.shared) || !isRecord(target.source_scopes.indexed)) return invalid();
+    const shared: Record<string, ScopedConfigInheritedScope> = {};
+    const indexed: Record<string, readonly ScopedConfigInheritedScope[]> = {};
+    const targetScope = target.target.scope;
+    const validScope = (scope: unknown): scope is ScopedConfigInheritedScope =>
+      scope === 'preset' || scope === 'project' || (scope === 'object' && targetScope === 'part');
+    for (const key of Object.keys(projection.effectiveValues)) {
+      const field = projection.editorSelection.fieldBindings[key];
+      const vector = projection.editorVectors[key];
+      if (field.kind === 'per_selection' && vector) {
+        const origins = target.source_scopes.indexed[key];
+        if (!Array.isArray(origins) || origins.length !== vector.indexCount || !origins.every(validScope) ||
+            vector.overrideValues.some(entry => entry !== null && entry.value === null) ||
+            vector.overrideValues.some(entry => entry !== null) !== target.local_keys.includes(key)) return invalid();
+        indexed[key] = origins;
+      } else {
+        const origin = target.source_scopes.shared[key];
+        if (!validScope(origin)) return invalid();
+        shared[key] = origin;
+      }
+    }
+    if (Object.keys(shared).length !== Object.keys(target.source_scopes.shared).length ||
+        Object.keys(indexed).length !== Object.keys(target.source_scopes.indexed).length) return invalid();
+    common ??= projection;
+    targets.push({ target: { scope: target.target.scope as 'object' | 'part', id: target.target.id },
+      sourceValues: projection.sourceValues, effectiveValues: projection.effectiveValues,
+      editorVectors: projection.editorVectors, editorBindings: projection.editorBindings,
+      localKeys: target.local_keys as string[], sourceScopes: { shared, indexed } });
+  }
+  return { ok: true, revision: raw.revision as number, editorSelection: common!.editorSelection,
+    optionMetadata: common!.optionMetadata, targets };
 }
 
 function normalizePresetDraftValues(raw: unknown): PresetDraftValues | PresetDraftError {
@@ -2193,8 +2309,8 @@ export function createClient(
         payload.index = request.index;
         payload.value = request.value;
       }
-      if (request.action === 'reset-category') payload.keys = [...request.keys];
-      if ((request.action === 'reset-field' || request.action === 'reset-category') && request.index !== undefined)
+      if (request.action === 'reset-category') payload.fields = request.fields;
+      if (request.action === 'reset-field' && request.index !== undefined)
         payload.index = request.index;
       return normalizePresetDraftMutation(
         callJson(m, 'orc_mutate_preset_draft', ['string'], [JSON.stringify(payload)]),
@@ -2353,6 +2469,10 @@ export function createClient(
         return { ok: false, error: 'invalid Print editor response', errorCode: 'invalid_response' };
       return normalizeConfigEditorSnapshot(raw);
     },
+    async getScopedConfigEditor(request: ScopedConfigEditorRequest): Promise<ScopedConfigEditorSnapshotResult> {
+      return normalizeScopedConfigEditor(callJson(await module(), 'orc_get_scoped_config_editor', ['string'],
+        [JSON.stringify({ version: request.version, targets: request.targets.map(target => ({ ...target, id: String(target.id) })) })]), request);
+    },
     async getNativeScopedConfig(): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
       return normalizeNativeScopedConfig(callJson(m, 'orc_get_native_scoped_config', [], []));
@@ -2390,14 +2510,14 @@ export function createClient(
         operation: request.operation,
         targets,
       };
-      if (request.operation === 'set-element' || request.operation === 'reset-elements') {
-        payload.index = request.index;
+      if (request.operation === 'set-element' || request.operation === 'reset-fields') {
         payload.expected_revision = request.expectedRevision;
         if (request.operation === 'set-element') {
+          payload.index = request.index;
           payload.key = request.key;
           payload.value = request.value;
           payload.scalar_type = request.scalarType;
-        } else payload.keys = request.keys;
+        } else payload.fields = request.fields;
       } else {
         if (request.key !== undefined) payload.key = request.key;
         if (request.value !== undefined) payload.value = request.value;

@@ -82,6 +82,55 @@ bool printer_extruder_key(const std::string& key)
     return key == "extruder_printable_area" || std::find(keys.begin(), keys.end(), key) != keys.end();
 }
 
+bool selection_dependent(const Preset::Type type, const std::string& key)
+{
+    if (type == Preset::TYPE_PRINTER)
+        return printer_options_with_variant_1.count(key) || printer_options_with_variant_2.count(key) || printer_extruder_key(key);
+    return type == Preset::TYPE_FILAMENT ? filament_options_with_variant.count(key) : print_options_with_variant.count(key);
+}
+
+json parse_reset_fields(const json& fields, std::vector<ResetField>& result)
+{
+    if (!fields.is_array() || fields.empty())
+        return command_error("invalid_request", "reset fields must be a non-empty explicit batch");
+    std::set<std::string> keys;
+    for (const auto& field : fields) {
+        if (!field.is_object() || !field.contains("key") || !field["key"].is_string() || field["key"].get<std::string>().empty() ||
+            !field.contains("kind") || !field["kind"].is_string())
+            return command_error("invalid_request", "reset field requires key and kind");
+        ResetField target{field["key"].get<std::string>(), std::nullopt};
+        if (!keys.insert(target.key).second)
+            return command_error("invalid_request", "reset fields must have unique option keys");
+        if (field["kind"] == "indexed") {
+            if (field.size() != 3 || !field.contains("index") || !field["index"].is_number_unsigned())
+                return command_error("invalid_index", "indexed reset requires an unsigned index");
+            target.index = field["index"].get<uint64_t>();
+        } else if (field["kind"] != "shared" || field.size() != 2)
+            return command_error("invalid_request", "reset field must be shared or indexed");
+        result.push_back(std::move(target));
+    }
+    return nullptr;
+}
+
+json validate_reset_field(const DynamicPrintConfig& effective, const DynamicPrintConfig& source,
+                          const Preset::Type type, const ResetField& target)
+{
+    const auto* def = print_config_def.get(target.key);
+    if (!def || !source.option(target.key) || !effective.option(target.key))
+        return command_error("unsupported_option", "reset option is unavailable: " + target.key);
+    if (!target.index) {
+        if (selection_dependent(type, target.key))
+            return command_error("invalid_request", "selection-dependent reset requires an index: " + target.key);
+    } else {
+        if (!editor_vector_type(target.key, *def) ||
+            !dynamic_cast<const ConfigOptionVectorBase*>(source.option(target.key)))
+            return command_error("unsupported_option", "option has no editable vector elements: " + target.key);
+        if (*target.index >= element_count(effective, type, target.key))
+            return command_error("invalid_index", "reset index is out of range: " + target.key);
+    }
+    return nullptr;
+}
+
 void resize_editor_vector(ConfigOptionVectorBase& option, const ConfigOptionDef& def, size_t count)
 {
     // The native point-group default is itself empty; generic resize would
@@ -419,6 +468,102 @@ json reset_override(DynamicPrintConfig& config, const DynamicPrintConfig& source
     if (result.is_null()) return result;
     if (index < result.size()) result[index] = nullptr;
     return has_override(result) ? result : json(nullptr);
+}
+
+json selection_json(const DynamicPrintConfig& effective, const Preset::Type type,
+                    const DynamicPrintConfig& printer, const DynamicPrintConfig& project,
+                    const bool active_source, const json& values, const json& vectors)
+{
+    json choices = json::array(), nozzles = json::array(), fields = json::object();
+    const auto* diameters = printer.opt<ConfigOptionFloats>("nozzle_diameter");
+    const auto* drives = printer.opt<ConfigOptionEnumsGeneric>("extruder_type");
+    const auto* defaults = printer.opt<ConfigOptionEnumsGeneric>("default_nozzle_volume_type");
+    const auto* actual = project.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
+    const auto normalize_flow = [](int flow) { return flow == nvtHybrid ? int(nvtStandard) : flow; };
+    const auto add_choice = [&](const std::string& id, const std::string& label, const json& extruder,
+                                const std::string& variant, const json& drive, const json& flow) {
+        choices.push_back({{"id", id}, {"label", label}, {"extruder_index", extruder},
+                           {"variant", variant}, {"extruder_type", drive}, {"flow_type", flow}});
+    };
+    if (type == Preset::TYPE_FILAMENT) {
+        if (const auto* variants = effective.opt<ConfigOptionStrings>("filament_extruder_variant"))
+            for (size_t i = 0; i < variants->size(); ++i) {
+                const auto& variant = variants->values[i];
+                json drive = nullptr, flow = nullptr;
+                for (int d = 0; d <= etMaxExtruderType; ++d)
+                    for (const auto f : get_valid_nozzle_volume_type())
+                        if (variant == get_extruder_variant_string(ExtruderType(d), f)) { drive = d; flow = int(f); }
+                add_choice("variant-" + std::to_string(i), variant, nullptr, variant, drive, flow);
+            }
+    } else if (diameters) {
+        for (size_t i = 0; i < diameters->size(); ++i) {
+            const bool valid_drive = drives && i < drives->size() && drives->values[i] >= 0 && drives->values[i] <= etMaxExtruderType;
+            const auto supported = get_extruder_supported_nozzle_volume_types(printer, int(i));
+            json default_id = nullptr, initial_id = nullptr;
+            const int default_flow = defaults && !defaults->empty() ? normalize_flow(defaults->get_at(i)) : -1;
+            const int initial_flow = active_source && actual && !actual->empty() ? normalize_flow(actual->get_at(i)) : default_flow;
+            std::vector<NozzleVolumeType> flows;
+            if (type == Preset::TYPE_PRINTER) {
+                // Editor flows are parameter variants of the browsed preset, never project filters.
+                for (const auto flow : {nvtStandard, nvtHighFlow})
+                    if (supported.count(flow)) flows.push_back(flow);
+            } else if (actual && !actual->empty()) {
+                // Project transitions may retain a short vector. Read its native
+                // bounded value; this does not substitute a missing field mapping.
+                const auto flow = NozzleVolumeType(actual->get_at(i));
+                if (flow == nvtHybrid) flows = {nvtStandard, nvtHighFlow};
+                else if (get_valid_nozzle_volume_type().count(flow)) flows.push_back(flow);
+            }
+            for (const auto flow : flows) {
+                const std::string id = "extruder-" + std::to_string(i) + "-flow-" + std::to_string(int(flow));
+                const auto variant = valid_drive ? get_extruder_variant_string(ExtruderType(drives->values[i]), flow) : std::string();
+                add_choice(id, "Extruder " + std::to_string(i + 1) + " " + get_nozzle_volume_type_string(flow),
+                           i, variant, valid_drive ? json(drives->values[i]) : json(nullptr), int(flow));
+                if (int(flow) == default_flow) default_id = id;
+                if (int(flow) == initial_flow) initial_id = id;
+            }
+            // If a native default is unavailable, choose the first supported editor flow.
+            // Field mapping remains independent and may still be explicitly unavailable.
+            if (type == Preset::TYPE_PRINTER) {
+                if (default_id.is_null() && !flows.empty())
+                    default_id = "extruder-" + std::to_string(i) + "-flow-" + std::to_string(int(flows.front()));
+                if (initial_id.is_null()) initial_id = default_id;
+                nozzles.push_back({{"extruder_index", i}, {"default_choice_id", default_id}, {"initial_choice_id", initial_id}});
+            }
+        }
+    }
+    for (auto value = values.begin(); value != values.end(); ++value) {
+        const auto& key = value.key();
+        const bool variant = type == Preset::TYPE_PRINTER ?
+            printer_options_with_variant_1.count(key) || printer_options_with_variant_2.count(key) :
+            type == Preset::TYPE_FILAMENT ? filament_options_with_variant.count(key) : print_options_with_variant.count(key);
+        const bool physical = type == Preset::TYPE_PRINTER && !variant && printer_extruder_key(key);
+        if (!selection_dependent(type, key)) { fields[key] = {{"kind", "shared"}}; continue; }
+        json bindings = json::array();
+        for (size_t i = 0; i < choices.size(); ++i) {
+            const auto& choice = choices[i];
+            int index = -1;
+            if (type == Preset::TYPE_FILAMENT) index = int(i);
+            else if (physical) index = choice.at("extruder_index").get<int>();
+            else if (!choice.at("extruder_type").is_null() &&
+                     effective.option(type == Preset::TYPE_PRINTER ? "printer_extruder_id" : "print_extruder_id")) {
+                // Without a physical-ID column the native helper performs an
+                // unscoped variant lookup. That cannot establish this head's binding.
+                index = effective.get_index_for_extruder(choice.at("extruder_index").get<int>() + 1,
+                    type == Preset::TYPE_PRINTER ? "printer_extruder_id" : "print_extruder_id",
+                    ExtruderType(choice.at("extruder_type").get<int>()), NozzleVolumeType(choice.at("flow_type").get<int>()),
+                    type == Preset::TYPE_PRINTER ? "printer_extruder_variant" : "print_extruder_variant",
+                    type == Preset::TYPE_PRINTER && printer_options_with_variant_2.count(key) ? 2 : 1);
+            }
+            if (index >= 0 && vectors.contains(key) && size_t(index) < vectors.at(key).at("index_count").get<size_t>())
+                bindings.push_back({{"kind", "indexed"}, {"index", index}});
+            else bindings.push_back({{"kind", "unavailable"}});
+        }
+        fields[key] = {{"kind", "per_selection"}, {"bindings", std::move(bindings)}};
+    }
+    return {{"kind", type == Preset::TYPE_PRINTER ? "printer" : type == Preset::TYPE_FILAMENT ? "filament" : "print"},
+            {"active_source", active_source}, {"choices", choices}, {"nozzles", nozzles},
+            {"first_choice_id", choices.empty() ? json(nullptr) : choices.front().at("id")}, {"field_bindings", std::move(fields)}};
 }
 
 json vectors_json(const DynamicPrintConfig& source, const DynamicPrintConfig& effective, const Preset::Type type,

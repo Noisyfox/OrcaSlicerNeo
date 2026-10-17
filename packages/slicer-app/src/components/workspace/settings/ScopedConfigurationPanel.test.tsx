@@ -14,6 +14,31 @@ import type { ScopedConfigurationField } from './scopedConfigurationProjection';
 
 let root: Root | undefined;
 let container: HTMLDivElement;
+function sharedPrintPlatform() {
+  return {runtime:{getPrintConfigEditor:async()=>{
+    const state=useSettingsStore.getState();
+    // Native Project storage is intentionally absent from the Print-owned snapshot.
+    const keys=Object.keys(state.metadata??{}).filter(key=>
+      !['curr_bed_type','filament_map_mode','filament_map','filament_volume_map'].includes(key) &&
+      (Object.hasOwn(state.baseValues,key) || Object.hasOwn(state.values,key)));
+    const sourceValues=Object.fromEntries(keys.filter(key=>Object.hasOwn(state.baseValues,key)).map(key=>[key,state.baseValues[key]]));
+    const effectiveValues=Object.fromEntries(keys.filter(key=>Object.hasOwn(state.values,key)).map(key=>[key,state.values[key]]));
+    return {ok:true,canonicalName:state.selectedPrint,revision:1,sourceValues,effectiveValues,
+      optionMetadata:Object.fromEntries(keys.map(key=>[key,state.metadata![key]])),editorVectors:{},editorBindings:{},editorSelection:{kind:'print',activeSource:true,choices:[],nozzles:[],firstChoiceId:null,
+        fieldBindings:Object.fromEntries(keys.map(key=>[key,{kind:'shared'}]))}};
+  },getScopedConfigEditor:async(request:{targets:{scope:'object'|'part';id:string}[]})=>{
+    const state=useSettingsStore.getState();
+    const keys=Object.keys(state.metadata??{}).filter(key=>state.metadata![key].scopes?.includes(request.targets[0].scope) && !/gcode/i.test(key));
+    return {ok:true,revision:state.nativeScopedConfigRevision,optionMetadata:state.metadata,
+      editorSelection:{kind:'print',activeSource:true,choices:[],nozzles:[],firstChoiceId:null,fieldBindings:Object.fromEntries(keys.map(key=>[key,{kind:'shared'}]))},
+      targets:request.targets.map(target=>{
+        const local=(target.scope==='object'?state.nativeScopedConfig.objects:state.nativeScopedConfig.parts)[target.id]??{};
+        const source=Object.fromEntries(keys.map(key=>[key,state.nativeScopedConfig.project[key]??state.baseValues[key]??'']));
+        return {target,sourceValues:source,effectiveValues:{...source,...local},editorVectors:{},editorBindings:{},
+          localKeys:keys.filter(key=>Object.hasOwn(local,key)),sourceScopes:{indexed:{},shared:Object.fromEntries(keys.map(key=>[key,Object.hasOwn(state.nativeScopedConfig.project,key)?'project':'preset']))}};
+      })};
+  }}} as unknown as PlatformCapabilities;
+}
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(async () => {
   await act(async () => root?.unmount());
@@ -164,7 +189,7 @@ describe('scoped field drafts', () => {
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    await act(async () => root!.render(<PlatformProvider value={{} as PlatformCapabilities}><TooltipProvider>
+    await act(async () => root!.render(<PlatformProvider value={sharedPrintPlatform()}><TooltipProvider>
       <ScopedConfigurationPanel sceneInteraction={controller} />
     </TooltipProvider></PlatformProvider>));
     const button = (id: string) => container.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)!;
@@ -247,7 +272,7 @@ describe('scoped field drafts', () => {
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    await act(async () => root!.render(<PlatformProvider value={{} as PlatformCapabilities}><TooltipProvider>
+    await act(async () => root!.render(<PlatformProvider value={sharedPrintPlatform()}><TooltipProvider>
       <ScopedConfigurationPanel sceneInteraction={controller} />
     </TooltipProvider></PlatformProvider>));
     const button = (testId: string) => container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
@@ -297,10 +322,10 @@ describe('scoped field drafts', () => {
     expect(walls.getAttribute('data-local-override-highlight')).toBe('true');
     expect(await resetDisabled('Walls', 'Strength')).toBe(false);
     expect(button('config-reset-all').disabled).toBe(false);
-    await act(async () => useSettingsStore.setState({ nativeScopedConfig: {
+    await act(async () => useSettingsStore.setState({ nativeScopedConfigRevision:(useSettingsStore.getState().nativeScopedConfigRevision??0)+1,nativeScopedConfig: {
       project: {}, plates: {}, parts: {}, objects: { '42': { machine_gcode: 'G28' } },
     } }));
-    expect(walls.getAttribute('data-local-override-highlight')).toBe('false');
+    expect(button('config-category-toggle-Walls').getAttribute('data-local-override-highlight')).toBe('false');
     expect(button('config-page-Strength').classList.contains('config-override-label')).toBe(false);
     expect(await resetDisabled('Walls', 'Strength')).toBe(true);
     expect(button('config-reset-all').disabled).toBe(true);
@@ -325,7 +350,7 @@ describe('scoped field drafts', () => {
     document.body.append(container);
     root = createRoot(container);
     const onRender = vi.fn();
-    await act(async () => root!.render(<PlatformProvider value={{} as PlatformCapabilities}><TooltipProvider>
+    await act(async () => root!.render(<PlatformProvider value={sharedPrintPlatform()}><TooltipProvider>
       <Profiler id="settings" onRender={onRender}><ScopedConfigurationPanel sceneInteraction={controller} /></Profiler>
     </TooltipProvider></PlatformProvider>));
     expect(hiddenScopedReads).not.toHaveBeenCalled();

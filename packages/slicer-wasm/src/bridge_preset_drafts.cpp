@@ -385,15 +385,21 @@ json draft_values_json(const Preset::Type type, const std::string& canonical_nam
         }
     }
     editor_vectors = ConfigElements::vectors_json(baseline_config, effective.config, type, override_values);
+    const bool active_source = type == Preset::TYPE_PRINTER &&
+        UserPresets::view_name(type, state().presets.printers.get_selected_preset_name()) == canonical_name;
+    auto effective_values = config_values_json(effective.config);
+    auto selection = ConfigElements::selection_json(effective.config, type, effective.config,
+        state().presets.project_config, active_source, effective_values, editor_vectors);
     return json{{"ok", true}, {"kind", kind_name(type)},
                 {"canonical_name", source->name},
                 {"draft_exists", overrides != nullptr || UserPresets::is_snapshot(type, canonical_name)},
                 {"modified", UserPresets::modified(type, canonical_name, effective.config)},
                 {"overrides", override_values},
                 {"source_values", config_values_json(baseline_config)},
-                {"effective_values", config_values_json(effective.config)},
+                {"effective_values", std::move(effective_values)},
                 {"option_metadata", std::move(source_metadata)},
                 {"editor_vectors", std::move(editor_vectors)},
+                {"editor_selection", std::move(selection)},
                 {"revision", state().history_revision}};
 }
 
@@ -475,6 +481,7 @@ json mutate_draft_json(const json& request)
     std::string key;
     json override_value;
     std::vector<std::string> keys;
+    std::vector<ConfigElements::ResetField> reset_fields;
     if (action == "set") {
         if (!request.contains("key") || !request["key"].is_string() ||
             request["key"].get<std::string>().empty() || !request.contains("value") ||
@@ -519,27 +526,28 @@ json mutate_draft_json(const json& request)
             return command_error("unsupported_option", "option is not available on this preset: " + key);
         keys.push_back(key);
     } else if (action == "reset-category") {
-        if (!request.contains("keys") || !request["keys"].is_array() || request["keys"].empty())
-            return command_error("invalid_request", "reset-category requires a non-empty explicit option key set");
-        std::set<std::string> unique;
-        for (const auto& value : request["keys"]) {
-            if (!value.is_string() || value.get<std::string>().empty() ||
-                !unique.insert(value.get<std::string>()).second)
-                return command_error("invalid_request", "reset-category option keys must be unique non-empty strings");
-            const std::string category_key = value.get<std::string>();
-            if (source->config.option(category_key) == nullptr)
-                return command_error("unsupported_option", "option is not available on this preset: " + category_key);
-            keys.push_back(category_key);
-        }
+        if (request.contains("keys") || request.contains("index"))
+            return command_error("invalid_request", "reset-category requires per-field reset targets");
+        const auto error = ConfigElements::parse_reset_fields(request.value("fields", json()), reset_fields);
+        if (!error.is_null()) return error;
+        for (const auto& field : reset_fields) keys.push_back(field.key);
     }
 
     std::map<std::string, json> indexed_resets;
-    if ((action == "reset-field" || action == "reset-category") && request.contains("index")) {
+    if (action == "reset-field" && request.contains("index")) {
         if (!request["index"].is_number_unsigned())
             return command_error("invalid_index", "indexed reset requires an unsigned element index");
-        const auto index = request["index"].get<uint64_t>();
+        reset_fields.push_back({key, request["index"].get<uint64_t>()});
+    }
+    if (!reset_fields.empty()) {
         auto effective = effective_preset_config(state().presets, state().preset_drafts, type, canonical_name);
-        for (const auto& reset_key : keys) {
+        // Stage the entire batch before starting history or publishing any overlay.
+        for (const auto& field : reset_fields) {
+            const auto error = ConfigElements::validate_reset_field(effective, baseline_config, type, field);
+            if (!error.is_null()) return error;
+            if (!field.index) continue;
+            const auto& reset_key = field.key;
+            const auto index = *field.index;
             const auto* overrides = state().preset_drafts.find(type, canonical_name);
             const json current = overrides && overrides->count(reset_key) ? overrides->at(reset_key) : json(nullptr);
             const auto result = ConfigElements::reset_override(effective, baseline_config, type, reset_key, current, index);
@@ -773,36 +781,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_preset_draft(const char* request_cst
     using namespace Slic3r::Neo::Bridge;
     try {
         const json request = request_cstr && *request_cstr ? json::parse(request_cstr) : json::object();
-        const auto editing_context = HistoryMetadata::parse_history_context(
-            request.at("history_context").dump().c_str());
-        // Reuse the toolhead transaction for editor diameter changes. Its
-        // internal draft write calls mutate_draft_json directly, avoiding recursion.
-        if (request.value("kind", "") == "printer" && request.value("action", "") == "set-element" &&
-            request.value("key", "") == "nozzle_diameter" &&
-            request.value("canonical_name", "") == state().presets.printers.get_selected_preset_name() &&
-            request.value("scalar_type", "") == "float" && request.contains("index") && request.contains("value")) {
-            const auto config = PresetDrafts::effective_printer_config();
-            const auto* nozzles = config.opt<ConfigOptionFloats>("nozzle_diameter");
-            if (nozzles && nozzles->size() > 1) {
-                auto transition = Profiles::set_toolhead_diameter_json({{"index", request["index"]},
-                    {"diameter", request["value"]}, {"expected_revision", request.value("expected_revision", json())},
-                    {"history_context", editing_context}});
-                if (!transition.value("ok", false) || transition.contains("canonical_name"))
-                    return duplicate_json(transition.dump());
-                auto result = PresetDrafts::get_draft_json(Preset::TYPE_PRINTER,
-                    state().presets.printers.get_selected_preset_name());
-                result["editor_candidates"] = json{{"kind", "replace"}, {"items", std::move(result["editor_candidates"])}};
-                result["projection_kind"] = "full";
-                for (const auto* key : {"profile_snapshot", "filament_session", "plate_session", "history_status", "native_scoped_config"})
-                    result[key] = transition.at(key);
-                // Preset-draft receipts publish both Filament revisions at
-                // their committed project-history revision, as direct edits do.
-                result["filament_session"]["revisions"]["project"] = state().history_revision;
-                for (const auto* key : {"history_entry_delta", "revision_before", "revision_after", "dirty", "affected_plate_ids", "all_plate_results_invalidated"})
-                    result[key] = transition.at("mutation").at(key);
-                return duplicate_json(result.dump());
-            }
-        }
         return duplicate_json(PresetDrafts::mutate_draft_json(request).dump());
     } catch (const std::exception& error) {
         return duplicate_json(error_json(error.what()).dump());

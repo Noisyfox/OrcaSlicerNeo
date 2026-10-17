@@ -284,26 +284,34 @@ export interface NativeScopedConfigTarget {
 }
 
 export type NativeScopedConfigMutationOperation =
-  | 'set' | 'reset' | 'reset-category' | 'reset-all' | 'set-element' | 'reset-elements';
+  | 'set' | 'reset' | 'reset-category' | 'reset-all' | 'set-element' | 'reset-fields';
 
 /** One atomic native scoped-configuration transaction request. */
 export interface NativeScopedConfigWholeMutationRequest {
   readonly version: 1;
-  readonly operation: Exclude<NativeScopedConfigMutationOperation, 'set-element' | 'reset-elements'>;
+  readonly operation: Exclude<NativeScopedConfigMutationOperation, 'set-element' | 'reset-fields'>;
   readonly targets: readonly NativeScopedConfigTarget[];
   readonly key?: string;
   readonly value?: string;
   readonly category?: string;
 }
 
-/** Print vectors use the existing Project transaction and native Print owner. */
+export interface ScopedConfigEditorTarget {
+  readonly scope: 'object' | 'part';
+  readonly id: number | string;
+}
+export interface ScopedConfigEditorRequest {
+  readonly version: 1;
+  readonly targets: readonly ScopedConfigEditorTarget[];
+}
+
+/** Indexed commands retain the existing native Project/Object/Part owners. */
 export type NativeScopedConfigMutationRequest = NativeScopedConfigWholeMutationRequest | ({
   readonly version: 1;
-  readonly targets: readonly [{ readonly scope: 'project'; readonly id?: never }];
-  readonly index: number;
+  readonly targets: readonly [{ readonly scope: 'project'; readonly id?: never }] | readonly ScopedConfigEditorTarget[];
   readonly expectedRevision: number;
 } & (({ readonly operation: 'set-element' } & ConfigElementMutation)
-   | { readonly operation: 'reset-elements'; readonly keys: readonly string[] }));
+   | { readonly operation: 'reset-fields'; readonly fields: readonly ConfigResetField[] }));
 
 export interface ConfigurationCorrection {
   readonly key: string;
@@ -540,6 +548,37 @@ export interface PresetDraftEditorVector extends Omit<PresetDraftEditorBinding,
   readonly overrideValues: readonly ConfigVectorOverride[];
 }
 
+export interface ConfigEditorChoice {
+  readonly id: string;
+  readonly label: string;
+  /** Zero-based physical nozzle; null for a Filament variant. */
+  readonly extruderIndex: number | null;
+  readonly variant: string;
+  /** Native enum values; null when a Filament variant name is unknown. */
+  readonly extruderType: number | null;
+  readonly flowType: number | null;
+}
+export type ConfigEditorElementBinding =
+  | { readonly kind: 'indexed'; readonly index: number }
+  | { readonly kind: 'unavailable' };
+export type ConfigEditorFieldBinding =
+  | { readonly kind: 'shared' }
+  | { readonly kind: 'per_selection'; readonly bindings: readonly ConfigEditorElementBinding[] };
+export interface ConfigEditorSelection {
+  readonly kind: 'printer' | 'filament' | 'print';
+  /** Project flow initializes Printer editing flows only when entering its active source. */
+  readonly activeSource: boolean;
+  readonly choices: readonly ConfigEditorChoice[];
+  readonly firstChoiceId: string | null;
+  readonly nozzles: readonly {
+    readonly extruderIndex: number;
+    readonly defaultChoiceId: string | null;
+    readonly initialChoiceId: string | null;
+  }[];
+  /** Bindings reference editorVectors; no values are repeated per choice. */
+  readonly fieldBindings: Readonly<Record<string, ConfigEditorFieldBinding>>;
+}
+
 /** Disposable typed vector projection shared by preset drafts and Print configuration. */
 export interface ConfigEditorSnapshot {
   readonly ok: true;
@@ -550,9 +589,30 @@ export interface ConfigEditorSnapshot {
   /** Client-derived first-element views; native sends only full vectors. */
   readonly editorBindings: Readonly<Record<string, PresetDraftEditorBinding>>;
   readonly editorVectors: Readonly<Record<string, PresetDraftEditorVector>>;
+  readonly editorSelection: ConfigEditorSelection;
   readonly revision: number;
 }
 export type ConfigEditorSnapshotResult = ConfigEditorSnapshot | PresetDraftError;
+
+export type ScopedConfigInheritedScope = 'preset' | 'project' | 'object';
+export interface ScopedConfigEditorTargetValues extends Pick<ConfigEditorSnapshot,
+  'sourceValues' | 'effectiveValues' | 'editorVectors' | 'editorBindings'> {
+  readonly target: ScopedConfigEditorTarget;
+  /** Local non-nil ownership only; a raw all-nil vector is unowned. */
+  readonly localKeys: readonly string[];
+  readonly sourceScopes: {
+    readonly shared: Readonly<Record<string, ScopedConfigInheritedScope>>;
+    readonly indexed: Readonly<Record<string, readonly ScopedConfigInheritedScope[]>>;
+  };
+}
+export interface ScopedConfigEditorSnapshot {
+  readonly ok: true;
+  readonly revision: number;
+  readonly editorSelection: ConfigEditorSelection;
+  readonly optionMetadata: OptionMetadata;
+  readonly targets: readonly ScopedConfigEditorTargetValues[];
+}
+export type ScopedConfigEditorSnapshotResult = ScopedConfigEditorSnapshot | PresetDraftError;
 
 export interface PresetEditorCandidate {
   readonly isUser: boolean;
@@ -593,6 +653,11 @@ interface PresetDraftMutationBase extends PresetDraftTarget {
   readonly expectedRevision: number;
 }
 
+/** Explicit category batch: one current binding per unique option key. */
+export type ConfigResetField =
+  | { readonly key: string; readonly kind: 'indexed'; readonly index: number }
+  | { readonly key: string; readonly kind: 'shared' };
+
 export type PresetDraftMutationRequest =
   | (PresetDraftMutationBase & { readonly action: 'set'; readonly key: string; readonly value: string })
   | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
@@ -611,7 +676,7 @@ export type PresetDraftMutationRequest =
   | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
       readonly index: number; readonly scalarType: 'points'; readonly value: readonly PresetDraftEditorPoint[] })
   | (PresetDraftMutationBase & { readonly action: 'reset-field'; readonly key: string; readonly index?: number })
-  | (PresetDraftMutationBase & { readonly action: 'reset-category'; readonly keys: readonly string[]; readonly index?: number })
+  | (PresetDraftMutationBase & { readonly action: 'reset-category'; readonly fields: readonly ConfigResetField[] })
   | (PresetDraftMutationBase & { readonly action: 'reset-preset' });
 
 /** Correlate the native element type with its single typed value. */
@@ -1498,7 +1563,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   setAutoFlushPolicy(policy: AutoFlushPolicy): Promise<{ ok: boolean; error?: string }>;
   /** Open/read native source+effective values and metadata for one canonical preset identity. */
   getPresetDraft(kind: PresetDraftKind, canonicalName: string): Promise<PresetDraftSnapshotResult>;
-  /** Apply one history-backed draft operation; reset-category receives its explicit field set. */
+  /** Apply one history-backed draft operation; category reset carries explicit per-field bindings. */
   mutatePresetDraft(request: PresetDraftMutationRequest, context: import('./history').HistoryContext): Promise<PresetDraftMutationResult>;
   selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError>;
   setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;
@@ -1561,6 +1626,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   /** Read a disposable projection of native project/object/part/plate config. */
   getNativeScopedConfig(): Promise<NativeScopedConfigResultOrError>;
   getPrintConfigEditor(): Promise<ConfigEditorSnapshotResult>;
+  getScopedConfigEditor(request: ScopedConfigEditorRequest): Promise<ScopedConfigEditorSnapshotResult>;
   /** Set one native scoped value and return the affected plate projection. */
   setNativeScopedConfig(target: NativeScopedConfigTarget, optionKey: string, value: string): Promise<NativeScopedConfigResultOrError>;
   /** Apply one atomic set/reset operation to one or more native targets. */

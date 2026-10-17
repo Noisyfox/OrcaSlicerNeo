@@ -71,6 +71,7 @@ export function waitForConfigurationMutations(): Promise<void> {
 async function commitScopedConfigurationMutationNow(
   platform: PlatformCapabilities,
   request: NativeScopedConfigMutationRequest,
+  afterPublication?: () => Promise<void>,
 ): Promise<PlateSessionMutation | null> {
   let mutation: ConfigurationMutationResult | undefined;
   let previousBed: string | undefined;
@@ -92,7 +93,7 @@ async function commitScopedConfigurationMutationNow(
       null,
       {
         publish: async (published, status) => {
-          if (!published.ok || 'unchanged' in published) return;
+          if (!published.ok || 'unchanged' in published) { await afterPublication?.(); return; }
           if (profileSnapshot) {
             const settings = useSettingsStore.getState();
             const mode = settings.configurationMode;
@@ -122,6 +123,7 @@ async function commitScopedConfigurationMutationNow(
             await publishRememberedBedType(platform.preferences, settings.selectedPrinter,
               settings.nativeScopedConfig.project.curr_bed_type);
           }
+          await afterPublication?.();
         },
       },
     );
@@ -150,6 +152,44 @@ export function commitScopedConfigurationMutation(
   if (!paintingCommandAllowed()) return Promise.resolve(null);
   const task = configurationMutationQueue.then(() =>
     commitScopedConfigurationMutationNow(platform, request));
+  configurationMutationQueue = task.then(() => undefined, () => undefined);
+  return task;
+}
+
+/** Read under the existing project/FIFO reservation, without creating history. */
+export function readPrintConfigEditor(platform: PlatformCapabilities) {
+  return configurationMutationQueue.then(() => runProjectMutationOperation(() => platform.runtime.getPrintConfigEditor()));
+}
+
+export function readScopedConfigEditor(platform: PlatformCapabilities, targets: readonly import('@slicer/client').ScopedConfigEditorTarget[]) {
+  return configurationMutationQueue.then(() => runProjectMutationOperation(() => platform.runtime.getScopedConfigEditor({ version: 1, targets })));
+}
+
+/** Refresh exactly the captured owners under the same publication reservation. */
+export function commitScopedEditorMutation(platform: PlatformCapabilities, request: NativeScopedConfigMutationRequest,
+  targets: readonly import('@slicer/client').ScopedConfigEditorTarget[]) {
+  if (!paintingCommandAllowed()) return Promise.reject(new Error('Finish the current editing operation first'));
+  const task = configurationMutationQueue.then(async () => {
+    let editor: import('@slicer/client').ScopedConfigEditorSnapshotResult | undefined;
+    await commitScopedConfigurationMutationNow(platform, request, async () => { editor = await platform.runtime.getScopedConfigEditor({ version: 1, targets }); });
+    if (!editor) throw new Error('Scoped configuration operation was not published');
+    if (!editor.ok) throw new Error(editor.error);
+    return editor;
+  });
+  configurationMutationQueue = task.then(() => undefined, () => undefined);
+  return task;
+}
+
+/** Keep the typed Print refresh within the same command's publication lease. */
+export function commitPrintConfigurationMutation(platform: PlatformCapabilities, request: NativeScopedConfigMutationRequest) {
+  if (!paintingCommandAllowed()) return Promise.reject(new Error('Finish the current editing operation first'));
+  const task = configurationMutationQueue.then(async () => {
+    let editor: import('@slicer/client').ConfigEditorSnapshotResult | undefined;
+    await commitScopedConfigurationMutationNow(platform, request, async () => { editor = await platform.runtime.getPrintConfigEditor(); });
+    if (!editor) throw new Error('Print configuration operation was not published');
+    if (!editor.ok) throw new Error(editor.error);
+    return editor;
+  });
   configurationMutationQueue = task.then(() => undefined, () => undefined);
   return task;
 }
@@ -347,6 +387,7 @@ export async function selectProcessPreset(platform: PlatformCapabilities, name: 
       const settings = useSettingsStore.getState();
       settings.hydrateProfileSnapshot(result.profile);
       settings.applyNativeScopedConfigTransport(result.nativeScopedConfig);
+      settings.enterPrintPreset();
       applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
       usePlateSessionStore.getState().setSnapshot(result.plateSession);
       invalidateAffectedPlateResults(platform.runtime, result.plateSession.affectedPlateIds ?? []);

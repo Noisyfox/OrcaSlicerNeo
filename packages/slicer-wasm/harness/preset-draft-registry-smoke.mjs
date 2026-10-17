@@ -260,10 +260,9 @@ assert.equal(fieldReset.draft_exists, true);
 assert.equal(fieldReset.modified, false);
 assert.deepEqual(fieldReset.overrides, {});
 assert.equal(historyStatus().undoEntries.length, beforeFieldReset.undoEntries.length + 1);
-mutateDraft('set', 'filament', alternateSource,
-  { key: 'filament_max_volumetric_speed', value: '31' });
+mutateDraftElement('filament', alternateSource, 'filament_max_volumetric_speed', 'float', 0, 31);
 const categoryReset = mutateDraft('reset-category', 'filament', alternateSource,
-  { keys: ['filament_max_volumetric_speed', 'filament_density'] });
+  { fields: [{key: 'filament_max_volumetric_speed', kind: 'indexed', index: 0}, {key: 'filament_density', kind: 'shared'}] });
 assert.equal(categoryReset.draft_exists, true);
 assert.equal(categoryReset.modified, false);
 assert.deepEqual(categoryReset.overrides, {});

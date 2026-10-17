@@ -71,6 +71,8 @@ async function launchApp() {
 async function scrollRowToMidlist(page: Page) {
   const aside = page.locator('#app-panel-workspace aside:not(#preview-sidebar)');
   const scroller = page.getByTestId('configuration-options-scroll');
+  // Target label is immediate; the authoritative Scoped editor loads asynchronously.
+  await expect(sparseTrigger(page)).toBeEnabled();
   // The real preset panel already has genuine scrollable content. Synthetic
   // spacer nodes are retained only for the compact mock fixture; injecting
   // nodes into the real React-owned scroll tree can invalidate Base UI's

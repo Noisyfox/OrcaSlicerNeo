@@ -1,17 +1,21 @@
-/** Support wheel scrolling for shared and custom tab lists, including portals. */
-export function scrollTabListWithWheel(event: WheelEvent): void {
+/** Shared wheel behavior for horizontal-only lists, including portal content. */
+export function scrollHorizontalListWithWheel(event: WheelEvent): void {
   if (event.defaultPrevented || event.ctrlKey) return;
   const target = event.target;
   const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
-  const list = element?.closest<HTMLElement>('[role="tablist"]');
+  const list = element?.closest<HTMLElement>('[data-horizontal-scroll], [role="tablist"]');
   if (!list || list.getAttribute('aria-orientation') === 'vertical') return;
 
-  // The main-page tabs scroll their Tabs root; configuration tabs scroll
-  // the list itself. Do not search unrelated page/panel scroll containers.
-  const root = list.closest<HTMLElement>('[data-slot="tabs"]') ?? list;
+  // Explicit owners scroll themselves. Semantic tab lists may scroll their
+  // shared Tabs root. Never search unrelated page/panel scroll containers.
+  const root = list.hasAttribute('data-horizontal-scroll') ? list
+    : list.closest<HTMLElement>('[data-slot="tabs"]') ?? list;
   let container: HTMLElement | null = list;
   while (container) {
-    const overflow = getComputedStyle(container).overflowX;
+    const style = getComputedStyle(container);
+    // Even an opted-in list must not hijack an actual vertical/2D scroller.
+    if (container.scrollHeight > container.clientHeight && (style.overflowY === 'auto' || style.overflowY === 'scroll')) return;
+    const overflow = style.overflowX;
     if (container.scrollWidth > container.clientWidth && (overflow === 'auto' || overflow === 'scroll')) {
       const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
       if (!delta) return;

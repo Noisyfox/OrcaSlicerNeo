@@ -24,6 +24,155 @@ function wireColour(effective: string, provenance: 'preset' | 'user' = 'preset')
 }
 
 describe('SlicerClient bridge contract', () => {
+  it('resets a mixed Filament batch once and preserves other explicit ownership through history', async () => {
+    const client = makeClient(); await client.init(MOCK_PROFILE_ACTIVATION);
+    const read = async () => { const value = await client.getPresetDraft('filament', 'Generic PLA @System');
+      if (!value.ok) throw new Error(value.error); return value; };
+    const base = await read();
+    const edit = async (key: string, index: number, value: number) => client.mutatePresetDraft({
+      kind: 'filament', canonicalName: base.canonicalName, expectedRevision: (await read()).revision,
+      action: 'set-element', key, index, scalarType: 'float', value,
+    }, presetContext);
+    expect(await edit('filament_flow_ratio', 0, 1)).toMatchObject({ok: true});
+    expect(await edit('filament_flow_ratio', 1, 0.9)).toMatchObject({ok: true});
+    expect(await edit('filament_diameter', 0, 1.8)).toMatchObject({ok: true});
+    await client.mutatePresetDraft({kind:'filament',canonicalName:base.canonicalName,
+      expectedRevision:(await read()).revision,action:'set',key:'filament_vendor',value:'Batch vendor'},presetContext);
+    const before = await read(), history = await client.getHistoryStatus();
+    const fields = [{key:'filament_flow_ratio',kind:'indexed' as const,index:1},
+      {key:'filament_diameter',kind:'indexed' as const,index:0},{key:'filament_vendor',kind:'shared' as const}];
+    for (const invalid of [ [...fields,{key:'unknown_option',kind:'shared' as const}],
+      [...fields,fields[0]], [fields[0],{key:'filament_diameter',kind:'indexed' as const,index:99}],
+    ]) {
+      expect(await client.mutatePresetDraft({kind:'filament',canonicalName:base.canonicalName,
+        expectedRevision:before.revision,action:'reset-category',fields:invalid},presetContext)).toMatchObject({ok:false});
+      expect(await read()).toEqual(before);
+      expect(await client.getHistoryStatus()).toEqual(history);
+    }
+    const reset = await client.mutatePresetDraft({kind:'filament',canonicalName:base.canonicalName,
+      expectedRevision:before.revision,action:'reset-category',fields},presetContext);
+    expect(reset).toMatchObject({ok:true,historyEntryDelta:1});
+    const after = await read();
+    expect(after.editorVectors.filament_flow_ratio.overrideValues).toEqual([{value:1},null]);
+    expect(after.editorVectors.filament_diameter.effectiveValues).toEqual(base.editorVectors.filament_diameter.sourceValues);
+    expect(after.effectiveValues.filament_vendor).toBe(base.sourceValues.filament_vendor);
+    expect((await client.getHistoryStatus()).undoEntries).toHaveLength(history.undoEntries.length+1);
+    await client.undoHistory();
+    expect((await read()).overrides).toEqual(before.overrides);
+    await client.redoHistory();
+    expect((await read()).overrides).toEqual(after.overrides);
+  });
+
+  it('atomically resets Print fields at different indices with a shared scalar', async () => {
+    const client = makeClient(); await client.init(MOCK_PROFILE_ACTIVATION);
+    const read = async () => {const result = await client.getPrintConfigEditor(); if (!result.ok) throw new Error(result.error); return result;};
+    for (const [key,index,value] of [['outer_wall_speed',0,200],['outer_wall_speed',2,175]] as const) {
+      expect(await client.mutateNativeScopedConfig({version:1,operation:'set-element',targets:[{scope:'project'}],
+        expectedRevision:(await read()).revision,key,index,scalarType:'float',value})).toMatchObject({ok:true});
+    }
+    await client.mutateNativeScopedConfig({version:1,operation:'set-element',targets:[{scope:'project'}],
+      expectedRevision:(await read()).revision,key:'enable_overhang_speed',index:1,scalarType:'bool',value:false});
+    await client.mutateNativeScopedConfig({version:1,operation:'set',targets:[{scope:'project'}],key:'layer_height',value:'0.17'});
+    const before=await read();
+    const fields = [{key:'outer_wall_speed',kind:'indexed' as const,index:2},
+      {key:'enable_overhang_speed',kind:'indexed' as const,index:1},{key:'layer_height',kind:'shared' as const}];
+    for (const invalid of [[...fields,fields[0]],[...fields,{key:'outer_wall_speed',kind:'indexed' as const,index:9}]]) {
+      expect(await client.mutateNativeScopedConfig({version:1,operation:'reset-fields',targets:[{scope:'project'}],
+        expectedRevision:before.revision,fields:invalid})).toMatchObject({ok:false});
+      expect(await read()).toEqual(before);
+    }
+    const tx=await client.beginHistory('Reset mixed Print fields','project',presetContext);
+    expect(await client.mutateNativeScopedConfig({version:1,operation:'reset-fields',targets:[{scope:'project'}],
+      expectedRevision:before.revision,fields})).toMatchObject({ok:true});
+    await client.commitHistory(tx,presetContext);
+    const after=await read();
+    expect(after.editorVectors.outer_wall_speed.overrideValues).toEqual([{value:200},null,null]);
+    expect(after.editorVectors.enable_overhang_speed.overrideValues).toEqual([null,null,null]);
+    expect(after.effectiveValues.layer_height).toBe('0.2');
+    await client.undoHistory(); expect((await read()).editorVectors).toEqual(before.editorVectors);
+    expect((await read()).effectiveValues.layer_height).toBe('0.17');
+    await client.redoHistory(); expect((await read()).editorVectors).toEqual(after.editorVectors);
+  });
+  it.each(['missing', 'duplicate-choice', 'wrong-default', 'null-default', 'missing-nozzle', 'bad-index', 'missing-field', 'bad-length'])(
+    'rejects %s native selection metadata rather than inventing a binding', async mode => {
+      const module = createMockModule();
+      const original = module.ccall;
+      module.ccall = (name, ret, types, args) => {
+        const pointer = original(name, ret, types, args);
+        if (name !== 'orc_get_preset_draft') return pointer;
+        const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
+        module._free(Number(pointer));
+        const selection = payload.editor_selection;
+        if (mode === 'missing') delete payload.editor_selection;
+        if (mode === 'duplicate-choice') selection.choices.push(selection.choices[0]);
+        if (mode === 'wrong-default') selection.nozzles[0].initial_choice_id = 'missing';
+        if (mode === 'null-default') selection.nozzles[0].default_choice_id = null;
+        if (mode === 'missing-nozzle') selection.nozzles = [];
+        if (mode === 'bad-index') selection.field_bindings.nozzle_diameter.bindings[0].index = 100;
+        if (mode === 'missing-field') delete selection.field_bindings.nozzle_diameter;
+        if (mode === 'bad-length') selection.field_bindings.nozzle_diameter.bindings = [];
+        const bytes = new TextEncoder().encode(JSON.stringify(payload) + '\0');
+        const replacement = module._malloc(bytes.length); module.HEAPU8.set(bytes, Number(replacement));
+        return replacement;
+      };
+      const client = createClient(async () => module); await client.init(MOCK_PROFILE_ACTIVATION);
+      expect(await client.getPresetDraft('printer', 'Bambu Lab X1 Carbon 0.4 nozzle'))
+        .toMatchObject({ ok: false, errorCode: 'invalid_response' });
+    });
+
+  it('preserves unavailable mappings and a valid native index beyond short serialized vectors', async () => {
+    const module = createMockModule(); const original = module.ccall;
+    module.ccall = (name, ret, types, args) => {
+      const pointer = original(name, ret, types, args);
+      if (name !== 'orc_get_print_config_editor') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer))); module._free(Number(pointer));
+      payload.editor_vectors.outer_wall_speed.source_values = [200];
+      payload.editor_vectors.outer_wall_speed.effective_values = [210];
+      payload.editor_selection.field_bindings.outer_wall_speed.bindings[1] = { kind: 'unavailable' };
+      const bytes = new TextEncoder().encode(JSON.stringify(payload) + '\0');
+      const replacement = module._malloc(bytes.length); module.HEAPU8.set(bytes, Number(replacement)); return replacement;
+    };
+    const client = createClient(async () => module); const snapshot = await client.getPrintConfigEditor();
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    expect(snapshot.editorSelection.fieldBindings.outer_wall_speed).toEqual({ kind: 'per_selection', bindings: [
+      { kind: 'indexed', index: 0 }, { kind: 'unavailable' }, { kind: 'indexed', index: 2 },
+    ] });
+    expect(snapshot.editorVectors.outer_wall_speed).toMatchObject({ indexCount: 3, sourceValues: [200], effectiveValues: [210] });
+  });
+  it.each(['owned-null', 'wrong-origin', 'missing-origins', 'short-origins', 'wrong-target', 'wrong-target-scope', 'false-local-key'])('rejects malformed scoped %s receipts', async mode => {
+    const module = createMockModule(), original = module.ccall;
+    module.ccall = (name, ret, types, args) => {
+      const pointer = original(name, ret, types, args);
+      if(name !== 'orc_get_scoped_config_editor') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer))); module._free(Number(pointer));
+      const target = payload.targets[0];
+      if(mode==='owned-null') { target.editor_vectors.outer_wall_speed.override_values[1]={value:null}; target.local_keys.push('outer_wall_speed'); }
+      if(mode==='wrong-origin') target.source_scopes.indexed.outer_wall_speed[0]='object';
+      if(mode==='missing-origins') delete target.source_scopes.indexed.outer_wall_speed;
+      if(mode==='short-origins') target.source_scopes.indexed.outer_wall_speed.pop();
+      if(mode==='wrong-target') target.target.id='99999';
+      if(mode==='wrong-target-scope') target.target.scope='part';
+      if(mode==='false-local-key') target.local_keys.push('outer_wall_speed');
+      const bytes = new TextEncoder().encode(JSON.stringify(payload)+'\0'); const replacement = module._malloc(bytes.length);
+      module.HEAPU8.set(bytes,Number(replacement)); return replacement;
+    };
+    const client = createClient(async()=>module); await client.init(MOCK_PROFILE_ACTIVATION); await client.addShape('Cube','scoped');
+    const structure=await client.getModelStructure(); if(!structure.ok) throw new Error(structure.error);
+    expect(await client.getScopedConfigEditor({version:1,targets:[{scope:'object',id:structure.objects[0].id}]}))
+      .toMatchObject({ok:false,errorCode:'invalid_response'});
+  });
+  it('keeps object/part-only shared Process enums in native-shaped scoped snapshots and mutations', async () => {
+    const client=makeClient();await client.init(MOCK_PROFILE_ACTIVATION);await client.addShape('Cube','scoped enum');
+    const structure=await client.getModelStructure();if(!structure.ok)throw Error(structure.error);
+    const targets=[{scope:'object' as const,id:structure.objects[0].id}];
+    const before=await client.getScopedConfigEditor({version:1,targets});if(!before.ok)throw Error(before.error);
+    expect(before.optionMetadata.sparse_infill_pattern.scopes).toEqual(['object','part']);
+    expect(before.editorSelection.fieldBindings.sparse_infill_pattern).toEqual({kind:'shared'});
+    expect(before.targets[0]).toMatchObject({sourceValues:{sparse_infill_pattern:'grid'},effectiveValues:{sparse_infill_pattern:'grid'},sourceScopes:{shared:{sparse_infill_pattern:'preset'}}});
+    expect(await client.mutateNativeScopedConfig({version:1,operation:'set',targets,key:'sparse_infill_pattern',value:'gyroid'})).toMatchObject({ok:true});
+    const after=await client.getScopedConfigEditor({version:1,targets});if(!after.ok)throw Error(after.error);
+    expect(after.targets[0]).toMatchObject({sourceValues:{sparse_infill_pattern:'grid'},effectiveValues:{sparse_infill_pattern:'gyroid'},localKeys:expect.arrayContaining(['sparse_infill_pattern'])});
+  });
   const arrangement = { scope: 'all' as const, distance: 0, rotate: false, alignY: false, multipleMaterials: true, avoidCalibration: true,
     context: { selection: { mode: 'object' as const, objectIds: [], instanceIds: [], partIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} } };
   const arrangementCompletion = { ok: true, cancelled: false, changed: false, placed: 0, unplaced: [], plate_limit_reached: false };
@@ -1496,7 +1645,7 @@ describe('SlicerClient bridge contract', () => {
 
     const reset = await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
       action: 'reset-category', expectedRevision: script.revisionAfter,
-      keys: ['filament_flow_ratio', 'filament_start_gcode'] }, presetContext);
+      fields: [{key: 'filament_flow_ratio', kind: 'indexed', index: 0}, {key: 'filament_start_gcode', kind: 'indexed', index: 0}] }, presetContext);
     expect(reset).toMatchObject({ ok: true, effectiveValues: {
       filament_flow_ratio: '[1,1]', filament_start_gcode: '["G28\\n"]',
     }, editorBindings: {
@@ -1639,7 +1788,7 @@ describe('SlicerClient bridge contract', () => {
       { action: 'reset-field', key: 'nozzle_temperature' } as const,
       { action: 'set', key: 'nozzle_temperature', value: '225' } as const,
       { action: 'set', key: 'printable_area', value: 'custom-area' } as const,
-      { action: 'reset-category', keys: ['nozzle_temperature', 'printable_area'] } as const,
+      { action: 'reset-category', fields: [{key: 'nozzle_temperature', kind: 'shared'}, {key: 'printable_area', kind: 'shared'}] } as const,
       { action: 'set', key: 'nozzle_temperature', value: '225' } as const,
       { action: 'reset-preset' } as const,
     ];
@@ -3066,13 +3215,13 @@ describe('SlicerClient bridge contract', () => {
     await expect(c.mutateNativeScopedConfig({ version: 1, operation: 'set-element', targets: [{ scope: 'project' }],
       key: 'outer_wall_speed', scalarType: 'float', index: 1, value: 150, expectedRevision: initial.revision }))
       .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
-    await expect(c.mutateNativeScopedConfig({ version: 1, operation: 'reset-elements', targets: [{ scope: 'project' }],
-      keys: ['outer_wall_speed', 'layer_height'], index: 2, expectedRevision: edited.revision }))
+    await expect(c.mutateNativeScopedConfig({ version: 1, operation: 'reset-fields', targets: [{ scope: 'project' }],
+      fields: [{key: 'outer_wall_speed', kind: 'indexed', index: 2}, {key: 'layer_height', kind: 'indexed', index: 2}], expectedRevision: edited.revision }))
       .resolves.toMatchObject({ ok: false, errorCode: 'unsupported_option' });
     expect(await c.getPrintConfigEditor()).toEqual(edited);
     const resetTx = await c.beginHistory('Reset Print element', 'project', context);
-    await expect(c.mutateNativeScopedConfig({ version: 1, operation: 'reset-elements', targets: [{ scope: 'project' }],
-      keys: ['outer_wall_speed'], index: 2, expectedRevision: edited.revision })).resolves.toMatchObject({ ok: true });
+    await expect(c.mutateNativeScopedConfig({ version: 1, operation: 'reset-fields', targets: [{ scope: 'project' }],
+      fields: [{key: 'outer_wall_speed', kind: 'indexed', index: 2}], expectedRevision: edited.revision })).resolves.toMatchObject({ ok: true });
     await c.commitHistory(resetTx, context);
     await c.undoHistory();
     expect(await c.getPrintConfigEditor()).toMatchObject({ editorVectors: { outer_wall_speed: { effectiveValues: [200, 220, 175] } } });

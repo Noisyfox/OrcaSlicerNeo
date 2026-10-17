@@ -1,6 +1,6 @@
 # Application Shell
 
-**Updated:** 2026-10-16
+**Updated:** 2026-10-17
 **Status:** Delivered behavior
 **Scope:** Shared layout, desktop window chrome, menus and diagnostics.
 
@@ -570,13 +570,21 @@ while a synchronous ref guard continues to prevent duplicate submissions.
 
 ### Overflowing tab bars
 
-Horizontal tab bars respond to mouse-wheel input whenever their list or shared
-Tabs root overflows horizontally, including title-bar pages, configuration
-categories, and preset-editor pages. Vertical wheel movement scrolls the tab
-bar horizontally; trackpad horizontal movement is retained. Non-overflowing
-and vertical tab bars leave native scrolling unchanged, and Ctrl-wheel remains
-available for zoom. The shared listener covers portal dialogs and is removed
-when the app shell unmounts.
+All lists designed to scroll only horizontally must respond to ordinary mouse
+wheel input in both Electron and Web, including future components. This covers
+horizontal tab bars (title-bar pages, configuration categories, preset-editor
+pages) and the Project/Scoped nozzle strip. Vertical wheel movement scrolls the
+list horizontally; horizontal trackpad movement is retained. Wheel line/page
+units are respected and the browser clamps scrolling at the list edges.
+Scrolling does not select an item, mutate configuration or create history.
+
+Semantic horizontal tab lists use their overflowing list or shared Tabs root.
+Other horizontal-only list viewports explicitly opt in with
+`data-horizontal-scroll`; the nearest owner scrolls without searching unrelated
+panel ancestors. The shared non-passive document listener also covers portal
+dialogs and is removed when the app shell unmounts. Non-overflowing lists,
+vertical lists, general vertical/two-dimensional content (including tables),
+already-consumed wheel events and Ctrl-wheel/pinch zoom retain native behavior.
 
 ### Native toolhead selection and editing
 

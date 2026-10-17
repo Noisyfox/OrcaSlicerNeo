@@ -139,6 +139,18 @@ function makePlatform(
     save: vi.fn(async (next: UserPreferences) => { Object.assign(preferences, next); }),
   };
   const runtime = {
+        getPrintConfigEditor:vi.fn(async()=>{
+          const state=useSettingsStore.getState();
+          // Native Project storage is intentionally absent from the Print-owned snapshot.
+          const keys=Object.keys(state.metadata??{}).filter(key=>
+            !['curr_bed_type','filament_map_mode','filament_map','filament_volume_map'].includes(key) &&
+            (Object.hasOwn(state.baseValues,key) || Object.hasOwn(state.values,key)));
+          const sourceValues=Object.fromEntries(keys.filter(key=>Object.hasOwn(state.baseValues,key)).map(key=>[key,state.baseValues[key]]));
+          const effectiveValues=Object.fromEntries(keys.filter(key=>Object.hasOwn(state.values,key)).map(key=>[key,state.values[key]]));
+          return {ok:true,canonicalName:state.selectedPrint,revision:1,sourceValues,effectiveValues,
+            optionMetadata:Object.fromEntries(keys.map(key=>[key,state.metadata![key]])),editorVectors:{},editorBindings:{},editorSelection:{kind:'print',activeSource:true,choices:[],nozzles:[],firstChoiceId:null,
+              fieldBindings:Object.fromEntries(keys.map(key=>[key,{kind:'shared'}]))}};
+        }),
         getRuntimeExecutionState: vi.fn(() => ({ threaded: false, sliceActive: false, serialSliceActive: false, serialTerminalEpoch: '0' })),
         getHistoryStatus: vi.fn(async () => (printerTransition() as Extract<PrinterTransitionResult, { ok: true }>).historyStatus),
         mutateNativeScopedConfig: vi.fn(async (request: { value?: string }) => ({ ok: true as const,

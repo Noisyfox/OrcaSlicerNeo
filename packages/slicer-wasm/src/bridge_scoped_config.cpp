@@ -27,6 +27,7 @@
 #include "bridge_plate.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_profiles.hpp"
+#include "bridge_preset_drafts.hpp"
 #include "bridge_user_presets.hpp"
 #include "libslic3r/Exception.hpp"
 
@@ -194,6 +195,7 @@ struct MutationRequest {
     std::map<std::string, std::string> values;
     std::string category;
     std::optional<uint64_t> index;
+    std::vector<ConfigElements::ResetField> reset_fields;
     std::string scalar_type;
     json element_value;
 };
@@ -443,14 +445,33 @@ void apply_project_mutation_to_candidates(const MutationRequest& request,
                                           std::map<std::string, std::string>& vector_overrides)
 {
     const Preset* parent = selected_print_parent();
+    if (request.operation == "reset-fields") {
+        const auto source = print_element_source();
+        for (const auto& field : request.reset_fields) {
+            const auto error = ConfigElements::validate_reset_field(print_candidate, source, Preset::TYPE_PRINT, field);
+            if (!error.is_null()) throw MutationCommandError(error["error_code"].get<std::string>(), error["error"].get<std::string>());
+            const auto& key = field.key;
+            if (!field.index) {
+                restore_parent_value_or_erase(print_candidate, parent, key);
+                vector_overrides.erase(key);
+                continue;
+            }
+            const json current = vector_overrides.count(key) ? json::parse(vector_overrides.at(key)) : json(nullptr);
+            const auto result = ConfigElements::reset_override(print_candidate, source, Preset::TYPE_PRINT, key, current, *field.index);
+            if (result.is_object()) throw MutationCommandError(result["error_code"].get<std::string>(), result["error"].get<std::string>());
+            if (result.is_null()) vector_overrides.erase(key);
+            else vector_overrides[key] = result.dump();
+            print_candidate.set_key_value(key, source.option(key)->clone());
+            if (!result.is_null()) ConfigElements::apply_override(print_candidate, Preset::TYPE_PRINT, key, result);
+        }
+        return;
+    }
     if (request.index) {
         const auto source = print_element_source();
         for (const auto& [key, ignored] : request.values) {
             const json current = vector_overrides.count(key) ? json::parse(vector_overrides.at(key)) : json(nullptr);
-            const auto result = request.operation == "set-element"
-                ? ConfigElements::set_override(print_candidate, Preset::TYPE_PRINT, key, current,
-                    request.scalar_type, *request.index, request.element_value)
-                : ConfigElements::reset_override(print_candidate, source, Preset::TYPE_PRINT, key, current, *request.index);
+            const auto result = ConfigElements::set_override(print_candidate, Preset::TYPE_PRINT, key, current,
+                request.scalar_type, *request.index, request.element_value);
             if (result.is_object()) throw MutationCommandError(result["error_code"].get<std::string>(), result["error"].get<std::string>());
             if (result.is_null()) vector_overrides.erase(key);
             else vector_overrides[key] = result.dump();
@@ -548,23 +569,9 @@ std::size_t parse_target_id(const std::string& id, const std::string& scope)
     }
 }
 
-MutationRequest parse_request(const char* request_json)
+std::vector<MutationTarget> parse_targets(const json& encoded)
 {
-    if (request_json == nullptr || *request_json == '\0')
-        throw MutationCommandError("invalid_command", "mutation request is required");
-    json encoded;
-    try { encoded = json::parse(request_json); }
-    catch (...) { throw MutationCommandError("invalid_command", "mutation request is not valid JSON"); }
-    if (!encoded.is_object() || encoded.value("version", 0) != 1)
-        throw MutationCommandError("invalid_command", "unsupported native mutation request version");
-    MutationRequest request;
-    if (!encoded.contains("operation") || !encoded["operation"].is_string())
-        throw MutationCommandError("invalid_command", "mutation operation is required");
-    request.operation = encoded["operation"].get<std::string>();
-    if (request.operation != "set" && request.operation != "reset" &&
-        request.operation != "reset-category" && request.operation != "reset-all" &&
-        request.operation != "set-element" && request.operation != "reset-elements")
-        throw MutationCommandError("invalid_command", "unsupported native mutation operation");
+    std::vector<MutationTarget> targets;
     if (!encoded.contains("targets") || !encoded["targets"].is_array() || encoded["targets"].empty())
         throw MutationCommandError("invalid_command", "at least one mutation target is required");
     std::set<std::pair<std::string, std::string>> seen;
@@ -584,20 +591,50 @@ MutationRequest parse_request(const char* request_json)
             throw MutationCommandError("invalid_command", target.scope + " scope id is required");
         if (!seen.emplace(target.scope, target.id).second)
             throw MutationCommandError("invalid_command", "duplicate mutation target");
-        request.targets.push_back(std::move(target));
+        targets.push_back(std::move(target));
     }
-    if (request.operation == "set-element" || request.operation == "reset-elements") {
-        if (request.targets.size() != 1 || request.targets.front().scope != "project")
-            throw MutationCommandError("unsupported_reference", "Print element commands require one Project target");
+    return targets;
+}
+
+void require_scoped_targets(const std::vector<MutationTarget>& targets)
+{
+    const auto& scope = targets.front().scope;
+    if ((scope != "object" && scope != "part") || std::any_of(targets.begin(), targets.end(),
+        [&](const MutationTarget& target) { return target.scope != scope; }))
+        throw MutationCommandError("unsupported_reference", "scoped editor requires homogeneous Object or Part targets");
+}
+
+MutationRequest parse_request(const char* request_json)
+{
+    if (request_json == nullptr || *request_json == '\0')
+        throw MutationCommandError("invalid_command", "mutation request is required");
+    json encoded;
+    try { encoded = json::parse(request_json); }
+    catch (...) { throw MutationCommandError("invalid_command", "mutation request is not valid JSON"); }
+    if (!encoded.is_object() || encoded.value("version", 0) != 1)
+        throw MutationCommandError("invalid_command", "unsupported native mutation request version");
+    MutationRequest request;
+    if (!encoded.contains("operation") || !encoded["operation"].is_string())
+        throw MutationCommandError("invalid_command", "mutation operation is required");
+    request.operation = encoded["operation"].get<std::string>();
+    if (request.operation != "set" && request.operation != "reset" &&
+        request.operation != "reset-category" && request.operation != "reset-all" &&
+        request.operation != "set-element" && request.operation != "reset-fields")
+        throw MutationCommandError("invalid_command", "unsupported native mutation operation");
+    request.targets = parse_targets(encoded);
+    if (request.operation == "set-element" || request.operation == "reset-fields") {
+        if (request.targets.front().scope != "project") require_scoped_targets(request.targets);
+        else if (request.targets.size() != 1)
+            throw MutationCommandError("unsupported_reference", "element commands require one Project or homogeneous scoped targets");
         if (!encoded.contains("expected_revision") || !encoded["expected_revision"].is_number_unsigned() ||
             encoded["expected_revision"].get<uint64_t>() != state().history_revision)
             throw MutationCommandError("stale_revision", "Print element revision is stale or missing");
         if (state().history_disabled)
             throw MutationCommandError("history_disabled", "project history is disabled");
-        if (!encoded.contains("index") || !encoded["index"].is_number_unsigned())
-            throw MutationCommandError("invalid_index", "element index must be unsigned");
-        request.index = encoded["index"].get<uint64_t>();
         if (request.operation == "set-element") {
+            if (!encoded.contains("index") || !encoded["index"].is_number_unsigned())
+                throw MutationCommandError("invalid_index", "element index must be unsigned");
+            request.index = encoded["index"].get<uint64_t>();
             if (!encoded.contains("key") || !encoded["key"].is_string() || encoded["key"].get<std::string>().empty() ||
                 !encoded.contains("scalar_type") || !encoded["scalar_type"].is_string() || !encoded.contains("value"))
                 throw MutationCommandError("invalid_command", "set-element requires key, scalar_type and typed value");
@@ -605,12 +642,11 @@ MutationRequest parse_request(const char* request_json)
             request.scalar_type = encoded["scalar_type"].get<std::string>();
             request.element_value = encoded["value"];
         } else {
-            if (!encoded.contains("keys") || !encoded["keys"].is_array() || encoded["keys"].empty())
-                throw MutationCommandError("invalid_command", "reset-elements requires explicit keys");
-            for (const auto& key : encoded["keys"]) {
-                if (!key.is_string() || key.get<std::string>().empty() || !request.values.emplace(key.get<std::string>(), "").second)
-                    throw MutationCommandError("invalid_command", "reset element keys must be unique non-empty strings");
-            }
+            if (encoded.contains("keys") || encoded.contains("index"))
+                throw MutationCommandError("invalid_command", "reset-fields requires per-field reset targets");
+            const auto error = ConfigElements::parse_reset_fields(encoded.value("fields", json()), request.reset_fields);
+            if (!error.is_null()) throw MutationCommandError(error["error_code"].get<std::string>(), error["error"].get<std::string>());
+            for (const auto& field : request.reset_fields) request.values.emplace(field.key, "");
         }
     } else if (request.operation == "set") {
         const bool has_key = encoded.contains("key");
@@ -643,10 +679,11 @@ MutationRequest parse_request(const char* request_json)
 
 void validate_set_keys(const MutationRequest& request)
 {
-    if (request.operation != "set" && request.operation != "reset" && !request.index) return;
+    if (request.operation != "set" && request.operation != "reset" && !request.index && request.reset_fields.empty()) return;
     for (const auto& [key, value] : request.values) {
         const ConfigOptionDef& definition = require_definition(key);
-        if (request.index && (is_native_project_config_key(key) || !is_project_print_override_key(key)))
+        if ((request.index || !request.reset_fields.empty()) &&
+            (is_native_project_config_key(key) || !is_project_print_override_key(key)))
             throw MutationCommandError("unsupported_reference", "indexed configuration commands only edit Print options");
         if (is_bridge_owned_project_routing_key(key))
             throw MutationCommandError(
@@ -742,6 +779,183 @@ void resolve_target(ResolvedTarget& resolved)
         throw MutationCommandError("unsupported_reference", "plate not found");
     resolved.candidate = resolved.plate->settings;
     resolved.affected_plates.insert(target.id);
+}
+
+json native_project_scoped_config_snapshot();
+
+bool scoped_editor_key(const std::string& key, const std::string& scope)
+{
+    const auto& metadata = Profiles::option_metadata_json();
+    if (!is_project_print_override_key(key) || !resettable_key(key) || !metadata.contains(key) ||
+        !metadata[key].contains("scopes")) return false;
+    const auto& scopes = metadata[key]["scopes"];
+    return std::find(scopes.begin(), scopes.end(), scope) != scopes.end();
+}
+
+// Native ModelConfig nil is inheritance, unlike Project's explicit-owned nil.
+// A non-nil singleton is the native all-variant shorthand (set_variant_override).
+std::optional<size_t> local_slot(const ConfigOptionVectorBase& option, size_t index)
+{
+    const size_t slot = option.size() == 1 && !option.is_nil(0) ? 0 : index;
+    return slot < option.size() && !option.is_nil(slot) ? std::optional<size_t>(slot) : std::nullopt;
+}
+
+void compose_scoped_layer(DynamicPrintConfig& effective, const DynamicPrintConfig& local,
+                          json* origins = nullptr, const std::string& scope = "")
+{
+    for (const auto& key : local.keys()) {
+        auto* destination = effective.option(key);
+        const auto* option = local.option(key);
+        if (!destination || !is_project_print_override_key(key)) continue;
+        if (ConfigElements::selection_dependent(Preset::TYPE_PRINT, key)) {
+            auto* target = dynamic_cast<ConfigOptionVectorBase*>(destination);
+            const auto* source = dynamic_cast<const ConfigOptionVectorBase*>(option);
+            if (!target || !source) continue;
+            const size_t count = ConfigElements::element_count(effective, Preset::TYPE_PRINT, key);
+            if (target->size() < count) target->resize(count, destination);
+            for (size_t index = 0; index < count; ++index) if (const auto slot = local_slot(*source, index)) {
+                target->set_at(option, index, *slot);
+                if (origins) (*origins)["indexed"][key][index] = scope;
+            }
+        } else if (!option->is_nil()) {
+            effective.set_key_value(key, option->clone());
+            if (origins) (*origins)["shared"][key] = scope;
+        }
+    }
+}
+
+struct ScopedEditorValues {
+    DynamicPrintConfig source;
+    DynamicPrintConfig effective;
+    json source_scopes = {{"shared", json::object()}, {"indexed", json::object()}};
+    json overrides = json::object();
+    json local_keys = json::array();
+};
+
+ScopedEditorValues scoped_editor_values(const ResolvedTarget& target)
+{
+    ScopedEditorValues result;
+    result.source = state().presets.prints.get_edited_preset().config;
+    const auto project = native_project_scoped_config_snapshot();
+    const auto& project_vectors = state().presets.prints.get_edited_preset().neo_vector_overrides;
+    for (const auto& key : result.source.keys()) {
+        const auto* definition = print_config_def.get(key);
+        const auto* vector = dynamic_cast<const ConfigOptionVectorBase*>(result.source.option(key));
+        if (definition && vector && ConfigElements::selection_dependent(Preset::TYPE_PRINT, key) &&
+            ConfigElements::editor_vector_type(key, *definition)) {
+            json scopes = json::array();
+            const auto entries = project_vectors.count(key) ? json::parse(project_vectors.at(key)) : json::array();
+            const size_t count = ConfigElements::element_count(result.source, Preset::TYPE_PRINT, key);
+            for (size_t index = 0; index < count; ++index)
+                scopes.push_back(index < entries.size() && !entries[index].is_null() ? "project" : "preset");
+            result.source_scopes["indexed"][key] = std::move(scopes);
+        } else result.source_scopes["shared"][key] = project.contains(key) ? "project" : "preset";
+    }
+    if (target.part) compose_scoped_layer(result.source, target.part->get_object()->config.get(), &result.source_scopes, "object");
+    result.effective = result.source;
+    compose_scoped_layer(result.effective, target.candidate);
+    // Reuse native typed element serialization after expanding an already-local
+    // singleton. Never serialize nil as {value:null} or infer ownership by value.
+    for (const auto& key : target.candidate.keys()) {
+        if (!scoped_editor_key(key, target.target.scope)) continue;
+        const auto* option = target.candidate.option(key);
+        const auto* vector = dynamic_cast<const ConfigOptionVectorBase*>(option);
+        if (vector && ConfigElements::selection_dependent(Preset::TYPE_PRINT, key)) {
+            const size_t count = ConfigElements::element_count(result.source, Preset::TYPE_PRINT, key);
+            auto values = ConfigElements::explicit_values(result.effective, Preset::TYPE_PRINT, key, count);
+            bool owned = false;
+            for (size_t index = 0; index < count; ++index) {
+                if (!local_slot(*vector, index)) values[index] = nullptr;
+                else owned = true;
+            }
+            result.overrides[key] = std::move(values);
+            if (owned) result.local_keys.push_back(key);
+        } else if (!option->is_nil()) result.local_keys.push_back(key);
+    }
+    return result;
+}
+
+void prepare_scoped_vector(DynamicPrintConfig& candidate, const DynamicPrintConfig& effective, const std::string& key)
+{
+    const auto& definition = require_definition(key);
+    if (!ConfigElements::selection_dependent(Preset::TYPE_PRINT, key) || !definition.nullable || definition.readonly)
+        throw MutationCommandError("unsupported_reference", "scoped option has no writable nullable element storage: " + key);
+    const auto* current = dynamic_cast<const ConfigOptionVectorBase*>(candidate.option(key));
+    std::unique_ptr<ConfigOption> option(effective.option(key)->clone());
+    auto* vector = dynamic_cast<ConfigOptionVectorBase*>(option.get());
+    const size_t count = ConfigElements::element_count(effective, Preset::TYPE_PRINT, key);
+    if (!vector || !vector->nullable()) throw MutationCommandError("unsupported_reference", "scoped option is not nullable: " + key);
+    vector->resize(count, definition.default_value.get());
+    for (size_t index = 0; index < count; ++index) {
+        vector->set_at_to_nil(index);
+        if (current) if (const auto slot = local_slot(*current, index)) vector->set_at(candidate.option(key), index, *slot);
+    }
+    candidate.set_key_value(key, option.release());
+}
+
+void apply_scoped_elements(const MutationRequest& request, ResolvedTarget& target)
+{
+    const auto values = scoped_editor_values(target);
+    for (const auto& [key, unused] : request.values)
+        if (!scoped_editor_key(key, target.target.scope) || require_definition(key).readonly)
+            throw MutationCommandError("unsupported_reference", "option is not editable at the scoped target: " + key);
+    if (request.index) {
+        const auto& key = request.values.begin()->first;
+        prepare_scoped_vector(target.candidate, values.effective, key);
+        const auto error = ConfigElements::set_element(target.candidate, key, request.scalar_type, *request.index,
+            request.element_value, ConfigElements::element_count(values.effective, Preset::TYPE_PRINT, key));
+        if (!error.is_null()) throw MutationCommandError(error["error_code"].get<std::string>(), error["error"].get<std::string>());
+        if (target.candidate.option(key)->is_nil()) target.candidate.erase(key);
+        return;
+    }
+    for (const auto& field : request.reset_fields) {
+        const auto error = ConfigElements::validate_reset_field(values.effective, values.source, Preset::TYPE_PRINT, field);
+        if (!error.is_null()) throw MutationCommandError(error["error_code"].get<std::string>(), error["error"].get<std::string>());
+        if (!field.index) target.candidate.erase(field.key);
+        else if (target.candidate.has(field.key)) {
+            prepare_scoped_vector(target.candidate, values.effective, field.key);
+            dynamic_cast<ConfigOptionVectorBase*>(target.candidate.option(field.key))->set_at_to_nil(*field.index);
+            if (target.candidate.option(field.key)->is_nil()) target.candidate.erase(field.key);
+        }
+    }
+}
+
+json scoped_editor_snapshot(const json& request)
+{
+    if (!request.is_object() || request.value("version", 0) != 1)
+        throw MutationCommandError("invalid_command", "unsupported scoped editor read version");
+    const auto targets = parse_targets(request);
+    require_scoped_targets(targets);
+    json projected = json::array(), selection, metadata = json::object();
+    const auto printer = PresetDrafts::effective_preset_config(state().presets, state().preset_drafts,
+        Preset::TYPE_PRINTER, state().presets.printers.get_selected_preset_name());
+    for (const auto& identity : targets) {
+        ResolvedTarget target; target.target = identity; resolve_target(target);
+        auto values = scoped_editor_values(target);
+        json source = json::object(), effective = json::object();
+        for (const auto& key : values.source.keys()) {
+            if (!scoped_editor_key(key, identity.scope)) continue;
+            source[key] = values.source.option(key)->serialize();
+            effective[key] = values.effective.option(key)->serialize();
+            metadata[key] = Profiles::option_metadata_json().at(key);
+        }
+        auto vectors = ConfigElements::vectors_json(values.source, values.effective, Preset::TYPE_PRINT, values.overrides);
+        for (auto it = vectors.begin(); it != vectors.end(); )
+            if (!source.contains(it.key())) it = vectors.erase(it); else ++it;
+        json origins = {{"shared", json::object()}, {"indexed", json::object()}};
+        for (auto it = source.begin(); it != source.end(); ++it) {
+            if (ConfigElements::selection_dependent(Preset::TYPE_PRINT, it.key()) && vectors.contains(it.key()))
+                origins["indexed"][it.key()] = values.source_scopes["indexed"].at(it.key());
+            else origins["shared"][it.key()] = values.source_scopes["shared"].at(it.key());
+        }
+        if (selection.is_null()) selection = ConfigElements::selection_json(values.effective, Preset::TYPE_PRINT,
+            printer, state().presets.project_config, true, effective, vectors);
+        projected.push_back({{"target", {{"scope", identity.scope}, {"id", identity.id}}},
+            {"source_values", source}, {"effective_values", effective}, {"editor_vectors", vectors},
+            {"local_keys", values.local_keys}, {"source_scopes", origins}});
+    }
+    return {{"ok", true}, {"version", 1}, {"revision", state().history_revision},
+        {"editor_selection", selection}, {"option_metadata", metadata}, {"targets", projected}};
 }
 
 } // namespace
@@ -1238,12 +1452,23 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_print_config_editor() {
         auto vectors = ConfigElements::vectors_json(source, edited.config, Preset::TYPE_PRINT, vector_overrides);
         for (auto it = vectors.begin(); it != vectors.end(); )
             if (!ScopedConfig::is_project_print_override_key(it.key())) it = vectors.erase(it); else ++it;
+        const auto printer = PresetDrafts::effective_preset_config(state().presets, state().preset_drafts,
+            Preset::TYPE_PRINTER, state().presets.printers.get_selected_preset_name());
+        auto selection = ConfigElements::selection_json(edited.config, Preset::TYPE_PRINT, printer,
+            state().presets.project_config, true, effective, vectors);
         return ScopedConfig::duplicate_json(json{{"ok", true}, {"kind", "print"}, {"canonical_name", edited.name},
             {"source_values", originals}, {"effective_values", effective}, {"option_metadata", metadata},
-            {"editor_vectors", vectors}, {"revision", state().history_revision}}.dump());
+            {"editor_vectors", vectors}, {"editor_selection", std::move(selection)}, {"revision", state().history_revision}}.dump());
     } catch (const std::exception& error) {
         return ScopedConfig::native_configuration_error_json("native_validation_failure", error.what());
     }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_get_scoped_config_editor(const char* request) {
+    using namespace Slic3r::Neo::Bridge;
+    try { return ScopedConfig::duplicate_json(ScopedConfig::scoped_editor_snapshot(json::parse(request ? request : "")).dump()); }
+    catch (const ScopedConfig::MutationCommandError& error) { return ScopedConfig::native_configuration_error_json(error.code, error.what()); }
+    catch (const std::exception& error) { return ScopedConfig::native_configuration_error_json("native_validation_failure", error.what()); }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* request_cstr) {
@@ -1287,7 +1512,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                 if (resolved.back().changed)
                     resolved.back().affected_plates = PlateSession::all_plate_ids();
             } else {
-                ScopedConfig::apply_mutation_to_candidate(request, resolved.back().candidate);
+                if (request.index || !request.reset_fields.empty()) ScopedConfig::apply_scoped_elements(request, resolved.back());
+                else ScopedConfig::apply_mutation_to_candidate(request, resolved.back().candidate);
                 if (target.scope == "object") {
                 resolved.back().changed = resolved.back().candidate != resolved.back().object->config.get();
                 } else if (target.scope == "part") {

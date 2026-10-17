@@ -134,6 +134,7 @@ async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetS
     resolved = result;
   }
   useSettingsStore.getState().hydrateProfileSnapshot(resolved);
+  useSettingsStore.getState().enterPrintPreset();
 }
 async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 'open', input: ProjectInput | undefined, options: ProjectActionOptions): Promise<ProjectActionResult | null> {
   if (!paintingCommandAllowed()) return { status: 'cancelled' };
@@ -217,6 +218,7 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
       const profiles = await runtime.getProfileSnapshot();
       if (!profiles.ok) throw new Error(profiles.error ?? 'new project presets unavailable');
       useSettingsStore.getState().hydrateProfileSnapshot(profiles);
+      useSettingsStore.getState().enterPrintPreset();
       // The renderer replacement reset has no scoped base revision. A seed
       // delta or no-op cannot restore that projection; publish the final
       // full native config before establishing the clean baseline.
@@ -324,6 +326,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     // could fail after native state changed and leave the UI inconsistent.
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
     useSettingsStore.getState().hydrateProfileSnapshot(snapshot);
+    useSettingsStore.getState().enterPrintPreset();
     if (!load.nativeScopedConfig || load.nativeScopedConfig.kind !== 'full')
       throw new Error('project load did not return a full scoped configuration snapshot');
     const configOutcome = useSettingsStore.getState().applyNativeScopedConfigTransport(load.nativeScopedConfig);

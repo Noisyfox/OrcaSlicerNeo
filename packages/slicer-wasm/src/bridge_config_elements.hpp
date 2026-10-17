@@ -3,10 +3,19 @@
 #include "nlohmann/json.hpp"
 namespace Slic3r::Neo::Bridge::ConfigElements {
 using json = nlohmann::json;
+struct ResetField { std::string key; std::optional<uint64_t> index; };
+// Returns a command error without changing state for malformed/duplicate targets.
+json parse_reset_fields(const json&, std::vector<ResetField>&);
+bool selection_dependent(Preset::Type, const std::string&);
+json validate_reset_field(const DynamicPrintConfig&, const DynamicPrintConfig& source, Preset::Type, const ResetField&);
 size_t element_count(const DynamicPrintConfig&, Preset::Type, const std::string&);
 std::optional<std::string> editor_vector_type(const std::string&, const ConfigOptionDef&);
 json vectors_json(const DynamicPrintConfig& source, const DynamicPrintConfig& effective, Preset::Type,
                   const json& overrides);
+// Selection metadata references the existing vectors; it never carries option values.
+json selection_json(const DynamicPrintConfig& effective, Preset::Type,
+                    const DynamicPrintConfig& printer, const DynamicPrintConfig& project,
+                    bool active_source, const json& values, const json& vectors);
 // Sparse overlay entries are null (inherit) or {value: typed native element}.
 json explicit_values(const DynamicPrintConfig&, Preset::Type, const std::string&, std::optional<size_t> count = std::nullopt);
 void apply_override(DynamicPrintConfig&, Preset::Type, const std::string&, const json&);

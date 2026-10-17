@@ -1,5 +1,8 @@
 import { configVectorElementAt as vectorAt } from '@slicer/client';
 import { UserPresetActions } from './UserPresetActions';
+import { editorFieldTarget, fieldBinding, fieldHasOverride, fieldViewKey } from './presetEditorBindings';
+import { PrinterEditorSelection, usePrinterEditorSelection } from './PrinterEditorSelection';
+import { ConfigEditorSelection, useConfigEditorSelection } from './ConfigEditorSelection';
 import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import type {
@@ -10,11 +13,11 @@ import type {
   PresetDraftMutationRequest,
   PresetDraftMutationResult,
   PresetDraftSnapshot,
-  PresetDraftValues,
   PresetDraftTarget,
   PresetDraftEditorVector,
   PresetDraftVectorValue,
   PresetDraftEditorPoint,
+  ConfigResetField,
 } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { usePlatform } from '@orca/platform-contract';
@@ -52,6 +55,8 @@ export interface PresetEditorDialogProps {
 }
 
 export interface PresetEditorDialogContentProps {
+  /** Advances only on opening or an explicit successful preset entry, not receipt/history refresh. */
+  readonly sourceEntry?: number;
   readonly userPresetActions?: import('react').ReactNode;
   /** One native target at a time. Pass null when there is no active editor. */
   readonly target: PresetDraftTarget | null;
@@ -79,33 +84,13 @@ interface RoutedField {
 type PresetDraftAction =
   | { readonly action: 'set'; readonly key: string; readonly value: string }
   | { readonly action: 'reset-field'; readonly key: string }
-  | { readonly action: 'reset-category'; readonly keys: readonly string[]; readonly index?: number }
+  | { readonly action: 'reset-category'; readonly fields: readonly ConfigResetField[] }
   | { readonly action: 'reset-preset' };
 
 function manifestFor(kind: PresetDraftTarget['kind']): PresetEditorManifest {
   return kind === 'printer'
     ? PRINTER_PRESET_EDITOR_MANIFEST
     : FILAMENT_PRESET_EDITOR_MANIFEST;
-}
-
-function printerExtruderCount(snapshot: PresetDraftSnapshot): number | null {
-  const count = snapshot.editorVectors.nozzle_diameter?.effectiveValues.length;
-  if (count === undefined) return null;
-  return Number.isSafeInteger(count) && count > 0 && count <= 64 ? count : null;
-}
-
-function pageInstances(manifest: PresetEditorManifest, snapshot: PresetDraftSnapshot | null): PresetEditorManifestPage[] {
-  return manifest.pages.flatMap((page) => {
-    if (!snapshot || manifest.kind !== 'printer' || page.id !== 'extruder') return [page];
-    const count = printerExtruderCount(snapshot);
-    if (count === null) return [page];
-    return Array.from({ length: count }, (_, index) => ({
-      ...page,
-      id: `extruder-${index + 1}`,
-      title: `Extruder ${index + 1}`,
-      extruderIndex: index,
-    }));
-  });
 }
 
 function labelFor(field: PresetEditorManifestField, metadata: OptionMeta | undefined): string {
@@ -128,36 +113,20 @@ function searchText(field: PresetEditorManifestField, metadata: OptionMeta | und
 }
 
 
-function fieldBinding(snapshot: PresetDraftValues, key: string, index?: number): PresetDraftEditorBinding | undefined {
-  if (index === undefined) return snapshot.editorBindings[key];
-  const vector = snapshot.editorVectors[key];
-  if (!vector) return undefined;
-  if (vector.scalarType === 'point' || vector.scalarType === 'points') return undefined;
-  const effectiveValue = vectorAt(vector, vector.effectiveValues, index!);
-  const sourceValue = vectorAt(vector, vector.sourceValues, index!);
-  if (effectiveValue === undefined || sourceValue === undefined) return undefined;
-  return { ...vector, scalarType: vector.scalarType, index: index!, elementCount: vector.indexCount,
-    effectiveValue: effectiveValue as PresetDraftEditorValue, sourceValue: sourceValue as PresetDraftEditorValue };
-}
-
 function coordinateText(value: PresetDraftVectorValue | undefined): string {
   const pointText = (point: PresetDraftEditorPoint) => `${point.x}, ${point.y}`;
   if (Array.isArray(value)) return (value as readonly PresetDraftEditorPoint[]).map(pointText).join('\n');
   return value && typeof value === 'object' && 'x' in value ? pointText(value as PresetDraftEditorPoint) : '';
 }
 
-function hasOverride(snapshot: PresetDraftSnapshot, key: string, index?: number): boolean {
-  if (index !== undefined && snapshot.editorVectors[key])
-    return snapshot.editorVectors[key].overrideValues[index] != null;
-  return Object.prototype.hasOwnProperty.call(snapshot.overrides, key);
+function hasOverride(snapshot: PresetDraftSnapshot, key: string, choiceId: string | null): boolean {
+  return fieldHasOverride(snapshot, key, editorFieldTarget(snapshot, key, choiceId));
 }
-
-function groupHasOverrides(snapshot: PresetDraftSnapshot, group: PresetEditorManifestGroup, index?: number): boolean {
-  return group.fields.some((field) => hasOverride(snapshot, field.key, index));
+function groupHasOverrides(snapshot: PresetDraftSnapshot, group: PresetEditorManifestGroup, choiceId: string | null): boolean {
+  return group.fields.some(field => hasOverride(snapshot, field.key, choiceId));
 }
-
-function pageHasOverrides(snapshot: PresetDraftSnapshot, page: PresetEditorManifestPage): boolean {
-  return page.groups.some((group) => groupHasOverrides(snapshot, group, page.extruderIndex));
+function pageHasOverrides(snapshot: PresetDraftSnapshot, page: PresetEditorManifestPage, choiceId: string | null): boolean {
+  return page.groups.some(group => groupHasOverrides(snapshot, group, choiceId));
 }
 
 function isColourField(field: PresetEditorManifestField, metadata: OptionMeta | undefined): boolean {
@@ -241,7 +210,6 @@ function normalizeScalarInput(value: string, metadata: OptionMeta | undefined): 
   return String(clamped);
 }
 
-const NULL_ENUM_VALUE = '__preset_editor_null__';
 
 function makeMutationRequest(
   snapshot: PresetDraftSnapshot,
@@ -251,6 +219,7 @@ function makeMutationRequest(
 }
 
 function FieldValue({
+  choiceId,
   field,
   metadata,
   snapshot,
@@ -260,6 +229,7 @@ function FieldValue({
   mutationPending,
   onMutate,
 }: {
+  choiceId: string | null;
   field: PresetEditorManifestField;
   metadata: OptionMeta | undefined;
   snapshot: PresetDraftSnapshot;
@@ -270,25 +240,28 @@ function FieldValue({
   onMutate: PresetEditorDialogContentProps['onMutate'];
 }) {
   const label = labelFor(field, metadata);
-  const binding = fieldBinding(snapshot, field.key, page?.extruderIndex);
-  const vector = page?.extruderIndex === undefined ? undefined : snapshot.editorVectors?.[field.key];
+  const targetBinding = editorFieldTarget(snapshot, field.key, choiceId);
+  const fieldIndex = targetBinding.kind === 'indexed' ? targetBinding.index : undefined;
+  const unavailable = targetBinding.kind === 'unavailable';
+  const binding = fieldBinding(snapshot, field.key, targetBinding);
+  const vector = fieldIndex === undefined ? undefined : snapshot.editorVectors[field.key];
   const coordinateVector = vector && (vector.scalarType === 'point' || vector.scalarType === 'points') ? vector : undefined;
   const extruderCountVector = field.key === 'extruders_count' ? snapshot.editorVectors.nozzle_diameter : undefined;
   const derivedSource = extruderCountVector ? String(extruderCountVector.sourceValues.length) : undefined;
   const derivedEffective = extruderCountVector ? String(extruderCountVector.effectiveValues.length) : undefined;
-  const sourceValue = derivedSource ?? (coordinateVector
-    ? coordinateText(vectorAt(coordinateVector, coordinateVector.sourceValues, page!.extruderIndex!)) || '(empty)'
+  const sourceValue = unavailable ? 'Unavailable' : derivedSource ?? (coordinateVector
+    ? coordinateText(vectorAt(coordinateVector, coordinateVector.sourceValues, fieldIndex!)) || '(empty)'
     : binding
     ? projectedValueText(binding.sourceValue, binding.scalarType, binding.enumOptions)
     : valueText(snapshot.sourceValues, field.key));
-  const tooltipKey = page?.extruderIndex !== undefined ? `${field.key}#${page.extruderIndex}` :
+  const tooltipKey = fieldIndex !== undefined ? `${field.key}#${fieldIndex}` :
     binding && ['floats', 'ints', 'percents', 'floats_or_percents', 'bools', 'strings', 'enums'].includes(metadata?.type ?? '')
       ? `${field.key}#${binding.index}` : field.key;
-  const tooltip = field.key === 'extruders_count'
+  const tooltip = unavailable ? `This selection has no corresponding native mapping.\nParameter name: ${field.key}` : field.key === 'extruders_count'
     ? 'Number of extruders of the printer.\nParameter name: extruders_count'
     : optionTooltip(metadata, tooltipKey);
-  const effectiveValue = coordinateVector
-    ? coordinateText(vectorAt(coordinateVector, coordinateVector.effectiveValues, page!.extruderIndex!))
+  const effectiveValue = unavailable ? 'Unavailable' : coordinateVector
+    ? coordinateText(vectorAt(coordinateVector, coordinateVector.effectiveValues, fieldIndex!))
     : binding
     ? inputTextForBinding(binding.effectiveValue, binding.scalarType)
     : snapshot.effectiveValues[field.key] ?? metadata?.default ?? '';
@@ -296,11 +269,11 @@ function FieldValue({
   const boundText = binding?.scalarType === 'string';
   const missingRequiredBinding = field.nativeElementOnly === true && binding === undefined && !coordinateVector;
   const unsupportedStructured = !binding && !coordinateVector && isStructuredValue(metadata);
-  const readOnly = field.access === 'read-only' || binding?.readOnly === true || coordinateVector?.readOnly === true || missingRequiredBinding || unsupportedStructured;
-  const readOnlyReason = field.readOnlyReason ?? (unsupportedStructured
+  const readOnly = unavailable || field.access === 'read-only' || binding?.readOnly === true || coordinateVector?.readOnly === true || missingRequiredBinding || unsupportedStructured;
+  const readOnlyReason = unavailable ? 'This selection has no corresponding native mapping.' : field.readOnlyReason ?? (unsupportedStructured
     ? 'This value needs a specialized editor.'
     : missingRequiredBinding ? 'This value needs native element metadata.' : undefined);
-  const overridden = hasOverride(snapshot, field.key, page?.extruderIndex ?? binding?.index);
+  const overridden = fieldHasOverride(snapshot, field.key, targetBinding);
   const [displayValue, setDisplayValue] = useState(effectiveValue);
   const [nullValue, setNullValue] = useState(binding?.effectiveValue === null);
   const [percentMode, setPercentMode] = useState(
@@ -357,7 +330,7 @@ function FieldValue({
     try {
       const result = await onMutate(makeElementMutationRequest(snapshot, field.key, binding, value));
       if (result.ok) {
-        const current = fieldBinding(result, field.key, page?.extruderIndex);
+        const current = fieldBinding(result, field.key, targetBinding);
         if (current) {
           setDisplayValue(inputTextForBinding(current.effectiveValue, current.scalarType));
           setNullValue(current.effectiveValue === null);
@@ -373,7 +346,7 @@ function FieldValue({
     } finally {
       actionPending.current = false;
     }
-  }, [binding, field.key, loading, mutationPending, onMutate, snapshot, page?.extruderIndex]);
+  }, [binding, field.key, loading, mutationPending, onMutate, snapshot, targetBinding]);
 
   const resetField = async () => {
     if (!overridden || readOnly || loading || mutationPending || actionPending.current) return;
@@ -381,12 +354,12 @@ function FieldValue({
     setFieldError(null);
     try {
       const result = await onMutate({ ...makeMutationRequest(snapshot, { action: 'reset-field', key: field.key }),
-        ...(page?.extruderIndex === undefined ? {} : { index: page.extruderIndex }) } as PresetDraftMutationRequest);
+        ...(fieldIndex === undefined ? {} : { index: fieldIndex }) } as PresetDraftMutationRequest);
       if (!result.ok) {
         setFieldError(result.error);
         return;
       }
-      const current = fieldBinding(result, field.key, page?.extruderIndex);
+      const current = fieldBinding(result, field.key, targetBinding);
       if (current) {
         const value = current.effectiveValue;
         setDisplayValue(inputTextForBinding(value, current.scalarType));
@@ -395,7 +368,7 @@ function FieldValue({
           typeof value === 'object' && value.percent);
       } else if (coordinateVector && result.editorVectors?.[field.key]) {
         const currentVector = result.editorVectors[field.key]!;
-        setDisplayValue(coordinateText(vectorAt(currentVector, currentVector.effectiveValues, page!.extruderIndex!)));
+        setDisplayValue(coordinateText(vectorAt(currentVector, currentVector.effectiveValues, fieldIndex!)));
       } else {
         setDisplayValue(result.effectiveValues[field.key] ?? result.sourceValues[field.key] ?? '');
         setNullValue(false);
@@ -417,7 +390,7 @@ function FieldValue({
   const multiline = field.multiline === true || binding?.multiline === true;
   const controlsDisabled = loading || mutationPending;
   const colorControl = <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen} title={label}
-    value={{ kind: 'solid', color: colourInputValue(displayValue) }} disabled={controlsDisabled || nullValue}
+    value={{ kind: 'solid', color: colourInputValue(displayValue) }} disabled={controlsDisabled}
     onConfirm={next => {
       if (next.kind !== 'solid' || next.color.toLowerCase() === colourInputValue(effectiveValue).toLowerCase()) return;
       if (binding && boundText) void submitElementSet(next.color.toLowerCase());
@@ -443,13 +416,13 @@ function FieldValue({
       actionPending.current = true;
       setFieldError(null);
       const request = { kind: snapshot.kind, canonicalName: snapshot.canonicalName, expectedRevision: snapshot.revision,
-        action: 'set-element', key: field.key, index: page!.extruderIndex!, scalarType: coordinateVector.scalarType,
+        action: 'set-element', key: field.key, index: fieldIndex!, scalarType: coordinateVector.scalarType,
         value: coordinateVector.scalarType === 'point' ? points[0] : points } as PresetDraftMutationRequest;
       void onMutate(request).then(result => {
         if (!result.ok) setFieldError(result.error);
         else {
           const current = result.editorVectors?.[field.key];
-          if (current) setDisplayValue(coordinateText(vectorAt(current, current.effectiveValues, page!.extruderIndex!)));
+          if (current) setDisplayValue(coordinateText(vectorAt(current, current.effectiveValues, fieldIndex!)));
         }
       }).catch(error => setFieldError(errorText(error))).finally(() => { actionPending.current = false; });
       return;
@@ -461,8 +434,8 @@ function FieldValue({
         return;
       }
       if (!boundNumeric) return;
-      if (!displayValue.trim() && binding.nullable) {
-        if (binding.effectiveValue !== null) void submitElementSet(null);
+      if (!displayValue.trim()) {
+        setFieldError('Enter a valid number.');
         return;
       }
     }
@@ -517,13 +490,6 @@ function FieldValue({
       event.currentTarget.blur();
     }
   };
-  const commitNull = (checked: boolean) => {
-    setNullValue(checked);
-    setFieldError(null);
-    if (checked) void submitElementSet(null);
-    else if (binding?.scalarType === 'string' && binding.effectiveValue === null)
-      void submitElementSet('');
-  };
   const setText = (value: string) => {
     setDisplayValue(value);
     if (nullValue) setNullValue(false);
@@ -555,28 +521,6 @@ function FieldValue({
       {coordinateVector.scalarType === 'points' ? <textarea {...props} className="min-h-20 w-full rounded-md border border-input bg-input px-2 py-1 text-xs" /> : <Input {...props} />}
       <span className="text-xs text-muted-foreground">{coordinateVector.scalarType === 'points' ? 'One X, Y coordinate per line.' : 'X, Y coordinates.'}</span>
     </div>;
-  } else if (!readOnly && binding?.scalarType === 'bool' && binding.nullable) {
-    control = <Select
-      value={nullValue ? NULL_ENUM_VALUE : displayValue === 'true' ? 'true' : 'false'}
-      onValueChange={(next) => {
-        if (next === NULL_ENUM_VALUE) void submitElementSet(null);
-        else if (next !== null) void submitElementSet(next === 'true');
-      }}
-      disabled={controlsDisabled}
-    >
-      <SelectTrigger id={inputId} aria-label={label} data-testid={`preset-editor-input-${field.key}`} className="w-full">
-        <SelectValue>
-          {(value) => value === NULL_ENUM_VALUE
-            ? 'Not set'
-            : value === 'true' ? 'Enabled' : 'Disabled'}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={NULL_ENUM_VALUE}>Not set</SelectItem>
-        <SelectItem value="true">Enabled</SelectItem>
-        <SelectItem value="false">Disabled</SelectItem>
-      </SelectContent>
-    </Select>;
   } else if (!readOnly && binding?.scalarType === 'bool') {
     control = <Checkbox
       aria-label={label}
@@ -588,22 +532,18 @@ function FieldValue({
     />;
   } else if (!readOnly && binding?.scalarType === 'enum' && binding.enumOptions?.length) {
     control = <Select
-      value={nullValue ? NULL_ENUM_VALUE : String(binding.effectiveValue ?? displayValue)}
+      value={nullValue ? null : String(binding.effectiveValue ?? displayValue)}
       onValueChange={(next) => {
-        if (next === NULL_ENUM_VALUE) void submitElementSet(null);
-        else if (next !== null) void submitElementSet(Number(next));
+        if (next !== null) void submitElementSet(Number(next));
       }}
       disabled={controlsDisabled}
     >
       <SelectTrigger id={inputId} aria-label={label} data-testid={`preset-editor-input-${field.key}`} className="w-full">
         <SelectValue>
-          {(value) => value === NULL_ENUM_VALUE
-            ? 'Not set'
-            : binding.enumOptions?.find((option) => String(option.value) === String(value))?.label ?? String(value)}
+          {(value) => value == null ? '' : binding.enumOptions?.find((option) => String(option.value) === String(value))?.label ?? String(value)}
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
-        {binding.nullable && <SelectItem value={NULL_ENUM_VALUE}>Not set</SelectItem>}
         {binding.enumOptions.map((option) => <SelectItem key={option.name} value={String(option.value)}>
           {option.label}
         </SelectItem>)}
@@ -618,7 +558,7 @@ function FieldValue({
         type="text"
         inputMode={binding.scalarType === 'int' ? 'numeric' : 'decimal'}
         value={nullValue ? '' : displayValue}
-        disabled={controlsDisabled || nullValue}
+        disabled={controlsDisabled}
         onFocus={() => { focused.current = true; }}
         onBlur={handleTextBlur}
         onChange={(event) => setText(event.currentTarget.value)}
@@ -633,7 +573,7 @@ function FieldValue({
           setPercentMode(nextPercent);
           submitBoundNumber(displayValue, nextPercent);
         }}
-        disabled={controlsDisabled || nullValue}
+        disabled={controlsDisabled}
       >
         <SelectTrigger aria-label={`${label} unit`} data-testid={`preset-editor-unit-${field.key}`} className="w-28">
           <SelectValue />
@@ -643,30 +583,10 @@ function FieldValue({
           <SelectItem value="percent">Percent</SelectItem>
         </SelectContent>
       </Select>}
-      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-        <Checkbox
-          aria-label={`Set ${label} to null`}
-          data-testid={`preset-editor-null-${field.key}`}
-          checked={nullValue}
-          disabled={controlsDisabled}
-          onCheckedChange={(checked) => commitNull(checked === true)}
-        />
-        Null
-      </label>}
     </div>;
   } else if (!readOnly && binding && boundText && colourField) {
     control = <div className="flex min-w-0 items-center gap-2">
       {colorControl}
-      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-        <Checkbox
-          aria-label={`Set ${label} to null`}
-          data-testid={`preset-editor-null-${field.key}`}
-          checked={nullValue}
-          disabled={controlsDisabled}
-          onCheckedChange={(checked) => commitNull(checked === true)}
-        />
-        Null
-      </label>}
     </div>;
   } else if (!readOnly && binding && boundText && multiline) {
     control = <div className="flex min-w-0 flex-col gap-2">
@@ -675,23 +595,13 @@ function FieldValue({
         id={inputId}
         data-testid={`preset-editor-input-${field.key}`}
         value={nullValue ? '' : displayValue}
-        disabled={controlsDisabled || nullValue}
+        disabled={controlsDisabled}
         onFocus={() => { focused.current = true; }}
         onBlur={handleTextBlur}
         onChange={(event) => setText(event.currentTarget.value)}
         onKeyDown={handleTextKeyDown}
         className="min-h-20 w-full min-w-0 rounded-md border border-input bg-input/20 px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-xs/relaxed dark:bg-input/30"
       />
-      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-        <Checkbox
-          aria-label={`Set ${label} to null`}
-          data-testid={`preset-editor-null-${field.key}`}
-          checked={nullValue}
-          disabled={controlsDisabled}
-          onCheckedChange={(checked) => commitNull(checked === true)}
-        />
-        Null
-      </label>}
     </div>;
   } else if (!readOnly && binding && boundText) {
     control = <div className="flex min-w-0 items-center gap-2">
@@ -701,22 +611,12 @@ function FieldValue({
         data-testid={`preset-editor-input-${field.key}`}
         type="text"
         value={nullValue ? '' : displayValue}
-        disabled={controlsDisabled || nullValue}
+        disabled={controlsDisabled}
         onFocus={() => { focused.current = true; }}
         onBlur={handleTextBlur}
         onChange={(event) => setText(event.currentTarget.value)}
         onKeyDown={handleTextKeyDown}
       />
-      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-        <Checkbox
-          aria-label={`Set ${label} to null`}
-          data-testid={`preset-editor-null-${field.key}`}
-          checked={nullValue}
-          disabled={controlsDisabled}
-          onCheckedChange={(checked) => commitNull(checked === true)}
-        />
-        Null
-      </label>}
     </div>;
   } else if (!readOnly && !binding && metadata?.type === 'bool') {
     control = <Checkbox
@@ -808,7 +708,7 @@ function FieldValue({
           <dt className="text-muted-foreground">Source</dt>
           <dd data-testid={`preset-editor-source-${field.key}`} className="break-all">{sourceValue}</dd>
           <dt className="text-muted-foreground">Effective</dt>
-          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{derivedEffective ?? (coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key))}</dd>
+          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{unavailable ? 'Unavailable' : derivedEffective ?? (coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key))}</dd>
         </dl>
       ) : (
         <div className="mt-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-xs">
@@ -826,6 +726,7 @@ function FieldValue({
 }
 
 function FieldGroup({
+  choiceId,
   page,
   group,
   snapshot,
@@ -833,6 +734,7 @@ function FieldGroup({
   mutationPending,
   onMutate,
 }: {
+  choiceId: string | null;
   page: PresetEditorManifestPage;
   group: PresetEditorManifestGroup;
   snapshot: PresetDraftSnapshot;
@@ -841,7 +743,7 @@ function FieldGroup({
   onMutate: PresetEditorDialogContentProps['onMutate'];
 }) {
   const titleId = `preset-editor-group-title-${page.id}-${group.id}`;
-  const overridden = groupHasOverrides(snapshot, group, page?.extruderIndex);
+  const overridden = groupHasOverrides(snapshot, group, choiceId);
   return (
     <section
       data-testid={`preset-editor-group-${page.id}-${group.id}`}
@@ -856,7 +758,8 @@ function FieldGroup({
       >{group.title}</h3>
       <div className="grid min-w-0 gap-2 xl:grid-cols-2">
         {group.fields.map((field) => <FieldValue
-          key={field.key}
+          key={fieldViewKey(snapshot, field.key, choiceId)}
+          choiceId={choiceId}
           field={field}
           metadata={snapshot.optionMetadata[field.key]}
           snapshot={snapshot}
@@ -889,6 +792,7 @@ function referencedSlotsLabel(slots: readonly number[]): string {
 export function PresetEditorDialog({ initialTarget, sceneInteraction, onClose }: PresetEditorDialogProps) {
   const platform = usePlatform();
   const [target, setTarget] = useState(initialTarget);
+  const [sourceEntry, setSourceEntry] = useState(0);
   const [snapshot, setSnapshot] = useState<PresetDraftSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -947,6 +851,7 @@ export function PresetEditorDialog({ initialTarget, sceneInteraction, onClose }:
       if (!result.ok) throw new Error(result.error);
       setTarget(requestedTarget);
       setSnapshot(result);
+      setSourceEntry(previous => previous + 1);
       setLoadError(null);
     } catch (error) {
       if (targetRef.current !== requestedTarget) return;
@@ -1034,7 +939,7 @@ export function PresetEditorDialog({ initialTarget, sceneInteraction, onClose }:
     });
   }, [historyPhase, historyRevision, loading, mutationPending, refreshing, platform.runtime]);
 
-  return <PresetEditorDialogContent target={target} snapshot={snapshot} loading={loading}
+  return <PresetEditorDialogContent sourceEntry={sourceEntry} target={target} snapshot={snapshot} loading={loading}
     userPresetActions={<UserPresetActions kind={target.kind} canonicalName={target.canonicalName}
       sceneInteraction={sceneInteraction}
       disabled={loading || refreshing || mutationPending || Boolean(loadError) || historyPhase !== 'idle'}
@@ -1059,6 +964,7 @@ export function PresetEditorDialog({ initialTarget, sceneInteraction, onClose }:
 }
 
 export function PresetEditorDialogContent({
+  sourceEntry = 0,
   userPresetActions,
   target,
   snapshot,
@@ -1073,7 +979,10 @@ export function PresetEditorDialogContent({
 }: PresetEditorDialogContentProps) {
   const interactionPending = loading || refreshing || mutationPending || loadError !== null;
   const manifest = target ? manifestFor(target.kind) : null;
-  const pages = useMemo(() => manifest ? pageInstances(manifest, snapshot) : [], [manifest, snapshot]);
+  const pages = manifest?.pages ?? [];
+  const selection = usePrinterEditorSelection(target ? snapshot : null, sourceEntry);
+  const filamentSelection = useConfigEditorSelection(target?.kind === 'filament' ? snapshot?.editorSelection ?? null : null, sourceEntry);
+  const choiceId = target?.kind === 'printer' ? selection.choiceId : filamentSelection.choiceId;
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1088,8 +997,7 @@ export function PresetEditorDialogContent({
       return next;
     });
   }, []);
-  // A diameter transaction may resolve another canonical Printer source.
-  // Keep the open Extruder page and its index through that source change.
+  // Category presentation survives source changes; closing discards it.
   const navigationKey = target?.kind ?? '';
 
   useEffect(() => {
@@ -1125,7 +1033,14 @@ export function PresetEditorDialogContent({
   const activePageResetKeys = snapshot === null ? [] : [...new Set(activePageKeys.filter((key) =>
     Object.prototype.hasOwnProperty.call(snapshot.sourceValues, key) ||
     Object.prototype.hasOwnProperty.call(snapshot.effectiveValues, key)))];
-  const categoryHasOverrides = snapshot !== null && activePageResetKeys.some((key) => hasOverride(snapshot, key, activePage?.extruderIndex));
+  const activePageResetFields: ConfigResetField[] = snapshot === null ? [] : activePageResetKeys.flatMap<ConfigResetField>(key => {
+    const binding = editorFieldTarget(snapshot, key, choiceId);
+    return binding.kind === 'unavailable' ? [] : [{ key, ...binding }];
+  });
+  const categoryHasOverrides = snapshot !== null && activePageResetFields.some(field => fieldHasOverride(snapshot, field.key, field));
+  const switchApplicable = snapshot?.kind === 'printer' && (snapshot.editorSelection.nozzles.length > 1 || snapshot.editorSelection.choices.length > 1);
+  const categoryMapped = snapshot !== null && (query ? searchResults.map(result => result.field.key) : activePageKeys)
+    .some(key => snapshot.editorSelection.fieldBindings[key]?.kind === 'per_selection');
   const showSearchResults = query.length > 0;
 
   return (
@@ -1207,7 +1122,7 @@ export function PresetEditorDialogContent({
 
           {!showSearchResults && <div role="tablist" aria-label="Preset setting pages" className="flex shrink-0 gap-1 overflow-x-auto border-b">
             {pages.map((page) => {
-              const overridden = snapshot !== null && pageHasOverrides(snapshot, page);
+              const overridden = snapshot !== null && pageHasOverrides(snapshot, page, choiceId);
               return (
                 <button
                   key={page.id}
@@ -1229,6 +1144,12 @@ export function PresetEditorDialogContent({
             })}
           </div>}
 
+          {snapshot && switchApplicable && categoryMapped && <PrinterEditorSelection snapshot={snapshot} selection={selection}
+            disabled={loading || refreshing || !snapshot} />}
+          {snapshot?.kind === 'filament' && snapshot.editorSelection.choices.length > 1 && categoryMapped && <ConfigEditorSelection
+            metadata={snapshot.editorSelection} choiceId={filamentSelection.choiceId} onSelect={filamentSelection.select}
+            disabled={loading || refreshing} testId="preset-editor-variant" label="Filament variant" />}
+
           {actionError && <p role="alert" data-testid="preset-editor-action-error" className="text-xs text-destructive">{actionError}</p>}
 
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
@@ -1241,7 +1162,8 @@ export function PresetEditorDialogContent({
                 {searchResults.length === 0
                   ? <p className="py-4 text-sm text-muted-foreground">No matching settings.</p>
                   : searchResults.map(({ page, group, field }) => <FieldValue
-                    key={`${page.id}:${group.id}:${field.key}`}
+                    key={`${page.id}:${group.id}:${fieldViewKey(snapshot, field.key, choiceId)}`}
+                    choiceId={choiceId}
                     field={field}
                     metadata={snapshot.optionMetadata[field.key]}
                     snapshot={snapshot}
@@ -1267,11 +1189,12 @@ export function PresetEditorDialogContent({
                     size="xs"
                     data-testid={`preset-editor-reset-category-${activePage.id}`}
                     disabled={!categoryHasOverrides || interactionPending}
-                    onClick={() => void submitAction({ action: 'reset-category', keys: activePageResetKeys, index: activePage.extruderIndex })}
+                    onClick={() => void submitAction({ action: 'reset-category', fields: activePageResetFields })}
                   >Reset category</Button>
                 </div>
                 {activePage.groups.map((optionGroup) => <FieldGroup
                   key={optionGroup.id}
+                  choiceId={choiceId}
                   page={activePage}
                   group={optionGroup}
                   snapshot={snapshot}

@@ -2,12 +2,20 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type {
   NativeScopedConfigMutationRequest,
   NativeScopedConfigTarget,
+  ScopedConfigEditorTarget,
   OptionMeta,
 } from '@slicer/client';
+import { configVectorElementAt } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { useConfigEditorSelection } from './ConfigEditorSelection';
+import { PrintEditorSelection } from './PrintEditorSelection';
+import { NozzleIcon } from '@/components/ui/nozzle-icon';
+import { usePrintConfigEditor, useScopedConfigEditor } from './usePrintConfigEditor';
+import { elementText, parsePrintElement, printDirtyChoiceIds, printHasLocalOverrides, printOwnsField, projectPrintField, scopedPrintField, scopedDirtyChoiceIds, scopedHasLocalOverrides } from './printEditorProjection';
+import { editorFieldTarget, fieldViewKey } from './presetEditorBindings';
 import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -27,6 +35,7 @@ import {
   localKeysForTarget,
   projectScopedConfigurationFields,
   resolveScopedConfigurationTarget,
+  scopedConfigurationCatalogue,
   type ScopedConfigurationField,
   type ScopedConfigurationTarget,
   type ScopedTargetResolution,
@@ -54,8 +63,7 @@ function isScalar(meta: OptionMeta): boolean {
 }
 
 function valueTooltip(field: ScopedConfigurationField): string {
-  if (field.mixed) return 'The selected targets have different effective values or sources.';
-  return `Effective value source: ${SOURCE_LABEL[field.source] ?? field.source}.`;
+  return `${field.mixed ? 'The selected targets have different effective values.\n' : ''}Effective value source: ${SOURCE_LABEL[field.source] ?? field.source}.`;
 }
 
 export const ScopedField = memo(function ScopedField({
@@ -64,7 +72,9 @@ export const ScopedField = memo(function ScopedField({
   onCommit,
   onReset,
   disabled = false,
+  selectionGutter = false,
 }: {
+  selectionGutter?: boolean;
   disabled?: boolean;
   field: ScopedConfigurationField;
   targets: readonly ScopedConfigurationTarget[];
@@ -82,7 +92,7 @@ export const ScopedField = memo(function ScopedField({
   useEffect(() => {
     if (signatureRef.current === signature) return;
     signatureRef.current = signature;
-    setDraft(initial);
+    setDraft(initial); setError(null);
   }, [initial, signature]);
   const commit = async (value: string) => {
     if (committing.current || disabled) return;
@@ -92,7 +102,7 @@ export const ScopedField = memo(function ScopedField({
     try {
       const effective = await onCommit(field, value);
       if (signatureRef.current === submittedSignature) setDraft(effective);
-      setError(null);
+      if (signatureRef.current === submittedSignature) setError(null);
     } catch (reason) {
       if (signatureRef.current === submittedSignature)
         setError(reason instanceof Error ? reason.message : String(reason));
@@ -105,7 +115,12 @@ export const ScopedField = memo(function ScopedField({
   const reset = () => { void onReset(field).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason))); };
   const label = field.label;
   const defaultValue = useSettingsStore((state) => state.tooltipDefaults[field.key]);
-  const optionHelp = optionTooltip(field.meta, field.key, field.label, defaultValue);
+  const editor=field.editor;
+  const unavailable=editor?.target.kind==='unavailable';
+  const readOnly=unavailable || editor?.vector?.readOnly===true;
+  const indexedKey=editor?.target.kind==='indexed' ? `${field.key}#${editor.target.index}` : field.key;
+  const optionHelp = unavailable ? `This selection has no corresponding native mapping.\nParameter name: ${field.key}` :
+    optionTooltip(editor?.metadata ?? field.meta, indexedKey, field.label, editor?.metadata?.tooltip_default ?? defaultValue);
   const row = 'grid grid-cols-[minmax(0,1fr)_minmax(0,40%)] items-center gap-2 px-1 py-0.5 min-h-7';
   const labelCls = 'min-w-0 flex-1 truncate text-[13px] font-normal text-muted-foreground';
   const displayed = draft;
@@ -118,16 +133,22 @@ export const ScopedField = memo(function ScopedField({
     const next = Math.max(field.meta.min ?? -Infinity, Math.min(field.meta.max ?? Infinity, Number((number + direction * step).toFixed(6))));
     onDiscrete(`${next}${draft.trim().endsWith('%') ? '%' : ''}`);
   };
-  const controlDisabled = disabled || (field.key === 'curr_bed_type' && commitPending);
+  const controlDisabled = disabled || readOnly || (field.key === 'curr_bed_type' && commitPending);
   const hasEditableLocalOverride = field.local && field.resettable;
-  const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${valueTooltip(field)}`}</span>;
+  const sourceDetails=editor && !unavailable ? `\nSource: ${editor.sourceMixed?'Mixed':editor.source===null?'(null)':elementText(editor.source,editor.vector)}${editor.inheritedSource ? `\nInherited source: ${SOURCE_LABEL[editor.inheritedSource]}.` : ''}\nEffective: ${field.mixed?'Mixed':editor.effective===null?'(null)':elementText(editor.effective,editor.vector)}` : '';
+  const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${valueTooltip(field)}${sourceDetails}`}</span>;
 
   let control;
-  if (field.meta.type === 'bool' && !field.mixed) {
+  if(readOnly) {
+    control=<TooltipFor content={tooltip} nonInteractive><span data-testid={`config-input-${field.key}`} className="text-xs text-muted-foreground">{unavailable?'Unavailable':displayed}</span></TooltipFor>;
+  } else if (field.meta.type === 'bool') {
     control = <TooltipFor content={tooltip} nonInteractive><Checkbox
       id={`scoped-${field.key}`}
       className="size-5 after:inset-0"
-      checked={displayed === '1'}
+      checked={!field.mixed && displayed === '1'}
+      indeterminate={field.mixed}
+      disabled={controlDisabled}
+      data-testid={`config-input-${field.key}`}
       onCheckedChange={(checked) => onDiscrete(checked ? '1' : '0')}
     /></TooltipFor>;
   } else if (field.meta.type === 'enum' && field.meta.enum_values?.length && !field.mixed) {
@@ -139,6 +160,11 @@ export const ScopedField = memo(function ScopedField({
       </TooltipFor>
       <SelectContent><SelectGroup>{field.meta.enum_values.map((value, index) => <SelectItem key={value} value={value}>{field.meta.enum_labels?.[index] ?? value}</SelectItem>)}</SelectGroup></SelectContent>
     </Select>;
+  } else if(editor?.vector?.multiline || editor?.vector?.scalarType==='points') {
+    control=<textarea id={`scoped-${field.key}`} data-testid={`config-input-${field.key}`} value={displayed} disabled={controlDisabled}
+      className="min-h-16 w-full rounded border border-input bg-background px-2 py-1 text-xs"
+      onChange={event=>setDraft(event.target.value)} onBlur={()=>{if(cancelBlur.current){cancelBlur.current=false;return;}if(draft!==valueForField(field))void commit(draft);}}
+      onKeyDown={event=>{if(event.key==='Escape'){cancelBlur.current=true;setDraft(initial);event.currentTarget.blur();}}} />;
   } else {
     control = <div className="flex h-6 min-w-0 items-center rounded-sm bg-control-background focus-within:ring-1 focus-within:ring-ring"><TooltipFor content={tooltip} nonInteractive><Input
         id={`scoped-${field.key}`}
@@ -163,16 +189,19 @@ export const ScopedField = memo(function ScopedField({
       /></TooltipFor>
       {canStep && <div className="flex shrink-0 gap-px pr-0.5">
         <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-[2px] rounded-r-none [&>svg]:size-3"
-          aria-label={`Decrease ${field.label}`} disabled={commitPending || field.mixed || numericDraft <= (field.meta.min ?? -Infinity)} onClick={() => adjust(-1)}><Minus /></Button>
+          aria-label={`Decrease ${field.label}`} disabled={controlDisabled || commitPending || field.mixed || !Number.isFinite(numericDraft) || numericDraft <= (field.meta.min ?? -Infinity)} onClick={() => adjust(-1)}><Minus /></Button>
         <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-none rounded-r-[2px] [&>svg]:size-3"
-          aria-label={`Increase ${field.label}`} disabled={commitPending || field.mixed || numericDraft >= (field.meta.max ?? Infinity)} onClick={() => adjust(1)}><Plus /></Button>
+          aria-label={`Increase ${field.label}`} disabled={controlDisabled || commitPending || field.mixed || !Number.isFinite(numericDraft) || numericDraft >= (field.meta.max ?? Infinity)} onClick={() => adjust(1)}><Plus /></Button>
       </div>}
       </div>;
   }
   return (
-    <div data-testid={`config-field-${field.key}`} className="space-y-0.5">
+    <div data-testid={`config-field-${field.key}`} data-native-index={editor?.target.kind==='indexed'?editor.target.index:undefined} className="space-y-0.5">
       <div className={row}>
         <div className="flex min-w-0 items-center gap-1">
+        {selectionGutter && <span className="flex size-4 shrink-0 items-center" data-testid={`config-nozzle-gutter-${field.key}`}>
+          {editor?.perSelection && <NozzleIcon className="size-4 text-muted-foreground" data-testid={`config-nozzle-icon-${field.key}`} />}
+        </span>}
         <TooltipFor content={<span className="whitespace-pre-line">{optionHelp}</span>} nonInteractive>
           <Label
             htmlFor={`scoped-${field.key}`}
@@ -194,7 +223,7 @@ export const ScopedField = memo(function ScopedField({
     </div>
   );
 }, (previous, next) => previous.targets === next.targets
-  && previous.onCommit === next.onCommit && previous.onReset === next.onReset && previous.disabled === next.disabled
+  && previous.onCommit === next.onCommit && previous.onReset === next.onReset && previous.disabled === next.disabled && previous.selectionGutter === next.selectionGutter
   && (Object.keys(previous.field) as Array<keyof ScopedConfigurationField>)
     .every((key) => previous.field[key] === next.field[key]));
 
@@ -212,6 +241,8 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
 }) {
   const platform = usePlatform();
   const mode = useSettingsStore((state) => state.configurationMode);
+  const printEditor=usePrintConfigEditor(platform,mode==='project');
+  const printSelection=useConfigEditorSelection(printEditor.snapshot?.editorSelection??null,printEditor.entry);
   const selection = sceneInteraction?.selection;
   const subscribeSelection = useCallback(
     (listener: () => void) => mode === 'scoped' ? selection?.subscribe(listener) ?? (() => {}) : () => {},
@@ -293,15 +324,24 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     wipeTowerSelected: mode === 'plates' ? false : sceneInteraction?.hasWipeTowerSelection,
     allowPlateTarget: mode === 'plates',
   }), [mode, activePlateId, activePlateLabel, sceneInteraction, selectionRevision, structure]);
+  const scopedTargets = useMemo<readonly ScopedConfigEditorTarget[]>(() => mode === 'scoped' &&
+    (resolution.scope === 'object' || resolution.scope === 'part')
+    ? resolution.targets.map(target => ({ scope: resolution.scope as 'object' | 'part', id: String(target.id) })) : [], [mode, resolution]);
+  const scopedEditor = useScopedConfigEditor(platform, scopedTargets, mode === 'scoped');
+  const scopedSelection = useConfigEditorSelection(scopedEditor.selection, scopedEditor.entry);
+  const selectionMetadata = mode === 'project' ? printEditor.snapshot?.editorSelection : mode === 'scoped' ? scopedEditor.selection : null;
+  const selectedChoice = mode === 'project' ? printSelection : scopedSelection;
   // Reset actions operate on the whole selected category/catalogue, not just
   // the subset currently visible through the search query.
   const allFields = useMemo(() => metadata
-    ? projectScopedConfigurationFields({ mode, metadata, baseValues, snapshot, resolution, search: '' }).filter((field) => isVisiblePrintSetting(field, mode) &&
+    ? (mode==='scoped' ? scopedConfigurationCatalogue(metadata,resolution) : projectScopedConfigurationFields({ mode, metadata, baseValues, snapshot, resolution, search: '' })).filter((field) => isVisiblePrintSetting(field, mode) &&
       (field.key !== 'curr_bed_type' || (bedType?.supportsSelection && bedType.choices.length > 0)))
       .map(field => field.key === 'curr_bed_type' && bedType ? { ...field, meta: { ...field.meta,
         enum_values: bedType.choices.map(choice => choice.value), enum_labels: bedType.choices.map(choice => choice.label),
       } } : field)
-    : [], [baseValues, bedType, metadata, mode, resolution, snapshot]);
+      .map(field=>mode==='project'?projectPrintField(field,printEditor.snapshot,printSelection.choiceId):
+        mode==='scoped' && scopedEditor.snapshot ? scopedPrintField(field,scopedEditor.snapshot,scopedSelection.choiceId) : field)
+    : [], [baseValues, bedType, metadata, mode, resolution, snapshot,printEditor.snapshot,printSelection.choiceId,scopedEditor.snapshot,scopedSelection.choiceId]);
   const availablePages = useMemo(() => printSettingsPages(mode).filter((page) =>
     page.groups.some((group) => group.keys.some((key) => allFields.some((field) => field.key === key)))), [allFields, mode]);
   const selectedPage = availablePages.some((page) => page.title === activePage) ? activePage : availablePages[0]?.title;
@@ -309,39 +349,97 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const highlightedCategories = useMemo(() => new Set(allFields
     .filter((field) => field.local && field.resettable)
     .map((field) => field.category)), [allFields]);
-  const hasLocalOverrides = highlightedCategories.size > 0;
+  const hasLocalOverrides = mode === 'project' ? printHasLocalOverrides(printEditor.snapshot, snapshot.project)
+    : mode === 'scoped' ? scopedHasLocalOverrides(scopedEditor.snapshot) : highlightedCategories.size > 0;
+  const pageKeys = availablePages.find(page => page.title === selectedPage)?.groups.flatMap(group => group.keys)
+    .filter(key => allFields.some(field => field.key === key)) ?? [];
+  const dirtyChoiceIds = mode === 'scoped' ? scopedDirtyChoiceIds(scopedEditor.snapshot, pageKeys) : printDirtyChoiceIds(printEditor.snapshot, pageKeys);
 
   const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
     if (mode !== 'project' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
+    if(mode==='scoped' && field.editor?.targets) {
+      const element = field.editor, targets = element.targets!;
+      if(element.target.kind==='unavailable') throw new Error('This selection has no corresponding native mapping.');
+      if(element.target.kind==='shared' && ['float','int','percent','float_or_percent'].includes(field.meta.type) &&
+        !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?%?$/.test(value.trim())) throw new Error('Enter a valid number.');
+      const request: NativeScopedConfigMutationRequest = element.target.kind==='indexed' && element.vector
+        ? {version:1,operation:'set-element',targets,expectedRevision:element.revision,key:field.key,index:element.target.index,
+          scalarType:element.vector.scalarType,value:parsePrintElement(element,value)} as NativeScopedConfigMutationRequest
+        : {version:1,operation:'set',targets,key:field.key,value};
+      const next = await scopedEditor.mutate(request, targets);
+      return valueForField(scopedPrintField(field,next,scopedSelection.choiceId));
+    }
+    if(mode==='project' && field.editor) {
+      const element=field.editor;
+      if(element.target.kind!=='indexed' || !element.vector) throw new Error('This selection has no corresponding native mapping.');
+      const next=await printEditor.mutate({version:1,operation:'set-element',targets:[{scope:'project'}],
+        expectedRevision:element.revision,key:field.key,index:element.target.index,scalarType:element.vector.scalarType,
+        value:parsePrintElement(element,value)} as NativeScopedConfigMutationRequest);
+      const vector=next.editorVectors[field.key];
+      return elementText(configVectorElementAt(vector,vector.effectiveValues,element.target.index),vector);
+    }
     const request: NativeScopedConfigMutationRequest = {
       version: 1, operation: 'set', targets: targetRequestTargets(mode === 'project'
         ? [{ scope: 'project', label: 'Project' }]
         : resolution.targets), key: field.key, value,
     };
-    await commitScopedConfigurationMutation(platform, request);
+    if(mode==='project' && printEditor.snapshot && printOwnsField(printEditor.snapshot,field.key)) await printEditor.mutate(request);
+    else await commitScopedConfigurationMutation(platform, request);
     const current = useSettingsStore.getState();
     const effective = projectScopedConfigurationFields({ mode, metadata: metadata!,
       baseValues: current.baseValues, snapshot: current.nativeScopedConfig, resolution })
       .find((candidate) => candidate.key === field.key);
     return effective ? valueForField(effective) : value;
-  }, [metadata, mode, platform, resolution]);
+  }, [metadata, mode, platform, resolution,printEditor.mutate,printEditor.snapshot,scopedEditor.mutate,scopedSelection.choiceId]);
   const resetField = useCallback(async (field: ScopedConfigurationField) => {
     if ((mode !== 'project' && resolution.scope === 'invalid') || !field.local) return;
+    if(mode==='scoped' && field.editor?.targets) {
+      const element=field.editor;
+      if(element.target.kind==='unavailable') return;
+      await scopedEditor.mutate({version:1,operation:'reset-fields',targets:element.targets!,expectedRevision:element.revision,
+        fields:[{key:field.key,...element.target}]},element.targets!);
+      return;
+    }
+    if(mode==='project' && field.editor) {
+      const element=field.editor;
+      if(element.target.kind!=='indexed') return;
+      await printEditor.mutate({version:1,operation:'reset-fields',targets:[{scope:'project'}],expectedRevision:element.revision,
+        fields:[{key:field.key,...element.target}]});
+      return;
+    }
     const request: NativeScopedConfigMutationRequest = {
       version: 1, operation: 'reset', targets: targetRequestTargets(mode === 'project'
         ? [{ scope: 'project', label: 'Project' }]
         : resolution.targets), key: field.key,
     };
-    await commitScopedConfigurationMutation(platform, request);
-  }, [mode, platform, resolution]);
+    if(mode==='project' && printEditor.snapshot && printOwnsField(printEditor.snapshot,field.key)) await printEditor.mutate(request);
+    else await commitScopedConfigurationMutation(platform, request);
+  }, [mode, platform, resolution,printEditor.mutate,printEditor.snapshot,scopedEditor.mutate]);
   const resetCategory = async (category: string) => {
     if (mode !== 'project' && resolution.scope === 'invalid') return;
     const candidates = allFields.filter((field) => field.category === category && field.local);
     if (candidates.length === 0) return;
+    if(mode==='project') {
+      if(!printEditor.snapshot) return;
+      const fields=allFields.filter(field=>field.category===category && field.resettable).flatMap(field=>{
+        const target=printOwnsField(printEditor.snapshot!,field.key)
+          ? editorFieldTarget(printEditor.snapshot!,field.key,printSelection.choiceId) : {kind:'shared' as const};
+        return target.kind==='unavailable'?[]:[{key:field.key,...target}];
+      });
+      try{await printEditor.mutate({version:1,operation:'reset-fields',targets:[{scope:'project'}],expectedRevision:printEditor.snapshot.revision,fields});}
+      catch(reason){setError(reason instanceof Error?reason.message:String(reason));}
+      return;
+    }
+    if(mode==='scoped') {
+      if(!scopedEditor.snapshot) return;
+      const fields=allFields.filter(field=>field.category===category && field.resettable).flatMap(field=>
+        field.editor && field.editor.target.kind!=='unavailable' ? [{key:field.key,...field.editor.target}] : []);
+      try{await scopedEditor.mutate({version:1,operation:'reset-fields',targets:scopedTargets,expectedRevision:scopedEditor.snapshot.revision,fields},scopedTargets);}
+      catch(reason){setError(reason instanceof Error?reason.message:String(reason));}
+      return;
+    }
     const request: NativeScopedConfigMutationRequest = {
-      version: 1, operation: 'reset-category', targets: targetRequestTargets(mode === 'project'
-        ? [{ scope: 'project', label: 'Project' }]
-        : resolution.targets), category,
+      version: 1, operation: 'reset-category', targets: targetRequestTargets(resolution.targets), category,
     };
     try {
       await commitScopedConfigurationMutation(platform, request);
@@ -350,11 +448,13 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const resetAll = async () => {
     if (mode !== 'project' && resolution.scope === 'invalid') return;
     const targets = mode === 'project' ? [{ scope: 'project', label: 'Project' } as const] : resolution.targets;
-    const hasLocal = targets.some((target) => localKeysForTarget(snapshot, target).some((key) => allFields.some((field) => field.key === key && field.resettable)));
+    const hasLocal = mode !== 'plates' ? hasLocalOverrides : targets.some((target) => localKeysForTarget(snapshot, target).some((key) => allFields.some((field) => field.key === key && field.resettable)));
     if (!hasLocal) return;
     const request: NativeScopedConfigMutationRequest = { version: 1, operation: 'reset-all', targets: targetRequestTargets(targets) };
     try {
-      await commitScopedConfigurationMutation(platform, request);
+      if(mode==='project') await printEditor.mutate(request);
+      else if(mode==='scoped') await scopedEditor.mutate(request,scopedTargets);
+      else await commitScopedConfigurationMutation(platform, request);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
 
@@ -362,9 +462,9 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         <div className="flex min-w-0 items-center gap-1">
           <TooltipFor content="Reset all local overrides"><Button type="button" variant="ghost" size="icon-xs"
             className="size-5 shrink-0 text-config-override [&>svg]:size-3" aria-label="Reset All" data-testid="config-reset-all"
-            disabled={!hasLocalOverrides || (mode !== 'project' && resolution.scope === 'invalid')} onClick={() => void resetAll()}><RotateCcw /></Button></TooltipFor>
-          {mode === 'project' ? <div className={cn("min-w-0 flex-1", hasLocalOverrides && "[&_button[data-slot=combobox-trigger]]:text-config-override")}>{projectContent}</div> :
-            <span data-testid="scoped-target-label" className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{resolution.label}</span>}
+            disabled={!hasLocalOverrides || (mode !== 'project' && resolution.scope === 'invalid') || (mode==='scoped' && (scopedEditor.pending || scopedEditor.refreshing))} onClick={() => void resetAll()}><RotateCcw /></Button></TooltipFor>
+          {mode === 'project' ? <div data-testid="config-process-profile" data-dirty={hasLocalOverrides ? 'true' : 'false'} className={cn("min-w-0 flex-1", hasLocalOverrides && "[&_button[data-slot=combobox-trigger]]:text-config-override")}>{projectContent}</div> :
+            <span data-testid="scoped-target-label" data-dirty={hasLocalOverrides ? 'true' : 'false'} className={cn("min-w-0 flex-1 truncate text-xs text-muted-foreground", mode==='scoped' && hasLocalOverrides && "text-config-override")}>{resolution.label}</span>}
           {mode === 'project' && <span data-testid="scoped-target-label" className="sr-only">Project</span>}
           <TooltipFor content="Search settings"><Button type="button" variant="ghost" size="icon-xs" className="size-6 shrink-0 rounded-sm bg-control-background text-input-button-foreground hover:text-muted-foreground aria-expanded:bg-control-background aria-expanded:text-input-button-foreground"
             aria-label="Search settings" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearch(''); }}><Search /></Button></TooltipFor>
@@ -389,6 +489,12 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
               tabs?.[next]?.focus();
             }}>{page.title}</Button>)}
         </div>}
+        {selectionMetadata && mode!=='plates' && (mode==='project' || resolution.scope!=='invalid') && selectionMetadata.choices.length>1 &&
+          categories.some(category=>category.fields.some(field=>selectionMetadata.fieldBindings[field.key]?.kind==='per_selection')) &&
+          <PrintEditorSelection metadata={selectionMetadata} choiceId={selectedChoice.choiceId} onSelect={selectedChoice.select}
+            disabled={mode==='project' && printEditor.refreshing} dirtyChoiceIds={dirtyChoiceIds} />}
+        {mode==='scoped' && scopedEditor.error && <p role="alert" className="text-xs text-destructive">{scopedEditor.error}</p>}
+        {mode==='project' && printEditor.error && <p role="alert" className="text-xs text-destructive">{printEditor.error}</p>}
   </div>;
   const optionsBody = (
       <div ref={optionsScrollRef}
@@ -398,7 +504,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       {!metadata ? <div className="p-2 text-xs text-muted-foreground">Loading configuration…</div> :
         mode !== 'project' && resolution.scope === 'invalid' ? (
           <div data-testid="scoped-invalid-selection" className="rounded border border-dashed p-2 text-xs text-muted-foreground">{resolution.disabledReason}</div>
-        ) : <>
+        ) : mode==='scoped' && !scopedEditor.snapshot ? <div className="p-2 text-xs text-muted-foreground">Loading configuration…</div> : <>
           {categories.length === 0 && <div data-testid="scoped-config-empty" className="p-2 text-xs text-muted-foreground">No matching settings</div>}
           {categories.map(({ title: category, fields: categoryFields, page, group, keys }) => {
             const expansionKey = `${page}/${group}`;
@@ -423,11 +529,15 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
               {open && <div className="py-1">{categoryFields.map((field, index) => {
                 const section = printSettingPlacement(field)?.section;
                 const startsSection = section && section !== (index > 0 ? printSettingPlacement(categoryFields[index - 1])?.section : undefined);
-                return <div key={field.key}>
+                const scopedBinding = mode==='scoped' ? field.editor?.target : undefined;
+                return <div key={mode==='scoped' ? `${scopedEditor.identity}:${field.key}:${scopedBinding?.kind}:${scopedBinding?.kind==='indexed'?`${scopedSelection.identity}:${scopedBinding.index}`:scopedBinding?.kind==='unavailable'?scopedSelection.identity:''}` : mode==='project' && printEditor.snapshot && printOwnsField(printEditor.snapshot,field.key)?fieldViewKey(printEditor.snapshot,field.key,printSelection.choiceId):`${mode}:${field.key}`}>
                   {startsSection && <div data-testid={`config-section-${section}`} className="mt-1 flex items-center gap-2 px-1 text-module font-semibold text-muted-foreground">
                     {section}<span className="h-px flex-1 bg-border" />
                   </div>}
-                  <ScopedField disabled={field.key === 'curr_bed_type' && bedTypeDisabled} field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />
+                  <ScopedField selectionGutter={mode!=='plates'} disabled={(mode==='scoped' && (scopedEditor.pending || scopedEditor.refreshing || scopedEditor.error!==null)) || (field.key === 'curr_bed_type' && bedTypeDisabled) || (mode==='project' &&
+                    (!printEditor.snapshot || (printOwnsField(printEditor.snapshot,field.key) &&
+                      (printEditor.pending || printEditor.refreshing || printEditor.error!==null))))}
+                    field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />
                 </div>;
               })}</div>}
             </div>;
