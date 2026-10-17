@@ -114,47 +114,57 @@ node packages/slicer-wasm/harness/project-auxiliaries-smoke.mjs packages/slicer-
 
 ## Imported project attachments
 
-Project open retains every `Auxiliaries/` ZIP entry, including zero-byte files,
-Unicode names, nested and empty directories, unknown file types and custom
-covers in `.thumbnails`. Save and Save As preserve attachment paths and
-uncompressed bytes exactly; ZIP container bytes need not be identical. Relevant
-package content types and internal root relationships are retained, including
-the standard thumbnail and Bambu small/middle cover relationships. A standard-only
-custom cover is also used for missing Bambu cover sizes so generated plate images
-do not hide it in consumers that prefer those relationships. Content-type part
-declarations retain their original paths and MIME values. Cover relationship
-targets use literal ZIP entry names, matching desktop Orca's reader. Literal
-names take precedence over URI decoding when both could identify different
-attachments; escaped input targets are resolved when no literal entry exists.
-Generated model/configuration entries are never copied from the old archive.
+Project open enables native `LoadAuxiliary`; Save and Save As use the native
+auxiliary-directory writer without `SkipAuxiliary`. Attachment acceptance,
+filenames, zero-byte files, directory entries, content types and cover
+relationships follow the pinned desktop Orca implementation. The bridge does
+not retain unknown package declarations or repair relationships outside that
+native behavior. No attachment editor or extra ZIP sidecar is introduced.
 
-Compressed attachments have a Worker-owned project-session lifetime independent
-of `Model`, its backup directory and history roots. Editing and Undo/Redo retain
-this owner; geometry-only import neither replaces it nor imports source
-attachments. New Project and replacement project load release it. Failed loads
-follow the existing close-first lifecycle and cannot retain the prior project's
-attachments. Attachment staging or writing failures fail the operation rather
-than silently dropping files. No attachment editor is introduced.
+The native reader extracts attachments into the Model's backup directory under
+`/tmp/orcaslicer_model/.../Auxiliaries`. Model copies do not copy `backup_path`.
+Within one project, bridge replacements use `Model::load_from` to transfer the
+existing backup directory and native project metadata before moving the new
+Model into place. Undo/Redo, failed history publication, transaction abort,
+filament assignment, profile rollback and Clear Scene therefore retain the
+same directory without copying attachment files or storing them in history.
+Geometry-only imports do not acquire source attachments. Project close removes
+the old backup directory before resetting Model. Replacement loads follow the
+existing close-first policy; failed publication removes the incoming backup
+before restoring the fresh empty session.
 
-The compressed sidecar uses `/tmp`. Electron threaded mode mounts this directory
-through NODEFS onto a host-owned temporary directory, avoiding persistent MEMFS
-attachment storage. Web and Electron serial fallback use MEMFS. This reduces
-persistent JavaScript heap use on the disk-backed path; it does not eliminate
-transient archive buffers or shrink the WASM linear-memory high-water mark.
+Electron threaded mode mounts `/tmp` through NODEFS onto a host-owned temporary
+directory, so extracted attachments live on disk. Web and Electron serial
+fallback use MEMFS. Disk-backed temporary storage does not eliminate transient
+archive buffers or shrink the WASM linear-memory high-water mark.
 
 The real-WASM regression entry point is
 `node packages/slicer-wasm/harness/project-auxiliaries-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
-Add `--thumbnails` to cover saves with generated images; on the threaded artifact,
-add `--native-tmp` to verify disk-backed staging and cleanup.
-Pass `--native-reader /path/to/native-cover-reader` to also read each saved cover
-through desktop Orca's `bbs_3mf_get_thumbnail` and decode it with wxWidgets. Build
-`packages/slicer-wasm/harness/native-cover-reader.cpp` against an existing desktop
-Orca build's libslic3r and wxWidgets libraries. This checks returned PNG bytes,
-not just relationship XML, for literal and escaped targets with spaces, Unicode
-and percent signs, including repeated saves and competing filenames.
-It compares paths and SHA-256 hashes after immediate save, edit, Undo, Redo and
-reopen, and verifies custom covers, content types, geometry-only import and
-project replacement/failure. The same harness accepts the threaded artifact.
+Add `--thumbnails` to exercise generated plate images, and `--native-tmp` on the
+threaded artifact to verify disk-backed attachment files. It checks parameter
+and structural Undo/Redo, transaction abort, Clear Scene, repeated save/reopen,
+geometry-only import, project switching, close and failed project publication.
+Use `--lifecycle-only` to select these lifecycle checks without the cover-name
+matrix during focused iteration.
+A build configured with `NEO_PROJECT_HISTORY_TEST=ON` additionally accepts
+`--history-failures` to check reconciliation/publication failure in both Undo
+and Redo, plus failed profile activation, including successful saves after
+rollback. Filament routing publication failure is checked in normal builds.
+
+With `--thumbnails`, optional
+`--native-roundtrip /path/to/native-auxiliaries-roundtrip` compares
+attachment paths, file hashes, relevant content types and cover relationships
+with an unmodified desktop Orca load/save. The probe receives the same plate
+thumbnail input; unrelated built-in MIME defaults from a different desktop
+build are outside the comparison. Build
+`packages/slicer-wasm/harness/native-auxiliaries-roundtrip.cpp` against an existing
+desktop Orca build's libslic3r and dependencies. Optional
+`--native-reader /path/to/native-cover-reader` reads saved covers through desktop
+Orca's `bbs_3mf_get_thumbnail` and decodes them with wxWidgets; its source is
+`packages/slicer-wasm/harness/native-cover-reader.cpp`. Cover fixtures include
+spaces, Unicode and literal percent signs. Escaped targets and standard-only
+covers are compared against native behavior rather than given extra repair
+rules.
 
 ## Project identity and unsaved changes
 

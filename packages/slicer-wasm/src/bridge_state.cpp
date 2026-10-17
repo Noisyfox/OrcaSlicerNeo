@@ -1,4 +1,5 @@
 #include "bridge_state.hpp"
+#include <utility>
 
 #ifdef ORCA_WASM_THREADING
 #include <algorithm>
@@ -23,6 +24,13 @@ BridgeState& state()
     // constructor, and that native global must already have been initialized.
     static BridgeState s;
     return s;
+}
+
+void replace_model_preserving_project(Model& current, Model&& replacement)
+{
+    replacement.load_from(current);
+    current = std::move(replacement);
+    replacement.set_backup_path("detach");
 }
 
 } // namespace Slic3r::Neo::Bridge

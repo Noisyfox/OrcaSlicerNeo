@@ -747,7 +747,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
         state().mesh_capture_cache.clear();
         state().mutable_object_capture_cache.clear();
         state().painting.reset();
-        state().model = Model{};
+        Neo::Bridge::replace_model_preserving_project(state().model, Model{});
         reset_plate_session_state();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-clear"});
         return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());

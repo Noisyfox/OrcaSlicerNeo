@@ -905,7 +905,7 @@ json select_printer_with_remembered_rack_json(const json& request)
         }
         if (!mutated) return;
         restore_profile_transition_state(ProfileTransitionState(before_profiles));
-        bridge.model = std::move(before_model);
+        replace_model_preserving_project(bridge.model, std::move(before_model));
         bridge.mutable_object_capture_cache.clear();
         bridge.plate_session_plates = before_plates;
         bridge.plate_input_revisions = before_plate_revisions;
@@ -1397,7 +1397,7 @@ const char* apply_activation()
         bridge.dormant_preset_drafts = std::move(before_dormant);
         bridge.mesh_capture_cache = std::move(before_mesh_cache);
         bridge.mutable_object_capture_cache = std::move(before_mutable_cache);
-        bridge.model = std::move(before_model);
+        replace_model_preserving_project(bridge.model, std::move(before_model));
         bridge.plate_session_plates = before_plates;
         bridge.instance_plate_ids = before_membership;
         bridge.plate_out_of_bounds_ids = before_out_of_bounds;
