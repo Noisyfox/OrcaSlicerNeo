@@ -565,6 +565,44 @@ std::set<std::string> normalize_bed_types(bool reset_global)
     return removed;
 }
 
+// Read-only Sidebar::update_presets/update_extruder_variant policy.
+json sidebar_flow_choices_json(const DynamicPrintConfig& printer)
+{
+    const auto* nozzles = printer.opt<ConfigOptionFloats>("nozzle_diameter");
+    const auto* variants = printer.opt<ConfigOptionStrings>("extruder_variant_list");
+    const auto* drives = printer.opt<ConfigOptionEnumsGeneric>("extruder_type");
+    const auto* counts = printer.opt<ConfigOptionIntsNullable>("extruder_max_nozzle_count");
+    const auto* actual = state().presets.project_config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
+    const auto* drive_def = print_config_def.get("extruder_type");
+    const auto* flow_def = print_config_def.get("nozzle_volume_type");
+    const std::string variant = printer.opt_string("printer_variant");
+    const std::string model = printer.opt_string("printer_model");
+    json result = json::array();
+    for (size_t index = 0; nozzles && index < nozzles->size(); ++index) {
+        json choices = json::array();
+        const bool has_actual = actual && index < actual->size();
+        if (variants && drives && drive_def && flow_def && has_actual &&
+            index < variants->size() && index < drives->size() &&
+            drives->values[index] >= 0 && size_t(drives->values[index]) < drive_def->enum_labels.size()) {
+            const auto& drive = drive_def->enum_labels[drives->values[index]];
+            // get_at deliberately falls back to entry zero, like Orca. Empty
+            // storage and nullable nil must not accidentally offer Hybrid.
+            const int count = counts && !counts->empty() ? counts->get_at(index) : 1;
+            for (size_t i = 0; i < flow_def->enum_labels.size(); ++i) {
+                const int flow = flow_def->enum_keys_map->at(flow_def->enum_values[i]);
+                if (variants->values[index].find(drive + " " + flow_def->enum_labels[i]) == std::string::npos &&
+                    !(count > 1 && count != ConfigOptionIntsNullable::nil_value() && flow == nvtHybrid)) continue;
+                if (flow == nvtE3DHighFlow && variant != "0.4" && variant != "0.6") continue;
+                if (flow == nvtHighFlow && (variant == "0.2" || model == "Bambu Lab X1E")) continue;
+                choices.push_back({{"value", flow}, {"label", flow_def->enum_labels[i]}});
+            }
+        }
+        result.push_back({{"actual", has_actual ? json(actual->values[index]) : json(nullptr)},
+                          {"choices", std::move(choices)}});
+    }
+    return result;
+}
+
 // Presentation identities are separate from canonical profile names. Restrict
 // Orca's resolver to the admitted vendor/model candidates; its global fallback
 // may otherwise return an invisible profile or a same-name model from a vendor.
@@ -655,7 +693,12 @@ json printer_picker_json(const DynamicPrintConfig& effective)
         const auto* candidate = preset.config.opt<ConfigOptionFloats>("nozzle_diameter");
         if (candidate) diameters.insert(candidate->values.begin(), candidate->values.end());
     }
-    return {{"items", std::move(items)}, {"selected_id", selected_id},
+    const Preset* base = bundle.printers.get_preset_base(selected);
+    const auto printer = PresetDrafts::effective_preset_config(
+        bundle, state().preset_drafts, Preset::TYPE_PRINTER, selected.name);
+    return {{"base_printer", base ? base->name : selected.name},
+            {"flows", sidebar_flow_choices_json(printer)},
+            {"items", std::move(items)}, {"selected_id", selected_id},
             {"variants", std::move(variants)}, {"selected_variant", current_variant},
             {"nozzle_diameters", diameters}};
 }

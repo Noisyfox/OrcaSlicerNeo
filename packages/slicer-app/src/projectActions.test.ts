@@ -17,7 +17,7 @@ const input: ProjectInput = { displayName: 'Robot.3mf', bytes: new Uint8Array([8
 const snapshot: ProfileSnapshot = {
   ok: true,
   modifiedPresets: { printer: [], filament: [] },
-  printerPicker: { items: [{ id: 'project', label: 'Project printer', preset: 'Project printer' }], selectedId: 'project', variants: [], nozzleDiameters: [0.4], selectedVariant: '' },
+  printerPicker: { basePrinter: 'Fixture printer', flows: [], items: [{ id: 'project', label: 'Project printer', preset: 'Project printer' }], selectedId: 'project', variants: [], nozzleDiameters: [0.4], selectedVariant: '' },
   printers: [{ name: 'System printer', label: 'System printer', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: false }, { name: 'Project printer', label: 'Project printer', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   prints: [{ name: 'System process', label: 'System process', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: false }, { name: 'Project process', label: 'Project process', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   filamentCatalog: [{ name: 'Project filament', label: 'Project filament', vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '' }],

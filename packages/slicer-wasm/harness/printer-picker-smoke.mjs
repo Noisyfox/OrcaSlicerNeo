@@ -8,6 +8,8 @@ import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
+import { buildIndependentReader3mf } from './multi-filament-fixture-builder.mjs';
+import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 
 const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 
@@ -37,6 +39,25 @@ try {
     const model = await readJson(modelPath);
     model.nozzle_diameter = ['0.4', ...variants].join(';');
     await writeJson(modelPath, model);
+  }
+  // Deliberately broad native variant strings make each policy gate observable.
+  const alphaPath = join(source, 'CompatibilityFixture/machine/alpha.json');
+  const alpha = await readJson(alphaPath);
+  alpha.extruder_variant_list = ['Direct Drive Standard;Direct Drive High Flow;Direct Drive TPU High Flow;Direct Drive E3D High Flow;Direct Drive Extra High Flow'];
+  alpha.extruder_max_nozzle_count = ['2'];
+  await writeJson(alphaPath, alpha);
+  // Preserve hand-written short lists: SEMM profiles do not normalize physical
+  // extruder vectors. These are loaded through the real native profile loader.
+  for (const [file, drives, variants, defaults] of [
+    ['beta.json', ['Direct Drive', 'Direct Drive'], ['Direct Drive Standard'], ['Standard']],
+    ['alpha-0.4HS.json', ['Direct Drive'], ['Direct Drive Standard', 'Direct Drive Standard'], ['Standard', 'Standard']],
+    ['beta-0.6.json', ['Direct Drive', 'Bowden'], ['Direct Drive Standard', 'Bowden Standard'], ['Standard', 'Standard']],
+  ]) {
+    const path = join(source, 'CompatibilityFixture/machine', file);
+    const profile = await readJson(path);
+    await writeJson(path, { ...profile, single_extruder_multi_material: '1', nozzle_diameter: ['0.4', '0.4'],
+      extruder_type: drives, extruder_variant_list: variants, default_nozzle_volume_type: defaults,
+      extruder_max_nozzle_count: file === 'beta.json' ? [] : ['2'] });
   }
   await writeJson(vendorPath, vendor);
   await promisify(execFile)(process.execPath, [resolve(import.meta.dirname, '../../profile-resources/scripts/build.mjs')], {
@@ -154,7 +175,90 @@ try {
   assert.deepEqual(snapshot(), retained, 'stale edits cannot mutate the current vector');
   assert.equal(setDiameter(2, 0.4, call('orc_history_status').revision).ok, false);
   assert.deepEqual(snapshot(), retained, 'invalid indices cannot resize the nozzle vector');
-  console.log('printer picker smoke OK: grouping, named/mixed variants, atomic transition, toolhead exact matching, indexed fallback, stale/index rejection');
+  const setPrinter = (key, value) => {
+    const printer = snapshot().printer.name;
+    const result = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({
+      history_context: editingContext, action: 'set', kind: 'printer', canonical_name: printer,
+      expected_revision: call('orc_history_status').revision, key, value,
+    })]);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    return snapshot().printer_picker;
+  };
+  current = select('Compatibility Alpha 0.4 nozzle');
+  const flowValues = picker => picker.flows.map(flow => flow.choices.map(choice => choice.value));
+  assert.equal(current.printer_picker.base_printer, current.printer.name);
+  assert.deepEqual(flowValues(current.printer_picker), [[0, 1, 2, 3, 5, 6]], 'enum definition order keeps E3D identity 5');
+  assert.equal(current.printer_picker.flows[0].actual, 0);
+  const historyBeforeRead = call('orc_history_status');
+  const sessionBeforeRead = call('orc_get_filament_session_snapshot');
+  assert.deepEqual(snapshot(), current);
+  assert.deepEqual(call('orc_history_status'), historyBeforeRead, 'reads do not create history');
+  assert.deepEqual(call('orc_get_filament_session_snapshot'), sessionBeforeRead, 'reads do not rewrite mappings');
+  assert.deepEqual(flowValues(setPrinter('nozzle_diameter', '0.2')), [[0, 1, 2, 3, 5, 6]], 'physical diameter does not filter flows');
+  assert.deepEqual(flowValues(setPrinter('printer_variant', '0.2')), [[0, 2, 3, 6]], 'canonical variant filters HF and E3D');
+  assert.deepEqual(flowValues(setPrinter('printer_variant', '0.6')), [[0, 1, 2, 3, 5, 6]], 'E3D is admitted for canonical 0.6');
+  assert.deepEqual(flowValues(setPrinter('printer_variant', '0.4HS')), [[0, 1, 2, 3, 6]], 'named variants do not masquerade as canonical 0.4');
+  setPrinter('printer_variant', '0.4');
+  assert.deepEqual(flowValues(setPrinter('printer_model', 'Bambu Lab X1E')), [[0, 2, 3, 5, 6]], 'X1E excludes HF only');
+  setPrinter('printer_model', 'Compatibility Alpha');
+  assert.deepEqual(flowValues(setPrinter('extruder_max_nozzle_count', 'nil')), [[0, 1, 3, 5, 6]], 'nil count cannot offer Hybrid');
+  assert.deepEqual(flowValues(setPrinter('extruder_type', 'Bowden')), [[]], 'drive strings must match');
+  setPrinter('extruder_type', 'Direct Drive');
+  assert.deepEqual(flowValues(setPrinter('extruder_variant_list', 'Direct Drive Hybrid')), [[2]], 'explicit Hybrid string is eligible even with nil count');
+  assert.deepEqual(flowValues(setPrinter('extruder_variant_list', 'unmatched')), [[]], 'empty candidates preserve actual flow');
+  assert.equal(snapshot().printer_picker.flows[0].actual, 0);
+  const importFlows = flows => {
+    const entries = readZipEntries(buildIndependentReader3mf());
+    const project = entries.find(entry => entry.name === 'Metadata/project_settings.config');
+    const config = JSON.parse(new TextDecoder().decode(project.content));
+    config.printer_settings_id = 'Compatibility Beta 0.6 nozzle';
+    config.nozzle_volume_type = flows;
+    project.content = new TextEncoder().encode(JSON.stringify(config));
+    const bytes = writeStoredZip(entries);
+    const pointer = Number(Module._malloc(bytes.length));
+    Module.HEAPU8.set(bytes, pointer);
+    try {
+      const result = call('orc_load_project', ['pointer', 'number', 'number', 'string'], [pointer, bytes.length, 0, 'flow-policy.3mf']);
+      assert.equal(result.ok, true, JSON.stringify(result));
+    } finally { Module._free(pointer); }
+  };
+  importFlows(['High Flow', 'E3D High Flow']);
+  current = select('Compatibility Beta 0.6 nozzle');
+  assert.deepEqual(current.printer_picker.flows.map(flow => flow.actual), [1, 5], 'unavailable actual enum values survive reads');
+  assert.deepEqual(flowValues(current.printer_picker), [[0, 2], [0, 2]]);
+  const invalidBefore = snapshot();
+  const invalidHistory = call('orc_history_status');
+  const invalidSession = call('orc_get_filament_session_snapshot');
+  assert.deepEqual(snapshot(), invalidBefore);
+  assert.deepEqual(call('orc_history_status'), invalidHistory, 'invalid-flow reads create no repair history');
+  assert.deepEqual(call('orc_get_filament_session_snapshot'), invalidSession, 'invalid-flow reads preserve mappings');
+  importFlows(['Standard', 'Standard']);
+  current = select('Compatibility Beta 0.6 nozzle');
+  assert.deepEqual(flowValues(current.printer_picker), [[0, 2], [0, 2]], 'short max count uses get_at first entry across drives');
+  current = select('Compatibility Beta 0.4 nozzle');
+  assert.deepEqual(flowValues(current.printer_picker), [[0], []], 'short variants hide the missing head');
+  current = select('Compatibility Alpha 0.4HS nozzle');
+  assert.deepEqual(flowValues(current.printer_picker), [[0, 2], []], 'short drives hide the missing head');
+  importFlows(['Standard']);
+  current = select('Compatibility Beta 0.4 nozzle');
+  assert.deepEqual(flowValues(current.printer_picker), [[0], []], 'empty max counts do not offer Hybrid; short actual flow hides the missing head');
+  assert.equal(current.printer_picker.flows[1].actual, null, 'missing actual is not invented');
+  const unavailableBefore = snapshot();
+  const unavailableHistory = call('orc_history_status');
+  const unavailableSession = call('orc_get_filament_session_snapshot');
+  assert.deepEqual(snapshot(), unavailableBefore);
+  assert.deepEqual(call('orc_history_status'), unavailableHistory);
+  assert.deepEqual(call('orc_get_filament_session_snapshot'), unavailableSession);
+  const sourcePrinter = snapshot().printer.name;
+  const prepared = call('orc_prepare_user_preset', ['string'], [JSON.stringify({
+    history_context: editingContext, action: 'save-as', kind: 'printer', canonical_name: sourcePrinter,
+    expected_revision: call('orc_history_status').revision, name: 'Flow inherited user printer',
+  })]);
+  assert.equal(prepared.ok, true, JSON.stringify(prepared));
+  assert.equal(call('orc_finish_user_preset', ['string'], [JSON.stringify({ token: prepared.token, commit: true })]).ok, true);
+  current = select('Flow inherited user printer');
+  assert.equal(current.printer_picker.base_printer, sourcePrinter, 'inherited user identity resolves through native base preset');
+  console.log('printer picker smoke OK: read-only Sidebar flow policy, grouping, named/mixed variants, atomic transition, toolhead exact matching, indexed fallback, stale/index rejection');
 } finally {
   await rm(root, { recursive: true, force: true });
 }

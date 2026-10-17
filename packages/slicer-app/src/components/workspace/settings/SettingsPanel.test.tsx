@@ -28,7 +28,7 @@ function preset(name: string, isVisible = true): PresetInfo {
 const initialSnapshot: ProfileSnapshot = {
   ok: true,
   modifiedPresets: { printer: [], filament: [] },
-  printerPicker: { items: [
+  printerPicker: { basePrinter: 'Fixture printer', flows: [], items: [
     { id: 'old', label: 'Old Printer', preset: 'Old Printer' },
     { id: 'new', label: 'New Printer', preset: 'New Printer' },
   ], selectedId: 'old', variants: [{ value: '0.4', preset: 'Old Printer' }], nozzleDiameters: [0.4, 0.6], selectedVariant: '0.4' },
@@ -45,7 +45,7 @@ const initialSnapshot: ProfileSnapshot = {
 const resolvedSnapshot: ProfileSnapshot = {
   ok: true,
   modifiedPresets: { printer: [], filament: [] },
-  printerPicker: { items: [
+  printerPicker: { basePrinter: 'Fixture printer', flows: [], items: [
     { id: 'new', label: 'New Printer', preset: 'New Printer' },
     { id: 'other', label: 'Other Printer', preset: 'Other Printer' },
   ], selectedId: 'new', variants: [{ value: '0.6', preset: 'New Printer' }], nozzleDiameters: [0.6], selectedVariant: '0.6' },
@@ -387,7 +387,7 @@ describe('SettingsPanel preset transitions', () => {
 
   it('switches a named/mixed variant through the existing atomic Printer transaction and locks Nozzle', async () => {
     resetStores();
-    const picker = { items: [{ id: 'model', label: 'One Printer', preset: 'Old Printer' }], selectedId: 'model',
+    const picker = { basePrinter: 'Old Printer', flows: [], items: [{ id: 'model', label: 'One Printer', preset: 'Old Printer' }], selectedId: 'model',
       variants: [{ value: '0.4', preset: 'Old Printer' }, { value: '0.4+0.6', preset: 'Mixed Profile' }], nozzleDiameters: [0.4, 0.6], selectedVariant: '0.4' };
     useSettingsStore.setState({ printerPicker: picker });
     const profile: ProfileSnapshot = { ...resolvedSnapshot, printer: { name: 'Mixed Profile', idx: 2 }, printerPicker: {

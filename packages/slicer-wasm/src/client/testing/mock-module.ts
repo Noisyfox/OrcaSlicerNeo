@@ -419,6 +419,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return {
       ok: true,
       printer_picker: {
+        base_printer: current.name,
+        flows: ((editorValuesFor('printer', current.name, 'nozzle_diameter') ?? []) as number[]).map(() => ({ actual: 0, choices: [{ value: 0, label: 'Standard' }] })),
         nozzle_diameters: [...new Set((editorValuesFor('printer', current.name, 'nozzle_diameter') ?? []) as number[])].sort((a, b) => a - b),
         items: pickerItems,
         selected_id: pickerItems.length ? JSON.stringify(['model', current.vendor_id, current.model]) : '',

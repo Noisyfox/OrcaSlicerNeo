@@ -415,6 +415,10 @@ export interface BedTypeCapabilities {
 
 /** Native presentation projection; all targets remain canonical profile names. */
 export interface PrinterPicker {
+  /** Canonical native base preset identity, for flow preference storage. */
+  basePrinter: string;
+  /** Physical-extruder order. Missing actual slots stay null; reads never repair. */
+  flows: Array<{ actual: number | null; choices: Array<{ value: number; label: string }> }>;
   /** Physical diameters from installed profiles of the selected vendor/model. */
   nozzleDiameters: number[];
   items: Array<{ id: string; label: string; preset: string }>;

@@ -1184,6 +1184,39 @@ describe('SlicerClient bridge contract', () => {
     expect(await client.getPlateSessionSnapshot()).toEqual(after);
   });
 
+  it('preserves ordered native flow identities, unavailable actual values and missing slots', async () => {
+    const module = createMockModule();
+    let flows: unknown = [
+      { actual: 4, choices: [{ value: 0, label: 'Standard' }, { value: 5, label: 'E3D High Flow' }] },
+      { actual: null, choices: [] },
+    ];
+    const original = module.ccall;
+    module.ccall = (name, returnType, argTypes, args) => {
+      const pointer = original(name, returnType, argTypes, args);
+      if (name !== 'orc_get_preset_snapshot') return pointer;
+      const raw = JSON.parse(module.UTF8ToString(Number(pointer)));
+      module._free(Number(pointer));
+      raw.printer_picker.base_printer = 'Canonical base';
+      raw.printer_picker.flows = flows;
+      const bytes = new TextEncoder().encode(JSON.stringify(raw) + '\0');
+      const replacement = module._malloc(bytes.length);
+      module.HEAPU8.set(bytes, replacement);
+      return replacement;
+    };
+    const client = createClient(async () => module);
+    expect(await client.getProfileSnapshot()).toMatchObject({
+      ok: true, printerPicker: { basePrinter: 'Canonical base', flows: [
+        { actual: 4, choices: [{ value: 0, label: 'Standard' }, { value: 5, label: 'E3D High Flow' }] },
+        { actual: null, choices: [] },
+      ] },
+    });
+    for (flows of [undefined, null, [{ choices: [] }], [{ actual: 0.5, choices: [] }],
+      [{ actual: null, choices: [{ value: 5, label: 'E3D' }, { value: 5, label: 'Duplicate' }] }],
+      [{ actual: 0, choices: [{ value: 5, label: '' }] }]]) {
+      expect(await client.getProfileSnapshot()).toEqual({ ok: false, error: 'Invalid native printer picker' });
+    }
+  });
+
   it.each([
     undefined,
     { items: [], selected_id: 4, variants: [], selected_variant: '' },

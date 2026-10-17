@@ -13,7 +13,7 @@ function snapshot(printer: string, print: string, filament: string): ProfileSnap
   return {
     ok: true,
     modifiedPresets: { printer: [], filament: [] },
-    printerPicker: { items: [{ id: printer, label: printer, preset: printer }], selectedId: printer, variants: [], nozzleDiameters: [0.4], selectedVariant: '' },
+    printerPicker: { basePrinter: 'Fixture printer', flows: [], items: [{ id: printer, label: printer, preset: printer }], selectedId: printer, variants: [], nozzleDiameters: [0.4], selectedVariant: '' },
     printers: [{ name: printer, label: printer, vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
     prints: [{ name: print, label: print, vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
     filamentCatalog: [{ name: filament, label: filament, vendor: '', is_visible: true, is_project_embedded: false, is_user: false, is_default: false, vendor_id: '', model: '', variant: '' }],

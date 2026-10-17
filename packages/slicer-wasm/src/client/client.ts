@@ -1052,6 +1052,12 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>, includeCatalogue
   const printers = includeCatalogues ? raw.printers as ProfileSnapshot['printers'] : undefined;
   const printerNames = printers ? new Set(printers.map((printer) => printer.name)) : null;
   if (!isRecord(picker) || !Array.isArray(picker.items) ||
+      typeof picker.base_printer !== 'string' || !picker.base_printer ||
+      !Array.isArray(picker.flows) || picker.flows.some(flow => !isRecord(flow) ||
+        !(flow.actual === null || Number.isInteger(flow.actual)) || !Array.isArray(flow.choices) ||
+        flow.choices.some(choice => !isRecord(choice) || !Number.isInteger(choice.value) ||
+          typeof choice.label !== 'string' || !choice.label) ||
+        new Set(flow.choices.map(choice => choice.value)).size !== flow.choices.length) ||
       typeof picker.selected_id !== 'string' || typeof picker.selected_variant !== 'string' ||
       !Array.isArray(picker.nozzle_diameters) || picker.nozzle_diameters.some((diameter) =>
         typeof diameter !== 'number' || !Number.isFinite(diameter) || diameter <= 0) ||
@@ -1081,6 +1087,8 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>, includeCatalogue
   return {
     ok: true,
     printerPicker: {
+      basePrinter: picker.base_printer,
+      flows: picker.flows as Array<{ actual: number | null; choices: Array<{ value: number; label: string }> }>,
       nozzleDiameters: picker.nozzle_diameters as number[],
       items: picker.items.map((item) => ({ id: item.id as string, label: item.label as string, preset: item.preset as string })),
       selectedId: picker.selected_id,
