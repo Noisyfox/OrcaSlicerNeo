@@ -510,6 +510,8 @@ async function editClosedEnumField(page: Page, key: string): Promise<{ before: s
   const before = (await input.textContent())?.trim() ?? '';
   await input.click();
   const options = page.getByRole('option');
+  // Select mounts its portal asynchronously; allTextContents does not wait.
+  await expect(options.nth(1)).toBeVisible();
   const labels = (await options.allTextContents()).map((label) => label.trim());
   const after = labels.find((label) => label.length > 0 && label !== before);
   if (!after) throw new Error(`expected a distinct native enum option for ${key}`);
