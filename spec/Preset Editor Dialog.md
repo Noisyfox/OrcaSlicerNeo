@@ -580,7 +580,7 @@ selection. Printer browsing retains valid nozzle and per-nozzle editing-flow
 choices across other presets; entering the project's current Printer preset
 initializes editing flows from actual project flow. Editing-flow choices remain
 local to the editor and do not change project flow. Filament preset changes
-start at the first variant. The Filament dropdown exposes the complete ordered
+start at the first variant. The horizontal Filament list exposes the complete ordered
 native variant list, including variants unused by the project Printer. It does
 not change rack assignments. Refreshed choices retain semantic drive/flow
 identity rather than a snapshot-local ordinal ID. Undo/Redo retains valid current selections, with
@@ -590,7 +590,7 @@ A valid vector index is not a physical Extruder ID.
 
 The Printer switch uses sidebar-style nozzle cards with flow dropdowns
 for multiple nozzles. A single nozzle with multiple editing flows instead uses
-an ordinary variant dropdown without nozzle information; a single nozzle with
+the same flat horizontal variant list without nozzle information; a single nozzle with
 one flow hides it. Improved rejection feedback after navigating away remains
 deferred, preserving the current category-tab feedback behavior.
 

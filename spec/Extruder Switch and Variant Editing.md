@@ -314,7 +314,9 @@ primary selected colour, scrolls horizontally with ordinary wheel input under th
 [global horizontal-list rule](Application%20Shell.md#overflowing-tab-bars), supports keyboard
 focus and activation, and keeps the selected choice visible after selection or
 resize. Its leading nozzle glyph has no action; cross-extruder sync/copy remains
-deferred. Printer and Filament selectors retain their existing presentation.
+deferred. Pure Printer/Filament variant selectors use the same horizontal strip
+and navigation behavior with text-only variant choices, without physical
+nozzle numbers or diameters. The native choice labels and ordering are retained.
 
 Project Print and Objects-mode field labels reserve an aligned nozzle-icon gutter
 only when there are multiple native extruder/variant choices. A printer with
@@ -367,11 +369,13 @@ The immediate navigation rules in section 7 also apply to flow selection.
 
 ### 4.2 Single Printer nozzle
 
-When a single nozzle supports multiple editing flows, use an ordinary variant
-dropdown, following the sidebar's single-nozzle control presentation. It shows
-only the editing-flow choice, with no nozzle number, diameter, or nozzle-card
-layout. Its choices, initialization, isolation from project flow, and immediate
-navigation follow the same contracts as the multi-nozzle flow dropdowns.
+When a single nozzle supports multiple editing flows, present the editing-flow
+choices in a flat horizontal list using the shared nozzle-strip selected style,
+keyboard navigation, wheel scrolling and selected-item visibility on resize.
+It shows only the editing-flow choice, with no nozzle number, diameter, or
+nozzle-card layout. Its choices, initialization, isolation from project flow,
+and immediate navigation follow the same contracts as the multi-nozzle flow
+dropdowns. The complete Filament variant list uses this same presentation.
 
 ## 5. Native field binding
 
@@ -581,7 +585,7 @@ not evidence that the feature has been delivered:
 | Consistent projections | Source, Effective, tooltips, edits, resets, search, and selected-field/group/category highlighting address the same binding. Explicit Source-equivalent element ownership remains observable. |
 | Flow isolation | Each Printer nozzle retains its own editing flow. Viewing another flow creates no configuration/history change and cannot change Project Print's actual flow choices. Hybrid initializes the editor as SF. |
 | Selection transitions | Project-current Printer entry initializes from project flow; other Printer presets retain valid choices and use native defaults when unavailable. Filament exposes its complete native variant list. Category navigation, Undo/Redo, and close/reopen follow section 3. |
-| Presentation | Multi-nozzle cards, the single-nozzle variant dropdown, the single-choice hidden state, and category-dependent visibility follow section 4. Hidden state retains its selection. |
+| Presentation | Multi-nozzle cards, the pure-variant horizontal strip, the single-choice hidden state, and category-dependent visibility follow section 4. Hidden state retains its selection. |
 | Immediate navigation | Valid input, invalid input, and a pending submission do not require a second click to change nozzle/flow. Delayed receipts affect their captured bindings and do not redirect the view or leak local field state. |
 | Atomic reset | A category containing mixed native indices and shared fields resets once, preserves other selections, and creates one undoable operation. Rejection cannot leave a partially reset category. |
 | Missing data | Missing native mappings are read-only and excluded from reset. A valid mapping with a short vector retains the existing bounded value fallback; missing mappings never substitute index zero. |
@@ -632,7 +636,7 @@ to the same agent for repair and renewed verification.
 | --- | --- | --- | --- |
 | 1. Native mapping projection | Native Printer, Filament, and Project Print snapshots expose complete selection/default metadata and shared/indexed/unavailable field bindings. Typed client, runtime, mocks, and fixtures use one contract. Existing UI remains functional. | Real-WASM checks distinguish U1 physical/variant/motion indices, browsed versus project Printer context, native defaults/Hybrid normalization, full Filament variants, missing mappings, and valid short vectors. Affected package suites/typechecks and the applicable quick build pass. Parent reviews the mapping oracle and independently exercises the projection. | Accepted |
 | 2. Atomic mutations and diameter boundary | Add one validated mixed-index/shared-field category-reset operation for preset drafts and Project Print. Direct Printer-editor diameter changes edit the current draft instead of entering sidebar matching. | Real native edits/reset preserve other elements and explicit ownership; invalid batches are atomic; one accepted reset is one history entry and Undo/Redo restores it. An editor diameter edit keeps canonical identity even when another matching preset exists; sidebar matching retains its current behavior. Affected package checks and native build/smoke pass, then parent independently verifies both boundaries. | Accepted |
-| 3. Printer editor | Deliver the single Extruder page, native bindings throughout the field presentation, multi-nozzle cards, single-nozzle variant dropdown, independent per-nozzle editing flows, selection transitions, and mapped category reset. | Component tests and a focused primary-host journey cover SF/HF isolation, active/inactive presets, fallback defaults, category visibility, single-nozzle cases, selected ownership/highlights, immediate navigation during invalid/pending edits, and captured mutation bindings. Parent reviews state lifetime and independently tests the rendered interaction. | Accepted |
+| 3. Printer editor | Deliver the single Extruder page, native bindings throughout the field presentation, multi-nozzle cards, single-nozzle variant strip, independent per-nozzle editing flows, selection transitions, and mapped category reset. | Component tests and a focused primary-host journey cover SF/HF isolation, active/inactive presets, fallback defaults, category visibility, single-nozzle cases, selected ownership/highlights, immediate navigation during invalid/pending edits, and captured mutation bindings. Parent reviews state lifetime and independently tests the rendered interaction. | Accepted |
 | 4. Filament and Project Print surfaces | Apply the shared variant/binding presentation to the complete Filament variant list and Project Print nozzle choices. Print retains its current native owner and uses actual project flow; other scoped element extensions remain deferred. | Tests demonstrate no project-Printer filtering of Filament variants, Project-flow-driven Print choices including Hybrid, independent surface selections, correct reads/edits/reset/highlights, and native history/ownership. Affected package checks and focused host integration pass before independent parent acceptance. | Accepted |
 | 5. Integrated delivery | Complete the real-runtime regression journeys and reconcile delivery statements in existing specifications. Repair any integration findings through the same implementation agent. | Repository tests/typechecks, the primary shared-UI journey, affected real-WASM host integration, both quick builds, comprehensive native coverage on one variant, and variant-specific smoke on the other meet section 9 and the testing guidelines. Parent independently reviews the complete feature and reruns decisive integration checks before the final commit. | Accepted |
 

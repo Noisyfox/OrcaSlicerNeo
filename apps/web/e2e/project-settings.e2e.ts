@@ -165,8 +165,8 @@ test('real Web extruder editors use the served native variant across browser pro
   await page.getByTestId('filament-slot-1').click({button:'right'});await page.getByTestId('filament-edit-1').click();
   await page.getByTestId('preset-editor-preset').click();await page.getByPlaceholder('Search presets to edit…').fill('Generic PLA');
   await page.getByRole('option').and(page.getByTitle('Generic PLA @System',{exact:true})).click();
-  const filament=page.getByTestId('preset-editor-variant');await filament.click();await expect(page.getByRole('option')).toHaveCount(6);
-  await page.getByRole('option',{name:'Bowden Extra High Flow',exact:true}).click();
+  const filament=page.getByTestId('preset-editor-variant');await expect(filament.getByRole('button')).toHaveCount(6);
+  await filament.getByRole('button',{name:'Bowden Extra High Flow',exact:true}).click();
   const ratio=page.getByTestId('preset-editor-input-filament_flow_ratio');const source=await page.getByTestId('preset-editor-source-filament_flow_ratio').textContent();
   await ratio.fill('1.09');await ratio.press('Enter');await expect(ratio).toBeEnabled();await expect(ratio).toHaveValue('1.09');
   await expect(page.getByTestId('preset-editor-field-filament_flow_ratio')).toHaveAttribute('title',/filament_flow_ratio\[5\]/);

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ConfigEditorChoice, ConfigEditorSelection as Selection } from '@slicer/client';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ToggleGroupItem } from '@/components/ui/toggle-group';
+import { EditorSelectionStrip } from './EditorSelectionStrip';
 
 // Native IDs may be snapshot-local ordinals. Keep the drive/flow variant and
 // physical nozzle identity across refreshed or reordered choices instead.
@@ -21,19 +22,20 @@ export function useConfigEditorSelection(metadata: Selection | null, entry: numb
   };
 }
 
-export function ConfigEditorSelection({ metadata, choiceId, onSelect, disabled, testId, label }: {
-  metadata: Selection;
+export function ConfigEditorSelection({ metadata, choiceId, onSelect, disabled, testId, label, itemTestId }: {
+  metadata: Pick<Selection, 'choices'>;
   choiceId: string | null;
   onSelect: (id: string | null) => void;
   disabled: boolean;
   testId: string;
   label: string;
+  itemTestId?: (choice: ConfigEditorChoice) => string;
 }) {
-  return <Select value={choiceId} disabled={disabled} onValueChange={onSelect}
-    items={metadata.choices.map(choice => ({ value: choice.id, label: choice.label }))}>
-    <SelectTrigger className="max-w-full" aria-label={label} data-testid={testId}><SelectValue /></SelectTrigger>
-    <SelectContent><SelectGroup>{metadata.choices.map(choice =>
-      <SelectItem key={choice.id} value={choice.id}>{choice.label}</SelectItem>)}
-    </SelectGroup></SelectContent>
-  </Select>;
+  return <EditorSelectionStrip choices={metadata.choices} choiceId={choiceId} onSelect={onSelect}
+    disabled={disabled} label={label} testId={testId}>
+    {metadata.choices.map(choice => <ToggleGroupItem key={choice.id} value={choice.id}
+      aria-label={choice.label} title={choice.label} data-choice-id={choice.id} data-testid={itemTestId?.(choice)}>
+      {choice.label}
+    </ToggleGroupItem>)}
+  </EditorSelectionStrip>;
 }

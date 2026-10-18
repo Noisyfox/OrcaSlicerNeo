@@ -48,7 +48,7 @@ it('edits a nullable override, displays the current reference and reseeds on re-
   await click(query(`override-${key}`)); expect((await h.read()).editorVectors[key].effectiveValues[0]).toBeNull();
   expect(query(`input-${key}`).value).toBe('0.8');
   await click(query(`override-${key}`)); expect(query(`input-${key}`).value).toBe('0.8');
-  await click(query('variant')); await click([...document.querySelectorAll('[role="option"]')].find(option => option.textContent === 'Variant 2')!);
+  await click(query('variant').querySelector('[aria-label="Variant 2"]')!);
   expect(query(`input-${key}`).disabled).toBe(true); await click(query(`override-${key}`)); await fill(key,'1.7');
   expect((await h.read()).editorVectors[key].effectiveValues).toEqual([0.8,1.7]);
 });

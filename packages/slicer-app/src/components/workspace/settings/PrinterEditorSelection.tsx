@@ -3,6 +3,7 @@ import { configVectorElementAt } from '@slicer/client';
 import type { ConfigEditorChoice, PresetDraftSnapshot } from '@slicer/client';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ConfigEditorSelection } from './ConfigEditorSelection';
 
 interface PrinterView {
   readonly source: string | null;
@@ -65,7 +66,16 @@ export function PrinterEditorSelection({ snapshot, selection, disabled }: {
         data-testid={`preset-editor-flow-option-${index + 1}-${choice.flowType}`}>{label(choice)}</SelectItem>)}</SelectGroup></SelectContent>
     </Select>;
   };
-  if (!multiple) return <div data-testid="preset-editor-extruder-switch">{nozzles[0] && flowSelect(nozzles[0].extruderIndex)}</div>;
+  if (!multiple) {
+    const index = nozzles[0]?.extruderIndex;
+    const available = choices.filter(choice => choice.extruderIndex === index)
+      .map(choice => ({ ...choice, label: choice.flowType === 0 ? 'Standard' : 'High Flow' }));
+    return <div data-testid="preset-editor-extruder-switch">{index !== undefined && <ConfigEditorSelection
+      metadata={{ choices: available }} choiceId={selection.choiceId} disabled={disabled}
+      testId={`preset-editor-flow-${index + 1}`} label="Printer editing flow"
+      itemTestId={choice => `preset-editor-flow-option-${index + 1}-${choice.flowType}`}
+      onSelect={id => { const choice = choices.find(choice => choice.id === id); if (choice) selection.selectFlow(choice); }} />}</div>;
+  }
   return <div className="printer-toolhead-list w-max max-w-full flex-wrap" role="group" aria-label="Printer extruders" data-testid="preset-editor-extruder-switch">
     {nozzles.map(nozzle => {
       const index = nozzle.extruderIndex;
