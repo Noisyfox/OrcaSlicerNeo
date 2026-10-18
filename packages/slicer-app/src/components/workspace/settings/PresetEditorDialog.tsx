@@ -33,6 +33,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Input } from '@/components/ui/input';
 import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
+import { NozzleIcon } from '@/components/ui/nozzle-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
 import { PresetCombobox } from '../PresetCombobox';
@@ -231,6 +232,7 @@ function makeMutationRequest(
 
 function FieldValue({
   choiceId,
+  selectionGutter,
   field,
   metadata,
   snapshot,
@@ -241,6 +243,7 @@ function FieldValue({
   onMutate,
 }: {
   choiceId: string | null;
+  selectionGutter: boolean;
   field: PresetEditorManifestField;
   metadata: OptionMeta | undefined;
   snapshot: PresetDraftSnapshot;
@@ -705,12 +708,18 @@ function FieldValue({
       {titleContext}
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <Label
-            data-testid={`preset-editor-option-label-${field.key}`}
-            data-draft-override-highlight={overridden ? 'true' : 'false'}
-            className={cn('block truncate text-sm font-medium', overridden && 'config-override-label')}
-            title={tooltip || label}
-          >{label}</Label>
+          <div className="flex min-w-0 items-center gap-0.5">
+            {selectionGutter && <span className="flex h-4 w-2.5 shrink-0 items-center justify-center" data-testid={`preset-editor-nozzle-gutter-${field.key}`}>
+              {snapshot.editorSelection.fieldBindings[field.key]?.kind === 'per_selection' &&
+                <NozzleIcon className="size-4 shrink-0 translate-y-px text-muted-foreground" data-testid={`preset-editor-nozzle-icon-${field.key}`} />}
+            </span>}
+            <Label
+              data-testid={`preset-editor-option-label-${field.key}`}
+              data-draft-override-highlight={overridden ? 'true' : 'false'}
+              className={cn('block min-w-0 truncate text-sm font-medium', overridden && 'config-override-label')}
+              title={tooltip || label}
+            >{label}</Label>
+          </div>
           <code className="break-all text-[0.7rem] text-muted-foreground">{field.key}</code>
         </div>
         {readOnly && <span
@@ -759,6 +768,7 @@ function FieldValue({
 
 function FieldGroup({
   choiceId,
+  selectionGutter,
   page,
   group,
   snapshot,
@@ -767,6 +777,7 @@ function FieldGroup({
   onMutate,
 }: {
   choiceId: string | null;
+  selectionGutter: boolean;
   page: PresetEditorManifestPage;
   group: PresetEditorManifestGroup;
   snapshot: PresetDraftSnapshot;
@@ -792,6 +803,7 @@ function FieldGroup({
         {group.fields.map((field) => <FieldValue
           key={fieldViewKey(snapshot, field.key, choiceId)}
           choiceId={choiceId}
+          selectionGutter={selectionGutter}
           field={field}
           metadata={snapshot.optionMetadata[field.key]}
           snapshot={snapshot}
@@ -1215,6 +1227,7 @@ export function PresetEditorDialogContent({
                   : searchResults.map(({ page, group, field }) => <FieldValue
                     key={`${page.id}:${group.id}:${fieldViewKey(snapshot, field.key, choiceId)}`}
                     choiceId={choiceId}
+                    selectionGutter={showPrinterSelection || showFilamentSelection}
                     field={field}
                     metadata={snapshot.optionMetadata[field.key]}
                     snapshot={snapshot}
@@ -1236,6 +1249,7 @@ export function PresetEditorDialogContent({
                 {activePage.groups.map((optionGroup) => <FieldGroup
                   key={optionGroup.id}
                   choiceId={choiceId}
+                  selectionGutter={showPrinterSelection || showFilamentSelection}
                   page={activePage}
                   group={optionGroup}
                   snapshot={snapshot}

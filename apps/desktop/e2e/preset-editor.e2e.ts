@@ -21,7 +21,12 @@ test('filament setting overrides edit all ironing controls using Process referen
     await page.locator('#app-tab-prepare').click();
     if (REAL) await selectFilamentPreset(page, 'Generic PLA @System', 'Generic PLA');
     await page.getByTestId('filament-slot-1').click({button:'right'}); await page.getByTestId('filament-edit-1').click();
+    await expect(page.getByTestId('preset-editor-variant')).toBeVisible();
+    await expect(page.getByTestId('preset-editor-nozzle-icon-filament_flow_ratio')).toBeVisible();
+    await expect(page.getByTestId('preset-editor-nozzle-icon-filament_vendor')).toHaveCount(0);
     await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
+    await expect(page.getByTestId('preset-editor-nozzle-icon-filament_retraction_length')).toBeVisible();
+    await page.getByTestId('preset-editor-dialog').screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/preset-editor-nozzle-icons.png'),animations:'disabled'});
     for(const [key,value] of [['filament_ironing_flow','15'],['filament_ironing_spacing','0.03'],['filament_ironing_inset','0.2'],['filament_ironing_speed','35']]) {
       const input=page.getByTestId(`preset-editor-input-${key}`),toggle=page.getByTestId(`preset-editor-override-${key}`);
       await expect(input).toBeDisabled(); const reference=await input.inputValue(); await expect(input).not.toHaveValue('');

@@ -326,6 +326,12 @@ mapping; shared fields leave the gutter empty. Object/Part views use their
 existing native owners with this same strip and aligned glyph gutter. The
 dedicated Plates page retains its current presentation.
 
+Printer and Filament preset field labels use the same nozzle glyph and aligned
+gutter only while their extruder/variant selector is visible, including in
+search results. Only native `per_selection` fields receive the glyph, including
+unavailable mappings; shared fields leave the gutter empty. Hiding the selector
+also removes the field glyphs and their gutter.
+
 A switch is visible when selection is applicable and the active category
 contains fields that participate in its extruder/variant mapping. Visibility is
 derived from those bindings rather than a hard-coded list of category names.
