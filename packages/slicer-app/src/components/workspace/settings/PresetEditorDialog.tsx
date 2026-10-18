@@ -1,3 +1,4 @@
+import { useCommittedCallback } from '@/hooks/useCommittedCallback';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { editorSettingContext } from './settingConditionContext';
 import { updateOptionStates } from './updateOptionStates';
@@ -1082,8 +1083,6 @@ export function PresetEditorDialogContent({
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
-  const compatibleNames = useMemo(() => new Set(snapshot?.editorCandidates
-    .filter(candidate => candidate.compatible).map(candidate => candidate.canonicalName)), [snapshot]);
   const [invalidFields, setInvalidFields] = useState<ReadonlySet<string>>(new Set());
   const reportValidation = useCallback((id: string, invalid: boolean) => {
     setInvalidFields(previous => {
@@ -1093,6 +1092,16 @@ export function PresetEditorDialogContent({
       return next;
     });
   }, []);
+  const pickerItems = useMemo(() => snapshot?.editorCandidates.map(candidate => ({ id: candidate.canonicalName,
+    isProjectEmbedded: candidate.isProjectEmbedded, isUser: candidate.isUser, name: candidate.canonicalName,
+    label: candidate.label, modified: candidate.modified, section: target?.kind === 'filament'
+      ? candidate.compatible ? 'Compatible with project printer' : 'Not compatible with project printer' : undefined })) ?? [],
+    [snapshot?.editorCandidates, target?.kind]);
+  const selectPickerPreset = useCommittedCallback((name: string) => {
+    if (interactionPending || invalidFields.size > 0) return;
+    setActionError(null);
+    void onSelectPreset(name).catch(error => setActionError(errorText(error)));
+  });
   // Category presentation survives source changes; closing discards it.
   const navigationKey = target?.kind ?? '';
 
@@ -1184,17 +1193,11 @@ export function PresetEditorDialogContent({
             <div className="flex w-[min(32rem,60vw)] max-w-full">
             <PresetCombobox
               mode="select"
-              items={snapshot.editorCandidates.map(candidate => ({ id: candidate.canonicalName, isProjectEmbedded: candidate.isProjectEmbedded, isUser: candidate.isUser,
-                name: candidate.canonicalName, label: candidate.label, modified: candidate.modified }))}
+              items={pickerItems}
               value={target.canonicalName} modified={snapshot.modified} disabled={interactionPending || invalidFields.size > 0}
-              onValue={name => {
-                if (interactionPending || invalidFields.size > 0) return;
-                setActionError(null);
-                void onSelectPreset(name).catch(error => setActionError(errorText(error)));
-              }} ariaLabel="Preset to edit" testId="preset-editor-preset"
+              onValue={selectPickerPreset} ariaLabel="Preset to edit" testId="preset-editor-preset"
               searchPlaceholder="Search presets to edit…" emptyText="No matching preset"
-              sectionBy={target.kind === 'filament' ? item => compatibleNames.has(item.id)
-                ? 'Compatible with project printer' : 'Not compatible with project printer' : undefined}
+
             />
             </div>
             {userPresetActions}
