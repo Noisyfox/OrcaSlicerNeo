@@ -1,6 +1,6 @@
 import { configVectorElementAt as vectorAt } from '@slicer/client';
 import { UserPresetActions } from './UserPresetActions';
-import { editorFieldTarget, fieldBinding, fieldHasOverride, fieldViewKey } from './presetEditorBindings';
+import { editorDirtyChoiceIds, editorFieldTarget, fieldBinding, fieldHasOverride, fieldViewKey } from './presetEditorBindings';
 import { PrinterEditorSelection, usePrinterEditorSelection } from './PrinterEditorSelection';
 import { ConfigEditorSelection, useConfigEditorSelection } from './ConfigEditorSelection';
 import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
@@ -1095,6 +1095,7 @@ export function PresetEditorDialogContent({
   const showPrinterSelection = snapshot !== null && switchApplicable && categoryMapped;
   const showFilamentSelection = snapshot?.kind === 'filament' && snapshot.editorSelection.choices.length > 1 && categoryMapped;
   const showCategoryReset = snapshot !== null && !loadError && !loading && !showSearchResults && activePage !== null;
+  const dirtyChoiceIds = editorDirtyChoiceIds(snapshot, activePageKeys);
 
   return (
     <Dialog open={target !== null} onOpenChange={(open) => { if (!open && target && !mutationPending) onClose(); }}>
@@ -1201,9 +1202,10 @@ export function PresetEditorDialogContent({
             <div className="flex shrink-0 items-start gap-3">
               <div className="min-w-0 flex-1 overflow-x-auto">
                 {showPrinterSelection && <PrinterEditorSelection snapshot={snapshot} selection={selection}
-                  disabled={loading || refreshing} />}
+                  disabled={loading || refreshing} dirtyChoiceIds={dirtyChoiceIds} />}
                 {showFilamentSelection && <ConfigEditorSelection
                   metadata={snapshot.editorSelection} choiceId={filamentSelection.choiceId} onSelect={filamentSelection.select}
+                  dirtyChoiceIds={dirtyChoiceIds}
                   disabled={loading || refreshing} testId="preset-editor-variant" label="Filament variant" />}
               </div>
               {showCategoryReset && activePage && <Button

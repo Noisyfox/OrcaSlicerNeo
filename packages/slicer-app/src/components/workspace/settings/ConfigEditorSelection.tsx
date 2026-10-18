@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ConfigEditorChoice, ConfigEditorSelection as Selection } from '@slicer/client';
 import { ToggleGroupItem } from '@/components/ui/toggle-group';
 import { EditorSelectionStrip } from './EditorSelectionStrip';
+import { cn } from 'cn';
 
 // Native IDs may be snapshot-local ordinals. Keep the drive/flow variant and
 // physical nozzle identity across refreshed or reordered choices instead.
@@ -22,7 +23,7 @@ export function useConfigEditorSelection(metadata: Selection | null, entry: numb
   };
 }
 
-export function ConfigEditorSelection({ metadata, choiceId, onSelect, disabled, testId, label, itemTestId }: {
+export function ConfigEditorSelection({ metadata, choiceId, onSelect, disabled, testId, label, itemTestId, dirtyChoiceIds }: {
   metadata: Pick<Selection, 'choices'>;
   choiceId: string | null;
   onSelect: (id: string | null) => void;
@@ -30,12 +31,14 @@ export function ConfigEditorSelection({ metadata, choiceId, onSelect, disabled, 
   testId: string;
   label: string;
   itemTestId?: (choice: ConfigEditorChoice) => string;
+  dirtyChoiceIds: ReadonlySet<string>;
 }) {
   return <EditorSelectionStrip choices={metadata.choices} choiceId={choiceId} onSelect={onSelect}
-    disabled={disabled} label={label} testId={testId}>
+    disabled={disabled} label={label} testId={testId} fitContent>
     {metadata.choices.map(choice => <ToggleGroupItem key={choice.id} value={choice.id}
-      aria-label={choice.label} title={choice.label} data-choice-id={choice.id} data-testid={itemTestId?.(choice)}>
-      {choice.label}
+      aria-label={choice.label} title={choice.label} data-choice-id={choice.id} data-testid={itemTestId?.(choice)}
+      data-dirty={dirtyChoiceIds.has(choice.id) ? 'true' : 'false'}>
+      <span className={cn(dirtyChoiceIds.has(choice.id) && 'text-config-override')}>{choice.label}</span>
     </ToggleGroupItem>)}
   </EditorSelectionStrip>;
 }

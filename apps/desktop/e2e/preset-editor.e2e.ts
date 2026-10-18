@@ -23,6 +23,8 @@ test('filament setting overrides edit all ironing controls using Process referen
     await page.getByTestId('filament-slot-1').click({button:'right'}); await page.getByTestId('filament-edit-1').click();
     await expect(page.getByTestId('preset-editor-variant')).toBeVisible();
     const variants=page.getByTestId('preset-editor-variant'), choices=variants.getByRole('button');
+    const naturalWidth=(await variants.boundingBox())!.width, availableWidth=(await variants.locator('..').boundingBox())!.width;
+    expect(naturalWidth).toBeLessThan(availableWidth-24);
     await expect(variants.getByRole('combobox')).toHaveCount(0);
     await choices.first().focus(); await choices.first().press('ArrowRight');
     await expect(choices.nth(1)).toBeFocused(); await choices.nth(1).press('Space');
@@ -102,7 +104,16 @@ test('filament setting overrides edit retraction controls and preserve rejected 
     await reopen(); await expect(input(before)).toHaveValue('50'); await expect(input(after)).toHaveValue('40');
     await page.getByTestId('preset-editor-close').click(); await page.getByTestId('history-redo').click();
     await reopen(); await expect(input(before)).toHaveValue('80'); await expect(input(after)).toHaveValue('20');
-    await page.getByTestId('preset-editor-variant').getByRole('button').nth(1).click();
+    const variantChoices=page.getByTestId('preset-editor-variant').getByRole('button');
+    await expect(variantChoices.first()).toHaveAttribute('data-dirty','true');
+    const modifiedColour=await page.evaluate(()=>{
+      const sample=document.createElement('span');sample.style.color='var(--color-config-override)';document.body.append(sample);
+      const colour=getComputedStyle(sample).color;sample.remove();return colour;
+    });
+    await expect(variantChoices.first().locator('span')).toHaveCSS('color',modifiedColour);
+    await variantChoices.nth(1).click();
+    await expect(variantChoices.nth(1)).toHaveAttribute('data-dirty','false');
+    await expect(variantChoices.first().locator('span')).toHaveCSS('color',modifiedColour);
     await expect(page.getByTestId('preset-editor-option-label-filament_retraction_length')).toHaveAttribute('data-draft-override-highlight','false');
     await expect(page.getByTestId('preset-editor-page-tab-setting-overrides')).toHaveAttribute('data-draft-override-highlight','true');
     await expect(page.getByTestId('preset-editor-reset-category-setting-overrides')).toBeDisabled();

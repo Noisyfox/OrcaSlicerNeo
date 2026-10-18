@@ -14,8 +14,8 @@ import { useConfigEditorSelection } from './ConfigEditorSelection';
 import { PrintEditorSelection } from './PrintEditorSelection';
 import { NozzleIcon } from '@/components/ui/nozzle-icon';
 import { usePrintConfigEditor, useScopedConfigEditor } from './usePrintConfigEditor';
-import { elementText, parsePrintElement, printDirtyChoiceIds, printHasLocalOverrides, printOwnsField, projectPrintField, scopedPrintField, scopedDirtyChoiceIds, scopedHasLocalOverrides } from './printEditorProjection';
-import { editorFieldTarget, fieldViewKey } from './presetEditorBindings';
+import { elementText, parsePrintElement, printHasLocalOverrides, printOwnsField, projectPrintField, scopedPrintField, scopedDirtyChoiceIds, scopedHasLocalOverrides } from './printEditorProjection';
+import { editorDirtyChoiceIds, editorFieldTarget, fieldViewKey } from './presetEditorBindings';
 import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -353,7 +353,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     : mode === 'scoped' ? scopedHasLocalOverrides(scopedEditor.snapshot) : highlightedCategories.size > 0;
   const pageKeys = availablePages.find(page => page.title === selectedPage)?.groups.flatMap(group => group.keys)
     .filter(key => allFields.some(field => field.key === key)) ?? [];
-  const dirtyChoiceIds = mode === 'scoped' ? scopedDirtyChoiceIds(scopedEditor.snapshot, pageKeys) : printDirtyChoiceIds(printEditor.snapshot, pageKeys);
+  const dirtyChoiceIds = mode === 'scoped' ? scopedDirtyChoiceIds(scopedEditor.snapshot, pageKeys) : editorDirtyChoiceIds(printEditor.snapshot, pageKeys);
 
   const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
     if (mode !== 'project' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');

@@ -314,9 +314,14 @@ primary selected colour, scrolls horizontally with ordinary wheel input under th
 [global horizontal-list rule](Application%20Shell.md#overflowing-tab-bars), supports keyboard
 focus and activation, and keeps the selected choice visible after selection or
 resize. Its leading nozzle glyph has no action; cross-extruder sync/copy remains
-deferred. Pure Printer/Filament variant selectors use the same horizontal strip
+deferred. Pure Printer/Filament variant selectors fit their content within the
+available width instead of stretching across the row. They use the same horizontal strip
 and navigation behavior with text-only variant choices, without physical
 nozzle numbers or diameters. The native choice labels and ordering are retained.
+Their choice labels follow Process dirty markers: only owned native elements
+on the active page mark a variant, including fields hidden by search. Shared
+fields and other pages do not mark it. Dirty text uses the modified colour even
+when selected, while the selected background remains unchanged.
 
 Project Print and Objects-mode field labels reserve an aligned nozzle-icon gutter
 only when there are multiple native extruder/variant choices. A printer with

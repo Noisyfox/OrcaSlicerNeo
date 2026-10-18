@@ -43,10 +43,11 @@ export function usePrinterEditorSelection(snapshot: PresetDraftSnapshot | null, 
   };
 }
 
-export function PrinterEditorSelection({ snapshot, selection, disabled }: {
+export function PrinterEditorSelection({ snapshot, selection, disabled, dirtyChoiceIds }: {
   snapshot: PresetDraftSnapshot;
   selection: ReturnType<typeof usePrinterEditorSelection>;
   disabled: boolean;
+  dirtyChoiceIds: ReadonlySet<string>;
 }) {
   const { nozzles, choices } = snapshot.editorSelection;
   const multiple = nozzles.length > 1;
@@ -73,6 +74,7 @@ export function PrinterEditorSelection({ snapshot, selection, disabled }: {
     return <div data-testid="preset-editor-extruder-switch">{index !== undefined && <ConfigEditorSelection
       metadata={{ choices: available }} choiceId={selection.choiceId} disabled={disabled}
       testId={`preset-editor-flow-${index + 1}`} label="Printer editing flow"
+      dirtyChoiceIds={dirtyChoiceIds}
       itemTestId={choice => `preset-editor-flow-option-${index + 1}-${choice.flowType}`}
       onSelect={id => { const choice = choices.find(choice => choice.id === id); if (choice) selection.selectFlow(choice); }} />}</div>;
   }
