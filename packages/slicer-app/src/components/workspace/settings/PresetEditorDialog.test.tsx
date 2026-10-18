@@ -965,6 +965,32 @@ describe('PresetEditorDialogContent', () => {
     expect(document.querySelector('[role="tablist"][aria-label="Preset setting pages"]')).toBeTruthy();
   });
 
+  it.each([
+    { key: 'bed_temperature_formula', page: 'multimaterial', values: ['by_highest_temp', 'by_first_filament'], labels: ['By Highest Temp', 'By First filament'] },
+    { key: 'gcode_flavor', page: 'basic-information', values: ['marlin', 'klipper'], labels: ['Marlin', 'Klipper'] },
+  ])('shows scalar enum labels before opening and writes raw values for $key', async ({ key, page, values, labels }) => {
+    const base = snapshotFor('printer');
+    const source: PresetDraftSnapshot = { ...base,
+      sourceValues: { ...base.sourceValues, [key]: values[0] },
+      effectiveValues: { ...base.effectiveValues, [key]: values[0] },
+      optionMetadata: { ...base.optionMetadata, [key]: { type: 'enum', label: key,
+        enum_values: values, enum_labels: labels } },
+    };
+    const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => mutationSuccess(source, request));
+    await mount(source, vi.fn(), undefined, onMutate);
+    await click(document.querySelector(`[data-testid="preset-editor-page-tab-${page}"]`));
+    const trigger = () => document.querySelector(`[data-testid="preset-editor-input-${key}"]`);
+    expect(trigger()?.textContent).toContain(labels[0]);
+    expect(trigger()?.textContent).not.toContain(values[0]);
+    expect(document.querySelector(`[data-testid="preset-editor-source-${key}"]`)?.textContent).toBe(labels[0]);
+    expect(document.querySelector(`[data-testid="preset-editor-effective-${key}"]`)?.textContent).toBe(labels[0]);
+    await click(trigger());
+    await click([...document.querySelectorAll('[data-slot="select-item"]')].find(item => item.textContent === labels[1]) ?? null);
+    expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'set', key, value: values[1] }));
+    expect(trigger()?.textContent).toContain(labels[1]);
+    expect(document.querySelector(`[data-testid="preset-editor-effective-${key}"]`)?.textContent).toBe(labels[1]);
+  });
+
   it('marks Printer topology and specialized fields visibly read-only', async () => {
     await mount(snapshotFor('printer'));
     expect(document.querySelector('[data-testid="preset-editor-group-basic-information-identity"]')).toBeNull();

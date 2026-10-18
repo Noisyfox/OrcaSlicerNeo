@@ -408,6 +408,9 @@ configuration key. It remains read-only and is excluded from native reset keys.
 Native option metadata remains authoritative only for facts about a listed
 option: its label, type, tooltip, constraints, and native validation. It does
 not infer a page, group, ordering, or whether an option may be edited.
+Enum controls display native labels for the selected value and dropdown
+options, including before the popup first opens. Source and Effective use the
+same label mapping; mutations retain native enum values.
 
 Field tooltips include Orca's `parameter name`; scalar controls bound to native
 vectors show `key[index]`. `Default` comes from the edited preset's native

@@ -99,10 +99,15 @@ function labelFor(field: PresetEditorManifestField, metadata: OptionMeta | undef
   return metadata?.label ?? metadata?.full_label ?? field.key;
 }
 
-function valueText(values: Readonly<Record<string, string>>, key: string): string {
+function enumValueText(value: string, metadata: OptionMeta | undefined): string {
+  const index = metadata?.type === 'enum' ? metadata.enum_values?.indexOf(value) : undefined;
+  return index !== undefined && index >= 0 ? metadata?.enum_labels?.[index] ?? value : value;
+}
+
+function valueText(values: Readonly<Record<string, string>>, key: string, metadata: OptionMeta | undefined): string {
   const value = values[key];
   if (value === undefined) return '—';
-  return value.length === 0 ? '(empty)' : value;
+  return value.length === 0 ? '(empty)' : enumValueText(value, metadata);
 }
 
 function searchText(field: PresetEditorManifestField, metadata: OptionMeta | undefined): string {
@@ -253,7 +258,7 @@ function FieldValue({
     ? coordinateText(vectorAt(coordinateVector, coordinateVector.sourceValues, fieldIndex!)) || '(empty)'
     : binding
     ? projectedValueText(binding.sourceValue, binding.scalarType, binding.enumOptions)
-    : valueText(snapshot.sourceValues, field.key));
+    : valueText(snapshot.sourceValues, field.key, metadata));
   const tooltipKey = fieldIndex !== undefined ? `${field.key}#${fieldIndex}` :
     binding && ['floats', 'ints', 'percents', 'floats_or_percents', 'bools', 'strings', 'enums'].includes(metadata?.type ?? '')
       ? `${field.key}#${binding.index}` : field.key;
@@ -629,12 +634,13 @@ function FieldValue({
     />;
   } else if (!readOnly && !binding && metadata?.type === 'enum' && metadata.enum_values?.length) {
     control = <Select
+      items={metadata.enum_values.map((value, index) => ({ value, label: metadata.enum_labels?.[index] ?? value }))}
       value={displayValue}
       onValueChange={(next) => { if (next !== null) void submitSet(next); }}
       disabled={controlsDisabled}
     >
       <SelectTrigger id={inputId} aria-label={label} data-testid={`preset-editor-input-${field.key}`} className="w-full">
-        <SelectValue placeholder={displayValue} />
+        <SelectValue>{enumValueText(displayValue, metadata)}</SelectValue>
       </SelectTrigger>
       <SelectContent>
         {metadata.enum_values.map((value, index) => <SelectItem key={value} value={value}>
@@ -708,7 +714,7 @@ function FieldValue({
           <dt className="text-muted-foreground">Source</dt>
           <dd data-testid={`preset-editor-source-${field.key}`} className="break-all">{sourceValue}</dd>
           <dt className="text-muted-foreground">Effective</dt>
-          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{unavailable ? 'Unavailable' : derivedEffective ?? (coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key))}</dd>
+          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{unavailable ? 'Unavailable' : derivedEffective ?? (coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key, metadata))}</dd>
         </dl>
       ) : (
         <div className="mt-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-xs">
@@ -717,7 +723,7 @@ function FieldValue({
           <span className="text-muted-foreground">Source</span>
           <span data-testid={`preset-editor-source-${field.key}`} className="break-all">{sourceValue}</span>
           <span className="text-muted-foreground">Effective</span>
-          <span data-testid={`preset-editor-effective-${field.key}`} className="break-all">{coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key)}</span>
+          <span data-testid={`preset-editor-effective-${field.key}`} className="break-all">{coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key, metadata)}</span>
         </div>
       )}
       {fieldError && <p role="alert" data-testid={`preset-editor-error-${field.key}`} className="mt-2 text-xs text-destructive">{fieldError}</p>}
