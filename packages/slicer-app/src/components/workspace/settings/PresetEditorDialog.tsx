@@ -131,8 +131,12 @@ function hasOverride(snapshot: PresetDraftSnapshot, key: string, choiceId: strin
 function groupHasOverrides(snapshot: PresetDraftSnapshot, group: PresetEditorManifestGroup, choiceId: string | null): boolean {
   return group.fields.some(field => hasOverride(snapshot, field.key, choiceId));
 }
-function pageHasOverrides(snapshot: PresetDraftSnapshot, page: PresetEditorManifestPage, choiceId: string | null): boolean {
-  return page.groups.some(group => groupHasOverrides(snapshot, group, choiceId));
+function pageHasOverrides(snapshot: PresetDraftSnapshot, page: PresetEditorManifestPage): boolean {
+  return page.groups.some(group => group.fields.some(field => {
+    const vector = snapshot.editorVectors[field.key];
+    return vector ? vector.overrideValues.some(value => value != null)
+      : fieldHasOverride(snapshot, field.key, { kind: 'shared' });
+  }));
 }
 
 function isColourField(field: PresetEditorManifestField, metadata: OptionMeta | undefined): boolean {
@@ -1171,7 +1175,7 @@ export function PresetEditorDialogContent({
 
           {!showSearchResults && <div role="tablist" aria-label="Preset setting pages" className="flex shrink-0 gap-1 overflow-x-auto border-b">
             {pages.map((page) => {
-              const overridden = snapshot !== null && pageHasOverrides(snapshot, page, choiceId);
+              const overridden = snapshot !== null && pageHasOverrides(snapshot, page);
               return (
                 <button
                   key={page.id}

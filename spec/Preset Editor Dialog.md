@@ -605,8 +605,10 @@ installed preset exactly matches the resulting diameters. The full boundary is o
 Source, Effective, tooltips, search and history refresh use the same displayed
 field binding. Field reset restores only that element; category reset applies
 the explicit current-selection bindings and shared fields in one atomic history
-entry. Extruder field/group/tab highlights reflect native ownership of the
-selected element, including explicit Source-equivalent values.
+entry. Extruder field/group highlights reflect native ownership of the
+selected element, including explicit Source-equivalent values. Page-tab
+highlights aggregate ownership across every variant and shared field on that
+page, independently of the selected entry or an unavailable mapping.
 These typed vectors are response projections, not additional native history or
 project-file state. Both hosts retain their desktop input model; mobile support
 remains deferred.
@@ -631,10 +633,12 @@ serialized text. A whole-option vector Set explicitly owns every valid index.
 Each typed vector requires `override_values` (`overrideValues` in the client),
 with one entry per `indexCount`. React reads ownership at the displayed index;
 it does not compare Source and Effective. Reset field/category clears only the
-selected index. Once that page has no owned entries, its highlights and Reset
-are cleared even when other indices remain modified. Sidebar modified markers
-remain active while any entry is owned. All-null arrays remove the key; field
-and category Reset retain the empty draft, while Reset preset removes it.
+selected index. Once the current selection has no owned entries, its field/group
+highlights and category Reset are cleared even when other indices remain
+modified. The page tab remains highlighted until every variant and shared field
+on that page is clean. Sidebar modified markers remain active while any entry
+is owned. All-null arrays remove the key; field and category Reset retain the
+empty draft, while Reset preset removes it.
 
 Printer/Filament sparse entries belong to `PresetDraftRegistry` and its existing
 history root. Print sparse entries belong to the native project-embedded Print

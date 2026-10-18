@@ -32,7 +32,9 @@ test('filament setting overrides edit all ironing controls using Process referen
       await expect(input).toBeDisabled(); const reference=await input.inputValue(); await expect(input).not.toHaveValue('');
       await toggle.click(); await expect(input).toBeEnabled(); await input.fill(value); await input.press('Enter');
       await expect(input).toBeEnabled(); await expect(input).toHaveValue(value);
+      await expect(page.getByTestId('preset-editor-page-tab-setting-overrides')).toHaveAttribute('data-draft-override-highlight','true');
       await page.getByTestId(`preset-editor-reset-field-${key}`).click(); await expect(input).toBeDisabled(); await expect(input).toHaveValue(reference);
+      await expect(page.getByTestId('preset-editor-page-tab-setting-overrides')).toHaveAttribute('data-draft-override-highlight','false');
     }
     await page.getByTestId('preset-editor-dialog').screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/filament-overrides-ironing.png')});
     await page.getByTestId('preset-editor-close').click();
@@ -85,6 +87,11 @@ test('filament setting overrides edit retraction controls and preserve rejected 
     await reopen(); await expect(input(before)).toHaveValue('50'); await expect(input(after)).toHaveValue('40');
     await page.getByTestId('preset-editor-close').click(); await page.getByTestId('history-redo').click();
     await reopen(); await expect(input(before)).toHaveValue('80'); await expect(input(after)).toHaveValue('20');
+    await page.getByTestId('preset-editor-variant').click();
+    await page.getByRole('option').nth(1).click();
+    await expect(page.getByTestId('preset-editor-option-label-filament_retraction_length')).toHaveAttribute('data-draft-override-highlight','false');
+    await expect(page.getByTestId('preset-editor-page-tab-setting-overrides')).toHaveAttribute('data-draft-override-highlight','true');
+    await expect(page.getByTestId('preset-editor-reset-category-setting-overrides')).toBeDisabled();
     await page.getByTestId('preset-editor-close').click();
   } finally { await app.close(); }
 });
@@ -550,7 +557,7 @@ test('U1 single Extruder page maps per-nozzle flows and keeps direct diameter ed
     await page.getByTestId('preset-edit-printer').click();
     await expect(page.getByTestId('preset-editor-title')).toHaveText('Snapmaker U1 (0.4+0.6 nozzle)');
     await page.getByTestId('preset-editor-page-tab-extruder').click();
-    await expect(page.getByRole('tab', { name: 'Extruder', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('tab', { name: 'Extruders', exact: true })).toHaveCount(1);
     await expect(page.getByRole('tab', { name: /^Extruder \d/ })).toHaveCount(0);
     const cardTops = await page.getByTestId('preset-editor-extruder-switch').locator('.preset-editor-toolhead')
       .evaluateAll(cards => cards.map(card => card.getBoundingClientRect().top));
@@ -617,7 +624,7 @@ test('U1 single Extruder page maps per-nozzle flows and keeps direct diameter ed
     await expect(minimum).toHaveValue('0.15');
     await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'true');
     await page.getByTestId('preset-editor-extruder-1').click();
-    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'false');
+    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'true');
     await minimum.fill('0.1'); await minimum.press('Enter');
     await expect(minimum).toHaveValue('0.1');
     await page.getByTestId('preset-editor-extruder-3').click();
@@ -625,12 +632,13 @@ test('U1 single Extruder page maps per-nozzle flows and keeps direct diameter ed
     await expect(minimum).toHaveValue('0.12');
     await expect(page.getByTestId('preset-editor-reset-category-extruder')).toBeDisabled();
     await expect(page.getByTestId('preset-editor-reset-field-min_layer_height')).toHaveCount(0);
-    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'false');
+    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'true');
     await page.getByTestId('preset-editor-extruder-1').click();
     await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'true');
     await expect(minimum).toHaveValue('0.1');
     await page.getByTestId('preset-editor-reset-category-extruder').click();
     await expect(minimum).toHaveValue('0.08');
+    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight','false');
     for (const index of [3, 4]) {
       await page.getByTestId(`preset-editor-extruder-${index}`).click();
       const diameter = page.getByTestId('preset-editor-input-nozzle_diameter');
