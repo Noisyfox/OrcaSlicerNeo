@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, Profiler } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider, TOOLTIP_DELAY_MS } from '@/components/ui/tooltip';
 import { printSettingsGroups, isVisiblePrintSetting } from './printSettingsLayout';
 import { ScopedConfigurationPanel, ScopedField } from './ScopedConfigurationPanel';
@@ -23,7 +23,7 @@ function sharedPrintPlatform() {
       (Object.hasOwn(state.baseValues,key) || Object.hasOwn(state.values,key)));
     const sourceValues=Object.fromEntries(keys.filter(key=>Object.hasOwn(state.baseValues,key)).map(key=>[key,state.baseValues[key]]));
     const effectiveValues=Object.fromEntries(keys.filter(key=>Object.hasOwn(state.values,key)).map(key=>[key,state.values[key]]));
-    return {ok:true,canonicalName:state.selectedPrint,revision:1,sourceValues,effectiveValues,
+    return {ok:true,canonicalName:state.selectedPrint,revision:state.nativeScopedConfigRevision,sourceValues,effectiveValues,
       optionMetadata:Object.fromEntries(keys.map(key=>[key,state.metadata![key]])),editorVectors:{},editorBindings:{},editorSelection:{kind:'print',activeSource:true,choices:[],nozzles:[],firstChoiceId:null,
         fieldBindings:Object.fromEntries(keys.map(key=>[key,{kind:'shared'}]))}};
   },getScopedConfigEditor:async(request:{targets:{scope:'object'|'part';id:string}[]})=>{
@@ -40,6 +40,7 @@ function sharedPrintPlatform() {
   }}} as unknown as PlatformCapabilities;
 }
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+beforeEach(() => useSettingsStore.setState({ nativeScopedConfigRevision: 1, nativeScopedConfigRefreshRequired: false }));
 afterEach(async () => {
   await act(async () => root?.unmount());
   container?.remove();

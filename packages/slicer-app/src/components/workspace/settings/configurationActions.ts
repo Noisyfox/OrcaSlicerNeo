@@ -1,3 +1,4 @@
+import { CommittedEditorRefreshError } from './editorSnapshotController';
 import { publishRememberedBedType } from '@/preferences';
 import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
@@ -156,22 +157,27 @@ export function commitScopedConfigurationMutation(
   return task;
 }
 
-/** Read under the existing project/FIFO reservation, without creating history. */
-export function readPrintConfigEditor(platform: PlatformCapabilities) {
-  return configurationMutationQueue.then(() => runProjectMutationOperation(() => platform.runtime.getPrintConfigEditor()));
-}
-
-export function readScopedConfigEditor(platform: PlatformCapabilities, targets: readonly import('@slicer/client').ScopedConfigEditorTarget[]) {
-  return configurationMutationQueue.then(() => runProjectMutationOperation(() => platform.runtime.getScopedConfigEditor({ version: 1, targets })));
+/** Defer the editor's validity check until its existing publication reservation. */
+export function readConfigurationEditor<T>(operation: () => Promise<T>) {
+  return configurationMutationQueue.then(() => runProjectMutationOperation(operation));
 }
 
 /** Refresh exactly the captured owners under the same publication reservation. */
 export function commitScopedEditorMutation(platform: PlatformCapabilities, request: NativeScopedConfigMutationRequest,
-  targets: readonly import('@slicer/client').ScopedConfigEditorTarget[]) {
+  targets: readonly import('@slicer/client').ScopedConfigEditorTarget[],
+  publish?: (snapshot: import('@slicer/client').ScopedConfigEditorSnapshot) => void) {
   if (!paintingCommandAllowed()) return Promise.reject(new Error('Finish the current editing operation first'));
   const task = configurationMutationQueue.then(async () => {
     let editor: import('@slicer/client').ScopedConfigEditorSnapshotResult | undefined;
-    await commitScopedConfigurationMutationNow(platform, request, async () => { editor = await platform.runtime.getScopedConfigEditor({ version: 1, targets }); });
+    let accepted = false;
+    try {
+      await commitScopedConfigurationMutationNow(platform, request, async () => {
+        accepted = true;
+        editor = await platform.runtime.getScopedConfigEditor({ version: 1, targets });
+        if (!editor.ok) throw new Error(editor.error);
+        publish?.(editor);
+      });
+    } catch (error) { if (accepted) throw new CommittedEditorRefreshError(error); throw error; }
     if (!editor) throw new Error('Scoped configuration operation was not published');
     if (!editor.ok) throw new Error(editor.error);
     return editor;
@@ -181,11 +187,20 @@ export function commitScopedEditorMutation(platform: PlatformCapabilities, reque
 }
 
 /** Keep the typed Print refresh within the same command's publication lease. */
-export function commitPrintConfigurationMutation(platform: PlatformCapabilities, request: NativeScopedConfigMutationRequest) {
+export function commitPrintConfigurationMutation(platform: PlatformCapabilities, request: NativeScopedConfigMutationRequest,
+  publish?: (snapshot: import('@slicer/client').ConfigEditorSnapshot) => void) {
   if (!paintingCommandAllowed()) return Promise.reject(new Error('Finish the current editing operation first'));
   const task = configurationMutationQueue.then(async () => {
     let editor: import('@slicer/client').ConfigEditorSnapshotResult | undefined;
-    await commitScopedConfigurationMutationNow(platform, request, async () => { editor = await platform.runtime.getPrintConfigEditor(); });
+    let accepted = false;
+    try {
+      await commitScopedConfigurationMutationNow(platform, request, async () => {
+        accepted = true;
+        editor = await platform.runtime.getPrintConfigEditor();
+        if (!editor.ok) throw new Error(editor.error);
+        publish?.(editor);
+      });
+    } catch (error) { if (accepted) throw new CommittedEditorRefreshError(error); throw error; }
     if (!editor) throw new Error('Print configuration operation was not published');
     if (!editor.ok) throw new Error(editor.error);
     return editor;

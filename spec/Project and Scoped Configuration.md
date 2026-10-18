@@ -350,6 +350,24 @@ and Effective values, inherited provenance and local ownership are aggregated
 independently across the selected owners. A mixed boolean remains its ordinary
 indeterminate value checkbox, without an additional nullable toggle.
 
+Print and Scoped editor reads share a session-local snapshot controller. An
+accepted editor command publishes its final typed snapshot and complete context
+stamp before releasing the existing command publication lease. Intermediate
+base/revision notifications do not enqueue additional reads for that command.
+Queued external refresh requests coalesce and recheck the current context and
+accepted snapshot before dispatching the native read. Context includes runtime,
+entry/target identity, base and metadata references, Printer/Process, native
+revision and history restore token; page, search and selected nozzle browsing
+alone do not invalidate a complete vector snapshot. Missing/resync-required
+configuration cannot authorize an editor mutation.
+
+An editor read failure after an accepted command preserves the committed values
+and history, reports the projection failure and locks stale controls. It does
+not retry the write or automatically loop on the same failed refresh. External
+context changes and a newly mounted editor can read a fresh snapshot. Late
+results cannot replace a different target or newer accepted configuration.
+This controller adds no native API, receipt format or validation requirement.
+
 During a same-owner configuration refresh, the hook retains the last field
 projection for display with its fieldset disabled. A different target, entry,
 Printer, Process or metadata owner does not reuse old target fields. Mutation

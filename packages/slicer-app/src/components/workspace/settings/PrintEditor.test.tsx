@@ -18,7 +18,7 @@ import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import { printChoiceFlow } from './PrintEditorSelection';
 import { editorDirtyChoiceIds } from './presetEditorBindings';
 import { elementText, parsePrintElement, printHasLocalOverrides, projectPrintField, scopedPrintField, scopedDirtyChoiceIds, scopedHasLocalOverrides } from './printEditorProjection';
-import { commitPrintConfigurationMutation, readPrintConfigEditor, waitForConfigurationMutations, commitScopedEditorMutation } from './configurationActions';
+import { commitPrintConfigurationMutation, readConfigurationEditor, waitForConfigurationMutations, commitScopedEditorMutation } from './configurationActions';
 
 let root:Root|undefined;
 let container:HTMLDivElement;
@@ -136,9 +136,9 @@ it('uses loaded Hybrid choices, one captured typed mutation/history operation, m
     {key:'outer_wall_speed',kind:'indexed',index:1},{key:'enable_overhang_speed',kind:'indexed',index:1},{key:'layer_height',kind:'shared'},
   ])}));
   expect((await h.runtime.getHistoryStatus()).undoEntries).toHaveLength(history.undoEntries.length+1);
-  await act(async()=>{await h.runtime.undoHistory();useHistoryRestoreStore.getState().advanceRevision();});
+  await act(async()=>{const restored=await h.runtime.undoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});
   expect(input().value).toBe('228');expect(selectedChoice()).toBe('T1 HF');
-  await act(async()=>{await h.runtime.redoHistory();useHistoryRestoreStore.getState().advanceRevision();});expect(input().value).toBe('220');
+  await act(async()=>{const restored=await h.runtime.redoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});expect(input().value).toBe('220');
   await click('config-mode-scoped');expect(document.querySelector('[data-testid="print-editor-selection"]')).toBeNull();
   await click('config-mode-plates');expect(document.querySelector('[data-testid="print-editor-selection"]')).toBeNull();
   await click('config-mode-project');expect(selectedChoice()).toBe('T1 HF');
@@ -167,9 +167,9 @@ it('aggregates explicit Process ownership across nozzles while field/category re
   await choose('T1 HF');await click('config-reset-outer_wall_speed');
   expect(dirtyChoices()).toEqual([]);expect(profileDirty()).toBe('false');
   expect((document.querySelector('[data-testid="config-reset-all"]') as HTMLButtonElement).disabled).toBe(true);
-  await act(async()=>{await h.runtime.undoHistory();useHistoryRestoreStore.getState().advanceRevision();});
+  await act(async()=>{const restored=await h.runtime.undoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});
   expect(profileDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T1 HF']);expect(selectedChoice()).toBe('T1 HF');
-  await act(async()=>{await h.runtime.redoHistory();useHistoryRestoreStore.getState().advanceRevision();});
+  await act(async()=>{const restored=await h.runtime.redoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});
   expect(profileDirty()).toBe('false');expect(dirtyChoices()).toEqual([]);
 });
 
@@ -281,7 +281,7 @@ it('renders actual effective nozzle diameters and native flow labels without cha
 
 it.each([[0,'SF'],[1,'HF'],[2,'Hybrid'],[3,'TPU HF'],[5,'E3D HF'],[6,'XHF'],[4,'Unknown native variant']] as const)
   ('formats native flow %s as %s',async(flowType,label)=>{
-    const h=await setup();const snapshot=await readPrintConfigEditor(h.platform);if(!snapshot.ok)throw Error(snapshot.error);
+    const h=await setup();const snapshot=await readConfigurationEditor(()=>h.platform.runtime.getPrintConfigEditor());if(!snapshot.ok)throw Error(snapshot.error);
     expect(printChoiceFlow({...snapshot.editorSelection.choices[0],flowType,variant:'Unknown native variant'})).toBe(label);
   });
 
@@ -317,7 +317,7 @@ it.each([
   ['bool','1',true],['enum','top',2],['string','a\nb','a\nb'],
   ['point','1, 2',{x:1,y:2}],['points','1, 2\n3, 4',[{x:1,y:2},{x:3,y:4}]],
 ] as const)('round-trips native %s element input without changing its index or type',async(scalarType,text,value)=>{
-  const h=await setup();const snapshot=await readPrintConfigEditor(h.platform);if(!snapshot.ok)throw Error(snapshot.error);
+  const h=await setup();const snapshot=await readConfigurationEditor(()=>h.platform.runtime.getPrintConfigEditor());if(!snapshot.ok)throw Error(snapshot.error);
   const vector={...snapshot.editorVectors.outer_wall_speed,scalarType,enumOptions:[{name:'top',label:'Top',value:2}]};
   const element={target:{kind:'indexed' as const,index:2},vector,source:value,effective:value,revision:snapshot.revision};
   expect(parsePrintElement(element,text)).toEqual(value);
@@ -334,7 +334,7 @@ it('holds a read behind mutation publication',async()=>{
   h.read.mockImplementationOnce(async()=>{await gate;return nativeRead();});
   const commit=commitPrintConfigurationMutation(h.platform,{version:1,operation:'set-element',targets:[{scope:'project'}],
     expectedRevision:source.revision,key:'outer_wall_speed',index:2,scalarType:'float',value:233});
-  let readDone=false;const read=readPrintConfigEditor(h.platform).then(result=>{readDone=true;return result;});
+  let readDone=false;const read=readConfigurationEditor(()=>h.platform.runtime.getPrintConfigEditor()).then(result=>{readDone=true;return result;});
   await act(async()=>{await Promise.resolve();});expect(readDone).toBe(false);
   await act(async()=>release());await commit;expect(await read).toMatchObject({editorVectors:{outer_wall_speed:{effectiveValues:[200,220,233]}}});
 });
@@ -413,9 +413,9 @@ it('unions selected owners only, preserves global dirty across nozzles/search/pa
     fields:expect.arrayContaining([{key:'outer_wall_speed',kind:'indexed',index:1},{key:'layer_height',kind:'shared'}])}));
   expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T2 SF']);
   await choose('T2 SF');await click('config-reset-outer_wall_speed');expect(targetDirty()).toBe('false');
-  await act(async()=>{await h.runtime.undoHistory();useHistoryRestoreStore.getState().advanceRevision();});
+  await act(async()=>{const restored=await h.runtime.undoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});
   expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T2 SF']);expect(selectedChoice()).toBe('T2 SF');
-  await act(async()=>{await h.runtime.redoHistory();useHistoryRestoreStore.getState().advanceRevision();});expect(targetDirty()).toBe('false');
+  await act(async()=>{const restored=await h.runtime.redoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});expect(targetDirty()).toBe('false');
   await scopedEdit(h,[0],0,205);await scopedEdit(h,[1],2,265);await h.select([0]);await click('config-reset-all');
   expect(targetDirty()).toBe('false');await h.select([1]);expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T2 SF']);
 });
@@ -547,7 +547,12 @@ it('does not relabel an old mutation read as fresh after the native Project cont
     const result=await h.nativeMutate({version:1,operation:'set-element',targets:[{scope:'project'}],expectedRevision:oldRead.revision,
       key:'outer_wall_speed',scalarType:'float',index:2,value:245});if(!result.ok)throw Error(result.error);
     if(result.profileSnapshot)useSettingsStore.getState().hydrateProfileSnapshot(result.profileSnapshot);
-    useSettingsStore.getState().setConfigurationMode('scoped');useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
+    useSettingsStore.getState().setConfigurationMode('scoped');
+    const outcome=useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
+    if(outcome==='refresh-required') {
+      const full=await h.runtime.getNativeScopedConfig();if(!full.ok)throw Error(full.error);
+      useSettingsStore.getState().applyNativeScopedConfigTransport(full.nativeScopedConfig);
+    }
   });
   await act(async()=>releaseOld());await act(async()=>waitForConfigurationMutations());
   expect(speedInput()?.matches(':disabled')).toBe(true); // old revision is display-only until the fresh read
@@ -690,4 +695,39 @@ it('combines per-object conditions and permits ordinary native commands for hidd
   });
   const native=await h.runtime.getScopedConfigEditor({version:1,targets:target});if(!native.ok)throw Error(native.error);
   expect(native.targets[0].editorVectors.outer_wall_speed.effectiveValues[0]).toBe(211);
+});
+
+it.each([false,true])('reads the editor once for each accepted set/reset/category/reset-all (Objects=%s)',async scoped=>{
+  const h=await setup(scoped);if(scoped)await click('config-mode-scoped');
+  await click('config-page-Speed');await choose('T1 HF');
+  const read=scoped?h.scopedRead:h.read;
+  const once=async(action:()=>Promise<unknown>)=>{
+    const before=read.mock.calls.length;
+    await action();await act(async()=>waitForConfigurationMutations());
+    expect(read.mock.calls.length-before).toBe(1);
+    expect(speedInput()?.matches(':disabled')).toBe(false);
+  };
+  await once(()=>type('229'));
+  await once(()=>click('config-reset-outer_wall_speed'));
+  await once(()=>type('230'));
+  await act(async()=>document.querySelector<HTMLElement>('[data-testid="config-category-toggle-Other layers speed"]')!
+    .dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10})));
+  await once(()=>click('config-reset-category-Speed'));
+  await once(()=>type('231'));
+  await once(()=>click('config-reset-all'));
+});
+
+it('acknowledges a committed write whose editor refresh fails, locks stale controls and never resubmits',async()=>{
+  const h=await setup();await click('config-page-Speed');await choose('T1 HF');
+  const nativeRead=h.read.getMockImplementation()!;
+  const reads=h.read.mock.calls.length,writes=h.mutate.mock.calls.length;
+  h.read.mockResolvedValueOnce({ok:false,error:'Injected editor refresh failure'});
+  await type('229');await act(async()=>waitForConfigurationMutations());
+  expect(h.mutate.mock.calls.length-writes).toBe(1);
+  expect(h.read.mock.calls.length-reads).toBe(1);
+  expect(speedInput()?.matches(':disabled')).toBe(true);
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain('committed');
+  expect(await nativeRead()).toMatchObject({editorVectors:{outer_wall_speed:{effectiveValues:[200,229,240]}}});
+  await click('config-page-Quality');await click('config-page-Speed');
+  expect(h.mutate.mock.calls.length-writes).toBe(1);expect(h.read.mock.calls.length-reads).toBe(1);
 });
