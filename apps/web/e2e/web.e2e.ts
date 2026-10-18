@@ -10,6 +10,40 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
+test('real Web filament setting overrides cross the browser Worker boundary', async ({page,context}) => {
+  const variant=process.env.ORCA_WEB_NO_ISOLATION==='1'?'serial':'threaded';
+  let servedHash: string|undefined;
+  await context.route('**/wasm/*/orca_slice.wasm',async route=>{
+    const response=await route.fetch(), body=await response.body();
+    expect(new URL(route.request().url()).pathname).toContain(`/wasm/${variant}/`);
+    servedHash=createHash('sha256').update(body).digest('hex');
+    await route.fulfill({response,body});
+  });
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:120_000});
+  const built=await readFile(resolve(here,`../../../packages/slicer-wasm/out/${variant}/orca_slice.wasm`));
+  expect(servedHash).toBe(createHash('sha256').update(built).digest('hex'));
+  await page.locator('#app-tab-prepare').click();
+  await selectFixturePrinter(page,'Creality Ender-3 0.4 nozzle');
+  await page.getByTestId('filament-slot-1').click({button:'right'});
+  await page.getByTestId('filament-edit-1').click();
+  await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
+  const length=page.getByTestId('preset-editor-input-filament_retraction_length');
+  await expect(length).toBeDisabled(); const reference=await length.inputValue();
+  expect(reference).not.toBe('');
+  await page.getByTestId('preset-editor-override-filament_retraction_length').click();
+  await length.fill('0'); await length.press('Enter');
+  await expect(page.getByTestId('preset-editor-override-filament_retraction_speed')).toBeDisabled();
+  await length.fill('1.2'); await length.press('Enter'); await expect(length).toBeEnabled();
+  await expect(page.getByTestId('preset-editor-override-filament_retraction_speed')).toBeEnabled();
+  const spacing=page.getByTestId('preset-editor-input-filament_ironing_spacing');
+  await page.getByTestId('preset-editor-override-filament_ironing_spacing').click();
+  await spacing.fill('0.03'); await spacing.press('Enter'); await expect(spacing).toBeEnabled();
+  await expect(spacing).toHaveValue('0.03');
+  await page.getByTestId('preset-editor-reset-field-filament_retraction_length').click();
+  await expect(length).toBeDisabled(); await expect(length).toHaveValue(reference);
+});
+
 test('real Web Send preserves browser multipart encoding and starts the server-returned path', async ({ page }) => {
   let uploadBody = '';
   let startPath = '';

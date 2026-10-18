@@ -4,8 +4,7 @@
 
 **Status:** Delivered runtime editor, including indexed vector overrides and
 explicit local user-preset actions. Cloud synchronization remains deferred.
-The Setting Overrides extension in section 4.3 is accepted design, with
-implementation pending.
+The Setting Overrides extension in section 4.3 is delivered.
 
 **Scope:** A shared React preset editor for Printer and Filament presets. It
 extends [Multi-Filament Support](Multi-Filament%20Support.md) without porting
@@ -750,8 +749,10 @@ interaction is introduced. Both hosts retain their current desktop layout.
 ## 4.3 Filament Setting Overrides extension
 
 **Status:** All 23 dedicated controls, native reference projection and atomic
-wipe-percentage correction are delivered. Real-runtime slice qualification
-remains pending.
+wipe-percentage correction are delivered. Focused real-runtime acceptance
+covers the editor and native G-code application and inheritance of retraction
+length and ironing speed. Full release qualification follows the repository's
+[testing guidelines](../doc/testing_guidelines.md).
 
 The extension completes the existing Setting Overrides page's three groups
 and 23 manifest-listed fields, preserving their order. It uses dedicated

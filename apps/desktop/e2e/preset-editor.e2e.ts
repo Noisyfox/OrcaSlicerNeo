@@ -14,7 +14,12 @@ test('filament setting overrides edit all ironing controls using Process referen
   const app=await _electron.launch({args:['.'],cwd:DESKTOP_ROOT,env});
   try {
     const page=await app.firstWindow(); await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:60_000});
+    if (REAL && process.env.VITE_SCOPED_CONFIGURATION_GATE === '1') {
+      expect(await page.evaluate(async () => (await (window as any).__orcaScopedConfigurationGate.execution()).threaded))
+        .toBe(process.env.VITE_SCOPED_CONFIGURATION_GATE_VARIANT === 'threaded');
+    }
     await page.locator('#app-tab-prepare').click();
+    if (REAL) await selectFilamentPreset(page, 'Generic PLA @System', 'Generic PLA');
     await page.getByTestId('filament-slot-1').click({button:'right'}); await page.getByTestId('filament-edit-1').click();
     await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
     for(const [key,value] of [['filament_ironing_flow','15'],['filament_ironing_spacing','0.03'],['filament_ironing_inset','0.2'],['filament_ironing_speed','35']]) {
@@ -35,6 +40,7 @@ test('filament setting overrides edit retraction controls and preserve rejected 
   try {
     const page=await app.firstWindow(); await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:60_000});
     await page.locator('#app-tab-prepare').click();
+    if (REAL) await selectFilamentPreset(page, 'Generic PLA @System', 'Generic PLA');
     await page.getByTestId('filament-slot-1').click({button:'right'}); await page.getByTestId('filament-edit-1').click();
     await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
     await page.getByTestId('preset-editor-dialog').screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/filament-overrides-retraction.png')});
@@ -56,11 +62,24 @@ test('filament setting overrides edit retraction controls and preserve rejected 
     await expect(page.getByTestId(`preset-editor-error-${before}`)).toBeVisible();
     await input(before).press('Escape'); await expect(input(before)).toHaveValue(valid);
     await expect(page.getByTestId(`preset-editor-error-${before}`)).toHaveCount(0);
+    const wipeReference=await input('filament_wipe').isChecked();
     await toggle('filament_wipe').click(); await expect(toggle('filament_wipe')).toBeChecked();
-    await expect(input('filament_wipe')).not.toBeChecked();
+    await expect(input('filament_wipe')).toBeChecked({checked:wipeReference});
     await toggle('filament_z_hop_types').click(); await expect(input('filament_z_hop_types')).toBeEnabled();
-    await input('filament_z_hop_types').click(); await page.getByRole('option',{name:'Spiral',exact:true}).click();
-    await expect(input('filament_z_hop_types')).toContainText('Spiral');
+    await editClosedEnumField(page,'filament_z_hop_types');
+    const after='filament_retract_after_wipe';
+    await input(before).fill('50'); await input(before).press('Enter'); await expect(input(before)).toBeEnabled();
+    await toggle(after).click(); await input(after).fill('40'); await input(after).press('Enter'); await expect(input(after)).toBeEnabled();
+    await input(before).fill('80'); await input(before).press('Enter'); await expect(input(after)).toHaveValue('20');
+    await page.getByTestId('preset-editor-close').click();
+    await page.getByTestId('history-undo').click();
+    const reopen=async()=>{
+      await page.getByTestId('filament-slot-1').click({button:'right'}); await page.getByTestId('filament-edit-1').click();
+      await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
+    };
+    await reopen(); await expect(input(before)).toHaveValue('50'); await expect(input(after)).toHaveValue('40');
+    await page.getByTestId('preset-editor-close').click(); await page.getByTestId('history-redo').click();
+    await reopen(); await expect(input(before)).toHaveValue('80'); await expect(input(after)).toHaveValue('20');
     await page.getByTestId('preset-editor-close').click();
   } finally { await app.close(); }
 });
