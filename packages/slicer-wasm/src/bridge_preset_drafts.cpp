@@ -68,15 +68,99 @@ std::string kind_name(const Preset::Type type)
     throw std::runtime_error("preset draft type must be printer|filament");
 }
 
+bool bambu_printer(const Preset& preset)
+{
+    // Match PresetBundle's model-based vendor classification, including
+    // detached/imported presets without a vendor pointer.
+    const auto* model = preset.config.opt<ConfigOptionString>("printer_model");
+    if (!model) return false;
+    for (const auto& [id, vendor] : state().presets.vendors)
+        for (const auto& candidate : vendor.models)
+            if (candidate.name == model->value) return id == "BBL";
+    return false;
+}
+
+void resize_printer_config(DynamicPrintConfig& config, const unsigned int count)
+{
+    config.set_num_extruders(count);
+    // Native set_num_extruders owns the ordinary extruder options. The
+    // headless editor also exposes variant motion columns and Bambu's head
+    // topology lists, which are not in that native option-key list.
+    const auto& defaults = FullPrintConfig::defaults();
+    const auto resize = [&](const std::string& key, size_t size) {
+        if (auto* vector = dynamic_cast<ConfigOptionVectorBase*>(config.option(key)))
+            vector->resize(size, defaults.option(key));
+    };
+    for (const auto& key : printer_options_with_variant_1) resize(key, config.get_parameter_size(key, count));
+    for (const auto& key : printer_options_with_variant_2) resize(key, config.get_parameter_size(key, count));
+    for (const auto* key : {"extruder_printable_area", "extruder_max_nozzle_count"}) resize(key, count);
+    if (auto* physical = config.option<ConfigOptionInts>("physical_extruder_map")) {
+        const auto previous = physical->size();
+        physical->values.resize(count, 0);
+        for (size_t i = previous; i < count; ++i) physical->values[i] = static_cast<int>(i);
+    }
+}
+
 void apply_draft(Preset& preset, const PresetDraftRegistry& drafts)
 {
     const auto* overrides = drafts.find(preset.type, preset.name);
     if (overrides == nullptr) return;
 
-    // Identity/cardinality options must be applied before their sparse vectors.
-    for (const bool vectors : {false, true})
-        for (const auto& [key, value] : *overrides)
-            if (value.is_array() == vectors) ConfigElements::apply_override(preset.config, preset.type, key, value);
+    // A Printer's complete nozzle override also owns its physical cardinality.
+    // Restore scalar variant definitions before sizing, and size before applying
+    // sparse elements. This same path is used by history, saving and slicing.
+    for (const auto& [key, value] : *overrides)
+        if (!value.is_array()) ConfigElements::apply_override(preset.config, preset.type, key, value);
+    const auto diameter = overrides->find("nozzle_diameter");
+    if (preset.type == Preset::TYPE_PRINTER && diameter != overrides->end()) {
+        const auto& values = diameter->second;
+        if (!values.is_array() || values.empty() || values.size() > MAXIMUM_EXTRUDER_NUMBER)
+            throw std::runtime_error("invalid Printer nozzle cardinality");
+        const bool expanded_structure = std::any_of(overrides->begin(), overrides->end(), [&](const auto& item) {
+            return item.second.is_array() && item.second.size() > ConfigElements::element_count(preset.config, preset.type, item.first);
+        });
+        if (preset.config.opt<ConfigOptionFloats>("nozzle_diameter")->size() != values.size() || expanded_structure)
+            resize_printer_config(preset.config, static_cast<unsigned int>(values.size()));
+    }
+    for (const auto& [key, value] : *overrides)
+        if (value.is_array()) ConfigElements::apply_override(preset.config, preset.type, key, value);
+}
+
+void store_printer_structure(PresetDraftRegistry& drafts, const std::string& name,
+                             const DynamicPrintConfig& source, const DynamicPrintConfig& candidate)
+{
+    // Persist the native result in the existing option-overlay format. In
+    // particular, never serialize the UI-only extruders_count as a config key.
+    auto& overrides = *drafts.find(Preset::TYPE_PRINTER, name);
+    const auto count = candidate.opt<ConfigOptionFloats>("nozzle_diameter")->size();
+    auto resized_source = source;
+    resize_printer_config(resized_source, static_cast<unsigned int>(count));
+    std::vector<std::string> inherited;
+    for (auto& [key, value] : overrides) {
+        const auto values = ConfigElements::explicit_values(candidate, Preset::TYPE_PRINTER, key);
+        if (!value.is_array()) { value = values; continue; }
+        value.get_ref<json::array_t&>().resize(values.size(), nullptr);
+        for (size_t i = 0; i < value.size(); ++i)
+            if (!value[i].is_null()) value[i] = values[i];
+        if (!ConfigElements::has_override(value)) inherited.push_back(key);
+    }
+    for (const auto& key : inherited) overrides.erase(key);
+    for (const auto& key : candidate.diff(source)) {
+        auto values = ConfigElements::explicit_values(candidate, Preset::TYPE_PRINTER, key);
+        if (values.is_array()) {
+            const auto baseline = ConfigElements::explicit_values(resized_source, Preset::TYPE_PRINTER, key, values.size());
+            const auto owned = overrides.find(key);
+            for (size_t i = 0; i < values.size(); ++i)
+                if (values[i] == baseline[i] &&
+                    (owned == overrides.end() || i >= owned->second.size() || owned->second[i].is_null()))
+                    values[i] = nullptr;
+            if (!ConfigElements::has_override(values)) { overrides.erase(key); continue; }
+        }
+        drafts.set(Preset::TYPE_PRINTER, name, key, values);
+    }
+    if (count != source.opt<ConfigOptionFloats>("nozzle_diameter")->size())
+        drafts.set(Preset::TYPE_PRINTER, name, "nozzle_diameter",
+                   ConfigElements::explicit_values(candidate, Preset::TYPE_PRINTER, "nozzle_diameter"));
 }
 
 json config_values_json(const DynamicPrintConfig& config)
@@ -390,12 +474,21 @@ json draft_values_json(const Preset::Type type, const std::string& canonical_nam
     auto effective_values = config_values_json(effective.config);
     auto selection = ConfigElements::selection_json(effective.config, type, effective.config,
         state().presets.project_config, active_source, effective_values, editor_vectors);
+    auto source_values = config_values_json(baseline_config);
+    if (type == Preset::TYPE_PRINTER) {
+        source_values["extruders_count"] = std::to_string(baseline_config.opt<ConfigOptionFloats>("nozzle_diameter")->size());
+        effective_values["extruders_count"] = std::to_string(effective.config.opt<ConfigOptionFloats>("nozzle_diameter")->size());
+        source_metadata["extruders_count"] = {{"type", "int"}, {"label", "Extruders"},
+            {"tooltip", "Number of extruders of the printer."}, {"min", 1}, {"max", MAXIMUM_EXTRUDER_NUMBER},
+            {"readonly", !bambu_printer(*source) && effective.config.opt_bool("single_extruder_multi_material")}};
+        selection["field_bindings"]["extruders_count"] = {{"kind", "shared"}};
+    }
     return json{{"ok", true}, {"kind", kind_name(type)},
                 {"canonical_name", source->name},
                 {"draft_exists", overrides != nullptr || UserPresets::is_snapshot(type, canonical_name)},
                 {"modified", UserPresets::modified(type, canonical_name, effective.config)},
                 {"overrides", override_values},
-                {"source_values", config_values_json(baseline_config)},
+                {"source_values", std::move(source_values)},
                 {"effective_values", std::move(effective_values)},
                 {"option_metadata", std::move(source_metadata)},
                 {"editor_vectors", std::move(editor_vectors)},
@@ -501,6 +594,11 @@ json mutate_draft_json(const json& request)
         return command_error("preset_not_found", "preset not found: " + canonical_name);
     const auto* saved_baseline = UserPresets::baseline(type, canonical_name);
     const auto& baseline_config = saved_baseline ? saved_baseline->config : source->config;
+    const auto effective_before = effective_preset_config(state().presets, state().preset_drafts, type, canonical_name);
+    const bool printer = type == Preset::TYPE_PRINTER;
+    const bool bbl = printer && bambu_printer(*source);
+    bool reset_count = false;
+    std::optional<DynamicPrintConfig> structure;
 
     std::string key;
     json override_value;
@@ -512,19 +610,45 @@ json mutate_draft_json(const json& request)
             !request["value"].is_string())
             return command_error("invalid_request", "set requires key and serialized value");
         key = request["key"].get<std::string>();
-        if (source->config.option(key) == nullptr || print_config_def.get(key) == nullptr)
-            return command_error("unsupported_option", "option is not available on this preset: " + key);
-        try {
-            Preset candidate = *source;
-            ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-            candidate.config.set_deserialize(key, request["value"].get<std::string>(), substitutions);
-            const ConfigOption* accepted = candidate.config.option(key);
-            if (accepted == nullptr)
+        if (printer && (key == "extruders_count" || key == "single_extruder_multi_material")) {
+            structure = effective_before;
+            if (key == "extruders_count") {
+                const auto text = request["value"].get<std::string>();
+                if (text.empty() || text.find_first_not_of("0123456789") != std::string::npos || text.size() > 2)
+                    return command_error("native_validation_failure", "Extruders must be an integer from 1 to 64");
+                const auto count = std::stoul(text);
+                if (count < 1 || count > MAXIMUM_EXTRUDER_NUMBER)
+                    return command_error("native_validation_failure", "Extruders must be an integer from 1 to 64");
+                if (!bbl && structure->opt_bool("single_extruder_multi_material"))
+                    return command_error("capability_rejected", "Disable SEMM before changing the extruder count");
+                resize_printer_config(*structure, static_cast<unsigned int>(count));
+            } else {
+                const auto value = request["value"].get<std::string>();
+                if (value != "0" && value != "1")
+                    return command_error("native_validation_failure", "SEMM must be a boolean");
+                structure->set_key_value(key, new ConfigOptionBool(value == "1"));
+                if (!bbl && value == "1" && !effective_before.opt_bool(key)) resize_printer_config(*structure, 1);
+                if (value == "0") {
+                    structure->set_key_value("purge_in_prime_tower", new ConfigOptionBool(false));
+                    structure->set_key_value("manual_filament_change", new ConfigOptionBool(false));
+                }
+            }
+        }
+        if (!structure) {
+            if (source->config.option(key) == nullptr || print_config_def.get(key) == nullptr)
                 return command_error("unsupported_option", "option is not available on this preset: " + key);
-            override_value = ConfigElements::explicit_values(candidate.config, type, key,
-                ConfigElements::element_count(source->config, type, key));
-        } catch (const std::exception& error) {
-            return command_error("native_validation_failure", error.what());
+            try {
+                auto candidate = effective_before;
+                ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
+                candidate.set_deserialize(key, request["value"].get<std::string>(), substitutions);
+                const ConfigOption* accepted = candidate.option(key);
+                if (accepted == nullptr)
+                    return command_error("unsupported_option", "option is not available on this preset: " + key);
+                override_value = ConfigElements::explicit_values(candidate, type, key,
+                    ConfigElements::element_count(effective_before, type, key));
+            } catch (const std::exception& error) {
+                return command_error("native_validation_failure", error.what());
+            }
         }
     } else if (action == "set-element") {
         if (!request.contains("key") || !request["key"].is_string() ||
@@ -546,7 +670,8 @@ json mutate_draft_json(const json& request)
             request["key"].get<std::string>().empty())
             return command_error("invalid_request", "reset-field requires an option key");
         key = request["key"].get<std::string>();
-        if (source->config.option(key) == nullptr)
+        reset_count = printer && key == "extruders_count";
+        if (!reset_count && source->config.option(key) == nullptr)
             return command_error("unsupported_option", "option is not available on this preset: " + key);
         keys.push_back(key);
     } else if (action == "reset-category") {
@@ -554,6 +679,12 @@ json mutate_draft_json(const json& request)
             return command_error("invalid_request", "reset-category requires per-field reset targets");
         const auto error = ConfigElements::parse_reset_fields(request.value("fields", json()), reset_fields);
         if (!error.is_null()) return error;
+        if (printer) reset_fields.erase(std::remove_if(reset_fields.begin(), reset_fields.end(), [&](const auto& field) {
+            if (field.key != "extruders_count") return false;
+            if (field.index) throw std::runtime_error("extruder count reset is shared");
+            reset_count = true;
+            return true;
+        }), reset_fields.end());
         for (const auto& field : reset_fields) keys.push_back(field.key);
     }
 
@@ -581,6 +712,9 @@ json mutate_draft_json(const json& request)
             // elements instead of turning a cleared override into a full reset.
             indexed_resets[reset_key] = UserPresets::is_snapshot(type, canonical_name)
                 ? ConfigElements::explicit_values(effective, type, reset_key) : result;
+            if (printer && reset_key == "nozzle_diameter" && effective.opt<ConfigOptionFloats>(reset_key)->size() !=
+                source->config.opt<ConfigOptionFloats>(reset_key)->size())
+                indexed_resets[reset_key] = ConfigElements::explicit_values(effective, type, reset_key);
         }
     }
 
@@ -592,7 +726,8 @@ json mutate_draft_json(const json& request)
     const bool ordinary_set = (action == "set" || action == "set-element") &&
         key != "inherits" && key != "printer_settings_id" && key != "filament_settings_id" &&
         key != "print_settings_id" && key != "printer_technology" &&
-        key != "printer_model" && key != "printer_variant" && key != "nozzle_diameter";
+        key != "printer_model" && key != "printer_variant" && key != "nozzle_diameter" &&
+        key != "extruders_count" && key != "single_extruder_multi_material";
     const bool stable_target = UserPresets::view_name(type, canonical_name) == canonical_name;
     const bool modified_before = ordinary_set && stable_target && !had_redo &&
         UserPresets::modified(type, canonical_name,
@@ -600,6 +735,11 @@ json mutate_draft_json(const json& request)
     const auto before_drafts = state().preset_drafts;
     const auto before_printer_name = state().presets.printers.get_selected_preset_name();
     const auto before_filament_names = state().presets.filament_presets;
+    const auto before_slot_ids = state().filament_slot_ids;
+    const auto before_next_slot_id = state().next_filament_slot_id;
+    const auto before_next_colour = state().next_filament_colour_index;
+    const auto before_ams_colours = state().presets.ams_multi_color_filment;
+    const auto before_edited_filament = state().presets.filaments.get_edited_preset();
     const auto before_filament_name = state().presets.filaments.get_selected_preset_name();
     std::string result_name = canonical_name;
     const auto before_bed_capabilities = type == Preset::TYPE_PRINTER &&
@@ -608,6 +748,7 @@ json mutate_draft_json(const json& request)
         : std::nullopt;
     const auto before_draft_revision = state().preset_draft_revision;
     const auto before_project_config = state().presets.project_config;
+    const auto before_print_config = state().presets.prints.get_edited_preset().config;
     const Model before_model = state().model;
     const auto before_plates = state().plate_session_plates;
     const auto before_plate_revisions = state().plate_input_revisions;
@@ -638,8 +779,14 @@ json mutate_draft_json(const json& request)
         state().presets.printers.select_preset_by_name(before_printer_name, true);
         state().presets.filaments.select_preset_by_name(before_filament_name, true);
         state().presets.filament_presets = before_filament_names;
+        state().filament_slot_ids = before_slot_ids;
+        state().next_filament_slot_id = before_next_slot_id;
+        state().next_filament_colour_index = before_next_colour;
+        state().presets.ams_multi_color_filment = before_ams_colours;
+        state().presets.filaments.get_edited_preset() = before_edited_filament;
         state().preset_draft_revision = before_draft_revision;
         state().presets.project_config = before_project_config;
+        state().presets.prints.get_edited_preset().config = before_print_config;
         state().model = before_model;
         state().mutable_object_capture_cache.clear();
         state().plate_session_plates = before_plates;
@@ -657,14 +804,23 @@ json mutate_draft_json(const json& request)
 
     try {
         mutated = true;
-        if (action == "set" || action == "set-element")
+        if (structure) {
+            state().preset_drafts.ensure_entry(type, canonical_name);
+            store_printer_structure(state().preset_drafts, canonical_name, source->config, *structure);
+        } else if (action == "set" || action == "set-element")
             state().preset_drafts.set(type, canonical_name, key, override_value);
         else if (action == "reset-field" || action == "reset-category")
             state().preset_drafts.ensure_entry(type, canonical_name);
         if (action == "reset-field" || action == "reset-category")
             for (const auto& reset_key : keys) {
+                if (reset_key == "extruders_count") continue;
                 const auto found = indexed_resets.find(reset_key);
-                if (found != indexed_resets.end() && !found->second.is_null())
+                if (printer && reset_key == "nozzle_diameter" && found == indexed_resets.end() &&
+                    effective_before.opt<ConfigOptionFloats>(reset_key)->size() != source->config.opt<ConfigOptionFloats>(reset_key)->size()) {
+                    auto baseline = baseline_config;
+                    resize_printer_config(baseline, static_cast<unsigned int>(effective_before.opt<ConfigOptionFloats>(reset_key)->size()));
+                    state().preset_drafts.set(type, canonical_name, reset_key, ConfigElements::explicit_values(baseline, type, reset_key));
+                } else if (found != indexed_resets.end() && !found->second.is_null())
                     state().preset_drafts.set(type, canonical_name, reset_key, found->second);
                 else if (UserPresets::is_snapshot(type, canonical_name))
                     state().preset_drafts.set(type, canonical_name, reset_key,
@@ -686,15 +842,42 @@ json mutate_draft_json(const json& request)
             }
         }
 
+        if (printer && reset_count) {
+            auto candidate = effective_preset_config(state().presets, state().preset_drafts, type, canonical_name);
+            const auto count = baseline_config.opt<ConfigOptionFloats>("nozzle_diameter")->size();
+            if (!bbl && candidate.opt_bool("single_extruder_multi_material") && count != 1)
+                throw std::runtime_error("Disable SEMM before restoring a multi-extruder count");
+            resize_printer_config(candidate, static_cast<unsigned int>(count));
+            store_printer_structure(state().preset_drafts, canonical_name, source->config, candidate);
+        }
+        if (printer && action != "reset-preset") {
+            auto candidate = effective_preset_config(state().presets, state().preset_drafts, type, canonical_name);
+            if (candidate.opt_bool("single_extruder_multi_material") != effective_before.opt_bool("single_extruder_multi_material")) {
+                if (!bbl && candidate.opt_bool("single_extruder_multi_material")) resize_printer_config(candidate, 1);
+                if (!candidate.opt_bool("single_extruder_multi_material")) {
+                    candidate.set_key_value("purge_in_prime_tower", new ConfigOptionBool(false));
+                    candidate.set_key_value("manual_filament_change", new ConfigOptionBool(false));
+                }
+                state().preset_drafts.ensure_entry(type, canonical_name);
+                store_printer_structure(state().preset_drafts, canonical_name, source->config, candidate);
+            }
+        }
+
         // Material drafts feed the native minimum-flush calculation. Rebuild
         // the project-owned matrix before the common all-plate mutation path.
         const bool refresh_geometry = result_name != canonical_name || geometry_inputs_changed(
             before_drafts.find(type, canonical_name), state().preset_drafts.find(type, canonical_name));
         auto& bundle = state().presets;
+        const auto effective_after = effective_preset_config(bundle, state().preset_drafts, type, result_name);
+        const bool topology_changed = printer && (
+            effective_before.opt<ConfigOptionFloats>("nozzle_diameter")->size() != effective_after.opt<ConfigOptionFloats>("nozzle_diameter")->size() ||
+            effective_before.opt_bool("single_extruder_multi_material") != effective_after.opt_bool("single_extruder_multi_material"));
+        if (topology_changed && canonical_name == before_printer_name)
+            Filament::Commands::transition_printer_topology(effective_after, before_project_config, before_filament_names.size());
         const bool flow_candidate_edit = type == Preset::TYPE_PRINTER &&
             result_name == canonical_name && only_flow_candidate_inputs_changed(
                 before_drafts.find(type, canonical_name), state().preset_drafts.find(type, canonical_name));
-        if (refresh_geometry && !flow_candidate_edit && (type == Preset::TYPE_FILAMENT || type == Preset::TYPE_PRINTER) &&
+        if (refresh_geometry && !topology_changed && !flow_candidate_edit && (type == Preset::TYPE_FILAMENT || type == Preset::TYPE_PRINTER) &&
             bundle.printers.get_selected_preset().printer_technology() == ptFFF)
             Filament::Commands::auto_recalculate_filament_flush(bundle, -1, false);
 
@@ -744,7 +927,7 @@ json mutate_draft_json(const json& request)
         const json profile_snapshot = Profiles::preset_snapshot_json(!ordinary_edit);
         json filament_session = Filament::Session::filament_session_snapshot_json(!ordinary_edit);
         if (!filament_session.value("ok", false))
-            throw std::runtime_error("preset draft filament snapshot could not be constructed");
+            throw std::runtime_error(filament_session.value("error", "preset draft filament snapshot could not be constructed"));
         filament_session["revisions"]["session"] = revision_before + 1;
         filament_session["revisions"]["project"] = revision_before + 1;
 

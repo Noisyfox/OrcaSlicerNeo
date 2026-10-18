@@ -474,6 +474,8 @@ export type OptionMetaType =
 
 export interface OptionMeta {
   type: OptionMetaType;
+  /** Native capability lock for a shared editor field. */
+  readonly?: boolean;
   label?: string;
   full_label?: string;
   tooltip?: string;

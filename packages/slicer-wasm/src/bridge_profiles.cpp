@@ -893,6 +893,11 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
             }
         }
     }
+    const auto& source_printer = bundle.printers.get_selected_preset().config;
+    const auto& effective = bundle.printers.get_edited_preset().config;
+    if (source_printer.opt<ConfigOptionFloats>("nozzle_diameter")->size() != effective.opt<ConfigOptionFloats>("nozzle_diameter")->size() ||
+        source_printer.opt_bool("single_extruder_multi_material") != effective.opt_bool("single_extruder_multi_material"))
+        Filament::Commands::transition_printer_topology(effective, before_profiles.project_config, before_profiles.filament_presets.size());
     validate_profile_transition(before_profiles.project_config, before_profiles.filament_presets.size());
     repair_project_flows(base_printer_name(bundle.printers.get_selected_preset()) !=
         before_profiles.base_printer);

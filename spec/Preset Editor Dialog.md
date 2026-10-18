@@ -388,11 +388,27 @@ key, field order, and Phase-one editability. It is the authoritative layout and
 exposure allow-list: a newly introduced native option is not shown until it is
 intentionally added to the relevant Filament or Printer manifest.
 
-The Phase-one manifest marks topology-changing Printer fields as read-only.
-This includes `extruders_count` and `single_extruder_multi_material`.
-These fields require a future dedicated native
-capability-topology transaction; an ordinary draft-field mutation never
-silently reshapes material slots or rewrites related options.
+Printer topology changes use a dedicated native transition within the preset
+draft transaction. The transition validates revision and the complete final
+configuration, updates related project state atomically, and creates one Undo
+entry. An inactive Printer edit affects only its draft; activation performs
+the corresponding project transition. The UI remains read-only until its
+topology controls are connected to this contract.
+
+Physical extruder count and SEMM are distinct capabilities. Bambu multi-head
+printers may retain SEMM with multiple physical heads; toggling SEMM preserves
+their head count, and count editing remains available. For other printers,
+enabling SEMM collapses the count to one and disables count editing until SEMM
+is disabled. Disabling SEMM also clears manual filament change and purge in the
+prime tower. Count edits accept integers from 1 through Orca's native maximum
+of 64 and reuse native extruder/variant sizing.
+
+Active fixed-material printers synchronize material slots to physical heads,
+remapping removed-slot model, painting, routing and per-plate references through
+the existing native deletion rules. SEMM or Bambu flexible racks retain their
+materials independently of head count. Project flow, per-plate mappings,
+flushing dimensions and policy-controlled values, tower coordinates and slice
+invalidation belong to that same transaction. Any failure restores all owners.
 
 Printer Settings omits the Identity group: `printer_technology`,
 `printer_model`, and `printer_variant` are not exposed as editor fields,
@@ -403,7 +419,11 @@ The Multimaterial page omits the Material defaults group and its
 `extruders_count` is Orca's UI-only field, labelled `Extruders` with the tooltip
 `Number of extruders of the printer.` Its Source and Effective values are the
 respective native `nozzle_diameter` vector lengths, rather than a stored
-configuration key. It remains read-only and is excluded from native reset keys.
+configuration key. Its reset is a native structural operation rather than a
+configuration-key reset. A complete nozzle-diameter override owns its vector
+length; effective assembly restores this cardinality before sparse values.
+History, user-preset saving and 3MF reopening use that same assembly contract.
+Resetting a diameter element does not reset the physical head count.
 
 Native option metadata remains authoritative only for facts about a listed
 option: its label, type, tooltip, constraints, and native validation. It does

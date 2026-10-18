@@ -384,6 +384,11 @@ void add_active_draft_overrides(PresetDraftRegistry& drafts,
         const std::string effective_value = effective_option->serialize();
         if (source_value != effective_value) {
             DynamicPrintConfig effective = *source_config;
+            if (type == Preset::TYPE_PRINTER) {
+                if (const auto* nozzles = imported_config.opt<ConfigOptionFloats>("nozzle_diameter"))
+                    if (!nozzles->empty() && nozzles->size() <= MAXIMUM_EXTRUDER_NUMBER)
+                        effective.set_num_extruders(static_cast<unsigned int>(nozzles->size()));
+            }
             effective.set_key_value(key, effective_option.release());
             // The archive reader upgrades legacy thumbnail syntax (implicit
             // PNG) even when no setting changed. Compare the parsed sizes and
