@@ -1284,7 +1284,7 @@ describe('PresetEditorDialogContent', () => {
     expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({key:'overhang_fan_threshold',value:3}));
   });
 
-  it('keeps the dedicated Filament Setting Overrides manifest read-only instead of unlocking nullable fields',async()=>{
+  it('requires native context before unlocking dedicated Filament override fields',async()=>{
     const source=filamentVariantsFixture();const vector={...source.editorVectors.filament_flow_ratio,nullable:true,sourceValues:[null,null,null,null,null,null],effectiveValues:[null,null,null,null,null,null]};
     const h=await controlledPrinter({...source,sourceValues:{...source.sourceValues,filament_retraction_length:'nil'},effectiveValues:{...source.effectiveValues,filament_retraction_length:'nil'},
       optionMetadata:{...source.optionMetadata,filament_retraction_length:{type:'floats',label:'Retraction length'}},
@@ -1292,7 +1292,7 @@ describe('PresetEditorDialogContent', () => {
       editorSelection:{...source.editorSelection,fieldBindings:{...source.editorSelection.fieldBindings,filament_retraction_length:source.editorSelection.fieldBindings.filament_flow_ratio}}});
     await click(document.querySelector('[data-testid="preset-editor-page-tab-setting-overrides"]'));
     const page=FILAMENT_PRESET_EDITOR_MANIFEST.pages.find(page=>page.id==='setting-overrides')!;
-    expect(page.groups.flatMap(group=>group.fields).every(field=>field.access==='read-only')).toBe(true);
+    expect(page.groups.filter(group=>group.id!=='ironing-overrides').flatMap(group=>group.fields).every(field=>field.filamentOverride)).toBe(true);
     expect(document.querySelector('[data-testid="preset-editor-readonly-filament_retraction_length"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="preset-editor-input-filament_retraction_length"]')).toBeNull();
     expect(document.querySelector('[data-testid^="preset-editor-null-"]')).toBeNull();expect(h.onMutate).not.toHaveBeenCalled();

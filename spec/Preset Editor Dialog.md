@@ -457,8 +457,8 @@ Phase one intentionally omits Orca's Simple/Advanced/Expert visibility-mode
 filter.
 It also does not port Orca's dynamic GUI `toggle_field` / `toggle_line`
 predicates: every manifest-listed field remains visible regardless of other
-current option values. Section 4.3 defines an accepted, not-yet-implemented
-exception for the dedicated Setting Overrides page.
+current option values. Section 4.3 defines the dedicated Setting Overrides
+exception and its delivery scope.
 
 Phase one supplies editable generic controls for scalar numbers, booleans,
 enums, text, and colours. A manifest-listed option requiring a specialized Orca
@@ -482,10 +482,9 @@ remain editable. Only valid numeric input submits a value: clearing a numeric
 input never writes nil. Genuine boolean-value checkboxes remain available.
 The extra enable checkbox belongs only to Orca's dedicated Filament Setting
 Overrides interaction: checked enables a non-nil override, while unchecked
-uses the inherited Printer or Process value. Neo's Setting Overrides page
-remains read-only until that specialized interaction is implemented; generic
-nullable metadata does not unlock it. The accepted extension is specified in
-section 4.3.
+uses the inherited Printer or Process value. Dedicated override controls require
+their native reference context; generic nullable metadata alone does not unlock
+them. Delivery scope and interaction rules are specified in section 4.3.
 
 The Printer Extruder page uses complete typed native Source and Effective vectors.
 Its tab title is `Extruders` when the printer has multiple physical nozzles,
@@ -750,8 +749,9 @@ interaction is introduced. Both hosts retain their current desktop layout.
 
 ## 4.3 Filament Setting Overrides extension
 
-**Status:** Native reference projection and atomic wipe-percentage correction
-delivered. Dedicated controls remain implementation work under the accepted rules.
+**Status:** Native reference projection, atomic wipe-percentage correction and
+the 19 Retraction / Retraction when switching material controls are delivered.
+The four Ironing controls remain implementation work under the accepted rules.
 
 The extension completes the existing Setting Overrides page's three groups
 and 23 manifest-listed fields, preserving their order. It uses dedicated

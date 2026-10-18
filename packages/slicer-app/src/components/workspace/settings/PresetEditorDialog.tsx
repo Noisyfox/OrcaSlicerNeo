@@ -157,6 +157,12 @@ function inputTextForBinding(value: PresetDraftEditorValue, scalarType: PresetDr
   return String(value);
 }
 
+function controlValue(field: PresetEditorManifestField, snapshot: Pick<PresetDraftSnapshot, 'filamentOverrideContext'>, binding: PresetDraftEditorBinding): PresetDraftEditorValue {
+  return field.filamentOverride && binding.effectiveValue === null
+    ? snapshot.filamentOverrideContext[field.key]?.[binding.index]?.referenceValue ?? null
+    : binding.effectiveValue;
+}
+
 function projectedValueText(value: PresetDraftEditorValue, scalarType: PresetDraftEditorScalarType, enumOptions?: PresetDraftEditorBinding['enumOptions']): string {
   if (value === null) return '(null)';
   if (scalarType === 'enum') return enumOptions?.find(option => option.value === value)?.label ?? String(value);
@@ -249,6 +255,8 @@ function FieldValue({
   const fieldIndex = targetBinding.kind === 'indexed' ? targetBinding.index : undefined;
   const unavailable = targetBinding.kind === 'unavailable';
   const binding = fieldBinding(snapshot, field.key, targetBinding);
+  const overrideControl = field.filamentOverride === true && snapshot.kind === 'filament';
+  const overrideContext = overrideControl && fieldIndex !== undefined ? snapshot.filamentOverrideContext[field.key]?.[fieldIndex] : undefined;
   const vector = fieldIndex === undefined ? undefined : snapshot.editorVectors[field.key];
   const coordinateVector = vector && (vector.scalarType === 'point' || vector.scalarType === 'points') ? vector : undefined;
   const sourceValue = unavailable ? 'Unavailable' : (coordinateVector
@@ -265,20 +273,20 @@ function FieldValue({
   const effectiveValue = unavailable ? 'Unavailable' : coordinateVector
     ? coordinateText(vectorAt(coordinateVector, coordinateVector.effectiveValues, fieldIndex!))
     : binding
-    ? inputTextForBinding(binding.effectiveValue, binding.scalarType)
+    ? inputTextForBinding(controlValue(field, snapshot, binding), binding.scalarType)
     : snapshot.effectiveValues[field.key] ?? metadata?.default ?? '';
   const colourField = isColourField(field, metadata);
   const boundText = binding?.scalarType === 'string';
   const missingRequiredBinding = field.nativeElementOnly === true && binding === undefined && !coordinateVector;
   const unsupportedStructured = !binding && !coordinateVector && isStructuredValue(metadata);
-  const readOnly = unavailable || field.access === 'read-only' || metadata?.readonly === true || binding?.readOnly === true || coordinateVector?.readOnly === true || missingRequiredBinding || unsupportedStructured;
+  const readOnly = unavailable || field.access === 'read-only' || metadata?.readonly === true || binding?.readOnly === true || coordinateVector?.readOnly === true || missingRequiredBinding || unsupportedStructured || (overrideControl && !overrideContext);
   const readOnlyReason = unavailable ? 'This selection has no corresponding native mapping.' : field.readOnlyReason ?? (metadata?.readonly
     ? field.key === 'extruders_count' ? 'Disable SEMM to change the extruder count.' : 'This value is read-only for the current printer configuration.' : unsupportedStructured
     ? 'This value needs a specialized editor.'
     : missingRequiredBinding ? 'This value needs native element metadata.' : undefined);
   const overridden = fieldHasOverride(snapshot, field.key, targetBinding);
   const [displayValue, setDisplayValue] = useState(effectiveValue);
-  const [nullValue, setNullValue] = useState(binding?.effectiveValue === null);
+  const [nullValue, setNullValue] = useState(!overrideControl && binding?.effectiveValue === null);
   const [percentMode, setPercentMode] = useState(
     binding?.scalarType === 'float_or_percent' && binding.effectiveValue !== null &&
       typeof binding.effectiveValue === 'object' && binding.effectiveValue.percent,
@@ -300,11 +308,19 @@ function FieldValue({
   useEffect(() => {
     if (focused.current || fieldError !== null) return;
     setDisplayValue(effectiveValue);
-    setNullValue(binding?.effectiveValue === null);
+    setNullValue(!overrideControl && binding?.effectiveValue === null);
     if (binding?.scalarType === 'float_or_percent' && binding.effectiveValue !== null &&
         typeof binding.effectiveValue === 'object')
       setPercentMode(binding.effectiveValue.percent);
-  }, [binding?.effectiveValue, binding?.scalarType, effectiveValue, fieldError]);
+  }, [binding?.effectiveValue, binding?.scalarType, effectiveValue, fieldError, overrideControl]);
+
+  useEffect(() => {
+    if (overrideContext && (!overrideContext.visible || !overrideContext.enabled)) {
+      focused.current = false;
+      setFieldError(null);
+      setDisplayValue(effectiveValue);
+    }
+  }, [overrideContext?.visible, overrideContext?.enabled, effectiveValue]);
 
   const submitSet = useCallback(async (value: string) => {
     if (loading || mutationPending || actionPending.current) return;
@@ -326,7 +342,7 @@ function FieldValue({
     if (!binding || loading || mutationPending || actionPending.current) return;
     actionPending.current = true;
     setFieldError(null);
-    setNullValue(value === null);
+    setNullValue(!overrideControl && value === null);
     setDisplayValue(inputTextForBinding(value, binding.scalarType));
     if (binding.scalarType === 'float_or_percent' && value !== null && typeof value === 'object')
       setPercentMode(value.percent);
@@ -335,8 +351,8 @@ function FieldValue({
       if (result.ok) {
         const current = fieldBinding(result, field.key, targetBinding);
         if (current) {
-          setDisplayValue(inputTextForBinding(current.effectiveValue, current.scalarType));
-          setNullValue(current.effectiveValue === null);
+          setDisplayValue(inputTextForBinding(controlValue(field, result, current), current.scalarType));
+          setNullValue(!overrideControl && current.effectiveValue === null);
           if (current.scalarType === 'float_or_percent' && current.effectiveValue !== null &&
               typeof current.effectiveValue === 'object')
             setPercentMode(current.effectiveValue.percent);
@@ -349,7 +365,7 @@ function FieldValue({
     } finally {
       actionPending.current = false;
     }
-  }, [binding, field.key, loading, mutationPending, onMutate, snapshot, targetBinding]);
+  }, [binding, field, loading, mutationPending, onMutate, snapshot, targetBinding, overrideControl]);
 
   const resetField = async () => {
     if (!overridden || readOnly || loading || mutationPending || actionPending.current) return;
@@ -364,9 +380,9 @@ function FieldValue({
       }
       const current = fieldBinding(result, field.key, targetBinding);
       if (current) {
-        const value = current.effectiveValue;
+        const value = controlValue(field, result, current);
         setDisplayValue(inputTextForBinding(value, current.scalarType));
-        setNullValue(value === null);
+        setNullValue(!overrideControl && value === null);
         setPercentMode(current.scalarType === 'float_or_percent' && value !== null &&
           typeof value === 'object' && value.percent);
       } else if (coordinateVector && result.editorVectors?.[field.key]) {
@@ -391,7 +407,7 @@ function FieldValue({
   const boundNumeric = binding?.scalarType === 'float' || binding?.scalarType === 'int' ||
     binding?.scalarType === 'percent' || binding?.scalarType === 'float_or_percent';
   const multiline = field.multiline === true || binding?.multiline === true;
-  const controlsDisabled = loading || mutationPending;
+  const controlsDisabled = loading || mutationPending || (overrideControl && (!overrideContext?.enabled || binding?.effectiveValue === null));
   const colorControl = <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen} title={label}
     value={{ kind: 'solid', color: colourInputValue(displayValue) }} disabled={controlsDisabled}
     onConfirm={next => {
@@ -442,7 +458,8 @@ function FieldValue({
         return;
       }
     }
-    const normalized = normalizeScalarInput(displayValue, metadata);
+    const normalized = normalizeScalarInput(displayValue, overrideControl && metadata
+      ? { ...metadata, min: undefined, max: undefined } : metadata);
     if (normalized === null) {
       setFieldError('Enter a valid number.');
       return;
@@ -668,6 +685,8 @@ function FieldValue({
       : <Input {...textProps} type="text" inputMode={numeric ? 'decimal' : 'text'} />;
   }
 
+  if (overrideControl && overrideContext?.visible === false) return null;
+
   return (
     <article
       data-testid={`preset-editor-field-${field.key}`}
@@ -702,10 +721,17 @@ function FieldValue({
           variant="ghost"
           size="xs"
           data-testid={`preset-editor-reset-field-${field.key}`}
-          disabled={controlsDisabled}
+          disabled={loading || mutationPending}
           onClick={() => void resetField()}
         >Reset</Button>}
       </div>
+      {overrideControl && !readOnly && <div className="mt-2 flex items-center gap-2">
+        <Checkbox id={`${inputId}-override`} aria-label={`Override ${label}`}
+          data-testid={`preset-editor-override-${field.key}`} checked={binding?.effectiveValue !== null}
+          disabled={loading || mutationPending || !overrideContext?.enabled || (binding?.effectiveValue === null && overrideContext.referenceValue === null)}
+          onCheckedChange={checked => { void submitElementSet(checked ? overrideContext!.referenceValue : null); }} />
+        <Label htmlFor={`${inputId}-override`}>Override</Label>
+      </div>}
       {readOnly && readOnlyReason && <p className="mt-1 text-[0.7rem] text-muted-foreground">{readOnlyReason}</p>}
       {readOnly ? (
         <dl className="mt-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">

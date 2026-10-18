@@ -9,6 +9,42 @@ import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receip
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
 
+test('filament setting overrides edit retraction controls and preserve rejected input', async () => {
+  const env = {...process.env,ORCA_E2E:'1'} as Record<string,string>; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({args:['.'],cwd:DESKTOP_ROOT,env});
+  try {
+    const page=await app.firstWindow(); await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:60_000});
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('filament-slot-1').click({button:'right'}); await page.getByTestId('filament-edit-1').click();
+    await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
+    await page.getByTestId('preset-editor-dialog').screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/filament-overrides-retraction.png')});
+    const input=(key:string)=>page.getByTestId(`preset-editor-input-${key}`);
+    const toggle=(key:string)=>page.getByTestId(`preset-editor-override-${key}`);
+    const length='filament_retraction_length',speed='filament_retraction_speed',before='filament_retract_before_wipe';
+    await expect(input(length)).toBeDisabled(); await expect(input(length)).not.toHaveValue('');
+    const reference=await input(length).inputValue();
+    await toggle(length).click(); await input(length).fill('1.4'); await input(length).press('Enter'); await expect(input(length)).toBeEnabled();
+    await expect(input(length)).toHaveValue('1.4'); await toggle(length).click(); await expect(input(length)).toHaveValue(reference);
+    await toggle(length).click(); await expect(input(length)).toHaveValue(reference); await expect(input(length)).toBeEnabled();
+    await toggle(speed).click(); await input(speed).fill('12'); await input(speed).press('Enter'); await expect(input(speed)).toBeEnabled();
+    await input(length).fill('0'); await input(length).press('Enter'); await expect(input(speed)).toBeDisabled();
+    await expect(page.getByTestId(`preset-editor-reset-field-${speed}`)).toBeEnabled();
+    await page.getByTestId(`preset-editor-reset-field-${speed}`).click(); await expect(toggle(speed)).not.toBeChecked();
+    await input(length).fill('1'); await input(length).press('Enter'); await expect(toggle(speed)).toBeEnabled();
+    await toggle(before).click(); await expect(input(before)).toBeEnabled(); const valid=await input(before).inputValue();
+    await input(before).fill('101'); await input(before).press('Enter'); await expect(input(before)).toHaveValue('101');
+    await expect(page.getByTestId(`preset-editor-error-${before}`)).toBeVisible();
+    await input(before).press('Escape'); await expect(input(before)).toHaveValue(valid);
+    await expect(page.getByTestId(`preset-editor-error-${before}`)).toHaveCount(0);
+    await toggle('filament_wipe').click(); await expect(toggle('filament_wipe')).toBeChecked();
+    await expect(input('filament_wipe')).not.toBeChecked();
+    await toggle('filament_z_hop_types').click(); await expect(input('filament_z_hop_types')).toBeEnabled();
+    await input('filament_z_hop_types').click(); await page.getByRole('option',{name:'Spiral',exact:true}).click();
+    await expect(input('filament_z_hop_types')).toContainText('Spiral');
+    await page.getByTestId('preset-editor-close').click();
+  } finally { await app.close(); }
+});
+
 test('real Filament variants and Project Print Hybrid choices edit independent native bindings',async()=>{
   const fixture=process.env.ORCA_E2E_EXTRUDER_PROJECT;
   test.skip(!REAL || !fixture,'Requires the native-exported indexed-editor Hybrid fixture');
