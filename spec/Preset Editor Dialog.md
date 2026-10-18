@@ -262,8 +262,10 @@ replacement, or a history restoration removes it.
 An individual field reset removes that field's runtime-overlay override rather
 than copying the current source value into the overlay. A category reset
 likewise removes the overrides for all manifest-listed fields in that category.
-The resulting value is always resolved from the source preset and the ordinary
-native configuration stack. Removing the final override retains an empty
+The resulting value is resolved from the source preset and the ordinary
+native configuration stack, subject to the dedicated after-wipe single-field
+Reset correction in section 4.3. Category and preset Reset do not run that
+correction. Removing the final override retains an empty
 overlay but removes its `Modified` / `Project draft` marker; only `Reset
 preset` removes the overlay itself.
 
@@ -762,13 +764,28 @@ for other preset-editor pages.
 ### Scope and deferred validation
 
 Orca's `TabFilament::on_value_change` wipe-percentage companion mutation is
-included. When editing either before-wipe or after-wipe would make their
-resolved percentages sum to more than 100%, set Filament after-wipe to
-`100% - before-wipe`. This may create an explicit after-wipe override even when
-that element previously inherited its Printer value. For example, changing before-wipe to 80% while
-after-wipe inherits 40% writes an explicit Filament after-wipe value of 20%.
-The initiating edit and companion change form one atomic native mutation and
-one Undo/Redo entry; failure publishes neither change.
+included. Committing a value edit or override-switch change to either
+before-wipe or after-wipe validates the staged result, including when the
+switch change writes nil. When their resolved percentages sum to more than
+100%, set Filament after-wipe to `100% - before-wipe`. This may create an
+explicit after-wipe override even when
+that element previously inherited its Printer value or the initiating action
+just unchecked it. For example, changing before-wipe to 80% while after-wipe
+inherits 40% writes an explicit Filament after-wipe value of 20%.
+
+Among Reset operations, only single-field Reset of
+`filament_retract_after_wipe` runs this validation and correction. First stage
+the baseline restoration for that element, then validate the resolved pair and
+write a corrective after-wipe override if needed. Its final value can therefore
+differ from the baseline and remain modified. Single-field Reset of before-wipe,
+category Reset and preset Reset do not run this correction. Preset Reset retains
+its existing complete-draft-removal semantics. Unrelated field edits do not
+trigger wipe-percentage correction.
+
+The initiating operation, validation and any correction form one atomic native
+transaction and one Undo/Redo entry; failure publishes none of them. Apply the
+correction only to the operation's selected Filament element, preserving other
+variants. Undo/Redo restores the recorded state without running a new correction.
 
 Porting `ConfigManipulation` validation and correction is deferred to future
 unified handling. In particular, this extension does not introduce Orca's
@@ -785,12 +802,14 @@ retain a previous override value in a dialog-local cache for later re-enabling.
 This replaces Orca's control-dependent retraction value cache; Orca's ironing
 controls already copy the current Process value each time they are enabled.
 
-Unchecking writes an explicit native nil at that element, so the Printer or
-Process value is used. It is distinct from field Reset, which restores the
-existing Filament source/saved baseline and clears that element's modification
-under the existing ownership contract. Reset may therefore restore a non-nil
-Filament override. Checkbox state describes whether a Filament override is
-enabled; modification highlighting continues to describe changes relative to
+Unchecking stages an explicit native nil at that element, so the Printer or
+Process value is used, subject to the wipe-percentage correction above. It is
+distinct from field Reset, which first restores the existing Filament
+source/saved baseline and clears that element's modification under the existing
+ownership contract. The dedicated after-wipe single-field Reset may then
+create a corrective override in the same transaction. Reset may also restore a
+non-nil Filament override from the baseline. Checkbox state describes whether
+a Filament override is enabled; modification highlighting continues to describe changes relative to
 the existing baseline.
 
 For visible fields disabled by dependency conditions, keep field Reset
