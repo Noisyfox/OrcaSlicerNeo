@@ -257,5 +257,6 @@ The benchmark asserts one write and one Print editor read per edit. When
 measuring an earlier implementation, explicitly set
 `ORCA_OPTION_PROFILE_EDITOR_READS` to its expected read count and record its
 source revision with `ORCA_OPTION_PROFILE_SOURCE_REF`; neither setting changes
-application behavior. Periodic runtime-memory RPCs can overlap a sample and
-should be identified separately from the edit pipeline.
+application behavior. Periodic runtime-memory RPCs are recorded with
+`background: true` and excluded from pending/editable/quiet timing and edit RPC
+counts.

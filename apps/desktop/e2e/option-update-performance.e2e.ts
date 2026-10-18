@@ -46,11 +46,11 @@ test('profiles an empty Project option update through editable and visual comple
     // Observe the existing typed transport and DOM; no production instrumentation
     // or calls into native state are introduced by this measurement.
     await page.evaluate(() => {
-      const p: any = (window as any).__optionProfile = { events: [], pending: new Map(), active: false, last: 0 };
+      const p: any = (window as any).__optionProfile = { events: [], pending: new Map(), background: new Map(), active: false, last: 0 };
       const add = (event: any) => {
         if (!p.active) return;
         p.events.push({ at: performance.now(), ...event });
-        p.last = performance.now();
+        if (!event.background) p.last = performance.now();
       };
       const observed = new WeakSet();
       for (const proto of [MessagePort.prototype, Worker.prototype]) {
@@ -61,9 +61,10 @@ test('profiles an empty Project option update through editable and visual comple
             const observe = (event: Event) => {
               const response = (event as MessageEvent).data;
               if (response?.type !== 'response') return;
-              const op = p.pending.get(response.id);
-              p.pending.delete(response.id);
-              if (op) add({ type: 'response', id: response.id, op, ok: response.ok, resultOk: response.result?.ok });
+              const background = p.background.has(response.id);
+              const op = p.pending.get(response.id) ?? p.background.get(response.id);
+              p.pending.delete(response.id); p.background.delete(response.id);
+              if (op) add({ type: 'response', id: response.id, op, background, ok: response.ok, resultOk: response.result?.ok });
             };
             const consumer = this.onmessage;
             if (consumer) this.onmessage = function(this: MessagePort | Worker, event: MessageEvent) {
@@ -73,8 +74,9 @@ test('profiles an empty Project option update through editable and visual comple
             else this.addEventListener('message', observe, { capture: true });
           }
           if (message?.type === 'request') {
-            p.pending.set(message.id, message.op);
-            add({ type: 'request', id: message.id, op: message.op });
+            const background = message.op === 'getRuntimeMemory';
+            (background ? p.background : p.pending).set(message.id, message.op);
+            add({ type: 'request', id: message.id, op: message.op, background });
           }
           return Reflect.apply(original, this, [message, ...args]);
         } as any;
@@ -104,7 +106,7 @@ test('profiles an empty Project option update through editable and visual comple
       await page.waitForTimeout(250);
       await page.evaluate(() => {
         const p = (window as any).__optionProfile;
-        p.events = []; p.pending.clear(); p.active = false; p.armed = true;
+        p.events = []; p.pending.clear(); p.background.clear(); p.active = false; p.armed = true;
         p.readyAt = 0; p.animations = []; p.visualDoneAt = 0; p.lastActive = false;
       });
       await input.press('Enter');
@@ -129,7 +131,7 @@ test('profiles an empty Project option update through editable and visual comple
           const element = document.querySelector('[data-testid="config-input-layer_height"]')!;
           const ready = !element.matches(':disabled') && !document.querySelector('[data-testid="configuration-option-lock"]:disabled');
           if (!ready) p.readyAt = 0;
-          if (ready && p.events.some((event: any) => event.type === 'response') && !p.pending.size && !p.readyAt) p.readyAt = performance.now();
+          if (ready && p.events.some((event: any) => event.type === 'response' && event.op === 'getPrintConfigEditor') && !p.pending.size && !p.readyAt) p.readyAt = performance.now();
           // Quiet confirmation and two additional frames establish stability;
           // their waiting time is recorded separately, not added to UI latency.
           if (!p.readyAt || performance.now() - p.last <= 250 || p.pending.size || animations.length) continue;
@@ -145,7 +147,7 @@ test('profiles an empty Project option update through editable and visual comple
         throw new Error('UI did not stabilize: ' + JSON.stringify(p.events));
       }, index);
       await expect(input).toHaveValue(value);
-      const requests = sample.events.filter((event: any) => event.type === 'request');
+      const requests = sample.events.filter((event: any) => event.type === 'request' && !event.background);
       expect(requests.filter((event: any) => event.op === 'mutateNativeScopedConfig')).toHaveLength(1);
       expect(requests.filter((event: any) => event.op === 'getPrintConfigEditor')).toHaveLength(expectedEditorReads);
       expect(sample.events.find((event: any) => event.type === 'response' && event.op === 'mutateNativeScopedConfig')?.resultOk).toBe(true);
