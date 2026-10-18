@@ -334,6 +334,14 @@ opening a Select has no selection effect, while choosing a flow reports the
 native choice ID. The Printer adapter supplies each nozzle's retained editing
 flow and handles both callbacks. Card wrapping, layout and existing highlighting
 are retained; this shared presentation adds no aggregate card dirty marker.
+Selection hooks and shared visibility/semantic-identity helpers live separately
+from the component. The flat-selection hook remains independent from Printer's
+per-nozzle editing-flow hook. Pages supply their own visible/search field sets
+to visibility checks and their unfiltered page keys to ownership markers;
+Scoped markers union native ownership across the selected targets. The Process
+adapter receives effective project diameters from its page. None of these
+presentation helpers writes configuration, changes project flow or creates
+history entries.
 
 Project Print and Objects-mode field labels reserve an aligned nozzle-icon gutter
 only when there are multiple native extruder/variant choices. A printer with

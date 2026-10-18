@@ -626,6 +626,16 @@ describe('PresetEditorDialogContent', () => {
     await click(document.querySelector('[data-testid="preset-editor-extruder-3"]'));
     expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('HF');
     expect(h.onMutate).not.toHaveBeenCalled();expect(h.getSnapshot()).toEqual(source);
+    // Multiple physical nozzles still need navigation when just one flow is available.
+    await h.update({...source,editorSelection:{...source.editorSelection,choices:source.editorSelection.choices.slice(0,1),
+      fieldBindings:Object.fromEntries(Object.entries(source.editorSelection.fieldBindings).map(([key,binding])=>[key,
+        binding.kind==='shared'?binding:{...binding,bindings:binding.bindings.slice(0,1)}]))}});
+    expect(document.querySelector('[data-testid="preset-editor-extruder-switch"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-flow-2"]')).toHaveProperty('disabled',true);
+    expect(document.querySelector('[data-testid="preset-editor-flow-2"]')?.textContent).toContain('Unavailable');
+    await click(document.querySelector('[data-testid="preset-editor-extruder-2"]'));
+    expect(document.querySelector('[data-testid="preset-editor-extruder-2"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(h.onMutate).not.toHaveBeenCalled();
   });
 
   it('initializes active entries from native hints, carries inactive choices, and preserves valid view on receipts/history',async()=>{

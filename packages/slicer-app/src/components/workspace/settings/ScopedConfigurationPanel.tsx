@@ -10,7 +10,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { useConfigEditorSelection } from './ConfigEditorSelection';
+import { isEditorSelectionVisible, useConfigEditorSelection } from './editorSelection';
 import { PrintEditorSelection } from './PrintEditorSelection';
 import { NozzleIcon } from '@/components/ui/nozzle-icon';
 import { usePrintConfigEditor, useScopedConfigEditor } from './usePrintConfigEditor';
@@ -251,6 +251,8 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const selectionRevision = useSyncExternalStore(subscribeSelection, () => mode === 'scoped' ? selection?.revision ?? 0 : 0);
   const metadata = useSettingsStore((state) => state.metadata);
   const baseValues = useSettingsStore((state) => state.baseValues);
+  const nozzleDiameterText = useSettingsStore((state) => state.values.nozzle_diameter);
+  const nozzleDiameters = useMemo(() => nozzleDiameterText?.split(',').map(value => value.trim()) ?? [], [nozzleDiameterText]);
   const bedType = useSettingsStore((state) => state.bedType);
   const snapshot = useSettingsStore((state) => state.nativeScopedConfig);
   const setConfigurationMode = useSettingsStore((state) => state.setConfigurationMode);
@@ -489,9 +491,10 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
               tabs?.[next]?.focus();
             }}>{page.title}</Button>)}
         </div>}
-        {selectionMetadata && mode!=='plates' && (mode==='project' || resolution.scope!=='invalid') && selectionMetadata.choices.length>1 &&
-          categories.some(category=>category.fields.some(field=>selectionMetadata.fieldBindings[field.key]?.kind==='per_selection')) &&
+        {selectionMetadata && mode!=='plates' && (mode==='project' || resolution.scope!=='invalid') &&
+          isEditorSelectionVisible(selectionMetadata, categories.flatMap(category => category.fields.map(field => field.key))) &&
           <PrintEditorSelection metadata={selectionMetadata} choiceId={selectedChoice.choiceId} onSelect={selectedChoice.select}
+            diameters={nozzleDiameters}
             disabled={mode==='project' && printEditor.refreshing} dirtyChoiceIds={dirtyChoiceIds} />}
         {mode==='scoped' && scopedEditor.error && <p role="alert" className="text-xs text-destructive">{scopedEditor.error}</p>}
         {mode==='project' && printEditor.error && <p role="alert" className="text-xs text-destructive">{printEditor.error}</p>}

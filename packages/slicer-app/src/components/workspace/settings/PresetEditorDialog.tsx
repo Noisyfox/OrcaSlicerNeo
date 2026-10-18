@@ -1,8 +1,9 @@
 import { configVectorElementAt as vectorAt } from '@slicer/client';
 import { UserPresetActions } from './UserPresetActions';
 import { editorDirtyChoiceIds, editorFieldTarget, fieldBinding, fieldHasOverride, fieldViewKey } from './presetEditorBindings';
-import { PrinterEditorSelection, usePrinterEditorSelection } from './PrinterEditorSelection';
-import { ConfigEditorSelection, useConfigEditorSelection } from './ConfigEditorSelection';
+import { PrinterEditorSelection } from './PrinterEditorSelection';
+import { EditorSelector } from './EditorSelector';
+import { isEditorSelectionVisible, useConfigEditorSelection, usePrinterEditorSelection } from './editorSelection';
 import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import type {
@@ -1088,12 +1089,10 @@ export function PresetEditorDialogContent({
     return binding.kind === 'unavailable' ? [] : [{ key, ...binding }];
   });
   const categoryHasOverrides = snapshot !== null && activePageResetFields.some(field => fieldHasOverride(snapshot, field.key, field));
-  const switchApplicable = snapshot?.kind === 'printer' && (snapshot.editorSelection.nozzles.length > 1 || snapshot.editorSelection.choices.length > 1);
-  const categoryMapped = snapshot !== null && (query ? searchResults.map(result => result.field.key) : activePageKeys)
-    .some(key => snapshot.editorSelection.fieldBindings[key]?.kind === 'per_selection');
+  const selectionVisible = isEditorSelectionVisible(snapshot?.editorSelection, query ? searchResults.map(result => result.field.key) : activePageKeys);
   const showSearchResults = query.length > 0;
-  const showPrinterSelection = snapshot !== null && switchApplicable && categoryMapped;
-  const showFilamentSelection = snapshot?.kind === 'filament' && snapshot.editorSelection.choices.length > 1 && categoryMapped;
+  const showPrinterSelection = snapshot?.kind === 'printer' && selectionVisible;
+  const showFilamentSelection = snapshot?.kind === 'filament' && selectionVisible;
   const showCategoryReset = snapshot !== null && !loadError && !loading && !showSearchResults && activePage !== null;
   const dirtyChoiceIds = editorDirtyChoiceIds(snapshot, activePageKeys);
 
@@ -1203,8 +1202,9 @@ export function PresetEditorDialogContent({
               <div className="min-w-0 flex-1 overflow-x-auto">
                 {showPrinterSelection && <PrinterEditorSelection snapshot={snapshot} selection={selection}
                   disabled={loading || refreshing} dirtyChoiceIds={dirtyChoiceIds} />}
-                {showFilamentSelection && <ConfigEditorSelection
-                  metadata={snapshot.editorSelection} choiceId={filamentSelection.choiceId} onSelect={filamentSelection.select}
+                {showFilamentSelection && <EditorSelector mode="flat"
+                  items={snapshot.editorSelection.choices.map(choice => ({ id: choice.id, label: choice.label, primary: choice.label }))}
+                  choiceId={filamentSelection.choiceId} onSelect={filamentSelection.select}
                   dirtyChoiceIds={dirtyChoiceIds}
                   disabled={loading || refreshing} testId="preset-editor-variant" label="Filament variant" />}
               </div>

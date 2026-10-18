@@ -579,6 +579,14 @@ test('U1 single Extruder page maps per-nozzle flows and keeps direct diameter ed
     await page.getByTestId('nozzle-variant-select').click();
     await page.getByRole('option', { name: '0.4+0.6', exact: true }).click();
     await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4+0.6');
+    await page.getByTestId('config-page-Speed').click();
+    const processChoices = page.getByTestId('print-editor-selection').getByRole('button');
+    await expect(processChoices.first()).toContainText('0.4');
+    await expect(processChoices.last()).toContainText('0.6');
+    await processChoices.last().click();
+    await expect(processChoices.last()).toHaveAttribute('aria-pressed', 'true');
+    await processChoices.last().click();
+    await expect(processChoices.last()).toHaveAttribute('aria-pressed', 'true');
     await page.getByTestId('preset-edit-printer').click();
     await expect(page.getByTestId('preset-editor-title')).toHaveText('Snapmaker U1 (0.4+0.6 nozzle)');
     await page.getByTestId('preset-editor-page-tab-extruder').click();

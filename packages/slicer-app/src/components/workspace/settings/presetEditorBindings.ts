@@ -1,5 +1,6 @@
 import { configVectorElementAt } from '@slicer/client';
 import type { ConfigEditorElementBinding, ConfigEditorSnapshot, PresetDraftEditorBinding, PresetDraftSnapshot } from '@slicer/client';
+import { editorChoiceIdentity } from './editorSelection';
 
 export type EditorFieldTarget = ConfigEditorElementBinding | { readonly kind: 'shared' };
 
@@ -49,6 +50,6 @@ export function editorDirtyChoiceIds(snapshot: Pick<ConfigEditorSnapshot, 'sourc
 export function fieldViewKey(snapshot: ConfigEditorSnapshot, key: string, choiceId: string | null): string {
   const target = editorFieldTarget(snapshot, key, choiceId);
   const choice=snapshot.editorSelection.choices.find(choice=>choice.id===choiceId);
-  const identity=choice?JSON.stringify([choice.extruderIndex,choice.variant]):'';
+  const identity=choice?editorChoiceIdentity(choice):'';
   return `${snapshot.canonicalName}:${key}:${target.kind}:${target.kind === 'indexed' ? `${identity}:${target.index}` : ''}`;
 }
