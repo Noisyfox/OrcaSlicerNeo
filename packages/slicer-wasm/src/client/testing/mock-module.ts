@@ -1,5 +1,6 @@
 import type { SetupWizardCatalogue, ProfileActivation } from '../setupWizard';
 import { paintingMock } from './painting-mock';
+import { FILAMENT_OVERRIDE_KEYS } from '../filamentOverrides';
 // packages/slicer-wasm/src/client/testing/mock-module.ts
 // ----------------------------------------------------------------
 // Bridge-shaped mock Emscripten module for unit tests (no emsdk).
@@ -618,6 +619,24 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
   };
   const serializePresetEditorValues = (values: readonly PresetDraftEditorValue[]) => JSON.stringify(values);
+  for (const key of FILAMENT_OVERRIDE_KEYS) {
+    const rawKey = key.slice(9);
+    const bool = ['wipe', 'retract_when_changing_layer', 'long_retractions_when_cut'].includes(rawKey);
+    const enumeration = ['z_hop_types', 'retract_lift_enforce'].includes(rawKey);
+    const percent = ['retract_before_wipe', 'retract_after_wipe', 'ironing_flow'].includes(rawKey);
+    const scalarType = bool ? 'bool' : enumeration ? 'enum' : percent ? 'percent' : 'float';
+    presetEditorOptions.filament[key] ??= { scalarType,
+      metadataType: bool ? 'bools' : enumeration ? 'enums' : percent ? 'percents' : 'floats',
+      values: [null, null], nullable: true,
+      ...(enumeration ? { enumOptions: [{ value: 0, name: 'normal', label: 'Normal' }, { value: 1, name: 'spiral', label: 'Spiral' }] } : {}) };
+    metadata[key] = { type: presetEditorOptions.filament[key].metadataType, min: 0,
+      ...(percent ? { max: 100 } : {}), ...(rawKey === 'ironing_spacing' ? { max: 1 } : {}) };
+    if (!rawKey.startsWith('ironing_')) {
+      presetEditorOptions.printer[rawKey] ??= { ...presetEditorOptions.filament[key], nullable: false,
+        values: [bool ? false : rawKey === 'retraction_length' ? 0.8 : rawKey === 'retract_before_wipe' ? 50 : 0] };
+      metadata[rawKey] = { type: presetEditorOptions.printer[rawKey].metadataType, min: 0, ...(percent ? { max: 100 } : {}) };
+    }
+  }
   function editorValuesFor(kind: 'printer' | 'filament', canonicalName: string, key: string): PresetDraftEditorValue[] | undefined {
     const source = presetEditorOptions[kind][key]?.values;
     if (!source) return undefined;
@@ -785,6 +804,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       nozzle_diameter: serializePresetEditorValues(presetEditorOptions.printer.nozzle_diameter!.values),
       extruders_count: String(presetEditorOptions.printer.nozzle_diameter!.values.length),
       single_extruder_multi_material: preset.vendor_id === 'bambulab' ? '1' : '0',
+      enable_long_retraction_when_cut: '2',
       manual_filament_change: '0', purge_in_prime_tower: '0',
     } : {
       filament_vendor: 'Generic',
@@ -823,6 +843,28 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         .sort((a, b) => Number(b.compatible) - Number(a.compatible) || Number(b.modified) - Number(a.modified)) } : {}),
       overrides, source_values: sourceValues, effective_values: effectiveValues,
       option_metadata: optionMetadata, editor_vectors: vectors,
+      filament_override_context: kind === 'filament' ? Object.fromEntries(FILAMENT_OVERRIDE_KEYS.map(key => {
+        const rawKey = key.slice(9);
+        const reference = (name: string, index: number): PresetDraftEditorValue => {
+          if (name.startsWith('ironing_')) {
+            const defaults: Record<string, number> = { ironing_flow: 10, ironing_spacing: 0.15, ironing_inset: 0, ironing_speed: 30 };
+            return nativeScopedConfig.project[name] === undefined ? defaults[name] : Number(nativeScopedConfig.project[name]);
+          }
+          const values = editorValuesFor('printer', selected.printer, name);
+          return values?.[index < values.length ? index : 0] ?? null;
+        };
+        const resolve = (name: string, index: number) => {
+          const values = editorValuesFor('filament', canonicalName, `filament_${name}`);
+          return values?.[index < values.length ? index : 0] ?? reference(name, index);
+        };
+        return [key, Array.from({ length: (vectors[key] as { index_count: number }).index_count }, (_, index) => {
+          const mode = presetDraftRegistry.printer[selected.printer]?.enable_long_retraction_when_cut ?? '2';
+          const visible = key === 'filament_long_retractions_when_cut' ? mode === '2'
+            : key === 'filament_retraction_distances_when_cut' ? mode === '2' && resolve('long_retractions_when_cut', index) === true : true;
+          return { reference_value: reference(rawKey, index), visible,
+            enabled: visible && (rawKey.startsWith('ironing_') || rawKey === 'retraction_length' || resolve('retraction_length', index) !== 0) };
+        })];
+      })) : {},
       editor_selection: mockEditorSelection(kind, Object.keys(sourceValues),
         Object.fromEntries(Object.entries(vectors).map(([key, vector]) => [key, (vector as { index_count: number }).index_count])),
         kind === 'printer' && canonicalName === selected.printer), revision: historyRevision };

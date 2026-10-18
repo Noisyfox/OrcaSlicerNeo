@@ -425,6 +425,69 @@ json editor_candidates_json(const Preset::Type type, const std::string& canonica
     return candidates;
 }
 
+const std::vector<std::string>& filament_override_keys()
+{
+    static const auto keys = [] {
+        auto result = filament_extruder_override_keys;
+        for (const auto* key : {"filament_ironing_flow", "filament_ironing_spacing",
+                                "filament_ironing_inset", "filament_ironing_speed"})
+            result.emplace_back(key);
+        return result;
+    }();
+    return keys;
+}
+
+// Reference-only lookup deliberately follows Orca's ordinal/first-element rule.
+// It must never replace the binding used to edit the Filament itself.
+json filament_override_reference(const DynamicPrintConfig& config, const std::string& key, size_t index)
+{
+    const auto* option = config.option(key);
+    const auto* def = print_config_def.get(key);
+    if (!option || !def) return nullptr;
+    if (const auto* vector = dynamic_cast<const ConfigOptionVectorBase*>(option)) {
+        if (vector->empty()) return nullptr;
+        return ConfigElements::editor_element_value(*option, *def, index < vector->size() ? index : 0);
+    }
+    if (option->is_nil()) return nullptr;
+    switch (def->type) {
+        case coFloat:
+        case coPercent: return dynamic_cast<const ConfigOptionFloat*>(option)->value;
+        case coInt:
+        case coEnum: return dynamic_cast<const ConfigOptionInt*>(option)->value;
+        case coBool: return option->getBool();
+        default: return nullptr;
+    }
+}
+
+json filament_override_context_json(const DynamicPrintConfig& filament)
+{
+    const auto printer = effective_printer_config();
+    const auto& process = state().presets.prints.get_edited_preset().config;
+    const bool machine_long = printer.opt_int("enable_long_retraction_when_cut") == LongRectrationLevel::EnableFilament;
+    json result = json::object();
+    for (const auto& key : filament_override_keys()) {
+        if (!filament.option(key)) continue;
+        const bool ironing = key.find("filament_ironing_") == 0;
+        auto values = json::array();
+        for (size_t index = 0; index < ConfigElements::element_count(filament, Preset::TYPE_FILAMENT, key); ++index) {
+            const auto resolve = [&](const std::string& option) {
+                auto value = filament_override_reference(filament, "filament_" + option, index);
+                return value.is_null() ? filament_override_reference(printer, option, index) : value;
+            };
+            const auto length = resolve("retraction_length");
+            const bool retract = !length.is_number() || length.get<double>() != 0;
+            bool visible = true;
+            if (key == "filament_long_retractions_when_cut") visible = machine_long;
+            if (key == "filament_retraction_distances_when_cut")
+                visible = machine_long && resolve("long_retractions_when_cut") == json(true);
+            values.push_back({{"reference_value", filament_override_reference(ironing ? process : printer, key.substr(9), index)},
+                {"visible", visible}, {"enabled", visible && (ironing || key == "filament_retraction_length" || retract)}});
+        }
+        result[key] = std::move(values);
+    }
+    return result;
+}
+
 // Values can be projected without traversing the installed candidate collection.
 json draft_values_json(const Preset::Type type, const std::string& canonical_name)
 {
@@ -493,6 +556,7 @@ json draft_values_json(const Preset::Type type, const std::string& canonical_nam
                 {"option_metadata", std::move(source_metadata)},
                 {"editor_vectors", std::move(editor_vectors)},
                 {"editor_selection", std::move(selection)},
+                {"filament_override_context", type == Preset::TYPE_FILAMENT ? filament_override_context_json(effective.config) : json::object()},
                 {"revision", state().history_revision}};
 }
 

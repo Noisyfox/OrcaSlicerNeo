@@ -42,7 +42,7 @@ export type {
   ConfigResetField,
   ConfigEditorChoice, ConfigEditorElementBinding, ConfigEditorFieldBinding, ConfigEditorSelection,
   PresetDraftKind, PresetDraftTarget, PresetDraftSnapshot, PresetDraftSnapshotResult,
-  PresetDraftValues, PresetEditorCandidateUpdate, ProfileOrdinaryEdit, FilamentSessionOrdinaryEdit,
+  PresetDraftValues, FilamentOverrideContext, PresetEditorCandidateUpdate, ProfileOrdinaryEdit, FilamentSessionOrdinaryEdit,
   PresetDraftEditorScalarType, PresetDraftEditorValue, PresetDraftEditorGuiType,
   PresetDraftEditorEnumOption, PresetDraftEditorBinding,
   PresetDraftEditorPoint, PresetDraftVectorValue, PresetDraftEditorVector,

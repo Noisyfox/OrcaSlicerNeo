@@ -750,8 +750,8 @@ interaction is introduced. Both hosts retain their current desktop layout.
 
 ## 4.3 Filament Setting Overrides extension
 
-**Status:** Accepted scope, interaction and reference rules; implementation
-pending.
+**Status:** Native reference projection delivered. Dedicated controls and
+wipe-percentage correction remain implementation work under the accepted rules.
 
 The extension completes the existing Setting Overrides page's three groups
 and 23 manifest-listed fields, preserving their order. It uses dedicated
@@ -837,6 +837,13 @@ category/preset Reset semantics remain unchanged. Reset uses
 its baseline semantics, not the reference-value initialization used by enabling.
 
 ### Reference values
+
+Preset draft reads and mutation receipts require `filament_override_context`
+(`filamentOverrideContext` in the typed client). Printer drafts carry an empty
+map; Filament entries align with each field's native `index_count`. Each entry
+contains a typed nullable reference value, visibility and dependency permission
+(`enabled`), independently of whether the Filament value is nil. Producers,
+client validation and mocks use the same contract without legacy fallbacks.
 
 Prefer a simple Orca-style reference policy over exact physical-extruder
 matching. Use the project's current effective Printer, including its draft,

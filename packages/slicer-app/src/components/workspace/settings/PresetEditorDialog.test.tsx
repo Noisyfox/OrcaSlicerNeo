@@ -138,6 +138,7 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
     canonicalName: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical',
     editorCandidates: [{ canonicalName: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical', label: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical', isProjectEmbedded: false, isUser: false, compatible: true, modified: options.modified ?? false }],
     draftExists: options.draftExists ?? true,
+    filamentOverrideContext: {},
     modified: options.modified ?? false,
     overrides: options.modified ? (kind === 'printer' ? { printable_height: '245' } : { filament_flow_ratio: [{value: 0.92}, null] }) : {},
     sourceValues,
