@@ -488,6 +488,28 @@ json filament_override_context_json(const DynamicPrintConfig& filament)
     return result;
 }
 
+void correct_filament_wipe_percentages(const std::string& name, const std::optional<size_t> target)
+{
+    auto filament = effective_preset_config(state().presets, state().preset_drafts, Preset::TYPE_FILAMENT, name);
+    const auto printer = effective_printer_config();
+    const std::string after_key = "filament_retract_after_wipe";
+    const size_t count = ConfigElements::element_count(filament, Preset::TYPE_FILAMENT, after_key);
+    for (size_t index = target.value_or(0); index < (target ? *target + 1 : count); ++index) {
+        const auto resolve = [&](const std::string& key) {
+            auto value = filament_override_reference(filament, "filament_" + key, index);
+            return value.is_null() ? filament_override_reference(printer, key, index) : value;
+        };
+        const auto before = resolve("retract_before_wipe"), after = resolve("retract_after_wipe");
+        if (!before.is_number() || !after.is_number() || before.get<double>() + after.get<double>() <= 100) continue;
+        const auto* overrides = state().preset_drafts.find(Preset::TYPE_FILAMENT, name);
+        const json current = overrides && overrides->count(after_key) ? overrides->at(after_key) : json(nullptr);
+        auto corrected = ConfigElements::set_override(filament, Preset::TYPE_FILAMENT, after_key,
+            current, "percent", index, 100 - before.get<double>());
+        if (corrected.is_object()) throw std::runtime_error(corrected.value("error", "invalid wipe-percentage correction"));
+        state().preset_drafts.set(Preset::TYPE_FILAMENT, name, after_key, corrected);
+    }
+}
+
 // Values can be projected without traversing the installed candidate collection.
 json draft_values_json(const Preset::Type type, const std::string& canonical_name)
 {
@@ -752,6 +774,17 @@ json mutate_draft_json(const json& request)
         for (const auto& field : reset_fields) keys.push_back(field.key);
     }
 
+    if (!printer && (action == "set" || action == "set-element") &&
+        (key == "filament_retract_before_wipe" || key == "filament_retract_after_wipe")) {
+        // Orca's GUI enforces these bounds, but its native definitions omit them.
+        for (const auto& entry : override_value) {
+            if (entry.is_null() || entry.at("value").is_null()) continue;
+            const auto& value = entry.at("value");
+            if (!value.is_number() || value.get<double>() < 0 || value.get<double>() > 100)
+                return command_error("invalid_value", "wipe percentage must be between 0 and 100");
+        }
+    }
+
     std::map<std::string, json> indexed_resets;
     if (action == "reset-field" && request.contains("index")) {
         if (!request["index"].is_number_unsigned())
@@ -905,6 +938,12 @@ json mutate_draft_json(const json& request)
                             ConfigElements::explicit_values(baseline_config, type, key));
             }
         }
+
+        const bool wipe_edit = (action == "set" || action == "set-element") &&
+            (key == "filament_retract_before_wipe" || key == "filament_retract_after_wipe");
+        if (!printer && (wipe_edit || (action == "reset-field" && key == "filament_retract_after_wipe")))
+            correct_filament_wipe_percentages(canonical_name, request.contains("index")
+                ? std::optional<size_t>(request.at("index").get<size_t>()) : std::nullopt);
 
         if (printer && reset_count) {
             auto candidate = effective_preset_config(state().presets, state().preset_drafts, type, canonical_name);

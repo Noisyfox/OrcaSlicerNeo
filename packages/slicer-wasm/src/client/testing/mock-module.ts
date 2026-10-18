@@ -975,6 +975,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       } else if (typeof value !== 'number' || !Number.isFinite(value)) {
         return fail('invalid_value', 'preset editor element requires a finite number');
       }
+      const meta = metadata[request.key];
+      if (typeof value === 'number' && ((meta?.min !== undefined && value < meta.min) || (meta?.max !== undefined && value > meta.max)))
+        return fail('invalid_value', 'preset editor element is outside its native range');
     } else if (action === 'reset-field') {
       if (typeof request.key !== 'string' || !(request.key in sourceValues))
         return fail('unsupported_option', 'option is not available on this preset');
@@ -1066,6 +1069,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       presetDraftRegistry[kind][canonicalName] = current;
     } else {
       delete presetDraftRegistry[kind][canonicalName];
+    }
+    if (kind === 'filament' && ((['set', 'set-element'].includes(action) && ['filament_retract_before_wipe', 'filament_retract_after_wipe'].includes(request.key)) ||
+        (action === 'reset-field' && request.key === 'filament_retract_after_wipe'))) {
+      const current = presetDraftRegistry.filament[canonicalName] ?? {};
+      const count = editorValuesFor('filament', canonicalName, 'filament_retract_after_wipe')!.length;
+      for (let index = request.index ?? 0; index < (request.index === undefined ? count : request.index + 1); index++) {
+        const resolve = (key: string) => {
+          const own = editorValuesFor('filament', canonicalName, `filament_${key}`)!;
+          const printer = editorValuesFor('printer', selected.printer, key)!;
+          return own[index < own.length ? index : 0] ?? printer[index < printer.length ? index : 0];
+        };
+        const before = resolve('retract_before_wipe'), after = resolve('retract_after_wipe');
+        if (typeof before !== 'number' || typeof after !== 'number' || before + after <= 100) continue;
+        const entries = Array.isArray(current.filament_retract_after_wipe) ? [...current.filament_retract_after_wipe] : Array(count).fill(null);
+        entries[index] = { value: 100 - before }; current.filament_retract_after_wipe = entries;
+      }
+      presetDraftRegistry.filament[canonicalName] = current;
     }
     if (kind === 'printer' && canonicalName === selected.printer) {
       const count = editorValuesFor('printer', canonicalName, 'nozzle_diameter')!.length;

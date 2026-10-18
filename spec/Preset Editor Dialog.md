@@ -750,8 +750,8 @@ interaction is introduced. Both hosts retain their current desktop layout.
 
 ## 4.3 Filament Setting Overrides extension
 
-**Status:** Native reference projection delivered. Dedicated controls and
-wipe-percentage correction remain implementation work under the accepted rules.
+**Status:** Native reference projection and atomic wipe-percentage correction
+delivered. Dedicated controls remain implementation work under the accepted rules.
 
 The extension completes the existing Setting Overrides page's three groups
 and 23 manifest-listed fields, preserving their order. It uses dedicated
@@ -766,7 +766,9 @@ for other preset-editor pages.
 Orca's `TabFilament::on_value_change` wipe-percentage companion mutation is
 included. Committing a value edit or override-switch change to either
 before-wipe or after-wipe validates the staged result, including when the
-switch change writes nil. When their resolved percentages sum to more than
+switch change writes nil. Submitted numeric wipe percentages must be within
+0-100%; reject out-of-range inputs before companion correction even though
+Orca's native option definitions omit these bounds. When their resolved percentages sum to more than
 100%, set Filament after-wipe to `100% - before-wipe`. This may create an
 explicit after-wipe override even when
 that element previously inherited its Printer value or the initiating action

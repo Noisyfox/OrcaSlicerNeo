@@ -64,3 +64,36 @@ for (const key of ['filament_ironing_flow', 'filament_ironing_spacing', 'filamen
   assert.equal(typeof entry.reference_value, 'number'); assert.equal(entry.visible, true); assert.equal(entry.enabled, true);
 }
 console.log('Filament Setting Overrides native projection: passed');
+
+const beforeKey = 'filament_retract_before_wipe', afterKey = 'filament_retract_after_wipe';
+element('printer', printer, 'retract_before_wipe', 'percent', 0, 50);
+element('printer', printer, 'retract_after_wipe', 'percent', 0, 40);
+element('filament', filament, beforeKey, 'percent', last, 50);
+element('filament', filament, afterKey, 'percent', last, null);
+const beforeCorrection = read(), beforeHistory = history();
+const corrected = element('filament', filament, beforeKey, 'percent', last, 80);
+assert.deepEqual(corrected.editor_vectors[afterKey].override_values[last], { value: 20 });
+assert.equal(history().undoEntries.length, beforeHistory.undoEntries.length + 1);
+assert.deepEqual(corrected.editor_vectors[afterKey].override_values.slice(0,last), beforeCorrection.editor_vectors[afterKey].override_values.slice(0,last), 'companion correction preserves other variants');
+ok(call('orc_history_undo')); assert.deepEqual(read().overrides, beforeCorrection.overrides);
+ok(call('orc_history_redo')); assert.deepEqual(read().overrides, corrected.overrides);
+const unchecked = element('filament', filament, afterKey, 'percent', last, null);
+assert.deepEqual(unchecked.editor_vectors[afterKey].override_values[last], { value: 20 });
+const resetAfter = mutate('filament', filament, { action:'reset-field',key:afterKey,index:last });
+assert.deepEqual(resetAfter.editor_vectors[afterKey].override_values[last], { value: 20 });
+const resetCategory = mutate('filament', filament, { action:'reset-category',fields:[{key:afterKey,kind:'indexed',index:last}] });
+assert.equal(resetCategory.editor_vectors[afterKey].override_values[last], null, 'category Reset does not correct');
+element('filament', filament, beforeKey, 'percent', last, 80);
+const resetBefore = mutate('filament', filament, { action:'reset-field',key:beforeKey,index:last });
+assert.deepEqual(resetBefore.editor_vectors[afterKey].override_values[last], { value: 20 }, 'before Reset preserves after ownership');
+const stable = read(), stableHistory = history();
+for (const fields of [
+  { key:beforeKey,scalar_type:'percent',index:last,value:101 },
+  { key:beforeKey,scalar_type:'percent',index:count,value:80 },
+]) {
+  const rejected = call('orc_mutate_preset_draft', [JSON.stringify({history_context:context,kind:'filament',canonical_name:filament,action:'set-element',expected_revision:history().revision,...fields})]);
+  assert.equal(rejected.ok,false); assert.deepEqual(read(),stable); assert.deepEqual(history(),stableHistory);
+}
+mutate('filament', filament, {action:'reset-preset'});
+assert.deepEqual(read().overrides, {}, 'preset Reset still removes the complete overlay');
+console.log('Filament Setting Overrides atomic wipe correction: passed');

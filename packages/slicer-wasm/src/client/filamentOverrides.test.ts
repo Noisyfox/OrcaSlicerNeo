@@ -6,6 +6,37 @@ import { createMockModule, MOCK_PROFILE_ACTIVATION } from './testing/mock-module
 const context = { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 
 describe('Filament Setting Overrides projection', () => {
+  it('corrects wipe edits, unchecking and only after-wipe field Reset atomically', async () => {
+    const client = createClient(async () => createMockModule()); await client.init(MOCK_PROFILE_ACTIVATION);
+    const name = 'Generic PLA @System';
+    const read = async () => { const result = await client.getPresetDraft('filament', name); if (!result.ok) throw new Error(result.error); return result; };
+    const edit = async (key: string, value: number | null) => { const before = await read();
+      const result = await client.mutatePresetDraft({kind:'filament',canonicalName:name,action:'set-element',key,scalarType:'percent',index:1,value,expectedRevision:before.revision},context);
+      if (!result.ok) throw new Error(result.error); return result; };
+    const profile = await client.getProfileSnapshot(); if (!profile.ok) throw new Error(profile.error);
+    const p = await client.getPresetDraft('printer', profile.printer.name); if (!p.ok) throw new Error(p.error);
+    await client.mutatePresetDraft({kind:'printer',canonicalName:p.canonicalName,action:'set-element',key:'retract_after_wipe',scalarType:'percent',index:0,value:40,expectedRevision:p.revision},context);
+    const beforeKey = 'filament_retract_before_wipe', afterKey = 'filament_retract_after_wipe';
+    const historyBefore = await client.getHistoryStatus();
+    const changed = await edit(beforeKey,80);
+    expect(changed.editorVectors[afterKey].overrideValues).toEqual([null,{value:20}]);
+    expect((await client.getHistoryStatus()).undoEntries).toHaveLength(historyBefore.undoEntries.length+1);
+    await client.undoHistory(); expect((await read()).overrides).toEqual({});
+    await client.redoHistory(); expect((await read()).overrides).toEqual(changed.overrides);
+    expect((await edit(afterKey,null)).editorVectors[afterKey].overrideValues).toEqual([null,{value:20}]);
+    const reset = async (key:string) => { const current=await read();
+      const result=await client.mutatePresetDraft({kind:'filament',canonicalName:name,action:'reset-field',key,index:1,expectedRevision:current.revision},context);
+      if (!result.ok) throw new Error(result.error); return result; };
+    expect((await reset(afterKey)).editorVectors[afterKey].overrideValues).toEqual([null,{value:20}]);
+    const current=await read();
+    const category=await client.mutatePresetDraft({kind:'filament',canonicalName:name,action:'reset-category',fields:[{key:afterKey,kind:'indexed',index:1}],expectedRevision:current.revision},context);
+    expect(category).toMatchObject({ok:true,editorVectors:{[afterKey]:{overrideValues:[null,null]}}});
+    await edit(beforeKey,80);
+    expect((await reset(beforeKey)).editorVectors[afterKey].overrideValues).toEqual([null,{value:20}]);
+    const stable=await read(), history=await client.getHistoryStatus();
+    expect(await client.mutatePresetDraft({kind:'filament',canonicalName:name,action:'set-element',key:beforeKey,scalarType:'percent',index:1,value:101,expectedRevision:stable.revision},context)).toMatchObject({ok:false,errorCode:'invalid_value'});
+    expect(await read()).toEqual(stable); expect(await client.getHistoryStatus()).toEqual(history);
+  });
   it('uses current Printer references and preserves Filament nil values, false and zero', async () => {
     const client = createClient(async () => createMockModule()); await client.init(MOCK_PROFILE_ACTIVATION);
     const read = async () => { const result = await client.getPresetDraft('filament', 'Generic PLA @System');
