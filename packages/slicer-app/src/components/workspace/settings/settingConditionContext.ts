@@ -16,8 +16,9 @@ type ContextOptions = {
 export function editorSettingContext(snapshot: EditorValues | null, choiceId: string | null, options: ContextOptions): SettingConditionContext {
   const printer = settingValues(key => options.printerValues?.[key]);
   const project = settingValues(key => options.projectValues?.[key]);
+  const ownsPreset = options.scope === 'printer' || options.scope === 'filament';
   const values = settingValues(key => {
-      if (!snapshot || !Object.hasOwn(snapshot.effectiveValues, key)) return project.value(key);
+      if (!snapshot || !Object.hasOwn(snapshot.effectiveValues, key)) return ownsPreset ? undefined : project.value(key);
       const vector = snapshot.editorVectors[key];
       if (!vector) return snapshot.effectiveValues[key];
       const binding = editorFieldTarget(snapshot, key, choiceId);
@@ -30,7 +31,7 @@ export function editorSettingContext(snapshot: EditorValues | null, choiceId: st
       const vector = snapshot?.editorVectors[key];
       if (vector) return vector.effectiveValues.every(value => typeof value === 'number' && Number.isFinite(value)) ? vector.effectiveValues as number[] : undefined;
       const raw = snapshot?.effectiveValues[key];
-      return raw === undefined ? printer.numbers(key) : settingValues(() => raw).numbers(key);
+      return raw === undefined ? ownsPreset ? undefined : project.numbers(key) : settingValues(() => raw).numbers(key);
     });
   return {
     ...values,

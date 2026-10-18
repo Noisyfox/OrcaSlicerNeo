@@ -59,7 +59,8 @@ describe('shared setting conditions', () => {
     expect(values.boolean('control')).toBe(true);
     expect(values.value('nullable')).toBeNull();
     expect(values.number('nullable')).toBeUndefined();
-    expect(values.number('inherited')).toBe(4);
+    expect(values.number('inherited')).toBeUndefined(); // A browsed preset never borrows another preset's values.
+    expect(editorSettingContext(snapshot, 'head', { scope: 'object', projectValues: { inherited: '4' } }).number('inherited')).toBe(4);
     expect(editorSettingContext(snapshot, null, { scope: 'printer', projectValues: { control: '0' } }).boolean('control')).toBeUndefined();
   });
 });

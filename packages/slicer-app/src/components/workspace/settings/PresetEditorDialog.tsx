@@ -1,9 +1,15 @@
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { editorSettingContext } from './settingConditionContext';
+import { updateOptionStates } from './updateOptionStates';
+import { useOptionState, useOptionStateScope, useVisibleOptionCount } from './useOptionState';
+import type { OptionStateScope } from './optionStateRegistry';
+import { presetOptionPublication, printerNozzleCount, type PresetOptionData } from './presetOptionProjection';
 import { configVectorElementAt as vectorAt } from '@slicer/client';
 import { UserPresetActions } from './UserPresetActions';
 import { editorFieldTarget, fieldBinding, fieldHasOverride, fieldViewKey } from './presetEditorBindings';
 import { PrinterEditorSelection, usePrinterEditorSelection } from './PrinterEditorSelection';
 import { ConfigEditorSelection, useConfigEditorSelection } from './ConfigEditorSelection';
-import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { createContext, memo, useContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import type {
   OptionMeta,
@@ -224,6 +230,8 @@ function makeMutationRequest(
 }
 
 function FieldValue({
+  visible = true,
+  conditionReadOnly = false,
   choiceId,
   field,
   metadata,
@@ -234,6 +242,8 @@ function FieldValue({
   mutationPending,
   onMutate,
 }: {
+  visible?: boolean;
+  conditionReadOnly?: boolean;
   choiceId: string | null;
   field: PresetEditorManifestField;
   metadata: OptionMeta | undefined;
@@ -288,14 +298,14 @@ function FieldValue({
   const cancelBlur = useRef(false);
   const actionPending = useRef(false);
   const [colourOpen, setColourOpen] = useState(false);
-  useEffect(() => setColourOpen(false), [effectiveValue]);
+  useEffect(() => setColourOpen(false), [effectiveValue, visible, conditionReadOnly]);
 
   const inputId = `preset-editor-input-${page?.id ?? 'field'}-${group?.id ?? 'group'}-${field.key}`;
   const reportValidation = useContext(PresetEditorValidationContext);
   useEffect(() => {
-    reportValidation(inputId, fieldError !== null);
+    reportValidation(inputId, visible && !conditionReadOnly && fieldError !== null);
     return () => reportValidation(inputId, false);
-  }, [fieldError, inputId, reportValidation]);
+  }, [fieldError, inputId, reportValidation, visible, conditionReadOnly]);
 
   useEffect(() => {
     if (focused.current || fieldError !== null) return;
@@ -307,7 +317,7 @@ function FieldValue({
   }, [binding?.effectiveValue, binding?.scalarType, effectiveValue, fieldError]);
 
   const submitSet = useCallback(async (value: string) => {
-    if (loading || mutationPending || actionPending.current) return;
+    if (!visible || conditionReadOnly || loading || mutationPending || actionPending.current) return;
     actionPending.current = true;
     setFieldError(null);
     setDisplayValue(value);
@@ -320,10 +330,10 @@ function FieldValue({
     } finally {
       actionPending.current = false;
     }
-  }, [field.key, loading, mutationPending, onMutate, snapshot]);
+  }, [field.key, loading, mutationPending, onMutate, snapshot, visible, conditionReadOnly]);
 
   const submitElementSet = useCallback(async (value: PresetDraftEditorValue) => {
-    if (!binding || loading || mutationPending || actionPending.current) return;
+    if (!visible || conditionReadOnly || !binding || loading || mutationPending || actionPending.current) return;
     actionPending.current = true;
     setFieldError(null);
     setNullValue(value === null);
@@ -349,10 +359,10 @@ function FieldValue({
     } finally {
       actionPending.current = false;
     }
-  }, [binding, field.key, loading, mutationPending, onMutate, snapshot, targetBinding]);
+  }, [binding, field.key, loading, mutationPending, onMutate, snapshot, targetBinding, visible, conditionReadOnly]);
 
   const resetField = async () => {
-    if (!overridden || readOnly || loading || mutationPending || actionPending.current) return;
+    if (!visible || conditionReadOnly || !overridden || readOnly || loading || mutationPending || actionPending.current) return;
     actionPending.current = true;
     setFieldError(null);
     try {
@@ -391,7 +401,7 @@ function FieldValue({
   const boundNumeric = binding?.scalarType === 'float' || binding?.scalarType === 'int' ||
     binding?.scalarType === 'percent' || binding?.scalarType === 'float_or_percent';
   const multiline = field.multiline === true || binding?.multiline === true;
-  const controlsDisabled = loading || mutationPending;
+  const controlsDisabled = !visible || conditionReadOnly || loading || mutationPending;
   const colorControl = <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen} title={label}
     value={{ kind: 'solid', color: colourInputValue(displayValue) }} disabled={controlsDisabled}
     onConfirm={next => {
@@ -403,6 +413,7 @@ function FieldValue({
       <ColorSwatch value={{ kind: 'solid', color: colourInputValue(displayValue) }} className="size-5" />
     </Button>} />;
   const commitText = () => {
+    if (controlsDisabled) return;
     if (coordinateVector) {
       if (displayValue === effectiveValue || actionPending.current || controlsDisabled) return;
       const points: PresetDraftEditorPoint[] = [];
@@ -670,6 +681,9 @@ function FieldValue({
 
   return (
     <article
+      hidden={!visible}
+      style={!visible ? { display: 'none' } : undefined}
+      data-condition-readonly={conditionReadOnly ? 'true' : 'false'}
       data-testid={`preset-editor-field-${field.key}`}
       data-field-key={field.key}
       data-field-access={readOnly ? 'read-only' : 'editable'}
@@ -677,7 +691,7 @@ function FieldValue({
       data-native-scalar-type={binding?.scalarType}
       data-native-min={metadata?.min}
       data-native-max={metadata?.max}
-      aria-disabled={readOnly || undefined}
+      aria-disabled={readOnly || conditionReadOnly || undefined}
       title={tooltip}
       className="min-w-0 rounded-md border bg-background/70 px-3 py-2"
     >
@@ -729,54 +743,55 @@ function FieldValue({
   );
 }
 
-function FieldGroup({
-  choiceId,
-  page,
-  group,
-  snapshot,
-  loading,
-  mutationPending,
-  onMutate,
-}: {
-  choiceId: string | null;
+export const RegistryPresetField = memo(function RegistryPresetField({ scope, field, page, group, onMutate }: {
+  scope: OptionStateScope<PresetOptionData>;
+  field: PresetEditorManifestField;
   page: PresetEditorManifestPage;
   group: PresetEditorManifestGroup;
-  snapshot: PresetDraftSnapshot;
-  loading: boolean;
-  mutationPending: boolean;
   onMutate: PresetEditorDialogContentProps['onMutate'];
 }) {
+  const state = useOptionState(scope, field.key);
+  if (!state) return null;
+  const { data } = state;
+  return <FieldValue key={data.viewKey} visible={state.visible} conditionReadOnly={state.readOnly}
+    choiceId={data.choiceId} field={field} metadata={data.snapshot.optionMetadata[field.key]}
+    snapshot={data.snapshot} page={page} group={group} loading={data.loading}
+    mutationPending={data.mutationPending} onMutate={onMutate} />;
+});
+
+const FieldGroup = memo(function FieldGroup({ scope, page, group, overridden, onMutate }: {
+  scope: OptionStateScope<PresetOptionData>;
+  page: PresetEditorManifestPage;
+  group: PresetEditorManifestGroup;
+  overridden: boolean;
+  onMutate: PresetEditorDialogContentProps['onMutate'];
+}) {
+  const keys = useMemo(() => group.fields.map(field => field.key), [group]);
+  const count = useVisibleOptionCount(scope, keys);
   const titleId = `preset-editor-group-title-${page.id}-${group.id}`;
-  const overridden = groupHasOverrides(snapshot, group, choiceId);
-  return (
-    <section
-      data-testid={`preset-editor-group-${page.id}-${group.id}`}
-      aria-labelledby={titleId}
-      className="min-w-0 space-y-2"
-    >
-      <h3
-        id={titleId}
-        data-testid={`preset-editor-group-title-${page.id}-${group.id}`}
-        data-draft-override-highlight={overridden ? 'true' : 'false'}
-        className={cn('text-module font-semibold', overridden && 'config-override-label')}
-      >{group.title}</h3>
-      <div className="grid min-w-0 gap-2 xl:grid-cols-2">
-        {group.fields.map((field) => <FieldValue
-          key={fieldViewKey(snapshot, field.key, choiceId)}
-          choiceId={choiceId}
-          field={field}
-          metadata={snapshot.optionMetadata[field.key]}
-          snapshot={snapshot}
-          page={page}
-          group={group}
-          loading={loading}
-          mutationPending={mutationPending}
-          onMutate={onMutate}
-        />)}
-      </div>
-    </section>
-  );
+  return <section data-testid={`preset-editor-group-${page.id}-${group.id}`} aria-labelledby={titleId}
+    hidden={count === 0} style={count === 0 ? { display: 'none' } : undefined} className="min-w-0 space-y-2">
+    <h3 id={titleId} data-testid={`preset-editor-group-title-${page.id}-${group.id}`}
+      data-draft-override-highlight={overridden ? 'true' : 'false'}
+      className={cn('text-module font-semibold', overridden && 'config-override-label')}>{group.title}</h3>
+    <div className="grid min-w-0 gap-2 xl:grid-cols-2">{group.fields.map(field =>
+      <RegistryPresetField key={field.key} scope={scope} field={field} page={page} group={group} onMutate={onMutate} />)}</div>
+  </section>;
+});
+
+function PresetSearchResults({ scope, results, onMutate }: {
+  scope: OptionStateScope<PresetOptionData>; results: readonly RoutedField[]; onMutate: PresetEditorDialogContentProps['onMutate'];
+}) {
+  const keys = useMemo(() => results.map(result => result.field.key), [results]);
+  const count = useVisibleOptionCount(scope, keys);
+  return <div data-testid="preset-editor-search-results" className="space-y-3">
+    {count === 0 && <p className="py-4 text-sm text-muted-foreground">No matching settings.</p>}
+    {results.map(({ page, group, field }) => <RegistryPresetField key={`${page.id}:${group.id}:${field.key}`}
+      scope={scope} field={field} page={page} group={group} onMutate={onMutate} />)}
+  </div>;
 }
+
+function presetEditorFieldsForView(manifest: PresetEditorManifest) { return manifest.pages.flatMap(page => page.groups.flatMap(group => group.fields)); }
 
 function routedFields(pages: readonly PresetEditorManifestPage[]): RoutedField[] {
   return pages.flatMap((page) => page.groups.flatMap((group) =>
@@ -990,6 +1005,36 @@ export function PresetEditorDialogContent({
   const selection = usePrinterEditorSelection(target ? snapshot : null, sourceEntry);
   const filamentSelection = useConfigEditorSelection(target?.kind === 'filament' ? snapshot?.editorSelection ?? null : null, sourceEntry);
   const choiceId = target?.kind === 'printer' ? selection.choiceId : filamentSelection.choiceId;
+  const optionScope = useOptionStateScope<PresetOptionData>();
+  const baseValues = useSettingsStore(state => state.baseValues);
+  const printers = useSettingsStore(state => state.printers);
+  const activePrinter = useSettingsStore(state => state.selectedPrinter);
+  const command = useRef({ snapshot, onMutate, interactionPending });
+  const mutateOption = useCallback<PresetEditorDialogContentProps['onMutate']>(request => {
+    const current = command.current;
+    if (current.interactionPending) return Promise.resolve({ ok: false, error: 'The editor is busy.' });
+    if (!current.snapshot || request.kind !== current.snapshot.kind || request.canonicalName !== current.snapshot.canonicalName)
+      return Promise.resolve({ ok: false, error: 'The editor target has changed.' });
+    return current.onMutate({ ...request, expectedRevision: current.snapshot.revision });
+  }, []);
+  const optionRows = useMemo(() => snapshot && manifest ? presetEditorFieldsForView(manifest).map(field =>
+    presetOptionPublication(snapshot, field.key, choiceId, false, false)) : [],
+  [snapshot, manifest, choiceId]);
+  useLayoutEffect(() => {
+    command.current = { snapshot, onMutate, interactionPending };
+    const printerName = target?.kind === 'printer' ? target.canonicalName : activePrinter;
+    const printer = printers.find(item => item.name === printerName);
+    const context = editorSettingContext(snapshot, choiceId, {
+      scope: target?.kind ?? 'printer', printerValues: baseValues, projectValues: baseValues,
+      isBblPrinter: printer ? printer.vendor_id === 'BBL' : undefined,
+      nozzleCount: target?.kind === 'printer' ? snapshot?.editorVectors.nozzle_diameter?.indexCount : printerNozzleCount(baseValues),
+    });
+    const input = JSON.stringify([target, choiceId, snapshot?.effectiveValues,
+      Object.entries(snapshot?.editorVectors ?? {}).map(([key, vector]) => [key, vector.scalarType, vector.effectiveValues, vector.enumOptions]),
+      snapshot?.editorSelection, baseValues, printer?.vendor_id]);
+    optionScope.publish(optionRows, snapshot ? [context] : [], updateOptionStates, input);
+  }, [optionRows, optionScope, snapshot, onMutate, interactionPending, target, choiceId, baseValues, printers, activePrinter]);
+
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1175,28 +1220,13 @@ export function PresetEditorDialogContent({
 
           {actionError && <p role="alert" data-testid="preset-editor-action-error" className="text-xs text-destructive">{actionError}</p>}
 
-          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <fieldset disabled={interactionPending} data-testid="preset-editor-option-lock" className="min-h-0 min-w-0 flex-1 overflow-y-auto border-0 p-0 pr-1">
             {loadError ? (
               <p role="alert" data-testid="preset-editor-load-error" className="py-4 text-sm text-destructive">{loadError}</p>
             ) : loading || !snapshot ? (
               <p data-testid="preset-editor-loading" className="py-4 text-sm text-muted-foreground">Loading preset settings…</p>
             ) : showSearchResults ? (
-              <div data-testid="preset-editor-search-results" className="space-y-3">
-                {searchResults.length === 0
-                  ? <p className="py-4 text-sm text-muted-foreground">No matching settings.</p>
-                  : searchResults.map(({ page, group, field }) => <FieldValue
-                    key={`${page.id}:${group.id}:${fieldViewKey(snapshot, field.key, choiceId)}`}
-                    choiceId={choiceId}
-                    field={field}
-                    metadata={snapshot.optionMetadata[field.key]}
-                    snapshot={snapshot}
-                    page={page}
-                    group={group}
-                    loading={interactionPending}
-                    mutationPending={mutationPending}
-                    onMutate={onMutate}
-                  />)}
-              </div>
+              <PresetSearchResults scope={optionScope} results={searchResults} onMutate={mutateOption} />
             ) : activePage ? (
               <div
                 id={`preset-editor-page-${activePage.id}`}
@@ -1207,17 +1237,15 @@ export function PresetEditorDialogContent({
               >
                 {activePage.groups.map((optionGroup) => <FieldGroup
                   key={optionGroup.id}
-                  choiceId={choiceId}
+                  scope={optionScope}
                   page={activePage}
                   group={optionGroup}
-                  snapshot={snapshot}
-                  loading={interactionPending}
-                  mutationPending={mutationPending}
-                  onMutate={onMutate}
+                  overridden={groupHasOverrides(snapshot, optionGroup, choiceId)}
+                  onMutate={mutateOption}
                 />)}
               </div>
             ) : null}
-          </div>
+          </fieldset>
         </div>
         </PresetEditorValidationContext.Provider>
       </DialogContent>}

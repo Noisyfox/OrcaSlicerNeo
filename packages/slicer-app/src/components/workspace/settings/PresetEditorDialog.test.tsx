@@ -433,6 +433,31 @@ afterEach(() => {
 });
 
 describe('PresetEditorDialogContent', () => {
+  it.each(['printer', 'filament'] as const)('keeps the complete %s page DOM and local text while conditions change', async kind => {
+    const source = snapshotFor(kind);
+    const controllingKey = kind === 'printer' ? 'auxiliary_fan' : 'enable_pressure_advance';
+    const conditionalKey = kind === 'printer' ? 'fan_direction' : 'adaptive_pressure_advance_bridges';
+    const textKey = kind === 'printer' ? 'printable_height' : 'filament_cost';
+    let current = { ...source, effectiveValues: { ...source.effectiveValues, [controllingKey]: '1', adaptive_pressure_advance: '1' } };
+    const h = await controlledPrinter(current);
+    const pageNodes = new Map([...document.querySelectorAll('[data-testid^="preset-editor-field-"]')].map(node => [node.getAttribute('data-testid')!, node]));
+    const row = document.querySelector<HTMLElement>(`[data-testid="preset-editor-field-${conditionalKey}"]`)!;
+    const input = document.querySelector<HTMLInputElement>(`[data-testid="preset-editor-input-${textKey}"]`)!;
+    expect(row.hidden).toBe(false);
+    await changeInput(input, '27');
+    current = { ...current, revision: current.revision + 1, effectiveValues: { ...current.effectiveValues, [controllingKey]: '0' } };
+    await h.update(current);
+    expect(row.hidden).toBe(true);
+    expect(input.value).toBe('27');
+    expect(document.activeElement).toBe(input);
+    for (const [id, node] of pageNodes) expect(document.querySelector(`[data-testid="${id}"]`)).toBe(node);
+    expect(h.onMutate).not.toHaveBeenCalled();
+    await h.update({ ...current, revision: current.revision + 1, effectiveValues: { ...current.effectiveValues, [controllingKey]: '1' } });
+    expect(row.hidden).toBe(false);
+    expect(document.querySelector(`[data-testid="preset-editor-input-${textKey}"]`)).toBe(input);
+    expect(input.value).toBe('27');
+  });
+
   it('edits the complete native Filament list without Printer filtering, with indexed ownership and atomic shared reset',async()=>{
     const source=filamentVariantsFixture();const h=await controlledPrinter(source);
     await click(document.querySelector('[data-testid="preset-editor-variant"]'));
@@ -683,7 +708,7 @@ describe('PresetEditorDialogContent', () => {
     await click(document.querySelector('[data-testid="preset-editor-extruder-1"]'));
     await selectFlow(1,'HF');
     expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('value','0.9');
-    expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('disabled',true);
+    expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')?.matches(':disabled')).toBe(true);
     await act(async()=>complete(success?mutationSuccess(source,captured):{ok:false,error:'Rejected old binding'}));
     expect(document.querySelector('[data-testid="preset-editor-extruder-1"]')?.getAttribute('aria-pressed')).toBe('true');
     expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('value','0.9');
@@ -802,7 +827,7 @@ describe('PresetEditorDialogContent', () => {
     expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({ canonicalName: 'Printer Resolved', index: 1, value: 0.5 }));
   });
 
-  it('uses first-element fallback and submits one coordinate or polygon at the selected index', async () => {
+  it('edits mapped coordinates and keeps extruder polygons read-only under Orca presentation rules', async () => {
     const base = snapshotFor('printer');
     const coords = { ...base.editorBindings.nozzle_diameter!, scalarType: 'point' as const, indexCount: 2, overrideValues: [null, null],
       sourceValues: [{ x: 1, y: 2 }], effectiveValues: [{ x: 1, y: 2 }] };
@@ -821,7 +846,8 @@ describe('PresetEditorDialogContent', () => {
     const area = document.querySelector('[data-testid="preset-editor-input-extruder_printable_area"]') as HTMLTextAreaElement;
     await changeTextarea(area, polygon.map(point => `${point.x}, ${point.y}`).join('\n'));
     await act(async () => area.blur());
-    expect(requests.at(-1)).toMatchObject({ action: 'set-element', scalarType: 'points', index: 1, value: polygon });
+    expect(area.disabled).toBe(true);
+    expect(requests).toHaveLength(1);
     await click(document.querySelector('[data-testid="preset-editor-reset-category-extruder"]'));
     expect(requests.at(-1)).toMatchObject({ action: 'reset-category', fields: expect.arrayContaining([{key: 'extruder_offset', kind: 'indexed', index: 1}]) });
   });

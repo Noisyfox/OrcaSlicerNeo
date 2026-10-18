@@ -56,7 +56,11 @@ export function useScopedConfigEditor(platform: PlatformCapabilities, targets: r
       return next;
     } finally { pendingRef.current = false; setPending(false); }
   }, [base, entry, error, historyPhase, historyRevision, identity, metadata, platform, print, printer, refreshing, snapshot]);
-  return { snapshot, selection: loaded?.stamp.entry === entry ? loaded.snapshot.editorSelection : null, identity, entry, error, pending,
+  // Same-owner refreshes retain their controls and local text. This projection
+  // is display-only: mutations still require the fully current snapshot above.
+  const displaySnapshot = loaded && loaded.stamp.identity === identity && loaded.stamp.entry === entry &&
+    loaded.stamp.printer === printer && loaded.stamp.print === print && loaded.stamp.metadata === metadata ? loaded.snapshot : null;
+  return { snapshot, displaySnapshot, selection: loaded?.stamp.entry === entry ? loaded.snapshot.editorSelection : null, identity, entry, error, pending,
     refreshing: refreshing || !snapshot || historyPhase !== 'idle', mutate };
 }
 

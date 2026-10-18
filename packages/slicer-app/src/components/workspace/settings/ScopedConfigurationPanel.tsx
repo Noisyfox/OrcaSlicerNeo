@@ -1,3 +1,9 @@
+import { editorSettingContext } from './settingConditionContext';
+import { updateOptionStates } from './updateOptionStates';
+import { useOptionState, useOptionStateScope, useVisibleOptionCount } from './useOptionState';
+import type { OptionStateScope } from './optionStateRegistry';
+import { scopedOptionPublication, type ScopedOptionData } from './scopedOptionProjection';
+import { printerNozzleCount } from './presetOptionProjection';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type {
   NativeScopedConfigMutationRequest,
@@ -72,10 +78,14 @@ export const ScopedField = memo(function ScopedField({
   onCommit,
   onReset,
   disabled = false,
+  visible = true,
+  conditionReadOnly = false,
   selectionGutter = false,
 }: {
   selectionGutter?: boolean;
   disabled?: boolean;
+  visible?: boolean;
+  conditionReadOnly?: boolean;
   field: ScopedConfigurationField;
   targets: readonly ScopedConfigurationTarget[];
   onCommit: (field: ScopedConfigurationField, value: string) => Promise<string>;
@@ -95,7 +105,7 @@ export const ScopedField = memo(function ScopedField({
     setDraft(initial); setError(null);
   }, [initial, signature]);
   const commit = async (value: string) => {
-    if (committing.current || disabled) return;
+    if (committing.current || disabled || !visible || conditionReadOnly || readOnly) return;
     committing.current = true;
     setCommitPending(true);
     const submittedSignature = signatureRef.current;
@@ -133,7 +143,7 @@ export const ScopedField = memo(function ScopedField({
     const next = Math.max(field.meta.min ?? -Infinity, Math.min(field.meta.max ?? Infinity, Number((number + direction * step).toFixed(6))));
     onDiscrete(`${next}${draft.trim().endsWith('%') ? '%' : ''}`);
   };
-  const controlDisabled = disabled || readOnly || (field.key === 'curr_bed_type' && commitPending);
+  const controlDisabled = disabled || readOnly || !visible || conditionReadOnly || (field.key === 'curr_bed_type' && commitPending);
   const hasEditableLocalOverride = field.local && field.resettable;
   const sourceDetails=editor && !unavailable ? `\nSource: ${editor.sourceMixed?'Mixed':editor.source===null?'(null)':elementText(editor.source,editor.vector)}${editor.inheritedSource ? `\nInherited source: ${SOURCE_LABEL[editor.inheritedSource]}.` : ''}\nEffective: ${field.mixed?'Mixed':editor.effective===null?'(null)':elementText(editor.effective,editor.vector)}` : '';
   const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${valueTooltip(field)}${sourceDetails}`}</span>;
@@ -196,7 +206,7 @@ export const ScopedField = memo(function ScopedField({
       </div>;
   }
   return (
-    <div data-testid={`config-field-${field.key}`} data-native-index={editor?.target.kind==='indexed'?editor.target.index:undefined} className="space-y-0.5">
+    <div aria-disabled={readOnly || conditionReadOnly || undefined} hidden={!visible} style={!visible ? { display: 'none' } : undefined} data-condition-readonly={conditionReadOnly ? 'true' : 'false'} data-testid={`config-field-${field.key}`} data-native-index={editor?.target.kind==='indexed'?editor.target.index:undefined} className="space-y-0.5">
       <div className={row}>
         <div className={cn("flex min-w-0 items-center", selectionGutter ? "gap-0.5" : "gap-1")}>
         {selectionGutter && <span className="flex h-4 w-2.5 shrink-0 items-center justify-center" data-testid={`config-nozzle-gutter-${field.key}`}>
@@ -223,9 +233,43 @@ export const ScopedField = memo(function ScopedField({
     </div>
   );
 }, (previous, next) => previous.targets === next.targets
+  && previous.visible === next.visible && previous.conditionReadOnly === next.conditionReadOnly
   && previous.onCommit === next.onCommit && previous.onReset === next.onReset && previous.disabled === next.disabled && previous.selectionGutter === next.selectionGutter
   && (Object.keys(previous.field) as Array<keyof ScopedConfigurationField>)
     .every((key) => previous.field[key] === next.field[key]));
+
+export const RegistryScopedField = memo(function RegistryScopedField({ scope, optionKey, onCommit, onReset }: {
+  scope: OptionStateScope<ScopedOptionData>;
+  optionKey: string;
+  onCommit: (field: ScopedConfigurationField, value: string) => Promise<string>;
+  onReset: (field: ScopedConfigurationField) => Promise<void>;
+}) {
+  const state = useOptionState(scope, optionKey);
+  if (!state) return null;
+  const { data } = state;
+  return <ScopedField key={data.viewKey} field={data.field} targets={data.targets} disabled={data.disabled}
+    selectionGutter={data.selectionGutter} visible={state.visible} conditionReadOnly={state.readOnly}
+    onCommit={onCommit} onReset={onReset} />;
+});
+
+function OptionGroupVisibility({ scope, keys, children }: {
+  scope: OptionStateScope<ScopedOptionData>; keys: readonly string[]; children: ReactNode;
+}) {
+  const count = useVisibleOptionCount(scope, keys);
+  return <div hidden={count === 0} style={count === 0 ? { display: 'none' } : undefined}>{children}</div>;
+}
+
+function OptionEmptyMessage({ scope, keys }: { scope: OptionStateScope<ScopedOptionData>; keys: readonly string[] }) {
+  const count = useVisibleOptionCount(scope, keys);
+  return count === 0 ? <div data-testid="scoped-config-empty" className="p-2 text-xs text-muted-foreground">No matching settings</div> : null;
+}
+
+function OptionSection({ scope, keys, title }: { scope: OptionStateScope<ScopedOptionData>; keys: readonly string[]; title: string }) {
+  const count = useVisibleOptionCount(scope, keys);
+  return <div hidden={count === 0} style={count === 0 ? { display: 'none' } : undefined} data-testid={`config-section-${title}`}
+    className="mt-1 flex items-center gap-2 px-1 text-module font-semibold text-muted-foreground">
+    {title}<span className="h-px flex-1 bg-border" /></div>;
+}
 
 // Fixed options budget includes expanded search even when filtering hides rows.
 // Catalogue content that exceeds the budget scrolls independently.
@@ -328,6 +372,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     (resolution.scope === 'object' || resolution.scope === 'part')
     ? resolution.targets.map(target => ({ scope: resolution.scope as 'object' | 'part', id: String(target.id) })) : [], [mode, resolution]);
   const scopedEditor = useScopedConfigEditor(platform, scopedTargets, mode === 'scoped');
+  const scopedDisplaySnapshot = scopedEditor.snapshot ?? scopedEditor.displaySnapshot;
   const scopedSelection = useConfigEditorSelection(scopedEditor.selection, scopedEditor.entry);
   const selectionMetadata = mode === 'project' ? printEditor.snapshot?.editorSelection : mode === 'scoped' ? scopedEditor.selection : null;
   const selectedChoice = mode === 'project' ? printSelection : scopedSelection;
@@ -340,8 +385,8 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         enum_values: bedType.choices.map(choice => choice.value), enum_labels: bedType.choices.map(choice => choice.label),
       } } : field)
       .map(field=>mode==='project'?projectPrintField(field,printEditor.snapshot,printSelection.choiceId):
-        mode==='scoped' && scopedEditor.snapshot ? scopedPrintField(field,scopedEditor.snapshot,scopedSelection.choiceId) : field)
-    : [], [baseValues, bedType, metadata, mode, resolution, snapshot,printEditor.snapshot,printSelection.choiceId,scopedEditor.snapshot,scopedSelection.choiceId]);
+        mode==='scoped' && scopedDisplaySnapshot ? scopedPrintField(field,scopedDisplaySnapshot,scopedSelection.choiceId) : field)
+    : [], [baseValues, bedType, metadata, mode, resolution, snapshot,printEditor.snapshot,printSelection.choiceId,scopedDisplaySnapshot,scopedSelection.choiceId]);
   const availablePages = useMemo(() => printSettingsPages(mode).filter((page) =>
     page.groups.some((group) => group.keys.some((key) => allFields.some((field) => field.key === key)))), [allFields, mode]);
   const selectedPage = availablePages.some((page) => page.title === activePage) ? activePage : availablePages[0]?.title;
@@ -415,6 +460,56 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     if(mode==='project' && printEditor.snapshot && printOwnsField(printEditor.snapshot,field.key)) await printEditor.mutate(request);
     else await commitScopedConfigurationMutation(platform, request);
   }, [mode, platform, resolution,printEditor.mutate,printEditor.snapshot,scopedEditor.mutate]);
+  const optionScope = useOptionStateScope<ScopedOptionData>();
+  const optionLocked = mode === 'scoped' ? scopedEditor.pending || scopedEditor.refreshing || scopedEditor.error !== null :
+    mode === 'project' ? !printEditor.snapshot || printEditor.pending || printEditor.refreshing || printEditor.error !== null : false;
+  const latestOptions = useRef({ locked: optionLocked, fields: new Map(allFields.map(field => [field.key, field])), commitField, resetField });
+  const commitOption = useCallback((field: ScopedConfigurationField, value: string) => {
+    const current = latestOptions.current;
+    if (current.locked) return Promise.reject(new Error('Configuration is not ready for another edit.'));
+    const latest = current.fields.get(field.key);
+    if (!latest) return Promise.reject(new Error('The editor target has changed.'));
+    return current.commitField(latest, value);
+  }, []);
+  const resetOption = useCallback((field: ScopedConfigurationField) => {
+    const current = latestOptions.current;
+    if (current.locked) return Promise.reject(new Error('Configuration is not ready for another edit.'));
+    const latest = current.fields.get(field.key);
+    if (!latest) return Promise.reject(new Error('The editor target has changed.'));
+    return current.resetField(latest);
+  }, []);
+  const optionRows = useMemo(() => allFields.map(field => {
+    const binding = field.editor?.target;
+    const viewKey = mode === 'scoped'
+      ? `${scopedEditor.identity}:${field.key}:${binding?.kind}:${binding?.kind === 'indexed' ? `${scopedSelection.identity}:${binding.index}` : binding?.kind === 'unavailable' ? scopedSelection.identity : ''}`
+      : mode === 'project' && printEditor.snapshot && printOwnsField(printEditor.snapshot, field.key)
+        ? fieldViewKey(printEditor.snapshot, field.key, printSelection.choiceId) : `${mode}:${field.key}`;
+    const disabled = field.key === 'curr_bed_type' && bedTypeDisabled;
+    return scopedOptionPublication({ field, targets: resolution.targets, disabled, viewKey,
+      selectionGutter: mode !== 'plates' && (selectionMetadata?.choices.length ?? 0) > 1 });
+  }), [allFields, mode, scopedEditor.identity,
+    scopedSelection.identity, printEditor.snapshot,
+    printSelection.choiceId, bedTypeDisabled, resolution.targets, selectionMetadata]);
+  const printers = useSettingsStore(state => state.printers);
+  const activePrinter = useSettingsStore(state => state.selectedPrinter);
+  useLayoutEffect(() => {
+    latestOptions.current = { locked: optionLocked, fields: new Map(allFields.map(field => [field.key, field])), commitField, resetField };
+    const printer = printers.find(item => item.name === activePrinter);
+    const options = { scope: 'project' as const, printerValues: baseValues, projectValues: baseValues,
+      isBblPrinter: printer ? printer.vendor_id === 'BBL' : undefined, nozzleCount: printerNozzleCount(baseValues) };
+    const contexts = mode === 'scoped' ? scopedDisplaySnapshot?.targets.map(target => editorSettingContext(
+      { ...target, editorSelection: scopedDisplaySnapshot!.editorSelection }, scopedSelection.choiceId,
+      { ...options, scope: target.target.scope })) ?? []
+      : [editorSettingContext(mode === 'project' ? printEditor.snapshot : null, printSelection.choiceId,
+        { ...options, scope: mode === 'plates' ? 'plate' : 'project' })];
+    const effective = mode === 'scoped' ? scopedDisplaySnapshot?.targets.map(target => [target.target, target.effectiveValues,
+      Object.entries(target.editorVectors).map(([key, vector]) => [key, vector.effectiveValues, vector.enumOptions])])
+      : [printEditor.snapshot?.effectiveValues, Object.entries(printEditor.snapshot?.editorVectors ?? {}).map(([key, vector]) => [key, vector.effectiveValues, vector.enumOptions])];
+    const input = JSON.stringify([mode, baseValues, effective, selectionMetadata, selectedChoice.choiceId, printer?.vendor_id]);
+    optionScope.publish(optionRows, contexts, updateOptionStates, input);
+  }, [allFields, commitField, resetField, optionLocked, optionScope, optionRows, mode, printers, activePrinter, baseValues,
+    scopedDisplaySnapshot, scopedSelection.choiceId, printEditor.snapshot, printSelection.choiceId, selectionMetadata, selectedChoice.choiceId]);
+  const displayedOptionKeys = useMemo(() => categories.flatMap(category => category.fields.map(field => field.key)), [categories]);
   const resetCategory = async (category: string) => {
     if (mode !== 'project' && resolution.scope === 'invalid') return;
     const candidates = allFields.filter((field) => field.category === category && field.local);
@@ -501,18 +596,19 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         className={cn("mx-2 min-h-0 flex-1 overflow-y-auto", optionsOverflowing && "pr-1")}
         data-testid="configuration-options-scroll" data-overflow-y={optionsOverflowing}>
       <div ref={optionsContentRef}>
+      <fieldset data-testid="configuration-option-lock" className="min-w-0 border-0 p-0" disabled={optionLocked}>
       {!metadata ? <div className="p-2 text-xs text-muted-foreground">Loading configuration…</div> :
         mode !== 'project' && resolution.scope === 'invalid' ? (
           <div data-testid="scoped-invalid-selection" className="rounded border border-dashed p-2 text-xs text-muted-foreground">{resolution.disabledReason}</div>
-        ) : mode==='scoped' && !scopedEditor.snapshot ? <div className="p-2 text-xs text-muted-foreground">Loading configuration…</div> : <>
-          {categories.length === 0 && <div data-testid="scoped-config-empty" className="p-2 text-xs text-muted-foreground">No matching settings</div>}
+        ) : mode==='scoped' && !scopedDisplaySnapshot ? <div className="p-2 text-xs text-muted-foreground">Loading configuration…</div> : <>
+          <OptionEmptyMessage scope={optionScope} keys={displayedOptionKeys} />
           {categories.map(({ title: category, fields: categoryFields, page, group, keys }) => {
             const expansionKey = `${page}/${group}`;
             const open = expanded[expansionKey] ?? true;
             const groupCatalogue = allFields.filter((field) => keys.includes(field.key));
             const nativeCategories = [...new Set(groupCatalogue.map((field) => field.category))];
             const highlighted = groupCatalogue.some((field) => field.local && field.resettable);
-            return <div key={category} data-testid={`config-category-${category}`}>
+            return <OptionGroupVisibility key={`${page}/${group}`} scope={optionScope} keys={keys}><div data-testid={`config-category-${category}`}>
               {group && <ContextMenu>
                 <ContextMenuTrigger render={<div />}>
                   <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
@@ -529,20 +625,17 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
               {open && <div className="py-1">{categoryFields.map((field, index) => {
                 const section = printSettingPlacement(field)?.section;
                 const startsSection = section && section !== (index > 0 ? printSettingPlacement(categoryFields[index - 1])?.section : undefined);
-                const scopedBinding = mode==='scoped' ? field.editor?.target : undefined;
-                return <div key={mode==='scoped' ? `${scopedEditor.identity}:${field.key}:${scopedBinding?.kind}:${scopedBinding?.kind==='indexed'?`${scopedSelection.identity}:${scopedBinding.index}`:scopedBinding?.kind==='unavailable'?scopedSelection.identity:''}` : mode==='project' && printEditor.snapshot && printOwnsField(printEditor.snapshot,field.key)?fieldViewKey(printEditor.snapshot,field.key,printSelection.choiceId):`${mode}:${field.key}`}>
-                  {startsSection && <div data-testid={`config-section-${section}`} className="mt-1 flex items-center gap-2 px-1 text-module font-semibold text-muted-foreground">
-                    {section}<span className="h-px flex-1 bg-border" />
-                  </div>}
-                  <ScopedField selectionGutter={mode!=='plates' && (selectionMetadata?.choices.length??0)>1} disabled={(mode==='scoped' && (scopedEditor.pending || scopedEditor.refreshing || scopedEditor.error!==null)) || (field.key === 'curr_bed_type' && bedTypeDisabled) || (mode==='project' &&
-                    (!printEditor.snapshot || (printOwnsField(printEditor.snapshot,field.key) &&
-                      (printEditor.pending || printEditor.refreshing || printEditor.error!==null))))}
-                    field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />
+                const sectionKeys = section ? categoryFields.filter(candidate => printSettingPlacement(candidate)?.section === section).map(candidate => candidate.key) : [];
+                return <div key={field.key}>
+                  {startsSection && <OptionSection scope={optionScope} keys={sectionKeys} title={section} />}
+                  <RegistryScopedField scope={optionScope} optionKey={field.key} onCommit={commitOption} onReset={resetOption} />
                 </div>;
+
               })}</div>}
-            </div>;
+            </div></OptionGroupVisibility>;
           })}
         </>}
+      </fieldset>
       </div>
       </div>
   );

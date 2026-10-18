@@ -290,7 +290,7 @@ describe('Workspace ownership', () => {
     expect(runtime.getPresetDraft).toHaveBeenCalledTimes(2);
     expect(document.querySelector('[data-testid="preset-editor-loading"]')).toBeNull();
     expect(document.querySelector('[data-testid="preset-editor-field-printable_height"]')).not.toBeNull();
-    expect((document.querySelector('[data-testid="preset-editor-input-printable_height"]') as HTMLInputElement).disabled).toBe(true);
+    expect(document.querySelector('[data-testid="preset-editor-input-printable_height"]')?.matches(':disabled')).toBe(true);
 
     await act(async () => {
       finishRefresh(snapshot('printer', 'Printer A', '256', 2));

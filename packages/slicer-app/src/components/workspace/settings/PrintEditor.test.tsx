@@ -39,7 +39,7 @@ async function type(value:string,enter=true){
   if(enter)await act(async()=>{input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));});
   return input;
 }
-async function setup(scopedFixture=false){
+async function setup(scopedFixture=false,presentationFixture=false){
   glVolumeCollection.clear();useObjectListStore.getState().setStructure([]);
   useProjectStore.getState().reset();useHistoryNavigationStore.getState().reset();useHistoryRestoreStore.setState({phase:'idle',revision:0});
   const module=createMockModule({metadataKeys:{
@@ -49,6 +49,10 @@ async function setup(scopedFixture=false){
     outer_wall_speed:{type:'floats',category:'Speed',scopes:['project','object','part'],min:0},
     enable_overhang_speed:{type:'bools',category:'Speed',scopes:['project','object','part']},
     small_perimeter_speed:{type:'floats_or_percents',category:'Speed',scopes:['project','object','part']},
+    ...(presentationFixture ? {
+      slowdown_for_curled_perimeters:{type:'bool',category:'Speed',scopes:['project','object','part']},
+      wall_loops:{type:'int',category:'Strength',scopes:['project','object','part']},
+    } as const : {}),
   }});
   const runtime=createClient(async()=>module);await runtime.init(MOCK_PROFILE_ACTIVATION);await runtime.resetHistory(context);
   let controller:SceneInteractionController|null=null;
@@ -508,7 +512,9 @@ it.each(['project-change','new-entry'] as const)('disables reused target fields 
   expect(h.scopedRead).toHaveBeenCalledTimes(scopedReads);
   const original=h.scopedRead.getMockImplementation()!;let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
   h.scopedRead.mockImplementationOnce(async request=>{const result=await original(request);await held;return result;});
-  await click('config-mode-scoped');expect(speedInput()).toBeNull();expect(selectedChoice()).toBe(change==='project-change'?'T2 SF':undefined);
+  await click('config-mode-scoped');
+  if(change==='project-change')expect(speedInput()?.matches(':disabled')).toBe(true);else expect(speedInput()).toBeNull();
+  expect(selectedChoice()).toBe(change==='project-change'?'T2 SF':undefined);
   await act(async()=>release());expect(selectedChoice()).toBe('T2 SF');expect(speedInput()?.value).toBe(change==='project-change'?'245':'240');
 });
 
@@ -543,7 +549,7 @@ it('does not relabel an old mutation read as fresh after the native Project cont
     useSettingsStore.getState().setConfigurationMode('scoped');useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
   });
   await act(async()=>releaseOld());await act(async()=>waitForConfigurationMutations());
-  expect(speedInput()).toBeNull(); // old revision cannot become enabled under the new stamp
+  expect(speedInput()?.matches(':disabled')).toBe(true); // old revision is display-only until the fresh read
   await act(async()=>releaseFresh());expect(selectedChoice()).toBe('T2 SF');expect(speedInput()?.value).toBe('245');
 });
 
@@ -650,4 +656,37 @@ it('preserves an imported nullable Print element until valid numeric input and k
   await click('config-reset-outer_wall_speed');expect(input().value).toBe('');expect(input().disabled).toBe(false);
   expect(await h.runtime.getPrintConfigEditor()).toMatchObject({editorVectors:{outer_wall_speed:{effectiveValues:[200,null,240]}}});
   await type('230');expect(input().value).toBe('230');
+});
+
+it('combines per-object conditions and permits ordinary native commands for hidden/read-only fields',async()=>{
+  const h=await setup(true,true);
+  await click('config-mode-scoped');await click('config-page-Speed');
+  const target=[{scope:'object' as const,id:String(h.objects[0].id)}];
+  const setOverhang=async(value:boolean)=>act(async()=>{
+    const read=await h.runtime.getScopedConfigEditor({version:1,targets:target});if(!read.ok)throw Error(read.error);
+    await commitScopedEditorMutation(h.platform,{version:1,operation:'set-element',targets:target,expectedRevision:read.revision,
+      key:'enable_overhang_speed',scalarType:'bool',index:0,value},target);
+  });
+  const dependent=document.querySelector<HTMLElement>('[data-testid="config-field-slowdown_for_curled_perimeters"]')!;
+  expect(dependent.hidden).toBe(false);
+  await setOverhang(false);
+  expect(dependent.hidden).toBe(true);
+  expect(document.querySelector('[data-testid="config-field-slowdown_for_curled_perimeters"]')).toBe(dependent);
+  await act(async()=>{await commitScopedEditorMutation(h.platform,{version:1,operation:'set',targets:target,
+    key:'slowdown_for_curled_perimeters',value:'1'},target);});
+  await setOverhang(true);expect(dependent.hidden).toBe(false);
+  expect(document.querySelector('[data-testid="config-input-slowdown_for_curled_perimeters"]')?.getAttribute('aria-checked')).toBe('true');
+  await setOverhang(false);await h.select([0,1]);
+  expect(document.querySelector<HTMLElement>('[data-testid="config-field-slowdown_for_curled_perimeters"]')!.hidden).toBe(false);
+  const speed=speedInput();
+  await act(async()=>{await commitScopedEditorMutation(h.platform,{version:1,operation:'set',targets:target,key:'wall_loops',value:'0'},target);});
+  expect(speed?.matches(':disabled')).toBe(true); // One locked target locks the whole selected batch.
+  expect(speedInput()).toBe(speed);
+  await act(async()=>{
+    const read=await h.runtime.getScopedConfigEditor({version:1,targets:target});if(!read.ok)throw Error(read.error);
+    await commitScopedEditorMutation(h.platform,{version:1,operation:'set-element',targets:target,expectedRevision:read.revision,
+      key:'outer_wall_speed',scalarType:'float',index:0,value:211},target);
+  });
+  const native=await h.runtime.getScopedConfigEditor({version:1,targets:target});if(!native.ok)throw Error(native.error);
+  expect(native.targets[0].editorVectors.outer_wall_speed.effectiveValues[0]).toBe(211);
 });
