@@ -209,8 +209,7 @@ export const FILAMENT_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
           ),
         ]),
         group('ironing-overrides', 'Ironing', [
-          readOnly(
-            'This setting is an indexed override that requires the dedicated Orca override control.',
+          filamentOverrides(
             'filament_ironing_flow',
             'filament_ironing_spacing',
             'filament_ironing_inset',

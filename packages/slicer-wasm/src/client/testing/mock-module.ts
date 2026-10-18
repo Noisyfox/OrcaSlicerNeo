@@ -582,6 +582,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let historyLastEvictedEntryId: string | null = null;
 
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+  const ironingDefaults: Record<string, number> = { ironing_flow: 10, ironing_spacing: 0.15, ironing_inset: 0, ironing_speed: 30 };
   const presetEditorOptions: Record<'printer' | 'filament', Record<string, MockPresetEditorOption>> = {
     printer: {
       nozzle_diameter: { scalarType: 'float', metadataType: 'floats', values: [0.4] },
@@ -629,9 +630,12 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       metadataType: bool ? 'bools' : enumeration ? 'enums' : percent ? 'percents' : 'floats',
       values: [null, null], nullable: true,
       ...(enumeration ? { enumOptions: [{ value: 0, name: 'normal', label: 'Normal' }, { value: 1, name: 'spiral', label: 'Spiral' }] } : {}) };
-    metadata[key] = { type: presetEditorOptions.filament[key].metadataType, min: 0,
+    metadata[key] = { type: presetEditorOptions.filament[key].metadataType, min: rawKey === 'ironing_speed' ? 1 : 0,
+      sidetext: percent ? '%' : bool || enumeration ? undefined : rawKey.endsWith('speed') ? 'mm/s' : 'mm',
       ...(percent ? { max: 100 } : {}), ...(rawKey === 'ironing_spacing' ? { max: 1 } : {}) };
-    if (!rawKey.startsWith('ironing_')) {
+    if (rawKey.startsWith('ironing_')) {
+      metadata[rawKey] = {type: percent ? 'percent' : 'float', scopes:['project'], min: rawKey === 'ironing_speed' ? 1 : 0};
+    } else {
       presetEditorOptions.printer[rawKey] ??= { ...presetEditorOptions.filament[key], nullable: false,
         values: [bool ? false : rawKey === 'retraction_length' ? 0.8 : rawKey === 'retract_before_wipe' ? 50 : 0] };
       metadata[rawKey] = { type: presetEditorOptions.printer[rawKey].metadataType, min: 0, ...(percent ? { max: 100 } : {}) };
@@ -701,7 +705,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     // Scope eligibility controls editing, not inclusion in inherited sources.
     const shared = Object.fromEntries(Object.entries(metadata).filter(([key,meta])=>meta.scopes?.some(scope=>['project','object','part'].includes(scope)) &&
       !['curr_bed_type','filament_map_mode','filament_map','filament_volume_map','printable_area','gcode_flavor'].includes(key))
-      .map(([key,meta])=>[key,key==='layer_height'?'0.2':key==='print_sequence'?'by layer':key==='wipe_tower_rotation_angle'?'0':meta.enum_values?.[0]??'']));
+      .map(([key,meta])=>[key,Object.hasOwn(ironingDefaults,key)?String(ironingDefaults[key]):key==='layer_height'?'0.2':key==='print_sequence'?'by layer':key==='wipe_tower_rotation_angle'?'0':meta.enum_values?.[0]??'']));
     const keys=[...new Set([...Object.keys(shared),...Object.keys(printEditorOptions)])];
     return { ok: true, kind: 'print', canonical_name: selected.print, revision: historyRevision,
       source_values: { ...shared, ...Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, serializePresetEditorValues(option.values)])) },
@@ -847,8 +851,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const rawKey = key.slice(9);
         const reference = (name: string, index: number): PresetDraftEditorValue => {
           if (name.startsWith('ironing_')) {
-            const defaults: Record<string, number> = { ironing_flow: 10, ironing_spacing: 0.15, ironing_inset: 0, ironing_speed: 30 };
-            return nativeScopedConfig.project[name] === undefined ? defaults[name] : Number(nativeScopedConfig.project[name]);
+            return nativeScopedConfig.project[name] === undefined ? ironingDefaults[name] : Number(nativeScopedConfig.project[name]);
           }
           const values = editorValuesFor('printer', selected.printer, name);
           return values?.[index < values.length ? index : 0] ?? null;

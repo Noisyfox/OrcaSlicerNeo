@@ -749,9 +749,9 @@ interaction is introduced. Both hosts retain their current desktop layout.
 
 ## 4.3 Filament Setting Overrides extension
 
-**Status:** Native reference projection, atomic wipe-percentage correction and
-the 19 Retraction / Retraction when switching material controls are delivered.
-The four Ironing controls remain implementation work under the accepted rules.
+**Status:** All 23 dedicated controls, native reference projection and atomic
+wipe-percentage correction are delivered. Real-runtime slice qualification
+remains pending.
 
 The extension completes the existing Setting Overrides page's three groups
 and 23 manifest-listed fields, preserving their order. It uses dedicated

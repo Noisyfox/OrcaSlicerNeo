@@ -1292,7 +1292,7 @@ describe('PresetEditorDialogContent', () => {
       editorSelection:{...source.editorSelection,fieldBindings:{...source.editorSelection.fieldBindings,filament_retraction_length:source.editorSelection.fieldBindings.filament_flow_ratio}}});
     await click(document.querySelector('[data-testid="preset-editor-page-tab-setting-overrides"]'));
     const page=FILAMENT_PRESET_EDITOR_MANIFEST.pages.find(page=>page.id==='setting-overrides')!;
-    expect(page.groups.filter(group=>group.id!=='ironing-overrides').flatMap(group=>group.fields).every(field=>field.filamentOverride)).toBe(true);
+    expect(page.groups.flatMap(group=>group.fields).every(field=>field.filamentOverride)).toBe(true);
     expect(document.querySelector('[data-testid="preset-editor-readonly-filament_retraction_length"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="preset-editor-input-filament_retraction_length"]')).toBeNull();
     expect(document.querySelector('[data-testid^="preset-editor-null-"]')).toBeNull();expect(h.onMutate).not.toHaveBeenCalled();

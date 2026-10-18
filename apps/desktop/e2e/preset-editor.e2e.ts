@@ -9,6 +9,26 @@ import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receip
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
 
+test('filament setting overrides edit all ironing controls using Process references', async () => {
+  const env={...process.env,ORCA_E2E:'1'} as Record<string,string>; delete env.ELECTRON_RUN_AS_NODE;
+  const app=await _electron.launch({args:['.'],cwd:DESKTOP_ROOT,env});
+  try {
+    const page=await app.firstWindow(); await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:60_000});
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('filament-slot-1').click({button:'right'}); await page.getByTestId('filament-edit-1').click();
+    await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
+    for(const [key,value] of [['filament_ironing_flow','15'],['filament_ironing_spacing','0.03'],['filament_ironing_inset','0.2'],['filament_ironing_speed','35']]) {
+      const input=page.getByTestId(`preset-editor-input-${key}`),toggle=page.getByTestId(`preset-editor-override-${key}`);
+      await expect(input).toBeDisabled(); const reference=await input.inputValue(); await expect(input).not.toHaveValue('');
+      await toggle.click(); await expect(input).toBeEnabled(); await input.fill(value); await input.press('Enter');
+      await expect(input).toBeEnabled(); await expect(input).toHaveValue(value);
+      await page.getByTestId(`preset-editor-reset-field-${key}`).click(); await expect(input).toBeDisabled(); await expect(input).toHaveValue(reference);
+    }
+    await page.getByTestId('preset-editor-dialog').screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/filament-overrides-ironing.png')});
+    await page.getByTestId('preset-editor-close').click();
+  } finally { await app.close(); }
+});
+
 test('filament setting overrides edit retraction controls and preserve rejected input', async () => {
   const env = {...process.env,ORCA_E2E:'1'} as Record<string,string>; delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({args:['.'],cwd:DESKTOP_ROOT,env});

@@ -37,7 +37,7 @@ async function mount() {
   const render = () => root!.render(<PlatformProvider value={platform}><PresetEditorDialogContent target={{kind:'filament',canonicalName:name}}
     snapshot={snapshot} onClose={() => {}} onSelectPreset={async () => {}} onMutate={mutate} /></PlatformProvider>);
   await act(async () => render()); await click(query('page-tab-setting-overrides'));
-  return { client, read, mutate };
+  return { client, read, mutate, refresh: async () => {snapshot=await read(); await act(async()=>render());} };
 }
 
 it('edits a nullable override, displays the current reference and reseeds on re-enable', async () => {
@@ -83,4 +83,30 @@ it('retains invalid input and leaves native values and history unchanged', async
   const before=await h.read(), history=await h.client.getHistoryStatus(); await fill(key,'101');
   expect(query(`input-${key}`).value).toBe('101'); expect(query(`error-${key}`)?.textContent).toContain('range');
   expect(await h.read()).toEqual(before); expect(await h.client.getHistoryStatus()).toEqual(history);
+});
+
+it('uses current Process ironing references through commits and Undo/Redo', async () => {
+  const h=await mount(), speed='filament_ironing_speed';
+  const historyContext={selection:{mode:'object' as const,objectIds:[],partIds:[],instanceIds:[]},activePlateId:null,gizmo:null,nativeScopedConfig:{}};
+  const transaction=await h.client.beginHistory('Edit Process ironing','project',historyContext);
+  const process=await h.client.mutateNativeScopedConfig({version:1,operation:'set',targets:[{scope:'project'}],key:'ironing_speed',value:'42'});
+  await h.client.commitHistory(transaction,historyContext);
+  expect(process.ok).toBe(true); await h.refresh();
+  expect(query(`input-${speed}`).value).toBe('42'); expect(query(`input-${speed}`).disabled).toBe(true);
+  await click(query(`override-${speed}`)); expect((await h.read()).editorVectors[speed].effectiveValues[0]).toBe(42);
+  await h.client.undoHistory(); await h.refresh(); expect(query(`input-${speed}`).value).toBe('42');
+  expect(query(`override-${speed}`).getAttribute('aria-checked')).toBe('false');
+  await h.client.undoHistory(); await h.refresh(); expect(query(`input-${speed}`).value).toBe('30');
+  await h.client.redoHistory(); await h.refresh(); expect(query(`input-${speed}`).value).toBe('42');
+});
+
+it('edits all four ironing values without ConfigManipulation correction', async () => {
+  const h=await mount();
+  for(const [key,value] of [['filament_ironing_flow','15'],['filament_ironing_spacing','0.03'],['filament_ironing_inset','0.2'],['filament_ironing_speed','35']]) {
+    expect(query(`control-${key}`).textContent).toContain(key.endsWith('flow')?'%':key.endsWith('speed')?'mm/s':'mm');
+    expect(query(`input-${key}`).disabled).toBe(true); await click(query(`override-${key}`)); await fill(key,value);
+    expect((await h.read()).editorVectors[key].effectiveValues[0]).toBe(Number(value));
+    await click(query(`reset-field-${key}`)); expect((await h.read()).editorVectors[key].effectiveValues[0]).toBeNull();
+    expect(query(`input-${key}`).disabled).toBe(true);
+  }
 });

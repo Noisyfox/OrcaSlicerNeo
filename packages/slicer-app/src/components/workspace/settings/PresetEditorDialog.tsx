@@ -585,6 +585,8 @@ function FieldValue({
         onKeyDown={handleTextKeyDown}
       />
       {binding.scalarType === 'percent' && <span className="text-xs text-muted-foreground">%</span>}
+      {overrideControl && binding.scalarType !== 'percent' && metadata?.sidetext &&
+        <span className="shrink-0 text-xs text-muted-foreground">{metadata.sidetext}</span>}
       {binding.scalarType === 'float_or_percent' && <Select
         value={percentMode ? 'percent' : 'absolute'}
         onValueChange={(next) => {
