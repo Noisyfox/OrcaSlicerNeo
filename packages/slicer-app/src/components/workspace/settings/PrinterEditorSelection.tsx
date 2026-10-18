@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { configVectorElementAt } from '@slicer/client';
 import type { ConfigEditorChoice, PresetDraftSnapshot } from '@slicer/client';
-import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ConfigEditorSelection } from './ConfigEditorSelection';
+import { EditorSelector } from './EditorSelector';
 
 interface PrinterView {
   readonly source: string | null;
@@ -51,22 +50,6 @@ export function PrinterEditorSelection({ snapshot, selection, disabled, dirtyCho
 }) {
   const { nozzles, choices } = snapshot.editorSelection;
   const multiple = nozzles.length > 1;
-  const flowSelect = (index: number) => {
-    const available = choices.filter(choice => choice.extruderIndex === index);
-    const selected = available.find(choice => choice.flowType === selection.view.flows[index]);
-    const label = (choice: ConfigEditorChoice) => multiple ? choice.flowType === 0 ? 'SF' : 'HF' : choice.flowType === 0 ? 'Standard' : 'High Flow';
-    return <Select value={selected?.id ?? null} disabled={disabled || available.length === 0}
-      items={available.map(choice => ({value:choice.id,label:label(choice)}))}
-      onValueChange={id => { const choice = available.find(choice => choice.id === id); if (choice) selection.selectFlow(choice); }}>
-      <SelectTrigger variant={multiple ? 'sidebar' : 'default'}
-        className={multiple ? 'preset-editor-nozzle-flow' : 'w-40'}
-        aria-label={multiple ? `Extruder ${index + 1} editing flow` : 'Printer editing flow'} data-testid={`preset-editor-flow-${index + 1}`}>
-        <SelectValue>{selected ? label(selected) : 'Unavailable'}</SelectValue>
-      </SelectTrigger>
-      <SelectContent><SelectGroup>{available.map(choice => <SelectItem key={choice.id} value={choice.id}
-        data-testid={`preset-editor-flow-option-${index + 1}-${choice.flowType}`}>{label(choice)}</SelectItem>)}</SelectGroup></SelectContent>
-    </Select>;
-  };
   if (!multiple) {
     const index = nozzles[0]?.extruderIndex;
     const available = choices.filter(choice => choice.extruderIndex === index)
@@ -78,20 +61,20 @@ export function PrinterEditorSelection({ snapshot, selection, disabled, dirtyCho
       itemTestId={choice => `preset-editor-flow-option-${index + 1}-${choice.flowType}`}
       onSelect={id => { const choice = choices.find(choice => choice.id === id); if (choice) selection.selectFlow(choice); }} />}</div>;
   }
-  return <div className="printer-toolhead-list w-max max-w-full flex-wrap" role="group" aria-label="Printer extruders" data-testid="preset-editor-extruder-switch">
-    {nozzles.map(nozzle => {
-      const index = nozzle.extruderIndex;
-      const vector = snapshot.editorVectors.nozzle_diameter;
-      const diameter = vector ? configVectorElementAt(vector, vector.effectiveValues, index) : undefined;
-      const selected = selection.view.nozzle === index;
-      return <div key={index} className="printer-nozzle-extruder printer-toolhead preset-editor-toolhead" data-active={selected}>
-        <Button type="button" variant="ghost" className="h-7 w-full flex-col gap-0 rounded-none border-0 p-0 text-[13px] leading-[14px] font-normal"
-          aria-pressed={selected} aria-label={`Extruder ${index + 1}: ${diameter ?? '—'} mm`}
-          data-testid={`preset-editor-extruder-${index + 1}`} disabled={disabled} onClick={() => selection.selectNozzle(index)}>
-          <span>{index + 1}</span><span>{typeof diameter === 'number' ? diameter : '—'}</span>
-        </Button>
-        {flowSelect(index)}
-      </div>;
-    })}
-  </div>;
+  const items = nozzles.map(nozzle => {
+    const index = nozzle.extruderIndex;
+    const vector = snapshot.editorVectors.nozzle_diameter;
+    const diameter = vector ? configVectorElementAt(vector, vector.effectiveValues, index) : undefined;
+    const available = choices.filter(choice => choice.extruderIndex === index);
+    return { id: String(index), label: `Extruder ${index + 1}: ${diameter ?? '—'} mm`, primary: index + 1,
+      secondary: typeof diameter === 'number' ? String(diameter) : '—', testId: `preset-editor-extruder-${index + 1}`,
+      flowLabel: `Extruder ${index + 1} editing flow`, flowTestId: `preset-editor-flow-${index + 1}`,
+      choiceId: available.find(choice => choice.flowType === selection.view.flows[index])?.id ?? null,
+      choices: available.map(choice => ({ id: choice.id, label: choice.flowType === 0 ? 'SF' : 'HF',
+        testId: `preset-editor-flow-option-${index + 1}-${choice.flowType}` })) };
+  });
+  return <EditorSelector mode="nozzles" nozzles={items} nozzleId={selection.view.nozzle === null ? null : String(selection.view.nozzle)}
+    disabled={disabled} label="Printer extruders" testId="preset-editor-extruder-switch"
+    onSelectNozzle={id => { const nozzle = nozzles.find(nozzle => String(nozzle.extruderIndex) === id); if (nozzle) selection.selectNozzle(nozzle.extruderIndex); }}
+    onSelectChoice={id => { const choice = choices.find(choice => choice.id === id); if (choice) selection.selectFlow(choice); }} />;
 }

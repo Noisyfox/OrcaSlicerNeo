@@ -329,6 +329,11 @@ presentation, selection/dirty styles, keyboard interaction, width policy and
 selected/focused-item visibility. It uses the application's existing horizontal
 wheel handling. Page adapters supply native labels, diameters and flow text;
 the component does not read configuration stores or resolve native indices.
+Its second, nozzle-card mode renders separate nozzle buttons and flow Selects;
+opening a Select has no selection effect, while choosing a flow reports the
+native choice ID. The Printer adapter supplies each nozzle's retained editing
+flow and handles both callbacks. Card wrapping, layout and existing highlighting
+are retained; this shared presentation adds no aggregate card dirty marker.
 
 Project Print and Objects-mode field labels reserve an aligned nozzle-icon gutter
 only when there are multiple native extruder/variant choices. A printer with

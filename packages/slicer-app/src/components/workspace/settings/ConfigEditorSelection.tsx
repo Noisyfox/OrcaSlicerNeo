@@ -31,7 +31,7 @@ export function ConfigEditorSelection({ metadata, choiceId, onSelect, disabled, 
   itemTestId?: (choice: ConfigEditorChoice) => string;
   dirtyChoiceIds: ReadonlySet<string>;
 }) {
-  return <EditorSelector items={metadata.choices.map(choice => ({ id: choice.id, label: choice.label,
+  return <EditorSelector mode="flat" items={metadata.choices.map(choice => ({ id: choice.id, label: choice.label,
     primary: choice.label, testId: itemTestId?.(choice) }))} choiceId={choiceId} onSelect={onSelect}
     disabled={disabled} label={label} testId={testId} dirtyChoiceIds={dirtyChoiceIds} />;
 }

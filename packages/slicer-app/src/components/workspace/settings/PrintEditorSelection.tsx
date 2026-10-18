@@ -20,6 +20,6 @@ export function PrintEditorSelection({ metadata, choiceId, onSelect, disabled, d
     return { id: choice.id, label: choice.label, primary: choice.extruderIndex === null ? '—' : choice.extruderIndex + 1,
       secondary: `${diameter} ${printChoiceFlow(choice)}`, title: `${choice.label}: ${diameter} mm ${printChoiceFlow(choice)}` };
   });
-  return <EditorSelector items={items} choiceId={choiceId} onSelect={onSelect} disabled={disabled}
+  return <EditorSelector mode="flat" items={items} choiceId={choiceId} onSelect={onSelect} disabled={disabled}
     label="Print nozzle" testId="print-editor-selection" dirtyChoiceIds={dirtyChoiceIds} width="full" />;
 }
