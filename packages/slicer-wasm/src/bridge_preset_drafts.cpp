@@ -425,6 +425,91 @@ json editor_candidates_json(const Preset::Type type, const std::string& canonica
     return candidates;
 }
 
+const std::vector<std::string>& filament_override_keys()
+{
+    static const auto keys = [] {
+        auto result = filament_extruder_override_keys;
+        for (const auto* key : {"filament_ironing_flow", "filament_ironing_spacing",
+                                "filament_ironing_inset", "filament_ironing_speed"})
+            result.emplace_back(key);
+        return result;
+    }();
+    return keys;
+}
+
+// Reference-only lookup deliberately follows Orca's ordinal/first-element rule.
+// It must never replace the binding used to edit the Filament itself.
+json filament_override_reference(const DynamicPrintConfig& config, const std::string& key, size_t index)
+{
+    const auto* option = config.option(key);
+    const auto* def = print_config_def.get(key);
+    if (!option || !def) return nullptr;
+    if (const auto* vector = dynamic_cast<const ConfigOptionVectorBase*>(option)) {
+        if (vector->empty()) return nullptr;
+        return ConfigElements::editor_element_value(*option, *def, index < vector->size() ? index : 0);
+    }
+    if (option->is_nil()) return nullptr;
+    switch (def->type) {
+        case coFloat:
+        case coPercent: return dynamic_cast<const ConfigOptionFloat*>(option)->value;
+        case coInt:
+        case coEnum: return dynamic_cast<const ConfigOptionInt*>(option)->value;
+        case coBool: return option->getBool();
+        default: return nullptr;
+    }
+}
+
+json filament_override_context_json(const DynamicPrintConfig& filament)
+{
+    const auto printer = effective_printer_config();
+    const auto& process = state().presets.prints.get_edited_preset().config;
+    const bool machine_long = printer.opt_int("enable_long_retraction_when_cut") == LongRectrationLevel::EnableFilament;
+    json result = json::object();
+    for (const auto& key : filament_override_keys()) {
+        if (!filament.option(key)) continue;
+        const bool ironing = key.find("filament_ironing_") == 0;
+        auto values = json::array();
+        for (size_t index = 0; index < ConfigElements::element_count(filament, Preset::TYPE_FILAMENT, key); ++index) {
+            const auto resolve = [&](const std::string& option) {
+                auto value = filament_override_reference(filament, "filament_" + option, index);
+                return value.is_null() ? filament_override_reference(printer, option, index) : value;
+            };
+            const auto length = resolve("retraction_length");
+            const bool retract = !length.is_number() || length.get<double>() != 0;
+            bool visible = true;
+            if (key == "filament_long_retractions_when_cut") visible = machine_long;
+            if (key == "filament_retraction_distances_when_cut")
+                visible = machine_long && resolve("long_retractions_when_cut") == json(true);
+            values.push_back({{"reference_value", filament_override_reference(ironing ? process : printer, key.substr(9), index)},
+                {"visible", visible}, {"enabled", visible && (ironing || key == "filament_retraction_length" || retract)}});
+        }
+        result[key] = std::move(values);
+    }
+    return result;
+}
+
+void correct_filament_wipe_percentages(const std::string& name, const std::optional<size_t> target)
+{
+    auto filament = effective_preset_config(state().presets, state().preset_drafts, Preset::TYPE_FILAMENT, name);
+    const auto printer = effective_printer_config();
+    const std::string after_key = "filament_retract_after_wipe";
+    const size_t count = ConfigElements::element_count(filament, Preset::TYPE_FILAMENT, after_key);
+    for (size_t index = target.value_or(0); index < (target ? *target + 1 : count); ++index) {
+        const auto resolve = [&](const std::string& key) {
+            auto value = filament_override_reference(filament, "filament_" + key, index);
+            return value.is_null() ? filament_override_reference(printer, key, index) : value;
+        };
+        const auto before = resolve("retract_before_wipe"), after = resolve("retract_after_wipe");
+        if (!before.is_number() || !after.is_number() || before.get<double>() + after.get<double>() <= 100) continue;
+        const auto* overrides = state().preset_drafts.find(Preset::TYPE_FILAMENT, name);
+        const json current = overrides && overrides->count(after_key) ? overrides->at(after_key) : json(nullptr);
+        auto corrected = ConfigElements::set_override(filament, Preset::TYPE_FILAMENT, after_key,
+            current, "percent", index, 100 - before.get<double>());
+        if (corrected.is_object()) throw std::runtime_error(corrected.value("error", "invalid wipe-percentage correction"));
+        state().preset_drafts.set(Preset::TYPE_FILAMENT, name, after_key, corrected);
+    }
+}
+
 // Values can be projected without traversing the installed candidate collection.
 json draft_values_json(const Preset::Type type, const std::string& canonical_name)
 {
@@ -493,6 +578,7 @@ json draft_values_json(const Preset::Type type, const std::string& canonical_nam
                 {"option_metadata", std::move(source_metadata)},
                 {"editor_vectors", std::move(editor_vectors)},
                 {"editor_selection", std::move(selection)},
+                {"filament_override_context", type == Preset::TYPE_FILAMENT ? filament_override_context_json(effective.config) : json::object()},
                 {"revision", state().history_revision}};
 }
 
@@ -688,6 +774,17 @@ json mutate_draft_json(const json& request)
         for (const auto& field : reset_fields) keys.push_back(field.key);
     }
 
+    if (!printer && (action == "set" || action == "set-element") &&
+        (key == "filament_retract_before_wipe" || key == "filament_retract_after_wipe")) {
+        // Orca's GUI enforces these bounds, but its native definitions omit them.
+        for (const auto& entry : override_value) {
+            if (entry.is_null() || entry.at("value").is_null()) continue;
+            const auto& value = entry.at("value");
+            if (!value.is_number() || value.get<double>() < 0 || value.get<double>() > 100)
+                return command_error("invalid_value", "wipe percentage must be between 0 and 100");
+        }
+    }
+
     std::map<std::string, json> indexed_resets;
     if (action == "reset-field" && request.contains("index")) {
         if (!request["index"].is_number_unsigned())
@@ -841,6 +938,12 @@ json mutate_draft_json(const json& request)
                             ConfigElements::explicit_values(baseline_config, type, key));
             }
         }
+
+        const bool wipe_edit = (action == "set" || action == "set-element") &&
+            (key == "filament_retract_before_wipe" || key == "filament_retract_after_wipe");
+        if (!printer && (wipe_edit || (action == "reset-field" && key == "filament_retract_after_wipe")))
+            correct_filament_wipe_percentages(canonical_name, request.contains("index")
+                ? std::optional<size_t>(request.at("index").get<size_t>()) : std::nullopt);
 
         if (printer && reset_count) {
             auto candidate = effective_preset_config(state().presets, state().preset_drafts, type, canonical_name);

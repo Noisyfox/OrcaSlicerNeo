@@ -10,6 +10,8 @@ export interface PresetEditorManifestField {
   readonly multiline?: boolean;
   /** The field must have a native vector-element binding before it is editable. */
   readonly nativeElementOnly?: boolean;
+  /** Dedicated nullable Filament override switch, independent of value type. */
+  readonly filamentOverride?: boolean;
 }
 
 export interface PresetEditorManifestGroup {
@@ -40,6 +42,9 @@ const editableMultiline = (...keys: string[]): PresetEditorManifestField[] =>
 
 const editableNativeElement = (...keys: string[]): PresetEditorManifestField[] =>
   keys.map((key) => ({ key, access: 'editable', nativeElementOnly: true }));
+
+const filamentOverrides = (...keys: string[]): PresetEditorManifestField[] =>
+  keys.map(key => ({ key, access: 'editable', nativeElementOnly: true, filamentOverride: true }));
 
 type ManifestFieldInput = PresetEditorManifestField | readonly PresetEditorManifestField[];
 
@@ -177,8 +182,7 @@ export const FILAMENT_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
       title: 'Setting Overrides',
       groups: [
         group('retraction-overrides', 'Retraction', [
-          readOnly(
-            'This setting is an indexed override that requires the dedicated Orca override control.',
+          filamentOverrides(
             'filament_retraction_length',
             'filament_z_hop',
             'filament_z_hop_types',
@@ -199,15 +203,13 @@ export const FILAMENT_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
           ),
         ]),
         group('retraction-material-change-overrides', 'Retraction when switching material', [
-          readOnly(
-            'This setting is an indexed override that requires the dedicated Orca override control.',
+          filamentOverrides(
             'filament_retract_length_toolchange',
             'filament_retract_restart_extra_toolchange',
           ),
         ]),
         group('ironing-overrides', 'Ironing', [
-          readOnly(
-            'This setting is an indexed override that requires the dedicated Orca override control.',
+          filamentOverrides(
             'filament_ironing_flow',
             'filament_ironing_spacing',
             'filament_ironing_inset',

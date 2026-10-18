@@ -1,5 +1,6 @@
 import { configVectorElementAt } from '@slicer/client';
 import type { ConfigEditorElementBinding, ConfigEditorSnapshot, PresetDraftEditorBinding, PresetDraftSnapshot } from '@slicer/client';
+import { editorChoiceIdentity } from './editorSelection';
 
 export type EditorFieldTarget = ConfigEditorElementBinding | { readonly kind: 'shared' };
 
@@ -29,9 +30,26 @@ export function fieldHasOverride(snapshot: PresetDraftSnapshot, key: string, tar
   return target.kind === 'indexed' ? snapshot.editorVectors[key]?.overrideValues[target.index] != null : Object.hasOwn(snapshot.overrides, key);
 }
 
+/** Page-local choice markers use native ownership, without value/index fallback. */
+export function editorDirtyChoiceIds(snapshot: Pick<ConfigEditorSnapshot, 'sourceValues' | 'effectiveValues' | 'editorVectors' | 'editorSelection'> | null, pageKeys: readonly string[]): ReadonlySet<string> {
+  const dirty = new Set<string>();
+  if (!snapshot) return dirty;
+  for (const key of pageKeys) {
+    if ((!Object.hasOwn(snapshot.sourceValues, key) && !Object.hasOwn(snapshot.effectiveValues, key)) ||
+        snapshot.editorSelection.fieldBindings[key]?.kind !== 'per_selection') continue;
+    const vector = snapshot.editorVectors[key];
+    if (!vector) continue;
+    for (const choice of snapshot.editorSelection.choices) {
+      const target = editorFieldTarget(snapshot, key, choice.id);
+      if (target.kind === 'indexed' && vector.overrideValues[target.index] != null) dirty.add(choice.id);
+    }
+  }
+  return dirty;
+}
+
 export function fieldViewKey(snapshot: ConfigEditorSnapshot, key: string, choiceId: string | null): string {
   const target = editorFieldTarget(snapshot, key, choiceId);
   const choice=snapshot.editorSelection.choices.find(choice=>choice.id===choiceId);
-  const identity=choice?JSON.stringify([choice.extruderIndex,choice.variant]):'';
+  const identity=choice?editorChoiceIdentity(choice):'';
   return `${snapshot.canonicalName}:${key}:${target.kind}:${target.kind === 'indexed' ? `${identity}:${target.index}` : ''}`;
 }

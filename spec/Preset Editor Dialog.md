@@ -4,6 +4,7 @@
 
 **Status:** Delivered runtime editor, including indexed vector overrides and
 explicit local user-preset actions. Cloud synchronization remains deferred.
+The Setting Overrides extension in section 4.3 is delivered.
 
 **Scope:** A shared React preset editor for Printer and Filament presets. It
 extends [Multi-Filament Support](Multi-Filament%20Support.md) without porting
@@ -260,8 +261,10 @@ replacement, or a history restoration removes it.
 An individual field reset removes that field's runtime-overlay override rather
 than copying the current source value into the overlay. A category reset
 likewise removes the overrides for all manifest-listed fields in that category.
-The resulting value is always resolved from the source preset and the ordinary
-native configuration stack. Removing the final override retains an empty
+The resulting value is resolved from the source preset and the ordinary
+native configuration stack, subject to the dedicated after-wipe single-field
+Reset correction in section 4.3. Category and preset Reset do not run that
+correction. Removing the final override retains an empty
 overlay but removes its `Modified` / `Project draft` marker; only `Reset
 preset` removes the overlay itself.
 
@@ -485,6 +488,8 @@ capabilities such as wrapping detection remain unknown when not supplied there.
 Mobile support remains deferred. The registry retains only option projections
 for mounted editor sessions; it adds no native state or background work.
 
+Section 4.3 defines the dedicated Setting Overrides controls and their delivery scope.
+
 Phase one supplies editable generic controls for scalar numbers, booleans,
 enums, text, and colours. A manifest-listed option requiring a specialized Orca
 control (for example compound arrays or structured
@@ -507,9 +512,9 @@ remain editable. Only valid numeric input submits a value: clearing a numeric
 input never writes nil. Genuine boolean-value checkboxes remain available.
 The extra enable checkbox belongs only to Orca's dedicated Filament Setting
 Overrides interaction: checked enables a non-nil override, while unchecked
-uses the inherited Printer or Process value. Neo's Setting Overrides page
-remains read-only until that specialized interaction is implemented; generic
-nullable metadata does not unlock it.
+uses the inherited Printer or Process value. Dedicated override controls require
+their native reference context; generic nullable metadata alone does not unlock
+them. Delivery scope and interaction rules are specified in section 4.3.
 
 The Printer Extruder page uses complete typed native Source and Effective vectors.
 Its tab title is `Extruders` when the printer has multiple physical nozzles,
@@ -606,7 +611,7 @@ selection. Printer browsing retains valid nozzle and per-nozzle editing-flow
 choices across other presets; entering the project's current Printer preset
 initializes editing flows from actual project flow. Editing-flow choices remain
 local to the editor and do not change project flow. Filament preset changes
-start at the first variant. The Filament dropdown exposes the complete ordered
+start at the first variant. The horizontal Filament list exposes the complete ordered
 native variant list, including variants unused by the project Printer. It does
 not change rack assignments. Refreshed choices retain semantic drive/flow
 identity rather than a snapshot-local ordinal ID. Undo/Redo retains valid current selections, with
@@ -616,7 +621,7 @@ A valid vector index is not a physical Extruder ID.
 
 The Printer switch uses sidebar-style nozzle cards with flow dropdowns
 for multiple nozzles. A single nozzle with multiple editing flows instead uses
-an ordinary variant dropdown without nozzle information; a single nozzle with
+the same flat horizontal variant list without nozzle information; a single nozzle with
 one flow hides it. Improved rejection feedback after navigating away remains
 deferred, preserving the current category-tab feedback behavior.
 
@@ -631,8 +636,10 @@ installed preset exactly matches the resulting diameters. The full boundary is o
 Source, Effective, tooltips, search and history refresh use the same displayed
 field binding. Field reset restores only that element; category reset applies
 the explicit current-selection bindings and shared fields in one atomic history
-entry. Extruder field/group/tab highlights reflect native ownership of the
-selected element, including explicit Source-equivalent values.
+entry. Extruder field/group highlights reflect native ownership of the
+selected element, including explicit Source-equivalent values. Page-tab
+highlights aggregate ownership across every variant and shared field on that
+page, independently of the selected entry or an unavailable mapping.
 These typed vectors are response projections, not additional native history or
 project-file state. Both hosts retain their desktop input model; mobile support
 remains deferred.
@@ -657,10 +664,12 @@ serialized text. A whole-option vector Set explicitly owns every valid index.
 Each typed vector requires `override_values` (`overrideValues` in the client),
 with one entry per `indexCount`. React reads ownership at the displayed index;
 it does not compare Source and Effective. Reset field/category clears only the
-selected index. Once that page has no owned entries, its highlights and Reset
-are cleared even when other indices remain modified. Sidebar modified markers
-remain active while any entry is owned. All-null arrays remove the key; field
-and category Reset retain the empty draft, while Reset preset removes it.
+selected index. Once the current selection has no owned entries, its field/group
+highlights and category Reset are cleared even when other indices remain
+modified. The page tab remains highlighted until every variant and shared field
+on that page is clean. Sidebar modified markers remain active while any entry
+is owned. All-null arrays remove the key; field and category Reset retain the
+empty draft, while Reset preset removes it.
 
 Printer/Filament sparse entries belong to `PresetDraftRegistry` and its existing
 history root. Print sparse entries belong to the native project-embedded Print
@@ -771,6 +780,160 @@ fields are read-only until their dedicated editor exists.
 
 No persistence migration, new file format, host-specific behavior, or mobile
 interaction is introduced. Both hosts retain their current desktop layout.
+
+## 4.3 Filament Setting Overrides extension
+
+**Status:** All 23 dedicated controls, native reference projection and atomic
+wipe-percentage correction are delivered. Focused real-runtime acceptance
+covers the editor and native G-code application and inheritance of retraction
+length and ironing speed. Full release qualification follows the repository's
+[testing guidelines](../doc/testing_guidelines.md).
+
+The extension completes the existing Setting Overrides page's three groups
+and 23 manifest-listed fields, preserving their order. It uses dedicated
+override controls and the existing native element bindings, draft ownership,
+runtime/client boundary and history transaction. Native code supplies the
+reference values and dependency conditions using the simplified reference
+policy below. This is a focused page extension, not a general dependency engine
+for other preset-editor pages.
+
+### Scope and deferred validation
+
+Orca's `TabFilament::on_value_change` wipe-percentage companion mutation is
+included. Committing a value edit or override-switch change to either
+before-wipe or after-wipe validates the staged result, including when the
+switch change writes nil. Submitted numeric wipe percentages must be within
+0-100%; reject out-of-range inputs before companion correction even though
+Orca's native option definitions omit these bounds. When their resolved percentages sum to more than
+100%, set Filament after-wipe to `100% - before-wipe`. This may create an
+explicit after-wipe override even when
+that element previously inherited its Printer value or the initiating action
+just unchecked it. For example, changing before-wipe to 80% while after-wipe
+inherits 40% writes an explicit Filament after-wipe value of 20%.
+
+Among Reset operations, only single-field Reset of
+`filament_retract_after_wipe` runs this validation and correction. First stage
+the baseline restoration for that element, then validate the resolved pair and
+write a corrective after-wipe override if needed. Its final value can therefore
+differ from the baseline and remain modified. Single-field Reset of before-wipe,
+category Reset and preset Reset do not run this correction. Preset Reset retains
+its existing complete-draft-removal semantics. Unrelated field edits do not
+trigger wipe-percentage correction.
+
+The initiating operation, validation and any correction form one atomic native
+transaction and one Undo/Redo entry; failure publishes none of them. Apply the
+correction only to the operation's selected Filament element, preserving other
+variants. Undo/Redo restores the recorded state without running a new correction.
+
+Porting `ConfigManipulation` validation and correction is deferred to future
+unified handling. In particular, this extension does not introduce Orca's
+automatic correction of non-nil Filament ironing spacing below 0.05 mm to
+0.1 mm or its correction dialog. Existing native element type/range validation
+continues to apply.
+
+### Feedback and rejected input
+
+Successful wipe-percentage correction silently updates the fields, override
+switches and modification markers from the final committed native result,
+matching Orca's wipe-percentage interaction. This also applies when single-field
+after-wipe Reset leaves a corrective override. Do not add a correction dialog,
+toast or explanatory inline notice.
+
+Ordinary invalid or out-of-range numeric input follows Neo's existing preset
+editor behavior: reject the submission, retain the entered text and show the
+error inline. The native configuration and history remain unchanged. Do not
+port Orca Field's range-error dialogs, automatic clamping or field-specific
+fallbacks. The explicitly specified wipe-percentage companion correction is
+the only automatic value correction added by this extension; it does not
+permit an otherwise out-of-range user input. Existing successful-commit and
+Escape behavior remains unchanged.
+
+### Override switches and Reset
+
+Enabling or re-enabling a Filament override copies the current Printer or
+Process reference value defined below into the selected Filament element.
+Retraction and ironing use this same rule. Do not
+retain a previous override value in a dialog-local cache for later re-enabling.
+This replaces Orca's control-dependent retraction value cache; Orca's ironing
+controls already copy the current Process value each time they are enabled.
+
+Unchecking stages an explicit native nil at that element, so the Printer or
+Process value is used, subject to the wipe-percentage correction above. It is
+distinct from field Reset, which first restores the existing Filament
+source/saved baseline and clears that element's modification under the existing
+ownership contract. The dedicated after-wipe single-field Reset may then
+create a corrective override in the same transaction. Reset may also restore a
+non-nil Filament override from the baseline. Checkbox state describes whether
+a Filament override is enabled; modification highlighting continues to describe changes relative to
+the existing baseline.
+
+For visible fields disabled by dependency conditions, keep field Reset
+available when the element has a modification. Disable only the override
+switch and value input. Existing loading, mutation and native availability
+guards still apply. Hidden fields have no visible field Reset button; existing
+category/preset Reset semantics remain unchanged. Reset uses
+its baseline semantics, not the reference-value initialization used by enabling.
+
+### Reference values
+
+Preset draft reads and mutation receipts require `filament_override_context`
+(`filamentOverrideContext` in the typed client). Printer drafts carry an empty
+map; Filament entries align with each field's native `index_count`. Each entry
+contains a typed nullable reference value, visibility and dependency permission
+(`enabled`), independently of whether the Filament value is nil. Producers,
+client validation and mocks use the same contract without legacy fallbacks.
+The native response supplies the context's field set; the client validates and
+decodes those entries against their projected vectors without a separate key
+allow-list or an additional native read.
+
+Prefer a simple Orca-style reference policy over exact physical-extruder
+matching. Use the project's current effective Printer, including its draft,
+for retraction references and the current edited Process for ironing
+references. Scalar options supply their scalar value. For a nonempty reference
+vector, use the selected Filament variant's zero-based ordinal directly;
+if that index is outside the reference vector, use its first element. Missing,
+empty or nil reference values are unavailable; do not fabricate a value or
+enable an override by copying an unavailable reference.
+
+Do not add a reference-extruder selector, aggregate multiple physical-extruder
+values, or match Printer entries by variant identity. The reference is allowed
+to be approximate, including when the current Printer does not use the edited
+Filament variant. Use this one reference rule consistently for disabled-value
+display, override initialization, dependency conditions and wipe-percentage
+companion changes. Do not reproduce Orca's differing index choices between
+the uncheck callback and page refresh.
+
+This approximation applies only to reference-derived editor behavior. The
+Filament's stored Source/Effective values, element writes, Reset and modification
+highlighting retain their existing native field binding to the selected
+Filament variant. Final slicing continues to resolve the configuration through
+the existing native mapping; the reference lookup does not replace it.
+
+### Dependency rules
+
+Unlike Orca's GUI, which treats a nil Filament retraction length as sufficient
+to enable the dependent controls, Neo uses the retraction length after
+combining the selected Filament value with the simplified Printer reference. If
+that length is zero, disable the other retraction override switches and value
+controls, including retraction when switching material. Keep the retraction
+length override control available so the user can enable retraction again.
+Disabling controls preserves their stored values and ownership; restoring a
+positive length restores the corresponding control states without rewriting
+those other fields.
+
+The Printer's `enable_long_retraction_when_cut` must be `EnableFilament` for
+the Filament long-retraction controls to be shown. Within that mode, show the
+distance field when the long-retraction switch, after combining the simplified
+Printer reference and selected Filament value, is true. This intentionally
+differs from Orca's GUI check for an explicitly true Filament switch: inheriting
+a true Printer switch also
+shows the distance field. The retraction-length dependency above still governs
+whether the shown controls can be edited. Hiding a field does not clear it.
+
+Both hosts share the same controls and native rules. Mobile product support
+remains deferred. This extension adds no persistence format or separate
+configuration owner; its projection should remain limited to the page's
+reference context rather than duplicating complete preset catalogues.
 
 ## 5. Local user preset management
 

@@ -16,7 +16,8 @@ import { projectFullModelMesh } from '../viewport/modelMeshProjection';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import { printChoiceFlow } from './PrintEditorSelection';
-import { elementText, parsePrintElement, printDirtyChoiceIds, printHasLocalOverrides, projectPrintField, scopedPrintField, scopedDirtyChoiceIds, scopedHasLocalOverrides } from './printEditorProjection';
+import { editorDirtyChoiceIds } from './presetEditorBindings';
+import { elementText, parsePrintElement, printHasLocalOverrides, projectPrintField, scopedPrintField, scopedDirtyChoiceIds, scopedHasLocalOverrides } from './printEditorProjection';
 import { commitPrintConfigurationMutation, readPrintConfigEditor, waitForConfigurationMutations, commitScopedEditorMutation } from './configurationActions';
 
 let root:Root|undefined;
@@ -215,15 +216,15 @@ it('uses native ownership and resolved indices without short-vector fallback or 
   const snapshot={...source,editorSelection:{...source.editorSelection,fieldBindings:{...source.editorSelection.fieldBindings,
     outer_wall_speed:{kind:'per_selection' as const,bindings:[{kind:'indexed' as const,index:2},{kind:'unavailable' as const},{kind:'indexed' as const,index:1}]}}},
     editorVectors:{...source.editorVectors,outer_wall_speed:{...vector,effectiveValues:[200],sourceValues:[200],overrideValues:[{value:null},null,{value:240}]}}};
-  expect([...printDirtyChoiceIds(snapshot,['outer_wall_speed'])]).toEqual(['ordinal-0']); // Native index 2; null/value-equal owners both remain explicit.
-  expect([...printDirtyChoiceIds({...snapshot,editorVectors:{...snapshot.editorVectors,outer_wall_speed:{...snapshot.editorVectors.outer_wall_speed,overrideValues:[{value:null}]}}},['outer_wall_speed'])]).toEqual([]);
+  expect([...editorDirtyChoiceIds(snapshot,['outer_wall_speed'])]).toEqual(['ordinal-0']); // Native index 2; null/value-equal owners both remain explicit.
+  expect([...editorDirtyChoiceIds({...snapshot,editorVectors:{...snapshot.editorVectors,outer_wall_speed:{...snapshot.editorVectors.outer_wall_speed,overrideValues:[{value:null}]}}},['outer_wall_speed'])]).toEqual([]);
   expect(printHasLocalOverrides(snapshot,{})).toBe(true); // Even ownership with no available choice is globally dirty.
   const nilOwner={...source,editorVectors:{...source.editorVectors,outer_wall_speed:{...vector,overrideValues:[{value:null},null,null]}}};
-  expect([...printDirtyChoiceIds(nilOwner,['outer_wall_speed'])]).toEqual(['ordinal-0']);
+  expect([...editorDirtyChoiceIds(nilOwner,['outer_wall_speed'])]).toEqual(['ordinal-0']);
   expect(printHasLocalOverrides(source,{curr_bed_type:'Textured PEI Plate',nozzle_volume_type:'Hybrid'})).toBe(false);
   const hidden={...source,sourceValues:{...source.sourceValues,unexposed_print_option:'baseline'},effectiveValues:{...source.effectiveValues,unexposed_print_option:'local'}};
   expect(printHasLocalOverrides(hidden,{unexposed_print_option:'local'})).toBe(true);
-  expect([...printDirtyChoiceIds(hidden,['unexposed_print_option'])]).toEqual([]);
+  expect([...editorDirtyChoiceIds(hidden,['unexposed_print_option'])]).toEqual([]);
 });
 
 it.each([true,false])('navigates invalid/pending Print fields immediately and confines late receipts (success=%s)',async success=>{

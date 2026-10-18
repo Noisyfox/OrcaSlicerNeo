@@ -30,12 +30,12 @@ export function presetOptionPublication(snapshot: PresetDraftSnapshot, key: stri
     effectiveValue: binding.effectiveValue, enumOptions: binding.enumOptions };
   const signature = JSON.stringify([viewKey, snapshot.optionMetadata[key], scalarBinding, selectedVector && !binding ? selectedVector : undefined,
     binding || selectedVector ? undefined : [snapshot.sourceValues[key], snapshot.effectiveValues[key]],
-    fieldHasOverride(snapshot, key, target), loading, mutationPending]);
+    fieldHasOverride(snapshot, key, target), snapshot.filamentOverrideContext[key], loading, mutationPending]);
   const pick = <T,>(values: Readonly<Record<string, T>>): Record<string, T> => Object.hasOwn(values, key) ? { [key]: values[key] } : {};
   const narrowed: PresetDraftSnapshot = {
     ...snapshot, sourceValues: pick(snapshot.sourceValues), effectiveValues: pick(snapshot.effectiveValues),
     optionMetadata: pick(snapshot.optionMetadata), editorVectors: pick(snapshot.editorVectors),
-    editorBindings: pick(snapshot.editorBindings), overrides: pick(snapshot.overrides), editorCandidates: [],
+    editorBindings: pick(snapshot.editorBindings), filamentOverrideContext: pick(snapshot.filamentOverrideContext), overrides: pick(snapshot.overrides), editorCandidates: [],
     editorSelection: { ...snapshot.editorSelection, fieldBindings: pick(snapshot.editorSelection.fieldBindings) },
   };
   return { key, signature, data: { snapshot: narrowed, choiceId, viewKey, loading, mutationPending } };

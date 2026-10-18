@@ -165,7 +165,7 @@ describe('Workspace ownership', () => {
         kind,
         canonicalName: `${canonicalName} canonical`,
         editorCandidates: [{ canonicalName, label: canonicalName, isProjectEmbedded: false, isUser: false, compatible: true, modified: false }],
-        draftExists: false,
+        draftExists: false, filamentOverrideContext: {},
         modified: false,
         overrides: {},
         sourceValues: {},
@@ -208,7 +208,7 @@ describe('Workspace ownership', () => {
     const runtime = {
       getPresetDraft: vi.fn(async (kind: 'printer' | 'filament', canonicalName: string) => canonicalName === 'Printer Broken'
         ? { ok: false, error: 'Preset read failed', errorCode: 'runtime_failure' }
-        : { ok: true, kind, canonicalName, editorCandidates: candidates, draftExists: false, modified: false,
+        : { ok: true, kind, canonicalName, editorCandidates: candidates, draftExists: false, modified: false, filamentOverrideContext: {},
           overrides: {}, sourceValues: { printable_height: '256' }, effectiveValues: { printable_height: '256' },
           optionMetadata: {}, editorBindings: {}, editorVectors: {},
           editorSelection: { kind, activeSource: false, choices: [], firstChoiceId: null, nozzles: [],
@@ -249,7 +249,7 @@ describe('Workspace ownership', () => {
       kind,
       canonicalName,
       editorCandidates: [{ canonicalName, label: canonicalName, isProjectEmbedded: false, isUser: false, compatible: true, modified: revision === 1 }],
-      draftExists: revision === 1,
+      draftExists: revision === 1, filamentOverrideContext: {},
       modified: revision === 1,
       overrides: revision === 1 ? { printable_height: height } : {},
       sourceValues: { printable_height: '256' },

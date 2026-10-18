@@ -10,6 +10,7 @@ bool selection_dependent(Preset::Type, const std::string&);
 json validate_reset_field(const DynamicPrintConfig&, const DynamicPrintConfig& source, Preset::Type, const ResetField&);
 size_t element_count(const DynamicPrintConfig&, Preset::Type, const std::string&);
 std::optional<std::string> editor_vector_type(const std::string&, const ConfigOptionDef&);
+json editor_element_value(const ConfigOption&, const ConfigOptionDef&, size_t);
 json vectors_json(const DynamicPrintConfig& source, const DynamicPrintConfig& effective, Preset::Type,
                   const json& overrides);
 // Selection metadata references the existing vectors; it never carries option values.

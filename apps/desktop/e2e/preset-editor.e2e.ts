@@ -9,6 +9,118 @@ import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receip
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
 
+test('filament setting overrides edit all ironing controls using Process references', async () => {
+  const env={...process.env,ORCA_E2E:'1'} as Record<string,string>; delete env.ELECTRON_RUN_AS_NODE;
+  const app=await _electron.launch({args:['.'],cwd:DESKTOP_ROOT,env});
+  try {
+    const page=await app.firstWindow(); await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:60_000});
+    if (REAL && process.env.VITE_SCOPED_CONFIGURATION_GATE === '1') {
+      expect(await page.evaluate(async () => (await (window as any).__orcaScopedConfigurationGate.execution()).threaded))
+        .toBe(process.env.VITE_SCOPED_CONFIGURATION_GATE_VARIANT === 'threaded');
+    }
+    await page.locator('#app-tab-prepare').click();
+    if (REAL) await selectFilamentPreset(page, 'Generic PLA @System', 'Generic PLA');
+    await page.getByTestId('filament-slot-1').click({button:'right'}); await page.getByTestId('filament-edit-1').click();
+    await expect(page.getByTestId('preset-editor-variant')).toBeVisible();
+    const variants=page.getByTestId('preset-editor-variant'), choices=variants.getByRole('button');
+    const naturalWidth=(await variants.boundingBox())!.width, availableWidth=(await variants.locator('..').boundingBox())!.width;
+    expect(naturalWidth).toBeLessThan(availableWidth-24);
+    await expect(variants.getByRole('combobox')).toHaveCount(0);
+    await choices.first().focus(); await choices.first().press('ArrowRight');
+    await expect(choices.nth(1)).toBeFocused(); await choices.nth(1).press('Space');
+    await expect(choices.nth(1)).toHaveAttribute('aria-pressed','true');
+    await choices.nth(1).click(); await expect(choices.nth(1)).toHaveAttribute('aria-pressed','true');
+    const scroll=page.getByTestId('preset-editor-variant-scroll');
+    const lastWidth=(await choices.last().boundingBox())!.width;
+    await scroll.evaluate((element,width)=>{element.style.maxWidth=`${Math.ceil(width)+12}px`;},lastWidth);
+    await choices.last().click(); await expect(choices.last()).toBeInViewport({ratio:0.99});
+    await expect.poll(()=>scroll.evaluate(element=>element.scrollLeft)).toBeGreaterThan(0);
+    await scroll.evaluate(element=>{element.scrollLeft=0;}); await scroll.hover(); await page.mouse.wheel(0,300);
+    await expect.poll(()=>scroll.evaluate(element=>element.scrollLeft)).toBeGreaterThan(0);
+    await scroll.evaluate(element=>{element.style.maxWidth='';});
+    await choices.first().click(); await expect(choices.first()).toHaveAttribute('aria-pressed','true');
+    await expect(page.getByTestId('preset-editor-nozzle-icon-filament_flow_ratio')).toBeVisible();
+    await expect(page.getByTestId('preset-editor-nozzle-icon-filament_vendor')).toHaveCount(0);
+    await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
+    await expect(page.getByTestId('preset-editor-nozzle-icon-filament_retraction_length')).toBeVisible();
+    await page.getByTestId('preset-editor-dialog').screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/preset-editor-nozzle-icons.png'),animations:'disabled'});
+    for(const [key,value] of [['filament_ironing_flow','15'],['filament_ironing_spacing','0.03'],['filament_ironing_inset','0.2'],['filament_ironing_speed','35']]) {
+      const input=page.getByTestId(`preset-editor-input-${key}`),toggle=page.getByTestId(`preset-editor-override-${key}`);
+      await expect(input).toBeDisabled(); const reference=await input.inputValue(); await expect(input).not.toHaveValue('');
+      await toggle.click(); await expect(input).toBeEnabled(); await input.fill(value); await input.press('Enter');
+      await expect(input).toBeEnabled(); await expect(input).toHaveValue(value);
+      await expect(page.getByTestId('preset-editor-page-tab-setting-overrides')).toHaveAttribute('data-draft-override-highlight','true');
+      await page.getByTestId(`preset-editor-reset-field-${key}`).click(); await expect(input).toBeDisabled(); await expect(input).toHaveValue(reference);
+      await expect(page.getByTestId('preset-editor-page-tab-setting-overrides')).toHaveAttribute('data-draft-override-highlight','false');
+    }
+    await page.getByTestId('preset-editor-dialog').screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/filament-overrides-ironing.png')});
+    await page.getByTestId('preset-editor-close').click();
+  } finally { await app.close(); }
+});
+
+test('filament setting overrides edit retraction controls and preserve rejected input', async () => {
+  const env = {...process.env,ORCA_E2E:'1'} as Record<string,string>; delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({args:['.'],cwd:DESKTOP_ROOT,env});
+  try {
+    const page=await app.firstWindow(); await expect(page.getByTestId('slicer-status')).toHaveText('Ready',{timeout:60_000});
+    await page.locator('#app-tab-prepare').click();
+    if (REAL) await selectFilamentPreset(page, 'Generic PLA @System', 'Generic PLA');
+    await page.getByTestId('filament-slot-1').click({button:'right'}); await page.getByTestId('filament-edit-1').click();
+    await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
+    await page.getByTestId('preset-editor-dialog').screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/filament-overrides-retraction.png')});
+    const input=(key:string)=>page.getByTestId(`preset-editor-input-${key}`);
+    const toggle=(key:string)=>page.getByTestId(`preset-editor-override-${key}`);
+    const length='filament_retraction_length',speed='filament_retraction_speed',before='filament_retract_before_wipe';
+    await expect(input(length)).toBeDisabled(); await expect(input(length)).not.toHaveValue('');
+    const reference=await input(length).inputValue();
+    await toggle(length).click(); await input(length).fill('1.4'); await input(length).press('Enter'); await expect(input(length)).toBeEnabled();
+    await expect(input(length)).toHaveValue('1.4'); await toggle(length).click(); await expect(input(length)).toHaveValue(reference);
+    await toggle(length).click(); await expect(input(length)).toHaveValue(reference); await expect(input(length)).toBeEnabled();
+    await toggle(speed).click(); await input(speed).fill('12'); await input(speed).press('Enter'); await expect(input(speed)).toBeEnabled();
+    await input(length).fill('0'); await input(length).press('Enter'); await expect(input(speed)).toBeDisabled();
+    await expect(page.getByTestId(`preset-editor-reset-field-${speed}`)).toBeEnabled();
+    await page.getByTestId(`preset-editor-reset-field-${speed}`).click(); await expect(toggle(speed)).not.toBeChecked();
+    await input(length).fill('1'); await input(length).press('Enter'); await expect(toggle(speed)).toBeEnabled();
+    await toggle(before).click(); await expect(input(before)).toBeEnabled(); const valid=await input(before).inputValue();
+    await input(before).fill('101'); await input(before).press('Enter'); await expect(input(before)).toHaveValue('101');
+    await expect(page.getByTestId(`preset-editor-error-${before}`)).toBeVisible();
+    await input(before).press('Escape'); await expect(input(before)).toHaveValue(valid);
+    await expect(page.getByTestId(`preset-editor-error-${before}`)).toHaveCount(0);
+    const wipeReference=await input('filament_wipe').isChecked();
+    await toggle('filament_wipe').click(); await expect(toggle('filament_wipe')).toBeChecked();
+    await expect(input('filament_wipe')).toBeChecked({checked:wipeReference});
+    await toggle('filament_z_hop_types').click(); await expect(input('filament_z_hop_types')).toBeEnabled();
+    await editClosedEnumField(page,'filament_z_hop_types');
+    const after='filament_retract_after_wipe';
+    await input(before).fill('50'); await input(before).press('Enter'); await expect(input(before)).toBeEnabled();
+    await toggle(after).click(); await input(after).fill('40'); await input(after).press('Enter'); await expect(input(after)).toBeEnabled();
+    await input(before).fill('80'); await input(before).press('Enter'); await expect(input(after)).toHaveValue('20');
+    await page.getByTestId('preset-editor-close').click();
+    await page.getByTestId('history-undo').click();
+    const reopen=async()=>{
+      await page.getByTestId('filament-slot-1').click({button:'right'}); await page.getByTestId('filament-edit-1').click();
+      await page.getByTestId('preset-editor-page-tab-setting-overrides').click();
+    };
+    await reopen(); await expect(input(before)).toHaveValue('50'); await expect(input(after)).toHaveValue('40');
+    await page.getByTestId('preset-editor-close').click(); await page.getByTestId('history-redo').click();
+    await reopen(); await expect(input(before)).toHaveValue('80'); await expect(input(after)).toHaveValue('20');
+    const variantChoices=page.getByTestId('preset-editor-variant').getByRole('button');
+    await expect(variantChoices.first()).toHaveAttribute('data-dirty','true');
+    const modifiedColour=await page.evaluate(()=>{
+      const sample=document.createElement('span');sample.style.color='var(--color-config-override)';document.body.append(sample);
+      const colour=getComputedStyle(sample).color;sample.remove();return colour;
+    });
+    await expect(variantChoices.first().locator('span')).toHaveCSS('color',modifiedColour);
+    await variantChoices.nth(1).click();
+    await expect(variantChoices.nth(1)).toHaveAttribute('data-dirty','false');
+    await expect(variantChoices.first().locator('span')).toHaveCSS('color',modifiedColour);
+    await expect(page.getByTestId('preset-editor-option-label-filament_retraction_length')).toHaveAttribute('data-draft-override-highlight','false');
+    await expect(page.getByTestId('preset-editor-page-tab-setting-overrides')).toHaveAttribute('data-draft-override-highlight','true');
+    await expect(page.getByTestId('preset-editor-reset-category-setting-overrides')).toBeDisabled();
+    await page.getByTestId('preset-editor-close').click();
+  } finally { await app.close(); }
+});
+
 test('real Filament variants and Project Print Hybrid choices edit independent native bindings',async()=>{
   const fixture=process.env.ORCA_E2E_EXTRUDER_PROJECT;
   test.skip(!REAL || !fixture,'Requires the native-exported indexed-editor Hybrid fixture');
@@ -170,17 +282,17 @@ test('real Filament variants and Project Print Hybrid choices edit independent n
     await page.getByTestId('preset-editor-preset').click();
     await page.getByPlaceholder('Search presets to edit…').fill('Generic PLA');
     await page.getByRole('option').and(page.getByTitle('Generic PLA @System',{exact:true})).click();
-    const variant=page.getByTestId('preset-editor-variant');await variant.click();
-    await expect(page.getByRole('option')).toHaveCount(6);
-    await page.getByRole('option',{name:'Bowden Extra High Flow',exact:true}).click();
+    const variant=page.getByTestId('preset-editor-variant');
+    await expect(variant.getByRole('button')).toHaveCount(6);
+    await variant.getByRole('button',{name:'Bowden Extra High Flow',exact:true}).click();
     const ratio=page.getByTestId('preset-editor-input-filament_flow_ratio');
     const ratioBefore=await ratio.inputValue();const ratioAfter=String(Number(ratioBefore)===1.07?1.08:1.07);
     await expect(page.locator('[data-testid^="preset-editor-null-"]')).toHaveCount(0);
     const ratioSource=await page.getByTestId('preset-editor-source-filament_flow_ratio').textContent();
     await ratio.fill(ratioAfter);await ratio.press('Enter');await expect(ratio).toBeEnabled();await expect(ratio).toHaveValue(ratioAfter);
     await expect(page.getByTestId('preset-editor-field-filament_flow_ratio')).toHaveAttribute('title',/filament_flow_ratio\[5\]/);
-    await variant.click();await page.getByRole('option',{name:'Direct Drive Standard',exact:true}).click();await expect(ratio).not.toHaveValue(ratioAfter);
-    await variant.click();await page.getByRole('option',{name:'Bowden Extra High Flow',exact:true}).click();
+    await variant.getByRole('button',{name:'Direct Drive Standard',exact:true}).click();await expect(ratio).not.toHaveValue(ratioAfter);
+    await variant.getByRole('button',{name:'Bowden Extra High Flow',exact:true}).click();
     await expect(page.getByRole('option')).toHaveCount(0);
     await ratio.scrollIntoViewIfNeeded();
     await page.screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/extruder-step4-filament.png')});
@@ -435,6 +547,8 @@ async function editClosedEnumField(page: Page, key: string): Promise<{ before: s
   const before = (await input.textContent())?.trim() ?? '';
   await input.click();
   const options = page.getByRole('option');
+  // Select mounts its portal asynchronously; allTextContents does not wait.
+  await expect(options.nth(1)).toBeVisible();
   const labels = (await options.allTextContents()).map((label) => label.trim());
   const after = labels.find((label) => label.length > 0 && label !== before);
   if (!after) throw new Error(`expected a distinct native enum option for ${key}`);
@@ -465,10 +579,18 @@ test('U1 single Extruder page maps per-nozzle flows and keeps direct diameter ed
     await page.getByTestId('nozzle-variant-select').click();
     await page.getByRole('option', { name: '0.4+0.6', exact: true }).click();
     await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4+0.6');
+    await page.getByTestId('config-page-Speed').click();
+    const processChoices = page.getByTestId('print-editor-selection').getByRole('button');
+    await expect(processChoices.first()).toContainText('0.4');
+    await expect(processChoices.last()).toContainText('0.6');
+    await processChoices.last().click();
+    await expect(processChoices.last()).toHaveAttribute('aria-pressed', 'true');
+    await processChoices.last().click();
+    await expect(processChoices.last()).toHaveAttribute('aria-pressed', 'true');
     await page.getByTestId('preset-edit-printer').click();
     await expect(page.getByTestId('preset-editor-title')).toHaveText('Snapmaker U1 (0.4+0.6 nozzle)');
     await page.getByTestId('preset-editor-page-tab-extruder').click();
-    await expect(page.getByRole('tab', { name: 'Extruder', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('tab', { name: 'Extruders', exact: true })).toHaveCount(1);
     await expect(page.getByRole('tab', { name: /^Extruder \d/ })).toHaveCount(0);
     const cardTops = await page.getByTestId('preset-editor-extruder-switch').locator('.preset-editor-toolhead')
       .evaluateAll(cards => cards.map(card => card.getBoundingClientRect().top));
@@ -535,7 +657,7 @@ test('U1 single Extruder page maps per-nozzle flows and keeps direct diameter ed
     await expect(minimum).toHaveValue('0.15');
     await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'true');
     await page.getByTestId('preset-editor-extruder-1').click();
-    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'false');
+    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'true');
     await minimum.fill('0.1'); await minimum.press('Enter');
     await expect(minimum).toHaveValue('0.1');
     await page.getByTestId('preset-editor-extruder-3').click();
@@ -543,12 +665,13 @@ test('U1 single Extruder page maps per-nozzle flows and keeps direct diameter ed
     await expect(minimum).toHaveValue('0.12');
     await expect(page.getByTestId('preset-editor-reset-category-extruder')).toBeDisabled();
     await expect(page.getByTestId('preset-editor-reset-field-min_layer_height')).toHaveCount(0);
-    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'false');
+    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'true');
     await page.getByTestId('preset-editor-extruder-1').click();
     await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight', 'true');
     await expect(minimum).toHaveValue('0.1');
     await page.getByTestId('preset-editor-reset-category-extruder').click();
     await expect(minimum).toHaveValue('0.08');
+    await expect(page.getByTestId('preset-editor-page-tab-extruder')).toHaveAttribute('data-draft-override-highlight','false');
     for (const index of [3, 4]) {
       await page.getByTestId(`preset-editor-extruder-${index}`).click();
       const diameter = page.getByTestId('preset-editor-input-nozzle_diameter');
@@ -565,6 +688,17 @@ test('U1 single Extruder page maps per-nozzle flows and keeps direct diameter ed
     await expect(minimum).toHaveValue('0.1');
     await page.getByTestId('preset-editor-close').click();
     await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4+0.6');
+    await page.getByTestId('preset-edit-printer').click();
+    await page.getByTestId('preset-editor-page-tab-multimaterial').click();
+    const count=page.getByTestId('preset-editor-input-extruders_count');
+    await count.fill('1'); await count.press('Enter'); await expect(count).toBeEnabled(); await expect(count).toHaveValue('1');
+    await page.getByTestId('preset-editor-page-tab-extruder').click();
+    const flows=page.getByTestId('preset-editor-flow-1');
+    await expect(flows.getByRole('combobox')).toHaveCount(0); await expect(flows.getByRole('button')).toHaveCount(2);
+    await flows.getByRole('button',{name:'High Flow',exact:true}).click();
+    await expect(flows.getByRole('button',{name:'High Flow',exact:true})).toHaveAttribute('aria-pressed','true');
+    await page.getByTestId('preset-editor-dialog').screenshot({path:resolve(DESKTOP_ROOT,'../../.vitest/printer-variant-strip.png'),animations:'disabled'});
+    await page.getByTestId('preset-editor-close').click();
   } finally { await app.close(); }
 });
 

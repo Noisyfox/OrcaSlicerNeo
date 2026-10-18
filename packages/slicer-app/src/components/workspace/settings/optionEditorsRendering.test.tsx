@@ -23,7 +23,7 @@ describe('production editor option subscriptions', () => {
       sourceValues: { adaptive_pressure_advance_bridges: '1', pressure_advance: '0.03', filament_cost: '20' },
       effectiveValues: { adaptive_pressure_advance_bridges: '1', pressure_advance: '0.03', filament_cost: '20', enable_pressure_advance: '1', adaptive_pressure_advance: '1' },
       optionMetadata: { adaptive_pressure_advance_bridges: { type: 'bool' }, pressure_advance: { type: 'float' }, filament_cost: { type: 'float' } },
-      editorVectors: {}, editorBindings: {}, overrides: {}, editorCandidates: [],
+      filamentOverrideContext: {}, editorVectors: {}, editorBindings: {}, overrides: {}, editorCandidates: [],
       editorSelection: { kind: 'filament', activeSource: false, choices: [], firstChoiceId: null, nozzles: [],
         fieldBindings: Object.fromEntries(keys.map(key => [key, { kind: 'shared' }])) },
     } as PresetDraftSnapshot;
