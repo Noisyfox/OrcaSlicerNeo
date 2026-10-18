@@ -749,8 +749,8 @@ interaction is introduced. Both hosts retain their current desktop layout.
 ## 4.3 Filament Setting Overrides extension
 
 **Status:** Accepted scope and dependency rules; implementation pending.
-Enable-value initialization and reference-context presentation still require
-clarification before implementation.
+Reference-context presentation still requires clarification before
+implementation.
 
 The extension completes the existing Setting Overrides page's three groups
 and 23 manifest-listed fields, preserving their order. It uses dedicated
@@ -777,6 +777,31 @@ unified handling. In particular, this extension does not introduce Orca's
 automatic correction of non-nil Filament ironing spacing below 0.05 mm to
 0.1 mm or its correction dialog. Existing native element type/range validation
 continues to apply.
+
+### Override switches and Reset
+
+When the applicable Printer or Process reference value is unique, enabling or
+re-enabling a Filament override copies that current reference value into the
+selected Filament element. Retraction and ironing use this same rule. Do not
+retain a previous override value in a dialog-local cache for later re-enabling.
+This replaces Orca's control-dependent retraction value cache; Orca's ironing
+controls already copy the current Process value each time they are enabled.
+Initialization with unavailable or conflicting reference values remains open.
+
+Unchecking writes an explicit native nil at that element, so the Printer or
+Process value is used. It is distinct from field Reset, which restores the
+existing Filament source/saved baseline and clears that element's modification
+under the existing ownership contract. Reset may therefore restore a non-nil
+Filament override. Checkbox state describes whether a Filament override is
+enabled; modification highlighting continues to describe changes relative to
+the existing baseline.
+
+For visible fields disabled by dependency conditions, keep field Reset
+available when the element has a modification. Disable only the override
+switch and value input. Existing loading, mutation and native availability
+guards still apply. Hidden fields have no visible field Reset
+button; existing category/preset Reset semantics remain unchanged. Reset uses
+its baseline semantics, not the reference-value initialization used by enabling.
 
 ### Dependency rules
 
