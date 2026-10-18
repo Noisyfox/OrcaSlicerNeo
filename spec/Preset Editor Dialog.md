@@ -389,11 +389,16 @@ exposure allow-list: a newly introduced native option is not shown until it is
 intentionally added to the relevant Filament or Printer manifest.
 
 The Phase-one manifest marks topology-changing Printer fields as read-only.
-This includes `extruders_count`, `single_extruder_multi_material`, Printer
-technology and source-identity fields and material-default lists such as
-`default_filament_profile`. These fields require a future dedicated native
+This includes `extruders_count` and `single_extruder_multi_material`.
+These fields require a future dedicated native
 capability-topology transaction; an ordinary draft-field mutation never
 silently reshapes material slots or rewrites related options.
+
+Printer Settings omits the Identity group: `printer_technology`,
+`printer_model`, and `printer_variant` are not exposed as editor fields,
+including in search results.
+The Multimaterial page omits the Material defaults group and its
+`default_filament_profile` field, including in search results.
 
 `extruders_count` is Orca's UI-only field, labelled `Extruders` with the tooltip
 `Number of extruders of the printer.` Its Source and Effective values are the
@@ -450,6 +455,11 @@ remains read-only until that specialized interaction is implemented; generic
 nullable metadata does not unlock it.
 
 The Printer Extruder page uses complete typed native Source and Effective vectors.
+Its tab title is `Extruders` when the printer has multiple physical nozzles,
+and `Extruder` for a single nozzle.
+Its Basic information group places Nozzle type (`nozzle_type`) immediately
+after Nozzle diameter, matching Orca. Nozzle type is not part of the main Basic
+information page's Accessory group.
 The internal snapshot contract requires these vectors; native no longer sends
 the previous first-element `editor_bindings` payload. The typed client derives
 generic first-element views from vectors for the Filament controls. All producers,
@@ -573,6 +583,8 @@ remains deferred.
 The editor provides three reset scopes: an overridden editable field has a
 field Reset that removes its draft override and inherits the source preset;
 each category page has `Reset category`; and the dialog has `Reset preset`.
+The nozzle/variant selector and `Reset category` share one row above the
+scrolling parameter content, with Reset aligned to the top right.
 Every manifest-listed option with a runtime draft override highlights its label
 using the same modified-option color as the Print configuration overlay,
 including phase-one read-only fields. Removing that override clears the

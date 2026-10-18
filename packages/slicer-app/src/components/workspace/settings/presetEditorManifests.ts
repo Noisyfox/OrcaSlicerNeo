@@ -314,14 +314,6 @@ export const PRINTER_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
       id: 'basic-information',
       title: 'Basic information',
       groups: [
-        group('identity', 'Identity', [
-          readOnly(
-            'Printer technology and source model metadata identify this preset and require a dedicated native transition.',
-            'printer_technology',
-            'printer_model',
-            'printer_variant',
-          ),
-        ]),
         group('printable-space', 'Printable space', [
           readOnly(
             'The printable bed shape uses a dedicated geometry editor.',
@@ -373,7 +365,6 @@ export const PRINTER_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
         ]),
         group('accessory', 'Accessory', [
           editable(
-            'nozzle_type',
             'nozzle_hrc',
             'auxiliary_fan',
             'fan_direction',
@@ -495,12 +486,6 @@ export const PRINTER_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
           'machine_unload_filament_time',
           'machine_tool_change_time',
         )),
-        group('material-defaults', 'Material defaults', [
-          readOnly(
-            'Default material profiles are source identity and require a dedicated native transition.',
-            'default_filament_profile',
-          ),
-        ]),
       ],
     },
     {
@@ -508,7 +493,7 @@ export const PRINTER_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
       title: 'Extruder',
       groups: [
         group('basic-information', 'Basic information', [
-          editableNativeElement('nozzle_diameter',
+          editableNativeElement('nozzle_diameter', 'nozzle_type',
             'nozzle_volume',
             'extruder_printable_height',
             'extruder_printable_area',

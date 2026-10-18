@@ -979,7 +979,10 @@ export function PresetEditorDialogContent({
 }: PresetEditorDialogContentProps) {
   const interactionPending = loading || refreshing || mutationPending || loadError !== null;
   const manifest = target ? manifestFor(target.kind) : null;
-  const pages = manifest?.pages ?? [];
+  const multipleNozzles = snapshot?.kind === 'printer' && snapshot.editorSelection.nozzles.length > 1;
+  const pages = useMemo(() => manifest?.pages.map(page =>
+    multipleNozzles && page.id === 'extruder' ? { ...page, title: 'Extruders' } : page) ?? [],
+  [manifest, multipleNozzles]);
   const selection = usePrinterEditorSelection(target ? snapshot : null, sourceEntry);
   const filamentSelection = useConfigEditorSelection(target?.kind === 'filament' ? snapshot?.editorSelection ?? null : null, sourceEntry);
   const choiceId = target?.kind === 'printer' ? selection.choiceId : filamentSelection.choiceId;
@@ -1042,6 +1045,9 @@ export function PresetEditorDialogContent({
   const categoryMapped = snapshot !== null && (query ? searchResults.map(result => result.field.key) : activePageKeys)
     .some(key => snapshot.editorSelection.fieldBindings[key]?.kind === 'per_selection');
   const showSearchResults = query.length > 0;
+  const showPrinterSelection = snapshot !== null && switchApplicable && categoryMapped;
+  const showFilamentSelection = snapshot?.kind === 'filament' && snapshot.editorSelection.choices.length > 1 && categoryMapped;
+  const showCategoryReset = snapshot !== null && !loadError && !loading && !showSearchResults && activePage !== null;
 
   return (
     <Dialog open={target !== null} onOpenChange={(open) => { if (!open && target && !mutationPending) onClose(); }}>
@@ -1144,11 +1150,25 @@ export function PresetEditorDialogContent({
             })}
           </div>}
 
-          {snapshot && switchApplicable && categoryMapped && <PrinterEditorSelection snapshot={snapshot} selection={selection}
-            disabled={loading || refreshing || !snapshot} />}
-          {snapshot?.kind === 'filament' && snapshot.editorSelection.choices.length > 1 && categoryMapped && <ConfigEditorSelection
-            metadata={snapshot.editorSelection} choiceId={filamentSelection.choiceId} onSelect={filamentSelection.select}
-            disabled={loading || refreshing} testId="preset-editor-variant" label="Filament variant" />}
+          {snapshot && (showPrinterSelection || showFilamentSelection || showCategoryReset) &&
+            <div className="flex shrink-0 items-start gap-3">
+              <div className="min-w-0 flex-1 overflow-x-auto">
+                {showPrinterSelection && <PrinterEditorSelection snapshot={snapshot} selection={selection}
+                  disabled={loading || refreshing} />}
+                {showFilamentSelection && <ConfigEditorSelection
+                  metadata={snapshot.editorSelection} choiceId={filamentSelection.choiceId} onSelect={filamentSelection.select}
+                  disabled={loading || refreshing} testId="preset-editor-variant" label="Filament variant" />}
+              </div>
+              {showCategoryReset && activePage && <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="shrink-0"
+                data-testid={`preset-editor-reset-category-${activePage.id}`}
+                disabled={!categoryHasOverrides || interactionPending}
+                onClick={() => void submitAction({ action: 'reset-category', fields: activePageResetFields })}
+              >Reset category</Button>}
+            </div>}
 
           {actionError && <p role="alert" data-testid="preset-editor-action-error" className="text-xs text-destructive">{actionError}</p>}
 
@@ -1182,16 +1202,6 @@ export function PresetEditorDialogContent({
                 data-testid={`preset-editor-page-${activePage.id}`}
                 className="space-y-5 pb-1"
               >
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="xs"
-                    data-testid={`preset-editor-reset-category-${activePage.id}`}
-                    disabled={!categoryHasOverrides || interactionPending}
-                    onClick={() => void submitAction({ action: 'reset-category', fields: activePageResetFields })}
-                  >Reset category</Button>
-                </div>
                 {activePage.groups.map((optionGroup) => <FieldGroup
                   key={optionGroup.id}
                   choiceId={choiceId}

@@ -564,7 +564,14 @@ describe('PresetEditorDialogContent', () => {
 
   it('keeps per-nozzle flows local, hides shared-only categories and opens an unselected popup without selecting it',async()=>{
     const source=u1Fixture();const h=await controlledPrinter(source);
+    expect(document.querySelector('[data-testid="preset-editor-field-nozzle_type"]')).toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-extruder-switch"]')).toBeNull();
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-multimaterial"]'));
+    expect(document.querySelector('[data-testid="preset-editor-group-multimaterial-material-defaults"]')).toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-field-default_filament_profile"]')).toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-extruder-switch"]')).toBeNull();
     await selectExtruder(3);
+    expect(document.querySelector('[data-testid="preset-editor-field-nozzle_type"]')).not.toBeNull();
     await click(document.querySelector('[data-testid="preset-editor-flow-2"]'));
     expect(document.querySelector('[data-testid="preset-editor-extruder-3"]')?.getAttribute('aria-pressed')).toBe('true');
     await press(document.querySelector('[data-testid="preset-editor-flow-2"]')!,'Escape');
@@ -601,6 +608,7 @@ describe('PresetEditorDialogContent', () => {
     await selectFlow(3,'HF');await h.update({...source,revision:3});
     expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('HF');
     await h.update(u1Fixture({name:'Single',active:false,count:1,flows:[0]}),5);
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.textContent).toBe('Extruder');
     expect(document.querySelector('[data-testid="preset-editor-extruder-switch"]')).toBeNull();
     expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('value','0.8');
     await h.update(u1Fixture({name:'Single dual',active:false,count:1}),6);
@@ -819,7 +827,7 @@ describe('PresetEditorDialogContent', () => {
       await mount(snapshotFor(manifest.kind));
       const pageTabs = [...document.querySelectorAll('[role="tablist"] [role="tab"]')]
         .map((tab) => tab.textContent ?? '');
-      expect(pageTabs).toEqual(manifest.pages.map(page => page.title));
+      expect(pageTabs).toEqual(manifest.pages.map(page => manifest.kind === 'printer' && page.id === 'extruder' ? 'Extruders' : page.title));
 
       for (const [pageIndex, page] of manifest.pages.entries()) {
         const pageId = page.id;
@@ -839,7 +847,7 @@ describe('PresetEditorDialogContent', () => {
     await mount(source);
     const pageTabs = [...document.querySelectorAll('[role="tablist"] [role="tab"]')]
       .map((tab) => tab.textContent ?? '');
-    expect(pageTabs).toEqual(PRINTER_PRESET_EDITOR_MANIFEST.pages.map(page => page.title));
+    expect(pageTabs).toEqual(PRINTER_PRESET_EDITOR_MANIFEST.pages.map(page => page.id === 'extruder' ? 'Extruders' : page.title));
 
     for (const index of [1, 2]) {
       const pageId = 'extruder';
@@ -848,7 +856,7 @@ describe('PresetEditorDialogContent', () => {
       expect(visibleFieldKeys(pageId)).toEqual(template.groups.flatMap((optionGroup) =>
         optionGroup.fields.map((field) => field.key)));
       expect(document.querySelector('[data-testid="preset-editor-context-nozzle_diameter"]')?.textContent)
-        .toContain('Extruder / Basic information');
+        .toContain('Extruders / Basic information');
       expect(document.querySelector('[data-testid="preset-editor-field-nozzle_diameter"]')?.getAttribute('data-field-access'))
         .toBe('editable');
     }
@@ -870,8 +878,8 @@ describe('PresetEditorDialogContent', () => {
     const base = snapshotFor('printer', { modified: true });
     const source: PresetDraftSnapshot = {
       ...base,
-      overrides: { ...base.overrides, printer_variant: 'custom-variant', machine_start_gcode: 'G28' },
-      effectiveValues: { ...base.effectiveValues, printer_variant: 'custom-variant', machine_start_gcode: 'G28' },
+      overrides: { ...base.overrides, printer_plugin_config_overrides: 'custom-plugin-config', machine_start_gcode: 'G28' },
+      effectiveValues: { ...base.effectiveValues, printer_plugin_config_overrides: 'custom-plugin-config', machine_start_gcode: 'G28' },
     };
     let current = source;
     await mount(source, vi.fn(), undefined, async (request) => {
@@ -881,12 +889,12 @@ describe('PresetEditorDialogContent', () => {
     });
 
     const label = (key: string) => document.querySelector(`[data-testid="preset-editor-option-label-${key}"]`);
-    for (const key of ['printable_height', 'printer_variant']) {
+    for (const key of ['printable_height', 'printer_plugin_config_overrides']) {
       expect(label(key)?.getAttribute('data-draft-override-highlight')).toBe('true');
       expect(label(key)?.classList.contains('config-override-label')).toBe(true);
     }
-    expect(label('printer_model')?.getAttribute('data-draft-override-highlight')).toBe('false');
-    expect(label('printer_model')?.classList.contains('config-override-label')).toBe(false);
+    expect(label('printer_agent')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(label('printer_agent')?.classList.contains('config-override-label')).toBe(false);
     expect(document.querySelector('[data-testid="preset-editor-control-printable_height"]')?.classList.contains('config-override-label')).toBe(false);
 
     const tab = (page: string) => document.querySelector(`[data-testid="preset-editor-page-tab-${page}"]`);
@@ -896,7 +904,7 @@ describe('PresetEditorDialogContent', () => {
       expect(tab(page)?.classList.contains('config-override-label')).toBe(true);
     }
     expect(tab('motion-ability')?.getAttribute('data-draft-override-highlight')).toBe('false');
-    for (const id of ['identity', 'printable-space']) {
+    for (const id of ['plugin-configuration', 'printable-space']) {
       expect(group('basic-information', id)?.getAttribute('data-draft-override-highlight')).toBe('true');
       expect(group('basic-information', id)?.classList.contains('config-override-label')).toBe(true);
     }
@@ -905,17 +913,17 @@ describe('PresetEditorDialogContent', () => {
     await click(document.querySelector('[data-testid="preset-editor-reset-field-printable_height"]'));
     expect(label('printable_height')?.getAttribute('data-draft-override-highlight')).toBe('false');
     expect(group('basic-information', 'printable-space')?.getAttribute('data-draft-override-highlight')).toBe('false');
-    expect(group('basic-information', 'identity')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    expect(group('basic-information', 'plugin-configuration')?.getAttribute('data-draft-override-highlight')).toBe('true');
     expect(tab('basic-information')?.getAttribute('data-draft-override-highlight')).toBe('true');
 
     await click(document.querySelector('[data-testid="preset-editor-reset-category-basic-information"]'));
-    for (const key of ['printable_height', 'printer_variant']) {
+    for (const key of ['printable_height', 'printer_plugin_config_overrides']) {
       expect(label(key)?.getAttribute('data-draft-override-highlight')).toBe('false');
       expect(label(key)?.classList.contains('config-override-label')).toBe(false);
     }
     expect(tab('basic-information')?.getAttribute('data-draft-override-highlight')).toBe('false');
     expect(tab('machine-gcode')?.getAttribute('data-draft-override-highlight')).toBe('true');
-    for (const id of ['identity', 'printable-space']) {
+    for (const id of ['plugin-configuration', 'printable-space']) {
       expect(group('basic-information', id)?.getAttribute('data-draft-override-highlight')).toBe('false');
     }
 
@@ -959,14 +967,13 @@ describe('PresetEditorDialogContent', () => {
 
   it('marks Printer topology and specialized fields visibly read-only', async () => {
     await mount(snapshotFor('printer'));
+    expect(document.querySelector('[data-testid="preset-editor-group-basic-information-identity"]')).toBeNull();
+    for (const key of ['printer_technology', 'printer_model', 'printer_variant'])
+      expect(document.querySelector(`[data-testid="preset-editor-field-${key}"]`)).toBeNull();
     const cases = [
-      ['printer_technology', 'basic-information'],
-      ['printer_model', 'basic-information'],
-      ['printer_variant', 'basic-information'],
       ['printer_structure', 'basic-information'],
       ['single_extruder_multi_material', 'multimaterial'],
       ['extruders_count', 'multimaterial'],
-      ['default_filament_profile', 'multimaterial'],
       ['printable_area', 'basic-information'],
     ] as const;
   let activePage = 'basic-information';
@@ -1311,8 +1318,8 @@ describe('PresetEditorDialogContent', () => {
     const sourceBase = snapshotFor('printer', { modified: true });
     const source: PresetDraftSnapshot = {
       ...sourceBase,
-      overrides: { ...sourceBase.overrides, printer_variant: 'custom-variant' },
-      effectiveValues: { ...sourceBase.effectiveValues, printer_variant: 'custom-variant' },
+      overrides: { ...sourceBase.overrides, printer_plugin_config_overrides: 'custom-plugin-config' },
+      effectiveValues: { ...sourceBase.effectiveValues, printer_plugin_config_overrides: 'custom-plugin-config' },
     };
     const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => mutationSuccess(source, request));
     await mount(source, vi.fn(), undefined, onMutate);
