@@ -1,8 +1,9 @@
 import { configVectorElementAt as vectorAt } from '@slicer/client';
 import { UserPresetActions } from './UserPresetActions';
-import { editorFieldTarget, fieldBinding, fieldHasOverride, fieldViewKey } from './presetEditorBindings';
-import { PrinterEditorSelection, usePrinterEditorSelection } from './PrinterEditorSelection';
-import { ConfigEditorSelection, useConfigEditorSelection } from './ConfigEditorSelection';
+import { editorDirtyChoiceIds, editorFieldTarget, fieldBinding, fieldHasOverride, fieldViewKey } from './presetEditorBindings';
+import { PrinterEditorSelection } from './PrinterEditorSelection';
+import { EditorSelector } from './EditorSelector';
+import { isEditorSelectionVisible, useConfigEditorSelection, usePrinterEditorSelection } from './editorSelection';
 import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import type {
@@ -33,6 +34,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Input } from '@/components/ui/input';
 import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
+import { NozzleIcon } from '@/components/ui/nozzle-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
 import { PresetCombobox } from '../PresetCombobox';
@@ -130,8 +132,12 @@ function hasOverride(snapshot: PresetDraftSnapshot, key: string, choiceId: strin
 function groupHasOverrides(snapshot: PresetDraftSnapshot, group: PresetEditorManifestGroup, choiceId: string | null): boolean {
   return group.fields.some(field => hasOverride(snapshot, field.key, choiceId));
 }
-function pageHasOverrides(snapshot: PresetDraftSnapshot, page: PresetEditorManifestPage, choiceId: string | null): boolean {
-  return page.groups.some(group => groupHasOverrides(snapshot, group, choiceId));
+function pageHasOverrides(snapshot: PresetDraftSnapshot, page: PresetEditorManifestPage): boolean {
+  return page.groups.some(group => group.fields.some(field => {
+    const vector = snapshot.editorVectors[field.key];
+    return vector ? vector.overrideValues.some(value => value != null)
+      : fieldHasOverride(snapshot, field.key, { kind: 'shared' });
+  }));
 }
 
 function isColourField(field: PresetEditorManifestField, metadata: OptionMeta | undefined): boolean {
@@ -155,6 +161,12 @@ function inputTextForBinding(value: PresetDraftEditorValue, scalarType: PresetDr
   if (value === null) return '';
   if (scalarType === 'float_or_percent' && typeof value === 'object') return String(value.value);
   return String(value);
+}
+
+function controlValue(field: PresetEditorManifestField, snapshot: Pick<PresetDraftSnapshot, 'filamentOverrideContext'>, binding: PresetDraftEditorBinding): PresetDraftEditorValue {
+  return field.filamentOverride && binding.effectiveValue === null
+    ? snapshot.filamentOverrideContext[field.key]?.[binding.index]?.referenceValue ?? null
+    : binding.effectiveValue;
 }
 
 function projectedValueText(value: PresetDraftEditorValue, scalarType: PresetDraftEditorScalarType, enumOptions?: PresetDraftEditorBinding['enumOptions']): string {
@@ -225,6 +237,7 @@ function makeMutationRequest(
 
 function FieldValue({
   choiceId,
+  selectionGutter,
   field,
   metadata,
   snapshot,
@@ -235,6 +248,7 @@ function FieldValue({
   onMutate,
 }: {
   choiceId: string | null;
+  selectionGutter: boolean;
   field: PresetEditorManifestField;
   metadata: OptionMeta | undefined;
   snapshot: PresetDraftSnapshot;
@@ -249,6 +263,8 @@ function FieldValue({
   const fieldIndex = targetBinding.kind === 'indexed' ? targetBinding.index : undefined;
   const unavailable = targetBinding.kind === 'unavailable';
   const binding = fieldBinding(snapshot, field.key, targetBinding);
+  const overrideControl = field.filamentOverride === true && snapshot.kind === 'filament';
+  const overrideContext = overrideControl && fieldIndex !== undefined ? snapshot.filamentOverrideContext[field.key]?.[fieldIndex] : undefined;
   const vector = fieldIndex === undefined ? undefined : snapshot.editorVectors[field.key];
   const coordinateVector = vector && (vector.scalarType === 'point' || vector.scalarType === 'points') ? vector : undefined;
   const sourceValue = unavailable ? 'Unavailable' : (coordinateVector
@@ -265,20 +281,20 @@ function FieldValue({
   const effectiveValue = unavailable ? 'Unavailable' : coordinateVector
     ? coordinateText(vectorAt(coordinateVector, coordinateVector.effectiveValues, fieldIndex!))
     : binding
-    ? inputTextForBinding(binding.effectiveValue, binding.scalarType)
+    ? inputTextForBinding(controlValue(field, snapshot, binding), binding.scalarType)
     : snapshot.effectiveValues[field.key] ?? metadata?.default ?? '';
   const colourField = isColourField(field, metadata);
   const boundText = binding?.scalarType === 'string';
   const missingRequiredBinding = field.nativeElementOnly === true && binding === undefined && !coordinateVector;
   const unsupportedStructured = !binding && !coordinateVector && isStructuredValue(metadata);
-  const readOnly = unavailable || field.access === 'read-only' || metadata?.readonly === true || binding?.readOnly === true || coordinateVector?.readOnly === true || missingRequiredBinding || unsupportedStructured;
+  const readOnly = unavailable || field.access === 'read-only' || metadata?.readonly === true || binding?.readOnly === true || coordinateVector?.readOnly === true || missingRequiredBinding || unsupportedStructured || (overrideControl && !overrideContext);
   const readOnlyReason = unavailable ? 'This selection has no corresponding native mapping.' : field.readOnlyReason ?? (metadata?.readonly
     ? field.key === 'extruders_count' ? 'Disable SEMM to change the extruder count.' : 'This value is read-only for the current printer configuration.' : unsupportedStructured
     ? 'This value needs a specialized editor.'
     : missingRequiredBinding ? 'This value needs native element metadata.' : undefined);
   const overridden = fieldHasOverride(snapshot, field.key, targetBinding);
   const [displayValue, setDisplayValue] = useState(effectiveValue);
-  const [nullValue, setNullValue] = useState(binding?.effectiveValue === null);
+  const [nullValue, setNullValue] = useState(!overrideControl && binding?.effectiveValue === null);
   const [percentMode, setPercentMode] = useState(
     binding?.scalarType === 'float_or_percent' && binding.effectiveValue !== null &&
       typeof binding.effectiveValue === 'object' && binding.effectiveValue.percent,
@@ -300,11 +316,19 @@ function FieldValue({
   useEffect(() => {
     if (focused.current || fieldError !== null) return;
     setDisplayValue(effectiveValue);
-    setNullValue(binding?.effectiveValue === null);
+    setNullValue(!overrideControl && binding?.effectiveValue === null);
     if (binding?.scalarType === 'float_or_percent' && binding.effectiveValue !== null &&
         typeof binding.effectiveValue === 'object')
       setPercentMode(binding.effectiveValue.percent);
-  }, [binding?.effectiveValue, binding?.scalarType, effectiveValue, fieldError]);
+  }, [binding?.effectiveValue, binding?.scalarType, effectiveValue, fieldError, overrideControl]);
+
+  useEffect(() => {
+    if (overrideContext && (!overrideContext.visible || !overrideContext.enabled)) {
+      focused.current = false;
+      setFieldError(null);
+      setDisplayValue(effectiveValue);
+    }
+  }, [overrideContext?.visible, overrideContext?.enabled, effectiveValue]);
 
   const submitSet = useCallback(async (value: string) => {
     if (loading || mutationPending || actionPending.current) return;
@@ -326,7 +350,7 @@ function FieldValue({
     if (!binding || loading || mutationPending || actionPending.current) return;
     actionPending.current = true;
     setFieldError(null);
-    setNullValue(value === null);
+    setNullValue(!overrideControl && value === null);
     setDisplayValue(inputTextForBinding(value, binding.scalarType));
     if (binding.scalarType === 'float_or_percent' && value !== null && typeof value === 'object')
       setPercentMode(value.percent);
@@ -335,8 +359,8 @@ function FieldValue({
       if (result.ok) {
         const current = fieldBinding(result, field.key, targetBinding);
         if (current) {
-          setDisplayValue(inputTextForBinding(current.effectiveValue, current.scalarType));
-          setNullValue(current.effectiveValue === null);
+          setDisplayValue(inputTextForBinding(controlValue(field, result, current), current.scalarType));
+          setNullValue(!overrideControl && current.effectiveValue === null);
           if (current.scalarType === 'float_or_percent' && current.effectiveValue !== null &&
               typeof current.effectiveValue === 'object')
             setPercentMode(current.effectiveValue.percent);
@@ -349,7 +373,7 @@ function FieldValue({
     } finally {
       actionPending.current = false;
     }
-  }, [binding, field.key, loading, mutationPending, onMutate, snapshot, targetBinding]);
+  }, [binding, field, loading, mutationPending, onMutate, snapshot, targetBinding, overrideControl]);
 
   const resetField = async () => {
     if (!overridden || readOnly || loading || mutationPending || actionPending.current) return;
@@ -364,9 +388,9 @@ function FieldValue({
       }
       const current = fieldBinding(result, field.key, targetBinding);
       if (current) {
-        const value = current.effectiveValue;
+        const value = controlValue(field, result, current);
         setDisplayValue(inputTextForBinding(value, current.scalarType));
-        setNullValue(value === null);
+        setNullValue(!overrideControl && value === null);
         setPercentMode(current.scalarType === 'float_or_percent' && value !== null &&
           typeof value === 'object' && value.percent);
       } else if (coordinateVector && result.editorVectors?.[field.key]) {
@@ -391,7 +415,7 @@ function FieldValue({
   const boundNumeric = binding?.scalarType === 'float' || binding?.scalarType === 'int' ||
     binding?.scalarType === 'percent' || binding?.scalarType === 'float_or_percent';
   const multiline = field.multiline === true || binding?.multiline === true;
-  const controlsDisabled = loading || mutationPending;
+  const controlsDisabled = loading || mutationPending || (overrideControl && (!overrideContext?.enabled || binding?.effectiveValue === null));
   const colorControl = <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen} title={label}
     value={{ kind: 'solid', color: colourInputValue(displayValue) }} disabled={controlsDisabled}
     onConfirm={next => {
@@ -442,7 +466,8 @@ function FieldValue({
         return;
       }
     }
-    const normalized = normalizeScalarInput(displayValue, metadata);
+    const normalized = normalizeScalarInput(displayValue, overrideControl && metadata
+      ? { ...metadata, min: undefined, max: undefined } : metadata);
     if (normalized === null) {
       setFieldError('Enter a valid number.');
       return;
@@ -568,6 +593,8 @@ function FieldValue({
         onKeyDown={handleTextKeyDown}
       />
       {binding.scalarType === 'percent' && <span className="text-xs text-muted-foreground">%</span>}
+      {overrideControl && binding.scalarType !== 'percent' && metadata?.sidetext &&
+        <span className="shrink-0 text-xs text-muted-foreground">{metadata.sidetext}</span>}
       {binding.scalarType === 'float_or_percent' && <Select
         value={percentMode ? 'percent' : 'absolute'}
         onValueChange={(next) => {
@@ -668,6 +695,8 @@ function FieldValue({
       : <Input {...textProps} type="text" inputMode={numeric ? 'decimal' : 'text'} />;
   }
 
+  if (overrideControl && overrideContext?.visible === false) return null;
+
   return (
     <article
       data-testid={`preset-editor-field-${field.key}`}
@@ -684,12 +713,18 @@ function FieldValue({
       {titleContext}
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <Label
-            data-testid={`preset-editor-option-label-${field.key}`}
-            data-draft-override-highlight={overridden ? 'true' : 'false'}
-            className={cn('block truncate text-sm font-medium', overridden && 'config-override-label')}
-            title={tooltip || label}
-          >{label}</Label>
+          <div className="flex min-w-0 items-center gap-0.5">
+            {selectionGutter && <span className="flex h-4 w-2.5 shrink-0 items-center justify-center" data-testid={`preset-editor-nozzle-gutter-${field.key}`}>
+              {snapshot.editorSelection.fieldBindings[field.key]?.kind === 'per_selection' &&
+                <NozzleIcon className="size-4 shrink-0 translate-y-px text-muted-foreground" data-testid={`preset-editor-nozzle-icon-${field.key}`} />}
+            </span>}
+            <Label
+              data-testid={`preset-editor-option-label-${field.key}`}
+              data-draft-override-highlight={overridden ? 'true' : 'false'}
+              className={cn('block min-w-0 truncate text-sm font-medium', overridden && 'config-override-label')}
+              title={tooltip || label}
+            >{label}</Label>
+          </div>
           <code className="break-all text-[0.7rem] text-muted-foreground">{field.key}</code>
         </div>
         {readOnly && <span
@@ -702,10 +737,17 @@ function FieldValue({
           variant="ghost"
           size="xs"
           data-testid={`preset-editor-reset-field-${field.key}`}
-          disabled={controlsDisabled}
+          disabled={loading || mutationPending}
           onClick={() => void resetField()}
         >Reset</Button>}
       </div>
+      {overrideControl && !readOnly && <div className="mt-2 flex items-center gap-2">
+        <Checkbox id={`${inputId}-override`} aria-label={`Override ${label}`}
+          data-testid={`preset-editor-override-${field.key}`} checked={binding?.effectiveValue !== null}
+          disabled={loading || mutationPending || !overrideContext?.enabled || (binding?.effectiveValue === null && overrideContext.referenceValue === null)}
+          onCheckedChange={checked => { void submitElementSet(checked ? overrideContext!.referenceValue : null); }} />
+        <Label htmlFor={`${inputId}-override`}>Override</Label>
+      </div>}
       {readOnly && readOnlyReason && <p className="mt-1 text-[0.7rem] text-muted-foreground">{readOnlyReason}</p>}
       {readOnly ? (
         <dl className="mt-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
@@ -731,6 +773,7 @@ function FieldValue({
 
 function FieldGroup({
   choiceId,
+  selectionGutter,
   page,
   group,
   snapshot,
@@ -739,6 +782,7 @@ function FieldGroup({
   onMutate,
 }: {
   choiceId: string | null;
+  selectionGutter: boolean;
   page: PresetEditorManifestPage;
   group: PresetEditorManifestGroup;
   snapshot: PresetDraftSnapshot;
@@ -764,6 +808,7 @@ function FieldGroup({
         {group.fields.map((field) => <FieldValue
           key={fieldViewKey(snapshot, field.key, choiceId)}
           choiceId={choiceId}
+          selectionGutter={selectionGutter}
           field={field}
           metadata={snapshot.optionMetadata[field.key]}
           snapshot={snapshot}
@@ -1044,13 +1089,12 @@ export function PresetEditorDialogContent({
     return binding.kind === 'unavailable' ? [] : [{ key, ...binding }];
   });
   const categoryHasOverrides = snapshot !== null && activePageResetFields.some(field => fieldHasOverride(snapshot, field.key, field));
-  const switchApplicable = snapshot?.kind === 'printer' && (snapshot.editorSelection.nozzles.length > 1 || snapshot.editorSelection.choices.length > 1);
-  const categoryMapped = snapshot !== null && (query ? searchResults.map(result => result.field.key) : activePageKeys)
-    .some(key => snapshot.editorSelection.fieldBindings[key]?.kind === 'per_selection');
+  const selectionVisible = isEditorSelectionVisible(snapshot?.editorSelection, query ? searchResults.map(result => result.field.key) : activePageKeys);
   const showSearchResults = query.length > 0;
-  const showPrinterSelection = snapshot !== null && switchApplicable && categoryMapped;
-  const showFilamentSelection = snapshot?.kind === 'filament' && snapshot.editorSelection.choices.length > 1 && categoryMapped;
+  const showPrinterSelection = snapshot?.kind === 'printer' && selectionVisible;
+  const showFilamentSelection = snapshot?.kind === 'filament' && selectionVisible;
   const showCategoryReset = snapshot !== null && !loadError && !loading && !showSearchResults && activePage !== null;
+  const dirtyChoiceIds = editorDirtyChoiceIds(snapshot, activePageKeys);
 
   return (
     <Dialog open={target !== null} onOpenChange={(open) => { if (!open && target && !mutationPending) onClose(); }}>
@@ -1131,7 +1175,7 @@ export function PresetEditorDialogContent({
 
           {!showSearchResults && <div role="tablist" aria-label="Preset setting pages" className="flex shrink-0 gap-1 overflow-x-auto border-b">
             {pages.map((page) => {
-              const overridden = snapshot !== null && pageHasOverrides(snapshot, page, choiceId);
+              const overridden = snapshot !== null && pageHasOverrides(snapshot, page);
               return (
                 <button
                   key={page.id}
@@ -1157,9 +1201,11 @@ export function PresetEditorDialogContent({
             <div className="flex shrink-0 items-start gap-3">
               <div className="min-w-0 flex-1 overflow-x-auto">
                 {showPrinterSelection && <PrinterEditorSelection snapshot={snapshot} selection={selection}
-                  disabled={loading || refreshing} />}
-                {showFilamentSelection && <ConfigEditorSelection
-                  metadata={snapshot.editorSelection} choiceId={filamentSelection.choiceId} onSelect={filamentSelection.select}
+                  disabled={loading || refreshing} dirtyChoiceIds={dirtyChoiceIds} />}
+                {showFilamentSelection && <EditorSelector mode="flat"
+                  items={snapshot.editorSelection.choices.map(choice => ({ id: choice.id, label: choice.label, primary: choice.label }))}
+                  choiceId={filamentSelection.choiceId} onSelect={filamentSelection.select}
+                  dirtyChoiceIds={dirtyChoiceIds}
                   disabled={loading || refreshing} testId="preset-editor-variant" label="Filament variant" />}
               </div>
               {showCategoryReset && activePage && <Button
@@ -1187,6 +1233,7 @@ export function PresetEditorDialogContent({
                   : searchResults.map(({ page, group, field }) => <FieldValue
                     key={`${page.id}:${group.id}:${fieldViewKey(snapshot, field.key, choiceId)}`}
                     choiceId={choiceId}
+                    selectionGutter={showPrinterSelection || showFilamentSelection}
                     field={field}
                     metadata={snapshot.optionMetadata[field.key]}
                     snapshot={snapshot}
@@ -1208,6 +1255,7 @@ export function PresetEditorDialogContent({
                 {activePage.groups.map((optionGroup) => <FieldGroup
                   key={optionGroup.id}
                   choiceId={choiceId}
+                  selectionGutter={showPrinterSelection || showFilamentSelection}
                   page={activePage}
                   group={optionGroup}
                   snapshot={snapshot}

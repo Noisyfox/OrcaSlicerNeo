@@ -631,7 +631,15 @@ export interface PresetEditorCandidate {
   readonly modified: boolean;
 }
 
+export interface FilamentOverrideContext {
+  readonly referenceValue: PresetDraftEditorValue;
+  readonly visible: boolean;
+  /** Dependency permission, independent of whether the Filament value is nil. */
+  readonly enabled: boolean;
+}
+
 export interface PresetDraftValues extends PresetDraftTarget, ConfigEditorSnapshot {
+  readonly filamentOverrideContext: Readonly<Record<string, readonly FilamentOverrideContext[]>>;
   readonly draftExists: boolean;
   readonly modified: boolean;
   readonly overrides: Readonly<Record<string, string | readonly ConfigVectorOverride[]>>;

@@ -138,6 +138,7 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
     canonicalName: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical',
     editorCandidates: [{ canonicalName: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical', label: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical', isProjectEmbedded: false, isUser: false, compatible: true, modified: options.modified ?? false }],
     draftExists: options.draftExists ?? true,
+    filamentOverrideContext: {},
     modified: options.modified ?? false,
     overrides: options.modified ? (kind === 'printer' ? { printable_height: '245' } : { filament_flow_ratio: [{value: 0.92}, null] }) : {},
     sourceValues,
@@ -320,7 +321,8 @@ async function controlledPrinter(initial: PresetDraftSnapshot, handler?: (reques
   return {onMutate,getSnapshot:()=>snapshot!,update:async(next:PresetDraftSnapshot|null,nextEntry=entry)=>{snapshot=next;entry=nextEntry;await act(async()=>render());}};
 }
 async function selectFlow(head:number,label:string) {
-  await click(document.querySelector(`[data-testid="preset-editor-flow-${head}"]`));
+  const trigger=document.querySelector(`[data-testid="preset-editor-flow-${head}"]`);
+  if(trigger?.getAttribute('role')==='combobox') await click(trigger);
   await click([...document.querySelectorAll(`[data-testid^="preset-editor-flow-option-${head}-"]`)].find(option=>option.textContent===label)??null);
 }
 
@@ -435,9 +437,13 @@ afterEach(() => {
 describe('PresetEditorDialogContent', () => {
   it('edits the complete native Filament list without Printer filtering, with indexed ownership and atomic shared reset',async()=>{
     const source=filamentVariantsFixture();const h=await controlledPrinter(source);
-    await click(document.querySelector('[data-testid="preset-editor-variant"]'));
-    expect([...document.querySelectorAll('[role="option"]')].map(option=>option.textContent)).toEqual(source.editorSelection.choices.map(choice=>choice.label));
-    await click([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent==='Bowden Extra High Flow')!);
+    const dirtyChoices=()=>[...document.querySelectorAll('[data-testid="preset-editor-variant"] [data-dirty="true"]')].map(item=>item.getAttribute('data-choice-id'));
+    expect(dirtyChoices()).toEqual([]);
+    expect(document.querySelector('[data-testid="preset-editor-nozzle-icon-filament_flow_ratio"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-nozzle-gutter-filament_vendor"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-nozzle-icon-filament_vendor"]')).toBeNull();
+    expect([...document.querySelectorAll('[data-testid="preset-editor-variant"] [data-slot="toggle-group-item"]')].map(option=>option.textContent)).toEqual(source.editorSelection.choices.map(choice=>choice.label));
+    await click([...document.querySelectorAll('[data-testid="preset-editor-variant"] [data-slot="toggle-group-item"]')].find(option=>option.textContent==='Bowden Extra High Flow')!);
     const input=()=>document.querySelector('[data-testid="preset-editor-input-filament_flow_ratio"]') as HTMLInputElement;
     expect(input().value).toBe('1.5');
     expect(document.querySelector('[data-testid="preset-editor-source-filament_flow_ratio"]')?.textContent).toBe('1.5');
@@ -445,24 +451,49 @@ describe('PresetEditorDialogContent', () => {
     await changeInput(input(),'1.45');await press(input(),'Enter');
     expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({kind:'filament',key:'filament_flow_ratio',index:5,value:1.45}));
     await changeInput(input(),'1.5');await press(input(),'Enter');
+    expect(dirtyChoices()).toEqual(['variant-5']);
     expect(document.querySelector('[data-testid="preset-editor-option-label-filament_flow_ratio"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    await click([...document.querySelectorAll('[data-testid="preset-editor-variant"] [data-slot="toggle-group-item"]')].find(option=>option.textContent==='Direct Drive Standard')!);
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-filament"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    expect(document.querySelector('[data-testid="preset-editor-option-label-filament_flow_ratio"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect((document.querySelector('[data-testid="preset-editor-reset-category-filament"]') as HTMLButtonElement).disabled).toBe(true);
+    await click([...document.querySelectorAll('[data-testid="preset-editor-variant"] [data-slot="toggle-group-item"]')].find(option=>option.textContent==='Bowden Extra High Flow')!);
     await enterSearch('filament_flow_ratio');
-    expect(input().value).toBe('1.5');await enterSearch('');
+    expect(dirtyChoices()).toEqual(['variant-5']);
+    expect(document.querySelector('[data-testid="preset-editor-nozzle-icon-filament_flow_ratio"]')).not.toBeNull();
+    expect(input().value).toBe('1.5');
+    await enterSearch('filament_diameter');
+    expect(dirtyChoices()).toEqual(['variant-5']);
+    await enterSearch('filament_vendor');
+    expect(document.querySelector('[data-testid="preset-editor-variant"]')).toBeNull();
+    expect(document.querySelector('[data-testid^="preset-editor-nozzle-gutter-"]')).toBeNull();
+    await enterSearch('');
     await click(document.querySelector('[data-testid="preset-editor-reset-category-filament"]'));
     expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({action:'reset-category',fields:expect.arrayContaining([
       {key:'filament_flow_ratio',kind:'indexed',index:5},{key:'filament_vendor',kind:'shared'},
     ])}));
     expect(h.getSnapshot().editorVectors.filament_flow_ratio.overrideValues[5]).toBeNull();
+    expect(dirtyChoices()).toEqual([]);
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-filament"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    await h.update({...source,overrides:{filament_vendor:'Changed vendor'},modified:true});
+    expect(dirtyChoices()).toEqual([]);
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-filament"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    await h.update({...source,editorSelection:{...source.editorSelection,choices:source.editorSelection.choices.slice(0,1),
+      fieldBindings:Object.fromEntries(Object.entries(source.editorSelection.fieldBindings).map(([key,binding])=>[key,
+        binding.kind==='shared'?binding:{...binding,bindings:binding.bindings.slice(0,1)}]))}});
+    expect(document.querySelector('[data-testid="preset-editor-variant"]')).toBeNull();
+    expect(document.querySelector('[data-testid^="preset-editor-nozzle-gutter-"]')).toBeNull();
+    expect(document.querySelector('[data-testid^="preset-editor-nozzle-icon-"]')).toBeNull();
   });
 
   it('retains semantic Filament identity on reordered history, defaults on removal/entry, and navigates during pending/invalid edits',async()=>{
     const source=filamentVariantsFixture();let finish!:(result:PresetDraftMutationResult)=>void;
     const h=await controlledPrinter(source,()=>new Promise(resolve=>{finish=resolve;}));
-    const select=async(label:string)=>{await click(document.querySelector('[data-testid="preset-editor-variant"]'));await click([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent===label)!);};
+    const select=async(label:string)=>{await click([...document.querySelectorAll('[data-testid="preset-editor-variant"] [data-slot="toggle-group-item"]')].find(option=>option.textContent===label)!);};
     await select('Bowden Extra High Flow');
     const choices=[source.editorSelection.choices[5],...source.editorSelection.choices.slice(0,5)].map((choice,index)=>({...choice,id:`variant-${index}`}));
     await h.update({...source,revision:2,editorSelection:{...source.editorSelection,choices}});
-    expect(document.querySelector('[data-testid="preset-editor-variant"]')?.textContent).toContain('Bowden Extra High Flow');
+    expect(document.querySelector('[data-testid="preset-editor-variant"] [aria-pressed="true"]')?.textContent).toContain('Bowden Extra High Flow');
     await click(document.querySelector('[data-testid="preset-editor-page-tab-dependencies"]'));
     expect(document.querySelector('[data-testid="preset-editor-variant"]')).toBeNull();
     await click(document.querySelector('[data-testid="preset-editor-page-tab-cooling"]'));
@@ -476,16 +507,16 @@ describe('PresetEditorDialogContent', () => {
     const captured=h.onMutate.mock.calls[0][0];expect(captured).toMatchObject({index:2,value:1.22});
     await select('Bowden High Flow');
     await act(async()=>finish(mutationSuccess(source,captured)));
-    expect(document.querySelector('[data-testid="preset-editor-variant"]')?.textContent).toContain('Bowden High Flow');
+    expect(document.querySelector('[data-testid="preset-editor-variant"] [aria-pressed="true"]')?.textContent).toContain('Bowden High Flow');
     expect(document.querySelector('[data-testid="preset-editor-input-filament_flow_ratio"]')).toHaveProperty('value','1.4');
     await h.update({...source,editorSelection:{...source.editorSelection,choices:source.editorSelection.choices.slice(0,2),
       fieldBindings:Object.fromEntries(Object.entries(source.editorSelection.fieldBindings).map(([key,binding])=>[key,
         binding.kind==='shared'?binding:{...binding,bindings:binding.bindings.slice(0,2)}]))}});
-    expect(document.querySelector('[data-testid="preset-editor-variant"]')?.textContent).toContain('Direct Drive Standard');
+    expect(document.querySelector('[data-testid="preset-editor-variant"] [aria-pressed="true"]')?.textContent).toContain('Direct Drive Standard');
     await select('Direct Drive High Flow');await h.update(source,1);
-    expect(document.querySelector('[data-testid="preset-editor-variant"]')?.textContent).toContain('Direct Drive Standard');
+    expect(document.querySelector('[data-testid="preset-editor-variant"] [aria-pressed="true"]')?.textContent).toContain('Direct Drive Standard');
     await select('Bowden High Flow');await h.update(null);await h.update(source,2);
-    expect(document.querySelector('[data-testid="preset-editor-variant"]')?.textContent).toContain('Direct Drive Standard');
+    expect(document.querySelector('[data-testid="preset-editor-variant"] [aria-pressed="true"]')?.textContent).toContain('Direct Drive Standard');
   });
 
   it('uses valid short Filament vectors while leaving missing variant mappings unavailable and out of reset',async()=>{
@@ -495,10 +526,10 @@ describe('PresetEditorDialogContent', () => {
       editorVectors:{...source.editorVectors,filament_flow_ratio:{...source.editorVectors.filament_flow_ratio,sourceValues:[1],effectiveValues:[1],overrideValues:[null,null,null,null,null,{value:1}]}},
       editorSelection:{...source.editorSelection,fieldBindings:{...source.editorSelection.fieldBindings,
         filament_diameter:{kind:'per_selection',bindings:diameter.bindings.map((binding,index)=>index===5?{kind:'unavailable'}:binding)}}}});
-    await click(document.querySelector('[data-testid="preset-editor-variant"]'));
-    await click([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent==='Bowden Extra High Flow')!);
+    await click([...document.querySelectorAll('[data-testid="preset-editor-variant"] [data-slot="toggle-group-item"]')].find(option=>option.textContent==='Bowden Extra High Flow')!);
     expect(document.querySelector('[data-testid="preset-editor-input-filament_flow_ratio"]')).toHaveProperty('value','1');
     expect(document.querySelector('[data-testid="preset-editor-effective-filament_diameter"]')?.textContent).toBe('Unavailable');
+    expect(document.querySelector('[data-testid="preset-editor-nozzle-icon-filament_diameter"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="preset-editor-input-filament_diameter"]')).toBeNull();
     await click(document.querySelector('[data-testid="preset-editor-reset-category-filament"]'));
     const request=h.onMutate.mock.calls.at(-1)![0];if(request.action!=='reset-category')throw Error('reset');
@@ -538,6 +569,9 @@ describe('PresetEditorDialogContent', () => {
   it('uses native physical/variant/motion bindings for SF/HF values, edits, resets, tooltips and search', async()=>{
     const source=u1Fixture(); const h=await controlledPrinter(source);
     await selectExtruder(3);
+    expect(document.querySelector('[data-testid="preset-editor-nozzle-icon-nozzle_diameter"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-nozzle-gutter-nozzle_type"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-nozzle-icon-nozzle_type"]')).toBeNull();
     expect(document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]')).toHaveProperty('value','0.6');
     let input=document.querySelector('[data-testid="preset-editor-input-retraction_length"]') as HTMLInputElement;
     expect(input.value).toBe('1.2');
@@ -548,8 +582,10 @@ describe('PresetEditorDialogContent', () => {
     expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
     await selectFlow(3,'HF');
     expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('value','1.3');
-    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    expect(document.querySelector('[data-testid="preset-editor-option-label-retraction_length"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
     await enterSearch('retraction_length');
+    expect(document.querySelector('[data-testid="preset-editor-nozzle-icon-retraction_length"]')).not.toBeNull();
     expect(document.querySelectorAll('[data-testid="preset-editor-input-retraction_length"]')).toHaveLength(1);
     expect(document.querySelector('[data-testid="preset-editor-field-retraction_length"]')?.getAttribute('title')).toContain('retraction_length[5]');
     await enterSearch('');
@@ -590,6 +626,16 @@ describe('PresetEditorDialogContent', () => {
     await click(document.querySelector('[data-testid="preset-editor-extruder-3"]'));
     expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('HF');
     expect(h.onMutate).not.toHaveBeenCalled();expect(h.getSnapshot()).toEqual(source);
+    // Multiple physical nozzles still need navigation when just one flow is available.
+    await h.update({...source,editorSelection:{...source.editorSelection,choices:source.editorSelection.choices.slice(0,1),
+      fieldBindings:Object.fromEntries(Object.entries(source.editorSelection.fieldBindings).map(([key,binding])=>[key,
+        binding.kind==='shared'?binding:{...binding,bindings:binding.bindings.slice(0,1)}]))}});
+    expect(document.querySelector('[data-testid="preset-editor-extruder-switch"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-flow-2"]')).toHaveProperty('disabled',true);
+    expect(document.querySelector('[data-testid="preset-editor-flow-2"]')?.textContent).toContain('Unavailable');
+    await click(document.querySelector('[data-testid="preset-editor-extruder-2"]'));
+    expect(document.querySelector('[data-testid="preset-editor-extruder-2"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(h.onMutate).not.toHaveBeenCalled();
   });
 
   it('initializes active entries from native hints, carries inactive choices, and preserves valid view on receipts/history',async()=>{
@@ -613,13 +659,26 @@ describe('PresetEditorDialogContent', () => {
     await selectFlow(3,'HF');await h.update({...source,revision:3});
     expect(document.querySelector('[data-testid="preset-editor-flow-3"]')?.textContent).toContain('HF');
     await h.update(u1Fixture({name:'Single',active:false,count:1,flows:[0]}),5);
+    expect(document.querySelector('[data-testid^="preset-editor-nozzle-icon-"]')).toBeNull();
+    expect(document.querySelector('[data-testid^="preset-editor-nozzle-gutter-"]')).toBeNull();
     expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.textContent).toBe('Extruder');
     expect(document.querySelector('[data-testid="preset-editor-extruder-switch"]')).toBeNull();
     expect(document.querySelector('[data-testid="preset-editor-input-retraction_length"]')).toHaveProperty('value','0.8');
     await h.update(u1Fixture({name:'Single dual',active:false,count:1}),6);
-    expect(document.querySelector('[data-testid="preset-editor-flow-1"]')?.getAttribute('aria-label')).toBe('Printer editing flow');
+    expect(document.querySelector('[data-testid="preset-editor-nozzle-icon-retraction_length"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-flow-1"] [role="group"]')?.getAttribute('aria-label')).toBe('Printer editing flow');
+    expect(document.querySelector('[data-testid="preset-editor-flow-1"] [role="combobox"]')).toBeNull();
+    expect([...document.querySelectorAll('[data-testid="preset-editor-flow-1"] [data-slot="toggle-group-item"]')].map(item=>item.textContent)).toEqual(['Standard','High Flow']);
     expect(document.querySelector('[data-testid="preset-editor-extruder-1"]')).toBeNull();
     await selectFlow(1,'High Flow');
+    expect(document.querySelector('[data-testid="preset-editor-flow-1"] [aria-pressed="true"]')?.textContent).toBe('High Flow');
+    const single=h.getSnapshot(), owned=single.editorVectors.retraction_length.overrideValues.map((value,index)=>index===1?{value:0.9}:value);
+    await h.update({...single,overrides:{retraction_length:owned},editorVectors:{...single.editorVectors,
+      retraction_length:{...single.editorVectors.retraction_length,overrideValues:owned}}});
+    expect(document.querySelector('[data-testid="preset-editor-flow-option-1-1"]')?.getAttribute('data-dirty')).toBe('true');
+    expect(document.querySelector('[data-testid="preset-editor-flow-option-1-0"]')?.getAttribute('data-dirty')).toBe('false');
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-motion-ability"]'));
+    expect(document.querySelector('[data-testid="preset-editor-flow-option-1-1"]')?.getAttribute('data-dirty')).toBe('false');
     await h.update(null);await h.update(source,7);
     await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]'));
     expect(document.querySelector('[data-testid="preset-editor-extruder-1"]')?.getAttribute('aria-pressed')).toBe('true');
@@ -717,7 +776,7 @@ describe('PresetEditorDialogContent', () => {
     expect(current.editorVectors?.min_layer_height.effectiveValues).toEqual([0.08, 0.08, 0.15, 0.12]);
     expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
     await selectExtruder(1);
-    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
     await selectExtruder(3);
     await click(document.querySelector('[data-testid="preset-editor-reset-field-min_layer_height"]'));
     expect(requests.at(-1)).toMatchObject({ action: 'reset-field', key: 'min_layer_height', index: 2 });
@@ -755,6 +814,7 @@ describe('PresetEditorDialogContent', () => {
     expect(document.querySelector('[data-testid="preset-editor-option-label-nozzle_diameter"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
     expect(document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]')).toBeNull();
     expect(reset.disabled).toBe(true);
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
     expect((document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]') as HTMLInputElement).value).toBe('0.6');
   });
 
@@ -773,7 +833,7 @@ describe('PresetEditorDialogContent', () => {
     await click(document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]'));
     expect(current.overrides.nozzle_diameter).toEqual([{value: 0.4}, null]);
     expect(current.modified).toBe(true);
-    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
     expect(document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]')).toBeNull();
     expect((document.querySelector('[data-testid="preset-editor-reset-category-extruder"]') as HTMLButtonElement).disabled).toBe(true);
     await selectExtruder(1);
@@ -1250,7 +1310,7 @@ describe('PresetEditorDialogContent', () => {
       editorVectors:{...base.editorVectors,[key]:{...vector,nullable:true,sourceValues:values,effectiveValues:values}}};
     const h=await controlledPrinter(snapshot);
     if(kind==='printer'){await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder"]'));await selectExtruder(3);}
-    else {await click(document.querySelector('[data-testid="preset-editor-variant"]'));await click([...document.querySelectorAll('[role="option"]')].find(option=>option.textContent==='Direct Drive High Flow')!);}
+    else {await click([...document.querySelectorAll('[data-testid="preset-editor-variant"] [data-slot="toggle-group-item"]')].find(option=>option.textContent==='Direct Drive High Flow')!);}
     const input=()=>document.querySelector(`[data-testid="preset-editor-input-${key}"]`) as HTMLInputElement;
     expect(input().disabled).toBe(false);expect(input().value).toBe('');
     expect(document.querySelector('[data-testid^="preset-editor-null-"]')).toBeNull();
@@ -1283,7 +1343,7 @@ describe('PresetEditorDialogContent', () => {
     expect(h.onMutate).toHaveBeenLastCalledWith(expect.objectContaining({key:'overhang_fan_threshold',value:3}));
   });
 
-  it('keeps the dedicated Filament Setting Overrides manifest read-only instead of unlocking nullable fields',async()=>{
+  it('requires native context before unlocking dedicated Filament override fields',async()=>{
     const source=filamentVariantsFixture();const vector={...source.editorVectors.filament_flow_ratio,nullable:true,sourceValues:[null,null,null,null,null,null],effectiveValues:[null,null,null,null,null,null]};
     const h=await controlledPrinter({...source,sourceValues:{...source.sourceValues,filament_retraction_length:'nil'},effectiveValues:{...source.effectiveValues,filament_retraction_length:'nil'},
       optionMetadata:{...source.optionMetadata,filament_retraction_length:{type:'floats',label:'Retraction length'}},
@@ -1291,7 +1351,7 @@ describe('PresetEditorDialogContent', () => {
       editorSelection:{...source.editorSelection,fieldBindings:{...source.editorSelection.fieldBindings,filament_retraction_length:source.editorSelection.fieldBindings.filament_flow_ratio}}});
     await click(document.querySelector('[data-testid="preset-editor-page-tab-setting-overrides"]'));
     const page=FILAMENT_PRESET_EDITOR_MANIFEST.pages.find(page=>page.id==='setting-overrides')!;
-    expect(page.groups.flatMap(group=>group.fields).every(field=>field.access==='read-only')).toBe(true);
+    expect(page.groups.flatMap(group=>group.fields).every(field=>field.filamentOverride)).toBe(true);
     expect(document.querySelector('[data-testid="preset-editor-readonly-filament_retraction_length"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="preset-editor-input-filament_retraction_length"]')).toBeNull();
     expect(document.querySelector('[data-testid^="preset-editor-null-"]')).toBeNull();expect(h.onMutate).not.toHaveBeenCalled();

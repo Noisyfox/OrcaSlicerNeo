@@ -77,7 +77,7 @@ function presetHistoryStatus(revision: number): HistoryStatus {
 
 function presetReceipt(allPlateResultsInvalidated: true): Extract<PresetDraftMutationResult, { ok: true; projectionKind: 'full' }> {
   return {
-    ok: true, projectionKind: 'full', kind: 'printer', canonicalName: 'Printer A', draftExists: true,
+    ok: true, projectionKind: 'full', kind: 'printer', canonicalName: 'Printer A', draftExists: true, filamentOverrideContext: {},
     editorCandidates: { kind: 'replace', items: [{ canonicalName: 'Printer A', label: 'Printer A', compatible: true, modified: true }] },
     modified: true, overrides: { printable_height: '250' },
     sourceValues: { printable_height: '230' }, effectiveValues: { printable_height: '250' },
