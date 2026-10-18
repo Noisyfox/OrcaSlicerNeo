@@ -793,6 +793,23 @@ automatic correction of non-nil Filament ironing spacing below 0.05 mm to
 0.1 mm or its correction dialog. Existing native element type/range validation
 continues to apply.
 
+### Feedback and rejected input
+
+Successful wipe-percentage correction silently updates the fields, override
+switches and modification markers from the final committed native result,
+matching Orca's wipe-percentage interaction. This also applies when single-field
+after-wipe Reset leaves a corrective override. Do not add a correction dialog,
+toast or explanatory inline notice.
+
+Ordinary invalid or out-of-range numeric input follows Neo's existing preset
+editor behavior: reject the submission, retain the entered text and show the
+error inline. The native configuration and history remain unchanged. Do not
+port Orca Field's range-error dialogs, automatic clamping or field-specific
+fallbacks. The explicitly specified wipe-percentage companion correction is
+the only automatic value correction added by this extension; it does not
+permit an otherwise out-of-range user input. Existing successful-commit and
+Escape behavior remains unchanged.
+
 ### Override switches and Reset
 
 Enabling or re-enabling a Filament override copies the current Printer or
