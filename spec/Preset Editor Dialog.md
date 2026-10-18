@@ -748,26 +748,24 @@ interaction is introduced. Both hosts retain their current desktop layout.
 
 ## 4.3 Filament Setting Overrides extension
 
-**Status:** Accepted scope and dependency rules; implementation pending.
-Reference-context presentation still requires clarification before
-implementation.
+**Status:** Accepted scope, interaction and reference rules; implementation
+pending.
 
 The extension completes the existing Setting Overrides page's three groups
 and 23 manifest-listed fields, preserving their order. It uses dedicated
 override controls and the existing native element bindings, draft ownership,
 runtime/client boundary and history transaction. Native code supplies the
-reference context and dependency conditions; shared React does not infer a
-Printer element from a Filament variant's ordinal. This is a focused page
-extension, not a general dependency engine for other preset-editor pages.
+reference values and dependency conditions using the simplified reference
+policy below. This is a focused page extension, not a general dependency engine
+for other preset-editor pages.
 
 ### Scope and deferred validation
 
 Orca's `TabFilament::on_value_change` wipe-percentage companion mutation is
 included. When editing either before-wipe or after-wipe would make their
 resolved percentages sum to more than 100%, set Filament after-wipe to
-`100% - before-wipe`. This may
-create an explicit after-wipe override even when that element previously
-inherited its Printer value. For example, changing before-wipe to 80% while
+`100% - before-wipe`. This may create an explicit after-wipe override even when
+that element previously inherited its Printer value. For example, changing before-wipe to 80% while
 after-wipe inherits 40% writes an explicit Filament after-wipe value of 20%.
 The initiating edit and companion change form one atomic native mutation and
 one Undo/Redo entry; failure publishes neither change.
@@ -780,13 +778,12 @@ continues to apply.
 
 ### Override switches and Reset
 
-When the applicable Printer or Process reference value is unique, enabling or
-re-enabling a Filament override copies that current reference value into the
-selected Filament element. Retraction and ironing use this same rule. Do not
+Enabling or re-enabling a Filament override copies the current Printer or
+Process reference value defined below into the selected Filament element.
+Retraction and ironing use this same rule. Do not
 retain a previous override value in a dialog-local cache for later re-enabling.
 This replaces Orca's control-dependent retraction value cache; Orca's ironing
 controls already copy the current Process value each time they are enabled.
-Initialization with unavailable or conflicting reference values remains open.
 
 Unchecking writes an explicit native nil at that element, so the Printer or
 Process value is used. It is distinct from field Reset, which restores the
@@ -799,15 +796,40 @@ the existing baseline.
 For visible fields disabled by dependency conditions, keep field Reset
 available when the element has a modification. Disable only the override
 switch and value input. Existing loading, mutation and native availability
-guards still apply. Hidden fields have no visible field Reset
-button; existing category/preset Reset semantics remain unchanged. Reset uses
+guards still apply. Hidden fields have no visible field Reset button; existing
+category/preset Reset semantics remain unchanged. Reset uses
 its baseline semantics, not the reference-value initialization used by enabling.
+
+### Reference values
+
+Prefer a simple Orca-style reference policy over exact physical-extruder
+matching. Use the project's current effective Printer, including its draft,
+for retraction references and the current edited Process for ironing
+references. Scalar options supply their scalar value. For a nonempty reference
+vector, use the selected Filament variant's zero-based ordinal directly;
+if that index is outside the reference vector, use its first element. Missing,
+empty or nil reference values are unavailable; do not fabricate a value or
+enable an override by copying an unavailable reference.
+
+Do not add a reference-extruder selector, aggregate multiple physical-extruder
+values, or match Printer entries by variant identity. The reference is allowed
+to be approximate, including when the current Printer does not use the edited
+Filament variant. Use this one reference rule consistently for disabled-value
+display, override initialization, dependency conditions and wipe-percentage
+companion changes. Do not reproduce Orca's differing index choices between
+the uncheck callback and page refresh.
+
+This approximation applies only to reference-derived editor behavior. The
+Filament's stored Source/Effective values, element writes, Reset and modification
+highlighting retain their existing native field binding to the selected
+Filament variant. Final slicing continues to resolve the configuration through
+the existing native mapping; the reference lookup does not replace it.
 
 ### Dependency rules
 
 Unlike Orca's GUI, which treats a nil Filament retraction length as sufficient
-to enable the dependent controls, Neo uses the actual retraction length after
-combining Printer and Filament values in the applicable native context. If
+to enable the dependent controls, Neo uses the retraction length after
+combining the selected Filament value with the simplified Printer reference. If
 that length is zero, disable the other retraction override switches and value
 controls, including retraction when switching material. Keep the retraction
 length override control available so the user can enable retraction again.
@@ -817,16 +839,12 @@ those other fields.
 
 The Printer's `enable_long_retraction_when_cut` must be `EnableFilament` for
 the Filament long-retraction controls to be shown. Within that mode, show the
-distance field when the actual long-retraction switch, after combining Printer
-and Filament values, is true. This intentionally differs from Orca's GUI check
-for an explicitly true Filament switch: inheriting a true Printer switch also
+distance field when the long-retraction switch, after combining the simplified
+Printer reference and selected Filament value, is true. This intentionally
+differs from Orca's GUI check for an explicitly true Filament switch: inheriting
+a true Printer switch also
 shows the distance field. The retraction-length dependency above still governs
 whether the shown controls can be edited. Hiding a field does not clear it.
-
-The policy for a Filament variant with no matching Printer context or multiple
-matching contexts, including contexts with different dependency values, remains
-open. It must be resolved explicitly rather than assuming a unique physical
-extruder or silently reading element zero.
 
 Both hosts share the same controls and native rules. Mobile product support
 remains deferred. This extension adds no persistence format or separate

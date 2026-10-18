@@ -38,6 +38,10 @@ shared React interface:
 - Displayed values, Source values, tooltips, edits, override highlighting, and
   resets must resolve through the same field binding. A physical extruder ID
   is not assumed to equal an option's vector index.
+  The dedicated Filament Setting Overrides page's inherited reference display
+  and dependencies use its deliberately simplified
+  [reference policy](Preset%20Editor%20Dialog.md#reference-values); this does not
+  change the binding of the Filament value being edited.
 - Category reset must support fields that resolve to different indices in one
   atomic operation, including shared fields in the same category.
 - Print retains its existing Project-owned preset; this feature does not add a
