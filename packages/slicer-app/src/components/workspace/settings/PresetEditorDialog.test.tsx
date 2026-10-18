@@ -65,6 +65,11 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
   const editorBindings: Record<string, PresetDraftEditorBinding> = {};
 
   if (kind === 'printer') {
+    sourceValues.extruders_count = '1';
+    effectiveValues.extruders_count = '2';
+    optionMetadata.extruders_count = { type: 'int', label: 'Extruders', min: 1, max: 64, readonly: false };
+    sourceValues.single_extruder_multi_material = effectiveValues.single_extruder_multi_material = '0';
+    optionMetadata.single_extruder_multi_material = { type: 'bool', label: 'Single extruder multi-material' };
     sourceValues.printable_height = '230';
     effectiveValues.printable_height = options.modified ? '245' : '230';
     const nozzleDiameter: TestVector = { scalarType: 'float', metadataType: 'floats', values: [0.4, 0.6] };
@@ -991,15 +996,13 @@ describe('PresetEditorDialogContent', () => {
     expect(document.querySelector(`[data-testid="preset-editor-effective-${key}"]`)?.textContent).toBe(labels[1]);
   });
 
-  it('marks Printer topology and specialized fields visibly read-only', async () => {
+  it('keeps specialized Printer fields visibly read-only', async () => {
     await mount(snapshotFor('printer'));
     expect(document.querySelector('[data-testid="preset-editor-group-basic-information-identity"]')).toBeNull();
     for (const key of ['printer_technology', 'printer_model', 'printer_variant'])
       expect(document.querySelector(`[data-testid="preset-editor-field-${key}"]`)).toBeNull();
     const cases = [
       ['printer_structure', 'basic-information'],
-      ['single_extruder_multi_material', 'multimaterial'],
-      ['extruders_count', 'multimaterial'],
       ['printable_area', 'basic-information'],
     ] as const;
   let activePage = 'basic-information';
@@ -1442,14 +1445,13 @@ describe('PresetEditorDialogContent', () => {
     ]);
   });
 
-  it.each([1, 2, 4])('shows Orca Extruders label and native count %i without a stored option', async (count) => {
+  it.each([1, 2, 4])('edits the native virtual Extruders count %i', async (count) => {
     const base = snapshotFor('printer');
     const sourceValues = { ...base.sourceValues };
     const effectiveValues = { ...base.effectiveValues };
     const optionMetadata = { ...base.optionMetadata };
-    delete sourceValues.extruders_count;
-    delete effectiveValues.extruders_count;
-    delete optionMetadata.extruders_count;
+    sourceValues.extruders_count = '1';
+    effectiveValues.extruders_count = String(count);
     await mount({
       ...base, sourceValues, effectiveValues, optionMetadata,
       editorVectors: {
@@ -1467,20 +1469,18 @@ describe('PresetEditorDialogContent', () => {
     expect(label?.getAttribute('title')).toContain('Number of extruders of the printer.');
     expect(document.querySelector('[data-testid="preset-editor-source-extruders_count"]')?.textContent).toBe('1');
     expect(document.querySelector('[data-testid="preset-editor-effective-extruders_count"]')?.textContent).toBe(String(count));
-    expect(document.querySelector('[data-testid="preset-editor-input-extruders_count"]')).toBeNull();
+    expect((document.querySelector('[data-testid="preset-editor-input-extruders_count"]') as HTMLInputElement).value).toBe(String(count));
     const search = document.querySelector('[data-testid="preset-editor-search"]') as HTMLInputElement;
     await changeInput(search, 'Extruders');
     expect(document.querySelector('[data-testid="preset-editor-option-label-extruders_count"]')?.textContent).toBe('Extruders');
   });
 
-  it('excludes layout-only manifest fields from a category reset while retaining native read-only keys', async () => {
+  it('includes the native virtual count and capability-locked fields in one category reset', async () => {
     const base = snapshotFor('printer');
     const sourceValues: Record<string, string> = { ...base.sourceValues };
     const effectiveValues: Record<string, string> = { ...base.effectiveValues, manual_filament_change: '1' };
     const optionMetadata: Record<string, OptionMeta> = { ...base.optionMetadata };
-    delete sourceValues.extruders_count;
-    delete effectiveValues.extruders_count;
-    delete optionMetadata.extruders_count;
+    optionMetadata.extruders_count = { ...optionMetadata.extruders_count, readonly: true };
     const source: PresetDraftSnapshot = {
       ...base,
       sourceValues,
@@ -1498,7 +1498,35 @@ describe('PresetEditorDialogContent', () => {
     expect(request.action).toBe('reset-category');
     expect(request.fields.map(field => field.key)).toContain('single_extruder_multi_material');
     expect(request.fields.map(field => field.key)).toContain('manual_filament_change');
-    expect(request.fields.map(field => field.key)).not.toContain('extruders_count');
+    expect(request.fields).toContainEqual({ key: 'extruders_count', kind: 'shared' });
+  });
+
+  it.each([true, false])('uses the native count lock %s independently of SEMM and head count', async (locked) => {
+    const base = snapshotFor('printer');
+    await mount({ ...base,
+      effectiveValues: { ...base.effectiveValues, single_extruder_multi_material: '1' },
+      optionMetadata: { ...base.optionMetadata, extruders_count: { ...base.optionMetadata.extruders_count, readonly: locked } },
+    });
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-multimaterial"]'));
+    expect(document.querySelector('[data-testid="preset-editor-input-single_extruder_multi_material"]')).not.toBeNull();
+    const input = document.querySelector('[data-testid="preset-editor-input-extruders_count"]');
+    expect(input === null).toBe(locked);
+    expect(document.querySelector('[data-testid="preset-editor-field-extruders_count"]')?.getAttribute('data-field-access')).toBe(locked ? 'read-only' : 'editable');
+    if (locked) expect(document.querySelector('[data-testid="preset-editor-field-extruders_count"]')?.textContent).toContain('Disable SEMM');
+  });
+
+  it('submits count edits and resets as one native structural command each', async () => {
+    const source = snapshotFor('printer');
+    const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => mutationSuccess(source, request));
+    await mount(source, vi.fn(), undefined, onMutate);
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-multimaterial"]'));
+    const input = document.querySelector('[data-testid="preset-editor-input-extruders_count"]') as HTMLInputElement;
+    await changeInput(input, '4'); await press(input, 'Enter');
+    expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({action:'set',key:'extruders_count',value:'4'}));
+    expect(input.value).toBe('4');
+    await click(document.querySelector('[data-testid="preset-editor-reset-field-extruders_count"]'));
+    expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({action:'reset-field',key:'extruders_count'}));
+    expect(input.value).toBe('1');
   });
 
   it('retains an empty draft after resetting its last field override', async () => {

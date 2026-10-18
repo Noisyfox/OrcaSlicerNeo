@@ -206,8 +206,17 @@ namespace {
 thread_local const Runtime* active_runtime = nullptr;
 struct RuntimeScope {
     const Runtime* previous;
-    explicit RuntimeScope(const Runtime& runtime) : previous(active_runtime) { active_runtime = &runtime; }
-    ~RuntimeScope() { active_runtime = previous; }
+    DynamicPrintConfig source_printer;
+    explicit RuntimeScope(const Runtime& runtime) : previous(active_runtime),
+        source_printer(state().presets.printers.get_edited_preset().config)
+    {
+        state().presets.printers.get_edited_preset().config = Neo::Bridge::PresetDrafts::effective_printer_config();
+        active_runtime = &runtime;
+    }
+    ~RuntimeScope() {
+        state().presets.printers.get_edited_preset().config = std::move(source_printer);
+        active_runtime = previous;
+    }
 };
 json filament_snapshot_json()
 {
@@ -759,7 +768,9 @@ std::vector<double> calculate_filament_flush(const PresetBundle& bundle)
     std::vector<double> matrix;
     const std::size_t count = State::material_slot_count(bundle.project_config);
     const std::size_t matrix_dimension = bundle.filament_presets.size();
-    const std::size_t nozzles = std::max(1, bundle.get_printer_extruder_count());
+    const auto printer = Neo::Bridge::PresetDrafts::effective_preset_config(
+        bundle, state().preset_drafts, Preset::TYPE_PRINTER, bundle.printers.get_selected_preset_name());
+    const std::size_t nozzles = std::max<size_t>(1, printer.opt<ConfigOptionFloats>("nozzle_diameter")->size());
     const auto* colours = bundle.project_config.opt<ConfigOptionStrings>("filament_colour");
     if (colours == nullptr || count == 0 || matrix_dimension < count)
         throw FilamentCommandFailure("native_validation_failure", "native filament colours are unavailable");
@@ -897,7 +908,8 @@ json flushing_volumes_snapshot(const json& request)
     const auto& bundle = state().presets;
     const auto count = State::material_slot_count(bundle.project_config);
     const auto n = bundle.filament_presets.size();
-    const auto planes = static_cast<size_t>(std::max(1, bundle.get_printer_extruder_count()));
+    const auto printer = Neo::Bridge::PresetDrafts::effective_printer_config();
+    const auto planes = std::max<size_t>(1, printer.opt<ConfigOptionFloats>("nozzle_diameter")->size());
     const auto calculated = calculate_filament_flush(bundle);
     std::vector<double> defaults(count * count * planes);
     for (size_t p = 0; p < planes; ++p)
@@ -1024,9 +1036,10 @@ void validate_filament_candidate(PresetBundle& bundle, Model& model,
                                  const bool strict_slot_arrays,
                                  const bool require_all_slot_arrays)
 {
-    const auto& printer = bundle.printers.get_edited_preset().config;
+    const auto printer = Neo::Bridge::PresetDrafts::effective_preset_config(
+        bundle, state().preset_drafts, Preset::TYPE_PRINTER, bundle.printers.get_selected_preset_name());
     validate_filament_candidate_components(bundle.filament_presets, bundle.project_config, printer,
-        std::max(1, bundle.get_printer_extruder_count()),
+        static_cast<int>(std::max<size_t>(1, printer.opt<ConfigOptionFloats>("nozzle_diameter")->size())),
         printer.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor(),
         model, plates, snapshot, strict_slot_arrays, require_all_slot_arrays);
 }
@@ -1917,6 +1930,98 @@ json add_filament_command(const json& request, const Runtime& runtime)
         });
 }
 
+void transition_printer_topology(const DynamicPrintConfig& printer,
+    const DynamicPrintConfig& previous, const std::size_t previous_dimension)
+{
+    auto& bridge = state();
+    auto& bundle = bridge.presets;
+    auto& native_printer = bundle.printers.get_edited_preset().config;
+    const auto saved_printer = native_printer;
+    native_printer = printer;
+    try {
+        const auto nozzles = printer.opt<ConfigOptionFloats>("nozzle_diameter")->size();
+        const bool flexible = bundle.is_bbl_vendor() || printer.opt_bool("single_extruder_multi_material");
+        auto count = State::material_slot_count(bundle.project_config);
+        const auto target = flexible ? count : nozzles;
+        auto scoped = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
+        while (count > target) {
+            const auto removed = count - 1;
+            validate_paint_remap(bridge.model, removed, std::nullopt);
+            bundle.update_num_filaments(removed);
+            bridge.filament_slot_ids.resize(removed);
+            remap_config_filament_references(bundle.project_config, removed, std::nullopt);
+            remap_model_filament_references(bridge.model, removed, std::nullopt, removed);
+            remap_plate_filament_references(bridge.plate_session_plates, removed, std::nullopt, count);
+            remap_native_scoped_config_filament_references(scoped, removed, std::nullopt);
+            --count;
+        }
+        while (count < target) {
+            const auto colour = kNativeFilamentColours[bridge.next_filament_colour_index++ % kNativeFilamentColours.size()];
+            State::resize_slots_preserving_colours(bundle, static_cast<unsigned int>(count + 1), colour);
+            add_plate_filament_references(bridge.plate_session_plates, bundle, count);
+            ++count;
+        }
+        auto current_project = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot()["project"];
+        for (const auto& [key, value] : scoped["project"].items())
+            if (is_filament_slot_reference_key(key)) current_project[key] = value;
+        Neo::Bridge::ScopedConfig::apply_project_scoped_config_snapshot(current_project);
+        // Physical head IDs and material slot IDs have different dimensions.
+        // Keep valid mappings; discard removed heads on every plate.
+        const auto* actual_flow = bundle.project_config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
+        const int first_flow = actual_flow && !actual_flow->empty() && actual_flow->get_at(0) == int(nvtHighFlow)
+            ? int(nvtHighFlow) : int(nvtStandard);
+        auto repair_maps = [nozzles, count, first_flow](DynamicPrintConfig& config, const bool project) {
+            for (const auto* key : {"filament_map", "filament_map_2"})
+                if (auto* map = config.option<ConfigOptionInts>(key))
+                    for (size_t i = 0; i < map->size(); ++i)
+                        if (map->values[i] > static_cast<int>(nozzles)) {
+                            map->values[i] = 1;
+                            if (auto* volumes = config.option<ConfigOptionInts>("filament_volume_map"); volumes && i < volumes->size())
+                                volumes->values[i] = first_flow;
+                            if (auto* tips = config.option<ConfigOptionInts>("filament_nozzle_map"); tips && i < tips->size())
+                                tips->values[i] = 0;
+                        }
+            if (nozzles == 1) {
+                if (project) {
+                    config.option<ConfigOptionInts>("filament_map", true)->values.assign(count, 1);
+                    config.option<ConfigOptionInts>("filament_nozzle_map", true)->values.assign(count, 0);
+                    config.option<ConfigOptionInts>("filament_volume_map", true)->values.assign(count, first_flow);
+                } else {
+                    config.erase("filament_map");
+                    config.erase("filament_nozzle_map");
+                    config.erase("filament_volume_map");
+                }
+                config.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode::fmmAutoForFlush));
+            }
+            if (project)
+                for (const auto* key : {"filament_map", "filament_map_2", "filament_nozzle_map", "filament_volume_map"})
+                    if (auto* map = config.option<ConfigOptionInts>(key))
+                        map->values.resize(count, std::string(key) == "filament_map" || std::string(key) == "filament_map_2" ? 1 : 0);
+        };
+        repair_maps(bundle.project_config, true);
+        for (auto& plate : bridge.plate_session_plates) {
+            repair_maps(plate.settings, false);
+            plate.settings_metadata = config_metadata_json(plate.settings);
+        }
+        auto* flow = bundle.project_config.option<ConfigOptionEnumsGeneric>("nozzle_volume_type", true);
+        const auto* defaults = printer.opt<ConfigOptionEnumsGeneric>("default_nozzle_volume_type");
+        const auto previous_flows = flow->values.size();
+        flow->values.resize(nozzles, 0);
+        for (auto i = previous_flows; i < nozzles; ++i)
+            flow->values[i] = defaults && !defaults->empty() ? defaults->get_at(i) : 0;
+        bundle.update_multi_material_filament_presets();
+        Profiles::repair_project_flows();
+        normalize_filament_flush_after_transition(bundle, previous, previous_dimension);
+        validate_filament_candidate(bundle, bridge.model, bridge.plate_session_plates,
+            Neo::Bridge::ScopedConfig::native_scoped_config_snapshot(), true, true);
+        Neo::Bridge::PrimeTower::normalize_coordinate_positions();
+        native_printer = saved_printer;
+    } catch (...) {
+        native_printer = saved_printer;
+        throw;
+    }
+}
+
 json delete_or_merge_filament_command(const json& request, const bool merge, const Runtime& runtime)
 {
     RuntimeScope scope(runtime);
@@ -2079,7 +2184,7 @@ json filament_session_snapshot_json(const bool include_references)
 {
     PresetBundle& bundle = state().presets;
     const DynamicPrintConfig& project = bundle.project_config;
-    const DynamicPrintConfig& printer = bundle.printers.get_edited_preset().config;
+    const auto printer = Neo::Bridge::PresetDrafts::effective_printer_config();
 
     std::vector<std::string> preset_names = bundle.filament_presets;
     const auto project_colours = config_strings(project, "filament_colour");
@@ -2146,7 +2251,7 @@ json filament_session_snapshot_json(const bool include_references)
     if (!effective_filament_int_map(project, "filament_map_2", printer, slot_count, 1, filament_map_2))
         return filament_session_error_json("filament_map_2_too_long", "filament_map_2 exceeds slot count");
 
-    const int printer_nozzles = std::max(1, bundle.get_printer_extruder_count());
+    const int printer_nozzles = static_cast<int>(std::max<size_t>(1, printer.opt<ConfigOptionFloats>("nozzle_diameter")->size()));
     std::vector<int> physical_map;
     if (!effective_filament_int_map(printer, "physical_extruder_map", printer,
                                      static_cast<size_t>(printer_nozzles), 0, physical_map))

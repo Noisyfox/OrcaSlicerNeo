@@ -11,6 +11,7 @@ import { paintingMock } from './painting-mock';
 
 import type {
   NativeScopedConfigScope,
+  OptionMeta,
   PresetDraftEditorScalarType,
   PresetDraftEditorValue,
   ConfigVectorOverride,
@@ -622,7 +623,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (!source) return undefined;
     const overrides = presetDraftRegistry[kind][canonicalName]?.[key];
     if (!Array.isArray(overrides)) return [...source];
-    return Array.from({ length: Math.max(source.length, overrides.length) }, (_, index) =>
+    return Array.from({ length: kind === 'printer' && key === 'nozzle_diameter' ? overrides.length : Math.max(source.length, overrides.length) }, (_, index) =>
       overrides[index] ? clone(overrides[index]!.value as PresetDraftEditorValue) : clone(source[index < source.length ? index : 0]));
   }
   function parseMockEditorValue(raw: string, option: MockPresetEditorOption): PresetDraftEditorValue[] {
@@ -782,6 +783,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       printable_height: '256',
       printable_area: JSON.stringify(preset.printable_area ?? [[0, 0], [220, 0], [220, 220], [0, 220]]),
       nozzle_diameter: serializePresetEditorValues(presetEditorOptions.printer.nozzle_diameter!.values),
+      extruders_count: String(presetEditorOptions.printer.nozzle_diameter!.values.length),
+      single_extruder_multi_material: preset.vendor_id === 'bambulab' ? '1' : '0',
+      manual_filament_change: '0', purge_in_prime_tower: '0',
     } : {
       filament_vendor: 'Generic',
       enable_pressure_advance: '0',
@@ -796,9 +800,19 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       error: `preset not found: ${canonicalName}`, revision: historyRevision };
     const draft = presetDraftRegistry[kind][canonicalName];
     const overrides = draft ? clone(draft) : {};
-    const optionMetadata = Object.fromEntries(Object.keys(sourceValues)
-      .filter((key) => metadata[key] !== undefined).map((key) => [key, clone(metadata[key])]));
+    const optionMetadata: Record<string, OptionMeta> = Object.fromEntries(Object.keys(sourceValues)
+      .filter((key) => metadata[key] !== undefined).map((key) => [key, clone(metadata[key]) as OptionMeta]));
     const vectors = editorVectorsFor(kind, canonicalName);
+    const effectiveValues = { ...sourceValues, ...Object.fromEntries(Object.entries(overrides).map(([key, value]) =>
+      [key, Array.isArray(value) ? serializePresetEditorValues(editorValuesFor(kind, canonicalName, key)!) : value])) };
+    if (kind === 'printer') {
+      effectiveValues.extruders_count = String(editorValuesFor(kind, canonicalName, 'nozzle_diameter')!.length);
+      const bbl = presetFixtures.printer.find(preset => preset.name === canonicalName)?.vendor_id === 'bambulab';
+      optionMetadata.extruders_count = {type:'int',label:'Extruders',min:1,max:64,
+        readonly:!bbl && effectiveValues.single_extruder_multi_material === '1'};
+      for (const key of ['single_extruder_multi_material','manual_filament_change','purge_in_prime_tower'])
+        optionMetadata[key] = {type:'bool',label:key === 'single_extruder_multi_material' ? 'Single extruder multi-material' : key};
+    }
     return { ok: true, kind, canonical_name: canonicalName,
       draft_exists: draft !== undefined, modified: Object.keys(overrides).length > 0,
       ...(includeCandidates ? { editor_candidates: presetFixtures[kind]
@@ -807,8 +821,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           compatible: kind === 'printer' || !preset.compatible_printers?.length || preset.compatible_printers.includes(selected.printer),
           modified: Object.keys(presetDraftRegistry[kind][preset.name] ?? {}).length > 0 }))
         .sort((a, b) => Number(b.compatible) - Number(a.compatible) || Number(b.modified) - Number(a.modified)) } : {}),
-      overrides, source_values: sourceValues, effective_values: { ...sourceValues, ...Object.fromEntries(Object.entries(overrides).map(([key, value]) =>
-        [key, Array.isArray(value) ? serializePresetEditorValues(editorValuesFor(kind, canonicalName, key)!) : value])) },
+      overrides, source_values: sourceValues, effective_values: effectiveValues,
       option_metadata: optionMetadata, editor_vectors: vectors,
       editor_selection: mockEditorSelection(kind, Object.keys(sourceValues),
         Object.fromEntries(Object.entries(vectors).map(([key, vector]) => [key, (vector as { index_count: number }).index_count])),
@@ -876,10 +889,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const sourceValues = presetSourceValues(kind, request.canonical_name);
     if (!sourceValues) return fail('preset_not_found', `preset not found: ${request.canonical_name}`);
     const action = request.action as string;
+    const bbl = kind === 'printer' && presetFixtures.printer.find(preset => preset.name === request.canonical_name)?.vendor_id === 'bambulab';
+    const beforeCount = kind === 'printer' ? editorValuesFor(kind, request.canonical_name, 'nozzle_diameter')!.length : 0;
+    const beforeSemm = presetDraftRegistry[kind][request.canonical_name]?.single_extruder_multi_material ?? sourceValues.single_extruder_multi_material;
     const resetFields: Array<{key: string; kind: 'shared' | 'indexed'; index?: number}> = [];
     if (action === 'set') {
       if (typeof request.key !== 'string' || !(request.key in sourceValues) || typeof request.value !== 'string')
         return fail('unsupported_option', 'option is not available on this preset');
+      if (kind === 'printer' && request.key === 'extruders_count') {
+        if (!/^\d{1,2}$/.test(request.value) || Number(request.value) < 1 || Number(request.value) > 64)
+          return fail('native_validation_failure', 'Extruders must be an integer from 1 to 64');
+        if (!bbl && beforeSemm === '1') return fail('capability_rejected', 'Disable SEMM before changing the extruder count');
+      }
+      if (kind === 'printer' && request.key === 'single_extruder_multi_material' && !['0','1'].includes(request.value))
+        return fail('native_validation_failure', 'SEMM must be a boolean');
       const meta = metadata[request.key];
       if ((meta?.type === 'float' || meta?.type === 'floats' || meta?.type === 'int' || meta?.type === 'ints' || meta?.type === 'percent' || meta?.type === 'percents') &&
           (!request.value.trim() || !Number.isFinite(Number(request.value))))
@@ -952,15 +975,27 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     } else historyEntries[historyCursor].context = clone(beforeContext);
     const revisionBefore = historyRevision;
     const canonicalName = request.canonical_name as string;
+    const resizeHeads = (current: Record<string, string | ConfigVectorOverride[]>, count: number) => {
+      const values = editorValuesFor('printer', canonicalName, 'nozzle_diameter')!;
+      current.nozzle_diameter = Array.from({length:count},(_,index)=>({value:values[index] ?? values[0]}));
+    };
     if (action === 'set') {
       const current = presetDraftRegistry[kind][canonicalName] ?? {};
       const option = presetEditorOptions[kind][request.key];
-      if (option) {
+      if (kind === 'printer' && request.key === 'extruders_count') {
+        resizeHeads(current, Number(request.value));
+      } else if (option) {
         const values = parseMockEditorValue(request.value, option);
-        const count = option.values.length;
+        const count = (editorValuesFor(kind, canonicalName, request.key) ?? option.values).length;
         current[request.key] = Array.from({length: count}, (_, index) => ({ value: values[index < values.length ? index : 0] }));
       } else {
         current[request.key] = request.value;
+      }
+      if (kind === 'printer' && request.key === 'single_extruder_multi_material') {
+        if (!bbl && request.value === '1' && beforeSemm !== '1') resizeHeads(current, 1);
+        if (request.value === '0')
+          for (const key of ['manual_filament_change','purge_in_prime_tower'])
+            if (sourceValues[key] !== '0' || current[key] !== undefined) current[key] = '0';
       }
       presetDraftRegistry[kind][canonicalName] = current;
     } else if (action === 'set-element') {
@@ -976,7 +1011,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       for (const field of resetFields) {
         const {key} = field;
         if (field.kind === 'shared') {
-          delete current[key];
+          if (kind === 'printer' && key === 'extruders_count') resizeHeads(current, Number(sourceValues.extruders_count));
+          else delete current[key];
         } else {
           const entries = current[key];
           if (Array.isArray(entries)) {
@@ -988,6 +1024,28 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       presetDraftRegistry[kind][canonicalName] = current;
     } else {
       delete presetDraftRegistry[kind][canonicalName];
+    }
+    if (kind === 'printer' && canonicalName === selected.printer) {
+      const count = editorValuesFor('printer', canonicalName, 'nozzle_diameter')!.length;
+      const semm = presetDraftRegistry.printer[canonicalName]?.single_extruder_multi_material ?? sourceValues.single_extruder_multi_material;
+      if (count !== beforeCount || semm !== beforeSemm) {
+        const rack = clone(filamentSessionSnapshot()) as any;
+        const flexible = bbl || semm === '1';
+        const oldSlots = rack.slots.length, oldPlanes = rack.flushing.plane_count;
+        const slots = flexible ? oldSlots : count;
+        while (rack.slots.length < slots) rack.slots.push({...clone(rack.slots[0]),logical_id:`filament-${nextFilamentIdentity++}`,slot:rack.slots.length+1});
+        rack.slots.length = slots;
+        for (const key of ['filament','filament2','nozzle','volume'])
+          rack.mappings[key] = Array.from({length:slots},(_,index)=>rack.mappings[key][index] ?? (key === 'volume' ? 0 : 1));
+        rack.mappings.physical_extruder = Array.from({length:count},(_,index)=>index);
+        const matrix = Array(slots * slots * count).fill(0);
+        for (let p=0;p<Math.min(count,oldPlanes);++p) for(let r=0;r<Math.min(slots,oldSlots);++r) for(let c=0;c<Math.min(slots,oldSlots);++c)
+          matrix[p*slots*slots+r*slots+c]=rack.flushing.matrix[p*oldSlots*oldSlots+r*oldSlots+c];
+        rack.flushing = {...rack.flushing,matrix,matrix_dimension:slots,plane_count:count};
+        rack.capabilities = {...rack.capabilities,nozzle_count:count,flexible,min_slots:flexible?1:count,
+          can_add:flexible&&slots<64,can_delete:flexible&&slots>1,can_merge:flexible&&slots>1};
+        filamentSessionState = rack;
+      }
     }
     presetDraftRevision += 1;
     for (const id of plateIds) plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
@@ -1008,7 +1066,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
     const ordinarySet = ['set', 'set-element'].includes(action) && ![
       'inherits', 'printer_settings_id', 'filament_settings_id', 'print_settings_id',
-      'printer_technology', 'printer_model', 'printer_variant', 'nozzle_diameter',
+      'printer_technology', 'printer_model', 'printer_variant', 'nozzle_diameter', 'extruders_count', 'single_extruder_multi_material',
     ].includes(request.key);
     const unchanged = ordinarySet && !hadRedo && modifiedBefore === (Object.keys(presetDraftRegistry[kind][canonicalName] ?? {}).length > 0);
     const result = presetDraftSnapshot(kind, canonicalName, !unchanged) as Record<string, unknown>;

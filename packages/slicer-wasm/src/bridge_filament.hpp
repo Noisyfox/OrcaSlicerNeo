@@ -76,6 +76,8 @@ void recalculate_filament_flush(PresetBundle& bundle);
 void auto_recalculate_flow_flush(PresetBundle& bundle, std::size_t extruder);
 void auto_recalculate_filament_flush(PresetBundle& bundle, int slot, bool colour_change, bool force = false);
 void normalize_filament_flush_after_transition(PresetBundle& bundle, const DynamicPrintConfig& previous, std::size_t previous_dimension);
+void transition_printer_topology(const DynamicPrintConfig& printer,
+    const DynamicPrintConfig& previous, std::size_t previous_dimension);
 void normalize_references_after_rack_restore(PresetBundle& bundle, Model& model,
     std::vector<BridgeState::PlateSessionPlate>& plates, std::size_t previous_count);
 std::vector<std::vector<int>> min_flush_volumes_for_config(

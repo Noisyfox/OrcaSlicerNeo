@@ -461,11 +461,7 @@ export const PRINTER_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
       title: 'Multimaterial',
       groups: [
         group('single-extruder-multimaterial-setup', 'Single extruder multi-material setup', [
-          readOnly(
-            'These fields change the Printer capability topology and require a dedicated native transition.',
-            'single_extruder_multi_material',
-            'extruders_count',
-          ),
+          editable('single_extruder_multi_material', 'extruders_count'),
           editable('manual_filament_change', 'bed_temperature_formula'),
         ]),
         group('wipe-tower', 'Wipe tower', editable(
