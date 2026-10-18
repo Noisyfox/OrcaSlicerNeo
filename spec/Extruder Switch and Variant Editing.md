@@ -323,6 +323,13 @@ on the active page mark a variant, including fields hidden by search. Shared
 fields and other pages do not mark it. Dirty text uses the modified colour even
 when selected, while the selected background remains unchanged.
 
+The shared `EditorSelector` renders flat options from caller-provided display
+items, the current choice and dirty IDs. It owns single- and two-line item
+presentation, selection/dirty styles, keyboard interaction, width policy and
+selected/focused-item visibility. It uses the application's existing horizontal
+wheel handling. Page adapters supply native labels, diameters and flow text;
+the component does not read configuration stores or resolve native indices.
+
 Project Print and Objects-mode field labels reserve an aligned nozzle-icon gutter
 only when there are multiple native extruder/variant choices. A printer with
 only one effective choice shows neither option glyphs nor their empty gutter.
