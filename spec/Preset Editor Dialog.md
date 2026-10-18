@@ -4,6 +4,8 @@
 
 **Status:** Delivered runtime editor, including indexed vector overrides and
 explicit local user-preset actions. Cloud synchronization remains deferred.
+The Setting Overrides extension in section 4.3 is accepted design, with
+implementation pending.
 
 **Scope:** A shared React preset editor for Printer and Filament presets. It
 extends [Multi-Filament Support](Multi-Filament%20Support.md) without porting
@@ -453,7 +455,8 @@ Phase one intentionally omits Orca's Simple/Advanced/Expert visibility-mode
 filter.
 It also does not port Orca's dynamic GUI `toggle_field` / `toggle_line`
 predicates: every manifest-listed field remains visible regardless of other
-current option values.
+current option values. Section 4.3 defines an accepted, not-yet-implemented
+exception for the dedicated Setting Overrides page.
 
 Phase one supplies editable generic controls for scalar numbers, booleans,
 enums, text, and colours. A manifest-listed option requiring a specialized Orca
@@ -479,7 +482,8 @@ The extra enable checkbox belongs only to Orca's dedicated Filament Setting
 Overrides interaction: checked enables a non-nil override, while unchecked
 uses the inherited Printer or Process value. Neo's Setting Overrides page
 remains read-only until that specialized interaction is implemented; generic
-nullable metadata does not unlock it.
+nullable metadata does not unlock it. The accepted extension is specified in
+section 4.3.
 
 The Printer Extruder page uses complete typed native Source and Effective vectors.
 Its tab title is `Extruders` when the printer has multiple physical nozzles,
@@ -741,6 +745,68 @@ fields are read-only until their dedicated editor exists.
 
 No persistence migration, new file format, host-specific behavior, or mobile
 interaction is introduced. Both hosts retain their current desktop layout.
+
+## 4.3 Filament Setting Overrides extension
+
+**Status:** Accepted scope and dependency rules; implementation pending.
+Enable-value initialization and reference-context presentation still require
+clarification before implementation.
+
+The extension completes the existing Setting Overrides page's three groups
+and 23 manifest-listed fields, preserving their order. It uses dedicated
+override controls and the existing native element bindings, draft ownership,
+runtime/client boundary and history transaction. Native code supplies the
+reference context and dependency conditions; shared React does not infer a
+Printer element from a Filament variant's ordinal. This is a focused page
+extension, not a general dependency engine for other preset-editor pages.
+
+### Scope and deferred validation
+
+Orca's `TabFilament::on_value_change` wipe-percentage companion mutation is
+included. When editing either before-wipe or after-wipe would make their
+resolved percentages sum to more than 100%, set Filament after-wipe to
+`100% - before-wipe`. This may
+create an explicit after-wipe override even when that element previously
+inherited its Printer value. For example, changing before-wipe to 80% while
+after-wipe inherits 40% writes an explicit Filament after-wipe value of 20%.
+The initiating edit and companion change form one atomic native mutation and
+one Undo/Redo entry; failure publishes neither change.
+
+Porting `ConfigManipulation` validation and correction is deferred to future
+unified handling. In particular, this extension does not introduce Orca's
+automatic correction of non-nil Filament ironing spacing below 0.05 mm to
+0.1 mm or its correction dialog. Existing native element type/range validation
+continues to apply.
+
+### Dependency rules
+
+Unlike Orca's GUI, which treats a nil Filament retraction length as sufficient
+to enable the dependent controls, Neo uses the actual retraction length after
+combining Printer and Filament values in the applicable native context. If
+that length is zero, disable the other retraction override switches and value
+controls, including retraction when switching material. Keep the retraction
+length override control available so the user can enable retraction again.
+Disabling controls preserves their stored values and ownership; restoring a
+positive length restores the corresponding control states without rewriting
+those other fields.
+
+The Printer's `enable_long_retraction_when_cut` must be `EnableFilament` for
+the Filament long-retraction controls to be shown. Within that mode, show the
+distance field when the actual long-retraction switch, after combining Printer
+and Filament values, is true. This intentionally differs from Orca's GUI check
+for an explicitly true Filament switch: inheriting a true Printer switch also
+shows the distance field. The retraction-length dependency above still governs
+whether the shown controls can be edited. Hiding a field does not clear it.
+
+The policy for a Filament variant with no matching Printer context or multiple
+matching contexts, including contexts with different dependency values, remains
+open. It must be resolved explicitly rather than assuming a unique physical
+extruder or silently reading element zero.
+
+Both hosts share the same controls and native rules. Mobile product support
+remains deferred. This extension adds no persistence format or separate
+configuration owner; its projection should remain limited to the page's
+reference context rather than duplicating complete preset catalogues.
 
 ## 5. Local user preset management
 
