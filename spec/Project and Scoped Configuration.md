@@ -3,7 +3,7 @@
 **Status:** Delivered in the shared Electron and Web application. The Objects-mode
 indexed extension in section 3.1 has passed native/client and production UI
 independent acceptance.
-**Last updated:** 2026-10-17
+**Last updated:** 2026-10-18
 
 This specification records the final behavior visible to users. Project-wide and
 selection-scoped configuration share one settings surface and follow OrcaSlicer's
@@ -350,9 +350,11 @@ and Effective values, inherited provenance and local ownership are aggregated
 independently across the selected owners. A mixed boolean remains its ordinary
 indeterminate value checkbox, without an additional nullable toggle.
 
-The hook retains only the last selection metadata while a target/context loads;
-fields require a matching target, entry, native revision, inherited context and
-history stamp. Captured mutation refreshes may publish only for their original
+During a same-owner configuration refresh, the hook retains the last field
+projection for display with its fieldset disabled. A different target, entry,
+Printer, Process or metadata owner does not reuse old target fields. Mutation
+admission still requires a matching target, entry, native revision, inherited
+context and history stamp. Captured mutation refreshes may publish only for their original
 context and actual committed revision. Late reads/receipts cannot label older
 values as fresh after another target or Project context becomes current.
 
@@ -361,9 +363,20 @@ The initial validation behavior is intentionally limited:
 - Option types, allowed enum values, and deterministic minimum/maximum bounds
   are enforced. Whole-option numeric edits outside a known bound are silently
   clamped to that bound; indexed element edits outside native bounds are rejected.
-- No dependency graph is checked and no dependent value is hidden, disabled,
-  or automatically corrected. Other questionable combinations are reported
-  by normal slicing validation.
+- Project and Objects share the React-only conditional presentation mechanism
+  specified in [Preset Editor](Preset%20Editor%20Dialog.md#4-editor-interaction-model).
+  One centralized calculation computes visibility and dynamic read-only state,
+  and an atomic per-option registry publication updates only changed field
+  projections. Hidden controls retain their instances; pending/refresh locking
+  uses a containing fieldset. Native revision-only changes do not rerender every
+  field. Conditions neither correct dependent values nor add native admission
+  checks. Other questionable combinations are reported by normal slicing validation.
+- Multi-target conditions evaluate each owner's effective configuration and
+  native selected-element binding independently before aggregation. A field is
+  visible if any target permits it or is unknown, and dynamically read-only if
+  any target explicitly disables it. Presentation does not narrow mutation targets.
+  Category/reset-all ownership and dirty markers include hidden/read-only fields.
+  The dedicated Plates page retains its existing presentation policy.
 - Bed type is a narrow native exception: project and plate writes must use
   the selected Printer's supported choices. A printer/capability transition
   selects a valid remembered bed choice when explicitly supplied, otherwise

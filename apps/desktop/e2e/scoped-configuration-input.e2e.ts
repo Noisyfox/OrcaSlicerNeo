@@ -2,6 +2,52 @@ import { _electron } from './electron-fixture';
 import { expect, test } from '@playwright/test';
 import { resolve } from 'node:path';
 
+test('conditional settings preserve controls through hiding and read-only changes', async () => {
+  test.skip(process.env.VITE_SCOPED_CONFIGURATION_GATE !== '1', 'Requires the existing configuration test gate in the renderer build');
+  const desktop = resolve(__dirname, '..');
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_MODEL: resolve(desktop, '../../packages/slicer-wasm/fixtures/cube.stl') } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: desktop, env });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.locator('#app-tab-prepare').click();
+    await page.waitForFunction(() => Boolean((window as any).__orcaScopedConfigurationGate));
+    await page.getByTestId('config-page-Multi.').click();
+    const tower = page.getByTestId('config-input-enable_prime_tower');
+    if (await tower.getAttribute('aria-checked') !== 'true') await tower.click();
+    const width = page.getByTestId('config-input-prime_tower_width');
+    await expect(width).toBeVisible();
+    await width.fill('35'); await width.press('Enter');
+    await expect(width).toHaveValue('35'); await expect(width).toBeEnabled();
+    const originalWidth = await width.elementHandle();
+    await tower.click(); await expect(width).toBeHidden();
+    expect(await page.getByTestId('config-field-prime_tower_width').getAttribute('hidden')).not.toBeNull();
+    // The ordinary configuration command remains valid while its UI is hidden.
+    await page.evaluate(async () => (window as any).__orcaScopedConfigurationGate.configure({
+      version: 1, operation: 'set', targets: [{ scope: 'project' }], key: 'prime_tower_width', value: '42',
+    }));
+    await tower.click(); await expect(width).toBeVisible(); await expect(width).toHaveValue('42');
+    expect(await width.evaluate((node, original) => node === original, originalWidth)).toBe(true);
+
+    await page.getByTestId('btn-add-model').click();
+    await page.getByTestId('config-mode-scoped').click();
+    await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e.selectMockInstance(0, false))).toBe(true);
+    await page.getByTestId('config-page-Speed').click();
+    const speed = page.getByTestId('config-input-outer_wall_speed');
+    await expect(speed).toBeVisible(); const originalSpeed = await speed.elementHandle();
+    const setWalls = async (value: string) => page.evaluate(async value => {
+      const gate = (window as any).__orcaScopedConfigurationGate;
+      const object = gate.snapshot().objects[0];
+      await gate.configure({ version: 1, operation: 'set', targets: [{ scope: 'object', id: String(object.id) }], key: 'wall_loops', value });
+    }, value);
+    await setWalls('0'); await expect(speed).toBeDisabled();
+    await setWalls('2'); await expect(speed).toBeEnabled();
+    expect(await speed.evaluate((node, original) => node === original, originalSpeed)).toBe(true);
+    await originalWidth?.dispose(); await originalSpeed?.dispose();
+  } finally { await app.close(); }
+});
+
 test('Project override highlights its category and enables Reset only while local values exist', async () => {
   const desktop = resolve(__dirname, '..');
   const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;

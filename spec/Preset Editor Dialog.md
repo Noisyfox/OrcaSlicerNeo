@@ -1,6 +1,6 @@
 # Preset Editor Dialog
 
-**Date:** 2026-09-23
+**Date:** 2026-10-18
 
 **Status:** Delivered runtime editor, including indexed vector overrides and
 explicit local user-preset actions. Cloud synchronization remains deferred.
@@ -449,11 +449,41 @@ decimal places without trailing zeros and the native unit suffix; `layers`
 gets a preceding space, and float-or-percent fields use the parent value's
 unit choice. This includes scalar controls bound to native vector options.
 
-Phase one intentionally omits Orca's Simple/Advanced/Expert visibility-mode
-filter.
-It also does not port Orca's dynamic GUI `toggle_field` / `toggle_line`
-predicates: every manifest-listed field remains visible regardless of other
-current option values.
+The editor omits Orca's Simple/Advanced/Expert visibility-mode filter.
+Manifest membership, layout and static access remain independent of conditional
+presentation. A shared React calculation function computes Orca-style
+`toggle_line` visibility and `toggle_field` enablement for all listed options,
+once per effective configuration/selected native binding. Printer, Filament,
+Project and Objects use this same mechanism; no wxWidgets runtime is introduced.
+The calculation is ordinary synchronous TypeScript and may use complete lambdas,
+function references and shared intermediate results. It never mutates configuration.
+
+Presentation is published atomically into an editor-session namespace of the
+option registry. Each field subscribes to its own immutable projection; unchanged
+option values and presentation retain their snapshot identity. A native revision
+alone does not invalidate every field or rerun presentation. Commands use the
+controller's current revision and captured target/binding rather than retaining
+a revision in each subscribed field. Native mappings remain authoritative.
+
+Conditional hiding uses `hidden`/`display:none` on retained controls, preserving
+their component and DOM instances and local text. Dynamic read-only keeps the
+ordinary control disabled; it cannot unlock static read-only, unsupported or
+unavailable fields. Hidden/read-only fields cannot submit through their controls,
+but visibility and dynamic read-only add no native admission checks. Existing
+configuration values, sparse ownership, history and persistence are unchanged.
+Shared pending/refresh locks disable the containing fieldset without republishing
+all option rows. Actual target or binding changes may still replace controls.
+
+Search hides conditionally unavailable matches and includes visible read-only
+fields. Empty groups disappear without unmounting their fields. Category reset,
+Reset preset, dirty markers and selection-strip eligibility use the complete
+manifest, including conditionally hidden/read-only fields. Hidden field errors
+do not block navigation. Conditions use accepted effective values, not local
+uncommitted text. Missing/null/unavailable controlling values add no presentation
+restriction. Machine facts use existing editor/profile projections; DeviceCore-only
+capabilities such as wrapping detection remain unknown when not supplied there.
+Mobile support remains deferred. The registry retains only option projections
+for mounted editor sessions; it adds no native state or background work.
 
 Phase one supplies editable generic controls for scalar numbers, booleans,
 enums, text, and colours. A manifest-listed option requiring a specialized Orca
@@ -654,8 +684,8 @@ second dialog-local initial-value snapshot, restores arbitrary earlier states.
 
 The editor provides preset-local search. It filters the manifest's displayed
 fields by label, native key, and tooltip across all pages, retaining each
-result's functional page/group context. Read-only listed fields participate in
-search; unlisted native options do not.
+result's functional page/group context. Visible read-only listed fields participate
+in search; conditionally hidden and unlisted native options do not appear.
 
 Phase one commits only the option the user explicitly edits. It relies on
 native validation for acceptance or rejection and does not reproduce Orca's
