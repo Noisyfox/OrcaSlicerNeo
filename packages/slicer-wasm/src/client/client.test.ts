@@ -24,6 +24,38 @@ function wireColour(effective: string, provenance: 'preset' | 'user' = 'preset')
 }
 
 describe('SlicerClient bridge contract', () => {
+  it('keeps mock Printer topology receipts, Bambu SEMM, resets and history consistent', async () => {
+    const client = makeClient(); await client.init(MOCK_PROFILE_ACTIVATION);
+    const profiles = await client.getProfileSnapshot();
+    if (!profiles.ok) throw new Error(profiles.error);
+    const name = profiles.printer.name;
+    const read = async () => {
+      const result = await client.getPresetDraft('printer', name);
+      if (!result.ok) throw new Error(result.error);
+      return result;
+    };
+    const initial = await read();
+    const edited = await client.mutatePresetDraft({kind:'printer',canonicalName:name,expectedRevision:initial.revision,
+      action:'set',key:'extruders_count',value:'3'},presetContext);
+    expect(edited.ok, JSON.stringify(edited)).toBe(true);
+    if (!edited.ok) throw new Error(edited.error);
+    expect(edited.effectiveValues.extruders_count).toBe('3');
+    expect(edited.effectiveValues.single_extruder_multi_material).toBe('1');
+    expect(edited.optionMetadata.extruders_count.readonly).toBe(false);
+    expect(edited.filamentSession.capabilities.nozzleCount).toBe(3);
+    await client.undoHistory();
+    expect((await read()).effectiveValues.extruders_count).toBe(initial.effectiveValues.extruders_count);
+    await client.redoHistory();
+    expect((await read()).effectiveValues.extruders_count).toBe('3');
+    const beforeRejected = await read();
+    expect(await client.mutatePresetDraft({kind:'printer',canonicalName:name,expectedRevision:beforeRejected.revision,
+      action:'set',key:'extruders_count',value:'65'},presetContext)).toMatchObject({ok:false});
+    expect(await read()).toEqual(beforeRejected);
+    const reset = await client.mutatePresetDraft({kind:'printer',canonicalName:name,expectedRevision:beforeRejected.revision,
+      action:'reset-category',fields:[{key:'extruders_count',kind:'shared'},{key:'single_extruder_multi_material',kind:'shared'}]},presetContext);
+    expect(reset.ok, JSON.stringify(reset)).toBe(true);
+    expect((await read()).effectiveValues.extruders_count).toBe(initial.effectiveValues.extruders_count);
+  });
   it('resets a mixed Filament batch once and preserves other explicit ownership through history', async () => {
     const client = makeClient(); await client.init(MOCK_PROFILE_ACTIVATION);
     const read = async () => { const value = await client.getPresetDraft('filament', 'Generic PLA @System');

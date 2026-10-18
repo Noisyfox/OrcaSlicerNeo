@@ -392,8 +392,12 @@ Printer topology changes use a dedicated native transition within the preset
 draft transaction. The transition validates revision and the complete final
 configuration, updates related project state atomically, and creates one Undo
 entry. An inactive Printer edit affects only its draft; activation performs
-the corresponding project transition. The UI remains read-only until its
-topology controls are connected to this contract.
+the corresponding project transition. The Multimaterial page exposes SEMM as
+the existing boolean control and Extruders as the existing integer editor.
+Count editability follows the native capability lock, independently of SEMM's
+displayed value. Category reset includes both fields in one native operation,
+including a count currently locked by SEMM. Count highlighting compares Source
+and Effective cardinality rather than looking for a stored configuration key.
 
 Physical extruder count and SEMM are distinct capabilities. Bambu multi-head
 printers may retain SEMM with multiple physical heads; toggling SEMM preserves

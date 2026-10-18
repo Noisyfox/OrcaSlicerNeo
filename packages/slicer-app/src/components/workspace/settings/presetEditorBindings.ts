@@ -5,7 +5,6 @@ export type EditorFieldTarget = ConfigEditorElementBinding | { readonly kind: 's
 
 /** Element selection belongs to the native snapshot, never to page numbering. */
 export function editorFieldTarget(snapshot: Pick<ConfigEditorSnapshot, 'editorSelection'>, key: string, choiceId: string | null): EditorFieldTarget {
-  if (key === 'extruders_count') return { kind: 'shared' };
   const field = snapshot.editorSelection.fieldBindings[key];
   if (field?.kind === 'shared') return field;
   const choice = snapshot.editorSelection.choices.findIndex(candidate => candidate.id === choiceId);
@@ -25,6 +24,7 @@ export function fieldBinding(snapshot: ConfigEditorSnapshot, key: string, target
 }
 
 export function fieldHasOverride(snapshot: PresetDraftSnapshot, key: string, target: EditorFieldTarget): boolean {
+  if (key === 'extruders_count') return snapshot.sourceValues[key] !== snapshot.effectiveValues[key];
   if (target.kind === 'unavailable') return false;
   return target.kind === 'indexed' ? snapshot.editorVectors[key]?.overrideValues[target.index] != null : Object.hasOwn(snapshot.overrides, key);
 }

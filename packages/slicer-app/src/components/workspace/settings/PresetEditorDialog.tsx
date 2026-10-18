@@ -251,10 +251,7 @@ function FieldValue({
   const binding = fieldBinding(snapshot, field.key, targetBinding);
   const vector = fieldIndex === undefined ? undefined : snapshot.editorVectors[field.key];
   const coordinateVector = vector && (vector.scalarType === 'point' || vector.scalarType === 'points') ? vector : undefined;
-  const extruderCountVector = field.key === 'extruders_count' ? snapshot.editorVectors.nozzle_diameter : undefined;
-  const derivedSource = extruderCountVector ? String(extruderCountVector.sourceValues.length) : undefined;
-  const derivedEffective = extruderCountVector ? String(extruderCountVector.effectiveValues.length) : undefined;
-  const sourceValue = unavailable ? 'Unavailable' : derivedSource ?? (coordinateVector
+  const sourceValue = unavailable ? 'Unavailable' : (coordinateVector
     ? coordinateText(vectorAt(coordinateVector, coordinateVector.sourceValues, fieldIndex!)) || '(empty)'
     : binding
     ? projectedValueText(binding.sourceValue, binding.scalarType, binding.enumOptions)
@@ -274,8 +271,9 @@ function FieldValue({
   const boundText = binding?.scalarType === 'string';
   const missingRequiredBinding = field.nativeElementOnly === true && binding === undefined && !coordinateVector;
   const unsupportedStructured = !binding && !coordinateVector && isStructuredValue(metadata);
-  const readOnly = unavailable || field.access === 'read-only' || binding?.readOnly === true || coordinateVector?.readOnly === true || missingRequiredBinding || unsupportedStructured;
-  const readOnlyReason = unavailable ? 'This selection has no corresponding native mapping.' : field.readOnlyReason ?? (unsupportedStructured
+  const readOnly = unavailable || field.access === 'read-only' || metadata?.readonly === true || binding?.readOnly === true || coordinateVector?.readOnly === true || missingRequiredBinding || unsupportedStructured;
+  const readOnlyReason = unavailable ? 'This selection has no corresponding native mapping.' : field.readOnlyReason ?? (metadata?.readonly
+    ? field.key === 'extruders_count' ? 'Disable SEMM to change the extruder count.' : 'This value is read-only for the current printer configuration.' : unsupportedStructured
     ? 'This value needs a specialized editor.'
     : missingRequiredBinding ? 'This value needs native element metadata.' : undefined);
   const overridden = fieldHasOverride(snapshot, field.key, targetBinding);
@@ -674,7 +672,7 @@ function FieldValue({
     <article
       data-testid={`preset-editor-field-${field.key}`}
       data-field-key={field.key}
-      data-field-access={field.access}
+      data-field-access={readOnly ? 'read-only' : 'editable'}
       data-native-type={metadata?.type ?? 'unknown'}
       data-native-scalar-type={binding?.scalarType}
       data-native-min={metadata?.min}
@@ -714,7 +712,7 @@ function FieldValue({
           <dt className="text-muted-foreground">Source</dt>
           <dd data-testid={`preset-editor-source-${field.key}`} className="break-all">{sourceValue}</dd>
           <dt className="text-muted-foreground">Effective</dt>
-          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{unavailable ? 'Unavailable' : derivedEffective ?? (coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key, metadata))}</dd>
+          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{unavailable ? 'Unavailable' : (coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key, metadata))}</dd>
         </dl>
       ) : (
         <div className="mt-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-xs">
@@ -1036,9 +1034,8 @@ export function PresetEditorDialogContent({
 
   const activePageKeys = activePage?.groups.flatMap((optionGroup) =>
     optionGroup.fields.map((field) => field.key)) ?? [];
-  // Layout-only manifest entries (for example the synthesized extruder count)
-  // do not exist in a native preset. Reset only declared native fields, while
-  // retaining read-only native fields in the atomic category request.
+  // Reset fields declared by the native snapshot, including its virtual
+  // extruder-count transition and capability-locked fields in a joint reset.
   const activePageResetKeys = snapshot === null ? [] : [...new Set(activePageKeys.filter((key) =>
     Object.prototype.hasOwnProperty.call(snapshot.sourceValues, key) ||
     Object.prototype.hasOwnProperty.call(snapshot.effectiveValues, key)))];
