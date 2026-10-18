@@ -1,5 +1,4 @@
 import { linkProfileVendors } from './profileFilesystem';
-import { FILAMENT_OVERRIDE_KEYS } from './filamentOverrides';
 import type { FilamentOverrideContext } from './types';
 import { installUserPresets, validateUserPresetPath } from './userPresets';
 import type { UserPresetStorage, UserPresetKind, UserPresetRequest, UserPresetMutation } from './userPresets';
@@ -1446,13 +1445,9 @@ function normalizePresetDraftValues(raw: unknown): PresetDraftValues | PresetDra
   if (!isRecord(raw.filament_override_context))
     return { ok: false, error: 'missing filament override context', errorCode: 'invalid_response' };
   const filamentOverrideContext: Record<string, readonly FilamentOverrideContext[]> = {};
-  const expectedKeys = raw.kind === 'filament' ? FILAMENT_OVERRIDE_KEYS.filter(key => Object.hasOwn(result.effectiveValues, key)) : [];
-  if (Object.keys(raw.filament_override_context).length !== expectedKeys.length)
-    return { ok: false, error: 'invalid filament override context keys', errorCode: 'invalid_response' };
-  for (const key of expectedKeys) {
+  for (const [key, entries] of Object.entries(raw.filament_override_context)) {
     const vector = result.editorVectors[key];
-    const entries = raw.filament_override_context[key];
-    if (!vector || !Array.isArray(entries) || entries.length !== vector.indexCount ||
+    if (raw.kind !== 'filament' || !vector || !Array.isArray(entries) || entries.length !== vector.indexCount ||
         entries.some(entry => !isRecord(entry) || Object.keys(entry).length !== 3 ||
           typeof entry.visible !== 'boolean' || typeof entry.enabled !== 'boolean' ||
           (!entry.visible && entry.enabled) || !isPresetDraftEditorValue(entry.reference_value, vector.scalarType as PresetDraftEditorScalarType, true)))

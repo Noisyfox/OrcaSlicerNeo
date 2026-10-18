@@ -851,6 +851,9 @@ map; Filament entries align with each field's native `index_count`. Each entry
 contains a typed nullable reference value, visibility and dependency permission
 (`enabled`), independently of whether the Filament value is nil. Producers,
 client validation and mocks use the same contract without legacy fallbacks.
+The native response supplies the context's field set; the client validates and
+decodes those entries against their projected vectors without a separate key
+allow-list or an additional native read.
 
 Prefer a simple Orca-style reference policy over exact physical-extruder
 matching. Use the project's current effective Printer, including its draft,

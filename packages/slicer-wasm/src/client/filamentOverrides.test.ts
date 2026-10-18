@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { createClient } from './client';
-import { FILAMENT_OVERRIDE_KEYS } from './filamentOverrides';
 import { createMockModule, MOCK_PROFILE_ACTIVATION } from './testing/mock-module';
 
 const context = { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
@@ -43,7 +42,6 @@ describe('Filament Setting Overrides projection', () => {
       if (!result.ok) throw new Error(result.error); return result; };
     const before = await client.getHistoryStatus();
     const initial = await read();
-    expect(Object.keys(initial.filamentOverrideContext).sort()).toEqual([...FILAMENT_OVERRIDE_KEYS].sort());
     expect(initial.filamentOverrideContext.filament_retraction_length.map(entry => entry.referenceValue)).toEqual([0.8, 0.8]);
     expect(initial.editorVectors.filament_retraction_length.effectiveValues).toEqual([null, null]);
     expect(initial.filamentOverrideContext.filament_wipe[0].referenceValue).toBe(false);
@@ -66,7 +64,29 @@ describe('Filament Setting Overrides projection', () => {
     expect((await read()).filamentOverrideContext.filament_retraction_speed.every(entry => !entry.enabled)).toBe(true);
   });
 
-  it.each(['missing', 'type', 'count', 'unknown', 'hidden-enabled'] as const)('rejects %s native override context', async mode => {
+  it('decodes producer-supplied context keys from the existing response without another native call', async () => {
+    const module = createMockModule(), original = module.ccall;
+    const calls: string[] = [];
+    module.ccall = (name, ret, types, args) => {
+      calls.push(name);
+      const pointer = original(name, ret, types, args); if (name !== 'orc_get_preset_draft') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer))); module._free(Number(pointer));
+      payload.filament_override_context.filament_flow_ratio = [
+        { reference_value: 1, visible: true, enabled: true }, { reference_value: 1.1, visible: true, enabled: true },
+      ];
+      delete payload.filament_override_context.filament_ironing_speed;
+      const bytes = new TextEncoder().encode(JSON.stringify(payload)), next = module._malloc(bytes.length + 1);
+      module.HEAPU8.set(bytes, next); module.HEAPU8[next + bytes.length] = 0; return next;
+    };
+    const client = createClient(async () => module); await client.init(MOCK_PROFILE_ACTIVATION); calls.length = 0;
+    const result = await client.getPresetDraft('filament', 'Generic PLA @System');
+    if (!result.ok) throw new Error(result.error);
+    expect(result.filamentOverrideContext.filament_flow_ratio.map(entry => entry.referenceValue)).toEqual([1, 1.1]);
+    expect(result.filamentOverrideContext).not.toHaveProperty('filament_ironing_speed');
+    expect(calls).toEqual(['orc_get_preset_draft']);
+  });
+
+  it.each(['missing', 'type', 'count', 'unknown', 'hidden-enabled', 'printer'] as const)('rejects %s native override context', async mode => {
     const module = createMockModule(), original = module.ccall;
     module.ccall = (name, ret, types, args) => {
       const pointer = original(name, ret, types, args); if (name !== 'orc_get_preset_draft') return pointer;
@@ -77,6 +97,7 @@ describe('Filament Setting Overrides projection', () => {
       if (mode === 'count') entry.pop();
       if (mode === 'unknown') payload.filament_override_context.other = [];
       if (mode === 'hidden-enabled') Object.assign(entry[0], { visible: false, enabled: true });
+      if (mode === 'printer') payload.kind = 'printer';
       const bytes = new TextEncoder().encode(JSON.stringify(payload)), next = module._malloc(bytes.length + 1);
       module.HEAPU8.set(bytes, next); module.HEAPU8[next + bytes.length] = 0; return next;
     };

@@ -1,6 +1,5 @@
 import type { SetupWizardCatalogue, ProfileActivation } from '../setupWizard';
 import { paintingMock } from './painting-mock';
-import { FILAMENT_OVERRIDE_KEYS } from '../filamentOverrides';
 // packages/slicer-wasm/src/client/testing/mock-module.ts
 // ----------------------------------------------------------------
 // Bridge-shaped mock Emscripten module for unit tests (no emsdk).
@@ -373,6 +372,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     readonly multiline?: boolean;
     readonly isCode?: boolean;
     readonly nullable?: boolean;
+    readonly filamentOverride?: boolean;
     readonly readOnly?: boolean;
     readonly enumOptions?: Array<{ value: number; name: string; label: string }>;
   };
@@ -583,6 +583,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
   const ironingDefaults: Record<string, number> = { ironing_flow: 10, ironing_spacing: 0.15, ironing_inset: 0, ironing_speed: 30 };
+  const overrideOption = (scalarType: 'float' | 'bool' | 'enum' | 'percent'): MockPresetEditorOption => ({
+    scalarType, metadataType: `${scalarType}s`, values: [null, null], nullable: true, filamentOverride: true,
+    ...(scalarType === 'enum' ? { enumOptions: [{ value: 0, name: 'normal', label: 'Normal' }, { value: 1, name: 'spiral', label: 'Spiral' }] } : {}),
+  });
   const presetEditorOptions: Record<'printer' | 'filament', Record<string, MockPresetEditorOption>> = {
     printer: {
       nozzle_diameter: { scalarType: 'float', metadataType: 'floats', values: [0.4] },
@@ -607,12 +611,34 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         ],
       },
       filament_retract_lift_enforce: {
-        scalarType: 'enum', metadataType: 'enums', values: [null], nullable: true,
+        scalarType: 'enum', metadataType: 'enums', values: [null], nullable: true, filamentOverride: true,
         enumOptions: [
           { value: 0, name: 'All Surfaces', label: 'All Surfaces' },
           { value: 1, name: 'Top Only', label: 'Top Only' },
         ],
       },
+      filament_retraction_length: overrideOption('float'),
+      filament_z_hop: overrideOption('float'),
+      filament_z_hop_types: overrideOption('enum'),
+      filament_retract_lift_above: overrideOption('float'),
+      filament_retract_lift_below: overrideOption('float'),
+      filament_retraction_speed: overrideOption('float'),
+      filament_deretraction_speed: overrideOption('float'),
+      filament_retract_restart_extra: overrideOption('float'),
+      filament_retraction_minimum_travel: overrideOption('float'),
+      filament_retract_when_changing_layer: overrideOption('bool'),
+      filament_wipe: overrideOption('bool'),
+      filament_wipe_distance: overrideOption('float'),
+      filament_retract_before_wipe: overrideOption('percent'),
+      filament_retract_after_wipe: overrideOption('percent'),
+      filament_long_retractions_when_cut: overrideOption('bool'),
+      filament_retraction_distances_when_cut: overrideOption('float'),
+      filament_retract_length_toolchange: overrideOption('float'),
+      filament_retract_restart_extra_toolchange: overrideOption('float'),
+      filament_ironing_flow: overrideOption('percent'),
+      filament_ironing_spacing: overrideOption('float'),
+      filament_ironing_inset: overrideOption('float'),
+      filament_ironing_speed: overrideOption('float'),
       filament_start_gcode: { scalarType: 'string', metadataType: 'strings', values: ['G28\n'], multiline: true, isCode: true },
       filament_change_extrusion_role_gcode: { scalarType: 'string', metadataType: 'strings', values: ['; role change\n'], multiline: true, isCode: true },
       filament_end_gcode: { scalarType: 'string', metadataType: 'strings', values: ['M104 S0\n'], multiline: true, isCode: true },
@@ -620,23 +646,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
   };
   const serializePresetEditorValues = (values: readonly PresetDraftEditorValue[]) => JSON.stringify(values);
-  for (const key of FILAMENT_OVERRIDE_KEYS) {
+  for (const [key, option] of Object.entries(presetEditorOptions.filament)) {
+    if (!option.filamentOverride) continue;
     const rawKey = key.slice(9);
-    const bool = ['wipe', 'retract_when_changing_layer', 'long_retractions_when_cut'].includes(rawKey);
-    const enumeration = ['z_hop_types', 'retract_lift_enforce'].includes(rawKey);
-    const percent = ['retract_before_wipe', 'retract_after_wipe', 'ironing_flow'].includes(rawKey);
-    const scalarType = bool ? 'bool' : enumeration ? 'enum' : percent ? 'percent' : 'float';
-    presetEditorOptions.filament[key] ??= { scalarType,
-      metadataType: bool ? 'bools' : enumeration ? 'enums' : percent ? 'percents' : 'floats',
-      values: [null, null], nullable: true,
-      ...(enumeration ? { enumOptions: [{ value: 0, name: 'normal', label: 'Normal' }, { value: 1, name: 'spiral', label: 'Spiral' }] } : {}) };
-    metadata[key] = { type: presetEditorOptions.filament[key].metadataType, min: rawKey === 'ironing_speed' ? 1 : 0,
+    const bool = option.scalarType === 'bool', enumeration = option.scalarType === 'enum', percent = option.scalarType === 'percent';
+    metadata[key] = { type: option.metadataType, min: rawKey === 'ironing_speed' ? 1 : 0,
       sidetext: percent ? '%' : bool || enumeration ? undefined : rawKey.endsWith('speed') ? 'mm/s' : 'mm',
       ...(percent ? { max: 100 } : {}), ...(rawKey === 'ironing_spacing' ? { max: 1 } : {}) };
     if (rawKey.startsWith('ironing_')) {
       metadata[rawKey] = {type: percent ? 'percent' : 'float', scopes:['project'], min: rawKey === 'ironing_speed' ? 1 : 0};
     } else {
-      presetEditorOptions.printer[rawKey] ??= { ...presetEditorOptions.filament[key], nullable: false,
+      presetEditorOptions.printer[rawKey] ??= { ...option, nullable: false,
         values: [bool ? false : rawKey === 'retraction_length' ? 0.8 : rawKey === 'retract_before_wipe' ? 50 : 0] };
       metadata[rawKey] = { type: presetEditorOptions.printer[rawKey].metadataType, min: 0, ...(percent ? { max: 100 } : {}) };
     }
@@ -847,7 +867,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         .sort((a, b) => Number(b.compatible) - Number(a.compatible) || Number(b.modified) - Number(a.modified)) } : {}),
       overrides, source_values: sourceValues, effective_values: effectiveValues,
       option_metadata: optionMetadata, editor_vectors: vectors,
-      filament_override_context: kind === 'filament' ? Object.fromEntries(FILAMENT_OVERRIDE_KEYS.map(key => {
+      filament_override_context: kind === 'filament' ? Object.fromEntries(Object.entries(presetEditorOptions.filament)
+        .filter(([, option]) => option.filamentOverride).map(([key]) => {
         const rawKey = key.slice(9);
         const reference = (name: string, index: number): PresetDraftEditorValue => {
           if (name.startsWith('ironing_')) {
