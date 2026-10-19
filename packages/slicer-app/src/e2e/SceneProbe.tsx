@@ -6,7 +6,7 @@ import type { PlateSessionSnapshot } from '@slicer/client';
 import { glVolumeCollection } from '../components/workspace/viewport/GLVolume';
 import { getPrintableAreaBounds, normalizePrintableArea } from '../components/workspace/viewport/BedPlate';
 import { BVH_RAYCAST, NO_RAYCAST } from '../components/workspace/viewport/ModelMesh';
-import { BUILD_PLATE_RAYCAST, MODEL_BODY_RAYCAST } from '../components/workspace/viewport/buildPlatePointerOcclusion';
+import { BUILD_PLATE_RAYCAST, MODEL_BODY_RAYCAST } from '../components/workspace/viewport/viewportPicking';
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
 import type { LoadedObject } from '../components/workspace/viewport/useModelLoader';
 import type { ToolpathGeometry } from '../components/workspace/viewport/useSliceResult';

@@ -6,7 +6,7 @@ import { DragControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
 import { useSceneInteraction } from './SceneInteractionContext';
 import type { GLVolume } from './GLVolume';
-import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
+import { MODEL_BODY_RAYCAST } from './viewportPicking';
 import { EULER_ORDER } from './transformDeltaMath';
 import { acceleratedRaycast } from 'three-mesh-bvh';
 import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';

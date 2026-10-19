@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { SELECTION_BOX_BRACKET_FRACTION, selectionBoundsBoxPositions } from './selectionBoundsBoxGeometry';
+import { SELECTION_BOX_BRACKET_FRACTION, selectionBoundsBoxPositions } from './SelectionBoundsBox';
 
 function expectPoint(positions: Float32Array, index: number, point: [number, number, number]) {
   expect([positions[index], positions[index + 1], positions[index + 2]]).toEqual(point);

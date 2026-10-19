@@ -1,6 +1,18 @@
 import * as THREE from 'three';
 import type { RootState } from '@react-three/fiber';
 import { GLVolume } from './GLVolume';
+import type { PointerOwner } from './SceneInteractionController';
+
+/**
+ * R3F's event layer raycasts before it dispatches a pointer event. Keep that
+ * work off while another control already owns the pointer gesture.
+ */
+export function isViewportRaycastingEnabled(
+  cameraGestureActive: boolean,
+  scenePointerOwner: PointerOwner,
+): boolean {
+  return !cameraGestureActive && scenePointerOwner === 'none';
+}
 
 export const BUILD_PLATE_RAYCAST = 'build-plate-raycast';
 export const MODEL_BODY_RAYCAST = 'model-body-raycast';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlateSessionSnapshot } from '@slicer/client';
-import { canAddPlate, canDeletePlate, MAX_PLATE_COUNT } from './plateControls';
+import { canAddPlate, canDeletePlate, MAX_PLATE_COUNT } from './PlateToolbar';
 
 function snapshot(count: number): PlateSessionSnapshot {
   return {

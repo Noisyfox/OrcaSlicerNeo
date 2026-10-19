@@ -43,7 +43,7 @@ import {
 } from '../actions/sceneActions';
 import { ObjectListContextMenu, type ObjectListCtxTarget } from '../objectList/ObjectListContextMenu';
 import { useObjectListStore } from '../objectList/useObjectListStore';
-import { pickTopmostModelVolume, topmostPrimeTowerHit } from './buildPlatePointerOcclusion';
+import { pickTopmostModelVolume, topmostPrimeTowerHit } from './viewportPicking';
 import type { SceneInteractionController } from './SceneInteractionController';
 import { PRIMITIVE_ICONS } from '../primitiveIcons';
 

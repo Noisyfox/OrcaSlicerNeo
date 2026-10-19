@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { RootState } from '@react-three/fiber';
 import {
+  isViewportRaycastingEnabled,
   BUILD_PLATE_RAYCAST,
   filterBuildPlateOccludedIntersections,
   filterViewportIntersections,
   MODEL_BODY_RAYCAST,
   pickTopmostModelVolume,
   topmostPrimeTowerHit,
-} from './buildPlatePointerOcclusion';
+} from './viewportPicking';
 import { GLVolume } from './GLVolume';
 
 function object(role?: string): THREE.Object3D {
@@ -130,5 +131,19 @@ describe('filterBuildPlateOccludedIntersections', () => {
     const towerBand = object();
     tower.add(towerBand);
     expect(topmostPrimeTowerHit([{ distance: 4, object: towerBand }])).toBe(true);
+  });
+});
+
+describe('isViewportRaycastingEnabled', () => {
+  it('allows idle hover picking', () => {
+    expect(isViewportRaycastingEnabled(false, 'none')).toBe(true);
+  });
+
+  it.each(['body', 'gizmo', 'box'] as const)('disables picking while a %s drag owns the pointer', (owner) => {
+    expect(isViewportRaycastingEnabled(false, owner)).toBe(false);
+  });
+
+  it('disables picking for an active camera gesture before it reaches a model', () => {
+    expect(isViewportRaycastingEnabled(true, 'none')).toBe(false);
   });
 });

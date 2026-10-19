@@ -1,13 +1,16 @@
+// @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { MeshBVH } from 'three-mesh-bvh';
 import * as THREE from 'three';
 import { Line } from '@react-three/drei';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PaintingCursor, PAINTING_RENDER_ORDER, circleCursorSteps } from './PaintingCursor';
-import { HeightRangeCursor } from './HeightRangeCursor';
+import { PaintingCursor, PAINTING_RENDER_ORDER, circleCursorSteps, HeightRangeCursor, heightCursorMaterial } from './PaintingCursor';
 
 vi.mock('@react-three/drei', () => ({ Line: vi.fn(() => null) }));
 vi.mock('@react-three/fiber', () => ({ useThree: () => ({ camera, size: { height: 600 } }) }));
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 const settings = { state: 1, erase: false, vertical: false, radius: 7, height: 3, angle: 30, gapArea: 0, overhangAngle: 0, restrictToOverhangs: false };
 const position = new THREE.Vector3(5, 10, 15), cameraQuaternion = new THREE.Quaternion();
 const color = new THREE.Color('#abcdef');
@@ -64,4 +67,37 @@ it('routes Height to original-model world sections independently of filament col
   const tree = PaintingCursor({ tool: 'height', settings, position, cameraQuaternion, bounds, color, meshes })!;
   expect(tree.type).toBe(HeightRangeCursor);
   expect(tree.props).toEqual({ meshes, bounds, hitZ: 15, height: 3, renderOrder: PAINTING_RENDER_ORDER.cursor });
+});
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+it('draws opaque white lines with normal occlusion, no depth writes or filled material', () => {
+  const material = heightCursorMaterial();
+  expect(material).toBeInstanceOf(THREE.LineBasicMaterial);
+  expect(material.color.getHexString()).toBe('ffffff');
+  expect(material.transparent).toBe(true); expect(material.opacity).toBe(1);
+  expect(material.depthTest).toBe(true); expect(material.depthWrite).toBe(false); expect(material.linewidth).toBe(1);
+  material.dispose();
+});
+it('reuses sections for XY-equivalent and native publications, replaces cuts only on clamped Z/target change and releases owned buffers', async () => {
+  vi.stubGlobal('__ORCA_E2E__', false);
+  vi.spyOn(console,'error').mockImplementation((message: unknown) => {
+    if (!/incorrect casing|unrecognized|does not recognize|non-boolean attribute/.test(String(message))) throw new Error(String(message));
+  });
+  const source = new THREE.BoxGeometry(2,2,2);
+  source.boundsTree = new MeshBVH(source);
+  const meshes = [new THREE.Mesh(source)], bounds = new THREE.Box3(new THREE.Vector3(-1,-1,-1),new THREE.Vector3(1,1,1));
+  const buffers = vi.spyOn(THREE.BufferGeometry.prototype, 'setAttribute');
+  const dispose = vi.spyOn(THREE.BufferGeometry.prototype,'dispose'), materialDispose = vi.spyOn(THREE.Material.prototype,'dispose');
+  const container = document.createElement('div'), root = createRoot(container);
+  const render = (hitZ: number, height = 0.5, target = meshes) => act(async () => root.render(<HeightRangeCursor meshes={target} bounds={bounds} hitZ={hitZ} height={height} renderOrder={4} />));
+  await render(0); const originalLine = container.querySelector('linesegments');
+  await render(0); expect(buffers).toHaveBeenCalledTimes(1);
+  await render(0.25); expect(buffers).toHaveBeenCalledTimes(2); expect(dispose).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('linesegments')).toBe(originalLine);
+  await render(2); await render(3); expect(buffers).toHaveBeenCalledTimes(3);
+  const replacement = new THREE.Mesh(source); replacement.matrix.makeTranslation(0.5,0,0);
+  await render(0,0.5,[replacement]); expect(buffers).toHaveBeenCalledTimes(4);
+  await act(async()=>root.unmount());
+  expect(dispose).toHaveBeenCalledTimes(4); expect(materialDispose).toHaveBeenCalledTimes(1);
+  expect(dispose.mock.instances).not.toContain(source); source.dispose();
 });

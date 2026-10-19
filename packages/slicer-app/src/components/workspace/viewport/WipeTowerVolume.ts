@@ -2,8 +2,35 @@ import * as THREE from 'three';
 import type { HistoryStatus, PlateSessionSnapshot, PrimeTowerMoveRequest, PrimeTowerMoveResultOrError, PrimeTowerPlateProjection, PrimeTowerProjection } from '@slicer/client';
 import { useCallback, useSyncExternalStore } from 'react';
 import { attachBoundsTree, disposeBVHGeometry, GLVolume, type BVHBufferGeometry } from './GLVolume';
-import { clampPrimeTowerPosition, type PrimeTowerPosition } from './primeTowerGeometry';
 import { runProjectMutationOperation } from '../actions/historyMutation';
+
+/** A plate-local position that keeps the native projected footprint in bounds. */
+export interface PrimeTowerPosition {
+  x: number;
+  y: number;
+}
+
+function clampPrimeTowerPosition(
+  projection: PrimeTowerPlateProjection,
+  requested: PrimeTowerPosition,
+): PrimeTowerPosition {
+  const footprint = projection.footprint;
+  const position = projection.position;
+  const minOffsetX = footprint.minX - position.x;
+  const maxOffsetX = footprint.maxX - position.x;
+  const minOffsetY = footprint.minY - position.y;
+  const maxOffsetY = footprint.maxY - position.y;
+  const area = projection.buildArea;
+  const clampAxis = (value: number, minOffset: number, maxOffset: number, min: number, max: number) => {
+    const lower = min - minOffset;
+    const upper = max - maxOffset;
+    return lower <= upper ? Math.min(upper, Math.max(lower, value)) : (min + max - minOffset - maxOffset) / 2;
+  };
+  return {
+    x: clampAxis(requested.x, minOffsetX, maxOffsetX, area.minX, area.maxX),
+    y: clampAxis(requested.y, minOffsetY, maxOffsetY, area.minY, area.maxY),
+  };
+}
 
 const CUBE_INDICES = new Uint32Array([
   0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7,

@@ -29,6 +29,23 @@ function model() {
 }
 
 describe('WipeTowerVolume shared scene integration', () => {
+  it('clamps the rotated footprint plus brim to native build bounds', () => {
+    const wipe = tower();
+    try {
+      wipe.reconcile({
+        ...wipe.projection,
+        position: { x: 30, y: 40 }, width: 20, depth: 40, height: 10,
+        rotation: 90, brimMargin: 2,
+        footprint: { minX: 28, maxX: 72, minY: 38, maxY: 82 },
+        buildArea: { minX: 0, maxX: 100, minY: 0, maxY: 100, maxZ: 100 },
+      }, [0, 0, 0]);
+      wipe.setTransientPosition({ x: 999, y: -999 });
+      expect(wipe.position).toEqual({ x: 58, y: 2 });
+    } finally {
+      wipe.dispose();
+    }
+  });
+
   it('owns BVH-backed geometry for every visible band and uses accelerated raycast', () => {
     const wipe = tower();
     const ordinary = model();
