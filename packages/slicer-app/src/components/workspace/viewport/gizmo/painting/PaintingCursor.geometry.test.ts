@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import { heightRangeContours, heightRangePlanes } from './heightRangeContours';
+import { heightRangeContours, heightRangePlanes } from './PaintingCursor';
 
 const owned: THREE.BufferGeometry[] = [];
 afterEach(() => { owned.forEach((g) => g.dispose()); owned.length = 0; vi.restoreAllMocks(); });
