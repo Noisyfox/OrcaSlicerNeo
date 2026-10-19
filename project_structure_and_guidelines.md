@@ -80,6 +80,25 @@ orca-slicer-neo/
 └── pnpm-workspace.yaml
 ```
 
+### Source module organization
+
+- Group closely related functions, types, hooks and state machinery in one
+  cohesive feature module. Extend the existing owner when the new code shares
+  its responsibility and lifecycle; avoid scattering one feature across small
+  helper files.
+- Extract a module for a meaningful ownership, dependency, reuse or execution
+  boundary. A single helper or a convenient test import is not by itself a
+  reason to create a file. File length alone is not a module boundary either;
+  avoid both one-function fragmentation and unrelated catch-all utilities.
+- Keep private helpers with their implementation. Shared helpers belong with
+  the related feature operations, rather than in a separate file for each
+  function. Preserve real host/runtime boundaries and distinct build or test
+  entrypoints when consolidating.
+- Organize tests around the same feature/module boundaries, using grouped
+  cases where appropriate. Test through the owning module or its consumers;
+  do not split production code solely to make an internal function directly
+  importable by a test.
+
 ---
 
 ## 3. Document Conventions

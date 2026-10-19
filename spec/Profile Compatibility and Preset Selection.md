@@ -1,6 +1,6 @@
 # Profile Compatibility and Preset Selection
 
-**Date:** 2026-09-09
+**Date:** 2026-10-18
 
 **Status:** Approved; implemented as the Printer/Process boundary of the
 multi-filament application.
@@ -30,6 +30,13 @@ considers them compatible.
   the control and list render the label, while both tooltips render the full
   display name. Display labels are required, with no renderer name parsing.
   Grouping and transitions remain caller-owned.
+  Closed popup bodies do not construct option rows. Select and vendor-menu
+  options render beneath the existing Portal lifecycle, including exit animation
+  and focus restoration; vendor item bodies wait for their submenu to open.
+  Equivalent picker projections retain their rendered identity across full
+  profile receipts. Equality includes command identity, native order, labels,
+  origin, grouping and modified markers; it does not suppress raw profile updates.
+  Trigger locking and selected labels update independently of the option bodies.
 - A selected project-embedded Process child occupies its source profile's row
   instead of adding another picker entry. Native projection retains the child's
   canonical `name` as the command/selection identity, supplies `source_name`

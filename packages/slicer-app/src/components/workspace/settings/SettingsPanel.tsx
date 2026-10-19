@@ -1,7 +1,14 @@
-import { commitProjectFlow, configureProjectFlowPreferences } from '@/preferences';
+import { useCommittedCallback, samePresetItems, PresetCombobox, type PresetComboItem } from '../PresetCombobox';
+import {
+  commitProjectFlow,
+  configureProjectFlowPreferences,
+  loadRememberedFilamentRackFromRepository,
+  publishRememberedFilamentRack,
+  loadRememberedBedTypeFromRepository,
+  publishRememberedBedType
+} from '@/preferences';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
-// packages/slicer-app/src/components/settings/SettingsPanel.tsx
-import { useRef, useState, type ReactNode } from 'react';
+import { memo, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import { ObjectList } from '../objectList/ObjectList';
 import { PlateToolbar } from '../PlateToolbar';
@@ -13,7 +20,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { cn } from 'cn';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { type SceneInteractionController } from '../viewport/SceneInteractionController';
 import { updateUserPreferences, usePlatform } from '@orca/platform-contract';
 import { commitGlobalBedType, selectProcessPreset, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
@@ -21,12 +28,12 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { historyContextForStructure, projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
-import { loadRememberedFilamentRackFromRepository, publishRememberedFilamentRack, loadRememberedBedTypeFromRepository, publishRememberedBedType } from '@/preferences';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
-import { PresetCombobox, type PresetComboItem } from '../PresetCombobox';
 import { UserPresetActions } from './UserPresetActions';
-import type { PrinterTransitionSuccess } from '@orca/slicer-runtime';
+import { type PrinterTransitionSuccess } from '@orca/slicer-runtime';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+
+// packages/slicer-app/src/components/settings/SettingsPanel.tsx
 
 type PresetKind = 'printer' | 'print';
 
@@ -60,6 +67,20 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
 
   if (printerPicker === null) throw new Error('SettingsPanel requires an initialized profile snapshot');
 
+  const printerItems = useMemo(() => {
+    const byName = new Map(printers.map(preset => [preset.name, preset]));
+    return printerPicker.items.map(item => ({ id: item.id, name: item.preset, label: item.label,
+      isProjectEmbedded: byName.get(item.preset)?.is_project_embedded === true,
+      isUser: byName.get(item.preset)?.is_user === true }));
+  }, [printerPicker.items, printers]);
+  const processItems = useMemo(() => prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name,
+    label: preset.label, isProjectEmbedded: preset.is_project_embedded, isUser: preset.is_user })), [prints]);
+  const selectPrinter = useCommittedCallback((id: string) => {
+    const target = printerPicker.items.find(item => item.id === id);
+    if (target && target.preset !== selectedPrinter) void handleSelectPreset('printer', target.preset);
+  });
+  const selectProcess = useCommittedCallback((name: string) => { void handleSelectPreset('print', name); });
+  const editPrinter = useCommittedCallback(() => { onEditPrinter?.(selectedPrinter); });
   const controlsDisabled = presetTransitionPending || mutationPending ||
     (slicing && platform.runtime.getRuntimeExecutionState().threaded === false) ||
     ['loading', 'saving', 'model-import', 'waiting-for-dirty-decision'].includes(projectOperation);
@@ -277,13 +298,10 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
               compact
               label="Printer"
               modified={printerModified}
-              items={printerPicker.items.map(item => ({ id: item.id, name: item.preset, label: item.label, isProjectEmbedded: printers.find(preset => preset.name === item.preset)?.is_project_embedded === true, isUser: printers.find(preset => preset.name === item.preset)?.is_user === true }))}
+              items={printerItems}
               value={printerPicker.selectedId}
-              onValue={(id) => {
-                const target = printerPicker.items.find(item => item.id === id);
-                if (target && target.preset !== selectedPrinter) void handleSelectPreset('printer', target.preset);
-              }}
-              onEdit={onEditPrinter ? () => onEditPrinter(selectedPrinter) : undefined}
+              onValue={selectPrinter}
+              onEdit={onEditPrinter ? editPrinter : undefined}
               disabled={controlsDisabled}
               testId="preset-select"
             />
@@ -381,7 +399,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
         bedTypeDisabled={controlsDisabled}
         sceneInteraction={sceneInteraction}
         projectContent={<div className="flex min-w-0 items-center gap-1">
-          <PresetRow compact modified={false} label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label, isProjectEmbedded: preset.is_project_embedded, isUser: preset.is_user }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />
+          <PresetRow compact modified={false} label="Process" items={processItems} value={selectedPrint} onValue={selectProcess} disabled={controlsDisabled} testId="process-preset-select" />
           <UserPresetActions kind="print" canonicalName={selectedPrint} sceneInteraction={sceneInteraction}
             disabled={controlsDisabled} onPendingChange={setPresetTransitionPending} />
         </div>}
@@ -399,7 +417,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
 // typing in the popup's search input filters the list (case-insensitive
 // substring) — the shadcn base-mira popup style: a button trigger showing
 // the current value, search input inside the popup.
-function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false, modified }: {
+const PresetRow = memo(function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false, modified }: {
   modified: boolean;
   compact?: boolean;
   label: string;
@@ -419,4 +437,6 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
         aria-label="Edit Printer" title="Printer settings" data-testid="preset-edit-printer"
         disabled={disabled || value.length === 0} onClick={onEdit}><SlidersHorizontal /></Button>} />
   </div>;
-}
+}, (previous, next) => samePresetItems(previous.items, next.items) &&
+  [...new Set([...Object.keys(previous), ...Object.keys(next)])].every(key => key === 'items' ||
+    previous[key as keyof typeof previous] === next[key as keyof typeof next]));

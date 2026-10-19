@@ -1,22 +1,28 @@
+import { useCommittedCallback, type PresetComboItem, PresetCombobox } from './PresetCombobox';
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 import { useEffect, useMemo, useState } from 'react';
 import { MAX_GRADIENT_COLORS, colorValueKey, normalizeHexColor, usePlatform, type ColorValue } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
-import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
-import type { FilamentMutationResultOrError, FilamentSessionSlot } from '@slicer/client';
+import { useFilamentSessionStore, readFlushingVolumes } from '@/stores/useFilamentSessionStore';
+import { type FilamentMutationResultOrError, type FilamentSessionSlot } from '@slicer/client';
 import { filamentSwatchStyle, filamentSwatchTitle } from './FilamentSwatch';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FlushingVolumesDialog, flushingModified } from './FlushingVolumesDialog';
-import { readFlushingVolumes } from '@/stores/useFilamentSessionStore';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
-import { PresetCombobox } from './PresetCombobox';
 import {
-  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
-  ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger
 } from '@/components/ui/context-menu';
+
+const FILAMENT_TRIGGER_STYLE = { borderTopLeftRadius: 0, borderBottomLeftRadius: 0 };
 
 type PendingImpact = { kind: 'delete' | 'merge'; summary: FilamentImpactSummary } | null;
 
@@ -61,13 +67,9 @@ function ImpactDialog({ impact, onCancel, onConfirm }: {
   );
 }
 
-function SlotCard({ slot, presetNames, presetLabels, presetVendors, userPresets, projectPresets, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
+function SlotCard({ slot, presetItems, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
   slot: FilamentSessionSlot;
-  presetNames: readonly string[];
-  userPresets: ReadonlySet<string>;
-  projectPresets: ReadonlySet<string>;
-  presetLabels: ReadonlyMap<string, string>;
-  presetVendors: ReadonlyMap<string, string>;
+  presetItems: readonly PresetComboItem[];
   mergeDestinations: readonly number[];
   canDelete: boolean;
   canMerge: boolean;
@@ -79,6 +81,7 @@ function SlotCard({ slot, presetNames, presetLabels, presetVendors, userPresets,
   onMerge: (destination: number) => void;
 }) {
   const modified = useSettingsStore(state => state.modifiedPresets.filament.includes(slot.preset.name));
+  const selectPreset = useCommittedCallback(onPreset);
   const [colourOpen, setColourOpen] = useState(false);
   const colourSignature = JSON.stringify(slot.colour);
   useEffect(() => {
@@ -110,12 +113,11 @@ function SlotCard({ slot, presetNames, presetLabels, presetVendors, userPresets,
             title={filamentSwatchTitle(slot.colour.display)}
             style={{ ...filamentSwatchStyle(slot.colour.display), color: numberColour,
               border: 0, backgroundClip: 'border-box', borderRadius: '4px 0 0 4px' }}>{slot.slot}</Button>} />
-        <PresetCombobox modified={modified} items={presetNames.map(name => ({ id: name, name, label: presetLabels.get(name)!, isUser: userPresets.has(name), isProjectEmbedded: projectPresets.has(name) }))}
-          value={slot.preset.name} onValue={onPreset} disabled={pending}
+        <PresetCombobox mode="grouped" modified={modified} items={presetItems}
+          value={slot.preset.name} onValue={selectPreset} disabled={pending}
           ariaLabel={`Filament preset for slot ${slot.slot}`} testId={`filament-preset-${slot.slot}`}
           searchPlaceholder="Search compatible presets…" emptyText="No compatible preset"
-          groupBy={item => presetVendors.get(item.id)! || 'Unspecified'}
-          triggerStyle={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }} />
+          triggerStyle={FILAMENT_TRIGGER_STYLE} />
       </ContextMenuTrigger>
       <ContextMenuContent>
         {onEdit && <ContextMenuItem data-testid={`filament-edit-${slot.slot}`} disabled={pending} onClick={onEdit}>Edit</ContextMenuItem>}
@@ -178,6 +180,9 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
     ...filamentCatalog.map(preset => [preset.name, preset.vendor] as const),
     ...(snapshot?.slots.map(slot => [slot.preset.name, slot.preset.vendor] as const) ?? []),
   ]), [filamentCatalog, snapshot]);
+  const presetItems = useMemo(() => presetNames.map(name => ({ id: name, name, label: presetLabels.get(name)!,
+    isUser: userPresets.has(name), isProjectEmbedded: projectPresets.has(name), group: presetVendors.get(name) || 'Unspecified' })),
+    [presetNames, presetLabels, userPresets, projectPresets, presetVendors]);
   // The project mutation fence is a safety/ordering mechanism, not a rack
   // presentation state. Filament commands are queued behind model/history
   // work by the shared gate, while the rack remains visually stable and
@@ -256,9 +261,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
             <SlotCard
               key={slot.slot}
               slot={slot}
-              presetNames={presetNames}
-              presetLabels={presetLabels}
-              presetVendors={presetVendors} userPresets={userPresets} projectPresets={projectPresets}
+              presetItems={presetItems}
               canDelete={snapshot.capabilities.canDelete}
               canMerge={snapshot.capabilities.canMerge}
               mergeDestinations={snapshot.slots.map((entry) => entry.slot)}

@@ -9,6 +9,43 @@ import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receip
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
 
+for (const kind of ['printer', 'filament'] as const) {
+  test(`${kind} preset parameters scroll inside the modal while its header stays fixed`, async () => {
+    const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;
+    delete env.ELECTRON_RUN_AS_NODE;
+    const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
+    try {
+      const page = await app.firstWindow();
+      await page.setViewportSize({ width: 1100, height: 700 });
+      await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+      await page.locator('#app-tab-prepare').click();
+      if (kind === 'printer') await page.getByTestId('preset-edit-printer').click();
+      else {
+        await page.getByTestId('filament-slot-1').click({ button: 'right' });
+        await page.getByTestId('filament-edit-1').click();
+      }
+      const dialog = page.getByTestId('preset-editor-dialog');
+      const fields = dialog.locator('[data-testid^="preset-editor-field-"]:visible');
+      await expect(fields.first()).toBeVisible();
+      const title = page.getByTestId('preset-editor-title');
+      const titleTop = (await title.boundingBox())!.y;
+      const firstTop = (await fields.first().boundingBox())!.y;
+      await expect(fields.last()).not.toBeInViewport();
+      const bounds = (await dialog.boundingBox())!;
+      await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height - 40);
+      await page.mouse.wheel(0, 500);
+      await expect.poll(async () => (await fields.first().boundingBox())!.y).toBeLessThan(firstTop - 20);
+      // Reach the final real field using wheel input, without scrollIntoView
+      // moving a different ancestor and masking a broken parameter scroller.
+      await page.mouse.wheel(0, 20_000);
+      await expect(fields.last()).toBeInViewport();
+      expect((await title.boundingBox())!.y).toBeCloseTo(titleTop, 0);
+      await page.mouse.wheel(0, -20_000);
+      await expect(fields.first()).toBeInViewport();
+    } finally { await app.close(); }
+  });
+}
+
 test('filament setting overrides edit all ironing controls using Process references', async () => {
   const env={...process.env,ORCA_E2E:'1'} as Record<string,string>; delete env.ELECTRON_RUN_AS_NODE;
   const app=await _electron.launch({args:['.'],cwd:DESKTOP_ROOT,env});

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { memo, useLayoutEffect, useRef, useCallback, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { ChevronDown } from 'lucide-react';
 import { SearchInput } from '@/components/ui/search-input';
@@ -6,32 +6,36 @@ import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger } from '@/components/ui/select';
 import { cn } from 'cn';
 import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
-  DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
-  DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuGroup, DropdownMenuLabel,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuGroup,
+  DropdownMenuLabel
 } from '@/components/ui/dropdown-menu';
 import {
-  Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem,
-  ComboboxList, ComboboxTrigger, ComboboxValue, ComboboxGroup, ComboboxLabel, ComboboxCollection,
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+  ComboboxValue,
+  ComboboxGroup,
+  ComboboxLabel,
+  ComboboxCollection
 } from '@/components/ui/combobox';
 
-export interface PresetComboItem {
-  id: string;
-  isUser: boolean;
-  isProjectEmbedded: boolean;
-  /** Complete canonical profile name, also used for tooltips. */
-  name: string;
-  /** Native display label (model or alias). */
-  label: string;
-  /** Nonempty preset overrides, when the caller exposes draft state. */
-  modified?: boolean;
-}
-
 /** Shared Orca-style presentation; identity and transition policy stay with the caller. */
-export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, testId,
-  searchPlaceholder, emptyText, leading, triggerStyle, groupBy, sectionBy, modified, mode = 'combobox' }: {
+export const PresetCombobox = memo(function PresetCombobox({ items, value, onValue, disabled, ariaLabel, testId,
+  searchPlaceholder, emptyText, leading, triggerStyle, modified, mode = 'combobox' }: {
   /** Select uses the same opening, focus and item navigation as option editors. */
-  mode?: 'combobox' | 'select';
+  mode?: 'combobox' | 'select' | 'grouped';
   modified: boolean;
   items: readonly PresetComboItem[];
   value: string;
@@ -43,37 +47,18 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
   emptyText: string;
   leading?: ReactNode;
   triggerStyle?: CSSProperties;
-  groupBy?: (item: PresetComboItem) => string;
-  /** Flat labelled sections, preserving the caller's candidate order. */
-  sectionBy?: (item: PresetComboItem) => string;
 }) {
   const [search, setSearch] = useState('');
-  const entries = new Map(items.map(item => [item.id, item]));
-  const query = search.toLocaleLowerCase();
-  const sections = ['project', 'user', 'system'].map(origin => ({
-    label: origin === 'project' ? 'Project-inside presets' : origin === 'user' ? 'User presets' : 'System presets',
-    items: items.filter(item => (item.isProjectEmbedded ? 'project' : item.isUser ? 'user' : 'system') === origin).map(item => item.id),
-  })).filter(section => section.items.length > 0);
-  const visibleSections = sections.map(section => ({ ...section,
-    items: section.items.filter(id => entries.get(id)!.label.toLocaleLowerCase().includes(query)),
-  })).filter(section => section.items.length > 0);
-  const groupItems = (ids: readonly string[], by?: (item: PresetComboItem) => string) => {
-    const groups = new Map<string, string[]>();
-    for (const id of ids) {
-      const label = by?.(entries.get(id)!) ?? '';
-      if (!groups.has(label)) groups.set(label, []);
-      groups.get(label)!.push(id);
-    }
-    return [...groups].map(([label, ids]) => ({ label, ids }));
-  };
-  const heading = (label: string) => <><span className="shrink-0">{label}</span>
-    <Separator className="min-w-8 flex-1" aria-hidden="true" /></>;
-  const renderItem = (id: string) => <ComboboxItem key={id} value={id} title={entries.get(id)!.name}>
+  const entries = useMemo(() => new Map(items.map(item => [item.id, item])), [items]);
+  const selectItems = useMemo(() => mode === 'select' ? items.map(item => ({ value: item.id, label: item.label })) : [], [items, mode]);
+  const sections = useMemo(() => presetSections(items).map(section => ({ label: section.label, items: section.items.map(item => item.id) })), [items]);
+  const itemLabel = useCallback((id: string) => entries.get(id)!.label, [entries]);
+  const renderItem = useCallback((id: string) => <ComboboxItem key={id} value={id} title={entries.get(id)!.name}>
     <span className={cn(entries.get(id)!.modified && 'config-override-label')}>{entries.get(id)!.label}</span>
-  </ComboboxItem>;
+  </ComboboxItem>, [entries]);
   if (mode === 'select') {
     return <Select value={value || null} onValueChange={id => id !== null && onValue(id)}
-      items={items.map(item => ({ value: item.id, label: item.label }))} disabled={disabled}
+      items={selectItems} disabled={disabled}
       onOpenChange={open => { if (!open) setSearch(''); }}>
       <div className="flex min-w-0 flex-1 gap-1">
         {leading}
@@ -95,23 +80,11 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
             }
             if (event.key !== 'Escape') event.stopPropagation();
           }} /></div>}>
-        {visibleSections.map(section => <SelectGroup key={section.label}>
-          <SelectLabel className="flex items-center gap-2">{heading(section.label)}</SelectLabel>
-          {groupItems(section.items, sectionBy).map(({ label, ids }) => <SelectGroup key={label}>
-            {label && <SelectLabel>{label}</SelectLabel>}
-            {ids.map(id => <SelectItem key={id} value={id} title={entries.get(id)!.name}>
-              <span className={cn('truncate', entries.get(id)!.modified && 'config-override-label')}>
-                {entries.get(id)!.label}
-              </span>
-            </SelectItem>)}
-          </SelectGroup>)}
-        </SelectGroup>)}
-        {visibleSections.length === 0 &&
-          <div className="px-2 py-1 text-xs text-muted-foreground">{emptyText}</div>}
+        <PresetSelectOptions items={items} search={search} emptyText={emptyText} />
       </SelectContent>
     </Select>;
   }
-  if (groupBy) return <DropdownMenu onOpenChange={open => { if (!open) setSearch(''); }}>
+  if (mode === 'grouped') return <DropdownMenu onOpenChange={open => { if (!open) setSearch(''); }}>
     <div className="flex min-w-0 flex-1 gap-1">
       {leading}
       <DropdownMenuTrigger disabled={disabled} render={<Button variant="ghost" size="sm" />}
@@ -132,27 +105,13 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
           if (event.key !== 'Escape') event.stopPropagation();
         }} /></div>
       <div data-slot="preset-menu-list" className="min-h-0 overflow-y-auto">
-      {visibleSections.map(section => <DropdownMenuGroup key={section.label}>
-        <DropdownMenuLabel className="flex items-center gap-2">{heading(section.label)}</DropdownMenuLabel>
-        {groupItems(section.items, groupBy).map(({ label, ids }) => <DropdownMenuSub key={label}>
-          <DropdownMenuSubTrigger>{label}</DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-w-[min(32rem,calc(100vw-1rem))]" aria-label={label}>
-            <DropdownMenuRadioGroup value={value} onValueChange={onValue}>
-              {ids.map(id => <DropdownMenuRadioItem key={id} value={id} title={entries.get(id)!.name} closeOnClick>
-                  <span className="truncate">{entries.get(id)!.label}</span>
-                </DropdownMenuRadioItem>)}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>)}
-      </DropdownMenuGroup>)}
-      {visibleSections.length === 0 &&
-        <div className="px-2 py-1 text-xs text-muted-foreground">{emptyText}</div>}
+      <PresetMenuOptions items={items} search={search} emptyText={emptyText} value={value} onValue={onValue} />
       </div>
     </DropdownMenuContent>
   </DropdownMenu>;
   return <Combobox inputValue={search} onInputValueChange={setSearch}
     value={value || null} onValueChange={id => id !== null && onValue(id)}
-    items={sections} itemToStringLabel={(id: string) => entries.get(id)!.label}
+    items={sections} itemToStringLabel={itemLabel}
     disabled={disabled}>
     <div className="flex min-w-0 flex-1 gap-1">
       {leading}
@@ -176,4 +135,110 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
       <ComboboxEmpty>{emptyText}</ComboboxEmpty>
     </ComboboxContent>
   </Combobox>;
+}, (previous, next) => samePresetItems(previous.items, next.items) &&
+  [...new Set([...Object.keys(previous), ...Object.keys(next)])].every(key => key === 'items' ||
+    previous[key as keyof typeof previous] === next[key as keyof typeof next]));
+
+function heading(label: string) { return <><span className="shrink-0">{label}</span>
+  <Separator className="min-w-8 flex-1" aria-hidden="true" /></>; }
+
+// These components execute beneath the existing Portal. Closing transitions and
+// focus restoration retain Base UI's lifecycle; a closed popup builds no rows.
+const PresetSelectOptions = memo(function PresetSelectOptions({ items, search, emptyText }: {
+  items: readonly PresetComboItem[]; search: string; emptyText: string;
+}) {
+  const visibleSections = useMemo(() => presetSections(items, search), [items, search]);
+  return <>
+        {visibleSections.map(section => <SelectGroup key={section.label}>
+          <SelectLabel className="flex items-center gap-2">{heading(section.label)}</SelectLabel>
+          {presetGroups(section.items, 'section').map(({ label, items: groupedItems }) => <SelectGroup key={label}>
+            {label && <SelectLabel>{label}</SelectLabel>}
+            {groupedItems.map(item => <SelectItem key={item.id} value={item.id} title={item.name}>
+              <span className={cn('truncate', item.modified && 'config-override-label')}>
+                {item.label}
+              </span>
+            </SelectItem>)}
+          </SelectGroup>)}
+        </SelectGroup>)}
+        {visibleSections.length === 0 &&
+          <div className="px-2 py-1 text-xs text-muted-foreground">{emptyText}</div>}
+  </>;
+});
+
+const PresetMenuOptions = memo(function PresetMenuOptions({ items, search, emptyText, value, onValue }: {
+  items: readonly PresetComboItem[]; search: string; emptyText: string; value: string; onValue: (id: string) => void;
+}) {
+  const visibleSections = useMemo(() => presetSections(items, search), [items, search]);
+  return <>
+      {visibleSections.map(section => <DropdownMenuGroup key={section.label}>
+        <DropdownMenuLabel className="flex items-center gap-2">{heading(section.label)}</DropdownMenuLabel>
+        {presetGroups(section.items, 'group').map(({ label, items: groupedItems }) => <DropdownMenuSub key={label}>
+          <DropdownMenuSubTrigger>{label}</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="max-w-[min(32rem,calc(100vw-1rem))]" aria-label={label}>
+            <PresetVendorOptions items={groupedItems} value={value} onValue={onValue} />
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>)}
+      </DropdownMenuGroup>)}
+      {visibleSections.length === 0 &&
+        <div className="px-2 py-1 text-xs text-muted-foreground">{emptyText}</div>}
+  </>;
+});
+
+const PresetVendorOptions = memo(function PresetVendorOptions({ items, value, onValue }: {
+  items: readonly PresetComboItem[]; value: string; onValue: (id: string) => void;
+}) {
+  return <DropdownMenuRadioGroup value={value} onValueChange={onValue}>
+    {items.map(item => <DropdownMenuRadioItem key={item.id} value={item.id} title={item.name} closeOnClick>
+      <span className="truncate">{item.label}</span>
+    </DropdownMenuRadioItem>)}
+  </DropdownMenuRadioGroup>;
+});
+
+export interface PresetComboItem {
+  id: string;
+  isUser: boolean;
+  isProjectEmbedded: boolean;
+  name: string;
+  label: string;
+  modified?: boolean;
+  group?: string;
+  section?: string;
+}
+
+/** Compare only the complete picker projection, preserving native order. Raw
+ * profile receipts still publish independently, including non-picker changes.
+ */
+export function samePresetItems(left: readonly PresetComboItem[], right: readonly PresetComboItem[]) {
+  return left === right || (left.length === right.length && left.every((item, index) => {
+    const next = right[index];
+    return item.id === next.id && item.name === next.name && item.label === next.label &&
+      item.isUser === next.isUser && item.isProjectEmbedded === next.isProjectEmbedded &&
+      item.modified === next.modified && item.group === next.group && item.section === next.section;
+  }));
+}
+
+export function presetSections(items: readonly PresetComboItem[], query = '') {
+  const search = query.toLocaleLowerCase();
+  return ['project', 'user', 'system'].map(origin => ({
+    label: origin === 'project' ? 'Project-inside presets' : origin === 'user' ? 'User presets' : 'System presets',
+    items: items.filter(item => (item.isProjectEmbedded ? 'project' : item.isUser ? 'user' : 'system') === origin &&
+      (!search || item.label.toLocaleLowerCase().includes(search))),
+  })).filter(section => section.items.length > 0);
+}
+
+export function presetGroups(items: readonly PresetComboItem[], property: 'group' | 'section') {
+  const groups = new Map<string, PresetComboItem[]>();
+  for (const item of items) {
+    const label = item[property] ?? '';
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label)!.push(item);
+  }
+  return [...groups].map(([label, items]) => ({ label, items }));
+}
+
+/** Stable event identity, always dispatching to the latest committed render. */
+export function useCommittedCallback<Args extends unknown[], Result>(callback: (...args: Args) => Result) {
+  const latest = useRef(callback);
+  useLayoutEffect(() => { latest.current = callback; });
+  return useCallback((...args: Args) => latest.current(...args), []);
 }

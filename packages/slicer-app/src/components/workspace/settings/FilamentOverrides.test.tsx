@@ -62,9 +62,9 @@ it('keeps Reset available when inherited/dependent controls are disabled', async
   expect((await h.read()).editorVectors[speed].overrideValues[0]).toBeNull();
   await fill(length,'1'); expect(query(`override-${speed}`).getAttribute('aria-disabled')).not.toBe('true');
   const long='filament_long_retractions_when_cut', distance='filament_retraction_distances_when_cut';
-  expect(query(`field-${distance}`)).toBeNull(); await click(query(`override-${long}`));
+  const distanceField=query(`field-${distance}`); expect(distanceField.hidden).toBe(true); await click(query(`override-${long}`));
   expect(query(`input-${long}`).getAttribute('aria-checked')).toBe('false'); await click(query(`input-${long}`));
-  expect(query(`field-${distance}`)).not.toBeNull();
+  expect(query(`field-${distance}`)).toBe(distanceField); expect(distanceField.hidden).toBe(false);
 });
 
 it('distinguishes boolean false and enum zero from disabled overrides', async () => {

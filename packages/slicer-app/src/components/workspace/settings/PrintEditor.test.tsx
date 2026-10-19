@@ -1,8 +1,15 @@
 // @vitest-environment jsdom
+import { EditorSnapshotController } from './usePrintConfigEditor';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
-import { createClient, createMockModule, MOCK_PROFILE_ACTIVATION, type ConfigEditorSnapshot, type ScopedConfigEditorSnapshot } from '@slicer/client';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  createClient,
+  createMockModule,
+  MOCK_PROFILE_ACTIVATION,
+  type ConfigEditorSnapshot,
+  type ScopedConfigEditorSnapshot
+} from '@slicer/client';
 import { DEFAULT_USER_PREFERENCES, PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useSettingsStore } from '@/stores/useSettingsStore';
@@ -13,12 +20,26 @@ import { useObjectListStore } from '../objectList/useObjectListStore';
 import { Selection } from '../viewport/Selection';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { projectFullModelMesh } from '../viewport/modelMeshProjection';
-import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { type SceneInteractionController } from '../viewport/SceneInteractionController';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import { printChoiceFlow } from './PrintEditorSelection';
 import { editorDirtyChoiceIds } from './presetEditorBindings';
-import { elementText, parsePrintElement, printHasLocalOverrides, projectPrintField, scopedPrintField, scopedDirtyChoiceIds, scopedHasLocalOverrides } from './printEditorProjection';
-import { commitPrintConfigurationMutation, readPrintConfigEditor, waitForConfigurationMutations, commitScopedEditorMutation } from './configurationActions';
+import {
+  elementText,
+  parsePrintElement,
+  printHasLocalOverrides,
+  projectPrintField,
+  scopedPrintField,
+  scopedDirtyChoiceIds,
+  scopedHasLocalOverrides
+} from './printEditorProjection';
+import {
+  CommittedEditorRefreshError,
+  commitPrintConfigurationMutation,
+  readConfigurationEditor,
+  waitForConfigurationMutations,
+  commitScopedEditorMutation
+} from './configurationActions';
 
 let root:Root|undefined;
 let container:HTMLDivElement;
@@ -40,7 +61,7 @@ async function type(value:string,enter=true){
   if(enter)await act(async()=>{input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));});
   return input;
 }
-async function setup(scopedFixture=false){
+async function setup(scopedFixture=false,presentationFixture=false){
   glVolumeCollection.clear();useObjectListStore.getState().setStructure([]);
   useProjectStore.getState().reset();useHistoryNavigationStore.getState().reset();useHistoryRestoreStore.setState({phase:'idle',revision:0});
   const module=createMockModule({metadataKeys:{
@@ -50,6 +71,10 @@ async function setup(scopedFixture=false){
     outer_wall_speed:{type:'floats',category:'Speed',scopes:['project','object','part'],min:0},
     enable_overhang_speed:{type:'bools',category:'Speed',scopes:['project','object','part']},
     small_perimeter_speed:{type:'floats_or_percents',category:'Speed',scopes:['project','object','part']},
+    ...(presentationFixture ? {
+      slowdown_for_curled_perimeters:{type:'bool',category:'Speed',scopes:['project','object','part']},
+      wall_loops:{type:'int',category:'Strength',scopes:['project','object','part']},
+    } as const : {}),
   }});
   const runtime=createClient(async()=>module);await runtime.init(MOCK_PROFILE_ACTIVATION);await runtime.resetHistory(context);
   let controller:SceneInteractionController|null=null;
@@ -132,9 +157,9 @@ it('uses loaded Hybrid choices, one captured typed mutation/history operation, m
     {key:'outer_wall_speed',kind:'indexed',index:1},{key:'enable_overhang_speed',kind:'indexed',index:1},{key:'layer_height',kind:'shared'},
   ])}));
   expect((await h.runtime.getHistoryStatus()).undoEntries).toHaveLength(history.undoEntries.length+1);
-  await act(async()=>{await h.runtime.undoHistory();useHistoryRestoreStore.getState().advanceRevision();});
+  await act(async()=>{const restored=await h.runtime.undoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});
   expect(input().value).toBe('228');expect(selectedChoice()).toBe('T1 HF');
-  await act(async()=>{await h.runtime.redoHistory();useHistoryRestoreStore.getState().advanceRevision();});expect(input().value).toBe('220');
+  await act(async()=>{const restored=await h.runtime.redoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});expect(input().value).toBe('220');
   await click('config-mode-scoped');expect(document.querySelector('[data-testid="print-editor-selection"]')).toBeNull();
   await click('config-mode-plates');expect(document.querySelector('[data-testid="print-editor-selection"]')).toBeNull();
   await click('config-mode-project');expect(selectedChoice()).toBe('T1 HF');
@@ -163,9 +188,9 @@ it('aggregates explicit Process ownership across nozzles while field/category re
   await choose('T1 HF');await click('config-reset-outer_wall_speed');
   expect(dirtyChoices()).toEqual([]);expect(profileDirty()).toBe('false');
   expect((document.querySelector('[data-testid="config-reset-all"]') as HTMLButtonElement).disabled).toBe(true);
-  await act(async()=>{await h.runtime.undoHistory();useHistoryRestoreStore.getState().advanceRevision();});
+  await act(async()=>{const restored=await h.runtime.undoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});
   expect(profileDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T1 HF']);expect(selectedChoice()).toBe('T1 HF');
-  await act(async()=>{await h.runtime.redoHistory();useHistoryRestoreStore.getState().advanceRevision();});
+  await act(async()=>{const restored=await h.runtime.redoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});
   expect(profileDirty()).toBe('false');expect(dirtyChoices()).toEqual([]);
 });
 
@@ -277,7 +302,7 @@ it('renders actual effective nozzle diameters and native flow labels without cha
 
 it.each([[0,'SF'],[1,'HF'],[2,'Hybrid'],[3,'TPU HF'],[5,'E3D HF'],[6,'XHF'],[4,'Unknown native variant']] as const)
   ('formats native flow %s as %s',async(flowType,label)=>{
-    const h=await setup();const snapshot=await readPrintConfigEditor(h.platform);if(!snapshot.ok)throw Error(snapshot.error);
+    const h=await setup();const snapshot=await readConfigurationEditor(()=>h.platform.runtime.getPrintConfigEditor());if(!snapshot.ok)throw Error(snapshot.error);
     expect(printChoiceFlow({...snapshot.editorSelection.choices[0],flowType,variant:'Unknown native variant'})).toBe(label);
   });
 
@@ -313,7 +338,7 @@ it.each([
   ['bool','1',true],['enum','top',2],['string','a\nb','a\nb'],
   ['point','1, 2',{x:1,y:2}],['points','1, 2\n3, 4',[{x:1,y:2},{x:3,y:4}]],
 ] as const)('round-trips native %s element input without changing its index or type',async(scalarType,text,value)=>{
-  const h=await setup();const snapshot=await readPrintConfigEditor(h.platform);if(!snapshot.ok)throw Error(snapshot.error);
+  const h=await setup();const snapshot=await readConfigurationEditor(()=>h.platform.runtime.getPrintConfigEditor());if(!snapshot.ok)throw Error(snapshot.error);
   const vector={...snapshot.editorVectors.outer_wall_speed,scalarType,enumOptions:[{name:'top',label:'Top',value:2}]};
   const element={target:{kind:'indexed' as const,index:2},vector,source:value,effective:value,revision:snapshot.revision};
   expect(parsePrintElement(element,text)).toEqual(value);
@@ -330,7 +355,7 @@ it('holds a read behind mutation publication',async()=>{
   h.read.mockImplementationOnce(async()=>{await gate;return nativeRead();});
   const commit=commitPrintConfigurationMutation(h.platform,{version:1,operation:'set-element',targets:[{scope:'project'}],
     expectedRevision:source.revision,key:'outer_wall_speed',index:2,scalarType:'float',value:233});
-  let readDone=false;const read=readPrintConfigEditor(h.platform).then(result=>{readDone=true;return result;});
+  let readDone=false;const read=readConfigurationEditor(()=>h.platform.runtime.getPrintConfigEditor()).then(result=>{readDone=true;return result;});
   await act(async()=>{await Promise.resolve();});expect(readDone).toBe(false);
   await act(async()=>release());await commit;expect(await read).toMatchObject({editorVectors:{outer_wall_speed:{effectiveValues:[200,220,233]}}});
 });
@@ -409,9 +434,9 @@ it('unions selected owners only, preserves global dirty across nozzles/search/pa
     fields:expect.arrayContaining([{key:'outer_wall_speed',kind:'indexed',index:1},{key:'layer_height',kind:'shared'}])}));
   expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T2 SF']);
   await choose('T2 SF');await click('config-reset-outer_wall_speed');expect(targetDirty()).toBe('false');
-  await act(async()=>{await h.runtime.undoHistory();useHistoryRestoreStore.getState().advanceRevision();});
+  await act(async()=>{const restored=await h.runtime.undoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});
   expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T2 SF']);expect(selectedChoice()).toBe('T2 SF');
-  await act(async()=>{await h.runtime.redoHistory();useHistoryRestoreStore.getState().advanceRevision();});expect(targetDirty()).toBe('false');
+  await act(async()=>{const restored=await h.runtime.redoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});expect(targetDirty()).toBe('false');
   await scopedEdit(h,[0],0,205);await scopedEdit(h,[1],2,265);await h.select([0]);await click('config-reset-all');
   expect(targetDirty()).toBe('false');await h.select([1]);expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T2 SF']);
 });
@@ -509,7 +534,9 @@ it.each(['project-change','new-entry'] as const)('disables reused target fields 
   expect(h.scopedRead).toHaveBeenCalledTimes(scopedReads);
   const original=h.scopedRead.getMockImplementation()!;let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
   h.scopedRead.mockImplementationOnce(async request=>{const result=await original(request);await held;return result;});
-  await click('config-mode-scoped');expect(speedInput()).toBeNull();expect(selectedChoice()).toBe(change==='project-change'?'T2 SF':undefined);
+  await click('config-mode-scoped');
+  if(change==='project-change')expect(speedInput()?.matches(':disabled')).toBe(true);else expect(speedInput()).toBeNull();
+  expect(selectedChoice()).toBe(change==='project-change'?'T2 SF':undefined);
   await act(async()=>release());expect(selectedChoice()).toBe('T2 SF');expect(speedInput()?.value).toBe(change==='project-change'?'245':'240');
 });
 
@@ -541,10 +568,15 @@ it('does not relabel an old mutation read as fresh after the native Project cont
     const result=await h.nativeMutate({version:1,operation:'set-element',targets:[{scope:'project'}],expectedRevision:oldRead.revision,
       key:'outer_wall_speed',scalarType:'float',index:2,value:245});if(!result.ok)throw Error(result.error);
     if(result.profileSnapshot)useSettingsStore.getState().hydrateProfileSnapshot(result.profileSnapshot);
-    useSettingsStore.getState().setConfigurationMode('scoped');useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
+    useSettingsStore.getState().setConfigurationMode('scoped');
+    const outcome=useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
+    if(outcome==='refresh-required') {
+      const full=await h.runtime.getNativeScopedConfig();if(!full.ok)throw Error(full.error);
+      useSettingsStore.getState().applyNativeScopedConfigTransport(full.nativeScopedConfig);
+    }
   });
   await act(async()=>releaseOld());await act(async()=>waitForConfigurationMutations());
-  expect(speedInput()).toBeNull(); // old revision cannot become enabled under the new stamp
+  expect(speedInput()?.matches(':disabled')).toBe(true); // old revision is display-only until the fresh read
   await act(async()=>releaseFresh());expect(selectedChoice()).toBe('T2 SF');expect(speedInput()?.value).toBe('245');
 });
 
@@ -651,4 +683,165 @@ it('preserves an imported nullable Print element until valid numeric input and k
   await click('config-reset-outer_wall_speed');expect(input().value).toBe('');expect(input().disabled).toBe(false);
   expect(await h.runtime.getPrintConfigEditor()).toMatchObject({editorVectors:{outer_wall_speed:{effectiveValues:[200,null,240]}}});
   await type('230');expect(input().value).toBe('230');
+});
+
+it('combines per-object conditions and permits ordinary native commands for hidden/read-only fields',async()=>{
+  const h=await setup(true,true);
+  await click('config-mode-scoped');await click('config-page-Speed');
+  const target=[{scope:'object' as const,id:String(h.objects[0].id)}];
+  const setOverhang=async(value:boolean)=>act(async()=>{
+    const read=await h.runtime.getScopedConfigEditor({version:1,targets:target});if(!read.ok)throw Error(read.error);
+    await commitScopedEditorMutation(h.platform,{version:1,operation:'set-element',targets:target,expectedRevision:read.revision,
+      key:'enable_overhang_speed',scalarType:'bool',index:0,value},target);
+  });
+  const dependent=document.querySelector<HTMLElement>('[data-testid="config-field-slowdown_for_curled_perimeters"]')!;
+  expect(dependent.hidden).toBe(false);
+  await setOverhang(false);
+  expect(dependent.hidden).toBe(true);
+  expect(document.querySelector('[data-testid="config-field-slowdown_for_curled_perimeters"]')).toBe(dependent);
+  await act(async()=>{await commitScopedEditorMutation(h.platform,{version:1,operation:'set',targets:target,
+    key:'slowdown_for_curled_perimeters',value:'1'},target);});
+  await setOverhang(true);expect(dependent.hidden).toBe(false);
+  expect(document.querySelector('[data-testid="config-input-slowdown_for_curled_perimeters"]')?.getAttribute('aria-checked')).toBe('true');
+  await setOverhang(false);await h.select([0,1]);
+  expect(document.querySelector<HTMLElement>('[data-testid="config-field-slowdown_for_curled_perimeters"]')!.hidden).toBe(false);
+  const speed=speedInput();
+  await act(async()=>{await commitScopedEditorMutation(h.platform,{version:1,operation:'set',targets:target,key:'wall_loops',value:'0'},target);});
+  expect(speed?.matches(':disabled')).toBe(true); // One locked target locks the whole selected batch.
+  expect(speedInput()).toBe(speed);
+  await act(async()=>{
+    const read=await h.runtime.getScopedConfigEditor({version:1,targets:target});if(!read.ok)throw Error(read.error);
+    await commitScopedEditorMutation(h.platform,{version:1,operation:'set-element',targets:target,expectedRevision:read.revision,
+      key:'outer_wall_speed',scalarType:'float',index:0,value:211},target);
+  });
+  const native=await h.runtime.getScopedConfigEditor({version:1,targets:target});if(!native.ok)throw Error(native.error);
+  expect(native.targets[0].editorVectors.outer_wall_speed.effectiveValues[0]).toBe(211);
+});
+
+it.each([false,true])('reads the editor once for each accepted set/reset/category/reset-all (Objects=%s)',async scoped=>{
+  const h=await setup(scoped);if(scoped)await click('config-mode-scoped');
+  await click('config-page-Speed');await choose('T1 HF');
+  const read=scoped?h.scopedRead:h.read;
+  const once=async(action:()=>Promise<unknown>)=>{
+    const before=read.mock.calls.length;
+    await action();await act(async()=>waitForConfigurationMutations());
+    expect(read.mock.calls.length-before).toBe(1);
+    expect(speedInput()?.matches(':disabled')).toBe(false);
+  };
+  await once(()=>type('229'));
+  await once(()=>click('config-reset-outer_wall_speed'));
+  await once(()=>type('230'));
+  await act(async()=>document.querySelector<HTMLElement>('[data-testid="config-category-toggle-Other layers speed"]')!
+    .dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10})));
+  await once(()=>click('config-reset-category-Speed'));
+  await once(()=>type('231'));
+  await once(()=>click('config-reset-all'));
+});
+
+it('acknowledges a committed write whose editor refresh fails, locks stale controls and never resubmits',async()=>{
+  const h=await setup();await click('config-page-Speed');await choose('T1 HF');
+  const nativeRead=h.read.getMockImplementation()!;
+  const reads=h.read.mock.calls.length,writes=h.mutate.mock.calls.length;
+  h.read.mockResolvedValueOnce({ok:false,error:'Injected editor refresh failure'});
+  await type('229');await act(async()=>waitForConfigurationMutations());
+  expect(h.mutate.mock.calls.length-writes).toBe(1);
+  expect(h.read.mock.calls.length-reads).toBe(1);
+  expect(speedInput()?.matches(':disabled')).toBe(true);
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain('committed');
+  expect(await nativeRead()).toMatchObject({editorVectors:{outer_wall_speed:{effectiveValues:[200,229,240]}}});
+  await click('config-page-Quality');await click('config-page-Speed');
+  expect(h.mutate.mock.calls.length-writes).toBe(1);expect(h.read.mock.calls.length-reads).toBe(1);
+});
+
+describe('editor snapshot publication', () => {
+  const snapshot = (revision: number) => ({ ok: true as const, revision, value: revision });
+  function harness() {
+    let context = { owner: 'A', revision: 1, base: {} };
+    const queued: Array<() => Promise<void>> = [];
+    const read = vi.fn(async (stamp: typeof context) => snapshot(stamp.revision));
+    const controller = new EditorSnapshotController({ context: () => context,
+      same: (a, b) => a.owner === b.owner && a.revision === b.revision && a.base === b.base,
+      sameOwner: (a, b) => a.owner === b.owner, readable: () => true, revision: stamp => stamp.revision,
+      read, schedule: operation => new Promise<void>((resolve, reject) => queued.push(() => operation().then(resolve, reject))),
+    });
+    const advance = (owner = context.owner) => { context = { owner, revision: context.revision + 1, base: {} }; };
+    const drain = async () => { const pending = controller.refresh(); await queued.shift()?.(); await pending; };
+    return { controller, read, queued, advance, drain, context: () => context };
+  }
+
+  it('coalesces invalidations and reads the final context at FIFO execution', async () => {
+    const h = harness(); h.controller.start();
+    h.advance(); void h.controller.refresh(); h.advance(); void h.controller.refresh();
+    expect(h.queued).toHaveLength(1); expect(h.read).not.toHaveBeenCalled();
+    await h.drain();
+    expect(h.read).toHaveBeenCalledTimes(1);
+    expect(h.controller.get().loaded?.snapshot.revision).toBe(3);
+    await h.controller.refresh(); expect(h.queued).toHaveLength(0);
+  });
+
+  it('publishes an owned receipt inside the mutation reservation without scheduling another read', async () => {
+    const h = harness(); h.controller.start(); await h.drain();
+    await h.controller.mutate(async publish => {
+      h.advance(); void h.controller.refresh(); h.advance(); void h.controller.refresh();
+      expect(h.queued).toHaveLength(0);
+      publish(snapshot(h.context().revision));
+      // Still inside the command: a subscribed caller already has the final stamp.
+      expect(h.controller.get().loaded?.context).toBe(h.context());
+      expect(h.controller.get().pending).toBe(true);
+      return snapshot(h.context().revision);
+    });
+    expect(h.read).toHaveBeenCalledTimes(1); expect(h.queued).toHaveLength(0);
+    expect(h.controller.get().pending).toBe(false);
+  });
+
+  it('rejects late read publication after a target change and schedules the current owner once', async () => {
+    const h = harness(); let finish!: (value: ReturnType<typeof snapshot>) => void;
+    h.read.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    h.controller.start(); const first = h.controller.refresh(); const executing = h.queued.shift()!();
+    h.advance('B'); void h.controller.refresh(); finish(snapshot(1)); await executing; await first;
+    expect(h.controller.get().loaded).toBeNull(); expect(h.queued).toHaveLength(1);
+    await h.drain(); expect(h.controller.get().loaded?.context.owner).toBe('B');
+    expect(h.read).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps an accepted edit locked after refresh failure and does not retry the write or read automatically', async () => {
+    const h = harness(); h.controller.start(); await h.drain();
+    const operation = vi.fn(async () => { h.advance(); throw new CommittedEditorRefreshError(new Error('read failed')); });
+    await expect(h.controller.mutate(operation)).rejects.toThrow('committed');
+    await h.controller.refresh();
+    expect(h.controller.get().error).toContain('read failed'); expect(h.queued).toHaveLength(0);
+    expect(operation).toHaveBeenCalledTimes(1); expect(h.read).toHaveBeenCalledTimes(1);
+    await expect(h.controller.mutate(operation)).rejects.toThrow('not ready'); expect(operation).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not send queued native reads for an unmounted session', async () => {
+    const h = harness(); h.controller.start(); const pending = h.controller.refresh(); h.controller.stop();
+    await h.queued.shift()!(); await pending; expect(h.read).not.toHaveBeenCalled();
+  });
+
+  it('coalesces StrictMode effect replay without duplicating the native read', async () => {
+    const h = harness(); h.controller.start(); h.controller.stop(); h.controller.start();
+    expect(h.queued).toHaveLength(1); await h.drain(); expect(h.read).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a failed FIFO reservation instead of leaving an empty editor silently loading', async () => {
+    const context = { revision: 1 };
+    const read = vi.fn(async () => snapshot(1));
+    const controller = new EditorSnapshotController({ context: () => context, same: (a, b) => a === b,
+      sameOwner: (a, b) => a === b, readable: () => true, revision: stamp => stamp.revision, read,
+      schedule: async () => { throw new Error('reservation rejected'); },
+    });
+    controller.start(); await controller.refresh();
+    expect(controller.get().error).toContain('reservation rejected');
+    expect(controller.get().refreshing).toBe(false); expect(read).not.toHaveBeenCalled();
+  });
+
+  it('accepts a current external read after geometry advances history beyond the configuration mirror', async () => {
+    const h = harness(); h.read.mockResolvedValueOnce(snapshot(9));
+    h.controller.start(); await h.drain();
+    expect(h.controller.get().loaded?.snapshot.revision).toBe(9);
+    expect(h.controller.get().loaded?.context.revision).toBe(1);
+    expect(h.controller.get().error).toBeNull();
+    await h.controller.refresh(); expect(h.read).toHaveBeenCalledTimes(1);
+  });
 });
