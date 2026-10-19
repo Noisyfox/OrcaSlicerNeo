@@ -2,7 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { PresetCombobox } from './PresetCombobox';
+import { PresetCombobox, samePresetItems, type PresetComboItem } from './PresetCombobox';
+
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
 if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
 let root: Root;
@@ -70,4 +71,17 @@ it.each(['combobox', 'select', 'grouped'] as const)('does no unselected row work
   }
   expect(label).toHaveBeenCalled();
   expect(onValue).not.toHaveBeenCalled();
+});
+
+it('retains equivalent picker projections but detects every visible change and native ordering', () => {
+  const item: Required<PresetComboItem> = { id: 'a', name: 'A', label: 'A label', isUser: false,
+    isProjectEmbedded: false, modified: false, group: 'Vendor', section: 'Compatible' };
+  expect(samePresetItems([item], [{ ...item }])).toBe(true);
+  for (const key of Object.keys(item) as Array<keyof PresetComboItem>) {
+    const value = typeof item[key] === 'boolean' ? !item[key] : `${item[key]} changed`;
+    expect(samePresetItems([item], [{ ...item, [key]: value }]), key).toBe(false);
+  }
+  const other = { ...item, id: 'b' };
+  expect(samePresetItems([item, other], [other, item])).toBe(false);
+  expect(samePresetItems([item], [])).toBe(false);
 });

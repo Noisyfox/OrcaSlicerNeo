@@ -1,8 +1,13 @@
-import { useCommittedCallback } from '@/hooks/useCommittedCallback';
-import { samePresetItems } from '../presetPickerModel';
-import { commitProjectFlow, configureProjectFlowPreferences } from '@/preferences';
+import { useCommittedCallback, samePresetItems, PresetCombobox, type PresetComboItem } from '../PresetCombobox';
+import {
+  commitProjectFlow,
+  configureProjectFlowPreferences,
+  loadRememberedFilamentRackFromRepository,
+  publishRememberedFilamentRack,
+  loadRememberedBedTypeFromRepository,
+  publishRememberedBedType
+} from '@/preferences';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
-// packages/slicer-app/src/components/settings/SettingsPanel.tsx
 import { memo, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import { ObjectList } from '../objectList/ObjectList';
@@ -15,7 +20,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { cn } from 'cn';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { type SceneInteractionController } from '../viewport/SceneInteractionController';
 import { updateUserPreferences, usePlatform } from '@orca/platform-contract';
 import { commitGlobalBedType, selectProcessPreset, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
@@ -23,12 +28,12 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { historyContextForStructure, projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
-import { loadRememberedFilamentRackFromRepository, publishRememberedFilamentRack, loadRememberedBedTypeFromRepository, publishRememberedBedType } from '@/preferences';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
-import { PresetCombobox, type PresetComboItem } from '../PresetCombobox';
 import { UserPresetActions } from './UserPresetActions';
-import type { PrinterTransitionSuccess } from '@orca/slicer-runtime';
+import { type PrinterTransitionSuccess } from '@orca/slicer-runtime';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+
+// packages/slicer-app/src/components/settings/SettingsPanel.tsx
 
 type PresetKind = 'printer' | 'print';
 

@@ -1,17 +1,24 @@
-import { editorSettingContext } from './settingConditionContext';
-import { updateOptionStates } from './updateOptionStates';
-import { useOptionState, useOptionStateScope, useVisibleOptionCount } from './useOptionState';
-import type { OptionStateScope } from './optionStateRegistry';
-import { scopedOptionPublication, type ScopedOptionData } from './scopedOptionProjection';
-import { printerNozzleCount } from './presetOptionProjection';
+import { editorSettingContext, printerNozzleCount, updateOptionStates } from './settingConditions';
+import { useOptionState, useOptionStateScope, useVisibleOptionCount, type OptionStateScope } from './optionStateRegistry';
+import {
+  scopedOptionPublication,
+  type ScopedOptionData,
+  localKeysForTarget,
+  projectScopedConfigurationFields,
+  resolveScopedConfigurationTarget,
+  scopedConfigurationCatalogue,
+  type ScopedConfigurationField,
+  type ScopedConfigurationTarget,
+  type ScopedTargetResolution
+} from './scopedConfigurationProjection';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import type {
-  NativeScopedConfigMutationRequest,
-  NativeScopedConfigTarget,
-  ScopedConfigEditorTarget,
-  OptionMeta,
+import {
+  type NativeScopedConfigMutationRequest,
+  type NativeScopedConfigTarget,
+  type ScopedConfigEditorTarget,
+  type OptionMeta,
+  configVectorElementAt
 } from '@slicer/client';
-import { configVectorElementAt } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -20,7 +27,16 @@ import { isEditorSelectionVisible, useConfigEditorSelection } from './editorSele
 import { PrintEditorSelection } from './PrintEditorSelection';
 import { NozzleIcon } from '@/components/ui/nozzle-icon';
 import { usePrintConfigEditor, useScopedConfigEditor } from './usePrintConfigEditor';
-import { elementText, parsePrintElement, printHasLocalOverrides, printOwnsField, projectPrintField, scopedPrintField, scopedDirtyChoiceIds, scopedHasLocalOverrides } from './printEditorProjection';
+import {
+  elementText,
+  parsePrintElement,
+  printHasLocalOverrides,
+  printOwnsField,
+  projectPrintField,
+  scopedPrintField,
+  scopedDirtyChoiceIds,
+  scopedHasLocalOverrides
+} from './printEditorProjection';
 import { editorDirtyChoiceIds, editorFieldTarget, fieldViewKey } from './presetEditorBindings';
 import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
@@ -35,17 +51,8 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
-import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { type SceneInteractionController } from '../viewport/SceneInteractionController';
 import { commitScopedConfigurationMutation } from './configurationActions';
-import {
-  localKeysForTarget,
-  projectScopedConfigurationFields,
-  resolveScopedConfigurationTarget,
-  scopedConfigurationCatalogue,
-  type ScopedConfigurationField,
-  type ScopedConfigurationTarget,
-  type ScopedTargetResolution,
-} from './scopedConfigurationProjection';
 
 const SOURCE_LABEL: Record<string, string> = {
   preset: 'Preset', project: 'Project', plate: 'Plate', object: 'Object', part: 'Volume', mixed: 'Mixed',

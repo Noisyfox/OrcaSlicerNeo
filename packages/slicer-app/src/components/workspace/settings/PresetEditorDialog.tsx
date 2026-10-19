@@ -1,32 +1,37 @@
-import { useCommittedCallback } from '@/hooks/useCommittedCallback';
+import { useCommittedCallback, PresetCombobox } from '../PresetCombobox';
 import { useSettingsStore } from '@/stores/useSettingsStore';
-import { editorSettingContext } from './settingConditionContext';
-import { updateOptionStates } from './updateOptionStates';
-import { useOptionState, useOptionStateScope, useVisibleOptionCount } from './useOptionState';
-import type { OptionStateScope } from './optionStateRegistry';
-import { presetOptionPublication, printerNozzleCount, type PresetOptionData } from './presetOptionProjection';
-import { configVectorElementAt as vectorAt } from '@slicer/client';
+import { editorSettingContext, printerNozzleCount, updateOptionStates } from './settingConditions';
+import { useOptionState, useOptionStateScope, useVisibleOptionCount, type OptionStateScope } from './optionStateRegistry';
+import {
+  presetOptionPublication,
+  type PresetOptionData,
+  editorDirtyChoiceIds,
+  editorFieldTarget,
+  fieldBinding,
+  fieldHasOverride,
+  fieldViewKey
+} from './presetEditorBindings';
+import {
+  configVectorElementAt as vectorAt,
+  type OptionMeta,
+  type PresetDraftEditorBinding,
+  type PresetDraftEditorScalarType,
+  type PresetDraftEditorValue,
+  type PresetDraftMutationRequest,
+  type PresetDraftMutationResult,
+  type PresetDraftSnapshot,
+  type PresetDraftTarget,
+  type PresetDraftEditorVector,
+  type PresetDraftVectorValue,
+  type PresetDraftEditorPoint,
+  type ConfigResetField
+} from '@slicer/client';
 import { UserPresetActions } from './UserPresetActions';
-import { editorDirtyChoiceIds, editorFieldTarget, fieldBinding, fieldHasOverride, fieldViewKey } from './presetEditorBindings';
 import { PrinterEditorSelection } from './PrinterEditorSelection';
 import { EditorSelector } from './EditorSelector';
 import { isEditorSelectionVisible, useConfigEditorSelection, usePrinterEditorSelection } from './editorSelection';
 import { createContext, memo, useContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { XIcon } from 'lucide-react';
-import type {
-  OptionMeta,
-  PresetDraftEditorBinding,
-  PresetDraftEditorScalarType,
-  PresetDraftEditorValue,
-  PresetDraftMutationRequest,
-  PresetDraftMutationResult,
-  PresetDraftSnapshot,
-  PresetDraftTarget,
-  PresetDraftEditorVector,
-  PresetDraftVectorValue,
-  PresetDraftEditorPoint,
-  ConfigResetField,
-} from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { usePlatform } from '@orca/platform-contract';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
@@ -44,8 +49,7 @@ import { Label } from '@/components/ui/label';
 import { NozzleIcon } from '@/components/ui/nozzle-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
-import { PresetCombobox } from '../PresetCombobox';
-import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { type SceneInteractionController } from '../viewport/SceneInteractionController';
 import { optionTooltip } from './optionTooltip';
 import {
   FILAMENT_PRESET_EDITOR_MANIFEST,
@@ -53,7 +57,7 @@ import {
   type PresetEditorManifest,
   type PresetEditorManifestField,
   type PresetEditorManifestGroup,
-  type PresetEditorManifestPage,
+  type PresetEditorManifestPage
 } from './presetEditorManifests';
 
 export interface PresetEditorDialogProps {

@@ -1,12 +1,13 @@
-import type {
-  NativeScopedConfigScope,
-  NativeScopedConfigSnapshot,
-  NativeScopedConfigTarget,
-  OptionMeta,
-  OptionMetadata,
+import { type OptionPublication } from './optionStateRegistry';
+import {
+  type NativeScopedConfigScope,
+  type NativeScopedConfigSnapshot,
+  type NativeScopedConfigTarget,
+  type OptionMeta,
+  type OptionMetadata,
+  type ModelObjectStructure
 } from '@slicer/client';
-import type { ModelObjectStructure } from '@slicer/client';
-import type { SelectionKind } from '../viewport/SceneInteractionController';
+import { type SelectionKind } from '../viewport/SceneInteractionController';
 
 export type ConfigurationMode = 'project' | 'scoped' | 'plates';
 export type ScopedValueSource = 'preset' | NativeScopedConfigScope | 'mixed';
@@ -257,4 +258,23 @@ export function scopedConfigurationCatalogue(metadata: OptionMetadata, resolutio
   return Object.entries(metadata).filter(([key, meta]) => isKeyEligibleForScope(key, meta, scope))
     .map(([key, meta]) => ({ key, label: meta.label ?? meta.full_label ?? key, category: meta.category ?? 'General',
       meta, value: null, mixed: false, source: 'preset', local: false, resettable: true }));
+}
+
+export interface ScopedOptionData {
+  readonly field: ScopedConfigurationField;
+  readonly targets: readonly ScopedConfigurationTarget[];
+  readonly disabled: boolean;
+  readonly selectionGutter: boolean;
+  readonly viewKey: string;
+}
+
+export function scopedOptionPublication(data: ScopedOptionData): OptionPublication<ScopedOptionData> {
+  const { field, ...rest } = data;
+  const editor = field.editor;
+  const vector = editor?.vector;
+  const signature = JSON.stringify({ ...rest, field: { ...field, editor: editor && {
+    ...editor, revision: undefined,
+    vector: vector && { ...vector, sourceValues: undefined, effectiveValues: undefined, overrideValues: undefined },
+  } } });
+  return { key: field.key, data, signature };
 }

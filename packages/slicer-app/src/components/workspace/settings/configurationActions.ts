@@ -1,4 +1,3 @@
-import { CommittedEditorRefreshError } from './editorSnapshotController';
 import { publishRememberedBedType } from '@/preferences';
 import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
@@ -25,6 +24,13 @@ import { glVolumeCollection } from '../viewport/GLVolume';
 import { historyContextForStructure, projectHistoryStatus, runProjectHistoryMutation, runProjectMutationOperation } from '../actions/historyMutation';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+
+export class CommittedEditorRefreshError extends Error {
+  constructor(cause: unknown) {
+    super(`The edit was committed, but its editor could not be refreshed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = 'CommittedEditorRefreshError';
+  }
+}
 
 let configurationMutationQueue: Promise<void> = Promise.resolve();
 

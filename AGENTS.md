@@ -68,6 +68,8 @@ For documentation changes, follow the authoritative
    skipped, unavailable, or failing check.
 5. For documentation-only changes, at minimum run `git diff --check` and verify
    every changed local link and command against its authoritative source.
+6. When creating or splitting files, follow the
+   [source module organization rules](project_structure_and_guidelines.md#source-module-organization).
 
 ## High-risk paths
 

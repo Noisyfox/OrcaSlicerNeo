@@ -223,7 +223,7 @@ documentation change:
 ### Empty Project option update timing
 
 The manual Electron benchmark
-[`option-update-performance.e2e.ts`](../apps/desktop/e2e/option-update-performance.e2e.ts)
+[`scoped-configuration-input.e2e.ts`](../apps/desktop/e2e/scoped-configuration-input.e2e.ts)
 uses real WASM, an isolated configured profile and an empty, one-plate Project.
 It selects Snapmaker U1 and alternates `layer_height` between `0.21` and `0.22`
 with Enter. Normal CSS animations remain enabled. Run from the repository root:
@@ -231,7 +231,7 @@ with Enter. Normal CSS animations remain enabled. Run from the repository root:
 ```sh
 node scripts/stage.mjs
 VITE_USE_MOCK=0 VITE_E2E=1 VITE_SCOPED_CONFIGURATION_GATE=1 pnpm --filter @orca/desktop exec electron-vite build --mode e2e
-ORCA_OPTION_PROFILE=1 ORCA_OPTION_PROFILE_OUTPUT=/tmp/orca-option-prod pnpm --filter @orca/desktop exec playwright test e2e/option-update-performance.e2e.ts
+ORCA_OPTION_PROFILE=1 ORCA_OPTION_PROFILE_OUTPUT=/tmp/orca-option-prod pnpm --filter @orca/desktop exec playwright test e2e/scoped-configuration-input.e2e.ts --grep "profiles an empty Project"
 ```
 
 For development React, keep a renderer-only server running in another terminal,
@@ -239,7 +239,7 @@ then launch the same benchmark against it using the already built Electron host:
 
 ```sh
 VITE_USE_MOCK=0 VITE_E2E=1 VITE_SCOPED_CONFIGURATION_GATE=1 pnpm --filter @orca/desktop exec vite --config e2e/option-profile.vite.config.ts --mode development
-ELECTRON_RENDERER_URL=http://localhost:5187 ORCA_OPTION_PROFILE=1 ORCA_OPTION_PROFILE_OUTPUT=/tmp/orca-option-dev pnpm --filter @orca/desktop exec playwright test e2e/option-update-performance.e2e.ts
+ELECTRON_RENDERER_URL=http://localhost:5187 ORCA_OPTION_PROFILE=1 ORCA_OPTION_PROFILE_OUTPUT=/tmp/orca-option-dev pnpm --filter @orca/desktop exec playwright test e2e/scoped-configuration-input.e2e.ts --grep "profiles an empty Project"
 ```
 
 The gate and benchmark configuration are test-only. Stop the server and rebuild

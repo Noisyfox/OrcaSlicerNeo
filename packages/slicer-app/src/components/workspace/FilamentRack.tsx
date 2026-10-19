@@ -1,23 +1,25 @@
-import { useCommittedCallback } from '@/hooks/useCommittedCallback';
-import type { PresetComboItem } from './presetPickerModel';
+import { useCommittedCallback, type PresetComboItem, PresetCombobox } from './PresetCombobox';
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 import { useEffect, useMemo, useState } from 'react';
 import { MAX_GRADIENT_COLORS, colorValueKey, normalizeHexColor, usePlatform, type ColorValue } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
-import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
-import type { FilamentMutationResultOrError, FilamentSessionSlot } from '@slicer/client';
+import { useFilamentSessionStore, readFlushingVolumes } from '@/stores/useFilamentSessionStore';
+import { type FilamentMutationResultOrError, type FilamentSessionSlot } from '@slicer/client';
 import { filamentSwatchStyle, filamentSwatchTitle } from './FilamentSwatch';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FlushingVolumesDialog, flushingModified } from './FlushingVolumesDialog';
-import { readFlushingVolumes } from '@/stores/useFilamentSessionStore';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
-import { PresetCombobox } from './PresetCombobox';
 import {
-  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
-  ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger
 } from '@/components/ui/context-menu';
 
 const FILAMENT_TRIGGER_STYLE = { borderTopLeftRadius: 0, borderBottomLeftRadius: 0 };
