@@ -1268,7 +1268,9 @@ export function PresetEditorDialogContent({
 
           {actionError && <p role="alert" data-testid="preset-editor-action-error" className="text-xs text-destructive">{actionError}</p>}
 
-          <fieldset disabled={interactionPending} data-testid="preset-editor-option-lock" className="min-h-0 min-w-0 flex-1 overflow-y-auto border-0 p-0 pr-1">
+          {/* Keep the flex scroller outside the fieldset's intrinsic layout. */}
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+          <fieldset disabled={interactionPending} data-testid="preset-editor-option-lock" className="min-w-0 border-0 p-0">
             {loadError ? (
               <p role="alert" data-testid="preset-editor-load-error" className="py-4 text-sm text-destructive">{loadError}</p>
             ) : loading || !snapshot ? (
@@ -1295,6 +1297,7 @@ export function PresetEditorDialogContent({
               </div>
             ) : null}
           </fieldset>
+          </div>
         </div>
         </PresetEditorValidationContext.Provider>
       </DialogContent>}
