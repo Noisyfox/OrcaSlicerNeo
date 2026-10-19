@@ -10,10 +10,20 @@ import { useSlicerStore } from '@/stores/useSlicerStore';
 import { ArrangeCurrentPlateButton } from './arrangement/ArrangementControls';
 import { runProjectHistoryMutation } from './actions/historyMutation';
 import { applyPlateSessionResponse } from './plateSessionActions';
-import { canAddPlate, canDeletePlate } from './viewport/plateControls';
+import type { PlateSessionSnapshot } from '@slicer/client';
 import type { SceneInteractionController } from './viewport/SceneInteractionController';
 import { beforePaintingTopologyChange, paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 import { usePaintingPhase } from './viewport/gizmo/painting/PaintingProvider';
+
+export const MAX_PLATE_COUNT = 36;
+
+/** Availability is a projection of the authoritative session only. */
+export function canAddPlate(snapshot: PlateSessionSnapshot | null): boolean {
+  return snapshot !== null && snapshot.plates.length < MAX_PLATE_COUNT;
+}
+export function canDeletePlate(snapshot: PlateSessionSnapshot | null): boolean {
+  return snapshot !== null && snapshot.plates.length > 1;
+}
 
 /** Fixed plate actions above the Plates tab's scrolling list. */
 export function PlateToolbar({ sceneInteraction }: { sceneInteraction: SceneInteractionController }) {
