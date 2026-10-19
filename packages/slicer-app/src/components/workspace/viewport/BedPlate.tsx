@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Grid } from '@react-three/drei';
-import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
+import { BUILD_PLATE_RAYCAST } from './viewportPicking';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { PlateSessionPlate } from '@slicer/client';
 import type { BedModel } from './useBedModel';
