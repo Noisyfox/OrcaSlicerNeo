@@ -16,6 +16,14 @@ printer:
 2. Send G-code to the printer and optionally start a print through its HTTP
    API.
 
+The future shared device model is owned by
+[Printer Domain and Control Architecture](Printer%20Domain%20and%20Control%20Architecture.md).
+That design covers discovery, capabilities, material systems, sensors, cameras
+and remote files; it does not mark agents or a gateway delivered. This document
+continues to own the existing console and sending experience, including printer
+selection and upload/start retry behavior. Its saved API-key representation
+remains current until the domain's credential-reference migration is implemented.
+
 The embedded console is a convenience and management surface. Sending and
 printing use the printer API directly, so either surface can continue to be
 used when the other one is unavailable.
