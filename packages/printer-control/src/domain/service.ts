@@ -1,45 +1,51 @@
-/** Local SDK contracts for discovery and sessions. Methods, signals and streams require an explicit IPC/network binding. */
-import type { Id, UnixMs, ExternalRef, PrinterError, Result, ReadOptions, Capability, AtLeastOne, SessionCursor } from './common';
-import type { AgentHost, SavedPrinter, PrinterDescriptor, PrinterState, PrinterCapabilities, PrinterRoute, StateTopic } from './printer';
+/** Stateless local SDK contracts. Streams/signals require an explicit IPC/network binding. */
+import type { Id, UnixMs, ExternalRef, PrinterError, Result, ReadOptions, Capability, AtLeastOne, ObservationCursor, PrinterTarget, TargetRequest, Reading, NonEmptyReadonlyArray, Revision } from './common';
+import type { AgentHost, SavedPrinter, PrinterDescriptor, PrinterCapabilities, PrinterRoute, PrinterRouteConfiguration, StateTopic, PrinterObservationMap } from './printer';
 import type { PrinterFiles } from './files';
 import type { PrinterMedia } from './media';
 import type { PrinterOperations, PrinterControls } from './control';
 import type { PrinterWebInterfaces } from './web-interface';
-import type { PrinterCapabilityHints } from './capability-hints';
-export interface PrinterSnapshot {
-  cursor: SessionCursor;
-  printerId: Id<'printer'>;
-  routeId: Id<'route'>;
-  descriptor: PrinterDescriptor;
-  capabilities: PrinterCapabilities;
-  state: PrinterState;
+
+export type ObservationValues<K extends StateTopic> = { [T in K]: Reading<PrinterObservationMap[T]> };
+export interface PrinterSnapshot<K extends StateTopic = StateTopic> {
+  target: PrinterTarget;
+  configurationRevision: Revision;
+  values: ObservationValues<K>;
 }
-export type SnapshotSections = Pick<PrinterSnapshot, 'descriptor' | 'capabilities' | 'state'>;
-export type PrinterEvent = {
+export type PrinterEvent<K extends StateTopic = StateTopic> = {
   type: 'snapshot';
-  snapshot: PrinterSnapshot;
+  cursor: ObservationCursor;
+  snapshot: PrinterSnapshot<K>;
 } | {
   type: 'replace';
-  cursor: SessionCursor;
-  sections: AtLeastOne<SnapshotSections>;
+  target: PrinterTarget;
+  configurationRevision: Revision;
+  cursor: ObservationCursor;
+  values: AtLeastOne<ObservationValues<K>>;
 };
-export interface PrinterSession {
-  readonly id: Id<'session'>;
-  readonly printerId: Id<'printer'>;
-  readonly routeId: Id<'route'>;
-  readonly controls: PrinterControls;
-  readonly files: PrinterFiles;
-  readonly media: PrinterMedia;
+export interface ObservationRequest<K extends StateTopic = StateTopic> {
+  target: PrinterTarget;
+  topics: readonly [K, ...K[]];
+}
+export interface PrinterObservations {
   /**
-   * Initial snapshot then ordered section replacements, without a subscription gap.
-   * New epochs and recovered gaps begin with a snapshot; do not replay stale deltas.
+   * Cache never initiates device I/O. Device reads only the requested topics once;
+   * failure preserves earlier cached readings and never starts background polling.
+   * Materials reads inventory, not an RFID refresh command or project mutation.
    */
-  watch(options?: ReadOptions): AsyncIterable<PrinterEvent>;
-  getSnapshot(options?: ReadOptions): Promise<Result<PrinterSnapshot>>;
-  /** Firmware refresh updates descriptor.firmware; it never checks for or installs updates. */
-  refresh(topics: readonly StateTopic[], options?: ReadOptions): Promise<Result<PrinterSnapshot>>;
-  /** Idempotent; closes child media/subscriptions, not jobs or operation tracking. */
-  close(): Promise<void>;
+  read<K extends StateTopic>(request: ObservationRequest<K> & {
+    source: 'cache' | 'device';
+  }, options?: ReadOptions): Promise<Result<PrinterSnapshot<K>>>;
+  /**
+   * Explicit subscription; on-demand-only topics reject watch as unsupported rather
+   * than silently starting polling. Without a cursor start
+   * with a snapshot; replay after a valid cursor without gaps, or reset with a new
+   * snapshot. Cursors are scoped to target/topics/configuration, never sessions.
+   * Cancellation releases only this subscription, not operations or media resources.
+   */
+  watch<K extends StateTopic>(request: ObservationRequest<K> & {
+    after?: ObservationCursor;
+  }, options?: ReadOptions): AsyncIterable<PrinterEvent<K>>;
 }
 export type DiscoveryScope = {
   kind: 'lan';
@@ -48,10 +54,6 @@ export type DiscoveryScope = {
   kind: 'account';
   hostId: Id<'agent-host'>;
   accountRef: Id<'account'>;
-} | {
-  kind: 'manual';
-  hostId: Id<'agent-host'>;
-  address: string;
 };
 export interface ProviderDescriptor {
   id: Id<'provider'>;
@@ -61,13 +63,18 @@ export interface ProviderDescriptor {
     kinds: readonly DiscoveryScope['kind'][];
   }>;
 }
+export interface PrinterTypeDescriptor {
+  id: Id<'printer-type'>;
+  providerId: Id<'provider'>;
+  name: string;
+  description: string;
+}
 export interface DiscoveryCandidate {
   id: Id<'candidate'>;
   providerId: Id<'provider'>;
-  hostId: Id<'agent-host'>;
-  /** One route alternative; LAN and cloud discoveries carry independent hints. */
-  channel: PrinterRoute['channel'];
-  capabilityHints: PrinterCapabilityHints;
+  configuration: PrinterRouteConfiguration;
+  /** Same normal capability model as saved routes; not a separate support taxonomy. */
+  capabilities: PrinterCapabilities;
   displayName: string;
   externalRefs: readonly ExternalRef[];
   expiresAtMs: UnixMs;
@@ -84,20 +91,50 @@ export type DiscoveryEvent = {
   type: 'failed';
   error: PrinterError;
 };
+export interface PrinterDescription {
+  target: PrinterTarget;
+  configurationRevision: Revision;
+  capabilities: PrinterCapabilities;
+  /** Unknown is valid before any device read; no fabricated topology is required. */
+  descriptor: Reading<PrinterDescriptor>;
+}
 export interface PrinterService {
   readonly operations: PrinterOperations;
-  /** Native UI access is service-scoped so it does not depend on connect() succeeding. */
+  readonly controls: PrinterControls;
+  readonly files: PrinterFiles;
+  readonly media: PrinterMedia;
+  readonly observations: PrinterObservations;
   readonly webInterfaces: PrinterWebInterfaces;
+  /** Local provider/type catalogues; no network discovery. */
   listProviders(options?: ReadOptions): Promise<Result<readonly ProviderDescriptor[]>>;
-  /** Includes each route's inferred/reported support; does not require connect(). */
+  listTypes(options?: ReadOptions): Promise<Result<readonly PrinterTypeDescriptor[]>>;
+  /** Local configuration plus normal type-derived/cached capabilities; never probes. */
   listSaved(options?: ReadOptions): Promise<Result<readonly SavedPrinter[]>>;
+  /** Local-only description; never refreshes a device or initiates authentication. */
+  describe(target: PrinterTarget, options?: ReadOptions): Promise<Result<PrinterDescription>>;
+  /** Local validation/persistence only; an unreachable printer can be saved. */
+  add(request: {
+    requestId: Id<'request'>;
+    displayName: string;
+    routes: NonEmptyReadonlyArray<PrinterRouteConfiguration>;
+  }): Promise<Result<SavedPrinter>>;
+  /** Local validation/persistence only; invalidates dependent cached observations. */
+  updateRoute(request: {
+    target: TargetRequest;
+    configuration: PrinterRouteConfiguration;
+  }): Promise<Result<PrinterRoute>>;
+  /** Explicit discovery is optional and never a prerequisite for manual addition. */
   discover(providerId: Id<'provider'>, scope: DiscoveryScope, options?: ReadOptions): AsyncIterable<DiscoveryEvent>;
+  /**
+   * Local adoption of self-contained candidate data; no preceding discovery is required.
+   * Validate type/configuration and derive capabilities locally, not from caller authority.
+   */
   adopt(request: {
-    candidateId: Id<'candidate'>;
+    requestId: Id<'request'>;
+    candidate: DiscoveryCandidate;
     existingPrinterId?: Id<'printer'>;
   }): Promise<Result<SavedPrinter>>;
   rename(printerId: Id<'printer'>, displayName: string): Promise<Result<SavedPrinter>>;
   /** Remove local saved configuration only; no account unbinding or printer mutation. */
   forget(printerId: Id<'printer'>): Promise<Result<null>>;
-  connect(routeId: Id<'route'>, options?: ReadOptions): Promise<Result<PrinterSession>>;
 }

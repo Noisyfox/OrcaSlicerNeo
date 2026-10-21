@@ -45,7 +45,8 @@ export interface ReadOptions {
 }
 export type Capability<C> = {
   kind: 'supported';
-  constraints: C;
+  /** Null means support is known but constraints are not yet resolved (or not applicable). */
+  constraints: C | null;
 } | {
   kind: 'unsupported';
   layer: 'device' | 'adapter' | 'route';
@@ -77,9 +78,14 @@ export type Reading<T> = {
 export type AtLeastOne<T> = { [K in keyof T]-?: Required<Pick<T, K>> & Partial<Omit<T, K>> }[keyof T];
 export type NonEmptyReadonlyArray<T> = readonly [T, ...T[]];
 
-/** Sequence increases within an epoch; a replacement connection starts a new epoch. */
-export interface SessionCursor {
-  sessionId: Id<'session'>;
-  epoch: Id<'connection-epoch'>;
-  sequence: number;
+/** Every independent request identifies its saved printer and route explicitly. */
+export interface PrinterTarget {
+  printerId: Id<'printer'>;
+  routeId: Id<'route'>;
 }
+/** Optional optimistic check; omission still requires execution-time validation. */
+export interface TargetRequest extends PrinterTarget {
+  expectedConfigurationRevision?: Revision;
+}
+/** Opaque position in a target/topic event feed, not a connection/session identity. */
+export type ObservationCursor = string & { readonly __cursorKind: 'printer-observation' };

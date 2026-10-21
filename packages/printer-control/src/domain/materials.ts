@@ -71,6 +71,14 @@ export interface MaterialState {
     remainingSeconds: Reading<number>;
   }[];
 }
+/** A self-contained inventory read, without unrelated printer hardware or state. */
+export interface MaterialInventory {
+  topologyRevision: Revision;
+  topology: MaterialTopology;
+  /** IDs referenced by paths/state; full extruder/nozzle descriptions are not required. */
+  toolIds: readonly Id<'tool'>[];
+  state: MaterialState;
+}
 export interface PrintMaterialBinding {
   materialKey: string;
   pathId: Id<'path'>;

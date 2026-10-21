@@ -30,7 +30,11 @@ or implementation technique an additional user mandate.
 | Abstract printer properties and capabilities before implementing agents | Hardware description, supported functions and current state are separate concepts. |
 | Abstract the various printer control interfaces | Shared features use a vendor-independent domain boundary. |
 | Provide available-printer listing and discovery | Saved printers, discovery candidates and currently reachable routes are distinguishable. |
-| Include capabilities inferable before connection in discovery/enumeration | Carry partial, sourced support knowledge without fabricating live resource constraints; recognized Bambu and Moonraker providers can establish their respective control/Web entry eligibility early. |
+| Include capabilities known before device access in discovery/enumeration | Publish normal capabilities from provider/type/configuration and retained observations without inventing resource constraints. |
+| All public APIs are stateless | Each request identifies its target or resource; no connection, initialization call, client session or prior capability query is required. |
+| Manually add printer type and IP/address, and persist locally | Saving, startup, enumeration and local description must not connect, probe or discover device capabilities. |
+| Preserve request-driven Moonraker use | Selecting the printer can immediately open its configured native Web interface; uploads execute on demand without ongoing observation. |
+| Support manually triggered material synchronization on specific Klipper types, such as Snapmaker U1 | Declare this type-specific capability locally; read inventory only on explicit sync, with no startup fetch or background polling. |
 | Include basic printer controls and AMS-like controls | Model ordinary printers and automatic material systems without making one manufacturer's AMS layout universal. |
 | Synchronize printer information and consumables | Observe device state and material inventory, with an explicit boundary around project changes. |
 | Include cameras | Model live viewing and camera-related capabilities, not just a stored camera URL. |
@@ -54,8 +58,8 @@ support: the original functional request was explicitly non-exhaustive.
 ### 1.1 Decision status and interpretation
 
 The explicit requests above and selection of option B are established user
-decisions. Pre-connection capability knowledge in section 3.1 and the native
-Web interface and page-eligibility rules in sections 4.1–4.3 are also accepted
+decisions. Stateless access and locally known capabilities in sections 3–3.1,
+and the native Web interface and page-eligibility rules in sections 4.1–4.3 are accepted
 user decisions; their precise UI layout remains open.
 Existing requirements inherited from linked repository specifications
 remain authoritative. The rest of this document records the proposed domain
@@ -72,10 +76,10 @@ In particular, the following choices remain reviewable:
 | --- | --- |
 | Initial technology coverage | Non-mixing FDM as the first modeling focus; other technologies are not a user-imposed permanent exclusion. |
 | Entity layout and command definitions | Separate resource records, a command-specification map and derived request/capability types; exact field layout and code generation remain open. |
-| Synchronization | Initial snapshots, whole-section replacements, connection epochs and separate revisions; equivalent coherent synchronization is possible. |
+| Synchronization | Topic-scoped snapshots, replacements, opaque feed cursors and resource revisions; equivalent coherent synchronization is possible without client sessions. |
 | Operation tracking | Service-scoped tracking and request lookup; ownership, storage and retention are not prescribed. |
 | Sensor representation | Typed readings, common sensor storage and references from heaters/material units; extension registration and lookup/indexing are open. |
-| Media | One media-session abstraction for live and stored content, and WebRTC signaling when selected; concrete transports and session reuse rules are open. |
+| Media | Explicit media resources for live and stored content, and WebRTC signaling when selected; concrete transports and resource reuse rules are open. |
 | Remote-file consistency | Explicit strict/best-effort version modes and route-scoped references; provider support and the exact request model need validation. |
 | Transfers | Paged listings, streamed reads, invalidation notifications and reject/rename upload policies; no exact wire API or universal provider support is assumed. |
 | Credentials | Opaque credential references; migration and host storage require a separate decision. |
@@ -92,19 +96,20 @@ preserve that distinction.
 The type-only [domain entrypoint](../packages/printer-control/src/domain/index.ts)
 is exported as `@orca/printer-control/domain`. It defines the initial concrete
 contract for printer resources, materials, extensible sensors, controls,
-capabilities, files, media, discovery, sessions and native Web entry resolution.
-Discovery and saved-route enumeration include partial capability hints with
-per-feature provenance and freshness, independently of a connected snapshot.
-Firmware read support uses the existing observation and refresh boundary.
+capabilities, files, media, discovery, manual configuration and native Web entry
+resolution. All public operations are independently addressed. Discovery and
+saved-route enumeration use the same capability model as local description;
+type-known support does not require a probe. Observations explicitly distinguish
+cached access from a one-shot device read, including materials and firmware.
 The source is authoritative
 for current field shapes; this specification records their purpose and limits.
 The [compile-only consumers](../packages/printer-control/typechecks/domain.ts)
 exercise public imports, typed extensions, command/result correlations and
 representative printer shapes without implementing an agent.
 
-The initial interface selects section replacement events with connection
-epochs, a typed command map, managed media sessions and explicit file
-consistency modes from the proposals above. Those are current contract choices,
+The interface selects typed topic reads, replacement events with opaque cursors,
+a typed command map, explicit media resource references and file consistency
+modes from the proposals above. Those are current contract choices,
 not evidence that the user mandated a particular transport or permanent schema.
 Future refinements update the single contract and its consumers together.
 No gateway wire format, persistence migration or protocol executor is defined.
@@ -156,92 +161,96 @@ telemetry and camera playback need independent qualification. Success in one
 does not establish the others. A gateway remains an optional future execution
 path, not a dependency of local slicing or an assertion of cloud support.
 
-## 3. Identity, discovery and connection lifecycle
+## 3. Identity, configuration and stateless access
 
-Separate the physical/logical printer identity from its connection routes,
-provider, execution host and active session. One printer may have several
-routes. A display name, network address or list position is not a stable device
-identity and is insufficient by itself to merge discoveries.
+Separate printer identity from its routes, provider, configured printer type
+and execution host. One printer may have several routes. Names, addresses and
+list positions are not stable identities or sufficient evidence to merge devices.
 
-Discovery is scoped to the executing host and source, such as LAN discovery,
-an account's devices or a manually supplied address. Candidates are provisional
-and can expire; adopting one into saved configuration is a separate action.
-Saved entries remain visible when offline. Lack of discovery support does not
-imply that manual connection is unsupported.
+All public APIs are stateless: a request supplies its printer/route target or a
+fully scoped resource reference, parameters and any relevant comparison
+conditions. No public connect/disconnect lifecycle, initialized client object,
+connection epoch or prior capability query grants access to another operation.
+The authority resolves saved configuration and credential references for each
+request. Configuration, device state, caches, operation records and explicit
+resources may persist; statelessness does not prohibit those resources.
 
+Agents may internally maintain protocol connections, authentication, caches or
+connection pools. These are implementation details, not client preconditions.
+Per-function behavior may combine local resolution, request-based operations
+and explicitly requested observation. Do not force all functions of one agent
+into a single connection mode or emulate requests with hidden public sessions.
+
+Manual addition and route editing are local configuration operations, separate
+from discovery. The user can choose a printer type and IP/address and save an
+unreachable printer. Addresses can include protocol, port and proxy path as
+needed; a native Web address can differ from the API endpoint. Persist stable
+configuration, not transient capability answers or media credentials. Validate
+configuration locally, and advance its revision on changes. In-flight operations
+retain their original configuration snapshot instead of silently retargeting.
+
+Loading the application, listing types/saved printers and describing a configured
+route must not probe, authenticate against or read from the printer. Startup
+must not automatically discover capabilities or establish subscriptions for
+request-based printers. Selecting Moonraker opens its configured Web interface
+without an agent connection or preflight. Loading that page has its own network
+traffic; it does not imply agent-owned control or inventory requests.
+
+Discovery is an explicit optional operation scoped to an execution host and
+source such as LAN or an account. Candidates can expire; adoption is a separate
+configuration operation with self-contained candidate data, validated by the
+provider rather than trusted as executable authority. Discovery is never a
+prerequisite for manual addition. Saved entries remain visible when unreachable.
 Adding or discovering a printer does not select it as a print target. Preserve
-the independent, explicit console and send selections in the console spec.
-Forgetting a saved printer removes Neo configuration; it does not unbind a
-cloud account, delete remote files or cancel a physical print.
+the independent console and send selections in the console specification.
+Forgetting removes Neo configuration, not remote files, account bindings or jobs.
 
-In the proposed model, a logical session survives reconnection while an epoch identifies
-each connection incarnation. The semantic goal is to reject obsolete events
-and command context, and revalidate dependent resources after reconnection;
-the particular epoch and session-identity scheme remains open. Shared managed
-subscriptions are proposed to avoid independent polling by every widget;
-their ownership and caching mechanism are not fixed here.
-Closing a view or session releases its subscriptions and media resources;
-it does not implicitly stop a printer job.
+Subscriptions and long-running operations also have independent request
+boundaries. A subscription explicitly names target/topics and an optional
+resume cursor. Media calls name their delivery resource; operation queries name
+their operation or request. These identifiers are not printer-control sessions.
+Stopping a subscription does not cancel a print or release unrelated media.
+Agents may share internal observations, but ownership/refcount policy is open.
 
-### 3.1 Capability knowledge before connection
+### 3.1 Capabilities available from local configuration
 
-Discovery and enumeration can establish some capabilities without connecting
-to the printer. Providers may infer support from a recognized protocol/provider,
-model or explicit configuration, or obtain it from discovery announcements and
-probes. A successful control connection is not a prerequisite for showing a
-useful device interface.
+Use one normal capability model for discovered candidates, saved-route
+enumeration and direct description. Providers establish support from their
+implemented functions, configured type, address/settings and applicable retained
+observations. The UI must not infer support from a display name. Capability
+projection is local and does not require validation through a device probe.
 
-The [partial capability contract](../packages/printer-control/src/domain/capability-hints.ts)
-reuses the connected contract's semantic command, observation, file and camera
-feature keys, plus native Web access. A hint states supported, unsupported or
-unknown without requiring resource IDs, numeric ranges, a resolved Web entry
-or other operation constraints that may be learned only later. Omitted entries
-mean unknown. A supported hint describes feature support, not current
-availability, authenticated access or permission to execute a command.
+Support, operation constraints and present availability are distinct. Known
+support may have unresolved constraints; represent that explicitly rather than
+inventing resource IDs, ranges or a complete hardware snapshot. Unknown support
+is not unsupported. Type/configuration can completely determine a Web entry or
+default upload destination, allowing direct use without any discovery call.
+Descriptions are advisory; operations independently validate actual parameters,
+resources and supplied comparison conditions, obtaining only necessary data.
+No full-device capability discovery or unrelated preflight is imposed.
 
-Discovery candidates carry hints scoped to their provider, host and channel;
-separate LAN/cloud alternatives remain separate candidates. Adoption associates
-the knowledge with the resulting route. Saved-printer enumeration exposes hints
-on each route, not one union across the physical printer. An empty hint set is
-valid. Enumeration is a projection of current provider rules and retained
-knowledge, not a requirement to persist transient hints as permanent user
-configuration. Changed knowledge can be published by discovery upsert or a new
-enumeration; the current interface revisions replace complete hint sets.
+The same capability source is scoped to a particular route, not unioned across
+LAN/cloud alternatives. Current applicable device evidence can refine type
+knowledge. A timeout, missing field or unsuccessful refresh is not proof of
+unsupported functionality. Configuration changes invalidate dependent cached
+facts, not facts about a different route. Cache retention/reconciliation details
+remain implementation choices; stale data must not be relabeled freshly read.
 
-Each positive or negative hint records its source, assessment time and freshness.
-Inferred hints identify a provider-owned rule and revision, with a provider,
-model or configuration basis. Reported hints distinguish discovery announcements
-from probes. A UI must not infer support by matching the displayed printer name.
-No matching rule means unknown, not unsupported. Rule, model, route or
-configuration changes require reassessment of affected inferred knowledge.
+Required modeling cases include:
 
-The required baseline examples are:
+- A Bambu type can declare meaningful control/monitoring support locally so its
+  dedicated device interface is eligible without an initial connection. This
+  does not declare every command, file or camera function supported.
+- A limited Moonraker type declares native Web access and G-code upload locally.
+  Web resolution is complete from configuration, not a waiting-for-connection
+  placeholder. Upload need not imply listing or real-time monitoring support.
+- A specific Klipper type such as Snapmaker U1 additionally declares on-demand
+  material inventory reads. This is not a blanket claim about all Klipper types;
+  concrete endpoints and device qualification remain agent implementation work.
 
-- An identified Bambu provider can declare meaningful monitoring/control support
-  before connection, allowing the dedicated control interface to appear. In the
-  initial contract, job-observation support is one such semantic hint. This does
-  not automatically enable every Bambu command, camera or file operation.
-- An identified Moonraker provider can declare native Web interface support
-  during discovery/enumeration. The entry address and page access are resolved
-  independently; support does not prove an API URL is an embeddable console.
-
-These are provider inference rules required by the design, not hardcoded UI
-brand switches or claims that concrete agents have been implemented. Hints are
-not passed as fully constrained connected capabilities. Control execution still
-requires the applicable current capabilities, targets and guards; Web opening
-requires a resolved entry. A supported hint is sufficient to show a pending
-page before those details are available.
-
-Reconcile knowledge per feature and applicable route/context. Current explicit
-connected capability answers take precedence over earlier inference; a current
-reported/probed answer takes precedence over a conflicting rule default. Do not
-let a newer rule timestamp erase applicable observed evidence. A connection
-attempt, missing field, unknown result or failed refresh is not an explicit
-negative answer and must not downgrade known support. Retain prior knowledge
-as stale when appropriate, rather than relabeling it as freshly confirmed.
-Historical evidence from a different or invalidated device/configuration context
-cannot override the current context. The provider owns reconciliation; the UI
-consumes the resulting knowledge. No reconciliation engine is implemented here.
+An untested route is not automatically blocked. Clicking an available configured
+function initiates its own operation and reports its own result. A request
+failure must not globally disable independent Web or API functions.
 
 ## 4. Hardware, capabilities and operational availability
 
@@ -288,13 +297,16 @@ exposes a Web UI remains representable without inventing control support.
 The [Web interface contract](../packages/printer-control/src/domain/web-interface.ts)
 provides service-scoped description and launch resolution. Neither requires a
 successful printer-control connection. The description projects the same
-route capability published in a session snapshot; it is not a second support
-registry. Cached descriptions retain their assessment time and stale marker.
+route capability published by enumeration/description; it is not a second support
+registry. Description is local-only and never performs a reachability probe. Cached descriptions retain their assessment time and stale marker.
 A failed control connection alone proves neither absence nor unreachability
 of the native Web interface.
 
 Resolve the identified entry when opening it, rechecking the route and entry
-identity and obtaining any temporary authorization. Launch data contains an
+identity and obtaining temporary authorization only if required by that provider.
+Moonraker resolves from saved configuration with no control connection, device
+request or capability probe. The caller need not describe the entry first;
+an optional expected entry identity detects replacement. Launch data contains an
 absolute HTTP(S) URL and any known expiry. A removed or replaced entry must not
 silently redirect an old request to another interface. Ordinary configured
 entry URLs may persist; temporary authorization and launch data do not belong
@@ -320,16 +332,16 @@ The application derives page eligibility from semantic capabilities and the
 viewing host environment. Agents do not supply page names, visibility flags,
 tab order or default selection. Use one application policy when UI integration
 is implemented; the current change defines that policy without implementing it.
-This includes applicable pre-connection hints from section 3.1: do not wait for
-a connected snapshot when a provider has already established support. Inferred
-support can expose a pending/connecting page, while its controls remain subject
-to resolved resources and current availability. A file-listing hint can expose
-the pending browser before storage scopes have been enumerated; a Web hint can
-expose the entry before its launch address is known.
+Locally established capabilities are sufficient for eligibility; no connected
+snapshot is required. Eligibility does not authorize automatic device reads.
+In particular, selecting a request-based printer must not start capability
+probes or material synchronization. Unresolved constraints can be explained
+locally or resolved during the requested operation, without forcing a universal
+connecting screen. A configured Moonraker Web entry opens normally.
 
 | Page | Eligibility | Conditions that do not remove eligibility |
 | --- | --- | --- |
-| Monitor | At least one supported, meaningful job, thermal, motion, actuator, material or sensor observation; camera viewing/snapshot capture; or a basic control suitable for the page. | No active job, no camera, a temporarily unavailable camera, or readings not yet reported. |
+| Monitor | At least one supported observation suitable for monitoring (job, thermal, motion, actuators, materials or sensors), camera viewing/snapshot capture, or basic control. A standalone material-import action is insufficient. | No active job, no camera, a temporarily unavailable camera, or readings not yet reported. |
 | File browser | File listing is supported for at least one storage scope. | An empty directory, temporarily missing removable storage, or unavailable download/delete actions. |
 | Warnings | Device alert observation is supported. | Zero current warnings or no unread warnings. |
 | Firmware | Firmware version inventory observation is supported. | No available update, no upgrade capability, or an upgrade blocked during printing. |
@@ -340,7 +352,11 @@ A passive probe or door sensor is sufficient useful monitoring; a camera is
 not mandatory. Static identity/firmware metadata, Web access or alert support
 alone does not establish Monitor eligibility. File-only actions, including
 upload or starting a selected remote file, do not alone require a Monitor page.
-Only upload support does not establish file-browser eligibility.
+Only upload support does not establish file-browser eligibility. A manual
+material-import action alone need not create a Monitor page; its sync button
+is available independently of monitoring or subscriptions. Observation delivery
+mode and actual page functionality inform eligibility; the exact placement of
+the sync control remains open.
 
 Warnings are device observations, not a bucket for transport, login or other
 application errors. An empty warning list yields an empty state; counts affect
@@ -349,11 +365,12 @@ visible in the relevant surface.
 
 Known support with temporarily blocked or unknown availability retains the page
 and explains its state. Confirmed unsupported capability hides the page. When
-support is initially unknown, show capability resolution at the device level;
+support is initially unknown, expose that uncertainty without automatic probing;
 do not label unknown as unsupported or briefly create every possible tab.
-After a disconnect or failed refresh, retain previously confirmed pages with
-stale/reconnecting indicators instead of making them disappear. An authoritative
-capability change can revise eligibility, but that is distinct from a failed read.
+After a failed read, retain previously confirmed pages with relevant stale/error
+indicators instead of making them disappear. No active subscription means
+unobserved, not offline; never show a reconnecting state for a request-only agent.
+An authoritative capability change can revise eligibility, but that is distinct from a failed read.
 
 Cache decisions for the applicable printer, route and viewing-host environment.
 Do not union LAN and cloud capabilities or reuse an Electron embedding decision
@@ -365,7 +382,7 @@ selection behavior is preserved. No UI policy helper or page is implemented yet.
 ### 4.3 Firmware observations
 
 Firmware version reading is an observation capability, exposed through the
-firmware topic and the existing session refresh API. It does not add an upgrade
+firmware topic and an independently addressed observation read. It does not add an upgrade
 command or imply permission to check for updates or install firmware. Those
 operations require separate capability and lifecycle design if implemented.
 A version-only device can have a read-only Firmware page.
@@ -373,9 +390,9 @@ A version-only device can have a read-only Firmware page.
 The descriptor's firmware inventory is the single source of component/version
 data. It carries known/unknown and fresh/stale reading semantics, including
 source and timestamps, instead of using an empty list to mean every possible
-absence or failure. Refresh publishes the resulting descriptor through the
-ordinary snapshot boundary; no duplicate list is added to printer state or a
-separate firmware service. Page eligibility follows read support, not list
+absence or failure. A firmware-topic read projects that same inventory without
+requiring a complete descriptor read. Both projections share one cache/version
+source; no duplicate list is added to printer state or a separate firmware service. Page eligibility follows read support, not list
 length or update availability.
 
 ## 5. Read-only sensors and actuator separation
@@ -458,30 +475,54 @@ from coincident array positions or assume that importing device inventory is
 required before every print. The existing native rack, preference and
 Undo/Redo contracts remain owned by the multi-filament specification.
 
+For manually synchronized types, a materials-topic device read fetches inventory
+once only when the user invokes sync. It returns the relevant material topology,
+tool references and state with source, observation time and revisions, without
+requiring unrelated hardware, firmware or a full printer snapshot. Cached reads
+never initiate device I/O. Failure preserves previous cached inventory and its
+age; an unavailable read is not an empty inventory. Do not start polling,
+subscriptions or automatic reconnect afterward. Reading inventory is distinct
+from commanding an RFID/tag refresh. A user-requested project sync may compose
+this read with the explicit native import workflow above.
+
 ## 7. State synchronization and command outcomes
 
-Synchronized information includes connection/authentication state, printer
-operational state, active tools, current job identity/source and phase,
+Synchronized information includes printer operational state, active tools, current job identity/source and phase,
 progress and remaining-time estimates, actuator and motion state, material
 inventory, camera state, sensor readings and alerts. Job absence is distinct
 from unknown job state. Alerts retain identity, severity and a usable message;
 warnings and estimated values must not be promoted to confirmed device facts.
 
-The proposed event model starts with a complete snapshot, then publishes
-ordered replacements of complete sections, with a fresh snapshot after a
-connection epoch changes. This is a candidate synchronization strategy, not a
-requirement to replace whole sections or prohibit normalized deltas. Any chosen
-strategy needs coherent topology/state publication, obsolete-event rejection
-and recovery from missed updates, expired subscriptions and invalid references.
-Arbitrary vendor payloads cannot themselves serve as the shared domain model.
+Reads explicitly select cache or device access and the requested topics. Device
+access performs only the requested one-shot read; it does not require a full
+snapshot, prior evaluation or a persistent connection. Unknown and stale values
+remain explicit, including failures in part of a multi-topic read. Transport
+and authentication errors belong to the request/resource, not a global state
+that gates all other APIs.
+
+The current event model uses snapshots scoped to requested topics followed by
+ordered replacements. Resume cursors identify feed positions, not connections;
+expired/inapplicable cursors or gaps require an explicit fresh snapshot before
+further updates. Cursors are bound to the target, topics and configuration. Responses carry
+configuration revisions so late data from edited routes can be rejected.
+Adapters must publish mutually dependent data coherently and reject obsolete
+references. Material reads therefore carry the relevant topology and inventory
+together. No public connection epoch is needed. Exact buffering and cache
+implementation remain open. Vendor payloads are not the shared domain model.
 
 Descriptor, topology, capability and inventory revisions have distinct
 meanings in the proposed sketch. Their exact tokens and grouping are open;
 control validation needs enough current context for the command's correctness,
-without requiring every command to carry every revision. Sensor
+without requiring every command to carry every revision. Client comparison
+conditions are optional and operation-specific. Omitting them does not omit
+execution-time safety/compatibility validation; supplying one requires an honest
+comparison or explicit rejection. Evaluation is advisory and never a token or
+prerequisite for submission. Reads and ordinary upload/start workflows must not
+require first obtaining topology or inventory versions. Sensor
 telemetry changes alone must not invalidate an unrelated material mapping.
 Observations may be pushed, polled or obtained on demand, with support declared
-per topic, including sensors. Refresh does not promise that every reading
+per topic, including sensors. A subscription to an on-demand-only topic is
+unsupported; it must not silently create a poller. Refresh does not promise that every reading
 becomes known or fresh.
 
 Basic controls include job start/pause/resume/cancel, temperature targets,
@@ -496,7 +537,7 @@ acknowledgment is not physical completion. Completion needs a device result or
 an appropriate observed-state confirmation. Transport loss after dispatch can
 leave the outcome unknown and must not be relabeled as safe failure.
 
-Preserve a way to reconcile submitted work after a view or session closes.
+Preserve a way to reconcile submitted work after a view or subscription closes.
 Service-scoped operation tracking is the proposed solution; its concrete
 ownership and persistence are open. Request identity can support lookup and
 deduplication within the authority's defined lifetime, not a claim of device-level exactly-once
@@ -509,14 +550,14 @@ Upload cancellation is a separate transfer operation and may leave remote
 bytes. There is no universal cancellation operation for arbitrary physical
 actions; job cancellation remains an explicit printer command.
 
-## 8. Cameras and media sessions
+## 8. Cameras and media resources
 
 Describe cameras as hardware resources, optionally associated with a tool or
 light. Expose their availability and observed state separately from supported
 live-view formats, snapshots, enable/disable controls and timelapse modes.
 Do not infer camera controls from the mere presence of a stream.
 
-The current proposal shares a managed media-session boundary between live
+The current proposal shares a managed media-resource boundary between live
 camera viewing and stored-file presentation. This reuse is not required if
 separate abstractions better preserve consistent availability, authorization,
 playback and cleanup semantics. Select delivery against client transport and
@@ -526,21 +567,26 @@ without requiring every provider to implement all of them. Protocol-specific
 camera addresses and private transport credentials remain agent concerns;
 a source URL is not evidence of browser playback capability.
 
-The proposed media session manages temporary delivery information,
+A media resource manages temporary delivery information,
 expiry/renewal where applicable, state, errors and explicit closure. Advertise
 available profiles, resolution/frame rate and playback properties such as
 duration and seekability when known; these are not guaranteed for every stream.
 If WebRTC is selected, its signaling must handle offer/answer and ICE without
 losing initial signals. Negotiation identities and descriptor revisions are
-candidate mechanisms. Parent closure or reconnection requires cleanup or
-explicit resource revalidation; mandatory destruction and recreation of every
-media session is not settled. Respect applicable concurrent-view limits and
+candidate mechanisms. Opening returns a serializable descriptor/reference, not
+a client object with bound methods. Watch, renew, signaling, content reading and
+closure each supply the explicit resource reference and work independently of
+control/observation calls. A source failure requires an explicit resource error
+or revalidation; it does not invalidate unrelated controls. Request IDs permit
+open retries without allocating duplicate viewers within the authority's defined
+retention lifetime. Signaling gaps must be reported rather than silently losing
+initial messages. Respect applicable concurrent-view limits and
 release resources when viewing ends.
 
 Snapshot capture is independent of live viewing. Device-level timelapse
 configuration is separate from a print job's timelapse options. A recorded
 timelapse is a remote file, optionally linked to a known job; it is not a live
-camera session. Watching a camera must not implicitly enable recording.
+camera resource. Watching a camera must not implicitly enable recording.
 
 ## 9. Remote files, previews and transfers
 
@@ -552,6 +598,9 @@ material keys, duration, dimensions and associated job. Storage availability
 and capacity/free space are independent of file metadata and may be unknown.
 The proposed remote reference is scoped to printer, route and storage. A
 filename or host-private filesystem path alone is not a portable identity.
+References retain configuration context; an edited endpoint cannot silently
+redirect a stale file reference to another device. Media and operation records
+likewise retain their original resource context.
 Cross-route reuse needs verified identity and access; route-scoped references
 are one way to enforce this rather than a permanent ban on such reuse.
 
@@ -587,6 +636,11 @@ revision mismatch, while honestly retaining any race that the device protocol
 cannot eliminate. Whatever request model is selected, communicate its actual
 consistency guarantee for reads, previews, deletion and print start; a provider
 without atomic version checks is not thereby excluded from all file operations.
+
+Upload can address an adapter-defined default destination from local type/configuration,
+without first listing storage or directories. Explicit directory selection
+remains available where supported. Upload-only adapters need not implement file
+browsing. No connection or unrelated device preflight is required.
 
 Uploads report transfer progress separately from device confirmation and return
 the actual remote artifact identity. Upload completion does not imply print
@@ -645,7 +699,17 @@ coverage without prescribing the final record layout:
 | Printer with live video and stored timelapses/G-code | Separate live and remote-file resources sharing managed media delivery. |
 | Partially observable or offline printer | Partial topology and unknown/stale observations without falsely declaring support or readiness. |
 
-Future implementation acceptance should cover obsolete-connection events,
+Required request-based acceptance scenarios include local saving of an unreachable
+printer, zero printer requests during startup/enumeration/local description,
+Moonraker selection opening its configured Web page without agent traffic,
+upload without listing or connection, and U1 material reads only on explicit
+sync. Failed sync retains prior data without background retries. Test independent
+calls through a fresh service reference, scoped media/operation references,
+optional comparison versions, and unsupported watch on on-demand-only topics.
+These are future runtime acceptance requirements; compile-only fixtures validate
+interface expressibility, not network behavior.
+
+Future implementation acceptance should cover stale feed cursors and resource references,
 coherent resynchronization, stale control context, unknown command outcomes, independent
 sensor/actuator support, material/project isolation, media teardown, changed-file
 races, unsupported operations and upload-success/start-failure recovery.

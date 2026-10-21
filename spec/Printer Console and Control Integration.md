@@ -30,6 +30,11 @@ The domain specification also owns the accepted
 Their interfaces do not yet change this console UI. Control connectivity is
 independent of native-page access, and the existing Moonraker Console URL
 fallback and host authentication behavior are provider-specific conventions.
+The domain contract preserves request-driven Moonraker operation: loading saved
+configuration does not probe the printer, selecting it opens the configured Web
+page without an agent connection, and upload executes on demand. Additional
+material-sync support is type-specific and explicitly user-triggered. All domain
+APIs are stateless; implementing the migration remains separate work.
 
 The embedded console is a convenience and management surface. Sending and
 printing use the printer API directly, so either surface can continue to be

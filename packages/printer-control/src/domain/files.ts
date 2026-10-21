@@ -1,10 +1,12 @@
 /** Remote resources and local streaming API. Files remain scoped to their printer route. */
-import type { Id, Revision, UnixMs, Result, ReadOptions, Capability, Availability } from './common';
+import type { Id, Revision, UnixMs, Result, ReadOptions, Capability, Availability, PrinterTarget, TargetRequest } from './common';
 import type { Submission } from './control';
 export type PrintFormatId = 'gcode' | `vendor:${string}`;
 export interface RemoteFileRef {
   printerId: Id<'printer'>;
   routeId: Id<'route'>;
+  /** Reject stale configuration rather than resolving this identity on a different device. */
+  configurationRevision: Revision;
   storageId: Id<'storage'>;
   fileId: Id<'remote-file'>;
   contentRevision: Revision | null;
@@ -83,6 +85,7 @@ export interface FilePreviewOption {
   contentFormat: string | null;
 }
 export interface ListFilesRequest {
+  target: PrinterTarget;
   storageId: Id<'storage'>;
   directoryId: Id<'remote-directory'> | null;
   kinds?: readonly RemoteFileKind[];
@@ -128,9 +131,14 @@ export type FileChangeEvent = {
   type: 'resync-required';
 };
 export interface UploadRequest {
+  target: TargetRequest;
   requestId: Id<'request'>;
-  storageId: Id<'storage'>;
-  directoryId: Id<'remote-directory'> | null;
+  /** Adapter default permits upload without listing storage/directories first. */
+  destination: { kind: 'default' } | {
+    kind: 'directory';
+    storageId: Id<'storage'>;
+    directoryId: Id<'remote-directory'> | null;
+  };
   fileName: string;
   format: PrintFormatId;
   sizeBytes: number;
@@ -159,7 +167,7 @@ export interface FileCapabilities {
     versionCheck: VersionCheck;
   }[]>;
   upload: Capability<readonly {
-    storageId: Id<'storage'>;
+    destination: UploadRequest['destination'];
     formats: readonly PrintFormatId[];
     maxBytes: number | null;
     collisionPolicies: readonly ('reject' | 'rename')[];
@@ -175,7 +183,7 @@ export interface FileCapabilities {
   }>;
 }
 export interface PrinterFiles {
-  listStorages(options?: ReadOptions): Promise<Result<readonly PrinterStorage[]>>;
+  listStorages(target: PrinterTarget, options?: ReadOptions): Promise<Result<readonly PrinterStorage[]>>;
   list(request: ListFilesRequest, options?: ReadOptions): Promise<Result<RemoteFilePage>>;
   stat(selection: FileSelection, options?: ReadOptions): Promise<Result<RemoteFileDetails>>;
   download(request: {
@@ -188,6 +196,6 @@ export interface PrinterFiles {
    * Observe completion/cancellation through the service's operation tracker.
    */
   upload(request: UploadRequest, source: UploadSource): Promise<Submission>;
-  /** Subscribe before listing; gaps emit resync-required. */
-  watchChanges(options?: ReadOptions): AsyncIterable<FileChangeEvent>;
+  /** Optional independent subscription. For a coherent watched listing, subscribe first; gaps require resync. */
+  watchChanges(target: PrinterTarget, options?: ReadOptions): AsyncIterable<FileChangeEvent>;
 }

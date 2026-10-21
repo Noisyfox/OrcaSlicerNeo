@@ -1,5 +1,5 @@
 /** Managed camera and remote-file presentation. Temporary delivery credentials are not persistent DTOs. */
-import type { Id, UnixMs, PrinterError, Result, ReadOptions, Capability } from './common';
+import type { Id, Revision, UnixMs, PrinterError, Result, ReadOptions, Capability, PrinterTarget, TargetRequest } from './common';
 import type { FileSelection, ByteRange, BinaryRead } from './files';
 export type TimelapseMode = 'off' | 'traditional' | 'smooth';
 export interface TimelapseSetting {
@@ -42,6 +42,8 @@ export type MediaSource = {
   previewId: Id<'preview-option'>;
 };
 export interface OpenMediaRequest {
+  target: TargetRequest;
+  requestId: Id<'request'>;
   source: MediaSource;
   client: MediaClientCapabilities;
 }
@@ -81,11 +83,10 @@ export type MediaPresentation = {
 
 /** Ephemeral delivery data, potentially containing authorization; never persist/log it. */
 export interface MediaDescriptor {
-  id: Id<'media-session'>;
+  ref: MediaRef;
+  /** Resource operations retain this configuration; they never retarget after an edit. */
+  configurationRevision: Revision;
   revision: number;
-  printerSessionId: Id<'session'>;
-  routeId: Id<'route'>;
-  epoch: Id<'connection-epoch'>;
   source: MediaSource;
   presentation: MediaPresentation;
   expiresAtMs: UnixMs | null;
@@ -121,23 +122,12 @@ export interface MediaEvent {
     error: PrinterError;
   } | {
     type: 'closed';
-    reason: 'client' | 'parent-closed' | 'connection-reset' | 'expired' | 'error';
+    reason: 'client' | 'source-unavailable' | 'expired' | 'error';
   };
 }
-export interface MediaSession {
-  readonly id: Id<'media-session'>;
-  /** Initial descriptor first; retain early signaling until watched, or fail explicitly. */
-  watch(options?: ReadOptions): AsyncIterable<MediaEvent>;
-  /** Refreshed delivery may change URLs or negotiation; inspect the returned revision. */
-  renew(options?: ReadOptions): Promise<Result<MediaDescriptor>>;
-  /** Reject stale negotiation IDs and non-WebRTC sessions. */
-  sendSignal(signal: WebRtcSignal): Promise<Result<null>>;
-  readContent(request: {
-    contentId: Id<'media-content'>;
-    range?: ByteRange;
-  }, options?: ReadOptions): Promise<Result<BinaryRead>>;
-  /** Idempotent resource release; does not stop recording or a print job. */
-  close(): Promise<void>;
+/** Explicit delivery resource, not a printer-control session or a stateful client object. */
+export interface MediaRef extends PrinterTarget {
+  id: Id<'media'>;
 }
 export interface CameraImage {
   cameraId: Id<'camera'>;
@@ -147,6 +137,20 @@ export interface CameraImage {
   bytes: Uint8Array;
 }
 export interface PrinterMedia {
-  open(request: OpenMediaRequest, options?: ReadOptions): Promise<Result<MediaSession>>;
-  captureSnapshot(cameraId: Id<'camera'>, options?: ReadOptions): Promise<Result<CameraImage>>;
+  /** Same request ID must not allocate duplicate viewers within the advertised retention lifetime. */
+  open(request: OpenMediaRequest, options?: ReadOptions): Promise<Result<MediaDescriptor>>;
+  /** Initial descriptor first; retain early signaling until watched, or report a gap. */
+  watch(ref: MediaRef, options?: ReadOptions): AsyncIterable<MediaEvent>;
+  /** Delivery may change URLs/negotiation; inspect the returned revision. */
+  renew(ref: MediaRef, options?: ReadOptions): Promise<Result<MediaDescriptor>>;
+  /** Reject stale negotiation IDs and non-WebRTC resources. */
+  sendSignal(ref: MediaRef, signal: WebRtcSignal): Promise<Result<null>>;
+  readContent(request: {
+    media: MediaRef;
+    contentId: Id<'media-content'>;
+    range?: ByteRange;
+  }, options?: ReadOptions): Promise<Result<BinaryRead>>;
+  /** Idempotent resource release; does not stop recording or a print job. */
+  close(ref: MediaRef): Promise<Result<null>>;
+  captureSnapshot(target: PrinterTarget, cameraId: Id<'camera'>, options?: ReadOptions): Promise<Result<CameraImage>>;
 }

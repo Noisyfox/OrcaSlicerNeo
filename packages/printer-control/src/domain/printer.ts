@@ -1,12 +1,11 @@
 /** Printer description and observations. No host, firmware protocol or slicer dependency. */
 import type { Id, Revision, Axis, ExternalRef, Capability, Reading } from './common';
-import type { MaterialTopology, MaterialState } from './materials';
+import type { MaterialTopology, MaterialState, MaterialInventory } from './materials';
 import type { SensorDefinition, SensorState } from './sensors';
 import type { RemoteFileRef, FileCapabilities } from './files';
 import type { TimelapseMode, CameraMediaCapability } from './media';
 import type { CommandCapabilities } from './control';
 import type { WebInterfaceCapability } from './web-interface';
-import type { PrinterCapabilityHints } from './capability-hints';
 export interface PrinterIdentity {
   id: Id<'printer'>;
   displayName: string;
@@ -20,16 +19,26 @@ export interface AgentHost {
   name: string;
   execution: 'browser' | 'desktop' | 'service';
 }
+/** Saved type/address settings. Validate locally; credentials remain host-owned. */
+export interface PrinterRouteConfiguration {
+  typeId: Id<'printer-type'>;
+  hostId: Id<'agent-host'>;
+  channel: 'lan' | 'cloud';
+  /** Type-specific address: IP, hostname or endpoint URL, including port/path as needed. */
+  address: string | null;
+  webInterfaceUrl: `http://${string}` | `https://${string}` | null;
+  accountRef: Id<'account'> | null;
+  credentialRef: Id<'credential'> | null;
+}
 export interface PrinterRoute {
   id: Id<'route'>;
   printerId: Id<'printer'>;
   providerId: Id<'provider'>;
-  hostId: Id<'agent-host'>;
-  channel: 'lan' | 'cloud';
   label: string;
-  credentialRef: Id<'credential'> | null;
-  /** Enumerated support knowledge; no control session or live constraints required. */
-  capabilityHints: PrinterCapabilityHints;
+  configurationRevision: Revision;
+  configuration: PrinterRouteConfiguration;
+  /** Normal capabilities derived locally from type/configuration and retained observations. */
+  capabilities: PrinterCapabilities;
 }
 export interface SavedPrinter {
   identity: PrinterIdentity;
@@ -133,7 +142,6 @@ export interface PrintJobState {
   remainingSeconds: number | null;
 }
 export interface PrinterState {
-  connection: 'connecting' | 'online' | 'reconnecting' | 'offline' | 'authentication-required';
   operationalState: Reading<'ready' | 'busy' | 'shutdown' | 'error'>;
   activeToolIds: Reading<readonly Id<'tool'>[]>;
   job: Reading<PrintJobState | null>;
@@ -176,7 +184,6 @@ export interface PrinterState {
 }
 export interface PrinterCapabilities {
   revision: Revision;
-  routeId: Id<'route'>;
   commands: CommandCapabilities;
   cameras: readonly CameraMediaCapability[];
   files: FileCapabilities;
@@ -187,4 +194,17 @@ export interface PrinterCapabilities {
     delivery: readonly ('push' | 'poll' | 'on-demand')[];
   }> };
 }
-export type StateTopic = 'job' | 'thermal' | 'motion' | 'actuators' | 'materials' | 'cameras' | 'sensors' | 'alerts' | 'firmware';
+/** Topic-scoped data avoids requiring a complete printer snapshot for a single read. */
+export interface PrinterObservationMap {
+  descriptor: PrinterDescriptor;
+  job: Pick<PrinterState, 'operationalState' | 'activeToolIds' | 'job'>;
+  thermal: PrinterState['heaters'];
+  motion: PrinterState['motion'];
+  actuators: Pick<PrinterState, 'fans' | 'lights'>;
+  materials: MaterialInventory;
+  cameras: PrinterState['cameras'];
+  sensors: PrinterState['sensors'];
+  alerts: Extract<PrinterState['alerts'], { kind: 'known' }>['value'];
+  firmware: readonly FirmwareComponent[];
+}
+export type StateTopic = keyof PrinterObservationMap;

@@ -1,7 +1,7 @@
 // Compile-only consumers of the public entrypoint. Never imported by runtime code.
 import type { CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState } from '@orca/printer-control/domain';
-import type { PrinterCapabilities, PrinterService, PrinterSession, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
-import type { CapabilityHint, DiscoveryCandidate, PrinterCapabilityHints, PrinterRoute, SavedPrinter } from '@orca/printer-control/domain';
+import type { PrinterCapabilities, PrinterService, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
+import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory } from '@orca/printer-control/domain';
 
 // Brands in fixtures stand in for IDs validated/issued by a future provider.
 const id = <K extends string,>(value: string): Id<K> => value as Id<K>;
@@ -274,14 +274,14 @@ const mixed: CommandOf<'materials.load' | 'jobs.pause'> = {
     pathId
   }
 };
+const target: PrinterTarget = { printerId: manualPrinter.identity.id, routeId: id<'route'>('lan') };
 const basis = {
-  sessionId: id<'session'>('session'),
-  epoch: id<'connection-epoch'>('connection'),
   capabilityRevision: 'caps-1',
   topologyRevision: 'topology-1'
 };
 declare function submit(request: CommandRequest): void;
 submit({
+  target,
   requestId: id<'request'>('load'),
   command: {
     type: 'materials.load',
@@ -294,8 +294,9 @@ submit({
     inventoryRevision: 'inventory-1'
   }
 });
-// @ts-expect-error Material commands need inventory context, not just a topology revision.
+// A standalone command can omit comparison versions; execution still validates current conditions.
 submit({
+  target,
   requestId: id<'request'>('load'),
   command: {
     type: 'materials.load',
@@ -306,6 +307,7 @@ submit({
   guard: basis
 });
 submit({
+  target,
   requestId: id<'request'>('heat'),
   command: {
     type: 'thermal.setTarget',
@@ -326,7 +328,7 @@ const undefinedPatch: MaterialMetadataPatch = {
   color: undefined
 };
 declare const caps: CommandCapabilities;
-if (caps['thermal.setTarget'].kind === 'supported') {
+if (caps['thermal.setTarget'].kind === 'supported' && caps['thermal.setTarget'].constraints !== null) {
   const min: number | undefined = caps['thermal.setTarget'].constraints[0]?.targetC.min;
   // @ts-expect-error Heater capability constraints do not contain material paths.
   caps['thermal.setTarget'].constraints[0]?.pathId;
@@ -334,6 +336,7 @@ if (caps['thermal.setTarget'].kind === 'supported') {
 const remoteFile = {
   printerId: id<'printer'>('manual'),
   routeId: id<'route'>('lan'),
+  configurationRevision: 'config-1',
   storageId: id<'storage'>('sd'),
   fileId: id<'remote-file'>('part'),
   contentRevision: null
@@ -370,13 +373,11 @@ state.heaters[0]?.currentC;
 state.sensors.push(sensor);
 const emptyEvent: PrinterEvent = {
   type: 'replace',
-  cursor: {
-    sessionId: basis.sessionId,
-    epoch: basis.epoch,
-    sequence: 1
-  },
+  target,
+  configurationRevision: 'config-1',
+  cursor: 'next' as ObservationCursor,
   // @ts-expect-error Replacement events must include a changed section.
-  sections: {}
+  values: {}
 };
 
 // The public extension point preserves structured reading types after augmentation.
@@ -398,16 +399,17 @@ if (extended.kind === 'fixture:air-quality' && extended.reading.kind === 'known'
   const value: string = extended.reading.value;
 }
 
-// Native Web UI access is available directly from the service, without connect().
+// Native Web UI access is available directly from the service, without a preceding request.
 declare const service: PrinterService;
 const routeId = id<'route'>('lan');
 const interfaceId = id<'web-interface'>('native-console');
+service.webInterfaces.describe(target);
+service.webInterfaces.resolve({ target, interfaceId });
+service.webInterfaces.resolve({ target });
+// @ts-expect-error A bare ID is not a complete target.
 service.webInterfaces.describe(routeId);
-service.webInterfaces.resolve({ routeId, interfaceId });
-// @ts-expect-error A control session ID is not a route ID.
-service.webInterfaces.describe(id<'session'>('session'));
 // @ts-expect-error Resolve identifies the expected entry, not an arbitrary URL supplied by UI.
-service.webInterfaces.resolve({ routeId, url: 'https://printer.example/' });
+service.webInterfaces.resolve({ target, url: 'https://printer.example/' });
 
 export const webOnlyAccess: WebInterfaceDescription = {
   printerId: id<'printer'>('web-only'), routeId,
@@ -426,11 +428,10 @@ launch.canEmbed;
 
 declare const capabilities: PrinterCapabilities;
 const webCapability: WebInterfaceDescription['capability'] = capabilities.webInterface;
-if (capabilities.observations.firmware.kind === 'supported') {
+if (capabilities.observations.firmware.kind === 'supported' && capabilities.observations.firmware.constraints !== null) {
   const delivery: readonly ('push' | 'poll' | 'on-demand')[] = capabilities.observations.firmware.constraints.delivery;
 }
-declare const session: PrinterSession;
-session.refresh(['firmware']);
+service.observations.read({ target, topics: ['firmware'], source: 'device' });
 declare const descriptor: PrinterDescriptor;
 if (descriptor.firmware.kind === 'known') {
   const version: string | undefined = descriptor.firmware.value[0]?.version;
@@ -443,47 +444,128 @@ state.firmware;
 // @ts-expect-error UI page visibility is not an agent-controlled capability flag.
 capabilities.showMonitorTab;
 
-// Provider-owned inference examples, not implemented Bambu/Moonraker agents.
-const inferredSupport: CapabilityHint = {
-  kind: 'supported',
-  source: { kind: 'inferred', basis: 'provider', ruleId: 'fixture:bambu-monitor', ruleRevision: '1' },
-  assessedAtMs: 0, freshness: 'fresh',
-};
-export const discoveredPrinter: DiscoveryCandidate = {
-  id: id<'candidate'>('bambu-lan'), providerId: id<'provider'>('bambu'),
-  hostId: id<'agent-host'>('desktop'), channel: 'lan',
-  displayName: 'Discovered printer', externalRefs: [], expiresAtMs: 1000,
-  capabilityHints: { revision: '1', observations: { job: inferredSupport } },
+// Compile-only type profiles, not concrete agents or claims of device qualification.
+const unknown = { kind: 'unknown', reason: 'Not established by this type or device' } as const;
+const unknownCommands = {
+  'jobs.start': unknown, 'jobs.pause': unknown, 'jobs.resume': unknown, 'jobs.cancel': unknown,
+  'thermal.setTarget': unknown, 'fans.setSpeed': unknown, 'lights.set': unknown,
+  'motion.home': unknown, 'motion.jog': unknown, 'extrusion.move': unknown, 'tools.select': unknown,
+  'materials.load': unknown, 'materials.unload': unknown, 'materials.switch': unknown,
+  'materials.writeMetadata': unknown, 'materials.refreshTag': unknown,
+  'drying.start': unknown, 'drying.stop': unknown,
+  'camera.setEnabled': unknown, 'camera.setDeviceTimelapse': unknown, 'files.delete': unknown,
+} satisfies CommandCapabilities;
+export const moonrakerCapabilities: PrinterCapabilities = {
+  revision: 'type-1', commands: unknownCommands, cameras: [],
+  files: {
+    list: { kind: 'unsupported', layer: 'adapter', reason: 'Upload-only type' },
+    stat: unknown, download: unknown, preview: unknown, changes: unknown,
+    upload: { kind: 'supported', constraints: [{
+      destination: { kind: 'default' }, formats: ['gcode'], maxBytes: null,
+      collisionPolicies: ['reject'],
+    }] },
+  },
+  webInterface: { kind: 'supported', constraints: { id: interfaceId, name: 'Native console' } },
+  observations: {
+    descriptor: unknown, job: unknown, thermal: unknown, motion: unknown,
+    actuators: unknown, materials: unknown, cameras: unknown, sensors: unknown,
+    alerts: unknown, firmware: unknown,
+  },
 };
 export const moonrakerRoute: PrinterRoute = {
-  id: routeId, printerId: manualPrinter.identity.id,
-  providerId: id<'provider'>('moonraker'), hostId: id<'agent-host'>('browser'),
-  channel: 'lan', label: 'LAN', credentialRef: null,
-  capabilityHints: {
-    revision: '1',
-    webInterface: {
-      kind: 'supported',
-      source: { kind: 'inferred', basis: 'provider', ruleId: 'fixture:moonraker-web', ruleRevision: '1' },
-      assessedAtMs: 0, freshness: 'fresh',
-    },
+  id: routeId, printerId: target.printerId, providerId: id<'provider'>('moonraker'),
+  label: 'LAN', configurationRevision: 'config-1',
+  configuration: {
+    typeId: id<'printer-type'>('generic-moonraker'), hostId: id<'agent-host'>('browser'),
+    channel: 'lan', address: 'http://192.0.2.10:7125/',
+    webInterfaceUrl: 'http://192.0.2.10/', accountRef: null, credentialRef: null,
   },
+  capabilities: moonrakerCapabilities,
 };
 export const enumeratedPrinter: SavedPrinter = {
   identity: manualPrinter.identity, routes: [moonrakerRoute],
 };
-// No knowledge is representable without manufacturing unsupported answers.
-const noKnowledge: PrinterCapabilityHints = { revision: '0' };
-const reportedSupport: CapabilityHint = {
-  kind: 'unsupported', layer: 'route', reason: 'Not exposed by this route',
-  source: { kind: 'reported', via: 'probe' }, assessedAtMs: 100, freshness: 'fresh',
+export const discoveredPrinter: DiscoveryCandidate = {
+  id: id<'candidate'>('moonraker-lan'), providerId: moonrakerRoute.providerId,
+  configuration: moonrakerRoute.configuration, capabilities: moonrakerCapabilities,
+  displayName: 'Discovered printer', externalRefs: [], expiresAtMs: 1000,
 };
-// @ts-expect-error Inference must identify its provenance and assessment time.
-const ungrounded: CapabilityHint = { kind: 'supported' };
-// @ts-expect-error UI page flags are not capability identifiers.
-const tabHint: PrinterCapabilityHints = { revision: '1', showMonitorTab: true };
-// @ts-expect-error Hints cannot be substituted for executable capability constraints.
-const commandSupport: CommandCapabilities['thermal.setTarget'] = inferredSupport;
-// @ts-expect-error Support inference does not manufacture a resolved Web entry.
-const resolvedEntry: WebInterfaceDescription['capability'] = inferredSupport;
-// @ts-expect-error Commands use the existing command taxonomy even before connection.
-const unknownCommand: PrinterCapabilityHints = { revision: '1', commands: { 'sensors.write': inferredSupport } };
+export const manualSyncCapabilities: PrinterCapabilities = {
+  ...moonrakerCapabilities,
+  observations: {
+    ...moonrakerCapabilities.observations,
+    materials: { kind: 'supported', constraints: { delivery: ['on-demand'] } },
+  },
+};
+export const u1Route: PrinterRoute = {
+  ...moonrakerRoute, id: id<'route'>('u1-lan'),
+  configuration: { ...moonrakerRoute.configuration, typeId: id<'printer-type'>('snapmaker-u1') },
+  capabilities: manualSyncCapabilities,
+};
+// Known support can be declared before resource-specific limits have been learned.
+const pendingLimits: Capability<{ min: number; max: number }> = { kind: 'supported', constraints: null };
+// @ts-expect-error Supported capabilities explicitly distinguish unresolved constraints.
+const missingLimits: Capability<{ min: number }> = { kind: 'supported' };
+// @ts-expect-error Capability identifiers are semantic, never UI visibility flags.
+moonrakerCapabilities.showMonitorTab;
+// @ts-expect-error No public connection lifecycle is available.
+service.connect(routeId);
+// @ts-expect-error Transport/session state is not a printer observation.
+state.connection;
+
+// Manual configuration and catalogue reads are independent local operations.
+service.listTypes();
+service.add({ requestId: id<'request'>('add'), displayName: 'Moonraker', routes: [moonrakerRoute.configuration] });
+service.updateRoute({ target, configuration: moonrakerRoute.configuration });
+service.describe(target);
+service.adopt({ requestId: id<'request'>('adopt'), candidate: discoveredPrinter });
+// @ts-expect-error Adding a printer requires at least one configured route.
+service.add({ requestId: id<'request'>('empty-add'), displayName: 'Invalid', routes: [] });
+
+// Upload does not require listing storage, retrieving topology or opening a connection.
+declare const chunks: AsyncIterable<Uint8Array>;
+service.files.upload({
+  target, requestId: id<'request'>('upload'), destination: { kind: 'default' },
+  fileName: 'part.gcode', format: 'gcode', sizeBytes: 100, collisionPolicy: 'reject',
+}, { chunks });
+service.files.listStorages(target);
+service.files.list({ target, storageId: remoteFile.storageId, directoryId: null });
+service.files.watchChanges(target);
+// @ts-expect-error Listing is not implicitly bound to a selected printer.
+service.files.list({ storageId: remoteFile.storageId, directoryId: null });
+// @ts-expect-error Explicit target is required for independent control evaluation.
+service.controls.evaluate({ type: 'jobs.pause', params: { jobId: id<'job'>('print') } });
+service.controls.submit({ target, requestId: id<'request'>('start'), command: {
+  type: 'jobs.start', params: { source: bestEffort, bindings: [] },
+} });
+// @ts-expect-error A command cannot use an implicit current printer.
+service.controls.submit({ requestId: id<'request'>('missing-target'), command: { type: 'jobs.start', params: { source: bestEffort, bindings: [] } } });
+
+async function manualMaterialsSync() {
+  const result = await service.observations.read({ target, topics: ['materials'], source: 'device' });
+  if (result.ok && result.value.values.materials.kind === 'known') {
+    const inventory: MaterialInventory = result.value.values.materials.value;
+    // @ts-expect-error A material-only read does not manufacture unrelated state.
+    result.value.values.firmware;
+    return inventory.state.inventoryRevision;
+  }
+}
+service.observations.read({ target, topics: ['materials'], source: 'cache' });
+// @ts-expect-error The caller must choose cached access or explicit device I/O.
+service.observations.read({ target, topics: ['materials'] });
+// @ts-expect-error An empty read cannot trigger an implicit full device discovery.
+service.observations.read({ target, topics: [], source: 'device' });
+service.observations.watch({ target, topics: ['job', 'sensors'] });
+
+// Media resources are usable through an independent service reference and explicit ID.
+declare const otherService: PrinterService;
+declare const mediaRef: MediaRef;
+service.media.open({ target, requestId: id<'request'>('view'), source: { kind: 'camera', cameraId: id<'camera'>('chamber') }, client: { video: [], imageMimeTypes: ['image/jpeg'], contentFormats: [] } });
+otherService.media.watch(mediaRef);
+otherService.media.renew(mediaRef);
+otherService.media.close(mediaRef);
+otherService.media.captureSnapshot(target, id<'camera'>('chamber'));
+// @ts-expect-error A media operation requires its explicit resource reference.
+otherService.media.close();
+// @ts-expect-error Operations have configuration provenance, not a connection epoch.
+operation.originEpoch;

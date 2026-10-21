@@ -1,5 +1,5 @@
 /** Typed commands, capability constraints and asynchronous outcomes. This module defines no executor. */
-import type { Id, Revision, UnixMs, Axis, Range, PrinterError, Result, ReadOptions, Capability, Availability, NonEmptyReadonlyArray } from './common';
+import type { Id, Revision, UnixMs, Axis, Range, PrinterError, Result, ReadOptions, Capability, Availability, NonEmptyReadonlyArray, PrinterTarget, TargetRequest } from './common';
 import type { MaterialMetadata, MaterialMetadataPatch, PrintMaterialBinding } from './materials';
 import type { PrintFormatId, FileSelection, VersionCheck, RemoteFile, UploadProgress } from './files';
 import type { TimelapseSetting } from './media';
@@ -152,28 +152,28 @@ export type CommandOf<K extends CommandName = CommandName> = { [N in K]: {
 export type PrinterCommand = { [K in CommandName]: CommandOf<K> }[CommandName];
 export type CommandCapabilities = { [K in CommandName]: Capability<PrinterCommandSpecs[K]['constraints']> };
 
-/** Inventory revision changes on routing/metadata changes, not every sensor sample. */
-export type InventoryCommand = 'jobs.start' | 'materials.load' | 'materials.unload' | 'materials.switch' | 'materials.writeMetadata' | 'materials.refreshTag';
+/** Optional comparison conditions, never authorization obtained from a previous call. */
 export interface ControlBasis {
-  sessionId: Id<'session'>;
-  epoch: Id<'connection-epoch'>;
-  capabilityRevision: Revision;
+  capabilityRevision?: Revision;
 }
-export type CommandGuard<K extends CommandName> = ControlBasis & (K extends 'files.delete' ? {} : {
-  topologyRevision: Revision;
+export type InventoryCommand = 'jobs.start' | 'materials.load' | 'materials.unload' | 'materials.switch' | 'materials.writeMetadata' | 'materials.refreshTag';
+export type CommandGuard<K extends CommandName> = ControlBasis & (K extends 'files.delete' | 'jobs.pause' | 'jobs.resume' | 'jobs.cancel' ? {} : {
+  topologyRevision?: Revision;
 }) & (K extends InventoryCommand ? {
-  inventoryRevision: Revision;
+  inventoryRevision?: Revision;
 } : {});
 export type CommandRequest = { [K in CommandName]: {
+  target: TargetRequest;
   requestId: Id<'request'>;
   command: CommandOf<K>;
-  guard: CommandGuard<K>;
+  guard?: CommandGuard<K>;
 } }[CommandName];
 export interface CommandEvaluation {
   availability: Availability;
+  /** Only known, relevant conditions are supplied. Submit never requires evaluate first. */
   basis: ControlBasis & {
-    topologyRevision: Revision;
-    inventoryRevision: Revision;
+    topologyRevision?: Revision;
+    inventoryRevision?: Revision;
   };
 }
 export interface OperationRef {
@@ -214,8 +214,8 @@ export type OperationPhase<R> = {
 export interface OperationBase {
   ref: OperationRef;
   requestId: Id<'request'>;
-  originSessionId: Id<'session'>;
-  originEpoch: Id<'connection-epoch'>;
+  /** Configuration snapshot used by this operation; subsequent edits do not retarget it. */
+  configurationRevision: Revision;
   revision: number;
   updatedAtMs: UnixMs;
 }
@@ -251,8 +251,8 @@ export interface PrinterOperations {
   }>>;
 }
 export interface PrinterControls {
-  /** Advisory assessment; submit must revalidate the guard and current conditions. */
-  evaluate(command: PrinterCommand, options?: ReadOptions): Promise<Result<CommandEvaluation>>;
+  /** Advisory assessment; submit independently validates parameters, supplied guards and current conditions. */
+  evaluate(target: PrinterTarget, command: PrinterCommand, options?: ReadOptions): Promise<Result<CommandEvaluation>>;
   /** An interrupted response after dispatch must preserve an unknown outcome. */
   submit(request: CommandRequest): Promise<Submission>;
 }

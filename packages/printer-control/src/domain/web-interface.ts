@@ -1,5 +1,5 @@
-/** Native printer Web UI access, independent of control-session connectivity. */
-import type { Availability, Capability, Id, ReadOptions, Result, UnixMs } from './common';
+/** Native printer Web UI access, without a printer-control connection. */
+import type { Availability, Capability, Id, ReadOptions, Result, UnixMs, PrinterTarget, TargetRequest } from './common';
 
 export interface WebInterfaceEntry {
   id: Id<'web-interface'>;
@@ -21,9 +21,9 @@ export interface WebInterfaceDescription {
 }
 
 export interface ResolveWebInterfaceRequest {
-  routeId: Id<'route'>;
-  /** Reject removed/replaced entries rather than opening a different interface. */
-  interfaceId: Id<'web-interface'>;
+  target: TargetRequest;
+  /** Optional expected entry; omission resolves the configured native entry directly. */
+  interfaceId?: Id<'web-interface'>;
 }
 
 /**
@@ -43,14 +43,15 @@ export interface WebInterfaceLaunch {
 
 export interface PrinterWebInterfaces {
   /**
-   * May use saved/configured provider information without connect(). A failed
-   * printer control connection must not alone mark this capability unsupported.
+   * Local-only type/configuration/cache projection. Never probes the printer.
+   * An API failure must not alone mark this capability unsupported.
    * Cached observations retain their original assessment time and stale marker.
    */
-  describe(routeId: Id<'route'>, options?: ReadOptions): Promise<Result<WebInterfaceDescription>>;
+  describe(target: PrinterTarget, options?: ReadOptions): Promise<Result<WebInterfaceDescription>>;
   /**
    * Revalidate the route/entry and resolve current launch data, including temporary
-   * authorization if needed. This does not open a page or require a control session.
+   * authorization if needed by this provider. Moonraker resolves from configuration
+   * without device requests, preflight or capability discovery. This never opens a page.
    * Page login is independent of API authentication; errors use the shared Result.
    */
   resolve(request: ResolveWebInterfaceRequest, options?: ReadOptions): Promise<Result<WebInterfaceLaunch>>;
