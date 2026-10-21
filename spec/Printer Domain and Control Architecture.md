@@ -673,6 +673,17 @@ slice result. The [G-code Preview specification](G-code%20Preview%20v2.md) owns
 the established toolpath presentation behavior; a separate viewing context is
 required when remote content is integrated.
 
+Preview support includes an independent option query from an explicit file
+selection, even when file-stat support is unavailable. This query is the single
+owner of preview options; general file metadata does not duplicate them. Its
+result carries the assessed file identity/version and available options; an
+empty option list means the file has no preview, while query failures remain
+explicit errors. Opening uses that file selection and option identity, with
+client media negotiation, and revalidates them at execution time. Option IDs
+are scoped to the file/configuration/content, not a prior query session; a
+fresh service reference can use them without hidden caller state. Strict and
+best-effort consistency rules apply to both option queries and media opening.
+
 Download, delete, preview and print are independent operations. Only supported
 printable artifacts can be started; timelapse playback does not confer print
 eligibility. Reprint uses the same start-job semantics as starting a newly
@@ -763,6 +774,10 @@ Capability fixtures must reject null descriptions and empty required choices,
 while allowing unknown individual limits and meaningful optional empty lists.
 A supported Moonraker upload must be constructible from its declared default
 destination, formats and collision policies without a capability probe.
+Preview fixtures must construct an option query and media-open request when
+preview is supported but stat is unsupported, including empty options and
+file/version provenance. Future adapters must validate stale options and file
+changes without relying on a prior query session.
 Sensor fixtures must cover sensor-only reads without descriptor support, typed
 passive probes and generic/extended sensor values, and replacement events that
 carry both definitions and readings. Future adapters must also verify ID/kind

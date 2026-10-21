@@ -1,7 +1,7 @@
 // Compile-only consumers of the public entrypoint. Never imported by runtime code.
 import type { CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState, SensorSnapshot } from '@orca/printer-control/domain';
 import type { PrinterCapabilities, PrinterService, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
-import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range } from '@orca/printer-control/domain';
+import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range, FilePreviewListing, RemoteFileDetails } from '@orca/printer-control/domain';
 
 // Brands in fixtures stand in for IDs validated/issued by a future provider.
 const id = <K extends string,>(value: string): Id<K> => value as Id<K>;
@@ -706,3 +706,39 @@ const bareSensorEvent: PrinterEvent<'sensors'> = {
     value: sensorSnapshot.readings,
   } },
 };
+
+// Preview enumeration and opening work even when general file stat is unsupported.
+const previewWithoutStat = {
+  preview: { kind: 'supported', constraints: [{
+    storageId: remoteFile.storageId, kinds: ['thumbnail', 'video', 'toolpath'],
+    versionCheck: 'best-effort',
+  }] },
+  stat: { kind: 'unsupported', layer: 'adapter', reason: 'No general file metadata endpoint' },
+} satisfies Pick<FileCapabilities, 'preview' | 'stat'>;
+async function openRemotePreviewWithoutStat() {
+  if (previewWithoutStat.preview.kind !== 'supported') return;
+  const result = await service.files.listPreviews(bestEffort);
+  if (!result.ok) return result.error;
+  const listing = result.value;
+  const option = listing.options[0];
+  if (!option) return; // No preview for this file is a valid result.
+  return otherService.media.open({
+    target: { printerId: listing.file.printerId, routeId: listing.file.routeId,
+      expectedConfigurationRevision: listing.file.configurationRevision },
+    requestId: id<'request'>('remote-preview'),
+    source: { kind: 'file-preview', previewId: option.id,
+      target: { consistency: 'best-effort', file: listing.file } },
+    client: { video: [{ transport: 'progressive-http', codecIds: ['h264'] }],
+      imageMimeTypes: ['image/jpeg'], contentFormats: ['gcode'] },
+  });
+}
+const noPreviews: FilePreviewListing = { file: remoteFile, options: [] };
+// @ts-expect-error Preview options require the assessed file identity/version.
+const unboundPreviews: FilePreviewListing = { options: [] };
+// @ts-expect-error Option enumeration requires an explicit file selection and consistency policy.
+service.files.listPreviews({ file: remoteFile });
+// @ts-expect-error Strict option queries require a known content revision.
+service.files.listPreviews({ consistency: 'require-version-match', file: remoteFile });
+declare const fileDetails: RemoteFileDetails;
+// @ts-expect-error Preview options have a single owner, independent of stat.
+fileDetails.previews;

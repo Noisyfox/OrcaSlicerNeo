@@ -68,7 +68,6 @@ export interface RemoteFile {
 }
 export interface RemoteFileDetails {
   file: RemoteFile;
-  previews: readonly FilePreviewOption[];
   assessedAtMs: UnixMs;
   capabilityRevision: Revision;
   availability: {
@@ -79,10 +78,17 @@ export interface RemoteFileDetails {
 }
 export type PreviewKind = 'thumbnail' | 'image' | 'video' | 'text' | 'toolpath';
 export interface FilePreviewOption {
+  /** Scoped to file/configuration/content; not a token for a prior listing session. */
   id: Id<'preview-option'>;
   kind: PreviewKind;
   label: string;
   contentFormat: string | null;
+}
+export interface FilePreviewListing {
+  /** Identity/version assessed for these options; retain it when opening media. */
+  file: RemoteFileRef;
+  /** Empty means this file has no preview options, not that the query failed. */
+  options: readonly FilePreviewOption[];
 }
 export interface ListFilesRequest {
   target: PrinterTarget;
@@ -173,6 +179,7 @@ export interface FileCapabilities {
     maxBytes: number | null;
     collisionPolicies: NonEmptyReadonlyArray<'reject' | 'rename'>;
   }>>;
+  /** Covers both option enumeration and media opening, independently of stat. */
   preview: Capability<NonEmptyReadonlyArray<{
     storageId: Id<'storage'>;
     kinds: NonEmptyReadonlyArray<PreviewKind>;
@@ -187,6 +194,8 @@ export interface PrinterFiles {
   listStorages(target: PrinterTarget, options?: ReadOptions): Promise<Result<readonly PrinterStorage[]>>;
   list(request: ListFilesRequest, options?: ReadOptions): Promise<Result<RemoteFilePage>>;
   stat(selection: FileSelection, options?: ReadOptions): Promise<Result<RemoteFileDetails>>;
+  /** Preview capability owns this query; no stat call or listing session is required. */
+  listPreviews(selection: FileSelection, options?: ReadOptions): Promise<Result<FilePreviewListing>>;
   download(request: {
     target: FileSelection;
     range?: ByteRange;

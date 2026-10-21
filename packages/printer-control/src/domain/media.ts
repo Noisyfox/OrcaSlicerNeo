@@ -41,6 +41,7 @@ export type MediaSource = {
 } | {
   kind: 'file-preview';
   target: FileSelection;
+  /** From files.listPreviews; validate against this file, without caller-session state. */
   previewId: Id<'preview-option'>;
 };
 export interface OpenMediaRequest {
