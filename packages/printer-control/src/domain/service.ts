@@ -6,10 +6,18 @@ import type { PrinterMedia } from './media';
 import type { PrinterOperations, PrinterControls } from './control';
 import type { PrinterWebInterfaces } from './web-interface';
 
-export type ObservationValues<K extends StateTopic> = { [T in K]: Reading<PrinterObservationMap[T]> };
+/**
+ * K bounds possible keys, not the actual requested set. A widened/dynamic topic
+ * list may contain only one member of K, so multiple possible keys need presence
+ * checks. A single-topic K still has one required key. Empty payloads are invalid.
+ */
+export type ObservationValues<K extends StateTopic> = AtLeastOne<{
+  [T in K]: Reading<PrinterObservationMap[T]>;
+}>;
 export interface PrinterSnapshot<K extends StateTopic = StateTopic> {
   target: PrinterTarget;
   configurationRevision: Revision;
+  /** All actually requested topics, including unknown readings; no unrequested keys. */
   values: ObservationValues<K>;
 }
 export type PrinterEvent<K extends StateTopic = StateTopic> = {
@@ -21,10 +29,12 @@ export type PrinterEvent<K extends StateTopic = StateTopic> = {
   target: PrinterTarget;
   configurationRevision: Revision;
   cursor: ObservationCursor;
-  values: AtLeastOne<ObservationValues<K>>;
+  /** One or more changed topics from the subscription, not necessarily all of them. */
+  values: ObservationValues<K>;
 };
 export interface ObservationRequest<K extends StateTopic = StateTopic> {
   target: PrinterTarget;
+  /** Non-empty actual selection; K alone does not prove every possible member occurs. */
   topics: readonly [K, ...K[]];
 }
 export interface PrinterObservations {

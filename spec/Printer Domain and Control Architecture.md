@@ -552,6 +552,17 @@ remain explicit, including failures in part of a multi-topic read. Transport
 and authentication errors belong to the request/resource, not a global state
 that gates all other APIs.
 
+A successful read or subscription snapshot contains exactly the actual requested
+topics, including explicit unknown readings for unavailable requested data.
+An absent topic means it was not requested, not that its reading is unknown.
+The type of a dynamic topic list describes possible members; it does not prove
+that every possible member was requested. Public result types must not promise
+all such fields exist. The current contract requires presence checks when more
+than one topic is possible, while a single-topic request retains its required
+field. Snapshot and replacement payloads are non-empty; replacements include
+only changed topics within the subscription. Consumers of replacements must
+not interpret absent topics as deletion or unknown readings.
+
 The current event model uses snapshots scoped to requested topics followed by
 ordered replacements. Resume cursors identify feed positions, not connections;
 expired/inapplicable cursors or gaps require an explicit fresh snapshot before
@@ -778,6 +789,11 @@ Preview fixtures must construct an option query and media-open request when
 preview is supported but stat is unsupported, including empty options and
 file/version provenance. Future adapters must validate stale options and file
 changes without relying on a prior query session.
+Observation fixtures must cover single-topic access, widened/dynamic selections,
+explicit union type arguments, and both subscription snapshots and replacements.
+They must reject unchecked access to possibly absent topics and empty payloads.
+Future adapters must verify that complete snapshots include every actual
+requested topic and no unrelated topics, even when some readings are unknown.
 Sensor fixtures must cover sensor-only reads without descriptor support, typed
 passive probes and generic/extended sensor values, and replacement events that
 carry both definitions and readings. Future adapters must also verify ID/kind

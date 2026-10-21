@@ -1,7 +1,7 @@
 // Compile-only consumers of the public entrypoint. Never imported by runtime code.
 import type { CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState, SensorSnapshot } from '@orca/printer-control/domain';
 import type { PrinterCapabilities, PrinterService, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
-import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range, FilePreviewListing, RemoteFileDetails } from '@orca/printer-control/domain';
+import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range, FilePreviewListing, RemoteFileDetails, ObservationRequest, PrinterSnapshot, FirmwareComponent } from '@orca/printer-control/domain';
 
 // Brands in fixtures stand in for IDs validated/issued by a future provider.
 const id = <K extends string,>(value: string): Id<K> => value as Id<K>;
@@ -742,3 +742,76 @@ service.files.listPreviews({ consistency: 'require-version-match', file: remoteF
 declare const fileDetails: RemoteFileDetails;
 // @ts-expect-error Preview options have a single owner, independent of stat.
 fileDetails.previews;
+
+// A union of possible topics does not prove every member appears in the request.
+async function readDynamicTopics() {
+  const request: ObservationRequest<'materials' | 'firmware'> = {
+    target, topics: ['materials'],
+  };
+  const result = await service.observations.read({ ...request, source: 'device' });
+  if (!result.ok) return;
+  // @ts-expect-error Firmware was only a possible topic, not a guaranteed selection.
+  result.value.values.firmware.kind;
+  const firmware = result.value.values.firmware;
+  if (firmware?.kind === 'known') {
+    const components: readonly FirmwareComponent[] = firmware.value;
+  }
+  const materials = result.value.values.materials;
+  if (materials?.kind === 'known') {
+    const inventory: MaterialInventory = materials.value;
+  }
+  // @ts-expect-error Topics outside the possible selection remain inaccessible.
+  result.value.values.sensors;
+
+  const explicit = await service.observations.read<'materials' | 'firmware'>({
+    target, topics: ['materials'], source: 'cache',
+  });
+  if (explicit.ok) {
+    // @ts-expect-error Explicitly widening the generic cannot manufacture firmware data.
+    explicit.value.values.firmware.kind;
+  }
+}
+async function readWidenedRequest(request: ObservationRequest) {
+  const result = await service.observations.read({ ...request, source: 'cache' });
+  if (result.ok) {
+    // @ts-expect-error A default-typed request does not select all printer topics.
+    result.value.values.descriptor.kind;
+  }
+}
+async function watchDynamicTopics(request: ObservationRequest<'materials' | 'firmware'>) {
+  for await (const event of service.observations.watch(request)) {
+    if (event.type === 'snapshot') {
+      // @ts-expect-error Initial/reset snapshots do not promise every possible topic.
+      event.snapshot.values.firmware.kind;
+      const firmware = event.snapshot.values.firmware;
+      if (firmware?.kind === 'known') {
+        const components: readonly FirmwareComponent[] = firmware.value;
+      }
+    } else {
+      // @ts-expect-error A replacement may update only materials.
+      event.values.firmware.kind;
+    }
+  }
+}
+const materialOnlySnapshot: PrinterSnapshot<'materials' | 'firmware'> = {
+  target, configurationRevision: 'config-1',
+  values: { materials: { kind: 'unknown', reason: 'unavailable' } },
+};
+const emptySnapshot: PrinterSnapshot = {
+  target, configurationRevision: 'config-1',
+  // @ts-expect-error Even a dynamically selected snapshot must have at least one topic.
+  values: {},
+};
+const materialOnlyEvent: PrinterEvent<'materials' | 'firmware'> = {
+  type: 'snapshot', cursor: 'material-next' as ObservationCursor,
+  snapshot: materialOnlySnapshot,
+};
+async function readLiteralTopics() {
+  const result = await service.observations.read({ target, topics: ['materials', 'firmware'], source: 'cache' });
+  if (!result.ok) return;
+  // The public contract is conservative even for a literal multi-topic list.
+  const firmware = result.value.values.firmware;
+  if (firmware?.kind === 'known') {
+    const components: readonly FirmwareComponent[] = firmware.value;
+  }
+}
