@@ -65,13 +65,17 @@ export type DiscoveryScope = {
   hostId: Id<'agent-host'>;
   accountRef: Id<'account'>;
 };
-export interface ProviderDescriptor {
-  id: Id<'provider'>;
-  name: string;
-  hosts: readonly AgentHost[];
+/** Provider-specific support on this execution host, not a cross-host union. */
+export interface ProviderHost extends AgentHost {
   discovery: Capability<{
     kinds: NonEmptyReadonlyArray<DiscoveryScope['kind']>;
   }>;
+}
+export interface ProviderDescriptor {
+  id: Id<'provider'>;
+  name: string;
+  /** Each supported discovery entry supplies its own host ID and non-empty scope choices. */
+  hosts: readonly ProviderHost[];
 }
 export interface PrinterTypeDescriptor {
   id: Id<'printer-type'>;

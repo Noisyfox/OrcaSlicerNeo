@@ -616,7 +616,7 @@ const emptyTransports: CameraMediaCapability['liveView'] = { kind: 'supported', 
 // @ts-expect-error Observation support must specify a usable delivery mode.
 const emptyDelivery: PrinterCapabilities['observations']['materials'] = { kind: 'supported', constraints: { delivery: [] } };
 // @ts-expect-error Discovery support must identify at least one supported scope kind.
-const emptyDiscovery: ProviderDescriptor['discovery'] = { kind: 'supported', constraints: { kinds: [] } };
+const emptyDiscovery: ProviderDescriptor['hosts'][number]['discovery'] = { kind: 'supported', constraints: { kinds: [] } };
 // @ts-expect-error Web support needs a resolvable entry identity, not an empty descriptor.
 const missingWebEntry: PrinterCapabilities['webInterface'] = { kind: 'supported', constraints: {} };
 
@@ -815,3 +815,47 @@ async function readLiteralTopics() {
     const components: readonly FirmwareComponent[] = firmware.value;
   }
 }
+
+// Discovery choices belong to their execution host; there is no provider-wide cross product.
+const discoveryProvider = {
+  id: id<'provider'>('multi-host'), name: 'Multiple execution hosts',
+  hosts: [{
+    id: id<'agent-host'>('desktop-lan'), name: 'Desktop LAN', execution: 'desktop',
+    discovery: { kind: 'supported', constraints: { kinds: ['lan'] } },
+  }, {
+    id: id<'agent-host'>('service-account'), name: 'Account service', execution: 'service',
+    discovery: { kind: 'supported', constraints: { kinds: ['account'] } },
+  }, {
+    id: id<'agent-host'>('manual-browser'), name: 'Manual browser', execution: 'browser',
+    discovery: { kind: 'unsupported', layer: 'adapter', reason: 'Manual configuration only' },
+  }],
+} satisfies ProviderDescriptor;
+function discoverOnSupportedHosts(provider: ProviderDescriptor, accountRef: Id<'account'>) {
+  for (const host of provider.hosts) {
+    if (host.discovery.kind !== 'supported') continue;
+    for (const kind of host.discovery.constraints.kinds) {
+      if (kind === 'lan') {
+        service.discover(provider.id, { kind, hostId: host.id });
+      } else {
+        service.discover(provider.id, { kind, hostId: host.id, accountRef });
+      }
+    }
+  }
+}
+const providerWithoutHosts: ProviderDescriptor = {
+  id: id<'provider'>('unhosted'), name: 'Unhosted provider', hosts: [],
+};
+// @ts-expect-error Supported discovery cannot omit its execution-host identity.
+const supportedWithoutHostId: ProviderDescriptor['hosts'][number] = {
+  name: 'Missing identity', execution: 'desktop',
+  discovery: { kind: 'supported', constraints: { kinds: ['lan'] } },
+};
+const providerWideDiscovery: ProviderDescriptor = {
+  id: id<'provider'>('invalid'), name: 'No host', hosts: [],
+  // @ts-expect-error Discovery support belongs to a host; no top-level support escape hatch remains.
+  discovery: { kind: 'supported', constraints: { kinds: ['lan'] } },
+};
+// @ts-expect-error Even a LAN discovery call needs an explicit host identity.
+service.discover(discoveryProvider.id, { kind: 'lan' });
+// @ts-expect-error Account discovery still requires a caller-selected account.
+service.discover(discoveryProvider.id, { kind: 'account', hostId: id<'agent-host'>('service-account') });

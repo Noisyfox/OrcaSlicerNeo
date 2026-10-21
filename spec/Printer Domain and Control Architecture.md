@@ -206,6 +206,17 @@ Adding or discovering a printer does not select it as a print target. Preserve
 the independent console and send selections in the console specification.
 Forgetting removes Neo configuration, not remote files, account bindings or jobs.
 
+Discovery support is declared per provider execution host, alongside that host's
+identity. Every supported entry supplies a non-empty set of scope kinds for that
+host. Do not combine a provider-wide scope list with an unrelated host list:
+support for LAN on one host and account discovery on another does not imply
+either supports both. A provider with no hosts has no supported discovery
+entry. Hosts used for manual configuration remain valid catalogue entries even
+with unsupported or unknown discovery support. The caller selects a supported
+host/scope pair and supplies its account reference when
+applicable; no connection or prior discovery call is required to construct the
+request. Execution still validates the selected host, scope and account.
+
 Subscriptions and long-running operations also have independent request
 boundaries. A subscription explicitly names target/topics and an optional
 resume cursor. Media calls name their delivery resource; operation queries name
@@ -281,9 +292,9 @@ must not be presented as confirmed lack of device support.
 Required target/choice collections are non-empty when a capability is supported.
 This applies to controllable resources, start-file sources/formats, writable
 material fields, file scopes/formats/collision policies, camera transports/image
-formats, observation delivery modes and discovery scope kinds. Optional feature
-collections can be empty only with defined behavior: an empty camera profile
-list means omit profile selection and let the adapter choose delivery; an empty
+formats, observation delivery modes and discovery scope kinds on each host.
+Optional feature collections can be empty only with defined behavior: an empty
+camera profile list means omit profile selection and let the adapter choose delivery; an empty
 job-timelapse list means no optional job-level timelapse choices. Neither is an
 unknown required-choice placeholder. Pause/resume/cancel have an explicit empty
 constraint object because their job target comes from the request, with no
@@ -785,6 +796,10 @@ Capability fixtures must reject null descriptions and empty required choices,
 while allowing unknown individual limits and meaningful optional empty lists.
 A supported Moonraker upload must be constructible from its declared default
 destination, formats and collision policies without a capability probe.
+Discovery fixtures must construct requests from host-specific capability
+descriptions, reject supported discovery without a host identity or scope
+choice, and retain providers with no hosts or manual-only hosts without
+fabricating discovery support. Different hosts may support different scopes.
 Preview fixtures must construct an option query and media-open request when
 preview is supported but stat is unsupported, including empty options and
 file/version provenance. Future adapters must validate stale options and file
