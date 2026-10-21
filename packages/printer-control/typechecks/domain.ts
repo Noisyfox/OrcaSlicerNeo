@@ -1,5 +1,5 @@
 // Compile-only consumers of the public entrypoint. Never imported by runtime code.
-import type { CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState } from '@orca/printer-control/domain';
+import type { CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState, SensorSnapshot } from '@orca/printer-control/domain';
 import type { PrinterCapabilities, PrinterService, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
 import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range } from '@orca/printer-control/domain';
 
@@ -628,3 +628,81 @@ if (moonrakerCapabilities.files.upload.kind === 'supported') {
     collisionPolicy: choice.collisionPolicies[0], fileName: 'part.gcode', sizeBytes: 100,
   }, { chunks });
 }
+
+// Sensor-only adapters can return interpretable data without a full descriptor.
+const sensorOnlyObservations = {
+  sensors: { kind: 'supported', constraints: { delivery: ['on-demand'] } },
+  descriptor: { kind: 'unsupported', layer: 'adapter', reason: 'Sensor-only adapter' },
+} satisfies Pick<PrinterCapabilities['observations'], 'sensors' | 'descriptor'>;
+const particleSensorId = id<'sensor'>('chamber-pm25');
+const airQualitySensorId = id<'sensor'>('air-quality');
+export const sensorSnapshot: SensorSnapshot = {
+  definitionRevision: 'sensor-definitions-1',
+  definitions: [...enclosedPrinter.topology.sensors, {
+    id: particleSensorId, name: 'Chamber particles', location: 'Chamber',
+    kind: 'numeric', unit: 'µg/m³', semanticType: 'air:pm2.5',
+  }, {
+    id: airQualitySensorId, name: 'Air quality', location: 'Chamber',
+    kind: 'fixture:air-quality', unit: null,
+  }],
+  readings: [{
+    sensorId: id<'sensor'>('chamber'), kind: 'temperature',
+    reading: { kind: 'unknown', reason: 'not-reported' },
+  }, {
+    sensorId: id<'sensor'>('door'), kind: 'door',
+    reading: { kind: 'known', value: 'closed', sourceRouteId: routeId,
+      freshness: 'fresh', observedAtMs: null, receivedAtMs: 100 },
+  }, {
+    sensorId: particleSensorId, kind: 'numeric',
+    reading: { kind: 'known', value: 42, sourceRouteId: routeId,
+      freshness: 'fresh', observedAtMs: null, receivedAtMs: 100 },
+  }, {
+    sensorId: airQualitySensorId, kind: 'fixture:air-quality',
+    reading: { kind: 'known', value: { pm25: 42, grade: 'poor' }, sourceRouteId: routeId,
+      freshness: 'fresh', observedAtMs: null, receivedAtMs: 100 },
+  }],
+};
+async function readSensorsWithoutDescriptor() {
+  const result = await service.observations.read({ target, topics: ['sensors'], source: 'device' });
+  if (!result.ok || result.value.values.sensors.kind !== 'known') return;
+  const snapshot = result.value.values.sensors.value;
+  const definitions = new Map(snapshot.definitions.map(definition => [definition.id, definition]));
+  const definitionRevision: string = snapshot.definitionRevision;
+  for (const state of snapshot.readings) {
+    const definition = definitions.get(state.sensorId);
+    if (definition?.kind === 'numeric' && state.kind === 'numeric' && state.reading.kind === 'known') {
+      const semanticType: string = definition.semanticType;
+      const unit: string | null = definition.unit;
+      const value: number = state.reading.value;
+    }
+    if (state.kind === 'fixture:air-quality' && state.reading.kind === 'known') {
+      const grade: 'good' | 'poor' = state.reading.value.grade;
+    }
+  }
+  // @ts-expect-error Sensor-only reads do not require or manufacture a descriptor topic.
+  result.value.values.descriptor;
+}
+const sensorUpdate: PrinterEvent<'sensors'> = {
+  type: 'replace', target, configurationRevision: 'config-1',
+  cursor: 'sensor-next' as ObservationCursor,
+  values: { sensors: { kind: 'known', value: sensorSnapshot, sourceRouteId: routeId,
+    freshness: 'fresh', observedAtMs: null, receivedAtMs: 100 } },
+};
+// @ts-expect-error A bare reading list is no longer a valid sensor-topic payload.
+const bareSensorReadings: SensorSnapshot = sensorSnapshot.readings;
+// @ts-expect-error Readings without their definitions cannot form a snapshot.
+const missingSensorDefinitions: SensorSnapshot = { definitionRevision: '1', readings: [] };
+// @ts-expect-error The definition revision is required even when readings are unavailable.
+const missingSensorRevision: SensorSnapshot = { definitions: [], readings: [] };
+// @ts-expect-error Consumers cannot mutate a snapshot's definition collection.
+sensorSnapshot.definitions.push(door);
+// @ts-expect-error Consumers cannot mutate a snapshot's reading collection.
+sensorSnapshot.readings.push(sensor);
+const bareSensorEvent: PrinterEvent<'sensors'> = {
+  ...sensorUpdate,
+  values: { sensors: { kind: 'known', sourceRouteId: routeId,
+    freshness: 'fresh', observedAtMs: null, receivedAtMs: 100,
+    // @ts-expect-error Replacement events must include the complete sensor snapshot too.
+    value: sensorSnapshot.readings,
+  } },
+};

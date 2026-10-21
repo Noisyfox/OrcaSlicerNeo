@@ -1,7 +1,7 @@
 /** Printer description and observations. No host, firmware protocol or slicer dependency. */
 import type { Id, Revision, Axis, ExternalRef, Capability, Reading, NonEmptyReadonlyArray } from './common';
 import type { MaterialTopology, MaterialState, MaterialInventory } from './materials';
-import type { SensorDefinition, SensorState } from './sensors';
+import type { SensorDefinition, SensorState, SensorSnapshot } from './sensors';
 import type { RemoteFileRef, FileCapabilities } from './files';
 import type { TimelapseMode, CameraMediaCapability } from './media';
 import type { CommandCapabilities } from './control';
@@ -203,7 +203,7 @@ export interface PrinterObservationMap {
   actuators: Pick<PrinterState, 'fans' | 'lights'>;
   materials: MaterialInventory;
   cameras: PrinterState['cameras'];
-  sensors: PrinterState['sensors'];
+  sensors: SensorSnapshot;
   alerts: Extract<PrinterState['alerts'], { kind: 'known' }>['value'];
   firmware: readonly FirmwareComponent[];
 }

@@ -1,5 +1,5 @@
 /** Read-only sensor definitions and observations, independent of controllable actuators. */
-import type { Id, Reading } from './common';
+import type { Id, Reading, Revision } from './common';
 
 /**
  * Extend through declaration merging of the public domain entrypoint.
@@ -57,3 +57,17 @@ export type SensorStateOf<K extends SensorKind> = { [N in K]: {
   reading: Reading<SensorTypeMap[N]['value']>;
 } }[K];
 export type SensorState = SensorStateOf<SensorKind>;
+
+/**
+ * Self-contained sensor-topic payload, independent of descriptor read support.
+ * Definitions share the descriptor's authoritative source; they may come from
+ * static configuration or cache without additional device discovery.
+ * Adapters validate unique IDs and exactly one matching definition (including
+ * kind) for each reading. TypeScript cannot enforce these cross-record checks.
+ */
+export interface SensorSnapshot {
+  /** Scoped to target/configuration; changes with definitions, not sensor samples. */
+  definitionRevision: Revision;
+  definitions: readonly SensorDefinition[];
+  readings: readonly SensorState[];
+}

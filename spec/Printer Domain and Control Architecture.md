@@ -441,6 +441,26 @@ identifiers distinguish their meaning; display names are not machine-readable
 semantics. The extension mechanism itself is not fixed to a TypeScript map,
 plugin registry or vendor payload format.
 
+The sensors observation topic returns a self-contained snapshot of definitions,
+readings and a definition revision. It must remain usable when full descriptor
+reading is unsupported or no descriptor is cached. Each returned reading has
+exactly one definition with the same sensor ID and kind; definition IDs and
+reading IDs are unique within their respective collections. Generic sensor
+definitions include their semantic identifier and unit, so consumers never have
+to guess what a numeric value measures. Adapters validate these relationships;
+the type declarations alone do not enforce cross-record consistency.
+
+Definitions share one authoritative source with the descriptor's sensor
+collection; the snapshot is a projection, not a second definition registry.
+Static configuration or retained definitions can supply this projection without
+an additional network request. The definition revision is scoped to the printer,
+route and configuration, changes when definitions change, and remains stable
+across measurement-only updates. Sensor-topic reads and replacement events
+publish matching definitions and readings together. They do not require a prior
+descriptor call, automatic hardware discovery or a control connection. If the
+adapter cannot supply matching definitions, it must report unavailable data or
+an explicit failure rather than publish uninterpretable readings as known.
+
 Readings preserve known versus unknown, fresh versus stale, observation and
 receipt times, and source route. Never use zero, false, an empty slot or a
 closed door to stand in for an unknown reading. Lack of a device timestamp
@@ -539,7 +559,8 @@ further updates. Cursors are bound to the target, topics and configuration. Resp
 configuration revisions so late data from edited routes can be rejected.
 Adapters must publish mutually dependent data coherently and reject obsolete
 references. Material reads therefore carry the relevant topology and inventory
-together. No public connection epoch is needed. Exact buffering and cache
+together; sensor reads carry their definitions and readings together. No public
+connection epoch is needed. Exact buffering and cache
 implementation remain open. Vendor payloads are not the shared domain model.
 
 Descriptor, topology, capability and inventory revisions have distinct
@@ -742,6 +763,10 @@ Capability fixtures must reject null descriptions and empty required choices,
 while allowing unknown individual limits and meaningful optional empty lists.
 A supported Moonraker upload must be constructible from its declared default
 destination, formats and collision policies without a capability probe.
+Sensor fixtures must cover sensor-only reads without descriptor support, typed
+passive probes and generic/extended sensor values, and replacement events that
+carry both definitions and readings. Future adapters must also verify ID/kind
+consistency and definition-version changes without extra device discovery.
 These are future runtime acceptance requirements; compile-only fixtures validate
 interface expressibility, not network behavior.
 
