@@ -22,7 +22,8 @@ That design covers discovery, capabilities, material systems, sensors, cameras
 and remote files; it does not mark agents or a gateway delivered. This document
 continues to own the existing console and sending experience, including printer
 selection and upload/start retry behavior. Its saved API-key representation
-remains current until the domain's credential-reference migration is implemented.
+remains current; the proposed credential-reference approach requires a separate
+migration decision before this persistence contract changes.
 
 The embedded console is a convenience and management surface. Sending and
 printing use the printer API directly, so either surface can continue to be

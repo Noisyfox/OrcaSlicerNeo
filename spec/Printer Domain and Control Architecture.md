@@ -2,7 +2,8 @@
 
 **Updated:** 2026-10-21
 
-**Status:** Design baseline recorded for review; concrete agents, gateway and
+**Status:** Explicit requirements and selected architecture direction recorded;
+detailed design remains a proposal for review. Concrete agents, gateway and
 domain implementation are deferred. This document does not claim delivery.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
@@ -18,10 +19,11 @@ implementation task list. The user-selected direction is **option B**: a shared
 TypeScript domain contract with protocol-specific agents behind it, allowing
 execution in a suitable browser, desktop or remote service host.
 
-The following requirements come directly from the user's design requests and
-must survive later interface refinement:
+The left column below records explicit user requests. The right column explains
+their intended coverage; it does not make a particular interface decomposition
+or implementation technique an additional user mandate.
 
-| Requirement | Required consequence |
+| Explicit requirement | Design coverage |
 | --- | --- |
 | Abstract printer properties and capabilities before implementing agents | Hardware description, supported functions and current state are separate concepts. |
 | Abstract the various printer control interfaces | Shared features use a vendor-independent domain boundary. |
@@ -32,13 +34,49 @@ must survive later interface refinement:
 | Preview remote files, including timelapses and uploaded G-code | Treat stored media and printable files as first-class resources with appropriate preview types. |
 | Download, delete and reprint remote files | Define independent operations and their availability; reprinting starts an existing remote printable file. |
 | Support temperature probes without temperature control, plus other sensors such as door switches | Provide a generic read-only sensor collection with data that varies and can expand by sensor type. |
-| Clarify nozzle material | Nozzle construction material is hardware metadata; loaded filament belongs to the material system. |
+| Integrate the design and check duplicates, omissions and responsibility boundaries | Maintain one coherent domain model and retain examples for different printer configurations. |
 | Defer concrete agents and the gateway | Recording this specification does not authorize their implementation. |
 | Record constraints rather than concrete TypeScript interfaces | Keep interface source code and exhaustive API signatures out of this specification. |
 
-The remaining sections consolidate the current design baseline. Unresolved
-choices are called out explicitly; a proposed abstraction is not evidence that
-a particular printer or host already implements it.
+The nozzle-material question was answered by distinguishing nozzle construction
+material from loaded filament. Preserve that distinction in the design; the
+suggested property name is not an independently approved interface requirement.
+The requested modeling examples are retained in section 11. Neither those
+examples nor the feature lists below are an exhaustive ceiling on printer
+support: the original functional request was explicitly non-exhaustive.
+
+### 1.1 Decision status and interpretation
+
+The explicit requests above and selection of option B are established user
+decisions. Existing requirements inherited from linked repository specifications
+remain authoritative. The rest of this document records the proposed domain
+semantics and design constraints from the discussion, not blanket user approval
+of every previously suggested interface detail. Where a concrete mechanism is
+described, it is a candidate unless its authority is explicitly identified.
+Changing such a mechanism must preserve the applicable user requirements and
+existing repository contracts; it does not require treating the earlier
+TypeScript sketch as a frozen schema.
+
+In particular, the following choices remain reviewable:
+
+| Area | Current proposal, not a fixed implementation requirement |
+| --- | --- |
+| Initial technology coverage | Non-mixing FDM as the first modeling focus; other technologies are not a user-imposed permanent exclusion. |
+| Entity layout and command definitions | Separate resource records, a command-specification map and derived request/capability types; exact field layout and code generation remain open. |
+| Synchronization | Initial snapshots, whole-section replacements, connection epochs and separate revisions; equivalent coherent synchronization is possible. |
+| Operation tracking | Service-scoped tracking and request lookup; ownership, storage and retention are not prescribed. |
+| Sensor representation | Typed readings, common sensor storage and references from heaters/material units; extension registration and lookup/indexing are open. |
+| Media | One media-session abstraction for live and stored content, and WebRTC signaling when selected; concrete transports and session reuse rules are open. |
+| Remote-file consistency | Explicit strict/best-effort version modes and route-scoped references; provider support and the exact request model need validation. |
+| Transfers | Paged listings, streamed reads, invalidation notifications and reject/rename upload policies; no exact wire API or universal provider support is assumed. |
+| Credentials | Opaque credential references; migration and host storage require a separate decision. |
+| Project material import | A revision-bound proposal followed by an explicit native transaction; the precise review UI and proposal representation remain open. |
+
+A proposed abstraction is not evidence that a particular printer or host
+already implements it. This classification applies to sections 2–11, including
+their suggested acceptance scenarios. Including a feature in the domain does
+not require every printer or provider to support it; capability reporting must
+preserve that distinction.
 
 The [shared application architecture](Web-Electron%20Shared%20Application%20Architecture.md)
 remains the application-wide authority. [Printer Console and Control Integration](Printer%20Console%20and%20Control%20Integration.md)
@@ -50,11 +88,12 @@ the only delivery roadmap; recording this design changes no delivery status.
 
 ## 2. Scope and architectural boundaries
 
-The initial domain models non-mixing FDM printers, including single-extruder,
+The proposed initial modeling focus is non-mixing FDM, including single-extruder,
 multi-material, multiple-tool and multiple-nozzle configurations. Resin,
-continuous material mixing and unrestricted vendor command consoles require
-separate design work. Unknown hardware properties are valid; they must not be
-filled with guessed defaults merely to match a preferred printer model.
+continuous material mixing and general vendor command consoles have not been
+designed here; their exclusion from this draft is not a permanent product ban.
+Unknown hardware properties are valid; they must not be filled with guessed
+defaults merely to match a preferred printer model.
 
 The shared domain owns semantic types, normalized snapshots, capability
 descriptions, command outcomes and resource lifetimes. Agents translate vendor
@@ -96,14 +135,22 @@ the independent, explicit console and send selections in the console spec.
 Forgetting a saved printer removes Neo configuration; it does not unbind a
 cloud account, delete remote files or cancel a physical print.
 
-A logical session may survive reconnection, but each connection incarnation
-has a distinct epoch. Old events, command preconditions and media sessions
-must not be applied to a new epoch. Consumers share a managed service/session
-lifecycle rather than create independent polling connections for each widget.
+In the proposed model, a logical session survives reconnection while an epoch identifies
+each connection incarnation. The semantic goal is to reject obsolete events
+and command context, and revalidate dependent resources after reconnection;
+the particular epoch and session-identity scheme remains open. Shared managed
+subscriptions are proposed to avoid independent polling by every widget;
+their ownership and caching mechanism are not fixed here.
 Closing a view or session releases its subscriptions and media resources;
 it does not implicitly stop a printer job.
 
 ## 4. Hardware, capabilities and operational availability
+
+Printer properties cover stable identity and display name, manufacturer/model,
+serial number and external identifiers when available, firmware information,
+and build volume/geometry. Missing information remains explicit. These observed
+device properties do not automatically replace the project's selected Printer
+preset or its slicing configuration.
 
 Hardware topology describes motion groups, tools, extruders, nozzles,
 actuators, sensors, cameras and material-system relationships. These objects
@@ -124,11 +171,12 @@ use or device restrictions. File-specific availability likewise does not create
 a second capability declaration. UI availability is advisory; execution must
 revalidate relevant conditions.
 
-Define each semantic command once, with its parameters, constraints and result
-relationship. Derive capability and request representations from that single
-contract when interfaces are implemented. Do not maintain unrelated command
-enumerations in each adapter or add an untyped raw JSON/G-code escape hatch to
-the common control API.
+Keep command semantics, parameters, capability constraints and results
+consistent across adapters. The earlier interface sketch proposed deriving
+them from one command-specification map; mapped types or code generation are
+implementation choices, not requirements. A generic raw JSON/G-code passthrough
+is not part of the proposed common control surface. Any later vendor extension
+needs explicit semantics and validation rather than bypassing the abstraction.
 
 ## 5. Read-only sensors and actuator separation
 
@@ -138,8 +186,11 @@ a discriminating type and an explicit unit where applicable. Its type selects
 the value shape: scalar temperature or humidity, door state, filament presence,
 or structured values such as a vector. New sensor types must extend this model
 without adding unrelated top-level state fields or weakening existing types.
-Unstandardized numeric and binary sensors need stable semantic identifiers;
-display names are not machine-readable semantics.
+Vectors and generic numeric/binary types are extensibility examples, not a
+mandatory initial sensor catalogue. If generic types are used, stable semantic
+identifiers distinguish their meaning; display names are not machine-readable
+semantics. The extension mechanism itself is not fixed to a TypeScript map,
+plugin registry or vendor payload format.
 
 Readings preserve known versus unknown, fresh versus stale, observation and
 receipt times, and source route. Never use zero, false, an empty slot or a
@@ -148,9 +199,11 @@ must remain distinguishable from a locally observed receipt time.
 
 A temperature sensor does not imply temperature control. A heater is an
 actuator with a target temperature and optional reference to its reported
-feedback temperature sensor. Current measured temperature lives in sensor
-state, not a duplicate heater field. A read-only chamber probe therefore needs
-no chamber heater. A heater may exist without an exposed feedback reading.
+feedback temperature sensor in the proposed model. Keep one authoritative
+reading when several views expose the same measurement; common sensor state
+with references is the current proposal, not a ban on derived UI projections.
+A read-only chamber probe therefore needs no chamber heater. A heater may
+exist without an exposed feedback reading.
 Several probes can observe a region; sharing a referenced reading must not
 duplicate its identity or data.
 
@@ -174,8 +227,10 @@ and describes manual or automatic loading. Do not require four-slot units,
 contiguous vendor numbering, one feeder, one nozzle or one active tool.
 
 Separate physical presence, material metadata, spool identity and remaining
-quantity. An empty slot can retain metadata; that metadata is not evidence of
-filament presence. Preserve solid and multi-color descriptions. Remaining
+quantity. Metadata can include material type, manufacturer, filament diameter,
+color and catalogue association when available. An empty slot can retain this
+metadata; it is not evidence of filament presence. Preserve solid and
+multi-color descriptions. Remaining
 quantity includes a unit and whether it is measured, estimated or unspecified.
 Vendor/catalogue references are namespaced and are not assumed to be Neo
 filament preset identifiers.
@@ -189,11 +244,12 @@ support does not imply permission to modify material metadata.
 
 Inventory synchronization updates the device model. It must not silently
 rewrite the open project's native rack, presets, colors or assignments.
-Import into the project is an explicit application workflow: prepare a proposal
-bound to printer, topology, inventory and project revisions; expose empty slots,
-missing data and unresolved preset matches; then apply an approved mapping
-through native compatibility rules and one atomic history transaction. A
-failed or stale proposal cannot partially change the project.
+Import into the project is an explicit application workflow. The proposed flow
+prepares a mapping with enough device/project context to detect stale input and
+exposes empty slots, missing data and unresolved preset matches. The exact
+proposal fields and confirmation UI remain open. Applying it follows existing
+native compatibility rules and the atomic history contract. A failed or stale
+proposal cannot partially change the project.
 
 Project slot identity and physical device slot identity stay separate. Print
 submission binds the printable artifact's material keys to actual material
@@ -204,16 +260,25 @@ Undo/Redo contracts remain owned by the multi-filament specification.
 
 ## 7. State synchronization and command outcomes
 
-Publish an initial complete snapshot followed by ordered replacement updates
-for complete sections. A connection epoch defines the sequence domain; a new
-epoch starts from a complete snapshot. Gaps, expired subscriptions and invalid
-references require resynchronization. Do not combine arbitrary vendor JSON
-patches with the domain snapshot model or present partial transitions as a
-coherent topology/state pair.
+Synchronized information includes connection/authentication state, printer
+operational state, active tools, current job identity/source and phase,
+progress and remaining-time estimates, actuator and motion state, material
+inventory, camera state, sensor readings and alerts. Job absence is distinct
+from unknown job state. Alerts retain identity, severity and a usable message;
+warnings and estimated values must not be promoted to confirmed device facts.
+
+The proposed event model starts with a complete snapshot, then publishes
+ordered replacements of complete sections, with a fresh snapshot after a
+connection epoch changes. This is a candidate synchronization strategy, not a
+requirement to replace whole sections or prohibit normalized deltas. Any chosen
+strategy needs coherent topology/state publication, obsolete-event rejection
+and recovery from missed updates, expired subscriptions and invalid references.
+Arbitrary vendor payloads cannot themselves serve as the shared domain model.
 
 Descriptor, topology, capability and inventory revisions have distinct
-meanings. A command carries the connection and relevant revision basis;
-validate only the revisions needed for that command's correctness. Sensor
+meanings in the proposed sketch. Their exact tokens and grouping are open;
+control validation needs enough current context for the command's correctness,
+without requiring every command to carry every revision. Sensor
 telemetry changes alone must not invalidate an unrelated material mapping.
 Observations may be pushed, polled or obtained on demand, with support declared
 per topic, including sensors. Refresh does not promise that every reading
@@ -231,9 +296,10 @@ acknowledgment is not physical completion. Completion needs a device result or
 an appropriate observed-state confirmation. Transport loss after dispatch can
 leave the outcome unknown and must not be relabeled as safe failure.
 
-Track operations at service scope so callers can reconcile a request after a
-view or session closes. Request identity supports lookup and deduplication
-within the authority's defined lifetime, not a claim of device-level exactly-once
+Preserve a way to reconcile submitted work after a view or session closes.
+Service-scoped operation tracking is the proposed solution; its concrete
+ownership and persistence are open. Request identity can support lookup and
+deduplication within the authority's defined lifetime, not a claim of device-level exactly-once
 execution. Do not automatically repeat a potentially completed print or motion
 command because a response was lost. Unknown or expired lookup results do not
 prove that the original command was never executed.
@@ -250,20 +316,26 @@ light. Expose their availability and observed state separately from supported
 live-view formats, snapshots, enable/disable controls and timelapse modes.
 Do not infer camera controls from the mere presence of a stream.
 
-Live camera viewing and stored-file presentation share a managed media-session
-boundary. Negotiate delivery against client transport and format/codec support.
+The current proposal shares a managed media-session boundary between live
+camera viewing and stored-file presentation. This reuse is not required if
+separate abstractions better preserve consistent availability, authorization,
+playback and cleanup semantics. Select delivery against client transport and
+format/codec support.
 The domain can describe browser-consumable HTTP video, HLS, MJPEG or WebRTC
 without requiring every provider to implement all of them. Protocol-specific
 camera addresses and private transport credentials remain agent concerns;
 a source URL is not evidence of browser playback capability.
 
-Media sessions own temporary delivery descriptors, expiry/renewal, state,
-errors and explicit closure. WebRTC additionally requires offer/answer and ICE
-signaling tied to a negotiation identity; initial signals must not be lost
-before the consumer subscribes. Descriptor changes are revisioned. Closing the
-parent session or replacing its connection epoch invalidates the child media
-session. Enforce supported concurrent-view limits and release resources when
-viewing ends.
+The proposed media session manages temporary delivery information,
+expiry/renewal where applicable, state, errors and explicit closure. Advertise
+available profiles, resolution/frame rate and playback properties such as
+duration and seekability when known; these are not guaranteed for every stream.
+If WebRTC is selected, its signaling must handle offer/answer and ICE without
+losing initial signals. Negotiation identities and descriptor revisions are
+candidate mechanisms. Parent closure or reconnection requires cleanup or
+explicit resource revalidation; mandatory destruction and recreation of every
+media session is not settled. Respect applicable concurrent-view limits and
+release resources when viewing ends.
 
 Snapshot capture is independent of live viewing. Device-level timelapse
 configuration is separate from a print job's timelapse options. A recorded
@@ -274,15 +346,22 @@ camera session. Watching a camera must not implicitly enable recording.
 
 Model storage, directories, remote files and file content identity explicitly.
 Files include uploaded printable artifacts, timelapses, recordings, images and
-unrecognized content. A remote reference is scoped to its printer, route and
-storage. A filename or host-private filesystem path is not a portable identity;
-references cannot silently move between LAN and cloud routes.
+unrecognized content. Metadata describes name, format/media type, size and
+timestamps when known, with type-specific information such as printable
+material keys, duration, dimensions and associated job. Storage availability
+and capacity/free space are independent of file metadata and may be unknown.
+The proposed remote reference is scoped to printer, route and storage. A
+filename or host-private filesystem path alone is not a portable identity.
+Cross-route reuse needs verified identity and access; route-scoped references
+are one way to enforce this rather than a permanent ban on such reuse.
 
-Listing is paginated and reports whether pages belong to a stable listing
-snapshot or best-effort enumeration. Expired cursors, unavailable storage and
+Paged listing is proposed for large collections, with an explicit distinction
+between stable snapshots and best-effort enumeration. Cursor and paging
+mechanisms are open. Expired cursors, unavailable storage and
 file changes are explicit outcomes. File change notifications can invalidate
-directories or storage lists; consumers then refresh rather than reconstruct
-authoritative state from guessed event details.
+directories or storage lists. Invalidation followed by refresh is the proposed
+baseline; validated domain deltas are another possible design. Consumers must
+not reconstruct authoritative state from guessed event details.
 
 Differentiate thumbnail/image, video, text and toolpath previews. A G-code
 thumbnail is not a full toolpath preview. Preview options depend on the file,
@@ -298,23 +377,28 @@ eligibility. Reprint uses the same start-job semantics as starting a newly
 uploaded file, with current material bindings, job options and preconditions.
 Do not introduce a parallel reprint command with weaker checks.
 
-Version-sensitive requests distinguish strict version matching from explicit
-best effort. Strict matching requires a known content revision and an adapter
-that can enforce the check atomically with the operation; otherwise reject it.
+The current proposal gives version-sensitive requests explicit strict and
+best-effort modes. Whether every operation exposes these modes and how an
+adapter establishes content identity remain open. If strict matching is
+offered, it requires a known content revision and an adapter that can enforce
+the check atomically with the operation; otherwise reject it.
 Never silently downgrade strict matching. Best effort still rejects a known
 revision mismatch, while honestly retaining any race that the device protocol
-cannot eliminate. Apply this distinction consistently to file reads, previews,
-deletion and print start.
+cannot eliminate. Whatever request model is selected, communicate its actual
+consistency guarantee for reads, previews, deletion and print start; a provider
+without atomic version checks is not thereby excluded from all file operations.
 
 Uploads report transfer progress separately from device confirmation and return
 the actual remote artifact identity. Upload completion does not imply print
 start. If start fails after upload, retain the artifact and allow a start-only
-retry as required by the console spec. Collision handling is explicit; the
-baseline supports rejection or rename, not implicit overwrite. Cancellation or
-an uncertain outcome must not claim that remote data was cleaned up.
+retry as required by the console spec. Collision handling is explicit; rejection
+or rename were the proposed initial policies. Whether explicit overwrite is
+supported remains open; it must not be introduced as a silent default.
+Cancellation or an uncertain outcome must not claim that remote data was cleaned up.
 
-Binary transfers are streamed with bounded buffering and backpressure. Report
-actual ranges and byte counts; unsupported range requests must not masquerade
+Large transfers need bounded resource use. Streaming with backpressure is the
+proposed mechanism; exact chunk transport and small-payload handling are open.
+Report actual ranges and byte counts; unsupported range requests must not masquerade
 as successful partial responses. Temporary preview URLs/content handles have
 managed lifetimes rather than permanent configuration ownership.
 
@@ -330,7 +414,7 @@ Use opaque, scoped resource identities and validate references, variants, units,
 ranges, color forms and non-empty mutations at boundaries. Unknown data is
 explicit; unsafe casts and unvalidated vendor payloads are not normalization.
 
-The future domain exposes credential references, with secrets resolved by the
+The proposed domain exposes credential references, with secrets resolved by the
 owning host/provider. Temporary media authorization must not enter persistent
 device snapshots or logs. This is a target boundary, not a claim that the
 existing saved Moonraker API-key representation has already changed. Its
@@ -346,8 +430,9 @@ multi-camera playback or unlimited in-memory file buffering is implied.
 
 ## 11. Modeling and acceptance boundaries
 
-The design must represent at least these shapes without vendor-specific shared
-types or fabricated capabilities:
+Use these examples to assess the proposed initial model without vendor-specific
+shared types or fabricated capabilities. They preserve the requested modeling
+coverage without prescribing the final record layout:
 
 | Device shape | Required representation |
 | --- | --- |
@@ -360,16 +445,17 @@ types or fabricated capabilities:
 | Printer with live video and stored timelapses/G-code | Separate live and remote-file resources sharing managed media delivery. |
 | Partially observable or offline printer | Partial topology and unknown/stale observations without falsely declaring support or readiness. |
 
-Future implementation acceptance must cover reconnection epochs, ordered
-resynchronization, stale control guards, unknown command outcomes, independent
+Future implementation acceptance should cover obsolete-connection events,
+coherent resynchronization, stale control context, unknown command outcomes, independent
 sensor/actuator support, material/project isolation, media teardown, changed-file
 races, unsupported operations and upload-success/start-failure recovery.
 Mock/type validation does not qualify physical-printer behavior, cloud account
 permissions, browser networking or media interoperability. Select execution
 scope using the [testing guidelines](../doc/testing_guidelines.md).
 
-Open implementation decisions include provider prioritization and exact model
-support; discovery and account authentication mechanisms; gateway deployment,
+In addition to the reviewable mechanisms in section 1.1, open decisions include
+provider prioritization and exact model support; discovery and account
+authentication mechanisms; gateway deployment,
 wire protocol and cross-version negotiation; credential migration; operation
 retention and deduplication guarantees; media proxy/transcoding feasibility;
 and the runtime/parser context for remote toolpath previews. Resolve these
