@@ -5,6 +5,7 @@ import type { SensorDefinition, SensorState } from './sensors';
 import type { RemoteFileRef, FileCapabilities } from './files';
 import type { TimelapseMode, CameraMediaCapability } from './media';
 import type { CommandCapabilities } from './control';
+import type { WebInterfaceCapability } from './web-interface';
 export interface PrinterIdentity {
   id: Id<'printer'>;
   displayName: string;
@@ -106,14 +107,17 @@ export interface PrinterTopology {
   sensors: readonly SensorDefinition[];
   materials: MaterialTopology;
 }
+export interface FirmwareComponent {
+  name: string;
+  version: string;
+}
+
 export interface PrinterDescriptor {
   revision: Revision;
   identity: PrinterIdentity;
   technology: 'fdm';
-  firmware: readonly {
-    name: string;
-    version: string;
-  }[];
+  /** Single version inventory. Unknown/stale data does not imply lack of read support. */
+  firmware: Reading<readonly FirmwareComponent[]>;
   buildVolume: BuildVolume | null;
   topology: PrinterTopology;
 }
@@ -173,8 +177,11 @@ export interface PrinterCapabilities {
   commands: CommandCapabilities;
   cameras: readonly CameraMediaCapability[];
   files: FileCapabilities;
+  /** Original printer UI, independently resolvable through PrinterService.webInterfaces. */
+  webInterface: WebInterfaceCapability;
+  /** Firmware read support is observations.firmware; no update capability is implied. */
   observations: { [K in StateTopic]: Capability<{
     delivery: readonly ('push' | 'poll' | 'on-demand')[];
   }> };
 }
-export type StateTopic = 'job' | 'thermal' | 'motion' | 'actuators' | 'materials' | 'cameras' | 'sensors' | 'alerts';
+export type StateTopic = 'job' | 'thermal' | 'motion' | 'actuators' | 'materials' | 'cameras' | 'sensors' | 'alerts' | 'firmware';

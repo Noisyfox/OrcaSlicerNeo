@@ -4,6 +4,7 @@ import type { AgentHost, SavedPrinter, PrinterDescriptor, PrinterState, PrinterC
 import type { PrinterFiles } from './files';
 import type { PrinterMedia } from './media';
 import type { PrinterOperations, PrinterControls } from './control';
+import type { PrinterWebInterfaces } from './web-interface';
 export interface PrinterSnapshot {
   cursor: SessionCursor;
   printerId: Id<'printer'>;
@@ -34,6 +35,7 @@ export interface PrinterSession {
    */
   watch(options?: ReadOptions): AsyncIterable<PrinterEvent>;
   getSnapshot(options?: ReadOptions): Promise<Result<PrinterSnapshot>>;
+  /** Firmware refresh updates descriptor.firmware; it never checks for or installs updates. */
   refresh(topics: readonly StateTopic[], options?: ReadOptions): Promise<Result<PrinterSnapshot>>;
   /** Idempotent; closes child media/subscriptions, not jobs or operation tracking. */
   close(): Promise<void>;
@@ -80,6 +82,8 @@ export type DiscoveryEvent = {
 };
 export interface PrinterService {
   readonly operations: PrinterOperations;
+  /** Native UI access is service-scoped so it does not depend on connect() succeeding. */
+  readonly webInterfaces: PrinterWebInterfaces;
   listProviders(options?: ReadOptions): Promise<Result<readonly ProviderDescriptor[]>>;
   listSaved(options?: ReadOptions): Promise<Result<readonly SavedPrinter[]>>;
   discover(providerId: Id<'provider'>, scope: DiscoveryScope, options?: ReadOptions): AsyncIterable<DiscoveryEvent>;

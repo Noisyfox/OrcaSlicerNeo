@@ -1,5 +1,6 @@
 // Compile-only consumers of the public entrypoint. Never imported by runtime code.
 import type { CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState } from '@orca/printer-control/domain';
+import type { PrinterCapabilities, PrinterService, PrinterSession, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
 
 // Brands in fixtures stand in for IDs validated/issued by a future provider.
 const id = <K extends string,>(value: string): Id<K> => value as Id<K>;
@@ -21,7 +22,7 @@ export const manualPrinter = {
     serialNumber: null,
     externalRefs: []
   },
-  firmware: [],
+  firmware: { kind: 'unknown', reason: 'not-reported' },
   buildVolume: {
     kind: 'box',
     sizeMm: {
@@ -395,3 +396,48 @@ if (extended.kind === 'fixture:air-quality' && extended.reading.kind === 'known'
   // @ts-expect-error Structured extension readings are not generic strings.
   const value: string = extended.reading.value;
 }
+
+// Native Web UI access is available directly from the service, without connect().
+declare const service: PrinterService;
+const routeId = id<'route'>('lan');
+const interfaceId = id<'web-interface'>('native-console');
+service.webInterfaces.describe(routeId);
+service.webInterfaces.resolve({ routeId, interfaceId });
+// @ts-expect-error A control session ID is not a route ID.
+service.webInterfaces.describe(id<'session'>('session'));
+// @ts-expect-error Resolve identifies the expected entry, not an arbitrary URL supplied by UI.
+service.webInterfaces.resolve({ routeId, url: 'https://printer.example/' });
+
+export const webOnlyAccess: WebInterfaceDescription = {
+  printerId: id<'printer'>('web-only'), routeId,
+  capability: { kind: 'supported', constraints: { id: interfaceId, name: 'Native console' } },
+  availability: { kind: 'unknown', reason: 'Reachability has not been checked' },
+  assessedAtMs: 0, freshness: 'stale',
+};
+const launch: WebInterfaceLaunch = {
+  printerId: webOnlyAccess.printerId, routeId, interfaceId,
+  url: 'https://printer.example/', expiresAtMs: null,
+};
+// @ts-expect-error Web UI launch data cannot carry executable URL schemes.
+const executableUrl: WebInterfaceLaunch['url'] = 'javascript:alert(1)';
+// @ts-expect-error Embedding compatibility is not promised by the provider's URL.
+launch.canEmbed;
+
+declare const capabilities: PrinterCapabilities;
+const webCapability: WebInterfaceDescription['capability'] = capabilities.webInterface;
+if (capabilities.observations.firmware.kind === 'supported') {
+  const delivery: readonly ('push' | 'poll' | 'on-demand')[] = capabilities.observations.firmware.constraints.delivery;
+}
+declare const session: PrinterSession;
+session.refresh(['firmware']);
+declare const descriptor: PrinterDescriptor;
+if (descriptor.firmware.kind === 'known') {
+  const version: string | undefined = descriptor.firmware.value[0]?.version;
+  const freshness: 'fresh' | 'stale' = descriptor.firmware.freshness;
+}
+// @ts-expect-error Read support does not introduce a firmware upgrade command.
+const upgrade: CommandOf<'firmware.upgrade'> = {};
+// @ts-expect-error Firmware inventory has a single owner in the descriptor.
+state.firmware;
+// @ts-expect-error UI page visibility is not an agent-controlled capability flag.
+capabilities.showMonitorTab;

@@ -9,7 +9,8 @@ availability does not establish device support or runtime delivery.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
 capabilities, controls, material systems, read-only sensors, cameras, remote
-files and synchronization across Web, Electron and future connection services.
+files, native Web interfaces, firmware observations and synchronization across
+Web, Electron and future connection services.
 
 ## 1. Authority and explicit user requirements
 
@@ -32,6 +33,9 @@ or implementation technique an additional user mandate.
 | Include basic printer controls and AMS-like controls | Model ordinary printers and automatic material systems without making one manufacturer's AMS layout universal. |
 | Synchronize printer information and consumables | Observe device state and material inventory, with an explicit boundary around project changes. |
 | Include cameras | Model live viewing and camera-related capabilities, not just a stored camera URL. |
+| Offer an optional native Web interface | Describe support independently of Neo control support, and resolve its entry without requiring a control session. |
+| Derive Monitor, file browser, warnings and Firmware visibility from available functions | Keep page eligibility in the application, separate from current availability and content counts. |
+| Firmware information can be read without upgrade support | Keep version observations distinct from future update checking or installation. |
 | Preview remote files, including timelapses and uploaded G-code | Treat stored media and printable files as first-class resources with appropriate preview types. |
 | Download, delete and reprint remote files | Define independent operations and their availability; reprinting starts an existing remote printable file. |
 | Support temperature probes without temperature control, plus other sensors such as door switches | Provide a generic read-only sensor collection with data that varies and can expand by sensor type. |
@@ -49,7 +53,9 @@ support: the original functional request was explicitly non-exhaustive.
 ### 1.1 Decision status and interpretation
 
 The explicit requests above and selection of option B are established user
-decisions. Existing requirements inherited from linked repository specifications
+decisions. The native Web interface and page-eligibility rules in sections
+4.1–4.3 are also accepted user decisions; their precise UI layout remains open.
+Existing requirements inherited from linked repository specifications
 remain authoritative. The rest of this document records the proposed domain
 semantics and design constraints from the discussion, not blanket user approval
 of every previously suggested interface detail. Where a concrete mechanism is
@@ -84,7 +90,9 @@ preserve that distinction.
 The type-only [domain entrypoint](../packages/printer-control/src/domain/index.ts)
 is exported as `@orca/printer-control/domain`. It defines the initial concrete
 contract for printer resources, materials, extensible sensors, controls,
-capabilities, files, media, discovery and sessions. The source is authoritative
+capabilities, files, media, discovery, sessions and native Web entry resolution.
+Firmware read support uses the existing observation and refresh boundary.
+The source is authoritative
 for current field shapes; this specification records their purpose and limits.
 The [compile-only consumers](../packages/printer-control/typechecks/domain.ts)
 exercise public imports, typed extensions, command/result correlations and
@@ -204,6 +212,101 @@ them from one command-specification map; mapped types or code generation are
 implementation choices, not requirements. A generic raw JSON/G-code passthrough
 is not part of the proposed common control surface. Any later vendor extension
 needs explicit semantics and validation rather than bypassing the abstraction.
+
+### 4.1 Native Web interface
+
+The optional native Web interface is a semantic device capability with supported,
+unsupported and unknown states. It identifies a named entry for the current
+printer route, independently of Neo's monitoring, control and file capabilities.
+The native page and Neo's own device pages may coexist. A printer that only
+exposes a Web UI remains representable without inventing control support.
+
+The [Web interface contract](../packages/printer-control/src/domain/web-interface.ts)
+provides service-scoped description and launch resolution. Neither requires a
+successful printer-control connection. The description projects the same
+route capability published in a session snapshot; it is not a second support
+registry. Cached descriptions retain their assessment time and stale marker.
+A failed control connection alone proves neither absence nor unreachability
+of the native Web interface.
+
+Resolve the identified entry when opening it, rechecking the route and entry
+identity and obtaining any temporary authorization. Launch data contains an
+absolute HTTP(S) URL and any known expiry. A removed or replaced entry must not
+silently redirect an old request to another interface. Ordinary configured
+entry URLs may persist; temporary authorization and launch data do not belong
+in persistent snapshots or logs. URL validation remains required at runtime.
+
+The viewing host decides whether to embed the page or open it externally,
+subject to actual host/page policies. A provider URL does not promise iframe
+compatibility or reachability from the viewing host. If embedding fails and
+external opening is available, offer that path without declaring printer API
+control unsupported. Browser policy failures must remain distinguishable from
+device capability support.
+
+Web-page login and printer API authentication are separate. No generic API-key
+injection, arbitrary headers or executable scripts are part of the launch
+contract. Existing provider-specific console authentication remains governed
+by the console specification. Its Moonraker Console URL fallback is not a
+universal rule for other providers. This interface introduces no browser host,
+page-opening implementation or credential migration.
+
+### 4.2 Device page eligibility
+
+The application derives page eligibility from semantic capabilities and the
+viewing host environment. Agents do not supply page names, visibility flags,
+tab order or default selection. Use one application policy when UI integration
+is implemented; the current change defines that policy without implementing it.
+
+| Page | Eligibility | Conditions that do not remove eligibility |
+| --- | --- | --- |
+| Monitor | At least one supported, meaningful job, thermal, motion, actuator, material or sensor observation; camera viewing/snapshot capture; or a basic control suitable for the page. | No active job, no camera, a temporarily unavailable camera, or readings not yet reported. |
+| File browser | File listing is supported for at least one storage scope. | An empty directory, temporarily missing removable storage, or unavailable download/delete actions. |
+| Warnings | Device alert observation is supported. | Zero current warnings or no unread warnings. |
+| Firmware | Firmware version inventory observation is supported. | No available update, no upgrade capability, or an upgrade blocked during printing. |
+| Web Interface | A native Web entry is known to be supported. | Missing Neo control capabilities, a failed control connection, or embedding being unavailable. |
+
+Monitor cards and actions have their own capability and availability checks.
+A passive probe or door sensor is sufficient useful monitoring; a camera is
+not mandatory. Static identity/firmware metadata, Web access or alert support
+alone does not establish Monitor eligibility. File-only actions, including
+upload or starting a selected remote file, do not alone require a Monitor page.
+Only upload support does not establish file-browser eligibility.
+
+Warnings are device observations, not a bucket for transport, login or other
+application errors. An empty warning list yields an empty state; counts affect
+badges rather than tab existence. Native-page errors and other failures remain
+visible in the relevant surface.
+
+Known support with temporarily blocked or unknown availability retains the page
+and explains its state. Confirmed unsupported capability hides the page. When
+support is initially unknown, show capability resolution at the device level;
+do not label unknown as unsupported or briefly create every possible tab.
+After a disconnect or failed refresh, retain previously confirmed pages with
+stale/reconnecting indicators instead of making them disappear. An authoritative
+capability change can revise eligibility, but that is distinct from a failed read.
+
+Cache decisions for the applicable printer, route and viewing-host environment.
+Do not union LAN and cloud capabilities or reuse an Electron embedding decision
+in Web. Supported Web entry access with no usable opening mode retains an
+explanation rather than implying the printer lacks the entry. The exact tabs,
+layout and initial selection are not fixed here; existing explicit printer
+selection behavior is preserved. No UI policy helper or page is implemented yet.
+
+### 4.3 Firmware observations
+
+Firmware version reading is an observation capability, exposed through the
+firmware topic and the existing session refresh API. It does not add an upgrade
+command or imply permission to check for updates or install firmware. Those
+operations require separate capability and lifecycle design if implemented.
+A version-only device can have a read-only Firmware page.
+
+The descriptor's firmware inventory is the single source of component/version
+data. It carries known/unknown and fresh/stale reading semantics, including
+source and timestamps, instead of using an empty list to mean every possible
+absence or failure. Refresh publishes the resulting descriptor through the
+ordinary snapshot boundary; no duplicate list is added to printer state or a
+separate firmware service. Page eligibility follows read support, not list
+length or update availability.
 
 ## 5. Read-only sensors and actuator separation
 

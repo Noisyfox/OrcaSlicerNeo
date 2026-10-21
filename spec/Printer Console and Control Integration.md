@@ -25,6 +25,12 @@ selection and upload/start retry behavior. Its saved API-key representation
 remains current; the proposed credential-reference approach requires a separate
 migration decision before this persistence contract changes.
 
+The domain specification also owns the accepted
+[native Web entry and device-page eligibility rules](Printer%20Domain%20and%20Control%20Architecture.md#41-native-web-interface).
+Their interfaces do not yet change this console UI. Control connectivity is
+independent of native-page access, and the existing Moonraker Console URL
+fallback and host authentication behavior are provider-specific conventions.
+
 The embedded console is a convenience and management surface. Sending and
 printing use the printer API directly, so either surface can continue to be
 used when the other one is unavailable.

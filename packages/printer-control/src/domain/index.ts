@@ -10,3 +10,4 @@ export type * from './files';
 export type * from './media';
 export type * from './control';
 export type * from './service';
+export type * from './web-interface';
