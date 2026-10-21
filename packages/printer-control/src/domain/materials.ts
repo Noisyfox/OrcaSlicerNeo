@@ -100,11 +100,15 @@ export interface MaterialImportCandidate {
 
 /**
  * Application-owned preview of an explicit project import, not an agent command.
- * Applying it requires native compatibility checks and one project transaction.
+ * Applying it requires matching source configuration, native compatibility checks
+ * and one project transaction. Route edits invalidate the proposal even if its
+ * topology/inventory revision tokens still match.
  */
 export interface MaterialImportProposal {
   printerId: Id<'printer'>;
   routeId: Id<'route'>;
+  /** Copied from the source observation snapshot, never from a later route lookup. */
+  configurationRevision: Revision;
   topologyRevision: Revision;
   inventoryRevision: Revision;
   projectRevision: Revision;

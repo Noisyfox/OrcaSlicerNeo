@@ -38,6 +38,7 @@ or implementation technique an additional user mandate.
 | Support manually triggered material synchronization on specific Klipper types, such as Snapmaker U1 | Declare this type-specific capability locally; read inventory only on explicit sync, with no startup fetch or background polling. |
 | Include basic printer controls and AMS-like controls | Model ordinary printers and automatic material systems without making one manufacturer's AMS layout universal. |
 | Synchronize printer information and consumables | Observe device state and material inventory, with an explicit boundary around project changes. |
+| Retain the source configuration revision in material import proposals | Copy it from the source snapshot and reject application after that route's configuration changes. |
 | Include cameras | Model live viewing and camera-related capabilities, not just a stored camera URL. |
 | Offer an optional native Web interface | Describe support independently of Neo control support, and resolve its entry without requiring a control session. |
 | Derive Monitor, file browser, warnings and Firmware visibility from available functions | Keep page eligibility in the application, separate from current availability and content counts. |
@@ -526,10 +527,21 @@ Inventory synchronization updates the device model. It must not silently
 rewrite the open project's native rack, presets, colors or assignments.
 Import into the project is an explicit application workflow. The proposed flow
 prepares a mapping with enough device/project context to detect stale input and
-exposes empty slots, missing data and unresolved preset matches. The exact
-proposal fields and confirmation UI remain open. Applying it follows existing
+exposes empty slots, missing data and unresolved preset matches. Beyond the
+required provenance below, proposal details and confirmation UI remain open. Applying it follows existing
 native compatibility rules and the atomic history contract. A failed or stale
 proposal cannot partially change the project.
+
+Every material import proposal retains the source observation snapshot's
+configuration revision alongside its printer/route, topology, inventory and
+project context. Capture this revision from the same snapshot as the inventory;
+do not substitute the current route revision from a later lookup. Before any
+project mutation, verify that the source route still exists and its configuration
+revision matches the proposal. A mismatch invalidates the proposal even when
+topology and inventory revision tokens happen to be equal. Reject stale input
+without changing the project; preparing a replacement requires a new explicit
+workflow using data from the applicable configuration. This comparison is local
+and does not trigger an automatic device read, connection or material sync.
 
 Project slot identity and physical device slot identity stay separate. Print
 submission binds the printable artifact's material keys to actual material
@@ -800,6 +812,11 @@ Discovery fixtures must construct requests from host-specific capability
 descriptions, reject supported discovery without a host identity or scope
 choice, and retain providers with no hosts or manual-only hosts without
 fabricating discovery support. Different hosts may support different scopes.
+Material import fixtures must retain configuration provenance from the source
+inventory snapshot and reject proposals with missing or null configuration
+revisions. Future application integration must reject a proposal after a route
+configuration change, including when topology/inventory tokens are unchanged,
+without project mutation or automatic device access.
 Preview fixtures must construct an option query and media-open request when
 preview is supported but stat is unsupported, including empty options and
 file/version provenance. Future adapters must validate stale options and file

@@ -1,7 +1,7 @@
 // Compile-only consumers of the public entrypoint. Never imported by runtime code.
 import type { CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState, SensorSnapshot } from '@orca/printer-control/domain';
 import type { PrinterCapabilities, PrinterService, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
-import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range, FilePreviewListing, RemoteFileDetails, ObservationRequest, PrinterSnapshot, FirmwareComponent } from '@orca/printer-control/domain';
+import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range, FilePreviewListing, RemoteFileDetails, ObservationRequest, PrinterSnapshot, FirmwareComponent, MaterialImportProposal, Revision } from '@orca/printer-control/domain';
 
 // Brands in fixtures stand in for IDs validated/issued by a future provider.
 const id = <K extends string,>(value: string): Id<K> => value as Id<K>;
@@ -859,3 +859,25 @@ const providerWideDiscovery: ProviderDescriptor = {
 service.discover(discoveryProvider.id, { kind: 'lan' });
 // @ts-expect-error Account discovery still requires a caller-selected account.
 service.discover(discoveryProvider.id, { kind: 'account', hostId: id<'agent-host'>('service-account') });
+
+// Proposal provenance is captured with the inventory, not refreshed from route configuration.
+function prepareImportFixture(snapshot: PrinterSnapshot<'materials'>, projectRevision: Revision): MaterialImportProposal | null {
+  const reading = snapshot.values.materials;
+  if (reading.kind !== 'known') return null;
+  return {
+    printerId: snapshot.target.printerId,
+    routeId: snapshot.target.routeId,
+    configurationRevision: snapshot.configurationRevision,
+    topologyRevision: reading.value.topologyRevision,
+    inventoryRevision: reading.value.state.inventoryRevision,
+    projectRevision,
+    candidates: [], emptySlotIds: [], unresolvedSlots: [],
+  };
+}
+declare const importProposal: MaterialImportProposal;
+const importConfiguration: Revision = importProposal.configurationRevision;
+const { configurationRevision: sourceConfiguration, ...unversionedImportProposal } = importProposal;
+// @ts-expect-error Device/project revision tokens do not replace source configuration provenance.
+const missingImportConfiguration: MaterialImportProposal = unversionedImportProposal;
+// @ts-expect-error Unknown configuration provenance cannot form an applicable proposal.
+const nullImportConfiguration: MaterialImportProposal = { ...importProposal, configurationRevision: null };
