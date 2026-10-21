@@ -12,7 +12,9 @@ import {
   type PrinterConfigurationRepository,
   type SlicerRuntime,
 } from '@orca/platform-contract';
+import type { Id } from '@orca/printer-control/domain';
 import {
+  createMoonrakerService,
   normalizePrinterConfigurationDocument,
   type PrinterConfigurationDocument,
 } from '@orca/printer-control';
@@ -138,7 +140,14 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
         inMemory = normalized;
       },
     },
-    printers: { configuration: printerConfiguration, transport: createBrowserPrinterTransport() },
+    printers: {
+      configuration: printerConfiguration,
+      service: createMoonrakerService({
+        configuration: printerConfiguration,
+        transport: createBrowserPrinterTransport(),
+        host: { id: 'browser' as Id<'agent-host'>, name: 'Browser', execution: 'browser' },
+      }),
+    },
     webview: createBrowserWebViewHost(),
     runtime,
     memory: { async sample() { return { entries: [] }; } },

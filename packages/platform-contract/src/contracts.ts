@@ -1,6 +1,7 @@
 import type { SlicerClient } from '@slicer/client';
 import type { HistoryRuntimeMethods } from '@slicer/client';
-import type { PrinterConfigurationDocument, PrinterTransport } from '@orca/printer-control';
+import type { PrinterService } from '@orca/printer-control/domain';
+import type { PrinterConfigurationDocument } from '@orca/printer-control';
 import type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
 import type { ProfileActivation } from '@slicer/client';
 import { normalizeProfileActivation } from './profileActivation';
@@ -432,7 +433,7 @@ export interface PlatformCapabilities {
   projects: ProjectFileCapability;
   recentProjects: RecentProjectsCapability;
   preferences: UserPreferencesRepository;
-  printers: { configuration: PrinterConfigurationRepository; transport: PrinterTransport };
+  printers: { configuration: PrinterConfigurationRepository; service: PrinterService };
   webview: WebViewHost;
   runtime: SlicerRuntime;
   memory: PlatformMemory;

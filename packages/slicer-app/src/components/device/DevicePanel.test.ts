@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WebViewHost, WebViewPanel, WebViewPanelCapabilities } from '@orca/platform-contract';
 import type { PrinterConfiguration } from '@orca/printer-control';
-import { effectiveConsoleUrl, mountPrinterConsolePanel, panelMessage, removePrinter, savePrinterDraft, type PrinterDraft } from './DevicePanel';
+import { mountPrinterConsolePanel, panelMessage, removePrinter, savePrinterDraft, type PrinterDraft } from './DevicePanel';
 
 const capabilities: WebViewPanelCapabilities = {
   canInjectBuiltInScripts: true,
@@ -49,7 +49,7 @@ describe('Device printer configuration helpers', () => {
   it('uses the required mount, injection, load order and disposes', () => {
     const calls: string[] = [];
     const states: string[] = [];
-    const dispose = mountPrinterConsolePanel(fakeHost(calls), {} as HTMLElement, printer, (state) => states.push(state.status));
+    const dispose = mountPrinterConsolePanel(fakeHost(calls), {} as HTMLElement, printer, printer.consoleUrl, (state) => states.push(state.status));
     expect(calls).toEqual(['mount', 'register:moonraker-fetch-v1', 'load:http://printer.local/console']);
     dispose();
     dispose();
@@ -60,14 +60,13 @@ describe('Device printer configuration helpers', () => {
   it('uses the API base URL for the console when no console URL is configured', () => {
     const calls: string[] = [];
     const blankConsolePrinter = { ...printer, consoleUrl: '' };
-    expect(effectiveConsoleUrl(blankConsolePrinter)).toBe(printer.apiBaseUrl);
-    mountPrinterConsolePanel(fakeHost(calls), {} as HTMLElement, blankConsolePrinter, vi.fn());
+    mountPrinterConsolePanel(fakeHost(calls), {} as HTMLElement, blankConsolePrinter, printer.apiBaseUrl, vi.fn());
     expect(calls).toEqual(['mount', 'register:moonraker-fetch-v1', `load:${printer.apiBaseUrl}`]);
   });
 
   it('does not request injection when the key is empty', () => {
     const calls: string[] = [];
-    mountPrinterConsolePanel(fakeHost(calls), {} as HTMLElement, { ...printer, apiKey: '' }, vi.fn());
+    mountPrinterConsolePanel(fakeHost(calls), {} as HTMLElement, { ...printer, apiKey: '' }, printer.consoleUrl, vi.fn());
     expect(calls).toEqual(['mount', 'load:http://printer.local/console']);
   });
 

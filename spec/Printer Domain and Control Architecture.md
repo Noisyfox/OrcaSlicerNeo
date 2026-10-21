@@ -3,9 +3,10 @@
 **Updated:** 2026-10-21
 
 **Status:** Explicit requirements and selected architecture direction recorded;
-initial TypeScript domain contracts are available. Concrete agents, gateway,
-runtime validation and application integration remain deferred. Interface
-availability does not establish device support or runtime delivery.
+TypeScript domain contracts and the existing Moonraker subset are implemented.
+Device Web entry and Send use the stateless service in both hosts. Other agents,
+the gateway and richer device features remain deferred. Interface availability
+alone does not establish device support or runtime delivery.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
 capabilities, controls, material systems, read-only sensors, cameras, remote
@@ -47,7 +48,8 @@ or implementation technique an additional user mandate.
 | Download, delete and reprint remote files | Define independent operations and their availability; reprinting starts an existing remote printable file. |
 | Support temperature probes without temperature control, plus other sensors such as door switches | Provide a generic read-only sensor collection with data that varies and can expand by sensor type. |
 | Integrate the design and check duplicates, omissions and responsibility boundaries | Maintain one coherent domain model and retain examples for different printer configurations. |
-| Defer concrete agents and the gateway | Recording this specification does not authorize their implementation. |
+| Defer concrete agents and the gateway during interface design | Later authorization covers migrating existing Moonraker behavior only; other agents, the gateway and new device functions remain deferred. |
+| Support explicit overwrite as a normal upload capability | Overwrite is a first-class collision choice, advertised per destination and explicitly selected in upload requests. |
 | Record constraints rather than concrete TypeScript interfaces | Keep interface source code and exhaustive API signatures out of this specification. |
 
 The nozzle-material question was answered by distinguishing nozzle construction
@@ -83,7 +85,7 @@ In particular, the following choices remain reviewable:
 | Sensor representation | Typed readings, common sensor storage and references from heaters/material units; extension registration and lookup/indexing are open. |
 | Media | Explicit media resources for live and stored content, and WebRTC signaling when selected; concrete transports and resource reuse rules are open. |
 | Remote-file consistency | Explicit strict/best-effort version modes and route-scoped references; provider support and the exact request model need validation. |
-| Transfers | Paged listings, streamed reads, invalidation notifications and reject/rename upload policies; no exact wire API or universal provider support is assumed. |
+| Transfers | Paged listings, streamed reads, invalidation notifications and reject/rename/overwrite upload policies; no exact wire API or universal provider support is assumed. |
 | Credentials | Opaque credential references; migration and host storage require a separate decision. |
 | Project material import | A revision-bound proposal followed by an explicit native transaction; the precise review UI and proposal representation remain open. |
 
@@ -114,23 +116,82 @@ a typed command map, explicit media resource references and file consistency
 modes from the proposals above. Those are current contract choices,
 not evidence that the user mandated a particular transport or permanent schema.
 Future refinements update the single contract and its consumers together.
-No gateway wire format, persistence migration or protocol executor is defined.
+No gateway wire format or credential persistence migration is defined. The bounded
+Moonraker runtime migration is described below.
 
-The existing package root continues to expose the operational Moonraker HTTP
-driver and Send service. That host-injected HTTP seam does not implement the new
-domain service. This interface-only step adds no compatibility adapter or
-alternative runtime payload format; integrating a provider and switching its
-application callers is separate work. Project material import remains an
-application-owned workflow; its proposal type does not authorize telemetry to
-mutate a native project.
+The package root exports the [Moonraker service factory](../packages/printer-control/src/service.ts).
+It implements the domain service using host-injected configuration and HTTP
+transport. Both hosts provide this service through the platform contract;
+application code uses the domain API instead of the retired driver and Send
+service. There is one current control contract, without a compatibility alias.
+Project material import remains an application-owned workflow; its proposal
+type does not authorize telemetry to mutate a native project.
+
+### 1.3 Delivered Moonraker subset
+
+This migration preserves existing functions: local manual configuration and Web
+console entry, an explicit server-information read, a one-shot job/status read,
+G-code upload and print start/pause/resume/cancel. It adds no discovery, polling,
+material synchronization, camera, remote-file browsing/download/delete/preview,
+or new device pages. These capabilities report unsupported. Firmware and job
+observations are on-demand only; watch rejects rather than starting polling.
+Saving, enumeration, description, cached reads and Web entry resolution perform
+no network I/O. Startup and selection never establish a printer connection.
+
+Configuration remains the existing version-1 host repository, including its API
+key storage and console URL fallback. The domain projects opaque credential
+references; it never includes keys in descriptions, snapshots, operations or
+errors. Existing settings still edit the host configuration repository and
+Electron retains its existing built-in console authentication script. This is
+not a credential-storage migration. Route changes invalidate cached readings
+and change an opaque configuration revision. In-flight operations retain their
+submission configuration; later actions on old file references reject as stale.
+
+Upload advertises the default G-code destination with explicit overwrite.
+Send selects that advertised policy to retain the previous same-name behavior.
+The existing multipart host transports still buffer a complete file; the
+adapter checks the declared length and enforces its advertised 2,147,483,647-byte
+buffer limit before network dispatch. It does not claim chunked network upload.
+Transfer totals are transport bytes, including multipart overhead where reported;
+a null total means unknown, not the declared file length. Completion requires
+the device response and returns the actual remote path as a route-bound file
+reference. File version comparison is unavailable, so start uses explicit
+best-effort consistency. No listing or connection preflight is required.
+
+Operations are independent resources retained by the host service authority for
+its lifetime, shared by facades using that authority's configuration repository.
+A request ID deduplicates matching submissions within that lifetime; reuse with
+different parameters rejects. Tracking and cancellation use explicit resource
+references, never a prior observer or client session. Aborting an observer does
+not cancel a physical operation; uploads have an explicit cancellation request.
+Cancellation can leave remote bytes. Records and deduplication are not durable
+across host restart, and unknown lookup results do not establish non-execution.
+
+Successful command HTTP responses with the documented
+[Moonraker acknowledgement](https://moonraker.readthedocs.io/en/latest/external_api/printer/#start-a-print-job)
+produce an acknowledgement, not a fabricated
+physical-completion result or job ID. Interrupted or malformed mutation responses
+remain outcome-unknown. The Send workflow retains start-only retry after a
+definite failure; an uncertain outcome requires checking the printer instead of
+blindly retrying. No failover or automatic resend is performed.
+
+Pause/resume/cancel validate the selected native job identity on demand before
+sending the existing G-code command. The adapter uses Moonraker's
+[history job identifier](https://moonraker.readthedocs.io/en/latest/external_api/history/)
+with the one-shot status query; this internal identity lookup does not expose a
+history-browsing capability. If history is unavailable or disagrees with status,
+job identity stays unknown and job-targeted controls fail safely. Moonraker has
+no atomic compare-job-and-command operation: a job can change between the last
+check and command execution. The adapter must not claim that this race has been
+eliminated. No ongoing connection or subscription is retained.
 
 The [shared application architecture](Web-Electron%20Shared%20Application%20Architecture.md)
 remains the application-wide authority. [Printer Console and Control Integration](Printer%20Console%20and%20Control%20Integration.md)
 owns existing console and Send/Send & Print interaction. This document owns the
-future domain beneath those and richer device features, without changing their
-existing selection, cancellation or retry behavior. [Multi-Filament Support](Multi-Filament%20Support.md)
+domain beneath those and richer device features, preserving selection and
+explicit cancellation while distinguishing definite failure from unknown outcome. [Multi-Filament Support](Multi-Filament%20Support.md)
 owns the project's native material rack. [Grand Plan](Grand%20Plan.md) remains
-the only delivery roadmap; recording this design changes no delivery status.
+the only delivery roadmap.
 
 ## 2. Scope and architectural boundaries
 
@@ -743,9 +804,11 @@ browsing. No connection or unrelated device preflight is required.
 Uploads report transfer progress separately from device confirmation and return
 the actual remote artifact identity. Upload completion does not imply print
 start. If start fails after upload, retain the artifact and allow a start-only
-retry as required by the console spec. Collision handling is explicit; rejection
-or rename were the proposed initial policies. Whether explicit overwrite is
-supported remains open; it must not be introduced as a silent default.
+retry after a definite failure as required by the console spec. Collision
+handling explicitly supports reject, rename and overwrite. Each destination
+advertises the policies it implements; callers must select one of them.
+Overwrite is a normal capability, not an alias for reject/rename or an implicit
+fallback. An uncertain result must be reconciled before retrying.
 Cancellation or an uncertain outcome must not claim that remote data was cleaned up.
 
 Large transfers need bounded resource use. Streaming with backpressure is the
@@ -848,5 +911,6 @@ wire protocol and cross-version negotiation; credential migration; operation
 retention and deduplication guarantees; media proxy/transcoding feasibility;
 and the runtime/parser context for remote toolpath previews. Resolve these
 against the constraints above before claiming the corresponding capability.
-Concrete agents, gateway, runtime validation and UI integration remain outside
-the delivered interface boundary.
+The existing Moonraker subset in section 1.3 is delivered with runtime and
+host-integration tests. Other agents, the gateway, rich device UI and runtime
+validation for unimplemented capabilities remain outside the delivered scope.

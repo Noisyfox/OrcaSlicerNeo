@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  PrinterControlError,
-  PrinterControlService,
   normalizePrinterConfigurationDocument,
   type PrinterConfiguration,
   type PrinterConfigurationDocument,
-  type UploadedGcode,
 } from '@orca/printer-control';
+import type { RemoteFile } from '@orca/printer-control/domain';
+import { SendFailure, uploadForSend, startUploadedPrint } from './printerSend';
 import { gcodeFilenameBasename, updateUserPreferences, usePlatform, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -18,7 +17,7 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 
 export type SendGcodeAction = 'send' | 'send-and-print';
-type SendState = 'idle' | 'loading' | 'uploading' | 'starting' | 'success' | 'start-failed-after-upload' | 'error' | 'cancelled';
+type SendState = 'idle' | 'loading' | 'uploading' | 'starting' | 'success' | 'start-failed-after-upload' | 'error' | 'cancelled' | 'outcome-unknown';
 
 function formatUploadBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -28,12 +27,9 @@ function formatUploadBytes(bytes: number): string {
 }
 
 function safeErrorMessage(error: unknown): string {
-  if (error instanceof PrinterControlError) {
-    if (error.code === 'aborted') return 'Sending was cancelled.';
-    if (error.code === 'start-failed-after-upload') {
-      return 'The file was uploaded, but printing did not start. The file remains on the printer.';
-    }
-    if (error.code === 'protocol') return 'The printer did not accept this operation.';
+  if (error instanceof SendFailure) {
+    if (error.code === 'cancelled') return 'Sending was cancelled.';
+    if (error.code === 'outcome-unknown') return 'The printer response was interrupted. Check the printer before trying again; the file or print may already exist.';
   }
   // Transport errors are deliberately not rendered. Host/network errors can
   // contain request headers or other sensitive details.
@@ -99,8 +95,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const abortRef = useRef<AbortController | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const operationRef = useRef(0);
-  const serviceRef = useRef<PrinterControlService | null>(null);
-  const uploadedRef = useRef<UploadedGcode | null>(null);
+  const uploadedRef = useRef<RemoteFile | null>(null);
   const uploadFilenameRef = useRef<{ receiptKey: string; fileName: string } | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const preferenceRef = useRef<UserPreferences | null>(null);
@@ -172,7 +167,6 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     uploadMeasurementRef.current = null;
     uploadedRef.current = null;
     uploadFilenameRef.current = null;
-    serviceRef.current = null;
     void platform.printers.configuration.load().then((loaded) => {
       if (!active) return;
       try {
@@ -258,7 +252,6 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     if (busy) cancelUpload();
     operationRef.current += 1;
     uploadedRef.current = null;
-    serviceRef.current = null;
     setMessage(null);
     setState('idle');
     setSelectedPrinterId(id);
@@ -319,16 +312,14 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
         setMessage(exported.error);
         return;
       }
-      const documentSnapshot = normalizePrinterConfigurationDocument(document);
-      const service = new PrinterControlService(documentSnapshot, platform.printers.transport);
-      serviceRef.current = service;
+      const service = platform.printers.service;
       const receiptKey = JSON.stringify([receipt.plateId, receipt.inputStamp, receipt.resultGeneration, receipt.sliceTaskId]);
       if (uploadFilenameRef.current?.receiptKey !== receiptKey) {
         uploadFilenameRef.current = { receiptKey, fileName: gcodeFilenameBasename(exported.fileName) };
       }
       const input = { bytes: exported.bytes, fileName: uploadFilenameRef.current.fileName };
       uploadMeasurementRef.current = { startedAt: performance.now(), loaded: 0 };
-      const uploaded = await service.uploadOnly(selectedId, input, (next) => {
+      const uploaded = await uploadForSend(service, selectedId, input, (next) => {
         if (operation !== operationRef.current) return;
         uploadMeasurementRef.current!.loaded = next.loaded;
         setProgress(next);
@@ -337,12 +328,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
       if (action === 'send-and-print') {
         setState('starting');
-        try {
-          await service.startPrint(selectedId, uploaded);
-        } catch (error) {
-          throw new PrinterControlError('start-failed-after-upload', 'Print start failed after upload', 'start',
-            error instanceof PrinterControlError ? error.status : undefined, uploaded);
-        }
+        await startUploadedPrint(service, uploaded);
       }
       if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
       setState('success');
@@ -350,31 +336,39 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       startCloseCountdown();
     } catch (error) {
       if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
-      if (error instanceof PrinterControlError && error.code === 'start-failed-after-upload') {
-        uploadedRef.current = error.uploaded ?? null;
+      if (error instanceof SendFailure && error.code === 'outcome-unknown') {
+        setState('outcome-unknown');
+        setMessage(safeErrorMessage(error));
+      } else if (uploadedRef.current && action === 'send-and-print') {
         setState('start-failed-after-upload');
+        setMessage('The file was uploaded, but printing did not start. The file remains on the printer.');
       } else {
-        setState(error instanceof PrinterControlError && error.code === 'aborted' ? 'cancelled' : 'error');
+        setState(error instanceof SendFailure && error.code === 'cancelled' ? 'cancelled' : 'error');
+        setMessage(safeErrorMessage(error));
       }
-      setMessage(safeErrorMessage(error));
     } finally {
       if (operation === operationRef.current) abortRef.current = null;
     }
   }
 
   async function retryStart() {
-    const service = serviceRef.current;
+    const service = platform.printers.service;
     const uploaded = uploadedRef.current;
     const printerId = selectedPrinterId;
     if (!service || !uploaded || !printerId || busy) return;
     setState('starting');
     setMessage(null);
     try {
-      await service.startPrint(printerId, uploaded);
+      await startUploadedPrint(service, uploaded);
       setState('success');
       setMessage('Print started.');
       startCloseCountdown();
-    } catch {
+    } catch (error) {
+      if (error instanceof SendFailure && error.code === 'outcome-unknown') {
+        setState('outcome-unknown');
+        setMessage(safeErrorMessage(error));
+        return;
+      }
       // Keep the original uploaded file and never call upload again.
       setState('start-failed-after-upload');
       setMessage('The file is uploaded, but printing did not start. The file remains on the printer.');
@@ -433,7 +427,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
           <div className="flex shrink-0 items-center gap-2">
             <Button type="button" variant="ghost" onClick={close} data-testid="send-close">{state === 'uploading' || state === 'loading' ? 'Cancel' : 'Close'}</Button>
             {state === 'start-failed-after-upload' && <Button type="button" variant="secondary" onClick={() => void retryStart()} data-testid="send-retry-start">Retry Start Print</Button>}
-            <Button type="button" onClick={() => void send()} disabled={busy || Boolean(reason) || state === 'success' || state === 'start-failed-after-upload'} data-testid="send-submit">{action === 'send' ? 'Send' : 'Send & Print'}</Button>
+            <Button type="button" onClick={() => void send()} disabled={busy || Boolean(reason) || state === 'success' || state === 'start-failed-after-upload' || state === 'outcome-unknown'} data-testid="send-submit">{action === 'send' ? 'Send' : 'Send & Print'}</Button>
           </div>
         </div>
       </div>

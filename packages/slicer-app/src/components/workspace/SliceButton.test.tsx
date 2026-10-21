@@ -32,9 +32,7 @@ function makePlatform() {
           })),
           save: vi.fn(async () => undefined),
         },
-        transport: {
-          request: vi.fn(async () => ({ status: 200, json: async () => ({ result: { item: { path: 'gcodes/output.gcode' } } }) })),
-        },
+        service: {},
       },
       runtime: {
         exportGcode: vi.fn(async () => ({ ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) })),

@@ -148,14 +148,15 @@ export interface UploadRequest {
   fileName: string;
   format: PrintFormatId;
   sizeBytes: number;
-  collisionPolicy: 'reject' | 'rename';
+  collisionPolicy: 'reject' | 'rename' | 'overwrite';
 }
 export interface UploadSource {
   chunks: AsyncIterable<Uint8Array>;
 }
 export interface UploadProgress {
   sentBytes: number;
-  totalBytes: number;
+  /** Transport byte total (including multipart overhead); null when not reported. */
+  totalBytes: number | null;
   stage: 'transferring' | 'awaiting-confirmation';
 }
 export interface FileCapabilities {
@@ -177,7 +178,7 @@ export interface FileCapabilities {
     formats: NonEmptyReadonlyArray<PrintFormatId>;
     /** Unknown upload size limit; null does not mean unlimited. */
     maxBytes: number | null;
-    collisionPolicies: NonEmptyReadonlyArray<'reject' | 'rename'>;
+    collisionPolicies: NonEmptyReadonlyArray<UploadRequest['collisionPolicy']>;
   }>>;
   /** Covers both option enumeration and media opening, independently of stat. */
   preview: Capability<NonEmptyReadonlyArray<{

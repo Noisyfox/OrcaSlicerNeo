@@ -61,7 +61,7 @@ test('real Web Send preserves browser multipart encoding and starts the server-r
       response.end(JSON.stringify({ result: { item: { path: 'nested/server-selected.GCODE' } } }));
     } else if (request.url === '/printer/print/start') {
       startPath = JSON.parse(body).filename;
-      response.end('{}');
+      response.end(JSON.stringify({ result: 'ok' }));
     } else { response.writeHead(404); response.end('{}'); }
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
