@@ -1,5 +1,5 @@
 /** Printer description and observations. No host, firmware protocol or slicer dependency. */
-import type { Id, Revision, Axis, ExternalRef, Capability, Reading } from './common';
+import type { Id, Revision, Axis, ExternalRef, Capability, Reading, NonEmptyReadonlyArray } from './common';
 import type { MaterialTopology, MaterialState, MaterialInventory } from './materials';
 import type { SensorDefinition, SensorState } from './sensors';
 import type { RemoteFileRef, FileCapabilities } from './files';
@@ -191,7 +191,7 @@ export interface PrinterCapabilities {
   webInterface: WebInterfaceCapability;
   /** Firmware read support is observations.firmware; no update capability is implied. */
   observations: { [K in StateTopic]: Capability<{
-    delivery: readonly ('push' | 'poll' | 'on-demand')[];
+    delivery: NonEmptyReadonlyArray<'push' | 'poll' | 'on-demand'>;
   }> };
 }
 /** Topic-scoped data avoids requiring a complete printer snapshot for a single read. */

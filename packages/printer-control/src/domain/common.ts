@@ -12,11 +12,15 @@ export interface ExternalRef {
   namespace: string;
   value: string;
 }
+/** Individual device limits may be unknown; null never means unrestricted or safe. */
 export interface Range {
-  min: number;
-  max: number;
-  step?: number;
+  min: number | null;
+  max: number | null;
+  /** Null means unknown granularity; intrinsic command units/validity still apply. */
+  step: number | null;
 }
+/** Explicit empty description for capabilities with no additional request constraints. */
+export type NoConstraints = Readonly<Record<string, never>>;
 export type ErrorCode = 'unsupported' | 'invalid-request' | 'invalid-target' | 'offline' | 'authentication-required' | 'permission-denied' | 'busy' | 'out-of-range' | 'precondition-failed' | 'stale-context' | 'transport' | 'device-rejected' | 'device-failed' | 'cancelled' | 'file-not-found' | 'file-changed' | 'file-in-use' | 'storage-unavailable' | 'listing-expired' | 'range-not-supported' | 'preview-unavailable' | 'no-compatible-media' | 'viewer-limit' | 'lease-expired' | 'stream-gap';
 
 /** Public message must not contain credentials or private transport details. */
@@ -43,10 +47,10 @@ export interface PrinterStreamError extends Error {
 export interface ReadOptions {
   signal?: AbortSignal;
 }
-export type Capability<C> = {
+export type Capability<C extends object> = {
   kind: 'supported';
-  /** Null means support is known but constraints are not yet resolved (or not applicable). */
-  constraints: C | null;
+  /** Required request-construction information; only documented leaf limits may be null. */
+  constraints: C;
 } | {
   kind: 'unsupported';
   layer: 'device' | 'adapter' | 'route';

@@ -1,9 +1,9 @@
 /** Typed commands, capability constraints and asynchronous outcomes. This module defines no executor. */
-import type { Id, Revision, UnixMs, Axis, Range, PrinterError, Result, ReadOptions, Capability, Availability, NonEmptyReadonlyArray, PrinterTarget, TargetRequest } from './common';
+import type { Id, Revision, UnixMs, Axis, Range, PrinterError, Result, ReadOptions, Capability, Availability, NonEmptyReadonlyArray, NoConstraints, PrinterTarget, TargetRequest } from './common';
 import type { MaterialMetadata, MaterialMetadataPatch, PrintMaterialBinding } from './materials';
 import type { PrintFormatId, FileSelection, VersionCheck, RemoteFile, UploadProgress } from './files';
 import type { TimelapseSetting } from './media';
-export interface CommandSpec<P, C, R = null> {
+export interface CommandSpec<P, C extends object, R = null> {
   params: P;
   constraints: C;
   result: R;
@@ -18,131 +18,132 @@ export interface PrinterCommandSpecs {
       timelapse?: readonly TimelapseSetting[];
     };
   }, {
-    sources: readonly {
+    sources: NonEmptyReadonlyArray<{
       storageId: Id<'storage'>;
       versionCheck: VersionCheck;
-    }[];
-    formats: readonly PrintFormatId[];
+    }>;
+    formats: NonEmptyReadonlyArray<PrintFormatId>;
     materialMapping: 'none' | 'optional' | 'required';
+    /** Empty means no optional job-level timelapse choices, not unknown support. */
     jobTimelapse: readonly TimelapseSetting[];
   }, {
     jobId: Id<'job'>;
   }>;
   'jobs.pause': CommandSpec<{
     jobId: Id<'job'>;
-  }, null>;
+  }, NoConstraints>;
   'jobs.resume': CommandSpec<{
     jobId: Id<'job'>;
-  }, null>;
+  }, NoConstraints>;
   'jobs.cancel': CommandSpec<{
     jobId: Id<'job'>;
-  }, null>;
+  }, NoConstraints>;
   'thermal.setTarget': CommandSpec<{
     heaterId: Id<'heater'>;
     targetC: number;
-  }, readonly {
+  }, NonEmptyReadonlyArray<{
     heaterId: Id<'heater'>;
     targetC: Range;
-  }[]>;
+  }>>;
   'fans.setSpeed': CommandSpec<{
     fanId: Id<'fan'>;
     speedFraction: number;
-  }, readonly {
+  }, NonEmptyReadonlyArray<{
     fanId: Id<'fan'>;
     speedFraction: Range;
-  }[]>;
+  }>>;
   'lights.set': CommandSpec<{
     lightId: Id<'light'>;
     on: boolean;
   }, {
-    lightIds: readonly Id<'light'>[];
+    lightIds: NonEmptyReadonlyArray<Id<'light'>>;
   }>;
   'motion.home': CommandSpec<{
     motionGroupId: Id<'motion'>;
     axes: NonEmptyReadonlyArray<Axis>;
-  }, readonly {
+  }, NonEmptyReadonlyArray<{
     motionGroupId: Id<'motion'>;
-    axes: readonly Axis[];
-  }[]>;
+    axes: NonEmptyReadonlyArray<Axis>;
+  }>>;
   'motion.jog': CommandSpec<{
     motionGroupId: Id<'motion'>;
     axis: Axis;
     distanceMm: number;
     speedMmPerSecond: number;
-  }, readonly {
+  }, NonEmptyReadonlyArray<{
     motionGroupId: Id<'motion'>;
     axis: Axis;
     distanceMm: Range;
     speedMmPerSecond: Range;
-  }[]>;
+  }>>;
   'extrusion.move': CommandSpec<{
     extruderId: Id<'extruder'>;
     distanceMm: number;
     speedMmPerSecond: number;
-  }, readonly {
+  }, NonEmptyReadonlyArray<{
     extruderId: Id<'extruder'>;
     distanceMm: Range;
     speedMmPerSecond: Range;
-  }[]>;
+  }>>;
   'tools.select': CommandSpec<{
     toolId: Id<'tool'>;
   }, {
-    toolIds: readonly Id<'tool'>[];
+    toolIds: NonEmptyReadonlyArray<Id<'tool'>>;
   }>;
   'materials.load': CommandSpec<{
     pathId: Id<'path'>;
   }, {
-    pathIds: readonly Id<'path'>[];
+    pathIds: NonEmptyReadonlyArray<Id<'path'>>;
   }>;
   'materials.unload': CommandSpec<{
     toolId: Id<'tool'>;
   }, {
-    toolIds: readonly Id<'tool'>[];
+    toolIds: NonEmptyReadonlyArray<Id<'tool'>>;
   }>;
   'materials.switch': CommandSpec<{
     pathId: Id<'path'>;
   }, {
-    pathIds: readonly Id<'path'>[];
+    pathIds: NonEmptyReadonlyArray<Id<'path'>>;
   }>;
   'materials.writeMetadata': CommandSpec<{
     slotId: Id<'slot'>;
     patch: MaterialMetadataPatch;
-  }, readonly {
+  }, NonEmptyReadonlyArray<{
     slotId: Id<'slot'>;
-    writableFields: readonly (keyof MaterialMetadata)[];
-  }[]>;
+    writableFields: NonEmptyReadonlyArray<keyof MaterialMetadata>;
+  }>>;
   'materials.refreshTag': CommandSpec<{
     slotId: Id<'slot'>;
   }, {
-    slotIds: readonly Id<'slot'>[];
+    slotIds: NonEmptyReadonlyArray<Id<'slot'>>;
   }>;
   'drying.start': CommandSpec<{
     dryerId: Id<'dryer'>;
     targetC: number;
     durationSeconds: number;
-  }, readonly {
+  }, NonEmptyReadonlyArray<{
     dryerId: Id<'dryer'>;
     targetC: Range;
     durationSeconds: Range;
-  }[]>;
+  }>>;
   'drying.stop': CommandSpec<{
     dryerId: Id<'dryer'>;
   }, {
-    dryerIds: readonly Id<'dryer'>[];
+    dryerIds: NonEmptyReadonlyArray<Id<'dryer'>>;
   }>;
   'camera.setEnabled': CommandSpec<{
     cameraId: Id<'camera'>;
     enabled: boolean;
   }, {
-    cameraIds: readonly Id<'camera'>[];
+    cameraIds: NonEmptyReadonlyArray<Id<'camera'>>;
   }>;
-  'camera.setDeviceTimelapse': CommandSpec<TimelapseSetting, readonly TimelapseSetting[]>;
+  'camera.setDeviceTimelapse': CommandSpec<TimelapseSetting, NonEmptyReadonlyArray<TimelapseSetting>>;
   'files.delete': CommandSpec<{
     target: FileSelection;
-  }, readonly {
+  }, NonEmptyReadonlyArray<{
     storageId: Id<'storage'>;
     versionCheck: VersionCheck;
-  }[]>;
+  }>>;
 }
 export type CommandName = keyof PrinterCommandSpecs;
 export type CommandOf<K extends CommandName = CommandName> = { [N in K]: {

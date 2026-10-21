@@ -28,6 +28,7 @@ or implementation technique an additional user mandate.
 | Explicit requirement | Design coverage |
 | --- | --- |
 | Abstract printer properties and capabilities before implementing agents | Hardware description, supported functions and current state are separate concepts. |
+| Supported capabilities must supply request-construction information | The complete constraint description is never null; only specifically unknown limit fields may be null. |
 | Abstract the various printer control interfaces | Shared features use a vendor-independent domain boundary. |
 | Provide available-printer listing and discovery | Saved printers, discovery candidates and currently reachable routes are distinguishable. |
 | Include capabilities known before device access in discovery/enumeration | Publish normal capabilities from provider/type/configuration and retained observations without inventing resource constraints. |
@@ -220,11 +221,15 @@ implemented functions, configured type, address/settings and applicable retained
 observations. The UI must not infer support from a display name. Capability
 projection is local and does not require validation through a device probe.
 
-Support, operation constraints and present availability are distinct. Known
-support may have unresolved constraints; represent that explicitly rather than
-inventing resource IDs, ranges or a complete hardware snapshot. Unknown support
-is not unsupported. Type/configuration can completely determine a Web entry or
-default upload destination, allowing direct use without any discovery call.
+Support, operation constraints and present availability are distinct. Declaring
+support requires a complete request description: applicable targets/destinations,
+modes and required choices must be supplied. The entire constraints value is
+never null. If the provider cannot yet describe how to construct the request,
+report unknown rather than manufacturing resource IDs or a supported placeholder;
+this does not authorize automatic probing. Unknown is not unsupported.
+Type/configuration can completely determine a Web entry or default upload
+destination, allowing direct use without any discovery call. Specific unknown
+limits do not prevent this local support declaration.
 Descriptions are advisory; operations independently validate actual parameters,
 resources and supplied comparison conditions, obtaining only necessary data.
 No full-device capability discovery or unrelated preflight is imposed.
@@ -272,6 +277,33 @@ target resources, numeric ranges and supported modes. Support has three
 states: supported, unsupported and unknown. An unsupported feature can arise
 at the device, adapter or route boundary; retain the reason. Missing knowledge
 must not be presented as confirmed lack of device support.
+
+Required target/choice collections are non-empty when a capability is supported.
+This applies to controllable resources, start-file sources/formats, writable
+material fields, file scopes/formats/collision policies, camera transports/image
+formats, observation delivery modes and discovery scope kinds. Optional feature
+collections can be empty only with defined behavior: an empty camera profile
+list means omit profile selection and let the adapter choose delivery; an empty
+job-timelapse list means no optional job-level timelapse choices. Neither is an
+unknown required-choice placeholder. Pause/resume/cancel have an explicit empty
+constraint object because their job target comes from the request, with no
+additional selectable parameters.
+
+Only specific documented limit fields may be null: upload size, concurrent
+viewer count, and individual numeric-range bounds/granularity can be unknown.
+Keep their containing descriptors and resource IDs present. Null does not mean
+unlimited, safe, zero or a provider-selected numeric default. Callers can check
+known bounds, but must not invent slider bounds or step values for unknown ones.
+Intrinsic parameter semantics still apply, such as finite numbers, appropriate
+units and fraction bounds. Unrelated optional metadata keeps its own documented
+absence semantics; this rule does not redefine all null values in the domain.
+
+A capability supplies the operation description, not user content or live
+selection: the caller still supplies its file, selected job and parameter values.
+Do not place a current job or per-file inventory into capabilities to duplicate
+observations. Execution validates requests regardless of prior description or
+client checks. Failure to read a new limit does not erase a still-valid earlier
+request description; invalidate only facts that no longer apply to the route.
 
 Operational availability is a separate, time-sensitive assessment. A supported
 command may be blocked by authentication, offline state, an active job, resource
@@ -335,8 +367,8 @@ is implemented; the current change defines that policy without implementing it.
 Locally established capabilities are sufficient for eligibility; no connected
 snapshot is required. Eligibility does not authorize automatic device reads.
 In particular, selecting a request-based printer must not start capability
-probes or material synchronization. Unresolved constraints can be explained
-locally or resolved during the requested operation, without forcing a universal
+probes or material synchronization. Unknown individual limits can be explained
+locally or checked during the requested operation, without forcing a universal
 connecting screen. A configured Moonraker Web entry opens normally.
 
 | Page | Eligibility | Conditions that do not remove eligibility |
@@ -706,6 +738,10 @@ upload without listing or connection, and U1 material reads only on explicit
 sync. Failed sync retains prior data without background retries. Test independent
 calls through a fresh service reference, scoped media/operation references,
 optional comparison versions, and unsupported watch on on-demand-only topics.
+Capability fixtures must reject null descriptions and empty required choices,
+while allowing unknown individual limits and meaningful optional empty lists.
+A supported Moonraker upload must be constructible from its declared default
+destination, formats and collision policies without a capability probe.
 These are future runtime acceptance requirements; compile-only fixtures validate
 interface expressibility, not network behavior.
 

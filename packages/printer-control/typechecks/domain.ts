@@ -1,7 +1,7 @@
 // Compile-only consumers of the public entrypoint. Never imported by runtime code.
 import type { CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState } from '@orca/printer-control/domain';
 import type { PrinterCapabilities, PrinterService, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
-import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory } from '@orca/printer-control/domain';
+import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range } from '@orca/printer-control/domain';
 
 // Brands in fixtures stand in for IDs validated/issued by a future provider.
 const id = <K extends string,>(value: string): Id<K> => value as Id<K>;
@@ -328,8 +328,8 @@ const undefinedPatch: MaterialMetadataPatch = {
   color: undefined
 };
 declare const caps: CommandCapabilities;
-if (caps['thermal.setTarget'].kind === 'supported' && caps['thermal.setTarget'].constraints !== null) {
-  const min: number | undefined = caps['thermal.setTarget'].constraints[0]?.targetC.min;
+if (caps['thermal.setTarget'].kind === 'supported') {
+  const min: number | null = caps['thermal.setTarget'].constraints[0]?.targetC.min;
   // @ts-expect-error Heater capability constraints do not contain material paths.
   caps['thermal.setTarget'].constraints[0]?.pathId;
 }
@@ -428,7 +428,7 @@ launch.canEmbed;
 
 declare const capabilities: PrinterCapabilities;
 const webCapability: WebInterfaceDescription['capability'] = capabilities.webInterface;
-if (capabilities.observations.firmware.kind === 'supported' && capabilities.observations.firmware.constraints !== null) {
+if (capabilities.observations.firmware.kind === 'supported') {
   const delivery: readonly ('push' | 'poll' | 'on-demand')[] = capabilities.observations.firmware.constraints.delivery;
 }
 service.observations.read({ target, topics: ['firmware'], source: 'device' });
@@ -502,9 +502,9 @@ export const u1Route: PrinterRoute = {
   configuration: { ...moonrakerRoute.configuration, typeId: id<'printer-type'>('snapmaker-u1') },
   capabilities: manualSyncCapabilities,
 };
-// Known support can be declared before resource-specific limits have been learned.
-const pendingLimits: Capability<{ min: number; max: number }> = { kind: 'supported', constraints: null };
-// @ts-expect-error Supported capabilities explicitly distinguish unresolved constraints.
+// Support supplies usable request information; only individual limits may be unknown.
+const pendingLimits: Capability<Range> = { kind: 'supported', constraints: { min: 0, max: null, step: null } };
+// @ts-expect-error Supported capabilities cannot omit their request description.
 const missingLimits: Capability<{ min: number }> = { kind: 'supported' };
 // @ts-expect-error Capability identifiers are semantic, never UI visibility flags.
 moonrakerCapabilities.showMonitorTab;
@@ -569,3 +569,62 @@ otherService.media.captureSnapshot(target, id<'camera'>('chamber'));
 otherService.media.close();
 // @ts-expect-error Operations have configuration provenance, not a connection epoch.
 operation.originEpoch;
+
+// No capability can erase its entire request description, including parameter-free controls.
+// @ts-expect-error Null cannot be used as the capability constraint type.
+type NullCapability = Capability<null>;
+// @ts-expect-error Supported temperature control needs resource IDs and range descriptors.
+const nullHeaters: CommandCapabilities['thermal.setTarget'] = { kind: 'supported', constraints: null };
+const pauseCapability: CommandCapabilities['jobs.pause'] = { kind: 'supported', constraints: {} };
+const resumeCapability: CommandCapabilities['jobs.resume'] = { kind: 'supported', constraints: {} };
+const cancelCapability: CommandCapabilities['jobs.cancel'] = { kind: 'supported', constraints: {} };
+// @ts-expect-error No extra constraints means an explicit empty object, not null.
+const nullPause: CommandCapabilities['jobs.pause'] = { kind: 'supported', constraints: null };
+// @ts-expect-error The empty descriptor does not allow invented options.
+const extraPause: CommandCapabilities['jobs.pause'] = { kind: 'supported', constraints: { mode: 'fast' } };
+const heaterCapability: CommandCapabilities['thermal.setTarget'] = {
+  kind: 'supported', constraints: [{ heaterId, targetC: { min: 0, max: null, step: null } }],
+};
+if (heaterCapability.kind === 'supported') {
+  const heater = heaterCapability.constraints[0];
+  const maximum: number | null = heater.targetC.max;
+  service.controls.submit({ target, requestId: id<'request'>('set-temperature'), command: {
+    type: 'thermal.setTarget', params: { heaterId: heater.heaterId, targetC: 200 },
+  } });
+}
+// @ts-expect-error A supported resource-scoped command must provide at least one target.
+const emptyHeaters: CommandCapabilities['thermal.setTarget'] = { kind: 'supported', constraints: [] };
+// @ts-expect-error Unknown limits cannot erase the containing range descriptor.
+const nullRange: CommandCapabilities['thermal.setTarget'] = { kind: 'supported', constraints: [{ heaterId, targetC: null }] };
+// @ts-expect-error Writable metadata capability needs at least one writable field.
+const emptyWrites: CommandCapabilities['materials.writeMetadata'] = { kind: 'supported', constraints: [{ slotId, writableFields: [] }] };
+// @ts-expect-error Supported upload must name a destination and its request choices.
+const emptyUpload: FileCapabilities['upload'] = { kind: 'supported', constraints: [] };
+// @ts-expect-error No supported format leaves no usable upload request.
+const emptyFormats: FileCapabilities['upload'] = { kind: 'supported', constraints: [{ destination: { kind: 'default' }, formats: [], maxBytes: null, collisionPolicies: ['reject'] }] };
+// @ts-expect-error Collision policy is required request information, not an unknown limit.
+const nullPolicies: FileCapabilities['upload'] = { kind: 'supported', constraints: [{ destination: { kind: 'default' }, formats: ['gcode'], maxBytes: null, collisionPolicies: null }] };
+// @ts-expect-error File-list support must identify at least one storage scope.
+const emptyStorages: FileCapabilities['list'] = { kind: 'supported', constraints: { storageIds: [], kinds: ['print-file'] } };
+// @ts-expect-error Snapshot support must describe at least one image format.
+const emptySnapshotFormats: CameraMediaCapability['snapshot'] = { kind: 'supported', constraints: { mimeTypes: [] } };
+const defaultCamera: CameraMediaCapability['liveView'] = {
+  kind: 'supported', constraints: { transports: ['mjpeg'], profiles: [], maxConcurrentViews: null },
+};
+// @ts-expect-error A live-view capability must provide a delivery transport.
+const emptyTransports: CameraMediaCapability['liveView'] = { kind: 'supported', constraints: { transports: [], profiles: [], maxConcurrentViews: null } };
+// @ts-expect-error Observation support must specify a usable delivery mode.
+const emptyDelivery: PrinterCapabilities['observations']['materials'] = { kind: 'supported', constraints: { delivery: [] } };
+// @ts-expect-error Discovery support must identify at least one supported scope kind.
+const emptyDiscovery: ProviderDescriptor['discovery'] = { kind: 'supported', constraints: { kinds: [] } };
+// @ts-expect-error Web support needs a resolvable entry identity, not an empty descriptor.
+const missingWebEntry: PrinterCapabilities['webInterface'] = { kind: 'supported', constraints: {} };
+
+// Construct Moonraker's upload entirely from its locally declared request choices.
+if (moonrakerCapabilities.files.upload.kind === 'supported') {
+  const choice = moonrakerCapabilities.files.upload.constraints[0];
+  service.files.upload({ target, requestId: id<'request'>('declared-upload'),
+    destination: choice.destination, format: choice.formats[0],
+    collisionPolicy: choice.collisionPolicies[0], fileName: 'part.gcode', sizeBytes: 100,
+  }, { chunks });
+}

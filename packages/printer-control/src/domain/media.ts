@@ -1,5 +1,5 @@
 /** Managed camera and remote-file presentation. Temporary delivery credentials are not persistent DTOs. */
-import type { Id, Revision, UnixMs, PrinterError, Result, ReadOptions, Capability, PrinterTarget, TargetRequest } from './common';
+import type { Id, Revision, UnixMs, PrinterError, Result, ReadOptions, Capability, PrinterTarget, TargetRequest, NonEmptyReadonlyArray } from './common';
 import type { FileSelection, ByteRange, BinaryRead } from './files';
 export type TimelapseMode = 'off' | 'traditional' | 'smooth';
 export interface TimelapseSetting {
@@ -16,12 +16,14 @@ export interface VideoProfile {
 export interface CameraMediaCapability {
   cameraId: Id<'camera'>;
   liveView: Capability<{
-    transports: readonly VideoTransport[];
+    transports: NonEmptyReadonlyArray<VideoTransport>;
+    /** Empty means only adapter-selected delivery; omit profileId in the request. */
     profiles: readonly VideoProfile[];
+    /** Unknown viewer limit; null does not mean unlimited viewers. */
     maxConcurrentViews: number | null;
   }>;
   snapshot: Capability<{
-    mimeTypes: readonly ('image/jpeg' | 'image/png')[];
+    mimeTypes: NonEmptyReadonlyArray<'image/jpeg' | 'image/png'>;
   }>;
 }
 export interface MediaClientCapabilities {

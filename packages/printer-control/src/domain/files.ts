@@ -1,5 +1,5 @@
 /** Remote resources and local streaming API. Files remain scoped to their printer route. */
-import type { Id, Revision, UnixMs, Result, ReadOptions, Capability, Availability, PrinterTarget, TargetRequest } from './common';
+import type { Id, Revision, UnixMs, Result, ReadOptions, Capability, Availability, PrinterTarget, TargetRequest, NonEmptyReadonlyArray } from './common';
 import type { Submission } from './control';
 export type PrintFormatId = 'gcode' | `vendor:${string}`;
 export interface RemoteFileRef {
@@ -154,32 +154,33 @@ export interface UploadProgress {
 }
 export interface FileCapabilities {
   list: Capability<{
-    storageIds: readonly Id<'storage'>[];
-    kinds: readonly RemoteFileKind[];
+    storageIds: NonEmptyReadonlyArray<Id<'storage'>>;
+    kinds: NonEmptyReadonlyArray<RemoteFileKind>;
   }>;
-  stat: Capability<readonly {
+  stat: Capability<NonEmptyReadonlyArray<{
     storageId: Id<'storage'>;
     versionCheck: VersionCheck;
-  }[]>;
-  download: Capability<readonly {
+  }>>;
+  download: Capability<NonEmptyReadonlyArray<{
     storageId: Id<'storage'>;
     byteRanges: boolean;
     versionCheck: VersionCheck;
-  }[]>;
-  upload: Capability<readonly {
+  }>>;
+  upload: Capability<NonEmptyReadonlyArray<{
     destination: UploadRequest['destination'];
-    formats: readonly PrintFormatId[];
+    formats: NonEmptyReadonlyArray<PrintFormatId>;
+    /** Unknown upload size limit; null does not mean unlimited. */
     maxBytes: number | null;
-    collisionPolicies: readonly ('reject' | 'rename')[];
-  }[]>;
-  preview: Capability<readonly {
+    collisionPolicies: NonEmptyReadonlyArray<'reject' | 'rename'>;
+  }>>;
+  preview: Capability<NonEmptyReadonlyArray<{
     storageId: Id<'storage'>;
-    kinds: readonly PreviewKind[];
+    kinds: NonEmptyReadonlyArray<PreviewKind>;
     versionCheck: VersionCheck;
-  }[]>;
+  }>>;
   changes: Capability<{
-    storageIds: readonly Id<'storage'>[];
-    delivery: readonly ('push' | 'poll')[];
+    storageIds: NonEmptyReadonlyArray<Id<'storage'>>;
+    delivery: NonEmptyReadonlyArray<'push' | 'poll'>;
   }>;
 }
 export interface PrinterFiles {

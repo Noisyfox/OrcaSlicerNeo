@@ -60,7 +60,7 @@ export interface ProviderDescriptor {
   name: string;
   hosts: readonly AgentHost[];
   discovery: Capability<{
-    kinds: readonly DiscoveryScope['kind'][];
+    kinds: NonEmptyReadonlyArray<DiscoveryScope['kind']>;
   }>;
 }
 export interface PrinterTypeDescriptor {
