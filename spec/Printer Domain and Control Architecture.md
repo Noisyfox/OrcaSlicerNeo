@@ -3,8 +3,9 @@
 **Updated:** 2026-10-21
 
 **Status:** Explicit requirements and selected architecture direction recorded;
-detailed design remains a proposal for review. Concrete agents, gateway and
-domain implementation are deferred. This document does not claim delivery.
+initial TypeScript domain contracts are available. Concrete agents, gateway,
+runtime validation and application integration remain deferred. Interface
+availability does not establish device support or runtime delivery.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
 capabilities, controls, material systems, read-only sensors, cameras, remote
@@ -77,6 +78,32 @@ already implements it. This classification applies to sections 2–11, including
 their suggested acceptance scenarios. Including a feature in the domain does
 not require every printer or provider to support it; capability reporting must
 preserve that distinction.
+
+### 1.2 Current interface boundary
+
+The type-only [domain entrypoint](../packages/printer-control/src/domain/index.ts)
+is exported as `@orca/printer-control/domain`. It defines the initial concrete
+contract for printer resources, materials, extensible sensors, controls,
+capabilities, files, media, discovery and sessions. The source is authoritative
+for current field shapes; this specification records their purpose and limits.
+The [compile-only consumers](../packages/printer-control/typechecks/domain.ts)
+exercise public imports, typed extensions, command/result correlations and
+representative printer shapes without implementing an agent.
+
+The initial interface selects section replacement events with connection
+epochs, a typed command map, managed media sessions and explicit file
+consistency modes from the proposals above. Those are current contract choices,
+not evidence that the user mandated a particular transport or permanent schema.
+Future refinements update the single contract and its consumers together.
+No gateway wire format, persistence migration or protocol executor is defined.
+
+The existing package root continues to expose the operational Moonraker HTTP
+driver and Send service. That host-injected HTTP seam does not implement the new
+domain service. This interface-only step adds no compatibility adapter or
+alternative runtime payload format; integrating a provider and switching its
+application callers is separate work. Project material import remains an
+application-owned workflow; its proposal type does not authorize telemetry to
+mutate a native project.
 
 The [shared application architecture](Web-Electron%20Shared%20Application%20Architecture.md)
 remains the application-wide authority. [Printer Console and Control Integration](Printer%20Console%20and%20Control%20Integration.md)
@@ -460,5 +487,5 @@ wire protocol and cross-version negotiation; credential migration; operation
 retention and deduplication guarantees; media proxy/transcoding feasibility;
 and the runtime/parser context for remote toolpath previews. Resolve these
 against the constraints above before claiming the corresponding capability.
-Concrete interface source, agents, gateway and UI implementation remain outside
-this documentation change.
+Concrete agents, gateway, runtime validation and UI integration remain outside
+the delivered interface boundary.
