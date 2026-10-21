@@ -1,6 +1,7 @@
 // Compile-only consumers of the public entrypoint. Never imported by runtime code.
 import type { CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState } from '@orca/printer-control/domain';
 import type { PrinterCapabilities, PrinterService, PrinterSession, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
+import type { CapabilityHint, DiscoveryCandidate, PrinterCapabilityHints, PrinterRoute, SavedPrinter } from '@orca/printer-control/domain';
 
 // Brands in fixtures stand in for IDs validated/issued by a future provider.
 const id = <K extends string,>(value: string): Id<K> => value as Id<K>;
@@ -441,3 +442,48 @@ const upgrade: CommandOf<'firmware.upgrade'> = {};
 state.firmware;
 // @ts-expect-error UI page visibility is not an agent-controlled capability flag.
 capabilities.showMonitorTab;
+
+// Provider-owned inference examples, not implemented Bambu/Moonraker agents.
+const inferredSupport: CapabilityHint = {
+  kind: 'supported',
+  source: { kind: 'inferred', basis: 'provider', ruleId: 'fixture:bambu-monitor', ruleRevision: '1' },
+  assessedAtMs: 0, freshness: 'fresh',
+};
+export const discoveredPrinter: DiscoveryCandidate = {
+  id: id<'candidate'>('bambu-lan'), providerId: id<'provider'>('bambu'),
+  hostId: id<'agent-host'>('desktop'), channel: 'lan',
+  displayName: 'Discovered printer', externalRefs: [], expiresAtMs: 1000,
+  capabilityHints: { revision: '1', observations: { job: inferredSupport } },
+};
+export const moonrakerRoute: PrinterRoute = {
+  id: routeId, printerId: manualPrinter.identity.id,
+  providerId: id<'provider'>('moonraker'), hostId: id<'agent-host'>('browser'),
+  channel: 'lan', label: 'LAN', credentialRef: null,
+  capabilityHints: {
+    revision: '1',
+    webInterface: {
+      kind: 'supported',
+      source: { kind: 'inferred', basis: 'provider', ruleId: 'fixture:moonraker-web', ruleRevision: '1' },
+      assessedAtMs: 0, freshness: 'fresh',
+    },
+  },
+};
+export const enumeratedPrinter: SavedPrinter = {
+  identity: manualPrinter.identity, routes: [moonrakerRoute],
+};
+// No knowledge is representable without manufacturing unsupported answers.
+const noKnowledge: PrinterCapabilityHints = { revision: '0' };
+const reportedSupport: CapabilityHint = {
+  kind: 'unsupported', layer: 'route', reason: 'Not exposed by this route',
+  source: { kind: 'reported', via: 'probe' }, assessedAtMs: 100, freshness: 'fresh',
+};
+// @ts-expect-error Inference must identify its provenance and assessment time.
+const ungrounded: CapabilityHint = { kind: 'supported' };
+// @ts-expect-error UI page flags are not capability identifiers.
+const tabHint: PrinterCapabilityHints = { revision: '1', showMonitorTab: true };
+// @ts-expect-error Hints cannot be substituted for executable capability constraints.
+const commandSupport: CommandCapabilities['thermal.setTarget'] = inferredSupport;
+// @ts-expect-error Support inference does not manufacture a resolved Web entry.
+const resolvedEntry: WebInterfaceDescription['capability'] = inferredSupport;
+// @ts-expect-error Commands use the existing command taxonomy even before connection.
+const unknownCommand: PrinterCapabilityHints = { revision: '1', commands: { 'sensors.write': inferredSupport } };

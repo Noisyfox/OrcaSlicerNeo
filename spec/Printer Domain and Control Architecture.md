@@ -30,6 +30,7 @@ or implementation technique an additional user mandate.
 | Abstract printer properties and capabilities before implementing agents | Hardware description, supported functions and current state are separate concepts. |
 | Abstract the various printer control interfaces | Shared features use a vendor-independent domain boundary. |
 | Provide available-printer listing and discovery | Saved printers, discovery candidates and currently reachable routes are distinguishable. |
+| Include capabilities inferable before connection in discovery/enumeration | Carry partial, sourced support knowledge without fabricating live resource constraints; recognized Bambu and Moonraker providers can establish their respective control/Web entry eligibility early. |
 | Include basic printer controls and AMS-like controls | Model ordinary printers and automatic material systems without making one manufacturer's AMS layout universal. |
 | Synchronize printer information and consumables | Observe device state and material inventory, with an explicit boundary around project changes. |
 | Include cameras | Model live viewing and camera-related capabilities, not just a stored camera URL. |
@@ -53,8 +54,9 @@ support: the original functional request was explicitly non-exhaustive.
 ### 1.1 Decision status and interpretation
 
 The explicit requests above and selection of option B are established user
-decisions. The native Web interface and page-eligibility rules in sections
-4.1–4.3 are also accepted user decisions; their precise UI layout remains open.
+decisions. Pre-connection capability knowledge in section 3.1 and the native
+Web interface and page-eligibility rules in sections 4.1–4.3 are also accepted
+user decisions; their precise UI layout remains open.
 Existing requirements inherited from linked repository specifications
 remain authoritative. The rest of this document records the proposed domain
 semantics and design constraints from the discussion, not blanket user approval
@@ -91,6 +93,8 @@ The type-only [domain entrypoint](../packages/printer-control/src/domain/index.t
 is exported as `@orca/printer-control/domain`. It defines the initial concrete
 contract for printer resources, materials, extensible sensors, controls,
 capabilities, files, media, discovery, sessions and native Web entry resolution.
+Discovery and saved-route enumeration include partial capability hints with
+per-feature provenance and freshness, independently of a connected snapshot.
 Firmware read support uses the existing observation and refresh boundary.
 The source is authoritative
 for current field shapes; this specification records their purpose and limits.
@@ -179,6 +183,66 @@ their ownership and caching mechanism are not fixed here.
 Closing a view or session releases its subscriptions and media resources;
 it does not implicitly stop a printer job.
 
+### 3.1 Capability knowledge before connection
+
+Discovery and enumeration can establish some capabilities without connecting
+to the printer. Providers may infer support from a recognized protocol/provider,
+model or explicit configuration, or obtain it from discovery announcements and
+probes. A successful control connection is not a prerequisite for showing a
+useful device interface.
+
+The [partial capability contract](../packages/printer-control/src/domain/capability-hints.ts)
+reuses the connected contract's semantic command, observation, file and camera
+feature keys, plus native Web access. A hint states supported, unsupported or
+unknown without requiring resource IDs, numeric ranges, a resolved Web entry
+or other operation constraints that may be learned only later. Omitted entries
+mean unknown. A supported hint describes feature support, not current
+availability, authenticated access or permission to execute a command.
+
+Discovery candidates carry hints scoped to their provider, host and channel;
+separate LAN/cloud alternatives remain separate candidates. Adoption associates
+the knowledge with the resulting route. Saved-printer enumeration exposes hints
+on each route, not one union across the physical printer. An empty hint set is
+valid. Enumeration is a projection of current provider rules and retained
+knowledge, not a requirement to persist transient hints as permanent user
+configuration. Changed knowledge can be published by discovery upsert or a new
+enumeration; the current interface revisions replace complete hint sets.
+
+Each positive or negative hint records its source, assessment time and freshness.
+Inferred hints identify a provider-owned rule and revision, with a provider,
+model or configuration basis. Reported hints distinguish discovery announcements
+from probes. A UI must not infer support by matching the displayed printer name.
+No matching rule means unknown, not unsupported. Rule, model, route or
+configuration changes require reassessment of affected inferred knowledge.
+
+The required baseline examples are:
+
+- An identified Bambu provider can declare meaningful monitoring/control support
+  before connection, allowing the dedicated control interface to appear. In the
+  initial contract, job-observation support is one such semantic hint. This does
+  not automatically enable every Bambu command, camera or file operation.
+- An identified Moonraker provider can declare native Web interface support
+  during discovery/enumeration. The entry address and page access are resolved
+  independently; support does not prove an API URL is an embeddable console.
+
+These are provider inference rules required by the design, not hardcoded UI
+brand switches or claims that concrete agents have been implemented. Hints are
+not passed as fully constrained connected capabilities. Control execution still
+requires the applicable current capabilities, targets and guards; Web opening
+requires a resolved entry. A supported hint is sufficient to show a pending
+page before those details are available.
+
+Reconcile knowledge per feature and applicable route/context. Current explicit
+connected capability answers take precedence over earlier inference; a current
+reported/probed answer takes precedence over a conflicting rule default. Do not
+let a newer rule timestamp erase applicable observed evidence. A connection
+attempt, missing field, unknown result or failed refresh is not an explicit
+negative answer and must not downgrade known support. Retain prior knowledge
+as stale when appropriate, rather than relabeling it as freshly confirmed.
+Historical evidence from a different or invalidated device/configuration context
+cannot override the current context. The provider owns reconciliation; the UI
+consumes the resulting knowledge. No reconciliation engine is implemented here.
+
 ## 4. Hardware, capabilities and operational availability
 
 Printer properties cover stable identity and display name, manufacturer/model,
@@ -256,6 +320,12 @@ The application derives page eligibility from semantic capabilities and the
 viewing host environment. Agents do not supply page names, visibility flags,
 tab order or default selection. Use one application policy when UI integration
 is implemented; the current change defines that policy without implementing it.
+This includes applicable pre-connection hints from section 3.1: do not wait for
+a connected snapshot when a provider has already established support. Inferred
+support can expose a pending/connecting page, while its controls remain subject
+to resolved resources and current availability. A file-listing hint can expose
+the pending browser before storage scopes have been enumerated; a Web hint can
+expose the entry before its launch address is known.
 
 | Page | Eligibility | Conditions that do not remove eligibility |
 | --- | --- | --- |

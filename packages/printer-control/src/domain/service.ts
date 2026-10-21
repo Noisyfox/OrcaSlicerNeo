@@ -1,10 +1,11 @@
 /** Local SDK contracts for discovery and sessions. Methods, signals and streams require an explicit IPC/network binding. */
 import type { Id, UnixMs, ExternalRef, PrinterError, Result, ReadOptions, Capability, AtLeastOne, SessionCursor } from './common';
-import type { AgentHost, SavedPrinter, PrinterDescriptor, PrinterState, PrinterCapabilities, StateTopic } from './printer';
+import type { AgentHost, SavedPrinter, PrinterDescriptor, PrinterState, PrinterCapabilities, PrinterRoute, StateTopic } from './printer';
 import type { PrinterFiles } from './files';
 import type { PrinterMedia } from './media';
 import type { PrinterOperations, PrinterControls } from './control';
 import type { PrinterWebInterfaces } from './web-interface';
+import type { PrinterCapabilityHints } from './capability-hints';
 export interface PrinterSnapshot {
   cursor: SessionCursor;
   printerId: Id<'printer'>;
@@ -64,6 +65,9 @@ export interface DiscoveryCandidate {
   id: Id<'candidate'>;
   providerId: Id<'provider'>;
   hostId: Id<'agent-host'>;
+  /** One route alternative; LAN and cloud discoveries carry independent hints. */
+  channel: PrinterRoute['channel'];
+  capabilityHints: PrinterCapabilityHints;
   displayName: string;
   externalRefs: readonly ExternalRef[];
   expiresAtMs: UnixMs;
@@ -85,6 +89,7 @@ export interface PrinterService {
   /** Native UI access is service-scoped so it does not depend on connect() succeeding. */
   readonly webInterfaces: PrinterWebInterfaces;
   listProviders(options?: ReadOptions): Promise<Result<readonly ProviderDescriptor[]>>;
+  /** Includes each route's inferred/reported support; does not require connect(). */
   listSaved(options?: ReadOptions): Promise<Result<readonly SavedPrinter[]>>;
   discover(providerId: Id<'provider'>, scope: DiscoveryScope, options?: ReadOptions): AsyncIterable<DiscoveryEvent>;
   adopt(request: {

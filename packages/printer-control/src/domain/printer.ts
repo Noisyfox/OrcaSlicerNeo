@@ -6,6 +6,7 @@ import type { RemoteFileRef, FileCapabilities } from './files';
 import type { TimelapseMode, CameraMediaCapability } from './media';
 import type { CommandCapabilities } from './control';
 import type { WebInterfaceCapability } from './web-interface';
+import type { PrinterCapabilityHints } from './capability-hints';
 export interface PrinterIdentity {
   id: Id<'printer'>;
   displayName: string;
@@ -27,6 +28,8 @@ export interface PrinterRoute {
   channel: 'lan' | 'cloud';
   label: string;
   credentialRef: Id<'credential'> | null;
+  /** Enumerated support knowledge; no control session or live constraints required. */
+  capabilityHints: PrinterCapabilityHints;
 }
 export interface SavedPrinter {
   identity: PrinterIdentity;
