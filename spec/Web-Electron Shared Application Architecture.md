@@ -3,6 +3,7 @@
 **Date:** 2026-09-09
 
 **Status:** Delivered shared architecture; current host/runtime boundaries.
+Section 4.2 records the selected, unimplemented service-provider/account design.
 
 **Scope:** Refactor OrcaSlicerNeo so the same application functionality can ship
 as an Electron desktop application and a conventional static web application.
@@ -26,8 +27,12 @@ feature-equivalent interface:
    viewport.
 6. Download G-code.
 
-User-created preset repositories, cloud accounts/slicing, online profile
-updates, PWA/offline guarantees and richer startup recovery remain deferred.
+Local user-preset delivery and future synchronization are owned by
+[User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md).
+Cloud account execution remains unimplemented; the selected Electron Bambu
+login scope and shared account boundary are recorded in section 4.2. Cloud
+slicing, online profile updates, PWA/offline guarantees and richer startup
+recovery remain deferred.
 Project configuration and explicit 3MF persistence are delivered under
 [Project and Scoped Configuration](Project%20and%20Scoped%20Configuration.md)
 and [3MF Project Persistence](3MF%20Project%20Persistence.md).
@@ -169,6 +174,71 @@ The platform contract carries a versioned menu model, complete state snapshot
 and guarded command dispatch. The shared app owns business availability;
 Electron owns native menu placement and validated preload/main IPC. Web owns
 browser download/link behavior. See [Application Shell](Application%20Shell.md).
+
+### 4.2 Service providers and accounts
+
+**Decision status:** The shared boundary and Electron-only Bambu native-addon
+direction are selected. This is design work, not delivered account support or
+authorization to implement it. Exact package names and method signatures remain
+open; no new public contract has been added to source yet.
+
+Provider identity, account modeling and account methods belong in a shared
+contract module outside `printer-control`. They must be usable by services with
+no printer functionality, including future profile synchronization. The common
+provider boundary must not depend on the printer domain, Electron, Node.js,
+native plugin types or a vendor's authentication payloads.
+
+Account and printer capabilities are separate interfaces. A concrete provider
+offering both implements/extends both interfaces under the same provider
+identity. The printer interface does not inherit the account interface, and
+account support is not mandatory for a printer-only provider. Future profile
+synchronization is another capability with its own domain contract; it does not
+become a method on the printer service or a mandatory account capability.
+
+Printer routes and future synchronization requests may reference an account
+owned by the common account boundary. Credential resolution and token refresh
+are host/provider implementation responsibilities; shared UI must not shuttle
+raw tokens between capabilities. The exact reference scope, account multiplicity
+and credential persistence policy remain to be decided. Account authentication
+does not itself authorize printer binding, profile synchronization or project
+changes. Profile/library transitions remain governed by
+[User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md#8-storage-synchronization-and-project-interchange).
+
+For the first Bambu integration, the selected approach is a Node-API native
+addon wrapping `open-bamboo-networking` in an Electron utility process. Native
+network execution stays outside the renderer and slicing runtime. Shared UI
+uses injected public capability contracts; plugin loading, browser callbacks,
+credential storage and IPC belong to the Electron implementation. A dedicated
+printer utility process is the proposed isolation boundary; its ownership,
+restart behavior and multi-window lifetime still require clarification.
+
+Only Electron execution is selected for this phase. The contracts remain shared
+so a later host or network service can implement them without redefining the
+account or printer domain. This does not deliver a Web provider, gateway or
+browser-compatible native plugin. Unsupported hosts must not advertise Bambu
+execution merely because they can import its interfaces. Local Web slicing and
+existing Moonraker behavior remain independent of this integration. Mobile
+account/provider execution is deferred along with mobile product support.
+
+The next design decisions are grouped as follows; suggestions are not defaults
+until selected:
+
+| Group | Open decisions |
+| --- | --- |
+| Accounts and identity | Concurrent providers; accounts per provider; regional identity and switching; logout effects on dependent capabilities. |
+| Authentication and credentials | System browser versus embedded login; callback correlation/cancellation; remembered login and refresh timing; credential storage and recovery. |
+| Discovery and adoption | Cloud and LAN delivery scope; refresh triggers and scan lifetime; identity association; saved-device behavior after logout or account changes. |
+| Native host and delivery | Process ownership/recovery; plugin version/build/distribution policy; configuration migration; supported OS/architectures and real-account/device acceptance. |
+
+The proposed authentication workflow is a separately addressed, cancellable
+login request, with account summaries available locally and authentication
+handled by the provider. Its concrete states and entry points remain open.
+The proposal to use Bambu's external-browser ticket flow and initially expose
+one account per provider has not yet been accepted. Existing stateless printer
+access and no-network local enumeration constraints continue to apply.
+
+The Bambu-specific scope and feasibility limits are owned by
+[Printer Domain and Control Architecture](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design).
 
 ## 5. Runtime and WASM Loading
 
@@ -459,8 +529,10 @@ high-risk task gate.
 - Mobile Chrome product support; every new feature must nevertheless assess it.
 - Profile package validation, signatures, hashes, compatibility gates,
   independent online updates and rollback.
-- Cloud accounts, cloud profile delivery/synchronization, user-created profile
-  persistence, and conflict resolution.
+- Cloud account execution (Electron Bambu login has a selected design in
+  section 4.2), cloud profile delivery/synchronization and cloud conflict
+  resolution. Local user-preset persistence is delivered under its own
+  [specification](User%20Preset%20Repository%20and%20Versioning.md).
 - Generated G-code/result persistence; explicit project input persistence
   and drag-and-drop are already delivered.
 - Remote slicing implementation.

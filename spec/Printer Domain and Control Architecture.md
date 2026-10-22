@@ -4,8 +4,9 @@
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
-Device Web entry and Send use the stateless service in both hosts. Other agents,
-the gateway and richer device features remain deferred. Interface availability
+Device Web entry and Send use the stateless service in both hosts. Electron
+Bambu login/discovery has a selected, unimplemented design in section 2.1.
+The gateway and richer device features remain deferred. Interface availability
 alone does not establish device support or runtime delivery.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
@@ -51,7 +52,9 @@ or implementation technique an additional user mandate.
 | Download, delete and reprint remote files | Define independent operations and their availability; reprinting starts an existing remote printable file. |
 | Support temperature probes without temperature control, plus other sensors such as door switches | Provide a generic read-only sensor collection with data that varies and can expand by sensor type. |
 | Integrate the design and check duplicates, omissions and responsibility boundaries | Maintain one coherent domain model and retain examples for different printer configurations. |
-| Defer concrete agents and the gateway during interface design | Later authorization covers migrating existing Moonraker behavior only; other agents, the gateway and new device functions remain deferred. |
+| Defer concrete agents and the gateway during interface design | Existing Moonraker behavior is delivered. Bambu login/discovery is now in design under section 2.1; implementation and the gateway remain deferred. |
+| Use open-bamboo-networking for initial Bambu login and printer discovery | Select the Electron native-addon approach; no Web execution in this phase. |
+| Keep account methods and modeling outside printer-control | The shared application architecture owns a separate common provider/account boundary; a provider offering account and printer functionality implements both interfaces. |
 | Support explicit overwrite as a normal upload capability | Overwrite is a first-class collision choice, advertised per destination and explicitly selected in upload requests. |
 | Record constraints rather than concrete TypeScript interfaces | Keep interface source code and exhaustive API signatures out of this specification. |
 
@@ -266,6 +269,65 @@ Ordinary-browser reachability, authentication, discovery, upload, control,
 telemetry and camera playback need independent qualification. Success in one
 does not establish the others. A gateway remains an optional future execution
 path, not a dependency of local slicing or an assertion of cloud support.
+
+### 2.1 Bambu Electron provider design
+
+**Selected scope:** Integrate Bambu account login and printer discovery using
+[open-bamboo-networking](https://github.com/ClusterM/open-bamboo-networking).
+The selected implementation direction is an Electron Node-API addon hosted
+outside the renderer, with shared public provider contracts. It is not the
+standalone helper/gateway approach, nor a browser-WASM port. No implementation
+has been authorized or delivered by this design record.
+
+The [common provider/account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts)
+owns account methods independently of printers. The Bambu provider implements
+both the account and printer interfaces. Its implementation may share native
+plugin resources internally; shared UI receives domain results, not plugin
+handles, raw credentials or Bambu JSON. Existing printer discovery/adoption and
+physical-identity/multiple-route semantics remain the integration boundary.
+Concrete registry/facade APIs and configuration migration remain design work.
+
+Cloud-account enumeration and LAN discovery are distinct capabilities. Both
+are proposed for the initial discovery delivery; their exact scope and triggers
+remain to be confirmed. Listing an account's devices does not establish LAN
+reachability, and receiving a LAN announcement does not authenticate a device.
+Discovery and local adoption do not bind/unbind a device to a Bambu account.
+Unsupported printing, upload, control, monitoring and media capabilities must
+remain unavailable in this login/discovery phase. Profile synchronization is
+future work governed by its own domain, not a side effect of login.
+
+Source review at upstream revision
+[`331a4f2585f6ebf4393e5f329e3169e38c6a6713`](https://github.com/ClusterM/open-bamboo-networking/tree/331a4f2585f6ebf4393e5f329e3169e38c6a6713)
+establishes these integration constraints, not end-to-end qualification:
+
+- [Authentication exports](https://github.com/ClusterM/open-bamboo-networking/blob/331a4f2585f6ebf4393e5f329e3169e38c6a6713/src/abi_user.cpp)
+  exchange a browser ticket, retrieve profile data, apply a session and log out.
+  Neo must provide the interactive login host and callback lifecycle.
+- [Cloud enumeration](https://github.com/ClusterM/open-bamboo-networking/blob/331a4f2585f6ebf4393e5f329e3169e38c6a6713/src/abi_http.cpp)
+  uses HTTP and can return device LAN access codes. Normalize its results and
+  retain secrets at the host/provider boundary. Discovery must not implicitly
+  enable ongoing MQTT observation.
+- [LAN discovery](https://github.com/ClusterM/open-bamboo-networking/blob/331a4f2585f6ebf4393e5f329e3169e38c6a6713/src/agent.cpp#L2408-L2464)
+  listens passively on UDP 2021; the sending argument does not enable an active
+  scan. An empty result is not proof that no printer exists. Preserve manual
+  configuration independently of discovery.
+- The [export ABI](https://github.com/ClusterM/open-bamboo-networking/blob/331a4f2585f6ebf4393e5f329e3169e38c6a6713/include/obn/abi_export.hpp)
+  uses C symbol names but passes C++ standard-library types. A matching C++
+  adapter/toolchain is required; this is not a pure-C FFI contract.
+- Plugin initialization can refresh persisted authentication, and startup or
+  enumeration can enable cloud subscriptions under some configurations. Adapt
+  lifecycle deliberately to preserve local-only listing/description and the
+  selected discovery scope rather than replaying Studio initialization blindly.
+- The plugin persists tokens in `obn.auth.json`; that is not an OS credential
+  store. Secure storage integration must account for the plugin's own copy.
+
+Real-account login, regional endpoints, verification challenges, credential
+refresh and real-device discovery have not been validated in Neo. Successful
+login/listing does not establish permission or support for later printing.
+Browser callbacks, addon/plugin packaging and supported OS/architectures need
+independent qualification. The grouped open decisions are tracked in the shared
+architecture; exact single-account, browser-login and storage proposals remain
+unselected until clarified.
 
 ## 3. Identity, configuration and stateless access
 
@@ -1012,8 +1074,8 @@ permissions, browser networking or media interoperability. Select execution
 scope using the [testing guidelines](../doc/testing_guidelines.md).
 
 In addition to the reviewable mechanisms in section 1.1, open decisions include
-provider prioritization and exact model support; discovery and account
-authentication mechanisms; gateway deployment,
+exact model support and providers beyond the selected Bambu design; discovery
+details and the separately owned account authentication mechanisms; gateway deployment,
 wire protocol and cross-version negotiation; credential migration; operation
 retention and deduplication guarantees; media proxy/transcoding feasibility;
 and the runtime/parser context for remote toolpath previews. Resolve these

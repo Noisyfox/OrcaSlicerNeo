@@ -884,6 +884,14 @@ without pretending it is a new project operation.
 
 ## 8. Storage, synchronization and project interchange
 
+The selected [common provider/account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts)
+owns account identity and authentication outside `printer-control`. Future
+profile synchronization is a separate provider capability that can share an
+account with printer functionality without depending on the printer interface.
+A provider offering both accounts and printers implements both contracts;
+neither Bambu login nor printer discovery enables profile synchronization in
+this phase. Account libraries and cloud synchronization remain design only.
+
 Proposed repository adapters are Electron JSON folders and Web IndexedDB under
 one shared contract. Keep account credentials outside profile files. Use native
 serialization for inherited/sparse/vector configuration; do not serialize form
