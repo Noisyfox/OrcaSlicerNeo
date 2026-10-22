@@ -228,6 +228,15 @@ page, with system-browser handoff and a local callback when the page requests
 it, following Orca's login flow. Login is remembered automatically across normal
 application shutdown/restart. Closing the application is not account logout.
 
+For the first delivery, expose the login entry point only on Home. Account
+contracts and execution remain independent of the printer domain. After a
+system-browser handoff, closing the Neo login window does not cancel the current
+login attempt: its browser callback may still complete login, and Home then
+reflects the updated account state. This follows Orca's application-owned
+callback service rather than tying login completion to the window lifetime.
+See [Orca's login window lifecycle](../packages/slicer-wasm/cpp/src/slic3r/GUI/WebUserLoginDialog.cpp)
+and [browser callback handler](../packages/slicer-wasm/cpp/src/slic3r/GUI/HttpServer.cpp).
+
 Treat `open-bamboo-networking` as a black box. Reproduce Orca's plugin-facing
 call pattern for the selected login/discovery scope: lifecycle ordering,
 parameters, callback registration/dispatch, login completion, restoration,
@@ -308,15 +317,15 @@ until selected:
 
 | Group | Open decisions |
 | --- | --- |
-| Authentication and credentials | Cancellation/late callback UX consistent with Orca calls; recovery when plugin state is unavailable. |
+| Authentication and credentials | Recovery when plugin state is unavailable; handling superseded login attempts consistently with Orca calls. Closing the login window after browser handoff does not cancel the current attempt. |
 | Discovery and adoption | Identity association and treatment of stale candidates during account changes, within the selected cloud auto-enumeration and LAN access-code flow. |
 | Native host and delivery | Exact upstream binary release; configuration migration; ordinary build/feature verification and real-account/device acceptance. All six Electron targets are selected; use Orca's common headers and loader pattern. Process crash recovery is excluded from the first delivery. |
 
-The proposed authentication workflow is a separately addressed, cancellable
-login request, with account summaries available locally and authentication
-handled by the provider. Its concrete states and entry points remain open.
-Embedded login with external handoff, remembered login and Orca-compatible
-black-box plugin execution are accepted as described above. Existing stateless
+Authentication is handled by the provider, with account summaries available
+locally. The concrete request/state representation remains open; it must respect
+the selected window-close behavior. The Home-only login entry point, embedded
+login with external handoff, remembered login and Orca-compatible black-box
+plugin execution are accepted as described above. Existing stateless
 public printer access remains unchanged; internal plugin lifecycle is host-owned.
 
 The Bambu-specific scope and feasibility limits are owned by
