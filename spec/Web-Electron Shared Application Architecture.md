@@ -204,7 +204,8 @@ regions belong to the same provider, not two independently active providers.
 The account identity includes its region. Changing regions requires logout of
 the current account followed by login in the other region; it does not retain
 multiple regional sessions for quick switching. Exact reference representation
-and credential persistence policy remain to be decided. Account authentication
+remains to be decided; Bambu persistence follows the black-box plugin policy
+below. Account authentication
 does not itself authorize printer binding, profile synchronization or project
 changes. Profile/library transitions remain governed by
 [User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md#8-storage-synchronization-and-project-interchange).
@@ -217,13 +218,47 @@ cloud unbinding or deletion at the provider. Other providers' accounts and
 routes remain independent. Region changes use this same logout behavior.
 The printer-specific consequences are owned by
 [the printer domain](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design);
-credential clearing and treatment of authentication expiry remain open.
+the effect of automatic authentication expiry on Neo's saved routes remains
+open. Plugin logout calls themselves follow Orca's behavior.
+
+Bambu login uses an embedded, isolated Electron login window for the official
+page, with system-browser handoff and a local callback when the page requests
+it, following Orca's login flow. Login is remembered automatically across normal
+application shutdown/restart. Closing the application is not account logout.
+
+Treat `open-bamboo-networking` as a black box. Reproduce Orca's plugin-facing
+call pattern for the selected login/discovery scope: lifecycle ordering,
+parameters, callback registration/dispatch, login completion, restoration,
+connection, errors and logout. Electron replaces the wxWidgets host without
+changing those protocol-facing semantics. Account/profile capabilities remain
+separate public interfaces; this does not import Orca's combined cloud API or
+its unrelated features into Neo.
+
+The plugin owns Bambu session persistence and refresh. Provide its host-owned
+configuration directory and use the exposed lifecycle/status/login/logout
+functions as Orca does. Do not read or rewrite private auth files, call internal
+functions or Bambu REST endpoints to bypass the plugin, replace its token
+refresh policy, or change plugin-specific configuration to suppress behavior
+required by the Orca call pattern. Neo may handle ABI-returned login data within
+the native host as Orca does; shared UI never receives raw tokens. Normal
+shutdown preserves the plugin session rather than invoking user logout.
+
+Startup restoration and post-login connection may perform network I/O. This
+explicit Bambu lifecycle decision supersedes the earlier proposed on-demand
+authentication and no-background-connection restrictions for Bambu. Local
+catalogue/configuration methods still do not initiate new probes themselves;
+they do not promise that an already initialized plugin is network-idle.
+Moonraker's request-driven behavior remains unchanged. Do not claim control,
+monitoring or synchronization delivery merely because the plugin maintains a
+connection internally. The Orca call sites and qualification boundary are
+recorded in the printer specification.
 
 For the first Bambu integration, the selected approach is a Node-API native
 addon wrapping `open-bamboo-networking` in an Electron utility process. Native
 network execution stays outside the renderer and slicing runtime. Shared UI
 uses injected public capability contracts; plugin loading, browser callbacks,
-credential storage and IPC belong to the Electron implementation. A dedicated
+plugin configuration-directory ownership and IPC belong to the Electron
+implementation. A dedicated
 printer utility process is the proposed isolation boundary; its ownership,
 restart behavior and multi-window lifetime still require clarification.
 
@@ -240,16 +275,16 @@ until selected:
 
 | Group | Open decisions |
 | --- | --- |
-| Authentication and credentials | System browser versus embedded login; callback correlation/cancellation; remembered login and refresh timing; credential storage and recovery. |
-| Discovery and adoption | Cloud and LAN delivery scope; refresh triggers and scan lifetime; identity association; treatment of stale candidates during account changes. |
+| Authentication and credentials | Cancellation/late callback UX consistent with Orca calls; local saved-route treatment after automatic authentication expiry; recovery when plugin state is unavailable. |
+| Discovery and adoption | Cloud and LAN delivery scope; candidate presentation/adoption UX under Orca-compatible calls; identity association; treatment of stale candidates during account changes. |
 | Native host and delivery | Process ownership/recovery; plugin version/build/distribution policy; configuration migration; supported OS/architectures and real-account/device acceptance. |
 
 The proposed authentication workflow is a separately addressed, cancellable
 login request, with account summaries available locally and authentication
 handled by the provider. Its concrete states and entry points remain open.
-The proposal to use Bambu's external-browser ticket flow has not yet been
-accepted. Existing stateless printer
-access and no-network local enumeration constraints continue to apply.
+Embedded login with external handoff, remembered login and Orca-compatible
+black-box plugin execution are accepted as described above. Existing stateless
+public printer access remains unchanged; internal plugin lifecycle is host-owned.
 
 The Bambu-specific scope and feasibility limits are owned by
 [Printer Domain and Control Architecture](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design).

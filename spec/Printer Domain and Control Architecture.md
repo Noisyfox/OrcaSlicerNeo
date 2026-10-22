@@ -35,7 +35,7 @@ or implementation technique an additional user mandate.
 | Provide available-printer listing and discovery | Saved printers, discovery candidates and currently reachable routes are distinguishable. |
 | Include capabilities known before device access in discovery/enumeration | Publish normal capabilities from provider/type/configuration and retained observations without inventing resource constraints. |
 | All public APIs are stateless | Each request identifies its target or resource; no connection, initialization call, client session or prior capability query is required. |
-| Manually add printer type and IP/address, and persist locally | Saving, startup, enumeration and local description must not connect, probe or discover device capabilities. |
+| Manually add printer type and IP/address, and persist locally | Saving, enumeration and local description do not initiate device access. Request-based printer startup remains passive; the later Bambu plugin-lifecycle decision in section 2.1 allows Orca-compatible startup networking. |
 | Preserve request-driven Moonraker use | Selecting the printer can immediately open its configured native Web interface; uploads execute on demand without ongoing observation. |
 | Support manually triggered material synchronization on specific Klipper types, such as Snapmaker U1 | Declare this type-specific capability locally; read inventory only on explicit sync, with no startup fetch or background polling. |
 | Include basic printer controls and AMS-like controls | Model ordinary printers and automatic material systems without making one manufacturer's AMS layout universal. |
@@ -92,7 +92,7 @@ In particular, the following choices remain reviewable:
 | Media | Explicit media resources for live and stored content, and WebRTC signaling when selected; concrete transports and resource reuse rules are open. |
 | Remote-file consistency | Explicit strict/best-effort version modes and route-scoped references; provider support and the exact request model need validation. |
 | Transfers | Paged listings, streamed reads, invalidation notifications and reject/rename/overwrite upload policies; no exact wire API or universal provider support is assumed. |
-| Credentials | Opaque credential references; migration and host storage require a separate decision. |
+| Credentials | Opaque credential references; Bambu session storage/refresh is delegated to the black-box plugin in section 2.1. Other credential migration and host storage remain open. |
 | Project material import | A revision-bound proposal followed by an explicit native transaction; the precise review UI and proposal representation remain open. |
 
 A proposed abstraction is not evidence that a particular printer or host
@@ -288,8 +288,9 @@ physical-identity/multiple-route semantics remain the integration boundary.
 Concrete registry/facade APIs and configuration migration remain design work.
 
 Cloud-account enumeration and LAN discovery are distinct capabilities. Both
-are proposed for the initial discovery delivery; their exact scope and triggers
-remain to be confirmed. Listing an account's devices does not establish LAN
+are proposed for the initial discovery delivery; their exact delivered scope
+remains to be confirmed. Plugin-facing triggers within that scope follow Orca;
+Neo's candidate presentation/adoption UX remains open. Listing an account's devices does not establish LAN
 reachability, and receiving a LAN announcement does not authenticate a device.
 Discovery and local adoption do not bind/unbind a device to a Bambu account.
 Unsupported printing, upload, control, monitoring and media capabilities must
@@ -303,42 +304,63 @@ adoption are required again. Do not unbind or delete devices on Bambu Cloud as
 part of this local cleanup. Bambu region changes first log out the old account
 and therefore apply the same cleanup. Accounts/routes of other providers are
 unaffected. Account multiplicity and regional identity follow the common
-account boundary. Credential clearing, authentication-expiry behavior and stale
-discovery-result handling require separate clarification.
+account boundary. Plugin logout follows Orca's calls. Local route cleanup on
+automatic authentication expiry and stale discovery-result handling require
+separate clarification.
 
-Source review at upstream revision
-[`331a4f2585f6ebf4393e5f329e3169e38c6a6713`](https://github.com/ClusterM/open-bamboo-networking/tree/331a4f2585f6ebf4393e5f329e3169e38c6a6713)
-establishes these integration constraints, not end-to-end qualification:
+**Plugin compatibility boundary:** Treat the plugin as a black box and follow
+Orca's plugin-facing behavior. Implementation must use exported functions,
+their return values and registered callbacks. Internal source details are not
+an integration contract: do not depend on private token files, refresh code,
+HTTP endpoint fallback logic or internal discovery implementation. Do not modify
+the plugin to fit a newly invented Neo authentication lifecycle or force private
+configuration overrides to disable background behavior.
 
-- [Authentication exports](https://github.com/ClusterM/open-bamboo-networking/blob/331a4f2585f6ebf4393e5f329e3169e38c6a6713/src/abi_user.cpp)
-  exchange a browser ticket, retrieve profile data, apply a session and log out.
-  Neo must provide the interactive login host and callback lifecycle.
-- [Cloud enumeration](https://github.com/ClusterM/open-bamboo-networking/blob/331a4f2585f6ebf4393e5f329e3169e38c6a6713/src/abi_http.cpp)
-  uses HTTP and can return device LAN access codes. Normalize its results and
-  retain secrets at the host/provider boundary. Discovery must not implicitly
-  enable ongoing MQTT observation.
-- [LAN discovery](https://github.com/ClusterM/open-bamboo-networking/blob/331a4f2585f6ebf4393e5f329e3169e38c6a6713/src/agent.cpp#L2408-L2464)
-  listens passively on UDP 2021; the sending argument does not enable an active
-  scan. An empty result is not proof that no printer exists. Preserve manual
-  configuration independently of discovery.
-- The [export ABI](https://github.com/ClusterM/open-bamboo-networking/blob/331a4f2585f6ebf4393e5f329e3169e38c6a6713/include/obn/abi_export.hpp)
-  uses C symbol names but passes C++ standard-library types. A matching C++
-  adapter/toolchain is required; this is not a pure-C FFI contract.
-- Plugin initialization can refresh persisted authentication, and startup or
-  enumeration can enable cloud subscriptions under some configurations. Adapt
-  lifecycle deliberately to preserve local-only listing/description and the
-  selected discovery scope rather than replaying Studio initialization blindly.
-- The plugin persists tokens in `obn.auth.json`; that is not an OS credential
-  store. Secure storage integration must account for the plugin's own copy.
+The current Orca reference is the checked-in C++ submodule revision
+`c936ee9a5ce2979b96a80b47783ab4c29d369227`. Relevant host-side authorities are:
+
+- [GUI_App](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_App.cpp): network
+  initialization configures the data directory, logging, certificates,
+  callbacks, country and startup. Preserve the relevant conditional paths,
+  including Orca's tracking-disable calls. Login completion connects the server
+  and updates the account device list. Reproduce applicable callback/error and
+  shutdown handling rather than selecting calls solely by their names.
+- [BBLCloudServiceAgent](../packages/slicer-wasm/cpp/src/slic3r/Utils/BBLCloudServiceAgent.cpp):
+  delegates lifecycle, account and device-list operations through the plugin;
+  it does not independently fetch tokens or schedule token refresh.
+- [WebUserLoginDialog](../packages/slicer-wasm/cpp/src/slic3r/GUI/WebUserLoginDialog.cpp)
+  and [HttpServer](../packages/slicer-wasm/cpp/src/slic3r/GUI/HttpServer.cpp):
+  embedded official login, ticket/profile/session application, external-browser
+  handoff and loopback callbacks. Preserve this exchange behind Electron host
+  boundaries while keeping secrets out of shared application state.
+
+Remember login automatically through the plugin's persistence behavior. Normal
+application shutdown is not user logout. Authentication refresh, startup network
+activity and connection maintenance are delegated according to Orca's call
+pattern, not replaced with Neo's own on-demand policy. This supersedes the
+earlier proposal to suppress MQTT/background activity in the discovery phase;
+it does not deliver a Neo monitoring/control UI or profile synchronization.
+Public catalogue/configuration reads still do not issue new probes themselves,
+and Moonraker remains request-driven. An empty discovery result is not proof of
+device absence; manual configuration remains independent.
+
+The native boundary uses C-linkage exports with C++ types, requiring a matching
+C++ adapter/toolchain. Normalize externally returned data, including any device
+access credentials, at the host boundary. Compatibility validation must compare
+Orca and Neo's applicable API call/return/callback sequences, not assertions
+about the plugin's internal implementation. The plugin revision reviewed for
+initial feasibility was `331a4f2585f6ebf4393e5f329e3169e38c6a6713`; the shipped
+version and distribution policy remain to be selected.
 
 Real-account login, regional endpoints, verification challenges, credential
 refresh and real-device discovery have not been validated in Neo. Successful
 login/listing does not establish permission or support for later printing.
 Browser callbacks, addon/plugin packaging and supported OS/architectures need
 independent qualification. The grouped open decisions are tracked in the shared
-architecture; browser-login and storage proposals remain unselected until
-clarified. Single-account, regional switching and explicit logout route cleanup
-follow the accepted rules above.
+architecture. Browser-login mode, remembered login, black-box lifecycle,
+single-account, regional switching and explicit logout route cleanup follow the
+accepted rules above. Internal persistence is not claimed to use an OS
+credential store merely because authentication is delegated to the plugin.
 
 ## 3. Identity, configuration and stateless access
 
@@ -369,14 +391,19 @@ configuration locally, and advance its revision on changes. In-flight operations
 retain their original configuration snapshot instead of silently retargeting.
 
 Loading the application, listing types/saved printers and describing a configured
-route must not probe, authenticate against or read from the printer. Startup
+route must not probe, authenticate against or read from request-based printers.
+The Bambu lifecycle in section 2.1 is an explicit exception for host-owned plugin
+startup/connection, not for adding probes to local configuration methods. Startup
 must not automatically discover capabilities or establish subscriptions for
 request-based printers. Selecting Moonraker opens its configured Web interface
 without an agent connection or preflight. Loading that page has its own network
 traffic; it does not imply agent-owned control or inventory requests.
 
-Discovery is an explicit optional operation scoped to an execution host and
-source such as LAN or an account. Candidates can expire; adoption is a separate
+Public discovery is an explicit optional operation scoped to an execution host
+and source such as LAN or an account. Bambu's host-owned Orca-compatible
+lifecycle may also refresh account devices or maintain discovery; callers do
+not need an initialization sequence to consume its public API. Candidates can
+expire; adoption is a separate
 configuration operation with self-contained candidate data, validated by the
 provider rather than trusted as executable authority. Discovery is never a
 prerequisite for manual addition. Saved entries remain visible when unreachable.
