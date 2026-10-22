@@ -369,8 +369,18 @@ Public catalogue/configuration reads still do not issue new probes themselves,
 and Moonraker remains request-driven. An empty discovery result is not proof of
 device absence; manual configuration remains independent.
 
-The native boundary uses C-linkage exports with C++ types, requiring a matching
-C++ adapter/toolchain. Normalize externally returned data, including any device
+The native boundary uses Orca's shared plugin declarations and typed function
+pointers. [bambu_networking.hpp](../packages/slicer-wasm/cpp/src/slic3r/Utils/bambu_networking.hpp)
+defines common data/callback types, while
+[BBLNetworkPlugin.hpp](../packages/slicer-wasm/cpp/src/slic3r/Utils/BBLNetworkPlugin.hpp)
+declares function-pointer signatures. Follow
+[BBLNetworkPlugin.cpp](../packages/slicer-wasm/cpp/src/slic3r/Utils/BBLNetworkPlugin.cpp)
+for platform-specific library selection and loading: Windows uses
+LoadLibrary/GetProcAddress; macOS/Linux use dlopen/dlsym. Calls above that layer
+use the same declarations and symbols. Reuse this pattern in the Node-API
+adapter instead of designing different platform ABIs or performing a separate
+per-platform ABI/dependency qualification exercise. Normalize externally
+returned data, including any device
 access credentials, at the host boundary. Compatibility validation must compare
 Orca and Neo's applicable API call/return/callback sequences, not assertions
 about the plugin's internal implementation. The plugin revision reviewed for
@@ -383,9 +393,9 @@ installation in this phase.
 Use upstream precompiled plugin release artifacts with pinned versions and
 file checksums, not a Neo-built copy of the plugin source. The first delivery
 targets Windows, macOS and Linux on both x64 and ARM64. Build the native adapter
-against the chosen binary ABI and validate loading/runtime dependencies on each
-target. Upstream artifact availability and compatibility are qualification work;
-the selected six-platform scope does not establish that all six binaries work.
+using the common header-based integration above and package the matching
+upstream artifact. Normal builds, loading and feature checks apply; the selected
+six-platform scope is not a claim that those checks have already passed.
 Do not silently substitute a source build or omit a platform when an upstream
 artifact is missing or incompatible.
 
@@ -400,9 +410,9 @@ first-delivery acceptance requirement.
 Real-account login, regional endpoints, verification challenges, credential
 refresh and real-device discovery have not been validated in Neo. Successful
 login/listing does not establish permission or support for later printing.
-Browser callbacks and addon/plugin packaging on all six selected OS/architecture
-targets need
-independent qualification. The grouped open decisions are tracked in the shared
+Browser callbacks and addon/plugin packaging on the six selected targets remain
+subject to normal feature/build verification, without an additional ABI
+qualification gate. The grouped open decisions are tracked in the shared
 architecture. Browser-login mode, remembered login, black-box lifecycle,
 single-account, regional switching, explicit/expiry-triggered logout cleanup,
 automatic cloud device population and LAN access-code entry follow the accepted
