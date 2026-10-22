@@ -195,20 +195,31 @@ account support is not mandatory for a printer-only provider. Future profile
 synchronization is another capability with its own domain contract; it does not
 become a method on the printer service or a mandatory account capability.
 
-Printer routes and future synchronization requests may reference an account
-owned by the common account boundary. Credential resolution and token refresh
-are host/provider implementation responsibilities; shared UI must not shuttle
+Printer consumers identify the provider and its printer/route identifiers;
+they do not supply or persist an account reference for discovery or printer
+operations. The provider owns the association with its current account,
+credential resolution, token refresh, account-change cleanup and rejection of
+stale results. It publishes the resulting device/route changes through the
+printer capability; consumers apply those changes without interpreting account
+identity. Common account contracts support login, logout and account-state
+presentation independently of printer functionality. Shared UI must not shuttle
 raw tokens between capabilities. Each provider has at most one logged-in account;
 different providers may be logged in concurrently. Bambu China and international
 regions belong to the same provider, not two independently active providers.
-The account identity includes its region. Changing regions requires logout of
-the current account followed by login in the other region; it does not retain
-multiple regional sessions for quick switching. Exact reference representation
-remains to be decided; Bambu persistence follows the black-box plugin policy
-below. Account authentication
+Internally, Bambu account identity includes its region. Changing regions requires
+logout of the current account followed by login in the other region; it does not retain
+multiple regional sessions for quick switching. A cross-capability public
+account-reference format is not required for this integration. Bambu persistence
+follows the black-box plugin policy below. Account authentication
 does not itself authorize printer binding, profile synchronization or project
 changes. Profile/library transitions remain governed by
 [User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md#8-storage-synchronization-and-project-interchange).
+
+Future preset synchronization has a single designated account provider, following
+OrcaCloud's role in Orca. Other account providers may coexist for printer access,
+but do not each synchronize presets or contribute parallel synchronized preset
+libraries. This is a future capability boundary, not preset synchronization
+delivery in the Bambu phase.
 
 Account logout, whether explicitly requested or triggered by authentication
 expiry under Orca's error handling, removes that account's Cloud printer routes

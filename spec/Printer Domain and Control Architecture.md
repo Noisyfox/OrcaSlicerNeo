@@ -340,8 +340,11 @@ first log out the old account and apply the same cleanup. Other providers'
 accounts/routes are unaffected. Account multiplicity and regional identity
 follow the common account boundary. Plugin logout follows Orca's calls; a
 transient network error does not automatically imply logout. Late responses
-must not restore routes removed by logout or attach them to a different account;
-the concrete stale-result mechanism remains to be designed.
+must not restore routes removed by logout or attach them to a different account.
+The provider owns this account association, cleanup and stale-result handling;
+the concrete internal mechanism remains to be designed. Printer consumers use
+provider and printer/route identifiers without an account reference. They apply
+provider-published changes rather than implementing account-specific cleanup.
 
 **Plugin compatibility boundary:** Treat the plugin as a black box and follow
 Orca's plugin-facing behavior. Implementation must use exported functions,
@@ -490,9 +493,11 @@ support for LAN on one host and account discovery on another does not imply
 either supports both. A provider with no hosts has no supported discovery
 entry. Hosts used for manual configuration remain valid catalogue entries even
 with unsupported or unknown discovery support. The caller selects a supported
-host/scope pair and supplies its account reference when
-applicable; no connection or prior discovery call is required to construct the
-request. Execution still validates the selected host, scope and account.
+host/scope pair; account-scoped discovery uses the selected provider's current
+account internally. No account reference, connection or prior discovery call is
+required from the caller to construct the request. The provider validates the
+selected host, scope and required authentication internally, and prevents stale
+results from crossing account transitions.
 
 Subscriptions and long-running operations also have independent request
 boundaries. A subscription explicitly names target/topics and an optional
