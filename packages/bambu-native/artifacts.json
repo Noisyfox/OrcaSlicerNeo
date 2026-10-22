@@ -1,0 +1,43 @@
+{
+  "release": "v2.2.0",
+  "series": "02.08.01",
+  "orcaCommit": "c936ee9a5ce2979b96a80b47783ab4c29d369227",
+  "artifacts": {
+    "linux-arm64": {
+      "url": "https://github.com/ClusterM/open-bamboo-networking/releases/download/v2.2.0/obn-linux-aarch64.tar.gz",
+      "sha256": "81bb1a4193bc174fd0712fff445a514f08c0e9943fbf0b0d1fc2aa5f82f665ea",
+      "root": "obn-linux-aarch64",
+      "library": "libbambu_networking.so"
+    },
+    "linux-x64": {
+      "url": "https://github.com/ClusterM/open-bamboo-networking/releases/download/v2.2.0/obn-linux-x64.tar.gz",
+      "sha256": "5815137ed04b6adca1adea004b366dfc7f49410991ae9762908c7414ea5419b8",
+      "root": "obn-linux-x64",
+      "library": "libbambu_networking.so"
+    },
+    "darwin-arm64": {
+      "url": "https://github.com/ClusterM/open-bamboo-networking/releases/download/v2.2.0/obn-macos-arm64.tar.gz",
+      "sha256": "b17a529b9accf3cd64dff757e50e1533b6e2ed57592a47431911fc6a98a421cc",
+      "root": "obn-macos-arm64",
+      "library": "libbambu_networking.dylib"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/ClusterM/open-bamboo-networking/releases/download/v2.2.0/obn-macos-x64.tar.gz",
+      "sha256": "7cd66947e2319fab29d4c39a9d455f7249a368180466363301ff8a2128f7d5ef",
+      "root": "obn-macos-x64",
+      "library": "libbambu_networking.dylib"
+    },
+    "win32-arm64": {
+      "url": "https://github.com/ClusterM/open-bamboo-networking/releases/download/v2.2.0/obn-windows-arm64.zip",
+      "sha256": "b13fd7e22000b64cadceba8e915005a10aeeede698f0c87d2bd379a568509f96",
+      "root": "obn-windows-arm64",
+      "library": "bambu_networking.dll"
+    },
+    "win32-x64": {
+      "url": "https://github.com/ClusterM/open-bamboo-networking/releases/download/v2.2.0/obn-windows-x64.zip",
+      "sha256": "d53c4ce6dca38cad5edd5e90d4937f86732bfa55550fb6e42e5f8bd62310333f",
+      "root": "obn-windows-x64",
+      "library": "bambu_networking.dll"
+    }
+  }
+}

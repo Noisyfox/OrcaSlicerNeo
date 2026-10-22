@@ -185,7 +185,8 @@ and platform account-capability injection. Account and printer interfaces are
 separate, with provider-owned account association. Step 2 adds common printer
 provider dispatch and reactive Device/Send catalogues while retaining Moonraker
 forms and console authentication. Both hosts currently expose
-an empty account-provider list; Bambu login/native execution remains unimplemented.
+an empty account-provider list. Step 3 delivers the host-only native addon and
+pinned artifacts; application-owned Bambu execution and login remain unimplemented.
 
 Provider identity, account modeling and account methods belong in a shared
 contract module outside `printer-control`. They must be usable by services with
@@ -334,8 +335,9 @@ The first delivery targets all six existing Electron platforms: Windows x64
 and ARM64, macOS Intel/x64 and Apple Silicon/ARM64, and Linux x64 and ARM64.
 Each package must include matching plugin and adapter artifacts. These are
 delivery targets, not a claim of completed builds or feature validation. The
-exact upstream release remains to be selected; missing upstream binaries or
-actual build/load failures are delivery gaps, not authorization to
+upstream release is pinned to `v2.2.0`, using its `02.08.01` library series;
+missing upstream binaries or
+actual build/load failures remain delivery gaps, not authorization to
 silently compile a replacement or drop a selected target.
 
 For the first delivery, assume the independent provider process remains stable.
@@ -373,8 +375,8 @@ The Bambu-specific scope and feasibility limits are owned by
 [Printer Domain and Control Architecture](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design).
 Its [implementation and acceptance sequence](Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence)
 defines eight independently reviewable increments, their dependencies and the
-evidence required before each is complete. Step 1 contracts are delivered; subsequent runtime steps remain planned,
-not delivered Bambu account or printer support.
+evidence required before each is complete. Steps 1–3 are delivered; application
+provider execution, Bambu account login and printer discovery remain planned.
 
 ## 5. Runtime and WASM Loading
 

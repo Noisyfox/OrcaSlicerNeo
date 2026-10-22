@@ -18,3 +18,9 @@ await walk(root);
 
 // Account contracts must not acquire a dependency on printer or native host domains.
 await walk(new URL('../../service-provider/src/', import.meta.url), /(?:from\s*['"][^'"]*(?:printer-control|electron|node:|apps\/)|import\s*\(\s*['"][^'"]*(?:printer-control|electron|node:|apps\/))/);
+
+// The native plugin wrapper is exclusively owned by Electron host code.
+const nativePluginImport = /(?:from\s*['"][^'"]*bambu-native|import\s*\(\s*['"][^'"]*bambu-native)/;
+for (const path of ['../src/', '../../service-provider/src/', '../../printer-control/src/', '../../slicer-app/src/', '../../../apps/web/src/']) {
+  await walk(new URL(path, import.meta.url), nativePluginImport);
+}

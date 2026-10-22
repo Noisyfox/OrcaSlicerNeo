@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-10-22
+**Updated:** 2026-10-23
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -462,8 +462,9 @@ credential store merely because authentication is delegated to the plugin.
 
 ### 2.2 Bambu implementation and acceptance sequence
 
-**Status:** Steps 1–2 (shared contracts, provider composition and device
-consumers) are delivered; steps 3–8 remain unimplemented. This sequence implements the
+**Status:** Steps 1–3 (shared contracts, provider composition/device consumers
+and the native addon boundary) are delivered; steps 4–8 remain unimplemented.
+This sequence implements the
 accepted behavior in section 2.1 and the
 [shared account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts).
 Each step is a separately reviewable implementation increment with its own
@@ -580,6 +581,32 @@ without relying on plugin internals. Confirm upstream artifact availability for
 the selected targets early; a missing artifact is an explicit delivery gap,
 not a silent source-build fallback or target removal. These are normal build
 and loading checks, not a separate per-platform ABI qualification project.
+
+**Delivered native boundary:** [@orca/bambu-native](../packages/bambu-native/src/index.ts)
+uses the [pinned v2.2.0 artifacts](../packages/bambu-native/artifacts.json), selecting
+the `02.08.01` library series supported by the checked-in Orca declarations. All six
+archives have been downloaded, SHA-256 verified and staged. The macOS ARM64
+plugin reports `02.08.01.99` through the addon in both Node and Electron's Node
+runtime. Other platform runtime/build acceptance remains in step 8.
+
+The addon copies the required common public typedefs from Orca into one header;
+its build checks them against the checked-in source. `LoadLibraryExW` or `dlopen`
+selects the matching binary and resolves the same typed symbols. Calls are
+serialized off the Node event loop; plugin callbacks are copied into a Node-API
+thread-safe queue. Native scheduled functions retain the library until they are
+drained/destroyed. Core callbacks and later discovery/HTTP callbacks can be
+registered in Orca's separate initialization phases. Normal close clears and
+drains callbacks, stops discovery, disconnects the printer, waits for server
+idle with Orca's bounded poll, destroys the agent and unloads without logout.
+No plugin private state is interpreted.
+
+Build acquisition is explicit (`pnpm --filter @orca/bambu-native acquire`);
+application startup never downloads a plugin. `pnpm --filter @orca/bambu-native test`
+builds the addon and runs deterministic exported-interface fixtures covering
+argument/output ownership, callback lifetime, shutdown and corrupt-artifact
+rejection. `pnpm --filter @orca/bambu-native smoke` checks the real pinned plugin's
+version on the current host after building. Application-owned process wiring,
+account state and discovery projection still belong to later steps.
 
 #### Step 4 — Shared Electron provider process and IPC
 
