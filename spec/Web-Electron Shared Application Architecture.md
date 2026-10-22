@@ -198,11 +198,26 @@ become a method on the printer service or a mandatory account capability.
 Printer routes and future synchronization requests may reference an account
 owned by the common account boundary. Credential resolution and token refresh
 are host/provider implementation responsibilities; shared UI must not shuttle
-raw tokens between capabilities. The exact reference scope, account multiplicity
+raw tokens between capabilities. Each provider has at most one logged-in account;
+different providers may be logged in concurrently. Bambu China and international
+regions belong to the same provider, not two independently active providers.
+The account identity includes its region. Changing regions requires logout of
+the current account followed by login in the other region; it does not retain
+multiple regional sessions for quick switching. Exact reference representation
 and credential persistence policy remain to be decided. Account authentication
 does not itself authorize printer binding, profile synchronization or project
 changes. Profile/library transitions remain governed by
 [User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md#8-storage-synchronization-and-project-interchange).
+
+Explicit account logout removes that account's Cloud printer routes from Neo's
+saved configuration. A device with an independent LAN route remains saved;
+one with no remaining routes is removed. Logging in again requires discovery
+and adoption again for the removed Cloud routes. This is local cleanup, not
+cloud unbinding or deletion at the provider. Other providers' accounts and
+routes remain independent. Region changes use this same logout behavior.
+The printer-specific consequences are owned by
+[the printer domain](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design);
+credential clearing and treatment of authentication expiry remain open.
 
 For the first Bambu integration, the selected approach is a Node-API native
 addon wrapping `open-bamboo-networking` in an Electron utility process. Native
@@ -225,16 +240,15 @@ until selected:
 
 | Group | Open decisions |
 | --- | --- |
-| Accounts and identity | Concurrent providers; accounts per provider; regional identity and switching; logout effects on dependent capabilities. |
 | Authentication and credentials | System browser versus embedded login; callback correlation/cancellation; remembered login and refresh timing; credential storage and recovery. |
-| Discovery and adoption | Cloud and LAN delivery scope; refresh triggers and scan lifetime; identity association; saved-device behavior after logout or account changes. |
+| Discovery and adoption | Cloud and LAN delivery scope; refresh triggers and scan lifetime; identity association; treatment of stale candidates during account changes. |
 | Native host and delivery | Process ownership/recovery; plugin version/build/distribution policy; configuration migration; supported OS/architectures and real-account/device acceptance. |
 
 The proposed authentication workflow is a separately addressed, cancellable
 login request, with account summaries available locally and authentication
 handled by the provider. Its concrete states and entry points remain open.
-The proposal to use Bambu's external-browser ticket flow and initially expose
-one account per provider has not yet been accepted. Existing stateless printer
+The proposal to use Bambu's external-browser ticket flow has not yet been
+accepted. Existing stateless printer
 access and no-network local enumeration constraints continue to apply.
 
 The Bambu-specific scope and feasibility limits are owned by

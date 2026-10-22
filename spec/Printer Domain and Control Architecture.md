@@ -296,6 +296,16 @@ Unsupported printing, upload, control, monitoring and media capabilities must
 remain unavailable in this login/discovery phase. Profile synchronization is
 future work governed by its own domain, not a side effect of login.
 
+On explicit account logout, remove that account's saved Cloud routes. Preserve
+devices with independent LAN routes and remove devices that have no routes
+left. Re-login does not silently restore removed Cloud routes: discovery and
+adoption are required again. Do not unbind or delete devices on Bambu Cloud as
+part of this local cleanup. Bambu region changes first log out the old account
+and therefore apply the same cleanup. Accounts/routes of other providers are
+unaffected. Account multiplicity and regional identity follow the common
+account boundary. Credential clearing, authentication-expiry behavior and stale
+discovery-result handling require separate clarification.
+
 Source review at upstream revision
 [`331a4f2585f6ebf4393e5f329e3169e38c6a6713`](https://github.com/ClusterM/open-bamboo-networking/tree/331a4f2585f6ebf4393e5f329e3169e38c6a6713)
 establishes these integration constraints, not end-to-end qualification:
@@ -326,8 +336,9 @@ refresh and real-device discovery have not been validated in Neo. Successful
 login/listing does not establish permission or support for later printing.
 Browser callbacks, addon/plugin packaging and supported OS/architectures need
 independent qualification. The grouped open decisions are tracked in the shared
-architecture; exact single-account, browser-login and storage proposals remain
-unselected until clarified.
+architecture; browser-login and storage proposals remain unselected until
+clarified. Single-account, regional switching and explicit logout route cleanup
+follow the accepted rules above.
 
 ## 3. Identity, configuration and stateless access
 
