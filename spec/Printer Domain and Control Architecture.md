@@ -306,6 +306,10 @@ request or an invalid/incomplete response does not authorize removal. A valid
 empty list removes all Cloud routes owned by that account. This follows Orca's
 account-list reconciliation while retaining Neo's separate route model.
 
+The first delivery does not expose local hide/delete actions for automatically
+populated Bambu Cloud devices. Their Cloud routes follow the provider's account
+list and logout lifecycle; no local hidden-device registry is introduced.
+
 LAN-only discovery and access-code entry are included without requiring a
 Bambu cloud login. The user can select a discovered LAN-only device, supply its
 access code and add/access it through the corresponding Orca-compatible plugin
@@ -322,6 +326,13 @@ of the plugin's private account/session persistence. Follow Orca's
 and [local-device save/restore flow](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevManager.cpp),
 using Neo's host credential boundary. Cloud account logout preserves independent
 LAN devices and their remembered access codes.
+
+Users may forget an added Bambu LAN device. Remove its LAN route and remembered
+access code, retaining any independent Cloud route. Remove the saved device
+only when no routes remain. Subsequent LAN discovery may show it as an
+unauthorized candidate, requiring access-code entry again. This is a local
+operation, not cloud unbinding, and follows Orca's LAN removal behavior in
+[SelectMachinePop.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/SelectMachinePop.cpp).
 
 For Bambu-managed LAN routes, discovery automatically updates the address when
 the same device is found at a new IP. Match the device identity and follow Orca's
