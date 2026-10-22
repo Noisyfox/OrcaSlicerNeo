@@ -299,6 +299,13 @@ make every discovered printer from every provider persistent automatically.
 It does not select a print target or create a second physical identity when an
 existing device already has another route.
 
+A successful refresh with a valid, complete account-device list also removes
+that account's Cloud routes for devices absent from the returned list. Preserve
+independent LAN routes; remove a device only when no routes remain. A failed
+request or an invalid/incomplete response does not authorize removal. A valid
+empty list removes all Cloud routes owned by that account. This follows Orca's
+account-list reconciliation while retaining Neo's separate route model.
+
 LAN-only discovery and access-code entry are included without requiring a
 Bambu cloud login. The user can select a discovered LAN-only device, supply its
 access code and add/access it through the corresponding Orca-compatible plugin
@@ -307,6 +314,14 @@ receipt of an announcement alone does not grant access. Host-owned credential
 handling and native connection operations remain behind the public domain
 boundary. This access-code workflow does not remove generic local-only manual
 configuration or make device discovery a prerequisite for manual configuration.
+
+Automatically remember user-entered LAN access codes in host-owned local device
+configuration and restore them after application restart. This is independent
+of the plugin's private account/session persistence. Follow Orca's
+[access-code handling](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.cpp)
+and [local-device save/restore flow](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevManager.cpp),
+using Neo's host credential boundary. Cloud account logout preserves independent
+LAN devices and their remembered access codes.
 
 Discovery and local population/adoption do not bind/unbind a device to a Bambu
 account. Unsupported printing, upload, control, monitoring and media capabilities
