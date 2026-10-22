@@ -323,6 +323,18 @@ and [local-device save/restore flow](../packages/slicer-wasm/cpp/src/slic3r/GUI/
 using Neo's host credential boundary. Cloud account logout preserves independent
 LAN devices and their remembered access codes.
 
+For Bambu-managed LAN routes, discovery automatically updates the address when
+the same device is found at a new IP. Match the device identity and follow Orca's
+connection-name checks when `connection_name` is present; retain the existing
+device identity and remembered access code. This does not change generic manual
+route configuration behavior.
+
+Bambu device display names follow provider updates from LAN discovery and
+Cloud account-device lists, as in Orca's
+[DeviceManager](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevManager.cpp).
+The first delivery does not provide local aliases for Bambu devices. A name or
+IP change does not create a new physical device identity.
+
 Discovery and local population/adoption do not bind/unbind a device to a Bambu
 account. Unsupported printing, upload, control, monitoring and media capabilities
 remain unavailable in this phase. Native connection calls needed for Orca's
