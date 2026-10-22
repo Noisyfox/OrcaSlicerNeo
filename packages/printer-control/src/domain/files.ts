@@ -47,7 +47,6 @@ export type RemoteFileMetadata = {
   durationSeconds: number | null;
   width: number | null;
   height: number | null;
-  relatedJobId: Id<'job'> | null;
 } | {
   kind: 'image';
   width: number | null;

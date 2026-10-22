@@ -1,5 +1,5 @@
 // Compile-only consumers of the public entrypoint. Never imported by runtime code.
-import type { CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState, SensorSnapshot } from '@orca/printer-control/domain';
+import type { PrinterAction, PrinterActionRef, PrintStatus, CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState, SensorSnapshot } from '@orca/printer-control/domain';
 import type { PrinterCapabilities, PrinterService, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
 import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range, FilePreviewListing, RemoteFileDetails, ObservationRequest, PrinterSnapshot, FirmwareComponent, MaterialImportProposal, Revision } from '@orca/printer-control/domain';
 
@@ -256,6 +256,7 @@ command({
   params: {
     // @ts-expect-error No command accepts arbitrary sensor writes.
     sensorId,
+    // @ts-expect-error No command accepts arbitrary sensor values.
     value: 30
   }
 });
@@ -267,10 +268,10 @@ command({
     axes: []
   }
 });
+// @ts-expect-error A union of names must preserve command/parameter correlation.
 const mixed: CommandOf<'materials.load' | 'jobs.pause'> = {
   type: 'jobs.pause',
   params: {
-    // @ts-expect-error A union of names must preserve command/parameter correlation.
     pathId
   }
 };
@@ -359,9 +360,9 @@ const unversioned: FileSelection = {
 };
 declare const operation: PrinterOperation;
 if (operation.kind === 'command' && operation.commandType === 'jobs.start' && operation.phase.kind === 'completed') {
-  const jobId: Id<'job'> = operation.phase.result.jobId;
-  // @ts-expect-error Start completion returns a job identity, not an uploaded file.
-  operation.phase.result.ref;
+  const result: null = operation.phase.result;
+  // @ts-expect-error Start confirmation does not create a public print-task identity.
+  operation.phase.result.jobId;
 }
 if (operation.kind === 'upload' && operation.phase.kind === 'completed') {
   const fileId: Id<'remote-file'> = operation.phase.result.ref.fileId;
@@ -447,7 +448,7 @@ capabilities.showMonitorTab;
 // Compile-only type profiles, not concrete agents or claims of device qualification.
 const unknown = { kind: 'unknown', reason: 'Not established by this type or device' } as const;
 const unknownCommands = {
-  'jobs.start': unknown, 'jobs.pause': unknown, 'jobs.resume': unknown, 'jobs.cancel': unknown,
+  'jobs.start': unknown, 'jobs.pause': unknown, 'jobs.resume': unknown, 'jobs.cancel': unknown, 'actions.invoke': unknown,
   'thermal.setTarget': unknown, 'fans.setSpeed': unknown, 'lights.set': unknown,
   'motion.home': unknown, 'motion.jog': unknown, 'extrusion.move': unknown, 'tools.select': unknown,
   'materials.load': unknown, 'materials.unload': unknown, 'materials.switch': unknown,
@@ -467,7 +468,7 @@ export const moonrakerCapabilities: PrinterCapabilities = {
   },
   webInterface: { kind: 'supported', constraints: { id: interfaceId, name: 'Native console' } },
   observations: {
-    descriptor: unknown, job: unknown, thermal: unknown, motion: unknown,
+    descriptor: unknown, status: unknown, thermal: unknown, motion: unknown,
     actuators: unknown, materials: unknown, cameras: unknown, sensors: unknown,
     alerts: unknown, firmware: unknown,
   },
@@ -534,7 +535,7 @@ service.files.watchChanges(target);
 // @ts-expect-error Listing is not implicitly bound to a selected printer.
 service.files.list({ storageId: remoteFile.storageId, directoryId: null });
 // @ts-expect-error Explicit target is required for independent control evaluation.
-service.controls.evaluate({ type: 'jobs.pause', params: { jobId: id<'job'>('print') } });
+service.controls.evaluate({ type: 'jobs.pause', params: {} });
 service.controls.submit({ target, requestId: id<'request'>('start'), command: {
   type: 'jobs.start', params: { source: bestEffort, bindings: [] },
 } });
@@ -555,7 +556,7 @@ service.observations.read({ target, topics: ['materials'], source: 'cache' });
 service.observations.read({ target, topics: ['materials'] });
 // @ts-expect-error An empty read cannot trigger an implicit full device discovery.
 service.observations.read({ target, topics: [], source: 'device' });
-service.observations.watch({ target, topics: ['job', 'sensors'] });
+service.observations.watch({ target, topics: ['status', 'sensors'] });
 
 // Media resources are usable through an independent service reference and explicit ID.
 declare const otherService: PrinterService;
@@ -881,3 +882,42 @@ const { configurationRevision: sourceConfiguration, ...unversionedImportProposal
 const missingImportConfiguration: MaterialImportProposal = unversionedImportProposal;
 // @ts-expect-error Unknown configuration provenance cannot form an applicable proposal.
 const nullImportConfiguration: MaterialImportProposal = { ...importProposal, configurationRevision: null };
+
+// Display state does not depend on a start command, source file or native job identity.
+const printStatus: PrintStatus = state.printStatus;
+// @ts-expect-error Print observations are not app task records.
+printStatus.id;
+// @ts-expect-error No legacy job snapshot alias.
+state.job;
+// @ts-expect-error Ordinary controls accept no job selector.
+command({ type: 'jobs.pause', params: { jobId: id<'job'>('native') } });
+command({ type: 'jobs.pause', params: {} });
+command({ type: 'jobs.resume', params: {} });
+command({ type: 'jobs.cancel', params: {} });
+
+// Fixtures stand in for agent-issued context; applications only pass it through.
+const actionRef: PrinterActionRef = { ...target, configurationRevision: 'config-1', token: id<'action-context'>('opaque-agent-data') };
+const action: PrinterAction = { actionRef, label: 'Resume after resolving warning', description: null, availability: { kind: 'available' }, expiresAtMs: null };
+const actionCapability: CommandCapabilities['actions.invoke'] = { kind: 'supported', constraints: { sources: ['status', 'alerts'] } };
+// @ts-expect-error Supported actions must identify at least one source for references.
+const noActionSource: CommandCapabilities['actions.invoke'] = { kind: 'supported', constraints: { sources: [] } };
+// @ts-expect-error Context must carry configuration provenance.
+const unscopedAction: PrinterActionRef = { ...target, token: actionRef.token };
+// @ts-expect-error Native job IDs are not actionable references.
+const nativeAction: PrinterActionRef = { ...actionRef, token: id<'job'>('native') };
+// @ts-expect-error Actions cannot introduce arbitrary vendor request parameters.
+command({ type: 'actions.invoke', params: { actionRef, jobId: 'native', errorCode: 'error' } });
+otherService.controls.submit({ target, requestId: id<'request'>('action'), command: { type: 'actions.invoke', params: { actionRef: action.actionRef } } });
+async function invokeObservedAction() {
+  const result = await service.observations.read({ target, topics: ['status', 'alerts'], source: 'device' });
+  if (!result.ok) return;
+  const { status, alerts } = result.value.values;
+  const general = status?.kind === 'known' && status.value.actions.kind === 'known' ? status.value.actions.value : [];
+  const contextual = alerts?.kind === 'known' ? alerts.value.flatMap(alert => alert.actions) : [];
+  for (const action of [...general, ...contextual]) {
+    if (action.availability.kind === 'available') {
+      // No subscription/evaluation token or app-submitted task correlation is required.
+      await otherService.controls.submit({ target, requestId: id<'request'>(crypto.randomUUID()), command: { type: 'actions.invoke', params: { actionRef: action.actionRef } } });
+    }
+  }
+}

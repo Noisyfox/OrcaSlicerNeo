@@ -110,7 +110,7 @@ describe('Moonraker stateless service', () => {
     expect(route.capabilities.observations.materials.kind).toBe('unsupported');
     expect(route.capabilities.files.list.kind).toBe('unsupported');
     expect(route.capabilities.cameras).toEqual([]);
-    expect(route.capabilities.observations.job).toMatchObject({ constraints: { delivery: ['on-demand'] } });
+    expect(route.capabilities.observations.status).toMatchObject({ constraints: { delivery: ['on-demand'] } });
     expect(unwrap(await service.describe(target)).descriptor.kind).toBe('unknown');
     expect(unwrap(await service.webInterfaces.resolve({ target })).url).toBe('http://console.local/mainsail');
     expect(JSON.stringify(saved)).not.toContain(printer.apiKey);
@@ -393,39 +393,115 @@ describe('Moonraker stateless service', () => {
     expect(unwrap(await service.listSaved())[0]).toEqual(unwrap(renamed));
   });
 
-  it('reads metadata/status only on demand and exposes verified native job identity for controls', async () => {
-    const { service, transport } = setup({ ...printer, apiKey: '' });
-    const status = { result: { status: { print_stats: { state: 'printing', filename: 'cube.gcode' }, virtual_sdcard: { progress: 0.25 } } } };
-    const history = { result: { jobs: [{ job_id: '000042', filename: 'cube.gcode', status: 'in_progress', end_time: null }] } };
-    transport.responses.push({ result: { moonraker_version: '0.9' } }, status, history);
-    expect(unwrap(await service.observations.read({ target, topics: ['job'], source: 'cache' })).values.job.kind).toBe('unknown');
+  it('reads status on demand without history and retains independent field freshness across facades', async () => {
+    const { service, transport, fresh } = setup({ ...printer, apiKey: '' });
+    transport.responses.push({ result: { moonraker_version: '0.9' } }, {
+      result: { status: { print_stats: { state: 'printing', filename: 'external.gcode' }, virtual_sdcard: { progress: 0.25 } } },
+    });
+    expect(unwrap(await service.observations.read({ target, topics: ['status'], source: 'cache' })).values.status.kind).toBe('unknown');
     expect(transport.requests).toEqual([]);
     const metadata = unwrap(await service.observations.read({ target, topics: ['firmware'], source: 'device' }));
     expect(metadata.values.firmware).toMatchObject({ kind: 'known', value: [{ name: 'Moonraker', version: '0.9' }] });
-    const snapshot = unwrap(await service.observations.read({ target, topics: ['job'], source: 'device' }));
-    if (snapshot.values.job.kind !== 'known' || snapshot.values.job.value.job.kind !== 'known' || !snapshot.values.job.value.job.value) throw new Error('Missing job');
-    const jobId = snapshot.values.job.value.job.value.id;
-    for (const [type, script] of [['jobs.pause', 'PAUSE'], ['jobs.resume', 'RESUME'], ['jobs.cancel', 'CANCEL_PRINT']] as const) {
-      transport.responses.push(status, history, { result: 'ok' });
-      const op = await finished(service, await service.controls.submit({ target, requestId: id(crypto.randomUUID()), command: { type, params: { jobId } } } as D.CommandRequest));
-      expect(op.phase.kind).toBe('acknowledged');
-      expect(transport.requests.at(-1)?.body).toEqual({ kind: 'json', json: JSON.stringify({ script }) });
-    }
+    const snapshot = unwrap(await fresh().observations.read({ target, topics: ['status'], source: 'device' }));
+    expect(snapshot.values.status).toMatchObject({ kind: 'known', freshness: 'fresh', value: {
+      operationalState: { value: 'busy' }, actions: { value: [] }, printStatus: {
+        phase: { value: 'printing', freshness: 'fresh' }, name: { value: 'external.gcode', freshness: 'fresh' },
+        progressFraction: { value: 0.25, freshness: 'fresh' }, remainingSeconds: { kind: 'unknown' },
+      },
+    } });
+    const cache = unwrap(await fresh().observations.read({ target, topics: ['status'], source: 'cache' }));
+    expect(cache.values.status).toMatchObject({ freshness: 'stale', value: {
+      operationalState: { freshness: 'stale' }, actions: { freshness: 'stale' }, printStatus: {
+        phase: { freshness: 'stale' }, name: { freshness: 'stale' }, progressFraction: { freshness: 'stale' },
+      },
+    } });
+    if (cache.values.status.kind !== 'known' || snapshot.values.status.kind !== 'known') throw new Error('Missing status');
+    expect(cache.values.status.receivedAtMs).toBe(snapshot.values.status.receivedAtMs);
+    transport.handle = async () => { throw new Error('Offline'); };
+    expect((await fresh().observations.read({ target, topics: ['status'], source: 'device' })).ok).toBe(false);
+    expect(unwrap(await fresh().observations.read({ target, topics: ['status'], source: 'cache' }))).toEqual(cache);
+    expect(transport.requests.map(request => new URL(request.url).pathname)).toEqual([
+      '/moonraker/server/info', '/moonraker/printer/objects/query', '/moonraker/printer/objects/query',
+    ]);
     expect(transport.requests.every(request => !request.headers?.['X-Api-Key'])).toBe(true);
-    const before = transport.requests.length;
-    const cache = unwrap(await service.observations.read({ target, topics: ['job'], source: 'cache' }));
-    expect(cache.values.job).toMatchObject({ freshness: 'stale', value: { operationalState: { freshness: 'stale' }, job: { freshness: 'stale' } } });
-    expect(transport.requests).toHaveLength(before);
-    transport.responses.push(status, { result: { jobs: [{ job_id: '000043', filename: 'cube.gcode', status: 'in_progress', end_time: null }] } });
-    expect(await service.controls.submit({ target, requestId: id('stale-job'), command: { type: 'jobs.cancel', params: { jobId } } })).toMatchObject({ kind: 'rejected', error: { code: 'precondition-failed' } });
-    expect(transport.requests.at(-1)?.method).toBe('GET');
   });
 
-  it('does not fabricate job IDs when history is absent', async () => {
+  it.each([
+    ['printing', 'printing', 'busy'], ['paused', 'paused', 'busy'],
+    ['complete', 'completed', 'ready'], ['cancelled', 'cancelled', 'ready'], ['error', 'failed', 'error'],
+  ])('displays %s without requiring history or a Neo submission', async (state, phase, operationalState) => {
     const { service, transport } = setup();
-    transport.responses.push({ result: { status: { print_stats: { state: 'printing', filename: 'cube.gcode' } } } }, { error: { message: 'No history' } });
-    const snapshot = unwrap(await service.observations.read({ target, topics: ['job'], source: 'device' }));
-    expect(snapshot.values.job).toMatchObject({ kind: 'known', value: { operationalState: { value: 'busy' }, job: { kind: 'unknown' } } });
+    transport.responses.push({ result: { status: { print_stats: { state, filename: 'external.gcode' }, virtual_sdcard: { progress: 0.4 } } } });
+    const snapshot = unwrap(await service.observations.read({ target, topics: ['status'], source: 'device' }));
+    expect(snapshot.values.status).toMatchObject({ value: {
+      operationalState: { value: operationalState }, printStatus: {
+        phase: { value: phase }, name: { value: 'external.gcode' }, progressFraction: { value: 0.4 }, remainingSeconds: { kind: 'unknown' },
+      },
+    } });
+    expect(transport.requests).toHaveLength(1);
+  });
+
+  it('replaces completed and idle fields without inventing completion progress or retaining a previous print', async () => {
+    const { service, transport } = setup();
+    transport.responses.push(
+      { result: { status: { print_stats: { state: 'printing', filename: 'old.gcode' }, virtual_sdcard: { progress: 0.9 } } } },
+      { result: { status: { print_stats: { state: 'complete', filename: 'old.gcode' } } } },
+      { result: { status: { print_stats: { state: 'standby', filename: 'old.gcode' }, virtual_sdcard: { progress: 0.9 } } } },
+    );
+    await service.observations.read({ target, topics: ['status'], source: 'device' });
+    const complete = unwrap(await service.observations.read({ target, topics: ['status'], source: 'device' }));
+    expect(complete.values.status).toMatchObject({ value: { printStatus: { phase: { value: 'completed' }, progressFraction: { kind: 'unknown' } } } });
+    const idle = unwrap(await service.observations.read({ target, topics: ['status'], source: 'device' }));
+    expect(idle.values.status).toMatchObject({ value: { printStatus: {
+      phase: { value: 'idle' }, name: { kind: 'known', value: null }, progressFraction: { kind: 'unknown' },
+    } } });
+    expect(unwrap(await service.observations.read({ target, topics: ['status'], source: 'cache' })).values.status)
+      .toMatchObject({ value: { printStatus: { name: { value: null, freshness: 'stale' } } } });
+  });
+
+  it.each([undefined, 'vendor-state'])('keeps available name and progress when phase is unknown: %s', async state => {
+    const { service, transport } = setup();
+    transport.responses.push({ result: { status: { print_stats: { state, filename: 'external.gcode' }, virtual_sdcard: { progress: 0 } } } });
+    expect(unwrap(await service.observations.read({ target, topics: ['status'], source: 'device' })).values.status)
+      .toMatchObject({ value: { operationalState: { kind: 'unknown' }, printStatus: {
+        phase: { kind: 'unknown' }, name: { value: 'external.gcode' }, progressFraction: { value: 0 },
+      } } });
+  });
+
+  it.each([undefined, null, '0.5', NaN, Infinity, -0.1, 1.1])('reports missing or invalid progress as unknown: %s', async progress => {
+    const { service, transport } = setup();
+    transport.responses.push({ result: { status: { print_stats: { state: 'printing' }, virtual_sdcard: { progress } } } });
+    expect(unwrap(await service.observations.read({ target, topics: ['status'], source: 'device' })).values.status)
+      .toMatchObject({ value: { printStatus: { phase: { value: 'printing' }, name: { kind: 'unknown' }, progressFraction: { kind: 'unknown' } } } });
+  });
+
+  it.each([['jobs.pause', 'PAUSE'], ['jobs.resume', 'RESUME'], ['jobs.cancel', 'CANCEL_PRINT']] as const)
+    ('submits %s on a fresh facade without observation, evaluate, history or connection', async (type, script) => {
+      const { transport, fresh } = setup({ ...printer, apiKey: '' });
+      transport.responses.push({ result: 'ok' });
+      const request = { target, requestId: id<'request'>(crypto.randomUUID()), command: { type, params: {} } } as D.CommandRequest;
+      const submission = await fresh().controls.submit(request);
+      expect((await finished(fresh(), submission)).phase).toEqual({ kind: 'acknowledged' });
+      expect(await fresh().controls.submit(request)).toEqual(submission);
+      expect(transport.requests).toHaveLength(1);
+      expect(transport.requests[0]).toMatchObject({ method: 'POST', url: `${printer.apiBaseUrl}/printer/gcode/script`, body: { kind: 'json', json: JSON.stringify({ script }) } });
+      expect(transport.requests[0].headers?.['X-Api-Key']).toBeUndefined();
+      expect(unwrap(await fresh().controls.evaluate(target, request.command)).availability.kind).toBe('available');
+      expect(transport.requests).toHaveLength(1);
+    });
+
+  it('rejects obsolete job-targeted parameters and unsupported special actions before printer I/O', async () => {
+    const { service, transport } = setup();
+    const obsolete = { type: 'jobs.cancel', params: { jobId: 'old-native-id' } } as unknown as D.CommandOf<'jobs.cancel'>;
+    expect(await service.controls.submit({ target, requestId: id('obsolete'), command: obsolete }))
+      .toMatchObject({ kind: 'rejected', error: { code: 'invalid-request' } });
+    const command: D.CommandOf<'actions.invoke'> = { type: 'actions.invoke', params: {
+      actionRef: { ...target, configurationRevision: 'config', token: id<'action-context'>('opaque') },
+    } };
+    expect(unwrap(await service.listSaved())[0].routes[0].capabilities.commands['actions.invoke'].kind).toBe('unsupported');
+    expect(unwrap(await service.controls.evaluate(target, command)).availability).toMatchObject({ kind: 'blocked', reasons: [{ code: 'unsupported' }] });
+    expect(await service.controls.submit({ target, requestId: id('action'), command })).toMatchObject({ kind: 'rejected', error: { code: 'unsupported' } });
+    expect(transport.requests).toEqual([]);
   });
 
   it.each([{}, { result: {} }, { result: 'unexpected' }])('does not acknowledge malformed command confirmation %j', async response => {

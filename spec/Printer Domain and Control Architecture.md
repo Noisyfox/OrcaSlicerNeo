@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-10-21
+**Updated:** 2026-10-22
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -38,6 +38,9 @@ or implementation technique an additional user mandate.
 | Preserve request-driven Moonraker use | Selecting the printer can immediately open its configured native Web interface; uploads execute on demand without ongoing observation. |
 | Support manually triggered material synchronization on specific Klipper types, such as Snapmaker U1 | Declare this type-specific capability locally; read inventory only on explicit sync, with no startup fetch or background polling. |
 | Include basic printer controls and AMS-like controls | Model ordinary printers and automatic material systems without making one manufacturer's AMS layout universal. |
+| Display print status directly from agent observations | Name, phase and progress do not require a device job ID, a Neo submission record or correlation between them. |
+| Ordinary print controls do not depend on job IDs | Pause, resume and cancel act on the printer's current print at execution time. |
+| Hide special-action protocol details inside agent-issued opaque action references | Callers pass references unchanged; native job IDs, warning context and protocol parameters remain agent-owned, without a caller session. |
 | Synchronize printer information and consumables | Observe device state and material inventory, with an explicit boundary around project changes. |
 | Retain the source configuration revision in material import proposals | Copy it from the source snapshot and reject application after that route's configuration changes. |
 | Include cameras | Model live viewing and camera-related capabilities, not just a stored camera URL. |
@@ -130,10 +133,10 @@ type does not authorize telemetry to mutate a native project.
 ### 1.3 Delivered Moonraker subset
 
 This migration preserves existing functions: local manual configuration and Web
-console entry, an explicit server-information read, a one-shot job/status read,
+console entry, an explicit server-information read, a one-shot status read,
 G-code upload and print start/pause/resume/cancel. It adds no discovery, polling,
 material synchronization, camera, remote-file browsing/download/delete/preview,
-or new device pages. These capabilities report unsupported. Firmware and job
+or new device pages. These capabilities report unsupported. Firmware and status
 observations are on-demand only; watch rejects rather than starting polling.
 Saving, enumeration, description, cached reads and Web entry resolution perform
 no network I/O. Startup and selection never establish a printer connection.
@@ -206,15 +209,24 @@ remain outcome-unknown. The Send workflow retains start-only retry after a
 definite failure; an uncertain outcome requires checking the printer instead of
 blindly retrying. No failover or automatic resend is performed.
 
-Pause/resume/cancel validate the selected native job identity on demand before
-sending the existing G-code command. The adapter uses Moonraker's
-[history job identifier](https://moonraker.readthedocs.io/en/latest/external_api/history/)
-with the one-shot status query; this internal identity lookup does not expose a
-history-browsing capability. If history is unavailable or disagrees with status,
-job identity stays unknown and job-targeted controls fail safely. Moonraker has
-no atomic compare-job-and-command operation: a job can change between the last
-check and command execution. The adapter must not claim that this race has been
-eliminated. No ongoing connection or subscription is retained.
+The status observation maps the existing one-shot printer-object response directly
+into independent phase, name and progress readings, without requesting history.
+Printing, paused, completed, cancelled, failed and idle states are representable;
+an unknown phase does not discard a known name or progress. Missing or invalid
+progress stays unknown, including at completion; completion does not fabricate
+100 percent. Idle explicitly clears the name and progress from the preceding
+print. Remaining time stays unknown in this adapter. Prints initiated outside
+Neo are displayed by the same path. A failed refresh leaves prior cached data
+stale; it does not start background recovery.
+
+Pause/resume/cancel send the existing PAUSE, RESUME and CANCEL_PRINT commands
+with no job selector or status/history preflight. They operate on the current
+print when the printer executes the command, not a previously observed print.
+Configuration and request validation still apply. Evaluation is advisory and
+performs no printer traffic; device acknowledgement/rejection comes from the
+submitted command. No ongoing connection or subscription is retained.
+Moonraker advertises special actions as unsupported and reports an empty status
+action collection; no vendor action executor is introduced by this migration.
 
 The [shared application architecture](Web-Electron%20Shared%20Application%20Architecture.md)
 remains the application-wide authority. [Printer Console and Control Integration](Printer%20Console%20and%20Control%20Integration.md)
@@ -385,13 +397,15 @@ must not be presented as confirmed lack of device support.
 Required target/choice collections are non-empty when a capability is supported.
 This applies to controllable resources, start-file sources/formats, writable
 material fields, file scopes/formats/collision policies, camera transports/image
-formats, observation delivery modes and discovery scope kinds on each host.
+formats, observation delivery modes, special-action reference sources and
+discovery scope kinds on each host.
 Optional feature collections can be empty only with defined behavior: an empty
 camera profile list means omit profile selection and let the adapter choose delivery; an empty
 job-timelapse list means no optional job-level timelapse choices. Neither is an
 unknown required-choice placeholder. Pause/resume/cancel have an explicit empty
-constraint object because their job target comes from the request, with no
-additional selectable parameters.
+constraint object and empty parameters: the request identifies the printer and
+route, and these controls act on its current print. They do not require a job
+selector or an earlier observation.
 
 Only specific documented limit fields may be null: upload size, concurrent
 viewer count, and individual numeric-range bounds/granularity can be unknown.
@@ -403,10 +417,13 @@ units and fraction bounds. Unrelated optional metadata keeps its own documented
 absence semantics; this rule does not redefine all null values in the domain.
 
 A capability supplies the operation description, not user content or live
-selection: the caller still supplies its file, selected job and parameter values.
-Do not place a current job or per-file inventory into capabilities to duplicate
-observations. Execution validates requests regardless of prior description or
-client checks. Failure to read a new limit does not erase a still-valid earlier
+selection: the caller still supplies its file, agent-issued action reference or
+parameter values. Do not place current print state, live action references or
+per-file inventory into capabilities to duplicate observations. Supported special
+actions identify at least one supported observation source (status or alerts)
+that can supply references. An empty current action collection is valid when
+there is nothing to act on; it is not an incomplete capability description.
+Execution validates requests regardless of prior description or client checks. Failure to read a new limit does not erase a still-valid earlier
 request description; invalidate only facts that no longer apply to the route.
 
 Operational availability is a separate, time-sensitive assessment. A supported
@@ -477,7 +494,7 @@ connecting screen. A configured Moonraker Web entry opens normally.
 
 | Page | Eligibility | Conditions that do not remove eligibility |
 | --- | --- | --- |
-| Monitor | At least one supported observation suitable for monitoring (job, thermal, motion, actuators, materials or sensors), camera viewing/snapshot capture, or basic control. A standalone material-import action is insufficient. | No active job, no camera, a temporarily unavailable camera, or readings not yet reported. |
+| Monitor | At least one supported observation suitable for monitoring (status, thermal, motion, actuators, materials or sensors), camera viewing/snapshot capture, or basic control. A standalone material-import action is insufficient. | No active job, no camera, a temporarily unavailable camera, or readings not yet reported. |
 | File browser | File listing is supported for at least one storage scope. | An empty directory, temporarily missing removable storage, or unavailable download/delete actions. |
 | Warnings | Device alert observation is supported. | Zero current warnings or no unread warnings. |
 | Firmware | Firmware version inventory observation is supported. | No available update, no upgrade capability, or an upgrade blocked during printing. |
@@ -654,11 +671,21 @@ this read with the explicit native import workflow above.
 
 ## 7. State synchronization and command outcomes
 
-Synchronized information includes printer operational state, active tools, current job identity/source and phase,
-progress and remaining-time estimates, actuator and motion state, material
-inventory, camera state, sensor readings and alerts. Job absence is distinct
-from unknown job state. Alerts retain identity, severity and a usable message;
-warnings and estimated values must not be promoted to confirmed device facts.
+Synchronized information includes printer operational state, active tools,
+print phase/name/progress and remaining-time estimates, actuator and motion
+state, material inventory, camera state, sensor readings and alerts. The status
+topic carries display information directly from the agent; it is not a registry
+of tasks submitted by Neo. Each print field has its own known/unknown and
+fresh/stale reading. Idle is distinct from an unknown phase, and a known absent
+name is distinct from an unreported name. Terminal phases remain displayable
+without a job identity or a source-file reference. Agents must not require
+matching device telemetry to an application's upload/start operation before
+publishing status, including prints started by another client.
+
+Alerts retain identity, severity and a usable message. Contextual actions may
+belong to an individual alert or to status, with one observation owner rather
+than duplicated copies. Warnings and estimated values must not be promoted to
+confirmed device facts.
 
 Reads explicitly select cache or device access and the requested topics. Device
 access performs only the requested one-shot read; it does not require a full
@@ -707,8 +734,43 @@ becomes known or fresh.
 Basic controls include job start/pause/resume/cancel, temperature targets,
 fans, lights, homing, jogging, extrusion and tool selection where supported.
 Material and camera controls use the same typed command/outcome discipline.
-Job actions target a job identity, not an assumed current list entry. Specialized
-calibration or coordinated printer modes require additional semantic design.
+Starting a print selects a remote printable file and applicable options; its
+confirmed command result does not create a public job identity. Pause, resume
+and cancel require only an explicit printer/route target and act on its current
+print at execution time. They neither require history access nor promise to
+target the print last shown in a view. Device readiness and rejection remain
+execution-time concerns, independent of whether status has been read.
+
+For context-specific actions, the agent publishes a display label, optional
+description, availability, optional known expiry and an opaque action reference.
+The reference carries printer, route and configuration provenance plus opaque
+agent-issued data. Protocol-specific job IDs, error identifiers and command
+parameters are encapsulated inside that context. Applications pass the reference
+unchanged to the typed action-invocation command, without parsing it, supplying
+raw vendor parameters, or linking it to a Neo-submitted print. General calibration
+or coordinated modes still need their own semantics; this mechanism is not an
+arbitrary protocol-command escape hatch.
+
+Action submission works through an independent service reference without a
+prior evaluate call, active observation stream or caller session. Each agent
+must validate reference authenticity, target/configuration, permission, expiry
+and current device context before acting. A target mismatch rejects as
+invalid-target; an expired, revoked or obsolete context rejects as stale-context.
+It must never silently retarget a different print or warning. Cached availability
+and a null expiry are not authorization or validity guarantees. The agent must
+not claim atomic context protection where its protocol cannot provide it; an
+action requiring such protection must be unsupported or explicitly rejected.
+The token may encapsulate validated data or identify an agent-owned resource;
+its encoding, storage and retention are not prescribed, and it must not expose
+credentials. A resource-backed reference is not a client connection handle and
+does not imply persistence across host restart.
+
+Request/operation IDs track command submission, acknowledgements and transfers;
+they do not identify the print shown by status or supply special-action context.
+Deduplication for a repeated request must preserve its recorded result within
+the authority's retention lifetime even if its action reference has since been
+consumed or invalidated. A new request must validate context again; references
+are not universally single-use unless the action's semantics require that.
 
 Distinguish submission rejection, recorded acceptance and an unknown submission
 outcome. An accepted command is not necessarily acknowledged by the device;
@@ -764,8 +826,10 @@ release resources when viewing ends.
 
 Snapshot capture is independent of live viewing. Device-level timelapse
 configuration is separate from a print job's timelapse options. A recorded
-timelapse is a remote file, optionally linked to a known job; it is not a live
-camera resource. Watching a camera must not implicitly enable recording.
+timelapse is a remote file, not a live camera resource. Neither camera capture
+state nor recording metadata requires or exposes a native job ID to correlate
+with application-submitted work. Watching a camera must not implicitly enable
+recording.
 
 ## 9. Remote files, previews and transfers
 
@@ -773,8 +837,8 @@ Model storage, directories, remote files and file content identity explicitly.
 Files include uploaded printable artifacts, timelapses, recordings, images and
 unrecognized content. Metadata describes name, format/media type, size and
 timestamps when known, with type-specific information such as printable
-material keys, duration, dimensions and associated job. Storage availability
-and capacity/free space are independent of file metadata and may be unknown.
+material keys, duration and dimensions. Storage availability and capacity/free
+space are independent of file metadata and may be unknown.
 The proposed remote reference is scoped to printer, route and storage. A
 filename or host-private filesystem path alone is not a portable identity.
 References retain configuration context; an edited endpoint cannot silently
@@ -898,6 +962,18 @@ upload without listing or connection, and U1 material reads only on explicit
 sync. Failed sync retains prior data without background retries. Test independent
 calls through a fresh service reference, scoped media/operation references,
 optional comparison versions, and unsupported watch on on-demand-only topics.
+Print-status runtime coverage must include externally started prints, missing
+history, terminal phases, idle resets, independently unknown fields, stale cache
+reads and failed refreshes. Ordinary controls must execute through a fresh service
+facade without status/history/evaluate calls, while preserving request deduplication
+and device acknowledgements. No observation or control starts implicit polling.
+Special-action type fixtures must cover status/alert sources, opaque references,
+configuration provenance and independent submission, and reject raw job selectors
+or vendor parameter bags. Future supporting agents must additionally test altered,
+wrong-target, expired and stale references, closed observers, context changes and
+repeated requests without retargeting or duplicate execution. Moonraker tests only
+its unsupported special-action boundary; these fixtures do not qualify a future
+vendor action executor.
 Capability fixtures must reject null descriptions and empty required choices,
 while allowing unknown individual limits and meaningful optional empty lists.
 A supported Moonraker upload must be constructible from its declared default

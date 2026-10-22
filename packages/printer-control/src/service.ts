@@ -102,10 +102,10 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   }
   function capabilities(): D.PrinterCapabilities {
     return {
-      revision: 'moonraker-domain-1',
+      revision: 'moonraker-domain-2',
       commands: {
         'jobs.start': supported({ sources: [{ storageId, versionCheck: 'unavailable' }], formats: ['gcode'], materialMapping: 'none', jobTimelapse: [] }),
-        'jobs.pause': supported({}), 'jobs.resume': supported({}), 'jobs.cancel': supported({}),
+        'jobs.pause': supported({}), 'jobs.resume': supported({}), 'jobs.cancel': supported({}), 'actions.invoke': unsupported,
         'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported,
         'motion.home': unsupported, 'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
         'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,
@@ -119,7 +119,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
         list: unsupported, stat: unsupported, download: unsupported, preview: unsupported, changes: unsupported,
       },
       observations: {
-        descriptor: supported({ delivery: ['on-demand'] }), firmware: supported({ delivery: ['on-demand'] }), job: supported({ delivery: ['on-demand'] }),
+        descriptor: supported({ delivery: ['on-demand'] }), firmware: supported({ delivery: ['on-demand'] }), status: supported({ delivery: ['on-demand'] }),
         thermal: unsupported, motion: unsupported, actuators: unsupported, materials: unsupported, cameras: unsupported, sensors: unsupported, alerts: unsupported,
       },
     };
@@ -156,32 +156,27 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
     if (!path || path.includes('\0') || path.split('/').includes('..')) fail('invalid-target', 'Invalid Moonraker file path');
     return path;
   }
-  async function readJob(printer: PrinterConfiguration, entry: ConfigurationEntry, signal?: AbortSignal): Promise<D.PrinterObservationMap['job']> {
+  async function readStatus(printer: PrinterConfiguration, signal?: AbortSignal): Promise<D.PrinterObservationMap['status']> {
     const target = targetFor(printer.id);
     const result = await http.get(printer, '/printer/objects/query?print_stats&virtual_sdcard&extruder&heater_bed&fan', signal);
-    if (!result.status || typeof result.status !== 'object') fail('device-failed', 'Invalid printer status response');
+    if (!result.status || typeof result.status !== 'object' || Array.isArray(result.status)) fail('device-failed', 'Invalid printer status response');
     const status = record(result.status), stats = record(status.print_stats), sd = record(status.virtual_sdcard);
-    const phase = stats.state;
-    const active = phase === 'printing' || phase === 'paused';
-    const operationalState = active ? 'busy' : phase === 'standby' || phase === 'complete' || phase === 'cancelled' ? 'ready' : phase === 'error' ? 'error' : null;
-    let job: D.Reading<D.PrintJobState | null> = phase === 'standby' ? known(target, null) : unknown;
-    if (active && typeof stats.filename === 'string') {
-      // History supplies a stable job identity. No filename-only "current job" alias.
-      try {
-        const history = await http.get(printer, '/server/history/list?limit=1&order=desc', signal);
-        const latest = record(Array.isArray(history.jobs) ? history.jobs[0] : undefined);
-        if (typeof latest.job_id === 'string' && latest.filename === stats.filename && latest.end_time === null && latest.status === 'in_progress') {
-          job = known(target, { id: `moonraker-job:${encodeURIComponent(JSON.stringify([entry.revision, latest.job_id]))}` as D.Id<'job'>,
-            fileName: stats.filename, sourceFile: fileRef(printer, entry, stats.filename), phase: phase === 'paused' ? 'paused' : 'printing',
-            progressFraction: typeof sd.progress === 'number' && Number.isFinite(sd.progress) ? Math.max(0, Math.min(1, sd.progress)) : null,
-            remainingSeconds: null });
-        }
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        // Missing history must not fabricate a job identity or lose the status observation.
-      }
-    }
-    return { operationalState: operationalState ? known(target, operationalState) : unknown, activeToolIds: unknown, job };
+    const phase: D.PrintPhase | null = stats.state === 'standby' ? 'idle'
+      : stats.state === 'complete' ? 'completed' : stats.state === 'error' ? 'failed'
+      : stats.state === 'printing' || stats.state === 'paused' || stats.state === 'cancelled' ? stats.state : null;
+    const operationalState = phase === 'printing' || phase === 'paused' ? 'busy'
+      : phase === 'idle' || phase === 'completed' || phase === 'cancelled' ? 'ready' : phase === 'failed' ? 'error' : null;
+    return {
+      operationalState: operationalState ? known(target, operationalState) : unknown,
+      activeToolIds: unknown,
+      printStatus: {
+        phase: phase ? known(target, phase) : unknown,
+        name: phase === 'idle' ? known(target, null) : typeof stats.filename === 'string' && stats.filename.length > 0 ? known(target, stats.filename) : unknown,
+        progressFraction: phase !== 'idle' && typeof sd.progress === 'number' && Number.isFinite(sd.progress) && sd.progress >= 0 && sd.progress <= 1 ? known(target, sd.progress) : unknown,
+        remainingSeconds: unknown,
+      },
+      actions: known(target, []),
+    };
   }
   const observations: D.PrinterObservations = {
     read: (request, options) => safe(async () => {
@@ -200,9 +195,9 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
           entry.cache.firmware = retained(observed.firmware);
           entry.cache.descriptor = retained(observed.descriptor);
         }
-        if (request.topics.some(topic => topic === 'job')) {
-          observed.job = known(request.target, await readJob(printer, entry, options?.signal));
-          entry.cache.job = retained(observed.job);
+        if (request.topics.some(topic => topic === 'status')) {
+          observed.status = known(request.target, await readStatus(printer, options?.signal));
+          entry.cache.status = retained(observed.status);
         }
       }
       const values = Object.fromEntries(request.topics.map(topic => {
@@ -213,7 +208,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
     }),
     watch: unsupportedStream,
   };
-  async function validateCommand(target: D.TargetRequest, command: D.PrinterCommand, guard?: D.CommandEvaluation['basis'], signal?: AbortSignal) {
+  async function validateCommand(target: D.TargetRequest, command: D.PrinterCommand, guard?: D.CommandEvaluation['basis']) {
     const resolved = await resolve(target);
     const cap = capabilities().commands[command.type];
     if (!cap || cap.kind !== 'supported') fail('unsupported', unsupported.reason);
@@ -224,14 +219,13 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
       filePath(command.params.source, target, resolved.entry);
       if (command.params.bindings.length || command.params.options?.timelapse?.length) fail('unsupported', 'Material mappings and timelapse options are unavailable');
     } else if (command.type === 'jobs.pause' || command.type === 'jobs.resume' || command.type === 'jobs.cancel') {
-      const current = await readJob(resolved.printer, resolved.entry, signal);
-      if (current.job.kind !== 'known' || !current.job.value || current.job.value.id !== command.params.jobId) fail('precondition-failed', 'The selected job cannot be verified as current');
+      if (!command.params || typeof command.params !== 'object' || Array.isArray(command.params) || Object.keys(command.params).length) fail('invalid-request', 'Current-print controls take no parameters');
     }
     return resolved;
   }
   const controls: D.PrinterControls = {
-    evaluate: (target, command, options) => safe(async () => {
-      try { await validateCommand(target, command, undefined, options?.signal); return { availability: { kind: 'available' }, basis: { capabilityRevision: capabilities().revision } } as D.CommandEvaluation; }
+    evaluate: (target, command) => safe(async () => {
+      try { await validateCommand(target, command); return { availability: { kind: 'available' }, basis: { capabilityRevision: capabilities().revision } } as D.CommandEvaluation; }
       catch (error) { return { availability: { kind: 'blocked', reasons: [publicError(error)] }, basis: {} } as D.CommandEvaluation; }
     }),
     submit: async request => {
@@ -252,7 +246,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
             operations.update(ref, previous => ({ ...previous, phase: { kind: 'sent' } }));
             if (command.type === 'jobs.start') await http.post(printer, '/printer/print/start', { filename: filePath(command.params.source, request.target, entry) });
             else await http.post(printer, '/printer/gcode/script', { script: { 'jobs.pause': 'PAUSE', 'jobs.resume': 'RESUME', 'jobs.cancel': 'CANCEL_PRINT' }[command.type as 'jobs.pause' | 'jobs.resume' | 'jobs.cancel'] });
-            // Moonraker's HTTP acknowledgement does not establish physical completion or a new job ID.
+            // Moonraker's HTTP acknowledgement does not establish physical completion.
             operations.update(ref, previous => ({ ...previous, phase: { kind: 'acknowledged' } }));
           } catch (error) {
             operations.update(ref, previous => ({ ...previous, phase: error instanceof MoonrakerFailure && error.uncertain

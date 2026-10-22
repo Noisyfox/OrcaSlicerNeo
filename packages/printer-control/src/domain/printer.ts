@@ -2,9 +2,9 @@
 import type { Id, Revision, Axis, ExternalRef, Capability, Reading, NonEmptyReadonlyArray } from './common';
 import type { MaterialTopology, MaterialState, MaterialInventory } from './materials';
 import type { SensorDefinition, SensorState, SensorSnapshot } from './sensors';
-import type { RemoteFileRef, FileCapabilities } from './files';
+import type { FileCapabilities } from './files';
 import type { TimelapseMode, CameraMediaCapability } from './media';
-import type { CommandCapabilities } from './control';
+import type { CommandCapabilities, PrinterAction } from './control';
 import type { WebInterfaceCapability } from './web-interface';
 export interface PrinterIdentity {
   id: Id<'printer'>;
@@ -133,18 +133,21 @@ export interface PrinterDescriptor {
   buildVolume: BuildVolume | null;
   topology: PrinterTopology;
 }
-export interface PrintJobState {
-  id: Id<'job'>;
-  fileName: string | null;
-  sourceFile: RemoteFileRef | null;
-  phase: 'preparing' | 'printing' | 'paused' | 'completed' | 'cancelled' | 'failed';
-  progressFraction: number | null;
-  remainingSeconds: number | null;
+export type PrintPhase = 'idle' | 'preparing' | 'printing' | 'paused' | 'completed' | 'cancelled' | 'failed';
+/** Display observations, including prints started elsewhere; no application task correlation. */
+export interface PrintStatus {
+  phase: Reading<PrintPhase>;
+  /** Known null means no print name, distinct from an unreported name. */
+  name: Reading<string | null>;
+  progressFraction: Reading<number>;
+  remainingSeconds: Reading<number>;
 }
 export interface PrinterState {
   operationalState: Reading<'ready' | 'busy' | 'shutdown' | 'error'>;
   activeToolIds: Reading<readonly Id<'tool'>[]>;
-  job: Reading<PrintJobState | null>;
+  printStatus: PrintStatus;
+  /** Contextual actions not owned by an individual alert; an empty list is valid. */
+  actions: Reading<readonly PrinterAction[]>;
   heaters: readonly {
     heaterId: Id<'heater'>;
     targetC: Reading<number>;
@@ -172,7 +175,6 @@ export interface PrinterState {
     deviceTimelapseMode: Reading<TimelapseMode>;
     capture: Reading<{
       kind: 'idle' | 'recording' | 'timelapse';
-      jobId: Id<'job'> | null;
     }>;
   }[];
   alerts: Reading<readonly {
@@ -180,6 +182,7 @@ export interface PrinterState {
     severity: 'info' | 'warning' | 'error';
     code: string;
     message: string;
+    actions: readonly PrinterAction[];
   }[]>;
 }
 export interface PrinterCapabilities {
@@ -197,7 +200,7 @@ export interface PrinterCapabilities {
 /** Topic-scoped data avoids requiring a complete printer snapshot for a single read. */
 export interface PrinterObservationMap {
   descriptor: PrinterDescriptor;
-  job: Pick<PrinterState, 'operationalState' | 'activeToolIds' | 'job'>;
+  status: Pick<PrinterState, 'operationalState' | 'activeToolIds' | 'printStatus' | 'actions'>;
   thermal: PrinterState['heaters'];
   motion: PrinterState['motion'];
   actuators: Pick<PrinterState, 'fans' | 'lights'>;

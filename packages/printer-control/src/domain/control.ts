@@ -9,6 +9,21 @@ export interface CommandSpec<P, C extends object, R = null> {
   result: R;
 }
 
+/** Agent-issued context, independent of a caller session or an application print submission. */
+export interface PrinterActionRef extends PrinterTarget {
+  configurationRevision: Revision;
+  /** Opaque to consumers; the agent validates scope, authenticity and current context on submit. */
+  token: Id<'action-context'>;
+}
+export interface PrinterAction {
+  actionRef: PrinterActionRef;
+  label: string;
+  description: string | null;
+  availability: Availability;
+  /** Null means no known expiry, not a guarantee of continued validity. */
+  expiresAtMs: UnixMs | null;
+}
+
 /** One source for command parameters, support constraints and confirmed results. */
 export interface PrinterCommandSpecs {
   'jobs.start': CommandSpec<{
@@ -26,18 +41,17 @@ export interface PrinterCommandSpecs {
     materialMapping: 'none' | 'optional' | 'required';
     /** Empty means no optional job-level timelapse choices, not unknown support. */
     jobTimelapse: readonly TimelapseSetting[];
-  }, {
-    jobId: Id<'job'>;
   }>;
-  'jobs.pause': CommandSpec<{
-    jobId: Id<'job'>;
-  }, NoConstraints>;
-  'jobs.resume': CommandSpec<{
-    jobId: Id<'job'>;
-  }, NoConstraints>;
-  'jobs.cancel': CommandSpec<{
-    jobId: Id<'job'>;
-  }, NoConstraints>;
+  /** Operate on the printer's current print at execution time, without a prior observation. */
+  'jobs.pause': CommandSpec<NoConstraints, NoConstraints>;
+  'jobs.resume': CommandSpec<NoConstraints, NoConstraints>;
+  'jobs.cancel': CommandSpec<NoConstraints, NoConstraints>;
+  'actions.invoke': CommandSpec<{
+    actionRef: PrinterActionRef;
+  }, {
+    /** Supported observation topics that supply actionable references; no prior subscription required. */
+    sources: NonEmptyReadonlyArray<'status' | 'alerts'>;
+  }>;
   'thermal.setTarget': CommandSpec<{
     heaterId: Id<'heater'>;
     targetC: number;
@@ -158,7 +172,7 @@ export interface ControlBasis {
   capabilityRevision?: Revision;
 }
 export type InventoryCommand = 'jobs.start' | 'materials.load' | 'materials.unload' | 'materials.switch' | 'materials.writeMetadata' | 'materials.refreshTag';
-export type CommandGuard<K extends CommandName> = ControlBasis & (K extends 'files.delete' | 'jobs.pause' | 'jobs.resume' | 'jobs.cancel' ? {} : {
+export type CommandGuard<K extends CommandName> = ControlBasis & (K extends 'files.delete' | 'jobs.pause' | 'jobs.resume' | 'jobs.cancel' | 'actions.invoke' ? {} : {
   topologyRevision?: Revision;
 }) & (K extends InventoryCommand ? {
   inventoryRevision?: Revision;
