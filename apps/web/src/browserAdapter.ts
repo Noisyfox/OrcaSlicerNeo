@@ -140,6 +140,7 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
         inMemory = normalized;
       },
     },
+    accounts: [],
     printers: {
       configuration: printerConfiguration,
       service: createMoonrakerService({

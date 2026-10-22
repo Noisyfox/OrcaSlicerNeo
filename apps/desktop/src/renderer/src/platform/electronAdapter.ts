@@ -254,6 +254,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
         inMemoryPreferences = normalized;
       },
     },
+    accounts: [],
     printers: {
       configuration: printerConfiguration,
       service: createMoonrakerService({

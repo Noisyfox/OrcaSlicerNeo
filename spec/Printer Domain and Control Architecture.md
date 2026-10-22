@@ -462,7 +462,8 @@ credential store merely because authentication is delegated to the plugin.
 
 ### 2.2 Bambu implementation and acceptance sequence
 
-**Status:** Planned, not implemented or verified. This sequence implements the
+**Status:** Step 1 contracts and existing-consumer alignment are delivered;
+steps 2–8 remain unimplemented. This sequence implements the
 accepted behavior in section 2.1 and the
 [shared account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts).
 Each step is a separately reviewable implementation increment with its own
@@ -470,15 +471,15 @@ acceptance evidence. Completing a step does not claim completion of later
 features. Keep incomplete Bambu capabilities unavailable in production; test
 providers are test fixtures, not an alternate production networking path.
 
-Two current source boundaries require explicit work: the
-[printer contracts](../packages/printer-control/src/domain/service.ts) and
-[route configuration](../packages/printer-control/src/domain/printer.ts) still
-expose `accountRef`, while the
+The [printer contracts](../packages/printer-control/src/domain/service.ts) now
+use provider-owned account association, route-targeted rename/forget operations,
+local management permissions, access-code authorization and saved-list change
+notifications. [Route configuration](../packages/printer-control/src/domain/printer.ts)
+no longer exposes `accountRef`. The
 [Device panel](../packages/slicer-app/src/components/device/DevicePanel.tsx)
 and [Send dialog](../packages/slicer-app/src/components/send/SendGcodeDialog.tsx)
-still consume the Moonraker configuration repository directly. These are
-implementation gaps against the selected design, not permission to retain
-account references in printer consumers or to encode Bambu as Moonraker.
+still consume the Moonraker configuration repository directly; replacing that
+consumer boundary belongs to step 2. No Bambu runtime is delivered by step 1.
 
 | Step | Deliverable | Prerequisites | Independent acceptance boundary |
 | --- | --- | --- | --- |

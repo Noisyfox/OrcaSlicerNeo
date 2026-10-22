@@ -1,3 +1,4 @@
+import type { ServiceProvider } from '@orca/service-provider';
 /** Stateless local SDK contracts. Streams/signals require an explicit IPC/network binding. */
 import type { Id, UnixMs, ExternalRef, PrinterError, Result, ReadOptions, Capability, AtLeastOne, ObservationCursor, PrinterTarget, TargetRequest, Reading, NonEmptyReadonlyArray, Revision } from './common';
 import type { AgentHost, SavedPrinter, PrinterDescriptor, PrinterCapabilities, PrinterRoute, PrinterRouteConfiguration, StateTopic, PrinterObservationMap } from './printer';
@@ -63,7 +64,6 @@ export type DiscoveryScope = {
 } | {
   kind: 'account';
   hostId: Id<'agent-host'>;
-  accountRef: Id<'account'>;
 };
 /** Provider-specific support on this execution host, not a cross-host union. */
 export interface ProviderHost extends AgentHost {
@@ -71,9 +71,7 @@ export interface ProviderHost extends AgentHost {
     kinds: NonEmptyReadonlyArray<DiscoveryScope['kind']>;
   }>;
 }
-export interface ProviderDescriptor {
-  id: Id<'provider'>;
-  name: string;
+export interface ProviderDescriptor extends ServiceProvider {
   /** Each supported discovery entry supplies its own host ID and non-empty scope choices. */
   hosts: readonly ProviderHost[];
 }
@@ -92,6 +90,8 @@ export interface DiscoveryCandidate {
   displayName: string;
   externalRefs: readonly ExternalRef[];
   expiresAtMs: UnixMs;
+  /** Access-code candidates use authorize; adopt is local configuration only. */
+  access: 'none' | 'access-code';
 }
 export type DiscoveryEvent = {
   type: 'upsert';
@@ -112,6 +112,10 @@ export interface PrinterDescription {
   /** Unknown is valid before any device read; no fabricated topology is required. */
   descriptor: Reading<PrinterDescriptor>;
 }
+/** A provider may implement this and AccountProvider without coupling the capabilities. */
+export interface PrinterProvider extends ServiceProvider {
+  readonly printers: PrinterService;
+}
 export interface PrinterService {
   readonly operations: PrinterOperations;
   readonly controls: PrinterControls;
@@ -124,6 +128,8 @@ export interface PrinterService {
   listTypes(options?: ReadOptions): Promise<Result<readonly PrinterTypeDescriptor[]>>;
   /** Local configuration plus normal type-derived/cached capabilities; never probes. */
   listSaved(options?: ReadOptions): Promise<Result<readonly SavedPrinter[]>>;
+  /** Local saved-catalogue invalidation. Subscribe before listSaved; never starts discovery. */
+  onSavedChanged(listener: () => void): () => void;
   /** Local-only description; never refreshes a device or initiates authentication. */
   describe(target: PrinterTarget, options?: ReadOptions): Promise<Result<PrinterDescription>>;
   /** Local validation/persistence only; an unreachable printer can be saved. */
@@ -148,7 +154,14 @@ export interface PrinterService {
     candidate: DiscoveryCandidate;
     existingPrinterId?: Id<'printer'>;
   }): Promise<Result<SavedPrinter>>;
-  rename(printerId: Id<'printer'>, displayName: string): Promise<Result<SavedPrinter>>;
-  /** Remove local saved configuration only; no account unbinding or printer mutation. */
-  forget(printerId: Id<'printer'>): Promise<Result<null>>;
+  /** Authenticate a LAN candidate through its provider, then save the authorized route. */
+  authorize(request: {
+    requestId: Id<'request'>;
+    candidate: DiscoveryCandidate;
+    accessCode: string;
+    existingPrinterId?: Id<'printer'>;
+  }): Promise<Result<SavedPrinter>>;
+  rename(target: TargetRequest, displayName: string): Promise<Result<SavedPrinter>>;
+  /** Forget only this route and its credential; remove identity only when no routes remain. */
+  forget(target: TargetRequest): Promise<Result<null>>;
 }

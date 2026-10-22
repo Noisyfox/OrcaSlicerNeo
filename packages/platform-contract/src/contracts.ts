@@ -1,3 +1,4 @@
+import type { AccountProvider } from '@orca/service-provider';
 import type { SlicerClient } from '@slicer/client';
 import type { HistoryRuntimeMethods } from '@slicer/client';
 import type { PrinterService } from '@orca/printer-control/domain';
@@ -427,6 +428,8 @@ export interface PlatformMemory {
 }
 
 export interface PlatformCapabilities {
+  /** Account capabilities available on this host; independent of printers. */
+  accounts: readonly AccountProvider[];
   models: ModelImporter;
   exports: GcodeExporter;
   downloads: FileDownloader;

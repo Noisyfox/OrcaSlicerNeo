@@ -18,7 +18,7 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Topic | Maintained authority |
 | --- | --- |
 | Shared hosts, runtime and preferences | [Web–Electron architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md) |
-| Common service providers, accounts and capability boundaries | [Shared provider/account design](../spec/Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts) (selected design; implementation deferred) |
+| Common service providers, accounts and capability boundaries | [Shared provider/account design](../spec/Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts) (shared contracts delivered; Bambu execution pending) |
 | Chrome, controls, layout and diagnostics | [Application Shell](../spec/Application%20Shell.md) |
 | Prepare/Preview navigation and lifetime | [Workspace modes](../spec/Workspace%20Prepare%20and%20Preview%20Modes.md) |
 | Picking, transforms, camera and rendering | [Viewport Interaction](../spec/Viewport%20Interaction.md) |

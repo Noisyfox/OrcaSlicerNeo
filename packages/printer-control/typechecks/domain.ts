@@ -479,9 +479,10 @@ export const moonrakerRoute: PrinterRoute = {
   configuration: {
     typeId: id<'printer-type'>('generic-moonraker'), hostId: id<'agent-host'>('browser'),
     channel: 'lan', address: 'http://192.0.2.10:7125/',
-    webInterfaceUrl: 'http://192.0.2.10/', accountRef: null, credentialRef: null,
+    webInterfaceUrl: 'http://192.0.2.10/', credentialRef: null,
   },
   capabilities: moonrakerCapabilities,
+  management: { rename: true, configure: true, forget: true },
 };
 export const enumeratedPrinter: SavedPrinter = {
   identity: manualPrinter.identity, routes: [moonrakerRoute],
@@ -489,7 +490,7 @@ export const enumeratedPrinter: SavedPrinter = {
 export const discoveredPrinter: DiscoveryCandidate = {
   id: id<'candidate'>('moonraker-lan'), providerId: moonrakerRoute.providerId,
   configuration: moonrakerRoute.configuration, capabilities: moonrakerCapabilities,
-  displayName: 'Discovered printer', externalRefs: [], expiresAtMs: 1000,
+  displayName: 'Discovered printer', externalRefs: [], expiresAtMs: 1000, access: 'none',
 };
 export const manualSyncCapabilities: PrinterCapabilities = {
   ...moonrakerCapabilities,
@@ -831,14 +832,14 @@ const discoveryProvider = {
     discovery: { kind: 'unsupported', layer: 'adapter', reason: 'Manual configuration only' },
   }],
 } satisfies ProviderDescriptor;
-function discoverOnSupportedHosts(provider: ProviderDescriptor, accountRef: Id<'account'>) {
+function discoverOnSupportedHosts(provider: ProviderDescriptor) {
   for (const host of provider.hosts) {
     if (host.discovery.kind !== 'supported') continue;
     for (const kind of host.discovery.constraints.kinds) {
       if (kind === 'lan') {
         service.discover(provider.id, { kind, hostId: host.id });
       } else {
-        service.discover(provider.id, { kind, hostId: host.id, accountRef });
+        service.discover(provider.id, { kind, hostId: host.id });
       }
     }
   }
@@ -858,7 +859,7 @@ const providerWideDiscovery: ProviderDescriptor = {
 };
 // @ts-expect-error Even a LAN discovery call needs an explicit host identity.
 service.discover(discoveryProvider.id, { kind: 'lan' });
-// @ts-expect-error Account discovery still requires a caller-selected account.
+// Account-scoped discovery uses the provider-owned current account.
 service.discover(discoveryProvider.id, { kind: 'account', hostId: id<'agent-host'>('service-account') });
 
 // Proposal provenance is captured with the inventory, not refreshed from route configuration.
@@ -921,3 +922,20 @@ async function invokeObservedAction() {
     }
   }
 }
+
+// Common provider identity composes independent capability interfaces.
+import type { AccountProvider } from '@orca/service-provider';
+import type { PrinterProvider } from '../src/domain';
+interface CombinedProvider extends AccountProvider, PrinterProvider {}
+declare const combinedProvider: CombinedProvider;
+void combinedProvider.account.login();
+void combinedProvider.printers.listSaved();
+declare const printerOnly: PrinterProvider;
+// @ts-expect-error Printer-only providers do not require accounts.
+printerOnly.account;
+// @ts-expect-error Printer callers never supply account identity.
+service.discover(discoveryProvider.id, { kind: 'account', hostId: id<'agent-host'>('desktop'), accountRef: 'private' });
+// @ts-expect-error Forgetting must identify a route, not remove a whole multi-route device.
+service.forget(target.printerId);
+void service.forget(target);
+void service.authorize({ requestId: id<'request'>('authorize'), candidate: { ...discoveredPrinter, access: 'access-code' }, accessCode: 'transient-input' });

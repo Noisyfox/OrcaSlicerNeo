@@ -27,7 +27,6 @@ export interface PrinterRouteConfiguration {
   /** Type-specific address: IP, hostname or endpoint URL, including port/path as needed. */
   address: string | null;
   webInterfaceUrl: `http://${string}` | `https://${string}` | null;
-  accountRef: Id<'account'> | null;
   credentialRef: Id<'credential'> | null;
 }
 export interface PrinterRoute {
@@ -37,6 +36,8 @@ export interface PrinterRoute {
   label: string;
   configurationRevision: Revision;
   configuration: PrinterRouteConfiguration;
+  /** Local configuration actions. Providers must also enforce these at execution. */
+  management: { rename: boolean; configure: boolean; forget: boolean };
   /** Normal capabilities derived locally from type/configuration and retained observations. */
   capabilities: PrinterCapabilities;
 }

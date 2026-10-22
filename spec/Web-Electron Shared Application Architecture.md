@@ -3,7 +3,8 @@
 **Date:** 2026-09-09
 
 **Status:** Delivered shared architecture; current host/runtime boundaries.
-Section 4.2 records the selected, unimplemented service-provider/account design.
+Section 4.2 records delivered service-provider contracts and the selected,
+unimplemented Bambu account execution.
 
 **Scope:** Refactor OrcaSlicerNeo so the same application functionality can ship
 as an Electron desktop application and a conventional static web application.
@@ -178,9 +179,11 @@ browser download/link behavior. See [Application Shell](Application%20Shell.md).
 ### 4.2 Service providers and accounts
 
 **Decision status:** The shared boundary and Electron-only Bambu native-addon
-direction are selected. This is design work, not delivered account support or
-authorization to implement it. Exact package names and method signatures remain
-open; no new public contract has been added to source yet.
+direction are selected and implementation is authorized. Step 1 delivers the
+host-neutral [service-provider contracts](../packages/service-provider/src/index.ts)
+and platform account-capability injection. Account and printer interfaces are
+separate, with provider-owned account association. Both hosts currently expose
+an empty account-provider list; Bambu login/native execution remains unimplemented.
 
 Provider identity, account modeling and account methods belong in a shared
 contract module outside `printer-control`. They must be usable by services with
@@ -358,8 +361,8 @@ preserve the selected product behavior and provider ownership boundaries:
 | Native host and delivery | Exact upstream binary release; ordinary build/feature verification and real-account/device acceptance. All six Electron targets are selected; use Orca's common headers and loader pattern. Orca configuration import and process crash recovery are excluded from the first delivery. |
 
 Authentication is handled by the provider, with account summaries available
-locally. The concrete request/state representation remains open; it must respect
-the selected window-close behavior. The Home-only login entry point, embedded
+locally. The public account request/state contract is defined in the service-provider
+module; native transport/state handling must respect the selected window-close behavior. The Home-only login entry point, embedded
 login with external handoff, remembered login and Orca-compatible black-box
 plugin execution are accepted as described above. Existing stateless
 public printer access remains unchanged; internal plugin lifecycle is host-owned.
@@ -368,8 +371,8 @@ The Bambu-specific scope and feasibility limits are owned by
 [Printer Domain and Control Architecture](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design).
 Its [implementation and acceptance sequence](Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence)
 defines eight independently reviewable increments, their dependencies and the
-evidence required before each is complete. The sequence is planned work, not
-delivered account or printer support.
+evidence required before each is complete. Step 1 contracts are delivered; subsequent runtime steps remain planned,
+not delivered Bambu account or printer support.
 
 ## 5. Runtime and WASM Loading
 

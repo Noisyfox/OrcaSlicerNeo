@@ -246,8 +246,8 @@ describe('Moonraker stateless service', () => {
     const route = unwrap(await service.updateRoute({ target, configuration: { ...original.configuration, address: 'http://new.local/' } }));
     expect(route.configurationRevision).not.toBe(original.configurationRevision);
     expect(await service.updateRoute({ target: { ...target, expectedConfigurationRevision: original.configurationRevision }, configuration: original.configuration })).toMatchObject({ ok: false, error: { code: 'stale-context' } });
-    expect(unwrap(await service.rename(added.identity.id, ' Renamed ')).identity.displayName).toBe('Renamed');
-    await service.forget(added.identity.id);
+    expect(unwrap(await service.rename({ printerId: added.identity.id, routeId: added.routes[0].id }, ' Renamed ')).identity.displayName).toBe('Renamed');
+    await service.forget({ printerId: added.identity.id, routeId: added.routes[0].id });
     expect(unwrap(await service.listSaved())).toHaveLength(1);
     expect(transport.requests).toEqual([]);
   });
@@ -356,7 +356,7 @@ describe('Moonraker stateless service', () => {
     transport.handle = async () => { entered.resolve(); return oldResponse.promise; };
     const pending = service.observations.read({ target, topics: ['descriptor', 'firmware'], source: 'device' });
     await entered.promise;
-    if (change === 'forget-and-readd') await fresh().forget(target.printerId);
+    if (change === 'forget-and-readd') await fresh().forget(target);
     await configuration.save(documentWith({ ...printer, apiBaseUrl: 'http://replacement.local/', apiKey: 'replacement-key' }));
     const current = unwrap(await fresh().listSaved())[0].routes[0];
     transport.handle = async () => ({ status: 200, json: async () => ({ result: { moonraker_version: 'new-device' } }) });
@@ -385,7 +385,7 @@ describe('Moonraker stateless service', () => {
     vi.spyOn(configuration, 'save').mockRejectedValueOnce(new Error('save failed'));
     const [edit, renamed] = await Promise.all([
       service.updateRoute({ target, configuration: { ...original.configuration, address: 'http://unsaved.local/' } }),
-      fresh().rename(target.printerId, 'Renamed'),
+      fresh().rename(target, 'Renamed'),
     ]);
     expect(edit.ok).toBe(false);
     expect(unwrap(renamed).identity.displayName).toBe('Renamed');
@@ -526,5 +526,33 @@ describe('Moonraker stateless service', () => {
     expect(JSON.stringify(uncertain)).not.toContain(printer.apiKey);
     expect(await service.controls.submit(request)).toEqual(submission);
     expect(transport.requests).toHaveLength(3);
+  });
+});
+
+describe('provider catalogue and route management', () => {
+  it('notifies other facades only after local persistence and unsubscribes without network I/O', async () => {
+    const { service, fresh, transport } = setup();
+    const changed = vi.fn();
+    const unsubscribe = fresh().onSavedChanged(changed);
+    const bad = await service.forget({ ...target, routeId: id('wrong-route') });
+    expect(bad).toMatchObject({ ok: false, error: { code: 'invalid-target' } });
+    expect(changed).not.toHaveBeenCalled();
+    unwrap(await service.rename(target, 'New name'));
+    expect(changed).toHaveBeenCalledOnce();
+    expect(unwrap(await fresh().listSaved())[0].identity.displayName).toBe('New name');
+    unsubscribe();
+    unwrap(await service.forget(target));
+    expect(unwrap(await fresh().listSaved())).toEqual([]);
+    expect(changed).toHaveBeenCalledOnce();
+    expect(transport.requests).toEqual([]);
+  });
+  it('keeps committed changes successful when a subscriber throws and rejects stale forgetting', async () => {
+    const { service } = setup();
+    const route = unwrap(await service.listSaved())[0].routes[0];
+    service.onSavedChanged(() => { throw new Error('subscriber failed'); });
+    unwrap(await service.updateRoute({ target, configuration: { ...route.configuration, address: 'http://changed.local/' } }));
+    expect(await service.forget({ ...target, expectedConfigurationRevision: route.configurationRevision }))
+      .toMatchObject({ ok: false, error: { code: 'stale-context' } });
+    expect(unwrap(await service.listSaved())).toHaveLength(1);
   });
 });
