@@ -238,6 +238,10 @@ boundaries. The upload tests include a real 32 MiB HTTP request paused at the
 receiver, byte-for-byte multipart fidelity, write failures, cancellation and
 late callbacks. Component tests cover cumulative average speed, delayed progress events,
 reset on retry, unknown totals, confirmation waiting and print-start staging.
+Upload fixtures at the service, component and host E2E boundaries use Moonraker's
+HTTP 201 top-level upload receipt. Coverage includes upload-only, same-name
+overwrite and starting the exact root-relative path returned by the server;
+malformed or interrupted receipts must not report success or trigger a print.
 
 The Electron mock validation uses `VITE_USE_MOCK=1` with
 `pnpm --filter @orca/desktop exec electron-vite build --mode e2e`, followed by

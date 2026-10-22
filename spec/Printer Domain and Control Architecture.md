@@ -158,6 +158,17 @@ the device response and returns the actual remote path as a route-bound file
 reference. File version comparison is unavailable, so start uses explicit
 best-effort consistency. No listing or connection preflight is required.
 
+Response decoding follows each Moonraker endpoint's contract. The HTTP-only
+[file upload endpoint](https://moonraker.readthedocs.io/en/latest/external_api/file_manager/#file-upload)
+returns HTTP 201 with a top-level uploaded item, including for overwrite;
+ordinary queries and command acknowledgements retain their result envelope.
+Upload completion requires a valid item in the requested `gcodes` root and its
+root-relative file path. That exact path identifies the returned file and any
+subsequent print start. The adapter must not guess a path from the submitted name
+or alternate response fields. An interrupted or malformed successful response,
+including an unusable file location, leaves the upload outcome unknown and does
+not trigger an automatic retry or print start.
+
 Operations are independent resources retained by the host service authority for
 its lifetime, shared by facades using that authority's configuration repository.
 A request ID deduplicates matching submissions within that lifetime; reuse with

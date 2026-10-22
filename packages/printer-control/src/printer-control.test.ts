@@ -23,8 +23,13 @@ class FixtureTransport implements PrinterTransport {
     this.requests.push(request);
     if (this.handle) return this.handle(request);
     const body = this.responses.shift() ?? { result: {} };
-    return { status: this.statuses.shift() ?? 200, json: async () => body };
+    return { status: this.statuses.shift() ?? (request.url.endsWith('/server/files/upload') ? 201 : 200), json: async () => body };
   }
+}
+
+// Moonraker's HTTP upload response has no result envelope, including on overwrite.
+function uploadResponse(path: string) {
+  return { item: { root: 'gcodes', path }, action: 'create_file', print_started: false, print_queued: false };
 }
 
 function documentWith(...records: typeof printer[]) {
@@ -112,7 +117,7 @@ describe('Moonraker stateless service', () => {
 
   it('uploads with explicit overwrite and starts the exact returned path without preflight calls', async () => {
     const { service, transport, fresh } = setup();
-    transport.responses.push({ result: { item: { path: 'nested/remote.gcode' } } }, { result: 'ok' });
+    transport.responses.push(uploadResponse('nested/remote.gcode'), { result: 'ok' });
     const file = await uploaded(service);
     const started = await finished(fresh(), await fresh().controls.submit(start(file)));
     expect(started.phase).toEqual({ kind: 'acknowledged' });
@@ -131,9 +136,45 @@ describe('Moonraker stateless service', () => {
     expect(transport.requests).toEqual([]);
   });
 
+  it('completes upload-only and repeated same-name overwrite from HTTP 201 receipts', async () => {
+    const { service, transport } = setup();
+    transport.responses.push(uploadResponse('cube.gcode'), uploadResponse('cube.gcode'));
+    const first = await uploaded(service);
+    const overwritten = await uploaded(service);
+    expect(overwritten.ref).toEqual(first.ref);
+    expect(first.ref).toMatchObject({ ...target, storageId: 'gcodes', fileId: 'moonraker-file:cube.gcode' });
+    expect(transport.requests).toHaveLength(2);
+    expect(transport.requests.every(request => request.url.endsWith('/server/files/upload'))).toBe(true);
+  });
+
+  it.each<[string, unknown]>([
+    ['missing item', {}],
+    ['incorrect result envelope', { result: uploadResponse('cube.gcode') }],
+    ['alternate filename field', { item: { root: 'gcodes', filename: 'cube.gcode' } }],
+    ['missing root', { item: { path: 'cube.gcode' } }],
+    ['wrong root', { item: { root: 'config', path: 'cube.gcode' } }],
+    ...['', '/cube.gcode', '../cube.gcode', 'nested/../cube.gcode', 'nested/', 'bad\u0000.gcode'].map((path): [string, unknown] => ['invalid path', uploadResponse(path)]),
+  ])('keeps malformed upload receipts outcome-unknown without retry: %s', async (_label, response) => {
+    const { service, transport } = setup();
+    transport.responses.push(response);
+    const request = uploadRequest();
+    const submission = await service.files.upload(request, source());
+    expect(await finished(service, submission)).toMatchObject({ kind: 'upload', remoteFileMayExist: true, phase: { kind: 'outcome-unknown' } });
+    expect(await service.files.upload(request, source())).toEqual(submission);
+    expect(transport.requests).toHaveLength(1);
+  });
+
+  it('keeps an interrupted upload response outcome-unknown without resending', async () => {
+    const { service, transport } = setup();
+    transport.handle = async () => ({ status: 201, json: async () => { throw new Error('response interrupted'); } });
+    const submission = await service.files.upload(uploadRequest(), source());
+    expect(await finished(service, submission)).toMatchObject({ remoteFileMayExist: true, phase: { kind: 'outcome-unknown' } });
+    expect(transport.requests).toHaveLength(1);
+  });
+
   it('deduplicates same requests across fresh facades without consuming a duplicate source', async () => {
     const { service, transport, fresh } = setup();
-    transport.responses.push({ result: { item: { path: 'cube.gcode' } } });
+    transport.responses.push(uploadResponse('cube.gcode'));
     const request = uploadRequest();
     const first = await service.files.upload(request, source());
     await finished(service, first);
@@ -214,7 +255,7 @@ describe('Moonraker stateless service', () => {
     await vi.waitFor(() => expect(transport.requests).toHaveLength(1));
     await configuration.save(documentWith({ ...printer, apiBaseUrl: 'http://replacement.local/' }));
     const next = unwrap(await service.describe(target));
-    complete({ status: 200, json: async () => ({ result: { item: { path: 'cube.gcode' } } }) });
+    complete({ status: 201, json: async () => uploadResponse('cube.gcode') });
     const op = await finished(service, submission);
     if (op.kind !== 'upload' || op.phase.kind !== 'completed') throw new Error('Upload failed');
     expect(op.configurationRevision).not.toBe(next.configurationRevision);
@@ -260,14 +301,14 @@ describe('Moonraker stateless service', () => {
 
   it.each([{}, { result: {} }, { result: 'unexpected' }])('does not acknowledge malformed command confirmation %j', async response => {
     const { service, transport } = setup();
-    transport.responses.push({ result: { item: { path: 'cube.gcode' } } }, response);
+    transport.responses.push(uploadResponse('cube.gcode'), response);
     const file = await uploaded(service);
     expect((await finished(service, await service.controls.submit(start(file)))).phase.kind).toBe('outcome-unknown');
   });
 
   it('sanitizes failed responses and preserves uncertain POST outcomes without resending', async () => {
     const { service, transport } = setup();
-    transport.responses.push({ result: { item: { path: 'cube.gcode' } } });
+    transport.responses.push(uploadResponse('cube.gcode'));
     const file = await uploaded(service);
     transport.statuses.push(401);
     const rejected = await finished(service, await service.controls.submit(start(file)));

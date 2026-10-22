@@ -28,7 +28,7 @@ export function endpoint(base: string, path: string): string {
 }
 export class MoonrakerHttp {
   constructor(private readonly transport: PrinterTransport) {}
-  async request(printer: PrinterConfiguration, path: string, request: Omit<PrinterTransportRequest, 'url'>, responseKind: 'object' | 'acknowledgement' = 'object'): Promise<Record<string, unknown>> {
+  private async request<T>(printer: PrinterConfiguration, path: string, request: Omit<PrinterTransportRequest, 'url'>, decode: (payload: Record<string, unknown>) => T): Promise<T> {
     if (request.signal?.aborted) fail('cancelled', 'Printer request cancelled');
     let response;
     try {
@@ -44,33 +44,36 @@ export class MoonrakerHttp {
     try {
       const payload = record(await response.json());
       if ('error' in payload) fail('device-rejected', 'Printer rejected the request');
-      if (!('result' in payload)) throw new Error('Missing result');
-      // Only mutation acknowledgements may use the documented string result.
-      if (responseKind === 'acknowledgement') {
-        if (payload.result !== 'ok') throw new Error('Missing acknowledgement');
-        return {};
-      }
-      if (!payload.result || typeof payload.result !== 'object' || Array.isArray(payload.result)) throw new Error('Invalid result');
-      return record(payload.result);
+      return decode(payload);
     } catch (error) {
       if (error instanceof MoonrakerFailure) throw error;
       throw new MoonrakerFailure({ code: 'device-failed', message: 'Invalid printer response' }, request.method === 'POST');
     }
   }
   get(printer: PrinterConfiguration, path: string, signal?: AbortSignal) {
-    return this.request(printer, path, { method: 'GET', signal });
+    return this.request(printer, path, { method: 'GET', signal }, payload => {
+      if (!payload.result || typeof payload.result !== 'object' || Array.isArray(payload.result)) throw new Error('Invalid result');
+      return record(payload.result);
+    });
   }
   post(printer: PrinterConfiguration, path: string, json: unknown) {
-    return this.request(printer, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: { kind: 'json', json: JSON.stringify(json) } }, 'acknowledgement');
+    return this.request(printer, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: { kind: 'json', json: JSON.stringify(json) } }, payload => {
+      if (payload.result !== 'ok') throw new Error('Missing acknowledgement');
+    });
   }
   async upload(printer: PrinterConfiguration, fileName: string, bytes: Uint8Array, signal: AbortSignal, onUploadProgress: PrinterTransportRequest['onUploadProgress']) {
-    const result = await this.request(printer, '/server/files/upload', {
+    return this.request(printer, '/server/files/upload', {
       method: 'POST', signal, onUploadProgress,
       body: { kind: 'multipart', fields: { root: 'gcodes' }, file: { fileName, bytes } },
+    }, payload => {
+      // The HTTP-only upload endpoint returns a top-level item, without a result envelope.
+      const item = record(payload.item);
+      const path = item.path;
+      if (item.root !== 'gcodes' || typeof path !== 'string' || !path || path.includes('\0')
+        || path.split('/').some(segment => !segment || segment === '.' || segment === '..')) {
+        throw new Error('Invalid uploaded file location');
+      }
+      return path;
     });
-    const item = record(result.item);
-    const path = [item.path, result.path, item.filename, result.filename].find(value => typeof value === 'string' && value.length > 0);
-    if (typeof path !== 'string') throw new MoonrakerFailure({ code: 'device-failed', message: 'Upload returned no remote path' }, true);
-    return path;
   }
 }

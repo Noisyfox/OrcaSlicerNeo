@@ -36,8 +36,9 @@ class FixtureTransport implements PrinterTransport {
         signal?.addEventListener('abort', abort, { once: true });
       });
     }
-    const response = this.responses.shift() ?? (request.url.endsWith('/server/files/upload') ? { result: { item: { path: 'gcodes/output.gcode' } } } : { result: 'ok' });
-    return { status: this.statuses.shift() ?? 200, json: async () => response };
+    const uploading = request.url.endsWith('/server/files/upload');
+    const response = this.responses.shift() ?? (uploading ? { item: { root: 'gcodes', path: 'output.gcode' }, action: 'create_file', print_started: false, print_queued: false } : { result: 'ok' });
+    return { status: this.statuses.shift() ?? (uploading ? 201 : 200), json: async () => response };
   }
 }
 
@@ -186,7 +187,7 @@ describe('SendGcodeDialog', () => {
   it('uploads then starts for Send & Print and reports a start failure without retrying upload', async () => {
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
-    transport.statuses.push(200, 500);
+    transport.statuses.push(201, 500);
     const { platform } = makePlatform(transport);
     const { container, root } = await render(platform, 'send-and-print');
     roots.push(root);
@@ -197,6 +198,19 @@ describe('SendGcodeDialog', () => {
     ]);
     expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('file remains on the printer');
     expect(container.querySelector('[data-testid="send-retry-start"]')).not.toBeNull();
+  });
+
+  it('does not start printing or offer a retry when the upload receipt is malformed', async () => {
+    const transport = new FixtureTransport();
+    transport.responses.push({ item: { root: 'gcodes' } });
+    const { platform } = makePlatform(transport);
+    useSlicerStore.setState({ status: 'done' });
+    const { container, root } = await render(platform, 'send-and-print'); roots.push(root);
+    await click(container, 'send-submit');
+    expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('Check the printer');
+    expect(container.querySelector('[data-testid="send-retry-start"]')).toBeNull();
+    expect((container.querySelector('[data-testid="send-submit"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(transport.requests.map(request => request.url)).toEqual(['http://printer.local:7125/server/files/upload']);
   });
 
   it('does not offer a blind retry when the print-start response is lost', async () => {
@@ -248,7 +262,7 @@ describe('SendGcodeDialog', () => {
   it.each([false, true])('passes actual project basename and retains upload retry name unless receipt changed=%s', async (receiptChanged) => {
     useProjectStore.setState({ projectFileName: 'Real Untitled.3mf' });
     useSlicerStore.setState({ status: 'done' });
-    const transport = new FixtureTransport(); transport.statuses.push(500, 200);
+    const transport = new FixtureTransport(); transport.statuses.push(500, 201);
     const { platform, runtime } = makePlatform(transport);
     runtime.exportGcodePlate.mockResolvedValueOnce({ ok: true, fileName: 'folder/generated"<>:?*.GCODE', bytes: new Uint8Array([1]) });
     runtime.exportGcodePlate.mockResolvedValueOnce({ ok: true, fileName: 'folder/later-timestamp.GCODE', bytes: new Uint8Array([1]) });
@@ -561,7 +575,7 @@ describe('SendGcodeDialog', () => {
     vi.useFakeTimers();
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
-    transport.statuses.push(200, 500);
+    transport.statuses.push(201, 500);
     const { platform } = makePlatform(transport);
     const onNavigateToDevice = vi.fn();
     const { container, root } = await render(platform, 'send-and-print', 'p1', () => undefined, onNavigateToDevice);
