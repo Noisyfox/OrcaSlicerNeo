@@ -40,7 +40,9 @@
     "saxes": "6.0.0",
     "three": "^0.185.1",
     "yauzl": "3.2.0",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.15",
+    "@orca/bambu-native": "workspace:*",
+    "@orca/service-provider": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

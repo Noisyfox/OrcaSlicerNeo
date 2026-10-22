@@ -462,8 +462,9 @@ credential store merely because authentication is delegated to the plugin.
 
 ### 2.2 Bambu implementation and acceptance sequence
 
-**Status:** Steps 1–3 (shared contracts, provider composition/device consumers
-and the native addon boundary) are delivered; steps 4–8 remain unimplemented.
+**Status:** Steps 1–4 (shared contracts, provider composition/device consumers,
+the native addon and application-owned utility host) are delivered; steps 5–8
+remain unimplemented.
 This sequence implements the
 accepted behavior in section 2.1 and the
 [shared account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts).
@@ -495,7 +496,9 @@ editing to the Moonraker form, and offers forgetting only on permitted routes.
 Send requires a compatible G-code upload route and, for Send & Print, start
 support on that same route. An in-flight upload retains its operation target
 when the catalogue changes. Deterministic fixtures exercise multiple consumers
-and Bambu Cloud/LAN coexistence; no production Bambu runtime is delivered yet.
+and Bambu Cloud/LAN coexistence. The production host now starts the native
+runtime, but Bambu account/printer capabilities are not registered until their
+complete flows are delivered in the following steps.
 
 | Step | Deliverable | Prerequisites | Independent acceptance boundary |
 | --- | --- | --- | --- |
@@ -627,6 +630,25 @@ event routing, and cleanup on normal application shutdown without logout.
 Exercise the real plugin's ordinary startup on the development host and compare
 the applicable call sequence with Orca. Malformed IPC/native results fail at
 the boundary. Do not add crash/restart/backoff tests or recovery machinery.
+
+**Implemented boundary:** The [main host](../apps/desktop/src/main/bambuUtility.ts)
+creates one utility process, restricts IPC to application main frames and
+validates public replies. The [runtime](../apps/desktop/src/utility/bambu/runtime.ts)
+uses the real plugin's Orca-compatible configuration, certificate, region,
+headers, callback, startup and discovery sequence. Account restoration reads
+only plugin getters. A utility-owned serialized repository stores Neo settings
+and future LAN records separately from the opaque plugin directory. Native
+callbacks publish only account/catalogue invalidations to application windows.
+Normal application exit drains and destroys the agent without logout; no crash
+recovery is introduced. Login-window creation is deferred to step 5.
+
+The macOS ARM64 [Electron smoke](../apps/desktop/e2e/bambu-provider.e2e.ts)
+starts the real plugin, obtains signed-out state in two isolated windows,
+checks one named utility process, closes one window while the other continues
+reading, and exits normally. Deterministic tests cover lifecycle ordering,
+serialized persistence and IPC rejection. Other platform runtime qualification
+remains in step 8. Public account and printer registration remains absent
+at this step; the host's printer projection is empty.
 
 #### Step 5 — Account login as a complete user flow
 

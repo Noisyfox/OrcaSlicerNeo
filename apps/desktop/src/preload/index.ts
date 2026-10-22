@@ -1,3 +1,4 @@
+import { isBambuChange, type BambuRead, type BambuReadResults } from '../shared/bambu';
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import {
   Ipc,
@@ -69,6 +70,15 @@ const bridge: ElectronBridge = {
 
   memory: {
     sample: () => ipcRenderer.invoke(Ipc.memorySample) as Promise<import('../shared/ipc').ElectronMemoryIpcSnapshot>,
+  },
+
+  bambu: {
+    read: <K extends BambuRead>(request: K) => ipcRenderer.invoke(Ipc.bambuRead, request) as Promise<BambuReadResults[K]>,
+    onChanged: listener => {
+      const handler = (_event: IpcRendererEvent, change: unknown) => { if (isBambuChange(change)) listener(change); };
+      ipcRenderer.on(Ipc.bambuChanged, handler);
+      return () => ipcRenderer.removeListener(Ipc.bambuChanged, handler);
+    },
   },
 
   printers: {

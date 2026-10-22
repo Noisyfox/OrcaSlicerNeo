@@ -186,7 +186,9 @@ separate, with provider-owned account association. Step 2 adds common printer
 provider dispatch and reactive Device/Send catalogues while retaining Moonraker
 forms and console authentication. Both hosts currently expose
 an empty account-provider list. Step 3 delivers the host-only native addon and
-pinned artifacts; application-owned Bambu execution and login remain unimplemented.
+pinned artifacts. Step 4 delivers the application-owned Bambu utility, typed
+read IPC, serialized local repository and real-plugin startup/shutdown. Login
+execution and public Bambu capability registration remain unimplemented.
 
 Provider identity, account modeling and account methods belong in a shared
 contract module outside `printer-control`. They must be usable by services with
@@ -376,7 +378,8 @@ The Bambu-specific scope and feasibility limits are owned by
 Its [implementation and acceptance sequence](Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence)
 defines eight independently reviewable increments, their dependencies and the
 evidence required before each is complete. Steps 1–3 are delivered; application
-provider execution, Bambu account login and printer discovery remain planned.
+Bambu account login and printer discovery remain planned; the application-owned
+provider process is implemented and validated on macOS ARM64.
 
 ## 5. Runtime and WASM Loading
 

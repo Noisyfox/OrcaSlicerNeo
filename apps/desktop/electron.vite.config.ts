@@ -27,9 +27,11 @@ export default defineConfig(({ mode }) => {
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       } },
-      build: { externalizeDeps: { exclude: ['yauzl', 'saxes'] }, rollupOptions: { input: {
+      build: { externalizeDeps: { exclude: ['yauzl', 'saxes', '@orca/bambu-native'] }, rollupOptions: { input: {
         index: resolve('src/main/index.ts'),
         'slicer-host': resolve('src/utility/slicer-host.ts'),
+        'bambu-host': resolve('src/utility/bambu-host.ts'),
+        ...(mode === 'e2e' ? { 'bambu-host-smoke': resolve('e2e/bambu-host-smoke.ts') } : {}),
         'slicer-worker': resolve('src/utility/slicer-worker.ts'),
         'recent-thumbnail-worker': resolve('src/utility/recent-thumbnail-worker.ts'),
       } } },

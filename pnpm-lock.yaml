@@ -10,6 +10,12 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@orca/bambu-native':
+        specifier: workspace:*
+        version: link:../../packages/bambu-native
+      '@orca/service-provider':
+        specifier: workspace:*
+        version: link:../../packages/service-provider
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
