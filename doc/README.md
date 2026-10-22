@@ -38,7 +38,7 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Colour editing | [Reusable Color Picker](../spec/Reusable%20Color%20Picker.md) |
 | Toolpath inspection and rendering | [G-code Preview](../spec/G-code%20Preview%20v2.md), [GPU Streaming Renderer](../spec/G-code%20Preview%20GPU%20Streaming%20Renderer.md) |
 | Device console and upload/print | [Printer Console](../spec/Printer%20Console%20and%20Control%20Integration.md) |
-| Printer discovery, capabilities, materials, sensors, cameras and remote files | [Printer Domain and Control Architecture](../spec/Printer%20Domain%20and%20Control%20Architecture.md) (Moonraker subset delivered; Electron Bambu login/discovery design selected; implementation and gateway deferred) |
+| Printer discovery, capabilities, materials, sensors, cameras and remote files | [Printer Domain and Control Architecture](../spec/Printer%20Domain%20and%20Control%20Architecture.md) (Moonraker subset delivered; Electron Bambu login/discovery [implementation and acceptance sequence](../spec/Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence) planned; implementation and gateway deferred) |
 | Electron utility, temporary files and proposed Python | [Native Python Plugin Architecture](../spec/Native%20Python%20Plugin%20Architecture.md) (host work delivered; Python remains design work) |
 
 ## Engineering references

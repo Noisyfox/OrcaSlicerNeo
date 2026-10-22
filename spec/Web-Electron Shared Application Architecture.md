@@ -366,6 +366,10 @@ public printer access remains unchanged; internal plugin lifecycle is host-owned
 
 The Bambu-specific scope and feasibility limits are owned by
 [Printer Domain and Control Architecture](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design).
+Its [implementation and acceptance sequence](Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence)
+defines eight independently reviewable increments, their dependencies and the
+evidence required before each is complete. The sequence is planned work, not
+delivered account or printer support.
 
 ## 5. Runtime and WASM Loading
 

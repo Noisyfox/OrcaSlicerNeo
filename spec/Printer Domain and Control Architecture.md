@@ -460,6 +460,237 @@ automatic cloud device population and LAN access-code entry follow the accepted
 rules above. Internal persistence is not claimed to use an OS
 credential store merely because authentication is delegated to the plugin.
 
+### 2.2 Bambu implementation and acceptance sequence
+
+**Status:** Planned, not implemented or verified. This sequence implements the
+accepted behavior in section 2.1 and the
+[shared account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts).
+Each step is a separately reviewable implementation increment with its own
+acceptance evidence. Completing a step does not claim completion of later
+features. Keep incomplete Bambu capabilities unavailable in production; test
+providers are test fixtures, not an alternate production networking path.
+
+Two current source boundaries require explicit work: the
+[printer contracts](../packages/printer-control/src/domain/service.ts) and
+[route configuration](../packages/printer-control/src/domain/printer.ts) still
+expose `accountRef`, while the
+[Device panel](../packages/slicer-app/src/components/device/DevicePanel.tsx)
+and [Send dialog](../packages/slicer-app/src/components/send/SendGcodeDialog.tsx)
+still consume the Moonraker configuration repository directly. These are
+implementation gaps against the selected design, not permission to retain
+account references in printer consumers or to encode Bambu as Moonraker.
+
+| Step | Deliverable | Prerequisites | Independent acceptance boundary |
+| --- | --- | --- | --- |
+| 1 | Shared account and printer capability contracts | None | Compile-time consumers and existing host/service compatibility |
+| 2 | Provider composition and shared device-list integration | 1 | Existing Moonraker plus deterministic test providers |
+| 3 | Pinned plugin artifacts and native addon | None | Real plugin load/version smoke and native boundary tests |
+| 4 | Application-owned Electron provider host | 1, 3 | Utility-process, IPC and normal lifecycle integration |
+| 5 | Bambu account login and Home/settings UX | 4 | Real login/logout/restart on a development host plus deterministic UI/error cases |
+| 6 | Cloud device enumeration and reconciliation | 2, 5 | Real account list plus deterministic route-lifecycle cases |
+| 7 | LAN discovery, access and forgetting | 2, 4 | Real LAN-only device plus deterministic persistence/route cases |
+| 8 | Combined acceptance and six-target release packaging | 5, 6, 7 | Packaged applications and integrated real-account/device evidence |
+
+Steps 1 and 3 can proceed independently. After the common foundations, LAN
+work does not require cloud login to be complete. Steps 6 and 7 must converge
+on the same provider-owned identity and route state, not separate Bambu device
+registries. Each step should be committed after its own checks pass; do not
+combine the entire sequence into one implementation commit.
+
+#### Step 1 — Shared contracts and existing-consumer alignment
+
+Create the host-neutral provider identity/account contract module outside
+`printer-control`, and inject account capabilities through the platform
+boundary. Define account status/summary, login, logout, state changes and
+provider settings needed by this delivery. Account-only and printer-only
+providers must be representable; a combined provider implements both
+interfaces under one identity. Do not implement preset synchronization or a
+generic cross-capability account-reference scheme.
+
+Align the single current printer contract: remove caller-supplied account
+references from discovery and routes; define how provider-published catalogue
+changes reach consumers; and distinguish allowed local configuration actions
+from provider-managed Cloud routes. The contract must express LAN access-code
+submission and route-specific forgetting without deleting a retained Cloud
+route. Keep credential storage host-owned and distinguish local candidate
+adoption from the native access flow. Update producers, consumers, mocks and
+compile-only fixtures together, without parallel old/new API formats.
+
+**Acceptance:** Type-only consumers prove the separate capabilities, a combined
+provider and account-free printer requests. Existing Moonraker tests/typechecks
+pass, both hosts still construct their platform adapters, and Web can represent
+unavailable Bambu execution without importing Node/Electron/native code. Pure
+interface-shape coverage belongs in TypeScript checks rather than runtime tests.
+
+#### Step 2 — Provider composition and device consumers
+
+Introduce provider dispatch and a unified saved-device projection using the
+step 1 contract. Preserve existing Moonraker behavior and persisted settings;
+its current configuration format and API-key handling can remain private to
+its adapter. Do not repurpose that format for Bambu or introduce an unrelated
+Moonraker credential-storage migration.
+
+Adapt Device and Send consumers to provider/route identity and supported
+operations instead of treating every device as editable Moonraker configuration.
+Keep Moonraker forms and its native Web console behavior. A discovery-only
+Bambu device may appear in the list without a monitor, embedded console or
+send/print action. Add only the capability-driven presentation needed for this
+delivery, not the full future device-page suite. Provider-driven additions,
+updates and removals must reach all open windows without a UI account lookup.
+
+**Acceptance:** Deterministic provider fixtures prove dispatch isolation,
+catalogue updates, one Bambu identity with Cloud/LAN routes, allowed LAN
+forgetting, and disabled/absent unsupported actions. Names or IP addresses
+alone do not merge devices. Existing Moonraker manual add/edit/delete, console
+selection and upload/start behavior still pass; startup/listing do not introduce
+Moonraker probes. Web continues to expose only its supported providers. Fixtures
+verify cross-provider coexistence without a Bambu account or native plugin.
+
+#### Step 3 — Native plugin loading and addon boundary
+
+Select the exact upstream precompiled release and record artifact URLs,
+versions and checksums for all six selected targets. Add deterministic build
+acquisition/staging and the Node-API addon, following Orca's common declarations,
+function-pointer signatures and native loader pattern. Wrap the exported
+surface needed for login/discovery, including callback and returned-data
+ownership; do not expose arbitrary native calls to shared application code.
+Build the adapter, not the plugin source. Account/profile/device business
+state remains outside the low-level wrapper.
+
+**Acceptance:** A real-plugin smoke loads the selected artifact and obtains its
+version through the wrapper on the development host. Native boundary tests
+exercise argument/result conversion, callback delivery/lifetime and cleanup
+without relying on plugin internals. Confirm upstream artifact availability for
+the selected targets early; a missing artifact is an explicit delivery gap,
+not a silent source-build fallback or target removal. These are normal build
+and loading checks, not a separate per-platform ABI qualification project.
+
+#### Step 4 — Shared Electron provider process and IPC
+
+Host the addon in one application-owned Bambu utility process, independent of
+the slicing utility and shared by windows and account/printer capabilities.
+Implement the main/preload/utility bindings for the selected contracts, normal
+startup/shutdown and callback dispatch. Apply Orca's configuration-directory,
+certificate, region, callback-registration and start ordering; keep Neo's
+configuration independent of Orca. Map native results into typed host replies
+and events, with no tokens or saved access codes in public snapshots or logs.
+Establish one host-owned Bambu device/credential repository for the later Cloud
+and LAN steps, so renderer windows cannot overwrite each other's saved state.
+The official login window must not inherit the application's privileged preload.
+
+**Acceptance:** Focused Electron integration proves one provider instance across
+two windows, continued provider lifetime after a page/window closes, correct
+event routing, and cleanup on normal application shutdown without logout.
+Exercise the real plugin's ordinary startup on the development host and compare
+the applicable call sequence with Orca. Malformed IPC/native results fail at
+the boundary. Do not add crash/restart/backoff tests or recovery machinery.
+
+#### Step 5 — Account login as a complete user flow
+
+Implement plugin-backed account restoration, embedded official login,
+system-browser handoff/local callback, explicit logout and Orca-compatible
+authentication-expiry handling. Preserve the required post-login calls even
+before step 6 exposes their device results. Keep plugin session persistence
+opaque and distinguish ordinary network errors from logout.
+
+Add the Home-only login entry and account-state presentation, plus Bambu region
+selection in application settings. Default to `Others`, remember the setting,
+and apply Orca's region-to-plugin parameter mapping. Reuse/focus an existing
+login window; recreate it only after closure. Closing it after browser handoff
+does not cancel that login. Region changes log out the old account first.
+Web does not advertise Bambu login execution.
+
+**Acceptance:** Complete a real login, explicit logout and remembered-login
+restart on the development host. Focused host/UI tests cover window reuse,
+external handoff and late completion after window closure, region switching,
+auth-expiry notification, transient failure and unavailable plugin state.
+Native login payloads remain inside the host. Other provider accounts are
+unaffected. Deterministic fixtures can cover unavailable challenges, but actual
+regional/challenge coverage must be reported separately from mocked evidence.
+
+#### Step 6 — Cloud device population and route lifecycle
+
+Consume Orca-compatible account-device results inside the Bambu provider and
+automatically publish saved Cloud routes. Reconcile only valid complete lists;
+handle a valid empty list, and retain prior routes on failed/invalid results.
+Associate devices using stable provider/device identity. Provider-internal
+account context rejects superseded responses; callers never pass account IDs.
+
+Wire explicit logout, expiry logout and region changes to provider-owned Cloud
+route removal. Preserve independent LAN routes and remove identities with no
+routes left. Re-login repopulates Cloud routes automatically. Update names from
+provider results, expose no local aliases or Cloud hide/delete actions, and do
+not select a print target or claim control/upload support.
+
+**Acceptance:** A real account's device list appears through the common Device
+surface. Deterministic cases cover additions, renames, absent devices, empty
+lists, failed refreshes, logout/re-login and responses arriving after account
+changes. A LAN-route fixture proves Cloud cleanup cannot delete that route;
+the combined real LAN case follows in step 8. Multiple windows see the same
+provider result without duplicate saved devices.
+
+#### Step 7 — LAN discovery and remembered access
+
+Expose LAN candidates and the access-code/add flow through the same provider
+and Device surface, including operation without a cloud login. Follow Orca's
+plugin call/callback pattern for discovery and access; an announcement alone
+does not grant access. Persist user-entered access codes in host-owned local
+configuration and restore them after normal restart. Input is transient UI
+data; saved codes are not returned in catalogue/account snapshots.
+
+Update addresses for the same identity using Orca's connection-name rules,
+follow reported names, and combine Cloud/LAN routes when identity is established.
+Forgetting removes only the LAN route and its code; rediscovery requires access
+entry again. Keep generic manual configuration independent from discovery and
+preserve LAN routes/codes across cloud logout. No monitoring/control UI is added
+because the native access flow happens to connect internally.
+
+**Acceptance:** Discover and add a real LAN-only device while logged out of
+Cloud, restart and reuse its saved access, then forget it and require access
+entry again. Deterministic cases cover invalid codes, expired candidates,
+IP/name updates, Cloud/LAN identity association, retained Cloud routes on LAN
+forgetting, and retained LAN routes on logout. No remembered code is exposed by
+the public saved-device model. Real network observations and fixture-driven
+edge cases are recorded as different evidence.
+
+#### Step 8 — Packaged delivery and combined acceptance
+
+Integrate the addon and pinned plugin artifacts into existing desktop packaging
+and the six-target CI matrix. Review
+[electron-builder.yml](../apps/desktop/electron-builder.yml), whose current
+node-modules exclusion and `npmRebuild: false` assume no native Node dependency;
+ensure native runtime files are explicitly staged and loadable in the installed
+application. Update the normal build/release path rather than requiring a user
+download or manual plugin installation.
+
+**Acceptance:** Produce all six target packages and record ordinary installed-app
+startup/plugin-load evidence for each. Validate OS-specific login-window,
+system-browser callback and persistence seams on the applicable hosts. Run a
+primary real-account/device journey covering login, automatic Cloud population,
+LAN access, a combined identity, logout retaining LAN, re-login, LAN forgetting
+and application restart. Record CN/international results and any untested
+challenge/device/environment explicitly. Packaging success alone does not prove
+real login or discovery. No additional ABI gate or process-crash qualification
+is introduced.
+
+#### Verification and completion rules
+
+Follow [testing guidelines](../doc/testing_guidelines.md): each step runs the
+affected package tests/typechecks and focused host checks for its changed
+boundary; contract changes also update compile-only consumers. Code handoffs
+run `pnpm test`, `pnpm typecheck` and the relevant Electron/Web seam tests.
+Follow the repository release matrix for final release qualification; do not
+repeat it at every step. No slicer C++/WASM change is planned, so a step does not
+require a WASM rebuild merely because the native networking addon changed.
+
+Use exported-call/callback fixtures derived from the checked-in Orca caller,
+not plugin implementation details. A fake plugin/provider proves host behavior,
+not Bambu service compatibility. Real plugin/account/device evidence is required
+at the indicated steps; unavailable evidence remains unverified. Keep secrets
+out of committed fixtures and reports. Use the existing documentation owners
+for contract/behavior changes, and update the Grand Plan only when delivered
+work actually changes milestone status.
+
 ## 3. Identity, configuration and stateless access
 
 Separate printer identity from its routes, provider, configured printer type
