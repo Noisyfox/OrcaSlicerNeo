@@ -210,16 +210,18 @@ does not itself authorize printer binding, profile synchronization or project
 changes. Profile/library transitions remain governed by
 [User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md#8-storage-synchronization-and-project-interchange).
 
-Explicit account logout removes that account's Cloud printer routes from Neo's
-saved configuration. A device with an independent LAN route remains saved;
-one with no remaining routes is removed. Logging in again requires discovery
-and adoption again for the removed Cloud routes. This is local cleanup, not
+Account logout, whether explicitly requested or triggered by authentication
+expiry under Orca's error handling, removes that account's Cloud printer routes
+from Neo's saved configuration. A device with an independent LAN route remains
+saved; one with no remaining routes is removed. After re-login, a successful
+account-device fetch automatically restores the account's Cloud devices/routes;
+the user does not add each printer again. This is local cleanup, not
 cloud unbinding or deletion at the provider. Other providers' accounts and
 routes remain independent. Region changes use this same logout behavior.
 The printer-specific consequences are owned by
-[the printer domain](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design);
-the effect of automatic authentication expiry on Neo's saved routes remains
-open. Plugin logout calls themselves follow Orca's behavior.
+[the printer domain](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design).
+Plugin error handling and logout calls follow Orca's behavior; an arbitrary
+transient network error is not itself an account logout.
 
 Bambu login uses an embedded, isolated Electron login window for the official
 page, with system-browser handoff and a local callback when the page requests
@@ -275,8 +277,8 @@ until selected:
 
 | Group | Open decisions |
 | --- | --- |
-| Authentication and credentials | Cancellation/late callback UX consistent with Orca calls; local saved-route treatment after automatic authentication expiry; recovery when plugin state is unavailable. |
-| Discovery and adoption | Cloud and LAN delivery scope; candidate presentation/adoption UX under Orca-compatible calls; identity association; treatment of stale candidates during account changes. |
+| Authentication and credentials | Cancellation/late callback UX consistent with Orca calls; recovery when plugin state is unavailable. |
+| Discovery and adoption | Identity association and treatment of stale candidates during account changes, within the selected cloud auto-enumeration and LAN access-code flow. |
 | Native host and delivery | Process ownership/recovery; plugin version/build/distribution policy; configuration migration; supported OS/architectures and real-account/device acceptance. |
 
 The proposed authentication workflow is a separately addressed, cancellable

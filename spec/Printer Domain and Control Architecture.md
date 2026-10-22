@@ -287,26 +287,46 @@ handles, raw credentials or Bambu JSON. Existing printer discovery/adoption and
 physical-identity/multiple-route semantics remain the integration boundary.
 Concrete registry/facade APIs and configuration migration remain design work.
 
-Cloud-account enumeration and LAN discovery are distinct capabilities. Both
-are proposed for the initial discovery delivery; their exact delivered scope
-remains to be confirmed. Plugin-facing triggers within that scope follow Orca;
-Neo's candidate presentation/adoption UX remains open. Listing an account's devices does not establish LAN
-reachability, and receiving a LAN announcement does not authenticate a device.
-Discovery and local adoption do not bind/unbind a device to a Bambu account.
-Unsupported printing, upload, control, monitoring and media capabilities must
-remain unavailable in this login/discovery phase. Profile synchronization is
-future work governed by its own domain, not a side effect of login.
+Cloud-account enumeration and LAN discovery are distinct capabilities, both
+selected for the first delivery. Plugin-facing triggers follow Orca. Listing
+an account's devices does not establish LAN reachability, and receiving a LAN
+announcement does not authenticate a device.
 
-On explicit account logout, remove that account's saved Cloud routes. Preserve
-devices with independent LAN routes and remove devices that have no routes
-left. Re-login does not silently restore removed Cloud routes: discovery and
-adoption are required again. Do not unbind or delete devices on Bambu Cloud as
-part of this local cleanup. Bambu region changes first log out the old account
-and therefore apply the same cleanup. Accounts/routes of other providers are
-unaffected. Account multiplicity and regional identity follow the common
-account boundary. Plugin logout follows Orca's calls. Local route cleanup on
-automatic authentication expiry and stale discovery-result handling require
-separate clarification.
+After a successful cloud account-device fetch, automatically populate Neo's
+device list and establish the associated Cloud routes. No per-device Add action
+is required. This is an account-managed population path, not a requirement to
+make every discovered printer from every provider persistent automatically.
+It does not select a print target or create a second physical identity when an
+existing device already has another route.
+
+LAN-only discovery and access-code entry are included without requiring a
+Bambu cloud login. The user can select a discovered LAN-only device, supply its
+access code and add/access it through the corresponding Orca-compatible plugin
+flow. Distinguish a discovery candidate from a device with established access;
+receipt of an announcement alone does not grant access. Host-owned credential
+handling and native connection operations remain behind the public domain
+boundary. This access-code workflow does not remove generic local-only manual
+configuration or make device discovery a prerequisite for manual configuration.
+
+Discovery and local population/adoption do not bind/unbind a device to a Bambu
+account. Unsupported printing, upload, control, monitoring and media capabilities
+remain unavailable in this phase. Native connection calls needed for Orca's
+login/discovery/LAN access flow are in scope without exposing those additional
+product capabilities. Profile synchronization remains future work in its own
+domain.
+
+On account logout, including automatic logout for authentication expiry under
+Orca's error handling, remove that account's saved Cloud routes. Preserve devices
+with independent LAN routes and remove devices that have no routes left.
+After re-login, a successful account-device fetch automatically restores the
+returned Cloud devices/routes; there is no manual re-add step. Do not unbind or
+delete devices on Bambu Cloud as part of this local cleanup. Bambu region changes
+first log out the old account and apply the same cleanup. Other providers'
+accounts/routes are unaffected. Account multiplicity and regional identity
+follow the common account boundary. Plugin logout follows Orca's calls; a
+transient network error does not automatically imply logout. Late responses
+must not restore routes removed by logout or attach them to a different account;
+the concrete stale-result mechanism remains to be designed.
 
 **Plugin compatibility boundary:** Treat the plugin as a black box and follow
 Orca's plugin-facing behavior. Implementation must use exported functions,
@@ -333,6 +353,11 @@ The current Orca reference is the checked-in C++ submodule revision
   embedded official login, ticket/profile/session application, external-browser
   handoff and loopback callbacks. Preserve this exchange behind Electron host
   boundaries while keeping secrets out of shared application state.
+- [DeviceCore/DevManager](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevManager.cpp)
+  populates the account device collection from plugin results and merges
+  accessible LAN-only devices into its device list;
+  [SelectMachine](../packages/slicer-wasm/cpp/src/slic3r/GUI/SelectMachine.cpp)
+  provides an access-code entry flow for LAN-only devices lacking access.
 
 Remember login automatically through the plugin's persistence behavior. Normal
 application shutdown is not user logout. Authentication refresh, startup network
@@ -358,8 +383,9 @@ login/listing does not establish permission or support for later printing.
 Browser callbacks, addon/plugin packaging and supported OS/architectures need
 independent qualification. The grouped open decisions are tracked in the shared
 architecture. Browser-login mode, remembered login, black-box lifecycle,
-single-account, regional switching and explicit logout route cleanup follow the
-accepted rules above. Internal persistence is not claimed to use an OS
+single-account, regional switching, explicit/expiry-triggered logout cleanup,
+automatic cloud device population and LAN access-code entry follow the accepted
+rules above. Internal persistence is not claimed to use an OS
 credential store merely because authentication is delegated to the plugin.
 
 ## 3. Identity, configuration and stateless access
