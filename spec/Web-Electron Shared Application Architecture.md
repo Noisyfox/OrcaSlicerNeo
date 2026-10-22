@@ -215,6 +215,12 @@ does not itself authorize printer binding, profile synchronization or project
 changes. Profile/library transitions remain governed by
 [User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md#8-storage-synchronization-and-project-interchange).
 
+Expose Bambu login-region selection in application settings, following Orca's
+[Login region preference](../packages/slicer-wasm/cpp/src/slic3r/GUI/Preferences.cpp).
+Home initiates login using the saved region; it does not provide a separate
+region selector. The setting belongs to the Bambu provider, while account
+cleanup on region changes follows the rules below.
+
 Future preset synchronization has a single designated account provider, following
 OrcaCloud's role in Orca. Other account providers may coexist for printer access,
 but do not each synchronize presets or contribute parallel synchronized preset
@@ -238,6 +244,13 @@ Bambu login uses an embedded, isolated Electron login window for the official
 page, with system-browser handoff and a local callback when the page requests
 it, following Orca's login flow. Login is remembered automatically across normal
 application shutdown/restart. Closing the application is not account logout.
+
+Neo uses its own host-owned configuration directory for the plugin and its own
+local LAN device configuration. The first delivery does not import or share an
+existing Orca installation's configuration, remembered LAN access codes or
+plugin session files. Users log in within Neo and enter LAN access codes on
+first use; subsequent launches restore Neo's own saved state. The plugin's
+private persistence remains opaque.
 
 For the first delivery, expose the login entry point only on Home. Account
 contracts and execution remain independent of the printer domain. After a
@@ -330,7 +343,7 @@ until selected:
 | --- | --- |
 | Authentication and credentials | Recovery when plugin state is unavailable; handling superseded login attempts consistently with Orca calls. Closing the login window after browser handoff does not cancel the current attempt. |
 | Discovery and adoption | Identity association and treatment of stale candidates during account changes, within the selected cloud auto-enumeration and LAN access-code flow. |
-| Native host and delivery | Exact upstream binary release; configuration migration; ordinary build/feature verification and real-account/device acceptance. All six Electron targets are selected; use Orca's common headers and loader pattern. Process crash recovery is excluded from the first delivery. |
+| Native host and delivery | Exact upstream binary release; ordinary build/feature verification and real-account/device acceptance. All six Electron targets are selected; use Orca's common headers and loader pattern. Orca configuration import and process crash recovery are excluded from the first delivery. |
 
 Authentication is handled by the provider, with account summaries available
 locally. The concrete request/state representation remains open; it must respect
