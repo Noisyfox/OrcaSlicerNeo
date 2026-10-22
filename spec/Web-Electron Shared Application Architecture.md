@@ -220,6 +220,10 @@ Expose Bambu login-region selection in application settings, following Orca's
 Home initiates login using the saved region; it does not provide a separate
 region selector. The setting belongs to the Bambu provider, while account
 cleanup on region changes follows the rules below.
+On first use, default to `Others` and allow login without requiring an explicit
+region selection. Do not infer the region from system language or IP address.
+This uses Orca's unspecified-region fallback in
+[AppConfig::get_country_code](../packages/slicer-wasm/cpp/src/libslic3r/AppConfig.cpp).
 
 Future preset synchronization has a single designated account provider, following
 OrcaCloud's role in Orca. Other account providers may coexist for printer access,
@@ -260,6 +264,14 @@ reflects the updated account state. This follows Orca's application-owned
 callback service rather than tying login completion to the window lifetime.
 See [Orca's login window lifecycle](../packages/slicer-wasm/cpp/src/slic3r/GUI/WebUserLoginDialog.cpp)
 and [browser callback handler](../packages/slicer-wasm/cpp/src/slic3r/GUI/HttpServer.cpp).
+
+While a provider's login window still exists, another Home login action brings
+that window to the foreground and preserves its page/input state, rather than
+starting a replacement login window. If the window has been closed, create a
+new one. This is an intentional host-UI difference from Orca's
+[ShowUserLogin](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_App.cpp),
+which recreates the dialog. It does not change the plugin-facing login flow or
+the application-owned browser callback lifetime described above.
 
 Treat `open-bamboo-networking` as a black box. Reproduce Orca's plugin-facing
 call pattern for the selected login/discovery scope: lifecycle ordering,
@@ -336,13 +348,13 @@ execution merely because they can import its interfaces. Local Web slicing and
 existing Moonraker behavior remain independent of this integration. Mobile
 account/provider execution is deferred along with mobile product support.
 
-The next design decisions are grouped as follows; suggestions are not defaults
-until selected:
+Remaining engineering design and verification work is grouped below. It must
+preserve the selected product behavior and provider ownership boundaries:
 
-| Group | Open decisions |
+| Group | Remaining work |
 | --- | --- |
-| Authentication and credentials | Recovery when plugin state is unavailable; handling superseded login attempts consistently with Orca calls. Closing the login window after browser handoff does not cancel the current attempt. |
-| Discovery and adoption | Identity association and treatment of stale candidates during account changes, within the selected cloud auto-enumeration and LAN access-code flow. |
+| Authentication and credentials | Specify the public account methods and host request/state representation; map unavailable plugin/session state and superseded login results using Orca's applicable calls and errors. Window reuse and browser-handoff lifetime are already selected above. |
+| Discovery and adoption | Specify provider-internal identity association and stale-result handling, within the selected cloud auto-enumeration, LAN access-code and route-removal behavior. Consumers do not supply account references. |
 | Native host and delivery | Exact upstream binary release; ordinary build/feature verification and real-account/device acceptance. All six Electron targets are selected; use Orca's common headers and loader pattern. Orca configuration import and process crash recovery are excluded from the first delivery. |
 
 Authentication is handled by the provider, with account summaries available
