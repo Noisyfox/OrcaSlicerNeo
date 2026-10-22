@@ -271,7 +271,18 @@ Ship a fixed compatible version of `open-bamboo-networking` with the Electron
 application, validated and released together with the native adapter. No
 first-use plugin download or user-managed plugin installation is part of the
 first delivery. Plugin updates are delivered through Neo application updates.
-The exact shipped version and OS/architecture qualification remain open.
+Use upstream precompiled release artifacts, pinning their version and file
+checksums; Neo does not build the plugin from source. Compile the Node-API
+adapter for compatibility with those binaries and verify C++ ABI, architecture
+and runtime dependencies for each target.
+
+The first delivery targets all six existing Electron platforms: Windows x64
+and ARM64, macOS Intel/x64 and Apple Silicon/ARM64, and Linux x64 and ARM64.
+Each package must include matching plugin and adapter artifacts. These are
+delivery targets, not already-qualified combinations. The exact upstream
+release and per-target compatibility evidence remain to be established; missing
+or incompatible upstream binaries are a delivery gap, not authorization to
+silently compile a replacement or drop a selected target.
 
 For the first delivery, assume the independent provider process remains stable.
 Provider-process crash handling is explicitly out of scope: do not add automatic
@@ -295,7 +306,7 @@ until selected:
 | --- | --- |
 | Authentication and credentials | Cancellation/late callback UX consistent with Orca calls; recovery when plugin state is unavailable. |
 | Discovery and adoption | Identity association and treatment of stale candidates during account changes, within the selected cloud auto-enumeration and LAN access-code flow. |
-| Native host and delivery | Exact bundled plugin version/build; configuration migration; supported OS/architectures and real-account/device acceptance. Process crash recovery is excluded from the first delivery. |
+| Native host and delivery | Exact upstream binary release and per-target ABI/dependency qualification; configuration migration; real-account/device acceptance. All six Electron targets are selected. Process crash recovery is excluded from the first delivery. |
 
 The proposed authentication workflow is a separately addressed, cancellable
 login request, with account summaries available locally and authentication

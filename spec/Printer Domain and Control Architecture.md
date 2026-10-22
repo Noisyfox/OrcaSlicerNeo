@@ -380,6 +380,15 @@ Electron, validate it together with the native adapter and update it through
 Neo application releases. Do not require a first-use download or manual plugin
 installation in this phase.
 
+Use upstream precompiled plugin release artifacts with pinned versions and
+file checksums, not a Neo-built copy of the plugin source. The first delivery
+targets Windows, macOS and Linux on both x64 and ARM64. Build the native adapter
+against the chosen binary ABI and validate loading/runtime dependencies on each
+target. Upstream artifact availability and compatibility are qualification work;
+the selected six-platform scope does not establish that all six binaries work.
+Do not silently substitute a source build or omit a platform when an upstream
+artifact is missing or incompatible.
+
 The [shared architecture](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts)
 owns the application-wide Bambu provider utility process, shared across windows
 and independent of the slicing runtime. The first delivery assumes this process
@@ -391,7 +400,8 @@ first-delivery acceptance requirement.
 Real-account login, regional endpoints, verification challenges, credential
 refresh and real-device discovery have not been validated in Neo. Successful
 login/listing does not establish permission or support for later printing.
-Browser callbacks, addon/plugin packaging and supported OS/architectures need
+Browser callbacks and addon/plugin packaging on all six selected OS/architecture
+targets need
 independent qualification. The grouped open decisions are tracked in the shared
 architecture. Browser-login mode, remembered login, black-box lifecycle,
 single-account, regional switching, explicit/expiry-triggered logout cleanup,
