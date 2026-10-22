@@ -182,7 +182,9 @@ browser download/link behavior. See [Application Shell](Application%20Shell.md).
 direction are selected and implementation is authorized. Step 1 delivers the
 host-neutral [service-provider contracts](../packages/service-provider/src/index.ts)
 and platform account-capability injection. Account and printer interfaces are
-separate, with provider-owned account association. Both hosts currently expose
+separate, with provider-owned account association. Step 2 adds common printer
+provider dispatch and reactive Device/Send catalogues while retaining Moonraker
+forms and console authentication. Both hosts currently expose
 an empty account-provider list; Bambu login/native execution remains unimplemented.
 
 Provider identity, account modeling and account methods belong in a shared

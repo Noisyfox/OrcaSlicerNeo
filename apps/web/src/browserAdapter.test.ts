@@ -171,6 +171,22 @@ describe('browser adapter', () => {
     await expect(repository.load()).resolves.toEqual({ version: 1, printers: [] });
   });
 
+  it('publishes local and cross-window changes without payloads and unsubscribes', async () => {
+    const repository = createBrowserPrinterConfigurationRepository();
+    const listener = vi.fn();
+    const stop = repository.onChanged(listener);
+    await repository.save({ version: 1, printers: [] });
+    expect(listener).toHaveBeenCalledExactlyOnceWith();
+    window.dispatchEvent(new StorageEvent('storage', { storageArea: localStorage, key: PRINTER_CONFIGURATION_STORAGE_KEY }));
+    expect(listener).toHaveBeenCalledTimes(2);
+    window.dispatchEvent(new StorageEvent('storage', { storageArea: localStorage, key: 'unrelated' }));
+    expect(listener).toHaveBeenCalledTimes(2);
+    stop();
+    await repository.save({ version: 1, printers: [] });
+    window.dispatchEvent(new StorageEvent('storage', { storageArea: localStorage, key: null }));
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
   it('round-trips multiple records and retains complete API keys', async () => {
     const repository = createBrowserPrinterConfigurationRepository();
     const document = { version: 1 as const, printers: [

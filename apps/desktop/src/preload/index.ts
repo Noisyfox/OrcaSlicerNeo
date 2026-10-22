@@ -73,6 +73,11 @@ const bridge: ElectronBridge = {
 
   printers: {
     configuration: {
+      onChanged: (listener) => {
+        const handler = () => listener();
+        ipcRenderer.on(Ipc.printerConfigurationChanged, handler);
+        return () => ipcRenderer.removeListener(Ipc.printerConfigurationChanged, handler);
+      },
       load: () => ipcRenderer.invoke(Ipc.printerConfigurationLoad) as Promise<PrinterConfigurationDocument>,
       save: async (document: PrinterConfigurationDocument) => {
         // Validate at the renderer boundary as well as in main. This keeps

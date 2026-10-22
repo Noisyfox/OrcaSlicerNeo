@@ -462,8 +462,8 @@ credential store merely because authentication is delegated to the plugin.
 
 ### 2.2 Bambu implementation and acceptance sequence
 
-**Status:** Step 1 contracts and existing-consumer alignment are delivered;
-steps 2–8 remain unimplemented. This sequence implements the
+**Status:** Steps 1–2 (shared contracts, provider composition and device
+consumers) are delivered; steps 3–8 remain unimplemented. This sequence implements the
 accepted behavior in section 2.1 and the
 [shared account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts).
 Each step is a separately reviewable implementation increment with its own
@@ -478,8 +478,23 @@ notifications. [Route configuration](../packages/printer-control/src/domain/prin
 no longer exposes `accountRef`. The
 [Device panel](../packages/slicer-app/src/components/device/DevicePanel.tsx)
 and [Send dialog](../packages/slicer-app/src/components/send/SendGcodeDialog.tsx)
-still consume the Moonraker configuration repository directly; replacing that
-consumer boundary belongs to step 2. No Bambu runtime is delivered by step 1.
+now subscribe to the unified saved catalogue. The
+[provider dispatcher](../packages/printer-control/src/providers.ts) routes by
+provider-owned printer/route identity and preserves ownership for outstanding
+operations after a route is removed. Conflicting identities fail rather than
+merging by display name or address. Failed/stale catalogue reads do not replace
+a newer successful projection.
+
+Both hosts compose the existing Moonraker provider. Its configuration form and
+console API-key injection retain their existing repository boundary; common
+listing and Send no longer read that document. Local configuration changes
+invalidate all subscribed consumers, including host-originated Electron changes
+and browser storage events. Device renders discovery-only metadata, limits
+editing to the Moonraker form, and offers forgetting only on permitted routes.
+Send requires a compatible G-code upload route and, for Send & Print, start
+support on that same route. An in-flight upload retains its operation target
+when the catalogue changes. Deterministic fixtures exercise multiple consumers
+and Bambu Cloud/LAN coexistence; no production Bambu runtime is delivered yet.
 
 | Step | Deliverable | Prerequisites | Independent acceptance boundary |
 | --- | --- | --- | --- |

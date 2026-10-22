@@ -124,6 +124,54 @@ describe('SendGcodeDialog', () => {
     useSlicerStore.setState({ status: 'idle', progress: 0, error: null, resultExported: false });
   });
 
+  it('excludes discovery-only devices and clears a removed target without selecting another', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const { platform } = makePlatform(transport);
+    const result = await platform.printers.service.listSaved();
+    if (!result.ok) throw new Error('Fixture failed');
+    let saved = structuredClone(result.value);
+    saved[1].routes[0].capabilities.files.upload = { kind: 'unsupported', layer: 'adapter', reason: 'Discovery only' };
+    let changed = () => {};
+    platform.printers.service = {
+      ...platform.printers.service,
+      listSaved: async () => ({ ok: true, value: saved }),
+      onSavedChanged: listener => { changed = listener; return () => {}; },
+    };
+    const view = await render(platform, 'send', 'p2'); roots.push(view.root);
+    expect(view.container.querySelector<HTMLButtonElement>('[data-testid="send-submit"]')!.disabled).toBe(true);
+    await click(view.container, 'send-printer-select');
+    expect(document.querySelector('[data-testid="send-printer-p1"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="send-printer-p2"]')).toBeNull();
+    await act(async () => { (document.querySelector('[data-testid="send-printer-p1"]') as HTMLElement).click(); });
+    expect(view.container.querySelector<HTMLButtonElement>('[data-testid="send-submit"]')!.disabled).toBe(false);
+    await act(async () => { saved = [saved[1]]; changed(); });
+    expect(view.container.querySelector<HTMLButtonElement>('[data-testid="send-submit"]')!.disabled).toBe(true);
+    expect(view.container.querySelector('[data-testid="send-disabled-reason"]')?.textContent).toContain('No printer supports');
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  it('keeps observing an in-flight upload when its catalogue route disappears', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport(); transport.pending = true;
+    const { platform } = makePlatform(transport);
+    const result = await platform.printers.service.listSaved();
+    if (!result.ok) throw new Error('Fixture failed');
+    let saved = result.value;
+    let changed = () => {};
+    platform.printers.service = { ...platform.printers.service,
+      listSaved: async () => ({ ok: true, value: saved }),
+      onSavedChanged: listener => { changed = listener; return () => {}; },
+    };
+    const view = await render(platform, 'send'); roots.push(view.root);
+    await click(view.container, 'send-submit');
+    expect(transport.requests).toHaveLength(1);
+    await act(async () => { saved = []; changed(); });
+    await act(async () => { transport.finish!(); });
+    expect(view.container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('G-code uploaded');
+    expect(view.container.querySelector('[data-testid="send-progress-status"]')).toBeNull();
+  });
+
   it('sends an explicitly captured non-current plate without changing selection', async () => {
     const receipt = useSlicerStore.getState().plateResults['plate-1'].receipt;
     const session = usePlateSessionStore.getState().snapshot!;

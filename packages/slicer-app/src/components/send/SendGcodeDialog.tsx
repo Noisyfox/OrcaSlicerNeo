@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  normalizePrinterConfigurationDocument,
-  type PrinterConfiguration,
-  type PrinterConfigurationDocument,
-} from '@orca/printer-control';
+import type { SavedPrinter } from '@orca/printer-control/domain';
+import { usePrinterCatalogue } from '../device/usePrinterCatalogue';
 import type { RemoteFile } from '@orca/printer-control/domain';
-import { SendFailure, uploadForSend, startUploadedPrint } from './printerSend';
+import { SendFailure, uploadForSend, startUploadedPrint, sendRoute } from './printerSend';
 import { gcodeFilenameBasename, updateUserPreferences, usePlatform, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -17,7 +14,7 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 
 export type SendGcodeAction = 'send' | 'send-and-print';
-type SendState = 'idle' | 'loading' | 'uploading' | 'starting' | 'success' | 'start-failed-after-upload' | 'error' | 'cancelled' | 'outcome-unknown';
+type SendState = 'idle' | 'uploading' | 'starting' | 'success' | 'start-failed-after-upload' | 'error' | 'cancelled' | 'outcome-unknown';
 
 function formatUploadBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -38,21 +35,19 @@ function safeErrorMessage(error: unknown): string {
 
 function unavailableReason(
   sliceReady: boolean,
-  printers: readonly PrinterConfiguration[],
-  selected: PrinterConfiguration | null,
+  printers: readonly SavedPrinter[],
+  selected: SavedPrinter | null,
 ): string | null {
   if (!sliceReady) return 'Complete a slice before sending G-code.';
-  if (printers.length === 0) return 'Configure a Moonraker printer in Device before sending.';
+  if (printers.length === 0) return 'No printer supports this operation. Configure a compatible printer in Device.';
   if (!selected) return 'Select a printer to send G-code.';
-  if (selected.driverId !== 'moonraker') return 'The selected printer driver is not supported.';
-  if (!selected.apiBaseUrl) return 'The selected printer is missing a required API base URL.';
   return null;
 }
 
 /** Keep the select value stable as the internal id while showing user-facing text. */
-function printerLabel(value: unknown, printers: readonly PrinterConfiguration[]): string {
+function printerLabel(value: unknown, printers: readonly SavedPrinter[]): string {
   if (typeof value !== 'string') return '';
-  return printers.find((printer) => printer.id === value)?.displayName ?? '';
+  return printers.find((printer) => printer.identity.id === value)?.identity.displayName ?? '';
 }
 
 export interface SendGcodeDialogProps {
@@ -83,7 +78,8 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const activeSliceTarget = useSlicerStore(s => s.activeSliceTarget);
   const sliceReady = activeSliceTarget === null && (targetReceipt ? cachedReceipt?.inputStamp === targetReceipt.inputStamp &&
     cachedReceipt?.resultGeneration === targetReceipt.resultGeneration && cachedReceipt?.sliceTaskId === targetReceipt.sliceTaskId : sliceStatus === 'done');
-  const [document, setDocument] = useState<PrinterConfigurationDocument>({ version: 1, printers: [] });
+  const catalogue = usePrinterCatalogue(platform.printers.service, open);
+  const printers = useMemo(() => catalogue.printers.filter(printer => sendRoute(printer, action === 'send-and-print')), [catalogue.printers, action]);
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
   const [state, setState] = useState<SendState>('idle');
   const [progress, setProgress] = useState<{ loaded: number; total?: number; fraction?: number }>({ loaded: 0 });
@@ -105,11 +101,11 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const preferenceSaveChainRef = useRef(Promise.resolve());
 
   const selectedPrinter = useMemo(
-    () => document.printers.find((printer) => printer.id === selectedPrinterId) ?? null,
-    [document.printers, selectedPrinterId],
+    () => printers.find((printer) => printer.identity.id === selectedPrinterId) ?? null,
+    [printers, selectedPrinterId],
   );
-  const reason = unavailableReason(sliceReady, document.printers, selectedPrinter);
-  const busy = state === 'loading' || state === 'uploading' || state === 'starting';
+  const reason = !catalogue.loaded ? 'Loading printers…' : catalogue.failed ? 'Printer configuration is unavailable. Check Device settings.' : unavailableReason(sliceReady, printers, selectedPrinter);
+  const busy = !catalogue.loaded || state === 'uploading' || state === 'starting';
   const controlsDisabled = busy || state === 'success';
   const awaitingConfirmation = state === 'uploading' && progress.fraction !== undefined && progress.fraction >= 1;
   const progressValue = state !== 'uploading' || progress.fraction === undefined
@@ -159,39 +155,19 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       setSwitchToDeviceAfterSend(false);
       return;
     }
-    let active = true;
-    setState('loading');
+    setState('idle');
     setMessage(null);
     setProgress({ loaded: 0 });
     setUploadSpeed(0);
     uploadMeasurementRef.current = null;
     uploadedRef.current = null;
     uploadFilenameRef.current = null;
-    void platform.printers.configuration.load().then((loaded) => {
-      if (!active) return;
-      try {
-        const normalized = normalizePrinterConfigurationDocument(loaded);
-        setDocument(normalized);
-        // Keep the previous target only when it is still present. Never pick
-        // the first record implicitly, since this selection is independent
-        // from DevicePanel and intentionally non-persistent.
-        setSelectedPrinterId((previous) => previous && normalized.printers.some((printer) => printer.id === previous) ? previous : null);
-        setState('idle');
-      } catch {
-        setDocument({ version: 1, printers: [] });
-        setSelectedPrinterId(null);
-        setState('error');
-        setMessage('Printer configuration is unavailable. Check Device settings.');
-      }
-    }).catch(() => {
-      if (!active) return;
-      setDocument({ version: 1, printers: [] });
-      setSelectedPrinterId(null);
-      setState('error');
-      setMessage('Printer configuration is unavailable. Check Device settings.');
-    });
-    return () => { active = false; };
-  }, [open, platform.printers.configuration]);
+  }, [open]);
+
+  useEffect(() => {
+    if (!catalogue.loaded || catalogue.failed || state === 'uploading' || state === 'starting') return;
+    setSelectedPrinterId(previous => previous && printers.some(printer => printer.identity.id === previous) ? previous : null);
+  }, [catalogue.loaded, catalogue.failed, printers, state]);
 
   useEffect(() => {
     if (!open) {
@@ -232,7 +208,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   }, []);
 
   function cancelUpload() {
-    if (state === 'uploading' || state === 'loading') {
+    if (state === 'uploading' || !catalogue.loaded) {
       operationRef.current += 1;
       abortRef.current?.abort();
       abortRef.current = null;
@@ -278,7 +254,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
 
   async function send() {
     if (busy || reason || !selectedPrinter) return;
-    const selectedId = selectedPrinter.id;
+    const selectedId = selectedPrinter.identity.id;
     const operation = ++operationRef.current;
     const controller = new AbortController();
     abortRef.current = controller;
@@ -323,7 +299,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
         if (operation !== operationRef.current) return;
         uploadMeasurementRef.current!.loaded = next.loaded;
         setProgress(next);
-      }, controller.signal);
+      }, controller.signal, action === 'send-and-print');
       uploadedRef.current = uploaded;
       if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
       if (action === 'send-and-print') {
@@ -385,15 +361,15 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
         </div>
         <div className="flex flex-col gap-2">
           <label htmlFor="send-printer" className="text-sm font-medium">Printer</label>
-          <Select value={selectedPrinterId ?? ''} onValueChange={(value) => { if (value) selectPrinter(value); }} disabled={controlsDisabled || document.printers.length === 0}>
+          <Select value={selectedPrinterId ?? ''} onValueChange={(value) => { if (value) selectPrinter(value); }} disabled={controlsDisabled || printers.length === 0}>
             <SelectTrigger id="send-printer" className="w-full" data-testid="send-printer-select" aria-label="Printer">
               <SelectValue placeholder="Select a printer">
-                {(value) => printerLabel(value, document.printers)}
+                {(value) => printerLabel(value, printers)}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {document.printers.map((printer) => (
-                <SelectItem key={printer.id} value={printer.id} data-testid={`send-printer-${printer.id}`}>{printer.displayName}</SelectItem>
+              {printers.map((printer) => (
+                <SelectItem key={printer.identity.id} value={printer.identity.id} data-testid={`send-printer-${printer.identity.id}`}>{printer.identity.displayName}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -425,7 +401,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
             <Label htmlFor="send-switch-to-device">Switch to Device page after sending</Label>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button type="button" variant="ghost" onClick={close} data-testid="send-close">{state === 'uploading' || state === 'loading' ? 'Cancel' : 'Close'}</Button>
+            <Button type="button" variant="ghost" onClick={close} data-testid="send-close">{state === 'uploading' || !catalogue.loaded ? 'Cancel' : 'Close'}</Button>
             {state === 'start-failed-after-upload' && <Button type="button" variant="secondary" onClick={() => void retryStart()} data-testid="send-retry-start">Retry Start Print</Button>}
             <Button type="button" onClick={() => void send()} disabled={busy || Boolean(reason) || state === 'success' || state === 'start-failed-after-upload' || state === 'outcome-unknown'} data-testid="send-submit">{action === 'send' ? 'Send' : 'Send & Print'}</Button>
           </div>

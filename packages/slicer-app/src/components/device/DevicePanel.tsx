@@ -8,6 +8,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { Pencil, Plus, Trash2, Monitor } from 'lucide-react';
+import type { SavedPrinter, PrinterRoute, TargetRequest } from '@orca/printer-control/domain';
+import { usePrinterCatalogue } from './usePrinterCatalogue';
 import type { PrinterConfiguration } from '@orca/printer-control';
 import { normalizePrinterConfiguration, normalizePrinterConfigurationDocument } from '@orca/printer-control';
 import { updateUserPreferences, usePlatform, type WebViewHost, type WebViewPanelState } from '@orca/platform-contract';
@@ -21,7 +23,7 @@ import { cn } from 'cn';
 type DialogState =
   | { kind: 'add' }
   | { kind: 'edit'; printerId: string }
-  | { kind: 'delete'; printerId: string }
+  | { kind: 'delete'; printerId: string; target: TargetRequest }
   | null;
 
 export type PrinterDraft = Omit<PrinterConfiguration, 'id'> & { id?: string };
@@ -67,7 +69,7 @@ export interface DevicePanelProps {
 export function mountPrinterConsolePanel(
   host: WebViewHost,
   container: HTMLElement,
-  printer: PrinterConfiguration,
+  printer: Pick<PrinterConfiguration, 'driverId' | 'apiKey'> | null,
   resolvedUrl: string,
   onStateChange: (state: WebViewPanelState) => void,
 ): () => void {
@@ -78,7 +80,7 @@ export function mountPrinterConsolePanel(
     },
   });
   onStateChange({ ...panel.state });
-  if (printer.driverId === 'moonraker' && printer.apiKey.length > 0) {
+  if (printer?.driverId === 'moonraker' && printer.apiKey.length > 0) {
     panel.registerBuiltInScript({ scriptId: 'moonraker-fetch-v1', context: { apiKey: printer.apiKey } });
   }
   panel.load(resolvedUrl);
@@ -111,10 +113,8 @@ export function removePrinter(printers: readonly PrinterConfiguration[], printer
 
 export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) {
   const platform = usePlatform();
-  const [printers, setPrinters] = useState<PrinterConfiguration[]>([]);
+  const { printers, loaded: configurationLoaded, failed: loadFailed, refresh } = usePrinterCatalogue(platform.printers.service);
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
-  const [configurationLoaded, setConfigurationLoaded] = useState(false);
-  const [loadFailed, setLoadFailed] = useState(false);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [draft, setDraft] = useState<PrinterDraft>(EMPTY_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
@@ -222,46 +222,24 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
     persistDeviceSidebarWidth(nextWidth);
   }
 
-  useEffect(() => {
-    let active = true;
-    void platform.printers.configuration.load().then((document) => {
-      if (!active) return;
-      try {
-        const normalized = normalizePrinterConfigurationDocument(document);
-        setPrinters(normalized.printers);
-        setLoadFailed(false);
-      } catch {
-        // An invalid repository document must not prevent the rest of the app
-        // from being usable. It is intentionally represented as an empty list.
-        setPrinters([]);
-        setLoadFailed(true);
-      }
-      setConfigurationLoaded(true);
-    }).catch(() => {
-      if (!active) return;
-      setPrinters([]);
-      setLoadFailed(true);
-      setConfigurationLoaded(true);
-    });
-    return () => { active = false; };
-  }, [platform.printers.configuration]);
-
   const selectedPrinter = useMemo(
-    () => printers.find((printer) => printer.id === selectedPrinterId) ?? null,
+    () => printers.find((printer) => printer.identity.id === selectedPrinterId) ?? null,
     [printers, selectedPrinterId],
   );
 
   // Selection is deliberately ephemeral. If an edit or another view removes
   // its record, do not silently select a different printer.
   useEffect(() => {
-    if (selectedPrinterId && !selectedPrinter) setSelectedPrinterId(null);
-  }, [selectedPrinter, selectedPrinterId]);
+    if (configurationLoaded && !loadFailed && selectedPrinterId && !selectedPrinter) setSelectedPrinterId(null);
+  }, [configurationLoaded, loadFailed, selectedPrinter, selectedPrinterId]);
+
+  const consoleRoute = selectedPrinter?.routes.find(route => route.capabilities.webInterface.kind === 'supported');
 
   // Mount without a URL first, register the fixed built-in script, then load
   // the configured URL. This ordering is required for Electron document_start.
   useEffect(() => {
     const container = webviewContainerRef.current;
-    if (!container || !selectedPrinter) {
+    if (!container || !selectedPrinter || !consoleRoute) {
       setPanelState({ status: 'idle', url: null, error: null });
       return;
     }
@@ -270,26 +248,25 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
     let disposePanel: (() => void) | undefined;
     setPanelState({ status: 'loading', url: null, error: null });
     void (async () => {
-      const saved = await platform.printers.service.listSaved();
-      if (!saved.ok) throw new Error('Saved printers unavailable');
-      const printer = saved.value.find(value => value.identity.id === selectedPrinter.id);
-      const route = printer?.routes.find(value => value.capabilities.webInterface.kind === 'supported');
-      if (!printer || !route) throw new Error('Web interface unavailable');
+      const printer = selectedPrinter;
+      const route = consoleRoute;
       const launch = await platform.printers.service.webInterfaces.resolve({ target: {
         printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision,
       } });
       if (!launch.ok) throw new Error('Web interface unavailable');
-      if (active) disposePanel = mountPrinterConsolePanel(platform.webview, container, selectedPrinter, launch.value.url, setPanelState);
+      // Credentials remain in the existing Moonraker form/console adapter seam.
+      const document = route.providerId === 'moonraker' ? await platform.printers.configuration.load() : null;
+      const configuration = document?.printers.find(value => value.id === printer.identity.id) ?? null;
+      if (active) disposePanel = mountPrinterConsolePanel(platform.webview, container, configuration, launch.value.url, setPanelState);
     })().catch(() => { if (active) setPanelState({ status: 'error', url: null, error: 'Console unavailable' }); });
     return () => { active = false; disposePanel?.(); };
   }, [
     platform.webview,
     platform.printers.service,
-    selectedPrinter?.id,
-    selectedPrinter?.consoleUrl,
-    selectedPrinter?.apiBaseUrl,
-    selectedPrinter?.apiKey,
-    selectedPrinter?.driverId,
+    platform.printers.configuration,
+    selectedPrinter?.identity.id,
+    consoleRoute?.id,
+    consoleRoute?.configurationRevision,
   ]);
 
   function beginAdd() {
@@ -298,14 +275,22 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
     setDialog({ kind: 'add' });
   }
 
-  function beginEdit(printer: PrinterConfiguration) {
-    setFormError(null);
-    setDraft({ ...printer });
-    setDialog({ kind: 'edit', printerId: printer.id });
+  async function beginEdit(printer: SavedPrinter) {
+    try {
+      const document = await platform.printers.configuration.load();
+      const configuration = document.printers.find(value => value.id === printer.identity.id);
+      if (!configuration) return;
+      setFormError(null);
+      setDraft({ ...configuration });
+      setDialog({ kind: 'edit', printerId: printer.identity.id });
+    } catch { setFormError('Unable to load this printer configuration.'); }
   }
 
-  function beginDelete(printerId: string) {
-    setDialog({ kind: 'delete', printerId });
+  function beginDelete(printer: SavedPrinter, route: PrinterRoute) {
+    setFormError(null);
+    setDialog({ kind: 'delete', printerId: printer.identity.id, target: {
+      printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision,
+    } });
   }
 
   function closeDialog() {
@@ -316,9 +301,10 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
   async function saveDraft() {
     const id = dialog?.kind === 'edit' ? dialog.printerId : newPrinterId();
     try {
-      const document = savePrinterDraft(printers, draft, dialog?.kind === 'edit' ? 'edit' : 'add', id);
+      const current = await platform.printers.configuration.load();
+      const document = savePrinterDraft(current.printers, draft, dialog?.kind === 'edit' ? 'edit' : 'add', id);
       await platform.printers.configuration.save(document);
-      setPrinters(document.printers);
+      await refresh();
       closeDialog();
     } catch {
       // Normalizer messages contain field names only; keep the visible copy
@@ -329,12 +315,10 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
 
   async function confirmDelete() {
     if (dialog?.kind !== 'delete') return;
-    const deletingId = dialog.printerId;
     try {
-      const document = removePrinter(printers, deletingId);
-      await platform.printers.configuration.save(document);
-      setPrinters(document.printers);
-      if (selectedPrinterId === deletingId) setSelectedPrinterId(null);
+      const result = await platform.printers.service.forget(dialog.target);
+      if (!result.ok) throw new Error('Forget failed');
+      await refresh();
       closeDialog();
     } catch {
       setFormError('Unable to delete this printer configuration. Try again.');
@@ -342,7 +326,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
   }
 
   const dialogPrinter = dialog && dialog.kind !== 'add'
-    ? printers.find((printer) => printer.id === dialog.printerId) ?? null
+    ? printers.find((printer) => printer.identity.id === dialog.printerId) ?? null
     : null;
 
   return (
@@ -368,6 +352,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
             </TooltipFor>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            {loadFailed && printers.length > 0 && <p role="alert" className="p-2 text-xs text-muted-foreground">Unable to refresh printers. Showing the last available list.</p>}
             {!configurationLoaded ? (
               <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground" data-testid="device-loading-list">
                 Loading printers…
@@ -380,32 +365,32 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
               <div className="flex flex-col gap-1" role="list" aria-label="Printers">
                 {printers.map((printer) => (
                   <div
-                    key={printer.id}
+                    key={printer.identity.id}
                     role="listitem"
                     className={cn(
                       'group flex items-center gap-1 rounded-md border px-2 py-1.5',
-                      selectedPrinterId === printer.id ? 'border-primary bg-accent/20' : 'border-transparent hover:bg-muted/60',
+                      selectedPrinterId === printer.identity.id ? 'border-primary bg-accent/20' : 'border-transparent hover:bg-muted/60',
                     )}
                   >
                     <button
                       type="button"
                       className="min-w-0 flex-1 truncate text-left text-sm"
-                      aria-pressed={selectedPrinterId === printer.id}
-                      onClick={() => setSelectedPrinterId(printer.id)}
-                      data-testid={`device-select-${printer.id}`}
+                      aria-pressed={selectedPrinterId === printer.identity.id}
+                      onClick={() => setSelectedPrinterId(printer.identity.id)}
+                      data-testid={`device-select-${printer.identity.id}`}
                     >
-                      {printer.displayName}
+                      {printer.identity.displayName}
                     </button>
-                    <TooltipFor content={`Edit ${printer.displayName}`}>
-                      <Button size="icon-xs" variant="ghost" onClick={() => beginEdit(printer)} aria-label={`Edit ${printer.displayName}`} data-testid={`device-edit-${printer.id}`}>
+                    {printer.routes.some(route => route.providerId === 'moonraker' && route.management.configure) && <TooltipFor content={`Edit ${printer.identity.displayName}`}>
+                      <Button size="icon-xs" variant="ghost" onClick={() => void beginEdit(printer)} aria-label={`Edit ${printer.identity.displayName}`} data-testid={`device-edit-${printer.identity.id}`}>
                         <Pencil />
                       </Button>
-                    </TooltipFor>
-                    <TooltipFor content={`Delete ${printer.displayName}`}>
-                      <Button size="icon-xs" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => beginDelete(printer.id)} aria-label={`Delete ${printer.displayName}`} data-testid={`device-delete-${printer.id}`}>
+                    </TooltipFor>}
+                    {printer.routes.filter(route => route.management.forget).map(route => <TooltipFor key={route.id} content={`Delete ${printer.identity.displayName}`}>
+                      <Button size="icon-xs" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => beginDelete(printer, route)} aria-label={`Delete ${printer.identity.displayName}`} data-testid={`device-delete-${printer.identity.id}`}>
                         <Trash2 />
                       </Button>
-                    </TooltipFor>
+                    </TooltipFor>)}
                   </div>
                 ))}
               </div>
@@ -438,6 +423,16 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
               </div>
             </div>
           )}
+          {selectedPrinter && !consoleRoute && (
+            <div className="absolute inset-0 flex items-center justify-center p-6" data-testid="device-details">
+              <div className="text-center text-sm">
+                <p className="font-medium">{selectedPrinter.identity.displayName}</p>
+                <p>{[selectedPrinter.identity.manufacturer, selectedPrinter.identity.model].filter(Boolean).join(' · ')}</p>
+                <p className="text-muted-foreground">{selectedPrinter.routes.map(route => route.label).join(' · ')}</p>
+                <p className="mt-2 text-muted-foreground">This printer does not provide a console.</p>
+              </div>
+            </div>
+          )}
           {selectedPrinter && panelMessage(panelState) && (
             <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-background/85 px-2 py-1 text-xs text-muted-foreground" data-testid="device-console-status" role={panelState.status === 'error' ? 'alert' : undefined}>
               {panelMessage(panelState)}
@@ -449,7 +444,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
           <div className="flex w-full max-w-sm flex-col gap-4 rounded-lg border bg-card p-5 shadow-lg">
             <div>
               <h2 id="device-delete-title" className="font-semibold">Delete printer?</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Remove “{dialogPrinter.displayName}” and its saved connection details?</p>
+              <p className="mt-1 text-sm text-muted-foreground">Remove the selected connection for “{dialogPrinter.identity.displayName}” and its saved access details? Other connections will remain.</p>
             </div>
             {formError && <p className="text-sm text-destructive" role="alert">{formError}</p>}
             <div className="flex justify-end gap-2">

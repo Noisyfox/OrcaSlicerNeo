@@ -397,6 +397,9 @@ function registerIpc(): void {
   ipcMain.handle(Ipc.printerConfigurationLoad, async (event) => printerConfigurationIpc.load(event.sender));
   ipcMain.handle(Ipc.printerConfigurationSave, async (event, document: unknown): Promise<void> => {
     await printerConfigurationIpc.save(event.sender, document);
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (isCurrentRenderer(window.webContents)) window.webContents.send(Ipc.printerConfigurationChanged);
+    }
   });
 
   const printerTransportIpc = createPrinterTransportIpcHandlers({

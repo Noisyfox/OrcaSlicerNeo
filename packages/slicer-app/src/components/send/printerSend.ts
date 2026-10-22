@@ -1,5 +1,5 @@
 /** Send orchestration over explicit domain resources; no retained printer connection. */
-import type { Id, PrinterService, PrinterError, RemoteFile } from '@orca/printer-control/domain';
+import type { Id, PrinterService, PrinterError, RemoteFile, SavedPrinter } from '@orca/printer-control/domain';
 
 export class SendFailure extends Error {
   constructor(readonly code: PrinterError['code'] | 'outcome-unknown') { super(code); }
@@ -7,14 +7,25 @@ export class SendFailure extends Error {
 const requestId = () => crypto.randomUUID() as Id<'request'>;
 export interface SendProgress { loaded: number; total?: number; fraction?: number }
 
+/** Select a route that can complete the whole requested action. */
+export function sendRoute(printer: SavedPrinter, startPrint = false) {
+  return printer.routes.find(route => {
+    const upload = route.capabilities.files.upload;
+    const start = route.capabilities.commands['jobs.start'];
+    return upload.kind === 'supported'
+      && upload.constraints.some(choice => choice.formats.includes('gcode') && choice.collisionPolicies.includes('overwrite'))
+      && (!startPrint || (start.kind === 'supported' && start.constraints.formats.includes('gcode')));
+  });
+}
+
 export async function uploadForSend(
   service: PrinterService, printerId: string, input: { bytes: Uint8Array; fileName: string },
-  onProgress: (progress: SendProgress) => void, signal: AbortSignal,
+  onProgress: (progress: SendProgress) => void, signal: AbortSignal, startPrint = false,
 ): Promise<RemoteFile> {
   const saved = await service.listSaved();
   if (!saved.ok) throw new SendFailure(saved.error.code);
   const printer = saved.value.find(value => value.identity.id === printerId);
-  const route = printer?.routes.find(value => value.capabilities.files.upload.kind === 'supported');
+  const route = printer && sendRoute(printer, startPrint);
   if (!printer || !route) throw new SendFailure('invalid-target');
   const capability = route.capabilities.files.upload;
   if (capability.kind !== 'supported') throw new SendFailure('unsupported');

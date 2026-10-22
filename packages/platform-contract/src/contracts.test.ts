@@ -122,6 +122,7 @@ describe('host contracts', () => {
       async save(value) { prefs = value; },
     };
     const printers: PrinterConfigurationRepository = {
+      onChanged: () => () => {},
       async load() { return normalizePrinterConfigurationDocument({ version: 1, printers: [] }); },
       async save(document) { expect(document.version).toBe(1); },
     };

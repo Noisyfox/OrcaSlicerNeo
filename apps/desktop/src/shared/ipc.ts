@@ -35,6 +35,7 @@ export const Ipc = {
   preferencesSave: 'preferences:save',
   printerConfigurationLoad: 'printerConfiguration:load',
   printerConfigurationSave: 'printerConfiguration:save',
+  printerConfigurationChanged: 'printerConfiguration:changed',
   printerTransportRequest: 'printerTransport:request',
   printerTransportCancel: 'printerTransport:cancel',
   printerTransportProgress: 'printerTransport:progress',
@@ -111,6 +112,7 @@ export interface ElectronBridge {
     configuration: {
       load(): Promise<PrinterConfigurationDocument>;
       save(document: PrinterConfigurationDocument): Promise<void>;
+      onChanged(listener: () => void): () => void;
     };
     transport: {
       request(requestId: string, request: PrinterTransportIpcRequest): Promise<PrinterTransportIpcResponse>;

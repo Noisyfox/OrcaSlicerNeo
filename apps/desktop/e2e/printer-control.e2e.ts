@@ -261,6 +261,14 @@ test('Device config and Electron console fixture inject the API key', async () =
     await page.getByTestId('device-confirm-delete').click();
     await expect(page.locator('[role="listitem"]')).toHaveCount(1);
     await expect(page.locator('[role="listitem"]')).toContainText('Fixture A edited');
+    // A host-published change reaches the mounted catalogue without a form refresh.
+    await page.evaluate(async () => {
+      const repository = (window as unknown as { orca: import('../src/shared/ipc').ElectronBridge }).orca.printers.configuration;
+      const document = await repository.load();
+      document.printers[0].displayName = 'Updated through host';
+      await repository.save(document);
+    });
+    await expect(page.locator('[role="listitem"]')).toContainText('Updated through host');
   } finally {
     await app.close();
     await fixture.close();

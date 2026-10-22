@@ -213,6 +213,8 @@ export interface UserPreferencesRepository {
 
 /** Persistent printer records. Transport and network concerns stay separate. */
 export interface PrinterConfigurationRepository {
+  /** Local document invalidation, including changes from another application window. */
+  onChanged(listener: () => void): () => void;
   load(): Promise<PrinterConfigurationDocument>;
   save(document: PrinterConfigurationDocument): Promise<void>;
 }

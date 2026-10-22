@@ -1,3 +1,4 @@
+import { createPrinterService } from '@orca/printer-control';
 import {
   DEFAULT_USER_PREFERENCES,
   MODEL_FILE_EXTENSIONS,
@@ -156,6 +157,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
   let inMemoryPreferences: UserPreferences = normalizeUserPreferences(DEFAULT_USER_PREFERENCES);
   let inMemoryPrinterConfiguration: PrinterConfigurationDocument = { version: 1, printers: [] };
   const printerConfiguration: PrinterConfigurationRepository = {
+    onChanged: listener => host.printers.configuration.onChanged(listener),
     async load() {
       try {
         inMemoryPrinterConfiguration = normalizePrinterConfigurationDocument(
@@ -257,11 +259,14 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     accounts: [],
     printers: {
       configuration: printerConfiguration,
-      service: createMoonrakerService({
-        configuration: printerConfiguration,
-        transport: createElectronPrinterTransport(host),
-        host: { id: 'desktop' as Id<'agent-host'>, name: 'Desktop', execution: 'desktop' },
-      }),
+      service: createPrinterService([{
+        id: 'moonraker' as Id<'provider'>, name: 'Moonraker',
+        printers: createMoonrakerService({
+          configuration: printerConfiguration,
+          transport: createElectronPrinterTransport(host),
+          host: { id: 'desktop' as Id<'agent-host'>, name: 'Desktop', execution: 'desktop' },
+        }),
+      }]),
     },
     webview: createElectronWebViewHost(),
     runtime,

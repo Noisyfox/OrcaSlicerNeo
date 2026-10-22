@@ -6,7 +6,7 @@ import { MoonrakerHttp, MoonrakerFailure, fail, publicError, record } from './mo
 import { OperationStore, copy, newId, requestSignature, streamError } from './operations';
 
 export interface MoonrakerServiceOptions {
-  configuration: { load(): Promise<PrinterConfigurationDocument>; save(document: PrinterConfigurationDocument): Promise<void> };
+  configuration: { onChanged?(listener: () => void): () => void; load(): Promise<PrinterConfigurationDocument>; save(document: PrinterConfigurationDocument): Promise<void> };
   transport: PrinterTransport;
   host: D.AgentHost;
 }
@@ -342,7 +342,11 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
     listProviders: async () => ({ ok: true, value: [{ id: providerId, name: 'Moonraker', hosts: [{ ...options.host, discovery: unsupported }] }] }),
     listTypes: async () => ({ ok: true, value: [{ id: typeId, providerId, name: 'Moonraker', description: 'Request-based Moonraker HTTP and native Web interface' }] }),
     listSaved: () => safe(async () => (await withConfiguration(loadConfiguration)).printers.map(saved)),
-    onSavedChanged: listener => { state.listeners.add(listener); return () => { state.listeners.delete(listener); }; },
+    onSavedChanged: listener => {
+      if (options.configuration.onChanged) return options.configuration.onChanged(listener);
+      state.listeners.add(listener);
+      return () => { state.listeners.delete(listener); };
+    },
     describe: target => safe(async () => { const { entry } = await resolve(target); return copy({ target, configurationRevision: entry.revision, capabilities: capabilities(), descriptor: entry.cache.descriptor?.kind === 'known' ? { ...entry.cache.descriptor, freshness: 'stale' } : unknown }); }),
     webInterfaces: {
       describe: target => safe(async () => { await resolve(target); return { ...target, capability: capabilities().webInterface, availability: { kind: 'unknown', reason: 'Not probed' }, assessedAtMs: Date.now(), freshness: 'fresh' } as D.WebInterfaceDescription; }),
