@@ -147,6 +147,26 @@ not a credential-storage migration. Route changes invalidate cached readings
 and change an opaque configuration revision. In-flight operations retain their
 submission configuration; later actions on old file references reject as stale.
 
+Each resolved request binds the configuration contents (including address and
+credentials), its revision and its generation's observation cache as one
+snapshot. Enumeration, descriptions, configuration-edit results, operations and
+file references must derive from that same binding, never combine a previously
+read document with a revision fetched later from shared state. Replacing or
+removing a configuration does not rewrite snapshots retained by in-flight work.
+Late device responses may complete their original reads, but cannot populate a
+new configuration generation's cache. An upload to an old address therefore
+returns an old-revision file reference; starting it against a changed route
+rejects as stale, even when the caller omitted an expected revision at upload.
+
+Facades sharing a host repository serialize their local configuration reads,
+version registration and read-modify-save operations. A delayed earlier read
+must not replace a newer registered generation. Successful edits return the
+snapshot they saved; failed reads or saves must not block later requests or
+publish an unsaved generation. Upload streaming, printer HTTP and operation
+observation run outside this local coordination. Direct host settings edits
+remain supported and are observed on subsequent repository reads; this does
+not introduce a cross-process repository transaction or a caller session.
+
 Upload advertises the default G-code destination with explicit overwrite.
 Send selects that advertised policy to retain the previous same-name behavior.
 The existing multipart host transports still buffer a complete file; the

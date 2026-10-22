@@ -95,6 +95,11 @@ async function uploaded(service: D.PrinterService) {
 function start(file: D.RemoteFile): D.CommandRequest {
   return { target, requestId: id(crypto.randomUUID()), command: { type: 'jobs.start', params: { source: { file: file.ref, consistency: 'best-effort' }, bindings: [] } } };
 }
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(complete => { resolve = complete; });
+  return { promise, resolve };
+}
 
 describe('Moonraker stateless service', () => {
   it('describes local capabilities and resolves the console without network I/O or credentials', async () => {
@@ -262,6 +267,130 @@ describe('Moonraker stateless service', () => {
     expect(transport.requests[0].url).toContain('printer.local:7125');
     expect(await service.controls.submit(start(op.phase.result))).toMatchObject({ kind: 'rejected', error: { code: 'stale-context' } });
     expect(transport.requests).toHaveLength(1);
+  });
+
+  it.each([false, true])('pins concurrent upload routing, credentials and file provenance, with revision check=%s', async checked => {
+    const { service, fresh, configuration, transport } = setup();
+    const original = unwrap(await service.listSaved())[0].routes[0];
+    const replacement = { ...printer, apiBaseUrl: 'http://replacement.local/', apiKey: 'replacement-key' };
+    vi.spyOn(configuration, 'load').mockResolvedValueOnce(documentWith(printer)).mockResolvedValue(documentWith(replacement));
+    transport.responses.push(uploadResponse('cube.gcode'));
+
+    // Both facades read different configurations before either caller uses its result.
+    const [submission, listing] = await Promise.all([
+      service.files.upload(uploadRequest({ target: checked ? { ...target, expectedConfigurationRevision: original.configurationRevision } : target }), source()),
+      fresh().listSaved(),
+    ]);
+    const current = unwrap(listing)[0].routes[0];
+    const operation = await finished(service, submission);
+    if (operation.kind !== 'upload' || operation.phase.kind !== 'completed') throw new Error('Upload failed');
+    expect(operation.configurationRevision).toBe(original.configurationRevision);
+    expect(operation.phase.result.ref.configurationRevision).toBe(original.configurationRevision);
+    expect(current.configuration.address).toBe(replacement.apiBaseUrl);
+    expect(current.configurationRevision).not.toBe(original.configurationRevision);
+    expect(transport.requests[0]).toMatchObject({ url: `${printer.apiBaseUrl}/server/files/upload`, headers: { 'X-Api-Key': printer.apiKey } });
+    expect(await fresh().controls.submit(start(operation.phase.result))).toMatchObject({ kind: 'rejected', error: { code: 'stale-context' } });
+    expect(transport.requests).toHaveLength(1);
+  });
+
+  it('keeps concurrent saved-printer projections paired with their own configuration revisions', async () => {
+    const { service, fresh, configuration, transport } = setup();
+    const original = unwrap(await service.listSaved())[0].routes[0];
+    const replacement = { ...printer, consoleUrl: 'http://replacement.local/console' };
+    vi.spyOn(configuration, 'load').mockResolvedValueOnce(documentWith(printer)).mockResolvedValue(documentWith(replacement));
+    const [first, second] = await Promise.all([service.listSaved(), fresh().listSaved()]);
+    expect(unwrap(first)[0].routes[0]).toEqual(original);
+    const current = unwrap(second)[0].routes[0];
+    expect(current.configuration.webInterfaceUrl).toBe(replacement.consoleUrl);
+    expect(current.configurationRevision).not.toBe(original.configurationRevision);
+    expect(unwrap(await service.webInterfaces.resolve({ target: { ...target, expectedConfigurationRevision: current.configurationRevision } })).url).toBe(replacement.consoleUrl);
+    expect(transport.requests).toEqual([]);
+  });
+
+  it('orders repository reads across facades so a delayed old read cannot overwrite a newer generation', async () => {
+    const { service, fresh, configuration } = setup();
+    const original = unwrap(await service.listSaved())[0].routes[0];
+    const entered = deferred<void>();
+    const oldRead = deferred<ReturnType<typeof documentWith>>();
+    const load = vi.spyOn(configuration, 'load')
+      .mockImplementationOnce(() => { entered.resolve(); return oldRead.promise; })
+      .mockResolvedValue(documentWith({ ...printer, apiBaseUrl: 'http://replacement.local/' }));
+    const first = service.listSaved();
+    await entered.promise;
+    const second = fresh().listSaved();
+    expect(load).toHaveBeenCalledTimes(1);
+    oldRead.resolve(documentWith(printer));
+    const [older, newer] = await Promise.all([first, second]);
+    expect(unwrap(older)[0].routes[0]).toEqual(original);
+    const current = unwrap(newer)[0].routes[0];
+    expect(current.configurationRevision).not.toBe(original.configurationRevision);
+    expect(unwrap(await service.listSaved())[0].routes[0]).toEqual(current);
+  });
+
+  it('queues reads and guarded edits behind a pending save, returning the saved generation', async () => {
+    const { service, fresh, configuration, transport } = setup();
+    const original = unwrap(await service.listSaved())[0].routes[0];
+    const entered = deferred<void>(), release = deferred<void>();
+    const persist = configuration.save;
+    vi.spyOn(configuration, 'save').mockImplementationOnce(async doc => { entered.resolve(); await release.promise; await persist(doc); });
+    const load = vi.spyOn(configuration, 'load');
+    const edit = service.updateRoute({ target, configuration: { ...original.configuration, address: 'http://replacement.local/' } });
+    await entered.promise;
+    const listing = fresh().listSaved();
+    const staleEdit = fresh().updateRoute({ target: { ...target, expectedConfigurationRevision: original.configurationRevision }, configuration: original.configuration });
+    expect(load).toHaveBeenCalledTimes(1);
+    release.resolve();
+    const [edited, listed, rejected] = await Promise.all([edit, listing, staleEdit]);
+    const current = unwrap(edited);
+    expect(current.configuration.address).toBe('http://replacement.local/');
+    expect(current.configurationRevision).not.toBe(original.configurationRevision);
+    expect(unwrap(listed)[0].routes[0]).toEqual(current);
+    expect(rejected).toMatchObject({ ok: false, error: { code: 'stale-context' } });
+    expect(transport.requests).toEqual([]);
+  });
+
+  it.each(['replace', 'forget-and-readd'] as const)('keeps late device observations out of the current cache after %s', async change => {
+    const { service, fresh, configuration, transport } = setup();
+    const original = unwrap(await service.listSaved())[0].routes[0];
+    const entered = deferred<void>(), oldResponse = deferred<PrinterTransportResponse>();
+    transport.handle = async () => { entered.resolve(); return oldResponse.promise; };
+    const pending = service.observations.read({ target, topics: ['descriptor', 'firmware'], source: 'device' });
+    await entered.promise;
+    if (change === 'forget-and-readd') await fresh().forget(target.printerId);
+    await configuration.save(documentWith({ ...printer, apiBaseUrl: 'http://replacement.local/', apiKey: 'replacement-key' }));
+    const current = unwrap(await fresh().listSaved())[0].routes[0];
+    transport.handle = async () => ({ status: 200, json: async () => ({ result: { moonraker_version: 'new-device' } }) });
+    await fresh().observations.read({ target, topics: ['descriptor', 'firmware'], source: 'device' });
+    oldResponse.resolve({ status: 200, json: async () => ({ result: { moonraker_version: 'old-device' } }) });
+    const older = unwrap(await pending);
+    expect(older.configurationRevision).toBe(original.configurationRevision);
+    expect(older.values.firmware).toMatchObject({ value: [{ version: 'old-device' }] });
+    const cached = unwrap(await fresh().observations.read({ target, topics: ['descriptor', 'firmware'], source: 'cache' }));
+    expect(cached.configurationRevision).toBe(current.configurationRevision);
+    expect(current.configurationRevision).not.toBe(original.configurationRevision);
+    expect(cached.values.firmware).toMatchObject({ value: [{ version: 'new-device' }] });
+    expect(cached.values.descriptor).toMatchObject({ value: { firmware: { value: [{ version: 'new-device' }] } } });
+    expect(transport.requests.map(request => [request.url, request.headers?.['X-Api-Key']])).toEqual([
+      [`${printer.apiBaseUrl}/server/info`, printer.apiKey], ['http://replacement.local/server/info', 'replacement-key'],
+    ]);
+  });
+
+  it('recovers the shared configuration queue after load and save failures without publishing an unsaved revision', async () => {
+    const { service, fresh, configuration } = setup();
+    const original = unwrap(await service.listSaved())[0].routes[0];
+    vi.spyOn(configuration, 'load').mockRejectedValueOnce(new Error('load failed'));
+    const [failed, recovered] = await Promise.all([service.listSaved(), fresh().listSaved()]);
+    expect(failed.ok).toBe(false);
+    expect(unwrap(recovered)[0].routes[0]).toEqual(original);
+    vi.spyOn(configuration, 'save').mockRejectedValueOnce(new Error('save failed'));
+    const [edit, renamed] = await Promise.all([
+      service.updateRoute({ target, configuration: { ...original.configuration, address: 'http://unsaved.local/' } }),
+      fresh().rename(target.printerId, 'Renamed'),
+    ]);
+    expect(edit.ok).toBe(false);
+    expect(unwrap(renamed).identity.displayName).toBe('Renamed');
+    expect(unwrap(renamed).routes[0]).toEqual(original);
+    expect(unwrap(await service.listSaved())[0]).toEqual(unwrap(renamed));
   });
 
   it('reads metadata/status only on demand and exposes verified native job identity for controls', async () => {
