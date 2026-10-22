@@ -260,9 +260,25 @@ addon wrapping `open-bamboo-networking` in an Electron utility process. Native
 network execution stays outside the renderer and slicing runtime. Shared UI
 uses injected public capability contracts; plugin loading, browser callbacks,
 plugin configuration-directory ownership and IPC belong to the Electron
-implementation. A dedicated
-printer utility process is the proposed isolation boundary; its ownership,
-restart behavior and multi-window lifetime still require clarification.
+implementation. Bambu uses one application-owned provider utility process shared
+by all windows and provider capabilities. Closing a device page or an individual
+window does not destroy the provider instance or log out its account. Normal
+application shutdown closes the process and releases its resources while
+preserving remembered login. This is separate from the window-owned slicing
+utility process.
+
+Ship a fixed compatible version of `open-bamboo-networking` with the Electron
+application, validated and released together with the native adapter. No
+first-use plugin download or user-managed plugin installation is part of the
+first delivery. Plugin updates are delivered through Neo application updates.
+The exact shipped version and OS/architecture qualification remain open.
+
+For the first delivery, assume the independent provider process remains stable.
+Provider-process crash handling is explicitly out of scope: do not add automatic
+restart, restart backoff, a manual crash-recovery flow or a crash-recovery state
+machine. This is a delivery assumption, not evidence that crashes are impossible.
+Normal startup, shutdown and Orca-compatible plugin/API error handling remain
+in scope; the exclusion does not remove ordinary resource cleanup.
 
 Only Electron execution is selected for this phase. The contracts remain shared
 so a later host or network service can implement them without redefining the
@@ -279,7 +295,7 @@ until selected:
 | --- | --- |
 | Authentication and credentials | Cancellation/late callback UX consistent with Orca calls; recovery when plugin state is unavailable. |
 | Discovery and adoption | Identity association and treatment of stale candidates during account changes, within the selected cloud auto-enumeration and LAN access-code flow. |
-| Native host and delivery | Process ownership/recovery; plugin version/build/distribution policy; configuration migration; supported OS/architectures and real-account/device acceptance. |
+| Native host and delivery | Exact bundled plugin version/build; configuration migration; supported OS/architectures and real-account/device acceptance. Process crash recovery is excluded from the first delivery. |
 
 The proposed authentication workflow is a separately addressed, cancellable
 login request, with account summaries available locally and authentication

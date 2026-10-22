@@ -374,8 +374,19 @@ C++ adapter/toolchain. Normalize externally returned data, including any device
 access credentials, at the host boundary. Compatibility validation must compare
 Orca and Neo's applicable API call/return/callback sequences, not assertions
 about the plugin's internal implementation. The plugin revision reviewed for
-initial feasibility was `331a4f2585f6ebf4393e5f329e3169e38c6a6713`; the shipped
-version and distribution policy remain to be selected.
+initial feasibility was `331a4f2585f6ebf4393e5f329e3169e38c6a6713`; the exact
+shipped version remains to be selected. Bundle a fixed compatible plugin with
+Electron, validate it together with the native adapter and update it through
+Neo application releases. Do not require a first-use download or manual plugin
+installation in this phase.
+
+The [shared architecture](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts)
+owns the application-wide Bambu provider utility process, shared across windows
+and independent of the slicing runtime. The first delivery assumes this process
+is stable and excludes provider-process crash handling, automatic restart and
+manual crash recovery. Normal startup/shutdown cleanup and Orca-compatible
+plugin/API errors remain in scope. Do not make crash-recovery scenarios a
+first-delivery acceptance requirement.
 
 Real-account login, regional endpoints, verification challenges, credential
 refresh and real-device discovery have not been validated in Neo. Successful
