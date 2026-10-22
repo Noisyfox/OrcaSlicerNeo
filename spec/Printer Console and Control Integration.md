@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Date:** 2026-08-30
+**Updated:** 2026-10-21
 
 **Status:** Final user experience
 
@@ -15,6 +15,31 @@ printer:
 1. View and manage the printer's Web console inside the application.
 2. Send G-code to the printer and optionally start a print through its HTTP
    API.
+
+The shared device model is owned by
+[Printer Domain and Control Architecture](Printer%20Domain%20and%20Control%20Architecture.md).
+That design covers discovery, capabilities, material systems, sensors, cameras
+and remote files. The existing Moonraker subset now implements that service;
+other agents and the gateway remain deferred. This document
+continues to own the existing console and sending experience, including printer
+selection and upload/start retry behavior. Its saved API-key representation
+remains current; the proposed credential-reference approach requires a separate
+migration decision before this persistence contract changes.
+
+The domain specification also owns the accepted
+[native Web entry and device-page eligibility rules](Printer%20Domain%20and%20Control%20Architecture.md#41-native-web-interface).
+Their interfaces do not yet change this console UI. Control connectivity is
+independent of native-page access, and the existing Moonraker Console URL
+fallback and host authentication behavior are provider-specific conventions.
+The domain contract preserves request-driven Moonraker operation: loading saved
+configuration does not probe the printer, selecting it opens the configured Web
+page without an agent connection, and upload executes on demand. Additional
+material-sync support is type-specific and explicitly user-triggered. All domain
+APIs are stateless. Both hosts inject the Moonraker domain service; Device
+resolves its Web entry locally and Send submits explicit upload/start requests
+and observes operation references. The old driver/Send service is retired.
+Uploads explicitly select the advertised overwrite policy, preserving existing
+same-name behavior. Configuration persistence and host transports are unchanged.
 
 The embedded console is a convenience and management surface. Sending and
 printing use the printer API directly, so either surface can continue to be
@@ -135,8 +160,11 @@ upload confirmation. Web uses browser-native XMLHttpRequest upload progress
 events for byte counts; it does not split the file into separate upload requests.
 
 If Send & Print uploads successfully but starting the print
-fails, the dialog explains that the file is already on the printer and offers
-a start-only retry. Retrying does not upload the file again.
+fails definitively, the dialog explains that the file is already on the printer and offers
+a start-only retry. Retrying does not upload the file again. An interrupted
+start response is an unknown outcome: the dialog asks the user to check the
+printer and offers no blind start retry. A successful HTTP acknowledgement is
+not an independently observed physical print-start confirmation.
 
 On success, the dialog counts down from five seconds before closing. The
 **Close and switch to Device after sending** option is persisted and enabled
@@ -210,6 +238,10 @@ boundaries. The upload tests include a real 32 MiB HTTP request paused at the
 receiver, byte-for-byte multipart fidelity, write failures, cancellation and
 late callbacks. Component tests cover cumulative average speed, delayed progress events,
 reset on retry, unknown totals, confirmation waiting and print-start staging.
+Upload fixtures at the service, component and host E2E boundaries use Moonraker's
+HTTP 201 top-level upload receipt. Coverage includes upload-only, same-name
+overwrite and starting the exact root-relative path returned by the server;
+malformed or interrupted receipts must not report success or trigger a print.
 
 The Electron mock validation uses `VITE_USE_MOCK=1` with
 `pnpm --filter @orca/desktop exec electron-vite build --mode e2e`, followed by

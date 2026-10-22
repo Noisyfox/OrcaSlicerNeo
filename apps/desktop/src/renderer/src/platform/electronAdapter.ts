@@ -14,7 +14,9 @@ import {
   type ProjectDropFile,
   type UserPreferences,
 } from '@orca/platform-contract';
+import type { Id } from '@orca/printer-control/domain';
 import {
+  createMoonrakerService,
   normalizePrinterConfigurationDocument,
   type PrinterConfigurationDocument,
 } from '@orca/printer-control';
@@ -252,7 +254,14 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
         inMemoryPreferences = normalized;
       },
     },
-    printers: { configuration: printerConfiguration, transport: createElectronPrinterTransport(host) },
+    printers: {
+      configuration: printerConfiguration,
+      service: createMoonrakerService({
+        configuration: printerConfiguration,
+        transport: createElectronPrinterTransport(host),
+        host: { id: 'desktop' as Id<'agent-host'>, name: 'Desktop', execution: 'desktop' },
+      }),
+    },
     webview: createElectronWebViewHost(),
     runtime,
     memory: { sample: () => host.memory.sample() },

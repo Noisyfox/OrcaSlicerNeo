@@ -58,10 +58,11 @@ test('real Web Send preserves browser multipart encoding and starts the server-r
     response.setHeader('Content-Type', 'application/json');
     if (request.url === '/server/files/upload') {
       uploadBody = body;
-      response.end(JSON.stringify({ result: { item: { path: 'nested/server-selected.GCODE' } } }));
+      response.writeHead(201);
+      response.end(JSON.stringify({ item: { root: 'gcodes', path: 'nested/server-selected.GCODE' }, action: 'create_file', print_started: false, print_queued: false }));
     } else if (request.url === '/printer/print/start') {
       startPath = JSON.parse(body).filename;
-      response.end('{}');
+      response.end(JSON.stringify({ result: 'ok' }));
     } else { response.writeHead(404); response.end('{}'); }
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));

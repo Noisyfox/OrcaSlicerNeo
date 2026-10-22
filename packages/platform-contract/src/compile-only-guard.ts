@@ -3,6 +3,7 @@ import type {
   SlicerRuntime, UserPreferencesRepository, PrinterConfigurationRepository,
   WebViewHost, ProjectFileCapability, PlatformMemory,
 } from './contracts';
+import type { PrinterService } from '@orca/printer-control/domain';
 import type { MenuCommandId, PlatformMenu } from './menu';
 
 // This file is intentionally value-free. It is compiled in isolation by the
@@ -23,7 +24,7 @@ export const fakeCapabilities: PlatformCapabilities = {
   preferences: { async load() { throw new Error(); }, async save() {} } satisfies UserPreferencesRepository,
   printers: {
     configuration: { async load() { return { version: 1 as const, printers: [] }; }, async save() {} } satisfies PrinterConfigurationRepository,
-    transport: { async request() { return { status: 200, async json() { return {}; } }; } },
+    service: {} as PrinterService,
   },
   webview: {
     capabilities: { canInjectBuiltInScripts: false, canExposeHostApi: false, canExecuteJavaScript: false },

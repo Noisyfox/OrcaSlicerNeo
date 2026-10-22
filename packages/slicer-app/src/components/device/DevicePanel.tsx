@@ -58,11 +58,6 @@ export function panelMessage(state: WebViewPanelState): string | null {
   return null;
 }
 
-/** Resolve the embedded console target without changing the stored record. */
-export function effectiveConsoleUrl(printer: PrinterConfiguration): string {
-  return printer.consoleUrl || printer.apiBaseUrl;
-}
-
 export interface DevicePanelProps {
   /** Optional test seam; production state always starts from the repository. */
   initialSelection?: string | null;
@@ -73,6 +68,7 @@ export function mountPrinterConsolePanel(
   host: WebViewHost,
   container: HTMLElement,
   printer: PrinterConfiguration,
+  resolvedUrl: string,
   onStateChange: (state: WebViewPanelState) => void,
 ): () => void {
   let disposed = false;
@@ -85,7 +81,7 @@ export function mountPrinterConsolePanel(
   if (printer.driverId === 'moonraker' && printer.apiKey.length > 0) {
     panel.registerBuiltInScript({ scriptId: 'moonraker-fetch-v1', context: { apiKey: printer.apiKey } });
   }
-  panel.load(effectiveConsoleUrl(printer));
+  panel.load(resolvedUrl);
   return () => {
     if (disposed) return;
     disposed = true;
@@ -270,13 +266,25 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
       return;
     }
 
-    const disposePanel = mountPrinterConsolePanel(platform.webview, container, selectedPrinter, setPanelState);
-
-    return () => {
-      disposePanel();
-    };
+    let active = true;
+    let disposePanel: (() => void) | undefined;
+    setPanelState({ status: 'loading', url: null, error: null });
+    void (async () => {
+      const saved = await platform.printers.service.listSaved();
+      if (!saved.ok) throw new Error('Saved printers unavailable');
+      const printer = saved.value.find(value => value.identity.id === selectedPrinter.id);
+      const route = printer?.routes.find(value => value.capabilities.webInterface.kind === 'supported');
+      if (!printer || !route) throw new Error('Web interface unavailable');
+      const launch = await platform.printers.service.webInterfaces.resolve({ target: {
+        printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision,
+      } });
+      if (!launch.ok) throw new Error('Web interface unavailable');
+      if (active) disposePanel = mountPrinterConsolePanel(platform.webview, container, selectedPrinter, launch.value.url, setPanelState);
+    })().catch(() => { if (active) setPanelState({ status: 'error', url: null, error: 'Console unavailable' }); });
+    return () => { active = false; disposePanel?.(); };
   }, [
     platform.webview,
+    platform.printers.service,
     selectedPrinter?.id,
     selectedPrinter?.consoleUrl,
     selectedPrinter?.apiBaseUrl,

@@ -1,6 +1,7 @@
 import { completeSetupWizard } from '../../../../../../packages/slicer-app/src/components/wizard/setupWizardCompletion';
 import { describe, expect, it, vi } from 'vitest';
 import { createElectronAdapter } from './electronAdapter';
+import { createElectronPrinterTransport } from './electronPrinterTransport';
 import type { PrinterConfigurationDocument } from '@orca/printer-control';
 
 function setup(overrides: Record<string, unknown> = {}) {
@@ -33,7 +34,7 @@ function setup(overrides: Record<string, unknown> = {}) {
     };
     const host = { preferences: { load, save }, projects, recentProjects, printers: { configuration: { load: configurationLoad, save: configurationSave }, transport }, menu, externalLinks, platform: 'win32', ...overrides };
     vi.stubGlobal('window', { orca: host });
-    return { adapter: createElectronAdapter({} as never), load, save, menu, externalLinks, configurationLoad, configurationSave, transport };
+    return { host, adapter: createElectronAdapter({} as never), load, save, menu, externalLinks, configurationLoad, configurationSave, transport };
 }
 
 describe('Electron adapter', () => {
@@ -325,11 +326,12 @@ describe('Electron adapter', () => {
   });
 
   it('adapts transport requests, progress callbacks, and AbortSignal to typed host IPC', async () => {
-    const { adapter, transport } = setup();
+    const { host, transport } = setup();
+    const printerTransport = createElectronPrinterTransport(host as never);
     let notify: ((id: string, progress: { loaded: number; total?: number }) => void) | undefined;
     transport.onProgress.mockImplementation((listener) => { notify = listener; return () => {}; });
     const progress = vi.fn();
-    const response = await adapter.printers.transport.request({
+    const response = await printerTransport.request({
       method: 'GET', url: 'http://printer.local/status', headers: { 'X-Api-Key': 'key' }, onUploadProgress: progress,
     });
     expect(transport.request).toHaveBeenCalledWith('printer-request-1', expect.objectContaining({ method: 'GET', headers: { 'X-Api-Key': 'key' } }));
@@ -338,7 +340,7 @@ describe('Electron adapter', () => {
     expect(response.status).toBe(200);
 
     const controller = new AbortController();
-    const pending = adapter.printers.transport.request({ method: 'GET', url: 'http://printer.local/status', signal: controller.signal });
+    const pending = printerTransport.request({ method: 'GET', url: 'http://printer.local/status', signal: controller.signal });
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     expect(transport.cancel).toHaveBeenCalledWith('printer-request-2');
