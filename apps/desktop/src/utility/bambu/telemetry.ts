@@ -122,7 +122,7 @@ export class BambuTelemetry {
     }
     const lights: D.Light[] = [], lightState: D.PrinterState['lights'][number][] = [];
     for (const light of records(p.lights_report)) {
-      if (typeof light.node !== 'string' || !['chamber_light', 'work_light'].includes(light.node)) continue;
+      if (typeof light.node !== 'string' || !['chamber_light', 'chamber_light2', 'work_light'].includes(light.node)) continue;
       lights.push({ id: id(light.node), name: light.node === 'chamber_light' ? 'Chamber light' : 'Work light' });
       lightState.push({ lightId: id(light.node), on: read(light.mode === 'on' ? true : light.mode === 'off' ? false : undefined) });
     }

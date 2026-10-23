@@ -85,22 +85,20 @@ export interface PrinterCommandSpecs {
   'motion.jog': CommandSpec<{
     motionGroupId: Id<'motion'>;
     axis: Axis;
-    distanceMm: number;
-    speedMmPerSecond: number;
-  }, NonEmptyReadonlyArray<{
+  } & ({ kind: 'distance'; distanceMm: number; speedMmPerSecond: number }
+    | { kind: 'step'; stepId: string; direction: 'positive' | 'negative' }), NonEmptyReadonlyArray<{
     motionGroupId: Id<'motion'>;
     axis: Axis;
-    distanceMm: Range;
-    speedMmPerSecond: Range;
-  }>>;
+  } & ({ kind: 'distance'; distanceMm: Range; speedMmPerSecond: Range }
+    | { kind: 'step'; steps: NonEmptyReadonlyArray<{ id: string; label: string }> })>>;
   'extrusion.move': CommandSpec<{
     extruderId: Id<'extruder'>;
     distanceMm: number;
-    speedMmPerSecond: number;
+    speed: { kind: 'specified'; mmPerSecond: number } | { kind: 'device-controlled' };
   }, NonEmptyReadonlyArray<{
     extruderId: Id<'extruder'>;
     distanceMm: Range;
-    speedMmPerSecond: Range;
+    speed: { kind: 'specified'; mmPerSecond: Range } | { kind: 'device-controlled' };
   }>>;
   'tools.select': CommandSpec<{
     toolId: Id<'tool'>;

@@ -960,3 +960,8 @@ const emptySpeedModes: CommandCapabilities['jobs.setSpeed'] = { kind: 'supported
 command({ type: 'hardware.refreshNozzles', params: {} });
 service.controls.submit({ target, requestId: id<'request'>('cancel-current'),
   command: { type: 'jobs.cancel', params: {} }, guard: { expectedTaskId: id<'device-task'>('observed-task') } });
+
+// Firmware steps do not claim a physical distance or a caller-controlled speed.
+const stepJog: CommandOf<'motion.jog'> = { type: 'motion.jog', params: { motionGroupId: 'gantry' as Id<'motion'>, axis: 'x', kind: 'step', stepId: 'small', direction: 'positive' } };
+const firmwareExtrusion: CommandOf<'extrusion.move'> = { type: 'extrusion.move', params: { extruderId: 'extruder' as Id<'extruder'>, distanceMm: 10, speed: { kind: 'device-controlled' } } };
+void stepJog; void firmwareExtrusion;

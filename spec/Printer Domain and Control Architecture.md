@@ -1021,7 +1021,10 @@ The following gaps need coordinated contract/specification/consumer updates:
   wherever existing types cannot faithfully express device-supported targets.
   Keep protocol-specific temperature derivation inside the provider; no dedicated
   per-operation temperature override is exposed.
-- Any discrete motion constraints not expressible faithfully by current ranges.
+- Jogging distinguishes a distance/speed request from a named firmware step and
+  direction. Extrusion speed is either explicitly specified or device-controlled;
+  providers must reject the wrong request kind rather than silently discard a
+  distance or speed. Capability constraints supply the available request kind.
 
 Do not add calibration-start, print-detection configuration, camera recording,
 timelapse/resolution settings, object-skipping, material-metadata editing, manual

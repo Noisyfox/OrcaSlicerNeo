@@ -1,3 +1,4 @@
+import { bambuControls, bambuOperations } from './bambuControls';
 import { bambuObservations } from './bambuObservations';
 import { bambuCapabilities, savedBambuPrinter } from '../../../shared/bambuPrinters';
 import type { AccountProvider } from '@orca/service-provider';
@@ -8,7 +9,7 @@ import type { BambuLanCandidate } from '../../../shared/bambuDevices';
 const providerId = 'bambu' as D.Id<'provider'>;
 const hostId = 'desktop' as D.Id<'agent-host'>;
 const typeId = 'bambu-network' as D.Id<'printer-type'>;
-const unsupported = { kind: 'unsupported', layer: 'adapter', reason: 'This Bambu integration provides account and device discovery only.' } as const;
+const unsupported = { kind: 'unsupported', layer: 'adapter', reason: 'This operation is not included in Bambu control.' } as const;
 const reject = async (): Promise<D.Result<never>> => ({ ok: false, error: { code: 'unsupported', message: unsupported.reason } });
 const stream = async function* (): AsyncIterable<never> { throw new Error(unsupported.reason); };
 const submission = async (): Promise<D.Submission> => ({ kind: 'rejected', error: { code: 'unsupported', message: unsupported.reason } });
@@ -87,8 +88,8 @@ export function createBambuProvider(bridge: BambuBridge): AccountProvider & D.Pr
       try { return await bridge.printerCommand({ action: 'forget', deviceId: printer!.identity.serialNumber!, expectedRevision: target.expectedConfigurationRevision }); }
       catch { return { ok: false, error: { code: 'transport', message: 'The LAN connection could not be forgotten.' } }; }
     },
-    observations: bambuObservations(bridge), controls: { evaluate: reject, submit: submission },
-    operations: { get: reject, find: reject, watch: stream, requestUploadCancellation: reject },
+    observations: bambuObservations(bridge), controls: bambuControls(bridge),
+    operations: bambuOperations(bridge),
     files: { listStorages: reject, list: reject, stat: reject, listPreviews: reject, download: reject, upload: submission, watchChanges: stream },
     media: { readCurrentPrintPreview: reject, open: reject, watch: stream, renew: reject, sendSignal: reject, readContent: reject, close: reject, captureSnapshot: reject },
     webInterfaces: { describe: reject, resolve: reject },

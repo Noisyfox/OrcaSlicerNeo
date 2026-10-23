@@ -1,3 +1,5 @@
+import { BambuRecovery } from './recovery';
+import { commandCapabilities, type CommandContext } from './commands';
 import { randomUUID } from 'node:crypto';
 import type { BambuNative, NativeEvent } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
@@ -10,6 +12,7 @@ type Entry = { deviceId: string; printer: D.SavedPrinter; route: D.PrinterRoute;
 const error = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });
 /** One ordinary native selection per Electron instance. Tokens only bind IPC stream cleanup. */
 export class BambuMonitor {
+  private readonly recovery = new BambuRecovery();
   private readonly cache = new Map<string, Entry>();
   private active: Entry | null = null;
   private readonly tokens = new Set<string>();
@@ -43,8 +46,56 @@ export class BambuMonitor {
   async describe(target: D.PrinterTarget): Promise<D.Result<D.PrinterDescription>> {
     const entry = await this.resolve(target);
     if (!entry) return error('invalid-target', 'This Bambu route is no longer available.');
-    return { ok: true, value: { target, configurationRevision: entry.route.configurationRevision, capabilities: entry.route.capabilities,
+    return { ok: true, value: { target, configurationRevision: entry.route.configurationRevision, capabilities: commandCapabilities(this.contextOf(entry)),
       descriptor: entry.telemetry.snapshot(target, entry.printer.identity, entry.route.configurationRevision, ['descriptor']).values.descriptor } };
+  }
+  private contextOf(entry: Entry): CommandContext {
+    return this.recovery.decorate({ ...entry.telemetry.project(entry.target, entry.printer.identity), target: entry.target,
+      configurationRevision: entry.route.configurationRevision, model: entry.printer.identity.model });
+  }
+  private snapshot<K extends D.StateTopic>(entry: Entry, topics: readonly [K, ...K[]]): D.PrinterSnapshot<K> {
+    const snapshot = entry.telemetry.snapshot(entry.target, entry.printer.identity, entry.route.configurationRevision, topics);
+    const context = this.contextOf(entry);
+    const values = Object.fromEntries(topics.map(topic => {
+      const reading = snapshot.values[topic];
+      return [topic, reading?.kind === 'known' ? { ...reading, value: context.values[topic] } : reading];
+    })) as D.ObservationValues<K>;
+    return { ...snapshot, values };
+  }
+  async context(target: D.PrinterTarget): Promise<D.Result<CommandContext>> {
+    const entry = await this.resolve(target);
+    return entry ? { ok: true, value: this.contextOf(entry) } : error('invalid-target', 'This printer route is no longer available.');
+  }
+  /** Internal command lease; callers never need to observe first. Existing stale streams do not queue actions. */
+  async acquire(target: D.PrinterTarget): Promise<D.Result<string>> {
+    const token = randomUUID();
+    const opened = await this.queue(async () => {
+      const entry = await this.resolve(target);
+      if (!entry || !this.preferred(entry)) return error('invalid-target', 'This printer route is no longer selected by routing policy.');
+      if (this.active && this.active !== entry) return error('busy', 'Another printer is being monitored.');
+      if (this.active && !this.contextOf(entry).fresh) return error('offline', 'Wait for fresh printer status before sending a command.');
+      const needsRead = !this.active;
+      if (needsRead) await this.connect(entry);
+      this.tokens.add(token); return { ok: true as const, value: needsRead };
+    }).catch(() => error('transport', 'The printer could not be reached.'));
+    if (!opened.ok) return opened;
+    if (opened.value) {
+      const fresh = await this.read({ target, topics: ['status'], source: 'device' });
+      if (!fresh.ok) { await this.stop(token); return fresh; }
+    }
+    return { ok: true, value: token };
+  }
+  /** Re-resolve all conditions in the same queue turn that dispatches the native command. */
+  dispatch<T>(target: D.PrinterTarget, work: (context: CommandContext, send: (section: string, fields: Record<string, unknown>, qos: number) => Promise<number>) => Promise<D.Result<T>>): Promise<D.Result<T>> {
+    return this.queue(async () => {
+      const entry = await this.resolve(target);
+      if (!entry || this.active !== entry || !this.preferred(entry)) return error('stale-context', 'The selected printer or route changed.');
+      if (!this.contextOf(entry).fresh) return error('offline', 'The printer status is stale.');
+      return work(this.contextOf(entry), (section, fields, qos) => {
+        const send = entry.route.configuration.channel === 'cloud' ? this.native.sendMessage.bind(this.native) : this.native.sendMessageToPrinter.bind(this.native);
+        return send(entry.deviceId, JSON.stringify({ [section]: fields }), qos, 0);
+      });
+    });
   }
   private async disconnect() {
     const previous = this.active; this.active = null; this.lastFresh = false;
@@ -106,7 +157,7 @@ export class BambuMonitor {
         const wake = () => {
           if (this.active !== entry) finish(false);
           else if (entry.telemetry.generation > generation && entry.telemetry.project(entry.target, entry.printer.identity).fresh) {
-            snapshot = entry.telemetry.snapshot(entry.target, entry.printer.identity, entry.route.configurationRevision, request.topics); finish(true);
+            snapshot = this.snapshot(entry, request.topics); finish(true);
           }
         };
         const finish = (value: boolean) => { clearTimeout(timer); this.received.delete(wake); resolve(value); };
@@ -116,7 +167,7 @@ export class BambuMonitor {
       await this.stop(token);
       if (!succeeded) return error('offline', 'The printer did not return current status.');
     }
-    return { ok: true, value: snapshot ?? entry.telemetry.snapshot(entry.target, entry.printer.identity, entry.route.configurationRevision, request.topics) };
+    return { ok: true, value: snapshot ?? this.snapshot(entry, request.topics) };
   }
   private async bootstrap(entry: Entry) {
     if (this.active !== entry) return;
@@ -131,7 +182,7 @@ export class BambuMonitor {
     const cloud = entry.route.configuration.channel === 'cloud';
     if ((event.type === 'message' && cloud || event.type === 'local-message' && !cloud) && event.args[0] === entry.deviceId) {
       const result = entry.telemetry.accept(event.args[1]);
-      if (result === 'updated') { this.lastFresh = entry.telemetry.project(entry.target, entry.printer.identity).fresh; this.changed(); this.received.forEach(wake => wake()); }
+      if (result === 'updated') { this.contextOf(entry); this.lastFresh = entry.telemetry.project(entry.target, entry.printer.identity).fresh; this.changed(); this.received.forEach(wake => wake()); }
       if (result === 'resync' && this.now() - this.lastResync > 2000) { this.lastResync = this.now(); void this.queue(() => this.bootstrap(entry)).catch(() => undefined); }
     } else if (event.type === 'printer-connected' && event.args[0].replace(/^tunnel\//, '') === entry.deviceId
       || event.type === 'local-connect' && !cloud && event.args[1] === entry.deviceId && event.args[0] === 0

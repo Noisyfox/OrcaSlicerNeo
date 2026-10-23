@@ -1,3 +1,4 @@
+import { BambuOperations } from './operations';
 import type { BambuControlRequest } from '../../shared/bambuControl';
 import { BambuMonitor } from './monitor';
 import { mkdir } from 'node:fs/promises';
@@ -16,6 +17,7 @@ export class BambuRuntime {
   private native: BambuNative | null = null;
   private lan: BambuLan | null = null;
   private monitor: BambuMonitor | null = null;
+  private operations: BambuOperations | null = null;
   private account: BambuAccount | null = null;
   private state: AccountState = { status: 'restoring', error: null };
   private ready: Promise<void>;
@@ -55,6 +57,7 @@ export class BambuRuntime {
       await ok(agent.installDiscoveryCallbacks());
       await agent.startDiscovery(true, false);
       this.monitor = new BambuMonitor(agent, this.devices, this.repository, () => this.lan!.release(), () => this.publish('control'));
+      this.operations = new BambuOperations(this.monitor, () => this.publish('control'));
       this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
     } catch {
@@ -69,6 +72,7 @@ export class BambuRuntime {
     this.account?.onEvent(event);
     this.lan?.onEvent(event);
     this.monitor?.onEvent(event);
+    void this.operations?.onEvent(event).catch(() => undefined);
   }
   read<K extends BambuRead>(kind: K): Promise<BambuReadResults[K]>;
   async read(kind: BambuRead): Promise<BambuReadResults[BambuRead]> {
@@ -93,13 +97,17 @@ export class BambuRuntime {
   }
   async control(request: BambuControlRequest) {
     await this.ready;
-    if (!this.monitor) return { ok: false as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } };
+    if (!this.monitor || !this.operations) return request.method === 'submit' ? { kind: 'rejected' as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } } : { ok: false as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } };
     switch (request.method) {
+      case 'evaluate': return this.operations.evaluate(request.input.target, request.input.command);
+      case 'submit': return this.operations.submit(request.input);
+      case 'operation': return this.operations.get(request.input);
+      case 'find': return this.operations.find(request.input);
       case 'describe': return this.monitor.describe(request.input);
       case 'read': return this.monitor.read(request.input);
       case 'observe': return this.monitor.start(request.input.target, request.input.token);
       case 'release': return this.monitor.stop(request.input.token);
     }
   }
-  async close() { await this.ready; await this.monitor?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
+  async close() { await this.ready; this.operations?.close(); await this.monitor?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
 }

@@ -425,7 +425,10 @@ function registerIpc(): void {
     try {
       if (!bambuUtility) throw new Error('Unavailable');
       return await bambuUtility.control(request.method, request.input);
-    } catch { return { ok: false, error: { code: 'transport', message: 'Bambu networking is unavailable.' } }; }
+    } catch {
+      return request.method === 'submit' ? { kind: 'outcome-unknown', lookup: { printerId: request.input.target.printerId, routeId: request.input.target.routeId, requestId: request.input.requestId } }
+        : { ok: false, error: { code: 'transport', message: 'Bambu networking is unavailable.' } };
+    }
   });
 
   ipcMain.handle(Ipc.bambuPrinterCommand, async (event, request: unknown) => {
