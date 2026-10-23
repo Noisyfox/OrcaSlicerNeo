@@ -37,11 +37,15 @@ function AccountCard({ provider }: { provider: AccountProvider }) {
   return <section aria-label={`${provider.name} account`} className="rounded-xl border border-border p-4">
     <div className="flex items-center justify-between gap-4">
       <div className="flex min-w-0 items-center gap-3">
-      {state.status === 'signed-in' && <AccountAvatar key={state.account.avatarUrl} url={state.account.avatarUrl} />}
-      <div className="min-w-0"><h2 className="font-medium">{provider.name}</h2><p className="truncate text-sm text-muted-foreground" role="status">
-        {state.status === 'signed-in' ? state.account.displayName : state.status === 'restoring' ? 'Restoring account…'
-          : state.status === 'signing-in' ? 'Complete sign in in the login window or browser.' : state.status === 'unavailable' ? 'Unavailable' : 'Not signed in'}
-      </p></div></div>
+        {state.status === 'signed-in' && <AccountAvatar key={state.account.avatarUrl} url={state.account.avatarUrl} />}
+        <div className="min-w-0">
+          <h2 className="truncate font-semibold">{state.status === 'signed-in' ? state.account.displayName : provider.name}</h2>
+          <p className="truncate text-sm text-muted-foreground" role="status">
+            {state.status === 'signed-in' ? provider.name : state.status === 'restoring' ? 'Restoring account…'
+              : state.status === 'signing-in' ? 'Complete sign in in the login window or browser.' : state.status === 'unavailable' ? 'Unavailable' : 'Not signed in'}
+          </p>
+        </div>
+      </div>
       {state.status === 'signed-in'
         ? <Button variant="outline" disabled={busy} onClick={() => void run(() => provider.account.logout())}>Sign out</Button>
         : <Button variant="outline" disabled={busy || state.status === 'restoring' || state.status === 'unavailable'} onClick={() => void run(() => provider.account.login())}>
