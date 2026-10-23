@@ -8,8 +8,9 @@ Device Web entry and Send use the stateless service in both hosts. Electron
 Bambu integration follows section 2.1; section 2.2 distinguishes delivered
 foundations, account flow, Cloud device enumeration and LAN access. LAN
 real-device qualification is deferred and does not block packaging work.
-The gateway and richer device features remain deferred. Interface availability
-alone does not establish device support or runtime delivery.
+Section 2.3 records the selected Bambu monitoring/control design and its open
+decisions; implementation is not yet authorized. The gateway remains deferred.
+Interface availability alone does not establish device support or runtime delivery.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
 capabilities, controls, material systems, read-only sensors, cameras, remote
@@ -274,12 +275,14 @@ path, not a dependency of local slicing or an assertion of cloud support.
 
 ### 2.1 Bambu Electron provider design
 
-**Selected scope:** Integrate Bambu account login and printer discovery using
+**Foundation scope:** Integrate Bambu account login and printer discovery using
 [open-bamboo-networking](https://github.com/ClusterM/open-bamboo-networking).
 The selected implementation direction is an Electron Node-API addon hosted
 outside the renderer, with shared public provider contracts. It is not the
 standalone helper/gateway approach, nor a browser-WASM port. Implementation is
 authorized under the independently accepted increments in section 2.2.
+The subsequent monitoring/control design is recorded separately in section 2.3;
+its selection does not change the delivered scope of those foundation increments.
 
 The [common provider/account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts)
 owns account methods independently of printers. The Bambu provider implements
@@ -869,6 +872,133 @@ at the indicated steps; unavailable evidence remains unverified. Keep secrets
 out of committed fixtures and reports. Use the existing documentation owners
 for contract/behavior changes, and update the Grand Plan only when delivered
 work actually changes milestone status.
+
+### 2.3 Bambu monitoring and control design
+
+**Decision status:** Shared control cards with Bambu-specific composition and
+advanced controls are selected, with H2D + AMS as the first physical acceptance
+target. This is a documentation/design increment, not control implementation or
+hardware qualification. The
+[console specification](Printer%20Console%20and%20Control%20Integration.md#bambu-control-design)
+owns the feature envelope, presentation and grouped interaction decisions,
+including the exclusions of video, file browsing and an HMS tab.
+
+#### Execution and ownership
+
+Extend the existing provider and application-owned Bambu utility, retaining the
+native addon and pinned black-box networking plugin. Shared React code accesses
+the typed printer service through the platform adapter. The utility owns device
+message interpretation, native connection coordination, observation caches and
+command execution/tracking. Account association, credentials and raw messages
+remain host-private. No wxWidgets GUI port, slicer-WASM dependency or new browser
+gateway is part of this design. Provider-process crash recovery remains outside
+the existing first-delivery scope; ordinary transport failures still need
+accurate observations and operation outcomes.
+
+The current
+[renderer provider](../apps/desktop/src/renderer/src/platform/bambuProvider.ts)
+advertises discovery-only support. The
+[native boundary](../packages/bambu-native/src/index.ts) already exposes message
+callbacks and LAN sending, but control requires additional exported plugin calls
+and an explicit observation/operation IPC binding. Follow the checked-in Orca
+callers and declarations for Cloud sending, subscriptions and any specialized
+material operations; do not assume LAN sending covers Cloud control. Public IPC
+must validate typed requests and return normalized data without vendor payloads
+or credentials.
+
+Retain independently addressed requests. Reading, subscribing or evaluating
+availability must not become a caller prerequisite for command submission.
+Capabilities must include sufficient information to construct requests, and
+execution revalidates the target, route, supplied revisions, parameters and
+relevant device conditions. Unsupported and unknown capabilities remain distinct.
+Model/firmware information and retained observations inform resource constraints;
+an account-list entry alone does not prove every control is supported.
+
+#### Observation and connection coordination
+
+The provider must interpret complete and incremental messages according to the
+reference [DeviceManager](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.cpp)
+and [JSON reconstruction logic](../packages/slicer-wasm/cpp/src/slic3r/Utils/json_diff.cpp).
+Maintain a valid reconstruction baseline, recover from missing baselines/gaps,
+and preserve unknown/stale readings rather than inventing zeros or idle state.
+Normalize units, tool/resource identities and model-specific state in the
+provider. Emit coherent topic snapshots/replacements with route and configuration
+provenance. Late events from removed routes, superseded connections or logged-out
+accounts must not repopulate current observations.
+
+The utility coordinates shared native state across consumers. Existing
+[LAN access](../apps/desktop/src/utility/bambu/lan.ts) maintains one active device,
+and Orca's
+[device selection](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevManager.cpp)
+switches LAN connections or the selected Cloud device. Do not infer independent
+per-window connections from the stateless public API. The candidate design shares
+same-target observations and reports contention when different targets cannot
+coexist. Whether to allow explicit takeover, how to select Cloud versus LAN, and
+when to release observation demand are pending decisions. Cloud subscription
+multiplicity requires verification rather than assuming LAN limitations apply
+unchanged. No silent cross-route retry may duplicate a dispatched command.
+
+UI observation lifetime, provider connection lifetime and operation lifetime are
+separate. Stopping a view subscription does not cancel a physical operation.
+Exact background-observation and connection-retention policy is owned by the
+console specification's pending interaction decisions. Preserve request-driven
+Moonraker semantics while resolving Bambu's policy.
+
+#### Contract extension boundaries
+
+Existing domain types cover basic thermal, actuator, motion, tool and material
+operations. They are a starting point, not evidence of complete H2D support.
+The following gaps need coordinated contract/specification/consumer updates:
+
+- Detailed print stages and layer counts, and selectable printing-speed modes.
+- Parameterized calibration and device/AMS settings, with discoverable supported
+  choices and current values where available.
+- Material metadata required for editing and loading, including any temperature
+  policy and catalogue identity that cannot be derived reliably by the provider.
+- Drying choices beyond the existing temperature/duration request when exposed by
+  the agreed product scope, and any discrete motion constraints not expressible
+  faithfully by current ranges.
+
+Prefer shared semantics where they fit, with narrowly typed Bambu-specific
+extensions where necessary. The exact extension representation remains open;
+do not introduce arbitrary vendor JSON or string-command escape hatches.
+Contextual action references remain appropriate for device-issued recovery
+actions, not parameterized calibration/settings. Update the single current
+contract, producers, consumers and compile fixtures together. Check for hidden
+session prerequisites, incomplete capability-to-request construction and unsafe
+widened unions before implementation.
+
+H2D acceptance must distinguish tools/nozzles, material units/slots and paths to
+each tool. Keep actual and requested tool/path state distinct when a transition
+is in progress. Do not assume a fixed AMS count or generation. Telemetry and
+material editing must not silently mutate the slicer's project or presets.
+
+#### Commands and acceptance boundaries
+
+Use the operation semantics in section 7. A successful native send is not
+physical completion. Define confirmation evidence for each command: setting a
+temperature target is different from waiting for that temperature, and material
+movement needs an appropriate terminal result. Preserve unknown outcomes after
+ambiguous dispatch; do not automatically resend motion or material commands.
+The provider owns request deduplication, protocol response correlation and
+operation lookup independently of the view. Retention duration, confirmation
+timeouts and recovery UI remain open decisions.
+
+Qualification must cover independently reviewable boundaries: contract
+construction; read-only monitoring and route lifecycle; basic controls;
+material/tool routing; and the agreed advanced controls. Deterministic fixtures
+cover complete/incremental data, unsupported or missing readings, stale routes,
+multi-window contention, deduplication and uncertain command outcomes. Physical
+H2D + AMS evidence must establish the operations and Cloud/LAN routes actually
+claimed. The precise AMS hardware and first route to qualify remain unconfirmed;
+passing one route or model does not qualify another.
+
+Follow [testing guidelines](../doc/testing_guidelines.md) for affected-package
+tests/typechecks, contract fixtures, host E2E and repository handoff checks.
+Native export changes require affected addon/plugin and packaged-host checks,
+with the existing six-target release obligations retained. No slicer WASM build
+is implied by a networking-addon-only change. Existing real-account acceptance
+and packaged startup do not prove control authorization or physical execution.
 
 ## 3. Identity, configuration and stateless access
 

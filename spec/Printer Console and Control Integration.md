@@ -2,7 +2,10 @@
 
 **Updated:** 2026-10-23
 
-**Status:** Final user experience
+**Status:** Current console/Send experience and basic Monitor are delivered.
+Bambu control design is selected; its detailed interaction decisions remain
+under review in the Bambu control section below. No Bambu control delivery is
+claimed by this document.
 
 **Scope:** The printer-console and printer-control experience shared by the
 Electron desktop application and the Web application.
@@ -19,8 +22,9 @@ printer:
 The shared device model is owned by
 [Printer Domain and Control Architecture](Printer%20Domain%20and%20Control%20Architecture.md).
 That design covers discovery, capabilities, material systems, sensors, cameras
-and remote files. The existing Moonraker subset now implements that service;
-other agents and the gateway remain deferred. This document
+and remote files. The existing Moonraker subset implements that service;
+Bambu account/discovery foundations are delivered, with control design recorded
+below. Other agents and the gateway remain deferred. This document
 continues to own the existing console and sending experience, including printer
 selection and upload/start retry behavior. Its saved API-key representation
 remains current; the proposed credential-reference approach requires a separate
@@ -82,6 +86,96 @@ configuration revision; unknown outcomes ask the user to check the printer and
 are never automatically retried. Camera viewing and additional motion, material,
 and actuator cards remain future work. Current Bambu enumeration alone does not
 establish Monitor eligibility.
+
+### Bambu control design
+
+**Decision status:** The user selected shared control cards with a Bambu-specific
+composition and advanced controls (UI option B). The first physical acceptance
+target is **H2D + AMS**. Only documentation and interactive design clarification
+are currently authorized; implementation has not started. This UI choice is
+separate from the earlier domain-architecture option B.
+
+The selected scope excludes video, remote-file browsing and an HMS tab. These
+exclusions do not authorize removing current-operation failure explanations.
+The exact extent of inline device alerts and recovery actions remains a review
+item below. Existing account, discovery and route management remain in place.
+The Electron host supplies native Bambu execution; shared React components use
+the printer service. This work does not introduce a Web gateway.
+
+#### Shared cards and Bambu composition
+
+Reuse common print-status, temperature, actuator, motion and operation-feedback
+components. Compose them into a Bambu control surface, with specialized material
+presentation and advanced settings where the device requires them. Shared UI
+must not parse vendor messages, build protocol commands or access native IPC
+directly. Protocol normalization and capability derivation belong to the provider,
+as specified in the
+[Bambu control architecture](Printer%20Domain%20and%20Control%20Architecture.md#23-bambu-monitoring-and-control-design).
+
+The working layout retains the explicit printer selector and uses the available
+content area without an empty video panel. A header identifies the printer,
+route and observation freshness. Task controls appear before temperature,
+actuator and motion cards; material units and tool paths form a dedicated area.
+Calibration, material editing and advanced settings can use dialogs. Exact card
+order, dialog grouping and selection persistence remain reviewable. Desktop
+layout should accommodate narrow windows through internal scrolling and fewer
+columns; mobile support remains deferred.
+
+The working feature envelope is:
+
+| Area | Intended coverage and unresolved detail |
+| --- | --- |
+| Current print | Name, phase, progress, remaining time, detailed stage and layer counts; pause, resume, cancel and speed selection. Extended observations and speed semantics need contract changes. |
+| Thermal and actuators | Separately identified nozzle/tool temperatures, bed and supported chamber control, fans and lights; unknown limits must not become unrestricted inputs. |
+| Motion and tools | Homing, jogging, extrusion/retraction and supported tool selection, with explicit targets and device/state-dependent availability. |
+| Materials | AMS units, external holders, slots, reported metadata/remaining material and paths to tools; load, unload, switch, editable metadata and tag refresh. Exact editable fields and material-selection sources remain open. |
+| Drying and environment | Reported temperature/humidity and supported drying controls. The AMS generation and full drying-option scope are not yet established. |
+| Advanced controls | Device calibration, AMS settings and print/detection options, gated by actual capabilities. The precise feature list remains to be agreed. |
+| Feedback | Command progress, rejection, stale data and unknown outcomes. Inline blocking alerts and contextual recovery are to be clarified without adding an HMS tab. |
+
+H2D acceptance must exercise separately addressed tools/nozzles and AMS-to-tool
+paths rather than assuming one nozzle and four fixed slots. The AMS generation,
+number of units and physical routing remain unconfirmed. Other models remain
+representable, but H2D acceptance is not qualification for every Bambu model.
+
+Upload/Send & Print, firmware upgrades and importing device materials into the
+project are not automatically added to this control scope. Current-print
+thumbnails, object skipping and camera-related settings require explicit scope
+decisions; omitting file browsing or video does not resolve their dependencies.
+
+#### Interaction decisions under review
+
+Current production behavior remains manual Refresh as described above. The
+candidate Bambu behavior is automatic push observation while its control view is
+visible, with cached readings retained across navigation. Entry triggers,
+background observation and connection retention require clarification before
+changing the current behavior. UI visibility and native connection ownership
+are different: hiding a mounted React view must not accidentally retain a UI
+subscription, and releasing that subscription does not by itself define whether
+the shared plugin connection is closed. Moonraker remains request-driven.
+
+The following groups organize the remaining design decisions. Resolve questions
+interactively, one at a time, using the checked-in Orca implementation as a
+reference for every question. Consolidate each related group into its owning
+sections rather than appending an answer log or editing after each answer.
+
+| Group | Decisions to resolve together |
+| --- | --- |
+| Observation and access | Start/stop triggers, behavior away from Device, Cloud/LAN selection and fallback, selection persistence, and contention between windows or devices. |
+| Feature and interaction scope | Advanced settings/calibration coverage, inline errors and recovery, thumbnails/object skipping, confirmation dialogs and final card organization. |
+| H2D and materials | Actual AMS hardware/routing, tool/path selection, metadata editing sources, load/unload temperature policy and drying options. |
+| Command and failure semantics | Confirmation evidence per command, operation visibility/retention, deduplication and timeout behavior, availability checks and recovery presentation. |
+| Qualification | Initial routes/hosts, representative device states and permitted physical operations, broader-model claims and release acceptance boundaries. |
+
+Reference behavior comes from the checked-in Orca revision identified in the
+[provider specification](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design),
+not an assumption about the latest external Orca or Bambu Studio release.
+[Monitor](../packages/slicer-wasm/cpp/src/slic3r/GUI/Monitor.cpp) and
+[StatusPanel](../packages/slicer-wasm/cpp/src/slic3r/GUI/StatusPanel.cpp) own the
+reference UI; connection selection is in
+[DeviceCore/DevManager](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevManager.cpp).
+Orca behavior informs a choice but does not automatically replace Neo's existing
+stateless service, explicit selection or shared-host boundaries.
 
 ## Printer configuration
 
