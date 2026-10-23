@@ -118,32 +118,33 @@ The working layout retains the explicit printer selector and uses the available
 content area without an empty video panel. A header identifies the printer,
 route and observation freshness. Task controls appear before temperature,
 actuator and motion cards; material units and tool paths form a dedicated area.
-Material editing, hardware details and in-scope settings can use dialogs. Exact card
+Hardware details and material-target selection can use dialogs. Exact card
 order and dialog grouping remain reviewable. Selection persistence is defined
 under Console selection and behavior below. Desktop
 layout should accommodate narrow windows through internal scrolling and fewer
 columns; mobile support remains deferred.
 
-The feature envelope combines accepted scope decisions with the remaining
-material-system details:
+The accepted feature envelope is:
 
-| Area | Intended coverage and unresolved detail |
+| Area | Accepted coverage |
 | --- | --- |
 | Current print | Name, phase, progress, remaining time, detailed stage and layer counts; pause, resume, cancel and speed selection. Display a current-task thumbnail when obtainable, otherwise a placeholder. Extended observations, previews and speed semantics need contract changes. Object skipping is excluded. |
 | Thermal and actuators | Separately identified nozzle/tool temperatures, bed and supported chamber control, fans and lights; unknown limits must not become unrestricted inputs. |
 | Motion and tools | Homing, jogging, extrusion/retraction and supported tool selection, with explicit targets and device/state-dependent availability. |
-| Materials | AMS units, external holders, slots, reported metadata/remaining material and paths to tools; load, unload, switch, editable metadata and tag refresh. Exact editable fields and material-selection sources remain open. |
-| Drying and environment | Reported temperature/humidity and supported drying controls. The AMS generation and full drying-option scope are not yet established. |
+| Materials | Dynamically reported AMS units, external holders, slots, read-only metadata/remaining material and paths to tools; load, unload and switch. No metadata editing or manual RFID re-read. |
+| Drying and environment | Read-only reported temperature/humidity, drying state and remaining time. No drying start, stop or settings. |
 | Hardware details | Read-only information for each nozzle, including type/material, diameter and flow type when reported. Offer an explicit device-supported refresh/re-identification action; no device-configuration or slicer-preset edits. |
 | Calibration and detection | No device-calibration launch UI or print-detection settings in this delivery. Show reported calibration state when calibration is started elsewhere. Existing detection settings remain unchanged. |
 | Camera settings | No recording, timelapse or camera-resolution settings. Preserve existing device configuration; no video playback or recording-file browsing. |
-| AMS settings | Detailed setting/editing/drying scope remains part of material-system clarification. |
+| AMS settings | No settings entry for automatic filament backup, insertion/startup identification or remaining-capacity estimation. Preserve device configuration. |
 | Feedback | Command progress, rejection, stale data and unknown outcomes. Show current relevant device errors and supported retry, recovery and abort actions in the task or material cards, without an HMS tab. |
 
 H2D acceptance must exercise separately addressed tools/nozzles and AMS-to-tool
-paths rather than assuming one nozzle and four fixed slots. The AMS generation,
-number of units and physical routing remain unconfirmed. Other models remain
-representable, but H2D acceptance is not qualification for every Bambu model.
+paths rather than assuming one nozzle and four fixed slots. Resolve the AMS
+generation, unit count, physical routing and optional filament-transfer hardware
+during physical acceptance, not as design prerequisites. Derive presentation and
+availability dynamically from provider-normalized device reports. Other models
+remain representable, but H2D acceptance is not qualification for every Bambu model.
 
 Upload/Send & Print, firmware upgrades and importing device materials into the
 project are not automatically added to this control scope. Filament-calibration
@@ -185,6 +186,50 @@ AI/print-detection switches and sensitivity, are excluded even though they do
 not require video playback. Camera recording, timelapse and resolution settings
 are also excluded. None of these exclusions turns off an existing device
 feature: the device keeps its current configuration.
+
+#### Accepted materials and AMS behavior
+
+Build units, holders, slots, tools and material paths from device-reported
+identities, topology and capabilities; do not encode the acceptance fixture's
+hardware layout in the UI. Use the sole usable feed target directly and show
+its nozzle. When multiple targets are available, require explicit selection.
+Unknown routing or an unready transfer mechanism must explain and block the
+operation rather than guess a target. Keep actual and requested paths distinct.
+Orca's load handler in
+[StatusPanel](../packages/slicer-wasm/cpp/src/slic3r/GUI/StatusPanel.cpp)
+checks transfer readiness and opens a feed-direction dialog when applicable.
+
+Do not add a per-load/unload temperature override. The provider owns the
+Orca-derived command temperature policy and validates applicability and device
+limits. Ordinary temperature-target cards remain available. The reference load
+path derives current/target temperatures from material temperature-range
+midpoints where available and otherwise retains protocol sentinel values;
+the unload call uses the command declaration's defaults. These are distinct
+reference pathways, not a universal temperature fallback. Validate missing-data,
+sentinel and default behavior for the applicable device/protocol during
+implementation and hardware acceptance; if applicability cannot be established,
+explain why the operation is unavailable. Keep protocol-specific values private.
+See the load/unload handlers above and the declaration in
+[DeviceManager](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.hpp).
+
+Material metadata is read-only. Exclude material-preset, color, temperature-range
+and K/N/calibration-result editing; do not import or modify project presets.
+No manual RFID re-read is offered; identification results update from device
+reports. These exclusions do not remove load, unload, switch or supported inline
+recovery actions. Nozzle hardware re-identification remains a separate accepted
+feature and is not excluded by the RFID decision.
+
+Drying is observation-only: show reported state, remaining time and available
+temperature/humidity readings. Preserve their reported units and distinguish
+humidity levels from percentages; absent data is unknown. Do not offer drying
+start, stop, temperature/duration settings or other drying options. No AMS
+behavior-settings entry is included for automatic filament backup, insertion or
+startup identification, or remaining-capacity estimation. Preserve existing
+device configuration and continue displaying reported material changes and
+remaining capacity. Orca provides a broader set of controls in
+[AMSDryControl](../packages/slicer-wasm/cpp/src/slic3r/GUI/AMSDryControl.cpp)
+and [AMSSetting](../packages/slicer-wasm/cpp/src/slic3r/GUI/AMSSetting.cpp);
+those controls are intentionally outside this delivery.
 
 #### Accepted observation and access behavior
 
@@ -231,7 +276,6 @@ sections rather than appending an answer log or editing after each answer.
 
 | Group | Decisions to resolve together |
 | --- | --- |
-| H2D and materials | Actual AMS hardware/routing, tool/path selection, metadata editing sources, load/unload temperature policy and drying options. |
 | Command and failure semantics | Confirmation evidence per command, confirmation dialogs, operation visibility/retention, deduplication and timeout behavior, availability checks and recovery presentation. |
 | Qualification | Initial routes/hosts, representative device states and permitted physical operations, independent-instance behavior and persistence, broader-model claims and release acceptance boundaries. |
 

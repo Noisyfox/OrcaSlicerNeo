@@ -973,16 +973,17 @@ The following gaps need coordinated contract/specification/consumer updates:
   file browsing, history lookup or correlation with a Neo-submitted job.
 - Reported per-nozzle hardware details and an explicit supported nozzle
   refresh/re-identification operation, distinct from an ordinary observation read.
-- In-scope AMS settings, with discoverable supported choices and current values
-  where available; their exact scope remains under material-system clarification.
-- Material metadata required for editing and loading, including any temperature
-  policy and catalogue identity that cannot be derived reliably by the provider.
-- Drying choices beyond the existing temperature/duration request when exposed by
-  the agreed product scope, and any discrete motion constraints not expressible
-  faithfully by current ranges.
+- Reported material topology, read-only metadata and load/unload/switch constraints
+  wherever existing types cannot faithfully express device-supported targets.
+  Keep protocol-specific temperature derivation inside the provider; no dedicated
+  per-operation temperature override is exposed.
+- Any discrete motion constraints not expressible faithfully by current ranges.
 
 Do not add calibration-start, print-detection configuration, camera recording,
-timelapse/resolution settings or object-skipping executors for this delivery.
+timelapse/resolution settings, object-skipping, material-metadata editing, manual
+RFID re-read, drying-control or AMS behavior-settings executors for this delivery.
+Drying/environment observations remain included. These restrictions do not remove
+load/unload/switch, contextual recovery or supported nozzle re-identification.
 Their exclusion from this implementation does not remove existing general domain
 contracts or disable device-side features. Calibration started elsewhere remains
 observable. Per-nozzle details are read-only and must not mutate printer
@@ -1007,8 +1008,16 @@ widened unions before implementation.
 
 H2D acceptance must distinguish tools/nozzles, material units/slots and paths to
 each tool. Keep actual and requested tool/path state distinct when a transition
-is in progress. Do not assume a fixed AMS count or generation. Telemetry and
-material editing must not silently mutate the slicer's project or presets.
+is in progress. Derive topology and capabilities from device reports; do not
+assume a fixed AMS count, generation, slot layout or transfer mechanism. Resolve
+the physical fixture details at hardware acceptance. A unique usable feed target
+can be used directly and displayed; multiple targets require explicit selection,
+and unknown routing or an unready mechanism blocks execution with an explanation.
+The provider owns the reference load/unload temperature policy, including
+validation of protocol-specific sentinel/default behavior; uncertain applicability
+must not become a guessed temperature. The accepted interaction boundaries are in
+[Materials and AMS behavior](Printer%20Console%20and%20Control%20Integration.md#accepted-materials-and-ams-behavior).
+Telemetry must not silently mutate the slicer's project or presets.
 
 #### Commands and acceptance boundaries
 
@@ -1030,10 +1039,14 @@ cover complete/incremental data, unsupported or missing readings, stale routes,
 independent-instance isolation, device-selection changes, deduplication,
 uncertain command outcomes, stale recovery contexts and late/missing task
 thumbnails. Check read-only nozzle details, explicit refresh capability and
-absence of the excluded calibration/detection/camera/object-skipping controls. Physical
-H2D + AMS evidence must establish the operations and Cloud/LAN routes actually
-claimed. The precise AMS hardware and first route to qualify remain unconfirmed;
-passing one route or model does not qualify another.
+absence of the excluded calibration/detection/camera/object-skipping controls.
+Also cover dynamic material topology, unique/ambiguous/unavailable feed targets,
+load/unload temperature applicability and read-only material/drying observations.
+Verify absence of metadata editing, RFID re-read, drying controls and AMS settings.
+Physical H2D + AMS evidence must establish the operations and Cloud/LAN routes actually
+claimed. Confirm the precise AMS hardware and routing during physical acceptance;
+the first route to qualify remains an open qualification decision. Passing one
+route or model does not qualify another.
 
 Follow [testing guidelines](../doc/testing_guidelines.md) for affected-package
 tests/typechecks, contract fixtures, host E2E and repository handoff checks.
