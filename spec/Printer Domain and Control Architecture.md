@@ -6,8 +6,8 @@
 TypeScript domain contracts and the existing Moonraker subset are implemented.
 Device Web entry and Send use the stateless service in both hosts. Electron
 Bambu integration follows section 2.1; section 2.2 distinguishes delivered
-foundations and account flow, and
-unimplemented device discovery.
+foundations, account flow and Cloud device enumeration; LAN discovery remains
+unimplemented.
 The gateway and richer device features remain deferred. Interface availability
 alone does not establish device support or runtime delivery.
 
@@ -464,9 +464,10 @@ credential store merely because authentication is delegated to the plugin.
 
 ### 2.2 Bambu implementation and acceptance sequence
 
-**Status:** Steps 1–5 (shared contracts, provider composition/device consumers,
-the native addon, application-owned utility host and account flow) are delivered
-and accepted on the development host. Steps 6–8 remain unimplemented.
+**Status:** Steps 1–6 (shared contracts, provider composition/device consumers,
+the native addon, application-owned utility host, account flow and Cloud device
+enumeration) are delivered and accepted on the development host. Steps 7–8
+remain unimplemented.
 This sequence implements the
 accepted behavior in section 2.1 and the
 [shared account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts).
@@ -500,8 +501,8 @@ support on that same route. An in-flight upload retains its operation target
 when the catalogue changes. Deterministic fixtures exercise multiple consumers
 and Bambu Cloud/LAN coexistence. The production host now starts the native
 runtime, and the account implementation registers its capability on
-Electron. Bambu printer capability registration remains deferred to device
-delivery in the following steps.
+Electron. The same provider registers its printer capability alongside the account
+capability. LAN authorization and management remain in the following step.
 
 | Step | Deliverable | Prerequisites | Independent acceptance boundary |
 | --- | --- | --- | --- |
@@ -721,6 +722,31 @@ lists, failed refreshes, logout/re-login and responses arriving after account
 changes. A LAN-route fixture proves Cloud cleanup cannot delete that route;
 the combined real LAN case follows in step 8. Multiple windows see the same
 provider result without duplicate saved devices.
+
+**Implemented boundary:** The [device owner](../apps/desktop/src/utility/bambu/devices.ts)
+consumes the plugin's complete `devices` result, keyed by `dev_id`, with Orca's
+name/model fields. It commits validated lists atomically and rejects failed,
+malformed, duplicate-identity, superseded-session and superseded-request results.
+A valid empty result clears Cloud routes. Plugin-supplied access codes never
+create independent LAN access or enter the public catalogue. Logout, expiry and
+region replacement clear the Cloud session while preserving separately
+remembered LAN records.
+
+The [Electron provider](../apps/desktop/src/renderer/src/platform/bambuProvider.ts)
+implements both public capability interfaces and converts a whitelisted host
+projection into common printer identities/routes. Local catalogue reads do not
+call the network. Login/restoration and explicit account discovery use the
+plugin's `get_user_print_info` export; list querying is separate from the native
+server-connected callback. Every Bambu print/control/upload/observation/media
+capability remains unsupported. Cloud routes expose no rename/configure/forget
+permission. Multiple consumers receive catalogue invalidations from the same
+utility owner.
+
+On macOS ARM64 a real China-region account's Cloud device appears through the
+common Device surface without automatic selection. Deterministic coverage
+verifies complete/empty/failed reconciliation, renaming, stale responses,
+multiple consumers and logout that preserves a separately authorized LAN
+fixture. Real combined Cloud/LAN qualification remains in steps 7–8.
 
 #### Step 7 — LAN discovery and remembered access
 

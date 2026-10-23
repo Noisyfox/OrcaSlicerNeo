@@ -1,5 +1,6 @@
 import type { AccountError, AccountResult, AccountSetting, AccountState } from '@orca/service-provider';
-import type { Result, SavedPrinter } from '@orca/printer-control/domain';
+import { isBambuDevice, type BambuDevice } from './bambuDevices';
+import type { Result } from '@orca/printer-control/domain';
 
 export const BAMBU_REGIONS = ['China', 'AsiaPacific', 'NorthAmerica', 'Europe', 'Others'] as const;
 export type BambuRegion = typeof BAMBU_REGIONS[number];
@@ -8,13 +9,13 @@ export type BambuChange = 'account' | 'printers';
 export interface BambuReadResults {
   'account.state': AccountState;
   'account.settings': readonly AccountSetting[];
-  'printers.saved': Result<readonly SavedPrinter[]>;
+  'printers.saved': Result<readonly BambuDevice[]>;
 }
-export type BambuCommand = { action: 'login' } | { action: 'logout' } | { action: 'setting'; key: string; value: string };
+export type BambuCommand = { action: 'printers.refresh' } | { action: 'login' } | { action: 'logout' } | { action: 'setting'; key: string; value: string };
 export function isBambuCommand(value: unknown): value is BambuCommand {
   if (!value || typeof value !== 'object') return false;
   const v = value as BambuCommand;
-  return v.action === 'login' || v.action === 'logout' || (v.action === 'setting' && typeof v.key === 'string' && typeof v.value === 'string');
+  return v.action === 'printers.refresh' || v.action === 'login' || v.action === 'logout' || (v.action === 'setting' && typeof v.key === 'string' && typeof v.value === 'string');
 }
 export interface BambuBridge {
   command(request: BambuCommand): Promise<AccountResult<void>>;
@@ -55,8 +56,7 @@ export function isBambuReadResult(kind: BambuRead, value: unknown): boolean {
     && (value as AccountSetting[])[0]?.key === 'region' && (value as AccountSetting[])[0]?.label === 'Region'
     && BAMBU_REGIONS.includes((value as AccountSetting[])[0]?.value as BambuRegion)
     && Object.keys((value as AccountSetting[])[0]).every(key => ['key', 'label', 'value', 'choices'].includes(key));
-  // No printer publication until the Cloud/LAN implementation increments.
-  return object.ok === true && Array.isArray(object.value) && object.value.length === 0 && Object.keys(object).every(key => key === 'ok' || key === 'value');
+  return object.ok === true && Array.isArray(object.value) && object.value.every(isBambuDevice) && new Set(object.value.map(device => device.deviceId)).size === object.value.length && Object.keys(object).every(key => key === 'ok' || key === 'value');
 }
 export const bambuRegionChoices = BAMBU_REGIONS.map(value => ({ value, label: ({ AsiaPacific: 'Asia Pacific', NorthAmerica: 'North America' } as Record<string, string>)[value] ?? value })) as [AccountSetting['choices'][0], ...AccountSetting['choices'][0][]];
 

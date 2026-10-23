@@ -193,7 +193,10 @@ Home login flow, isolated official-page bridge and provider settings are
 accepted on the macOS ARM64 development host with real China-region login,
 logout and remembered-login restart. Other regions/challenges and release
 platform qualification remain unverified.
-Bambu printer capability registration remains unimplemented.
+Step 6 registers the same Bambu provider for both account and printer
+capabilities, publishes validated Cloud account lists through the common Device
+catalogue, and retains unsupported control/upload/monitoring capabilities.
+LAN discovery and access remain unimplemented.
 
 Provider identity, account modeling and account methods belong in a shared
 contract module outside `printer-control`. They must be usable by services with
@@ -383,10 +386,11 @@ The Bambu-specific scope and feasibility limits are owned by
 Its [implementation and acceptance sequence](Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence)
 defines eight independently reviewable increments, their dependencies and the
 evidence required before each is complete. Steps 1–3 are delivered; application
-Bambu printer discovery remains planned. The application-owned provider
-process and account flow are validated on macOS ARM64, including real
-China-region login/logout/restart. Other regions/challenges and release
-platform qualification remain unverified.
+Bambu Cloud enumeration and the application-owned provider
+process/account flow are validated on macOS ARM64, including real
+China-region login/logout/restart and Cloud devices in the common Device
+surface. LAN discovery/access remain planned. Other regions/challenges and
+release platform qualification remain unverified.
 
 ## 5. Runtime and WASM Loading
 

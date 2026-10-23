@@ -5,6 +5,7 @@ export type LoginCompletion =
   | { kind: 'user'; data: Record<string, unknown>; autotestToken?: string }
   | { kind: 'tokens'; token: string; refresh: string; expires: string; refreshExpires: string };
 export interface BambuHostInputs {
+  'printers.refresh': null;
   'login.begin': null;
   'login.command': { attempt: number };
   'login.prepare': { attempt: number; completion: LoginCompletion };
@@ -15,6 +16,7 @@ export interface BambuHostInputs {
   'account.setting': { key: string; value: string };
 }
 export interface BambuHostResults {
+  'printers.refresh': AccountResult<void>;
   'login.begin': { attempt: number; url: string };
   'login.command': string;
   'login.prepare': AccountResult<void>;
@@ -29,7 +31,7 @@ export type BambuHostRequest = { [K in BambuHostMethod]: { method: K; input: Bam
 export function isBambuHostRequest(value: unknown): value is BambuHostRequest {
   if (!value || typeof value !== 'object') return false;
   const { method, input } = value as BambuHostRequest;
-  if (method === 'login.begin' || method === 'account.logout') return input === null;
+  if (method === 'printers.refresh' || method === 'login.begin' || method === 'account.logout') return input === null;
   if (!input || typeof input !== 'object') return false;
   if (method === 'account.setting') return typeof input.key === 'string' && typeof input.value === 'string';
   if (!['login.command', 'login.prepare', 'login.complete', 'login.cancel', 'login.fail'].includes(method) || !('attempt' in input) || !Number.isSafeInteger(input.attempt)) return false;

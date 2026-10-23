@@ -408,6 +408,7 @@ function registerIpc(): void {
     try {
       if (!bambuUtility || !bambuLogin) throw new Error('Unavailable');
       if (request.action === 'login') return await bambuLogin.open();
+      if (request.action === 'printers.refresh') return await bambuUtility.host('printers.refresh', null);
       if (request.action === 'setting') {
         if (request.key !== 'region' || !BAMBU_REGIONS.some(region => region === request.value)) return { ok: false, error: { code: 'invalid-setting', message: 'Select a supported region.' } };
         if ((await bambuUtility.read('account.settings'))[0].value === request.value) return { ok: true, value: undefined };

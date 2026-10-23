@@ -2,6 +2,7 @@ import type { BambuNative, NativeEvent, NativeHttpResult } from '@orca/bambu-nat
 import type { AccountError, AccountResult, AccountState } from '@orca/service-provider';
 import { BAMBU_REGIONS, type BambuChange, type BambuRegion } from '../../shared/bambu';
 import type { BambuHostRequest, BambuHostResults, LoginCompletion } from '../../shared/bambuHost';
+import { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';
 
 const success = (): AccountResult<void> => ({ ok: true, value: undefined });
@@ -24,7 +25,7 @@ export class BambuAccount {
   private prepared: unknown = null;
   private lastLogin = 0;
   constructor(private readonly native: BambuNative, private readonly repository: BambuRepository,
-    private readonly publish: (change: BambuChange) => void, private readonly now = () => Date.now()) {}
+    private readonly publish: (change: BambuChange) => void, private readonly devices: BambuDevices, private readonly now = () => Date.now()) {}
   private queue<T>(work: () => Promise<T>): Promise<T> {
     const result = this.tail.then(work); this.tail = result.catch(() => undefined); return result;
   }
@@ -36,15 +37,16 @@ export class BambuAccount {
     this.lastLogin = this.now();
     // Orca calls both even when the UI does not currently show a device page.
     const connected = await this.native.connectServer();
-    const devices = await this.native.getUserPrintInfo();
-    if (connected !== 0 || devices.result !== 0) throw new Error('Cloud connection unavailable');
+    const devices = await this.devices.refresh(() => this.native.getUserPrintInfo());
+    if (connected !== 0 || !devices) throw new Error('Cloud connection unavailable');
   }
   async restore() {
-    if (await this.native.isUserLoggedIn()) { await this.summarize(); await this.connected().catch(() => { this.state = { ...this.state, error: { code: 'network', message: 'The cloud connection is unavailable. Please try again.' } }; }); }
+    if (await this.native.isUserLoggedIn()) { this.devices.activate(); await this.summarize(); await this.connected().catch(() => { this.state = { ...this.state, error: { code: 'network', message: 'The cloud connection is unavailable. Please try again.' } }; }); }
     else this.state = { status: 'signed-out', error: null };
   }
   handle(request: BambuHostRequest): Promise<BambuHostResults[keyof BambuHostResults]> {
     return this.queue(async () => {
+      if (request.method === 'printers.refresh') return await this.devices.refresh(() => this.native.getUserPrintInfo()) ? success() : failure('network', 'The cloud device list could not be refreshed.');
       if (request.method === 'account.logout') return this.logout();
       if (request.method === 'account.setting') {
         if (request.input.key !== 'region' || !BAMBU_REGIONS.includes(request.input.value as BambuRegion)) return failure('invalid-setting', 'Select a supported region.');
@@ -77,7 +79,7 @@ export class BambuAccount {
         await this.native.changeUser(JSON.stringify(payload));
         if (!await this.native.isUserLoggedIn()) throw new Error('Login failed');
         this.activeAttempt = null;
-        await this.summarize(); this.notify();
+        this.devices.activate(); await this.summarize(); this.notify();
         // Failure to list/connect is not a failed login and never clears the session.
         await this.connected().catch(() => { this.state = { ...this.state, error: { code: 'network', message: 'Signed in. The cloud connection is unavailable.' } }; });
         this.notify(); return success();
@@ -106,8 +108,9 @@ export class BambuAccount {
   private async logout(expired = false): Promise<AccountResult<void>> {
     this.prepared = null; this.activeAttempt = null; ++this.attempt;
     if (await this.native.logout(true) !== 0) return failure('network', 'Sign out failed. Please try again.');
+    this.devices.clear();
     this.state = { status: 'signed-out', error: expired ? { code: 'authentication', message: 'Login information expired. Please sign in again.' } : null };
-    this.publish('printers'); this.notify(); return success();
+    this.notify(); return success();
   }
   onEvent(event: NativeEvent) {
     if (event.type !== 'server-connected' && event.type !== 'http-error') return;

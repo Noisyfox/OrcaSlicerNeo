@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { BambuNative } from '@orca/bambu-native';
+import { BambuDevices } from './devices';
 import { BambuAccount } from './account';
 import { BambuRepository } from './repository';
 import type { BambuHostRequest } from '../../shared/bambuHost';
@@ -18,13 +19,13 @@ async function fixture() {
     changeUser: vi.fn(async (_payload: string) => { calls.push('change'); loggedIn = true; return 0; }),
     getUserNickname: vi.fn(async () => 'User'), getUserName: vi.fn(async () => 'User'), getUserAvatar: vi.fn(async () => ''),
     connectServer: vi.fn(async () => { calls.push('connect'); return 0; }),
-    getUserPrintInfo: vi.fn(async () => { calls.push('printers'); return { result: 0, httpCode: 200, body: '{}' }; }),
+    getUserPrintInfo: vi.fn(async () => { calls.push('printers'); return { result: 0, httpCode: 200, body: '{"devices":[]}' }; }),
     logout: vi.fn(async (_request: boolean) => { calls.push('logout'); loggedIn = false; return 0; }),
     setCountryCode: vi.fn(async (_country: string) => { calls.push('country'); return 0; }),
     getSelectedMachine: vi.fn(async () => ''), setSelectedMachine: vi.fn(async () => 0),
     buildLoginCommand: vi.fn(async () => '{"command":"studio_userlogin"}'),
   };
-  const publish = vi.fn(); const account = new BambuAccount(native as unknown as BambuNative, repository, publish, () => time);
+  const publish = vi.fn(); const account = new BambuAccount(native as unknown as BambuNative, repository, publish, new BambuDevices(repository, () => publish('printers')), () => time);
   await account.restore();
   const begin = async () => (await account.handle({ method: 'login.begin', input: null }) as { attempt: number }).attempt;
   const signIn = async () => { const attempt = await begin(); await account.handle({ method: 'login.prepare', input: { attempt, completion: { kind: 'ticket', ticket: 'ticket' } } }); await account.handle({ method: 'login.complete', input: { attempt } }); return attempt; };

@@ -14,7 +14,7 @@ function nativeFixture() {
   const calls: { method: string; args: unknown[] }[] = [];
   const methods = ['createAgent', 'setConfigDirectory', 'initLog', 'setCertificate', 'installCallbacks', 'setCountryCode', 'setExtraHttpHeaders', 'start', 'trackEnable', 'trackRemoveFiles', 'installDiscoveryCallbacks', 'connectServer'];
   const native = Object.fromEntries(methods.map(method => [method, vi.fn(async (...args: unknown[]) => { calls.push({ method, args }); return 0; })])) as unknown as BambuNative;
-  native.getUserPrintInfo = vi.fn(async () => ({ result: 0, httpCode: 200, body: '{}' }));
+  native.getUserPrintInfo = vi.fn(async () => ({ result: 0, httpCode: 200, body: '{"devices":[]}' }));
   native.getVersion = vi.fn(async () => '02.08.01.99');
   native.startDiscovery = vi.fn(async (...args) => { calls.push({ method: 'startDiscovery', args }); return true; });
   native.isUserLoggedIn = vi.fn(async () => false);
@@ -71,4 +71,22 @@ it('serializes host-owned state changes and persists LAN credentials independent
   expect(reopened).toMatchObject({ region: 'Europe', clientId: initial.clientId, lan: [{ accessCode: 'fixture-code' }] });
   await expect(repository.update(state => ({ ...state, region: 'invalid' as never }))).rejects.toThrow('Invalid Bambu');
   expect(JSON.parse(await readFile(join(directory, 'provider.json'), 'utf8'))).toEqual(reopened);
+}));
+
+it('publishes native account devices through the host and clears only Cloud routes on logout', async () => fixture(async directory => {
+  const repository = new BambuRepository(directory);
+  await repository.update(state => ({ ...state, lan: [{ deviceId: 'serial', name: 'LAN printer', model: 'X1C', ip: '192.0.2.1', accessCode: 'private-lan' }] }));
+  const { native } = nativeFixture(); const changed = vi.fn();
+  vi.mocked(native.isUserLoggedIn).mockResolvedValue(true);
+  vi.mocked(native.getUserPrintInfo).mockResolvedValue({ result: 0, httpCode: 200, body: JSON.stringify({ devices: [{ dev_id: 'serial', dev_name: 'Cloud printer', dev_model_name: 'X1C', dev_access_code: 'private-cloud' }] }) });
+  native.logout = vi.fn(async () => 0);
+  const runtime = new BambuRuntime({ directory, addonPath: '/addon', pluginPath: '/plugin', certificateDirectory: '/cert', osType: 'macos', osVersion: '15.6.0' }, changed, () => native);
+  const saved = await runtime.read('printers.saved'); if (!saved.ok) throw new Error('No catalogue');
+  expect(saved.value).toHaveLength(1); expect(saved.value[0].routes.map(route => route.channel)).toEqual(['cloud', 'lan']);
+  expect(JSON.stringify(saved)).not.toContain('private-'); expect(changed).toHaveBeenCalledWith('printers');
+  await runtime.host({ method: 'account.logout', input: null });
+  const after = await runtime.read('printers.saved'); if (!after.ok) throw new Error('No catalogue');
+  expect(after.value[0].routes.map(route => route.channel)).toEqual(['lan']);
+  expect((await repository.read()).lan[0].accessCode).toBe('private-lan'); expect(native.logout).toHaveBeenCalledWith(true);
+  await runtime.close();
 }));

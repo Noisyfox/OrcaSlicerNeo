@@ -5,6 +5,7 @@ import type { AccountState } from '@orca/service-provider';
 import { bambuRegionChoices, unavailableBambuAccount, type BambuChange, type BambuHostConfig, type BambuRead, type BambuReadResults } from '../../shared/bambu';
 import { BambuAccount, bambuCountry } from './account';
 import type { BambuHostRequest } from '../../shared/bambuHost';
+import { BambuDevices } from './devices';
 import { BambuRepository } from './repository';
 
 /** Native agent lifecycle and local state are application-owned, never window-owned. */
@@ -14,9 +15,11 @@ export class BambuRuntime {
   private state: AccountState = { status: 'restoring', error: null };
   private ready: Promise<void>;
   private readonly repository: BambuRepository;
+  private readonly devices: BambuDevices;
   constructor(private readonly config: BambuHostConfig, private readonly publish: (change: BambuChange) => void,
     private readonly load: typeof loadBambuNative = loadBambuNative) {
     this.repository = new BambuRepository(config.directory);
+    this.devices = new BambuDevices(this.repository, () => publish('printers'));
     this.ready = this.initialize();
   }
   private async initialize() {
@@ -45,7 +48,7 @@ export class BambuRuntime {
       await ok(agent.trackEnable(false)); await ok(agent.trackRemoveFiles());
       await ok(agent.installDiscoveryCallbacks());
       await agent.startDiscovery(true, false);
-      this.account = new BambuAccount(agent, this.repository, this.publish);
+      this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
     } catch {
       this.account = null; this.state = unavailableBambuAccount();
@@ -66,7 +69,7 @@ export class BambuRuntime {
       const { region } = await this.repository.read();
       return [{ key: 'region', label: 'Region', value: region, choices: bambuRegionChoices }];
     }
-    return { ok: true, value: [] };
+    return { ok: true, value: await this.devices.list() };
   }
   async host(request: BambuHostRequest) {
     await this.ready;

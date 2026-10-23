@@ -1,3 +1,4 @@
+import { createBambuProvider } from './bambuProvider';
 import { createPrinterService } from '@orca/printer-control';
 import {
   DEFAULT_USER_PREFERENCES,
@@ -154,6 +155,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
       }
     },
   };
+  const bambu = createBambuProvider(host.bambu);
   let inMemoryPreferences: UserPreferences = normalizeUserPreferences(DEFAULT_USER_PREFERENCES);
   let inMemoryPrinterConfiguration: PrinterConfigurationDocument = { version: 1, printers: [] };
   const printerConfiguration: PrinterConfigurationRepository = {
@@ -256,16 +258,10 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
         inMemoryPreferences = normalized;
       },
     },
-    accounts: [{ id: 'bambu' as Id<'provider'>, name: 'Bambu Lab', account: {
-      getState: () => host.bambu.read('account.state'),
-      onStateChanged: listener => host.bambu.onChanged(change => { if (change === 'account') listener(); }),
-      login: () => host.bambu.command({ action: 'login' }), logout: () => host.bambu.command({ action: 'logout' }),
-      getSettings: () => host.bambu.read('account.settings'),
-      setSetting: (key, value) => host.bambu.command({ action: 'setting', key, value }),
-    } }],
+    accounts: [bambu],
     printers: {
       configuration: printerConfiguration,
-      service: createPrinterService([{
+      service: createPrinterService([bambu, {
         id: 'moonraker' as Id<'provider'>, name: 'Moonraker',
         printers: createMoonrakerService({
           configuration: printerConfiguration,
