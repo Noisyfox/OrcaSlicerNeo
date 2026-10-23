@@ -93,7 +93,8 @@ export class BambuTelemetry {
     const nozzles: D.Nozzle[] = [], tools: D.Tool[] = [];
     for (const item of extruders) {
       const key = identifier(item.id)!;
-      const nozzle = records(record(device.nozzle).info).find(nozzle => bits(nozzle.id, 0, 4) === number(item.hnow) && bits(nozzle.id, 4, 4) === 1);
+      // High nibble 1 identifies the nozzle rack; installed toolhead nozzles use 0.
+      const nozzle = records(record(device.nozzle).info).find(nozzle => bits(nozzle.id, 0, 4) === number(item.hnow) && bits(nozzle.id, 4, 4) === 0);
       const type = text(nozzle?.type ?? (item.legacy ? p.nozzle_type : undefined));
       const nozzleId = id<'nozzle'>(`nozzle:${key}`);
       nozzles.push({ id: nozzleId, heaterId: id(`nozzle:${key}`), diameterMm: nonNegative(nozzle?.diameter ?? (item.legacy ? p.nozzle_diameter : undefined)) ?? null,
@@ -125,7 +126,7 @@ export class BambuTelemetry {
     const lights: D.Light[] = [], lightState: D.PrinterState['lights'][number][] = [];
     for (const light of records(p.lights_report)) {
       if (typeof light.node !== 'string' || !['chamber_light', 'chamber_light2', 'work_light'].includes(light.node)) continue;
-      lights.push({ id: id(light.node), name: light.node === 'chamber_light' ? 'Chamber light' : 'Work light' });
+      lights.push({ id: id(light.node), name: light.node === 'chamber_light' ? 'Chamber light' : light.node === 'chamber_light2' ? 'Chamber light 2' : 'Work light' });
       lightState.push({ lightId: id(light.node), on: read(light.mode === 'on' ? true : light.mode === 'off' ? false : undefined) });
     }
     const material = materialInventory(p, extruders, tools.map(tool => tool.id), read, definitions, readings);
@@ -149,7 +150,7 @@ export class BambuTelemetry {
       activeToolIds: read(activeId !== undefined && tools.some(tool => tool.id === `tool:${activeId}`) ? [id<'tool'>(`tool:${activeId}`)] : undefined), actions: read([]),
       printStatus: { phase: read(phase), taskId: read(phase === 'idle' ? null : task && task !== '0' ? id<'device-task'>(task) : undefined), name: read(phase === 'idle' ? null : name),
         progressFraction: read(phase === 'idle' ? undefined : fraction(p.mc_percent, 100)), remainingSeconds: read(phase === 'idle' ? undefined : nonNegative(p.mc_remaining_time) === undefined ? undefined : number(p.mc_remaining_time)! * 60),
-        stage: read(stage === undefined ? undefined : stage === 255 ? null : { code: String(stage), label: stageLabel(stage) }),
+        stage: read(stage === undefined ? undefined : stage === -1 || stage === 255 ? null : { code: String(stage), label: stageLabel(stage) }),
         currentLayer: read(nonNegative(p.layer_num)), totalLayers: read(nonNegative(p.total_layer_num)), speedModeId: read(identifier(p.spd_lvl)) } };
     const home = number(p.home_flag);
     const motion: D.PrinterState['motion'] = tools.length ? [{ motionGroupId: id('gantry'), positionMm: unknown,
@@ -199,7 +200,8 @@ function materialInventory(p: Report, extruders: Report[], toolIds: D.Id<'tool'>
     slotState.push({ slotId, presence: read(exists === undefined ? undefined : exists ? 'present' : 'empty'),
       material: read(Object.values(material).some(value => value !== null) ? material : undefined),
       spoolIdentity: read(tag && !/^0+$/.test(tag) ? { namespace: 'bambu-spool', value: tag } : undefined),
-      remaining: read(fraction(tray.remain, 100) === undefined ? undefined : { unit: 'fraction', value: fraction(tray.remain, 100)!, basis: 'estimated' }) });
+      remaining: read(!external && ams.calibrate_remain_flag === true && typeof tray.tag_uid === 'string' && /[^0]/.test(tray.tag_uid)
+        && fraction(tray.remain, 100) !== undefined ? { unit: 'fraction', value: fraction(tray.remain, 100)!, basis: 'estimated' } : undefined) });
   };
   for (const unit of entries) {
     const key = identifier(unit.id); if (key === undefined) continue;
@@ -212,12 +214,14 @@ function materialInventory(p: Report, extruders: Report[], toolIds: D.Id<'tool'>
       else if (field === 'humidity_raw') { sensors.push({ ...common, kind: 'relativeHumidity', unit: 'percent' }); readings.push({ sensorId, kind: 'relativeHumidity', reading: read(fraction(unit[field], 100) === undefined ? undefined : number(unit[field])) }); }
       else { sensors.push({ ...common, kind: 'numeric', unit: null, semanticType: 'bambu:humidity-level' }); readings.push({ sensorId, kind: 'numeric', reading: read(number(unit[field])) }); }
     }
-    units.push({ id: id(`unit:${key}`), name: `AMS ${key}`, kind: 'automatic-feeder', sensorIds });
+    const unitType = bits(unit.info, 0, 4);
+    const unitName = ({ 1: 'AMS', 2: 'AMS Lite', 3: 'AMS 2 Pro', 4: 'AMS HT', 5: 'AMS Lite' } as Record<number, string>)[unitType ?? -1] ?? 'AMS';
+    units.push({ id: id(`unit:${key}`), name: `${unitName} ${key}`, kind: 'automatic-feeder', sensorIds });
     const binding = bits(unit.info, 8, 4);
     const bindings = binding === 14 ? switchReady ? extruders.map(item => identifier(item.id)!) : []
       : binding !== undefined ? [String(binding)] : extruders.length === 1 ? [identifier(extruders[0].id)!] : [];
     for (const tray of records(unit.tray)) addSlot(key, tray, bindings);
-    if (unit.dry_time !== undefined || unit.dry_setting !== undefined) {
+    if ((unitType === 3 || unitType === 4) && (unit.dry_time !== undefined || unit.dry_setting !== undefined)) {
       const dryerId = id<'dryer'>(`dryer:${key}`);
       dryers.push({ id: dryerId, name: `AMS ${key} dryer`, unitIds: [id(`unit:${key}`)], sensorIds });
       const status = bits(unit.info, 4, 4);

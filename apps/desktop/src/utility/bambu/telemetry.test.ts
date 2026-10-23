@@ -8,7 +8,7 @@ const model = (time = 100) => { let now = time; return { telemetry: new BambuTel
 const report = () => ({ msg: 0, gcode_state: 'RUNNING', subtask_id: 'external-task', subtask_name: 'Test', mc_percent: 30, mc_remaining_time: 12,
   layer_num: 10, total_layer_num: 100, spd_lvl: 2, home_flag: 7,
   device: { extruder: { state: 0x12, info: [{ id: 0, temp: (220 << 16) | 215, hnow: 0, snow: 2, star: 2, stat: 0 }, { id: 1, temp: (230 << 16) | 225, hnow: 1, snow: 0x0103, star: 0x0103, stat: 0 }] },
-    nozzle: { info: [{ id: 0x10, type: '0S01', diameter: 0.4 }, { id: 0x11, type: '0H01', diameter: 0.6 }] }, bed_temp: (65 << 16) | 60 },
+    nozzle: { info: [{ id: 0, type: '0S01', diameter: 0.4 }, { id: 1, type: '0H01', diameter: 0.6 }] }, bed_temp: (65 << 16) | 60 },
   ams: { tray_exist_bits: '84', ams: [{ id: '0', info: '1', tray: [{ id: '2', tray_type: 'PLA', tray_color: 'FF0000FF', remain: 40 }] },
     { id: '1', info: '103', temp: '40.2', humidity: '2', humidity_raw: '25', dry_time: 65, tray: [{ id: '3', tray_type: 'PETG' }] }] } });
 
@@ -85,6 +85,34 @@ describe('Bambu telemetry normalization', () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     expect(telemetry.project(target, identity).values.status.printStatus.phase.kind).toBe('unknown');
   });
+});
+it('uses real H2D toolhead IDs, AMS types and unknown remaining estimates', () => {
+  const { telemetry } = model();
+  telemetry.accept(push({ msg: 0, gcode_state: 'IDLE', stg_cur: -1,
+    device: { extruder: { state: 2, info: [{ id: 0, hnow: 0, temp: 26 }, { id: 1, hnow: 1, temp: 27 }] },
+      nozzle: { exist: 3, info: [{ id: 0, type: 'HS01', diameter: 0.4 }, { id: 1, type: 'HS01', diameter: 0.4 }, { id: 0x10, type: 'HH05', diameter: 0.8 }] } },
+    ams: { ams: [{ id: '0', info: '11001101', dry_time: 0, tray: [{ id: '0', tray_type: 'PETG-CF', remain: 0 }] },
+      { id: '1', info: '10002003', dry_time: 0, tray: [{ id: '0', tray_type: 'PETG', remain: 0 }] }] },
+    lights_report: [{ node: 'chamber_light2', mode: 'on' }] }));
+  const value = telemetry.project(target, identity).values;
+  expect(value.descriptor.topology.nozzles.map(n => [n.diameterMm, n.constructionMaterial, n.flowType])).toEqual([
+    [0.4, 'hardened steel', 'standard flow'], [0.4, 'hardened steel', 'standard flow'],
+  ]);
+  expect(value.status.printStatus.stage).toMatchObject({ kind: 'known', value: null });
+  expect(value.materials.topology.units.map(u => u.name)).toEqual(['AMS 0', 'AMS 2 Pro 1']);
+  expect(value.materials.topology.dryers.map(d => d.id)).toEqual(['dryer:1']);
+  expect(value.materials.state.slots.map(s => s.remaining.kind)).toEqual(['unknown', 'unknown']);
+  expect(value.actuators.lights[0].on).toMatchObject({ value: true });
+  expect(value.descriptor.topology.lights[0].name).toBe('Chamber light 2');
+});
+it('reports remaining filament only for enabled RFID estimates, including a real zero', () => {
+  const { telemetry } = model();
+  const slots = [{ id: 0, tag_uid: 'test-tag', remain: 0 }, { id: 1, tag_uid: '0000', remain: 0 }, { id: 2, tag_uid: 'test-tag', remain: 40 }];
+  telemetry.accept(push({ msg: 0, ams: { calibrate_remain_flag: true, ams: [{ id: 0, info: '1', tray: slots }] } }));
+  const remaining = () => telemetry.project(target, identity).values.materials.state.slots.map(s => s.remaining);
+  expect(remaining()).toMatchObject([{ value: { value: 0 } }, { kind: 'unknown' }, { value: { value: 0.4 } }]);
+  telemetry.accept(push({ msg: 1, ams: { calibrate_remain_flag: false } }));
+  expect(remaining().map(r => r.kind)).toEqual(['unknown', 'unknown', 'unknown']);
 });
 it('labels known stages, clears prior layers on idle and handles mixed AMS Lite presence bits', () => {
   const { telemetry } = model();
