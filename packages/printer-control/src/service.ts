@@ -6,7 +6,7 @@ import { MoonrakerHttp, MoonrakerFailure, fail, publicError, record } from './mo
 import { OperationStore, copy, newId, requestSignature, streamError } from './operations';
 
 export interface MoonrakerServiceOptions {
-  configuration: { load(): Promise<PrinterConfigurationDocument>; save(document: PrinterConfigurationDocument): Promise<void> };
+  configuration: { onChanged?(listener: () => void): () => void; load(): Promise<PrinterConfigurationDocument>; save(document: PrinterConfigurationDocument): Promise<void> };
   transport: PrinterTransport;
   host: D.AgentHost;
 }
@@ -51,12 +51,12 @@ interface ConfigurationSnapshot {
   readonly printers: readonly ResolvedConfiguration[];
 }
 /** Shared by fresh service facades on the same host repository; never a caller session. */
-const authorities = new WeakMap<object, { configurations: Map<string, ConfigurationEntry>; operations: OperationStore; additions: Map<string, { signature: string; printerId: string }>; configurationQueue: Promise<void> }>();
+const authorities = new WeakMap<object, { configurations: Map<string, ConfigurationEntry>; operations: OperationStore; additions: Map<string, { signature: string; printerId: string }>; configurationQueue: Promise<void>; listeners: Set<() => void> }>();
 
 export function createMoonrakerService(options: MoonrakerServiceOptions): D.PrinterService {
   let authority = authorities.get(options.configuration);
   if (!authority) {
-    authority = { configurations: new Map(), operations: new OperationStore(), additions: new Map(), configurationQueue: Promise.resolve() };
+    authority = { configurations: new Map(), operations: new OperationStore(), additions: new Map(), configurationQueue: Promise.resolve(), listeners: new Set() };
     authorities.set(options.configuration, authority);
   }
   const state = authority;
@@ -89,7 +89,12 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   async function saveConfiguration(doc: PrinterConfigurationDocument): Promise<ConfigurationSnapshot> {
     const normalized = normalizePrinterConfigurationDocument(doc);
     await options.configuration.save(copy(normalized));
-    return bindConfiguration(normalized);
+    const snapshot = bindConfiguration(normalized);
+    for (const listener of state.listeners) {
+      // A subscriber must not turn an already-persisted change into a failed mutation.
+      try { listener(); } catch { /* Subscriber failures are isolated. */ }
+    }
+    return snapshot;
   }
   function resolveSnapshot(snapshot: ConfigurationSnapshot, target: D.TargetRequest): ResolvedConfiguration {
     const resolved = snapshot.printers.find(p => p.printer.id === target.printerId);
@@ -130,8 +135,9 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
       routes: [{
         id: routeId(printer.id), printerId: printer.id as D.Id<'printer'>, providerId, label: 'Moonraker',
         configurationRevision: entry.revision,
+        management: { rename: true, configure: true, forget: true },
         configuration: { typeId, hostId: options.host.id, channel: 'lan', address: printer.apiBaseUrl,
-          webInterfaceUrl: (printer.consoleUrl || null) as D.PrinterRouteConfiguration['webInterfaceUrl'], accountRef: null,
+          webInterfaceUrl: (printer.consoleUrl || null) as D.PrinterRouteConfiguration['webInterfaceUrl'],
           credentialRef: printer.apiKey ? `moonraker-key:${printer.id}` as D.Id<'credential'> : null },
         capabilities: capabilities(),
       }],
@@ -326,7 +332,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
     return safe(() => withConfiguration(async () => work(await loadConfiguration())));
   }
   function configuration(config: D.PrinterRouteConfiguration, previous?: PrinterConfiguration): Omit<PrinterConfiguration, 'id' | 'displayName'> {
-    if (config.typeId !== typeId || config.hostId !== options.host.id || config.channel !== 'lan' || config.accountRef !== null) fail('unsupported', 'Unsupported Moonraker route configuration');
+    if (config.typeId !== typeId || config.hostId !== options.host.id || config.channel !== 'lan') fail('unsupported', 'Unsupported Moonraker route configuration');
     if (config.credentialRef !== null && (!previous || config.credentialRef !== `moonraker-key:${previous.id}`)) fail('invalid-target', 'Credential reference is not available on this host');
     return { driverId: 'moonraker', apiBaseUrl: config.address ?? '', consoleUrl: config.webInterfaceUrl ?? '', apiKey: config.credentialRef === null ? '' : previous!.apiKey };
   }
@@ -336,6 +342,11 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
     listProviders: async () => ({ ok: true, value: [{ id: providerId, name: 'Moonraker', hosts: [{ ...options.host, discovery: unsupported }] }] }),
     listTypes: async () => ({ ok: true, value: [{ id: typeId, providerId, name: 'Moonraker', description: 'Request-based Moonraker HTTP and native Web interface' }] }),
     listSaved: () => safe(async () => (await withConfiguration(loadConfiguration)).printers.map(saved)),
+    onSavedChanged: listener => {
+      if (options.configuration.onChanged) return options.configuration.onChanged(listener);
+      state.listeners.add(listener);
+      return () => { state.listeners.delete(listener); };
+    },
     describe: target => safe(async () => { const { entry } = await resolve(target); return copy({ target, configurationRevision: entry.revision, capabilities: capabilities(), descriptor: entry.cache.descriptor?.kind === 'known' ? { ...entry.cache.descriptor, freshness: 'stale' } : unknown }); }),
     webInterfaces: {
       describe: target => safe(async () => { await resolve(target); return { ...target, capability: capabilities().webInterface, availability: { kind: 'unknown', reason: 'Not probed' }, assessedAtMs: Date.now(), freshness: 'fresh' } as D.WebInterfaceDescription; }),
@@ -364,15 +375,20 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
       const next = await saveConfiguration({ ...doc, printers: doc.printers.map(p => p.id === printer.id ? { ...printer, ...configuration(request.configuration, printer) } : p) });
       return saved(resolveSnapshot(next, targetFor(printer.id))).routes[0];
     }),
-    rename: (id, displayName) => mutate(async snapshot => {
+    rename: (target, displayName) => mutate(async snapshot => {
+      const { printer: { id } } = resolveSnapshot(snapshot, target);
       const doc = snapshot.document;
-      if (!doc.printers.some(p => p.id === id)) fail('invalid-target', 'Printer not found');
       const next = await saveConfiguration({ ...doc, printers: doc.printers.map(p => p.id === id ? { ...p, displayName } : p) });
       return saved(resolveSnapshot(next, targetFor(id)));
     }),
-    forget: id => mutate(async snapshot => { await saveConfiguration({ ...snapshot.document, printers: snapshot.document.printers.filter(p => p.id !== id) }); return null; }),
+    forget: target => mutate(async snapshot => {
+      const { printer } = resolveSnapshot(snapshot, target);
+      await saveConfiguration({ ...snapshot.document, printers: snapshot.document.printers.filter(p => p.id !== printer.id) });
+      return null;
+    }),
     discover: unsupportedStream,
     adopt: async () => rejected(),
+    authorize: async () => rejected(),
   };
   return service;
 }

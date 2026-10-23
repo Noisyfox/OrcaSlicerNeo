@@ -1,3 +1,4 @@
+import { AccountSettings } from '@/components/accounts/AccountControls';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type {
@@ -179,6 +180,7 @@ export function ProjectPreferencesDialog({
         </Select>
         <FieldDescription>All recalculates after colour or material changes; Color recalculates after colour changes; None preserves manual values. Adding a material initializes its new pairs in every mode.</FieldDescription>
       </Field></FieldGroup>
+      <AccountSettings />
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onClose} disabled={saving} data-testid="project-preferences-cancel">Cancel</Button>
         <Button type="button" onClick={() => void save()} disabled={saving} data-testid="project-preferences-save">{saving ? 'Saving…' : 'Save'}</Button>

@@ -16,6 +16,14 @@ export function configuredFixtureActivation(real: boolean) {
     readFile: (path: string) => readFileSync(nativePath(path)), unlink() {}, symlink() {},
   } });
 }
+/** Reuse host-boundary journeys against either the dev output or packaged app. */
+export function desktopLaunchOptions() {
+  const packaged = process.env.ORCA_E2E_PACKAGED_ROOT;
+  if (!packaged) return { args: [resolve(__dirname, '../out/main/index.js')] };
+  const root = resolve(__dirname, '..', packaged);
+  return { executablePath: join(root, process.platform === 'win32' ? 'OrcaSlicerNeo.exe'
+    : process.platform === 'darwin' ? 'Contents/MacOS/OrcaSlicerNeo' : 'OrcaSlicerNeo') };
+}
 export const _electron = {
   async launch(options: NonNullable<Parameters<typeof electron.launch>[0]>) {
     const env = { ...options.env };

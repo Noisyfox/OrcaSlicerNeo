@@ -141,12 +141,23 @@ pnpm --filter @orca/web preview      # serve the production build locally
 pnpm -r test                   # vitest suites
 pnpm -r typecheck
 pnpm --filter @orca/desktop test:e2e # Playwright Electron e2e (also: <driver> e2e)
+pnpm --filter @orca/desktop package # native-host installer; requires staged WASM/profile inputs
 pnpm --filter @orca/web test:e2e:threaded # Chrome e2e against the threaded wasm
 pnpm --filter @orca/web test:e2e:serial   # Chrome e2e against the serial fallback
 pnpm --filter @orca/web test:non-root    # production build served from a subpath
 ```
 
 For Device/Fluidd testing in VS Code, use `Desktop Debug Main Process` instead of `Desktop Debug All`, as renderer debugging can leave Fluidd Workers waiting for the debugger and stall G-code preview.
+
+**Bambu native resources.** Electron dev/build, ordinary E2E and packaging
+prepare the host Node-API addon and download the checksum-pinned precompiled
+network plugin automatically. Building the addon requires Python and a native
+C++ toolchain (Visual Studio C++ tools on Windows, Xcode command-line tools on
+macOS, or GCC/Clang and Make on Linux). Packaging runs on the target OS and
+architecture; runtime users receive all resources in the installer. Production
+builds use real WASM; `--mode e2e` retains the mock fixture. See the
+[packaging reference](doc/2026-09-25-github-pages-deployment.md#desktop-packaging)
+for resource ownership and CI qualification.
 
 **Profile packages.** Both hosts' `predev` hooks stage the profile packages
 (manifest + core/vendor ZIPs) from `packages/profile-resources/dist` into the

@@ -1,6 +1,6 @@
 # CI Assets, Packaging and GitHub Pages
 
-**Updated:** 2026-10-11
+**Updated:** 2026-10-23
 **Status:** Current deployment reference
 
 ## Pages pipeline
@@ -49,14 +49,36 @@ Each of the six platform/architecture entries produces exactly one installer,
 checked by `scripts/verify-installer.mjs`, with architecture selected by the
 job's CLI flag. Pass flags directly after the pnpm script name; an extra `--`
 can reach electron-builder literally and select the wrong architecture. The
-workflow owns exact target suffixes and runner choices.
+workflow owns exact target suffixes and runner choices. Each target uses a
+matching native runner and Node architecture so its Node-API addon can be built
+and exercised in the packaged application.
 
-Main/preload have no external production-package imports and Vite bundles the
-renderer. Exclude production `node_modules` from electron-builder file
+JavaScript production dependencies are bundled by Vite. Exclude production
+`node_modules` from electron-builder file
 collection so installers do not include workspace source and `.work` builds.
 Staged `out/renderer/wasm` and `out/renderer/profiles` remain runtime assets,
 unpacked according to
 [electron-builder configuration](../apps/desktop/electron-builder.yml).
+
+The desktop dev/build and ordinary E2E entry points prepare the host Bambu
+addon and acquire the pinned precompiled plugin through
+[`bambu-native` staging](../packages/bambu-native/scripts/stage.mjs).
+The packaging hook performs the same preparation for the requested native
+target. It verifies the archive checksum, preserves the complete plugin library
+directory and stages Orca's complete public certificate directory, including
+`slicer_base64.cer` and `printer.cer`. Explicit
+`extraResources` place these files under `resources/bambu` outside asar;
+the installed app loads only bundled resources and does not download a plugin.
+`npmRebuild: false` remains intentional because the hook owns addon compilation.
+
+Production renderer builds select real WASM through the production environment;
+mock E2E retains its separate build mode. Package scripts stage the current
+WASM/profile assets before bundling. The package matrix runs real-plugin
+startup, provider configuration restart and isolated-login/system-browser
+handoff probes against each produced app directory. Login-page fixtures prove
+host integration; real account authentication and LAN hardware journeys remain
+separate qualification requirements in the
+[Bambu design](../spec/Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence).
 
 Mock Electron E2E uses Windows and real Electron E2E uses Linux in the current
 workflow. Hosted functional verification does not replace local performance

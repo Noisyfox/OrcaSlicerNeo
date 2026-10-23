@@ -10,6 +10,12 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@orca/bambu-native':
+        specifier: workspace:*
+        version: link:../../packages/bambu-native
+      '@orca/service-provider':
+        specifier: workspace:*
+        version: link:../../packages/service-provider
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -160,8 +166,26 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@24.13.3)(jsdom@26.1.0(supports-color@7.2.0))(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0))
 
+  packages/bambu-native:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.3
+        version: 24.13.3
+      node-addon-api:
+        specifier: 8.9.2
+        version: 8.9.2
+      node-gyp:
+        specifier: 12.4.0
+        version: 12.4.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   packages/platform-contract:
     dependencies:
+      '@orca/service-provider':
+        specifier: workspace:*
+        version: link:../service-provider
       '@orca/printer-control':
         specifier: workspace:*
         version: link:../printer-control
@@ -180,6 +204,10 @@ importers:
         version: 5.0.3(@types/node@24.13.3)(jsdom@26.1.0(supports-color@7.2.0))(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0))
 
   packages/printer-control:
+    dependencies:
+      '@orca/service-provider':
+        specifier: workspace:*
+        version: link:../service-provider
     devDependencies:
       typescript:
         specifier: ^7.0.2
@@ -203,6 +231,12 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@24.13.3)(jsdom@26.1.0(supports-color@7.2.0))(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0))
 
+  packages/service-provider:
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   packages/slicer-app:
     dependencies:
       '@base-ui/react':
@@ -214,6 +248,9 @@ importers:
       '@orca/printer-control':
         specifier: workspace:*
         version: link:../printer-control
+      '@orca/service-provider':
+        specifier: workspace:*
+        version: link:../service-provider
       '@orca/slicer-runtime':
         specifier: workspace:*
         version: link:../slicer-runtime
@@ -2368,6 +2405,10 @@ packages:
   node-abi@4.33.0:
     resolution: {integrity: sha512-vLBWCKb+7LWsX+TbfzWOkw0W81m377tyx3hOweBTjO43CXZnRGS1/JPWs20fr0PgZyDXk6ROYrylsEycK8raDA==}
     engines: {node: '>=22.12.0'}
+
+  node-addon-api@8.9.2:
+    resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
+    engines: {node: ^18 || ^20 || >= 21}
 
   node-api-version@0.2.1:
     resolution: {integrity: sha512-2xP/IGGMmmSQpI1+O/k72jF/ykvZ89JeuKX3TLJAYPDVLUalrshrLHkeVcCCZqG/eEa635cr8IBYzgnDvM2O8Q==}
@@ -4983,6 +5024,8 @@ snapshots:
   node-abi@4.33.0:
     dependencies:
       semver: 7.8.5
+
+  node-addon-api@8.9.2: {}
 
   node-api-version@0.2.1:
     dependencies:

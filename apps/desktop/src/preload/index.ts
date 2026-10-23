@@ -1,3 +1,4 @@
+import { isBambuChange, type BambuRead, type BambuReadResults } from '../shared/bambu';
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import {
   Ipc,
@@ -71,8 +72,24 @@ const bridge: ElectronBridge = {
     sample: () => ipcRenderer.invoke(Ipc.memorySample) as Promise<import('../shared/ipc').ElectronMemoryIpcSnapshot>,
   },
 
+  bambu: {
+    printerCommand: request => ipcRenderer.invoke(Ipc.bambuPrinterCommand, request),
+    command: request => ipcRenderer.invoke(Ipc.bambuCommand, request),
+    read: <K extends BambuRead>(request: K) => ipcRenderer.invoke(Ipc.bambuRead, request) as Promise<BambuReadResults[K]>,
+    onChanged: listener => {
+      const handler = (_event: IpcRendererEvent, change: unknown) => { if (isBambuChange(change)) listener(change); };
+      ipcRenderer.on(Ipc.bambuChanged, handler);
+      return () => ipcRenderer.removeListener(Ipc.bambuChanged, handler);
+    },
+  },
+
   printers: {
     configuration: {
+      onChanged: (listener) => {
+        const handler = () => listener();
+        ipcRenderer.on(Ipc.printerConfigurationChanged, handler);
+        return () => ipcRenderer.removeListener(Ipc.printerConfigurationChanged, handler);
+      },
       load: () => ipcRenderer.invoke(Ipc.printerConfigurationLoad) as Promise<PrinterConfigurationDocument>,
       save: async (document: PrinterConfigurationDocument) => {
         // Validate at the renderer boundary as well as in main. This keeps

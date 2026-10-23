@@ -22,8 +22,9 @@ export const fakeCapabilities: PlatformCapabilities = {
     async record() {}, async remove() {}, async clear() {}, async reveal() {},
   },
   preferences: { async load() { throw new Error(); }, async save() {} } satisfies UserPreferencesRepository,
+  accounts: [],
   printers: {
-    configuration: { async load() { return { version: 1 as const, printers: [] }; }, async save() {} } satisfies PrinterConfigurationRepository,
+    configuration: { onChanged: () => () => {}, async load() { return { version: 1 as const, printers: [] }; }, async save() {} } satisfies PrinterConfigurationRepository,
     service: {} as PrinterService,
   },
   webview: {

@@ -1,0 +1,25 @@
+{
+  "name": "@orca/bambu-native",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "install": "node -e \"\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "node scripts/stage.mjs --build-only",
+    "stage:runtime": "node scripts/stage.mjs",
+    "acquire": "node scripts/acquire.mjs",
+    "test": "pnpm build && node --test test/*.test.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "node-addon-api": "8.9.2",
+    "node-gyp": "12.4.0",
+    "typescript": "^7.0.2",
+    "@types/node": "^24.13.3"
+  }
+}

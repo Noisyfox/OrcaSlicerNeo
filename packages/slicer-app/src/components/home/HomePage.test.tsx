@@ -14,7 +14,7 @@ async function render(recentProjects: RecentProjectsCapability = NO_RECENT_PROJE
   const root = createRoot(container);
   const onOpen = vi.fn(async () => {}), onCreate = vi.fn(async () => {}), onOpenRecent = vi.fn(async (_id: string) => {});
   const props = { active: true, canOpen: true, canCreate: true, onOpen, onCreate, onOpenRecent };
-  const platform = { recentProjects } as PlatformCapabilities;
+  const platform = { recentProjects, accounts: [] } as unknown as PlatformCapabilities;
   function TestHome(next: Partial<typeof props>) {
     const values = { ...props, ...next };
     const history = useRecentProjects(values.active ? 'home' : 'prepare');

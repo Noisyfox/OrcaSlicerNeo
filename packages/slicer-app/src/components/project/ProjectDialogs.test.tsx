@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { act, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -19,7 +20,7 @@ describe('project dialogs', () => {
     const container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    await act(async () => { root?.render(element); });
+    await act(async () => { root?.render(<PlatformProvider value={{ accounts: [] } as unknown as PlatformCapabilities}>{element}</PlatformProvider>); });
     return container;
   }
 

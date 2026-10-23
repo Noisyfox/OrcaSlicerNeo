@@ -1,9 +1,12 @@
+import { BambuUtility, bambuPaths, createBambuIpc } from './bambuUtility';
+import { BambuLogin } from './bambuLogin';
+import { BAMBU_REGIONS, isBambuPrinterCommand, isBambuCommand, unavailableBambuAccount } from '../shared/bambu';
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type WebContents } from 'electron';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { dirname, extname, join, sep } from 'node:path';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { Ipc, type FileDialogFilter, type PreferencesLoadResult, type ProjectOpenIpcResult, type ProjectSaveIpcResult } from '../shared/ipc';
 import type { MenuCommandId } from '../shared/ipc';
@@ -118,6 +121,11 @@ let rendererServer: Server | null = null;
 let mainWindow: BrowserWindow | null = null;
 let nativeMenuController: NativeMenuController | null = null;
 let allowWindowClose = false;
+let bambuUtility: BambuUtility | null = null;
+let bambuLogin: BambuLogin | null = null;
+let bambuDirectory: string | null = null;
+let bambuCleanup: Promise<void> | null = null;
+let bambuStopped = false;
 
 function isCurrentRenderer(sender: WebContents): boolean {
   return isCurrentRendererSender(sender, mainWindow);
@@ -386,6 +394,40 @@ function registerIpc(): void {
     return summarizeElectronMemory(app.getAppMetrics());
   });
 
+  ipcMain.handle(Ipc.bambuRead, createBambuIpc(async kind => {
+    if (bambuUtility) return bambuUtility.read(kind);
+    if (kind === 'account.state') return unavailableBambuAccount() as import('../shared/bambu').BambuReadResults[typeof kind];
+    throw new Error('Bambu provider unavailable');
+  }, event => {
+    const request = event as Electron.IpcMainInvokeEvent;
+    return isCurrentRenderer(request.sender) && request.senderFrame === request.sender.mainFrame;
+  }));
+
+  ipcMain.handle(Ipc.bambuCommand, async (event, request: unknown) => {
+    if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame || !isBambuCommand(request)) throw new Error('Bambu IPC request rejected');
+    try {
+      if (!bambuUtility || !bambuLogin) throw new Error('Unavailable');
+      if (request.action === 'login') return await bambuLogin.open();
+      if (request.action === 'printers.refresh') return await bambuUtility.host('printers.refresh', null);
+      if (request.action === 'setting') {
+        if (request.key !== 'region' || !BAMBU_REGIONS.some(region => region === request.value)) return { ok: false, error: { code: 'invalid-setting', message: 'Select a supported region.' } };
+        if ((await bambuUtility.read('account.settings'))[0].value === request.value) return { ok: true, value: undefined };
+      }
+      bambuLogin.dispose();
+      return request.action === 'logout' ? await bambuUtility.host('account.logout', null)
+        : await bambuUtility.host('account.setting', { key: request.key, value: request.value });
+    } catch { return { ok: false, error: { code: 'unavailable', message: 'Bambu networking is unavailable.' } }; }
+  });
+
+  ipcMain.handle(Ipc.bambuPrinterCommand, async (event, request: unknown) => {
+    if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame || !isBambuPrinterCommand(request)) throw new Error('Bambu IPC request rejected');
+    try {
+      if (!bambuUtility) throw new Error('Unavailable');
+      return request.action === 'authorize' ? await bambuUtility.host('lan.authorize', { candidateId: request.candidateId, accessCode: request.accessCode })
+        : await bambuUtility.host('lan.forget', { deviceId: request.deviceId, expectedRevision: request.expectedRevision });
+    } catch { return { ok: false, error: { code: 'transport', message: 'Bambu networking is unavailable.' } }; }
+  });
+
   const printerConfigurationIpc = createPrinterConfigurationIpcHandlers({
     path: printerConfigurationPath,
     fs: {
@@ -397,6 +439,9 @@ function registerIpc(): void {
   ipcMain.handle(Ipc.printerConfigurationLoad, async (event) => printerConfigurationIpc.load(event.sender));
   ipcMain.handle(Ipc.printerConfigurationSave, async (event, document: unknown): Promise<void> => {
     await printerConfigurationIpc.save(event.sender, document);
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (isCurrentRenderer(window.webContents)) window.webContents.send(Ipc.printerConfigurationChanged);
+    }
   });
 
   const printerTransportIpc = createPrinterTransportIpcHandlers({
@@ -541,6 +586,20 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin' && !app.isPackaged) {
     app.dock?.setIcon(APP_ICON_PATH);
   }
+  bambuDirectory = process.env.ORCA_E2E === '1'
+    ? (process.env.ORCA_E2E_BAMBU_DIRECTORY ?? join(app.getPath('temp'), `orca-bambu-e2e-${process.pid}`)) : join(app.getPath('userData'), 'bambu');
+  try {
+    bambuUtility = new BambuUtility(join(__dirname, 'bambu-host.js'), bambuPaths({
+      packaged: app.isPackaged, resourcesPath: process.resourcesPath, projectRoot: join(__dirname, '../../../..'),
+      directory: bambuDirectory, platform: process.platform, arch: process.arch, osVersion: process.getSystemVersion(),
+    }));
+    bambuLogin = new BambuLogin(bambuUtility);
+    bambuUtility.onChanged(change => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (isCurrentRenderer(window.webContents)) window.webContents.send(Ipc.bambuChanged, change);
+      }
+    });
+  } catch { bambuUtility = null; }
   setupSessionHeaders();
   setupWebViewGuestSecurity();
   registerIpc();
@@ -566,6 +625,15 @@ app.on('before-quit', () => {
 });
 
 app.on('will-quit', (event) => {
+  if (!bambuStopped && bambuUtility) {
+    event.preventDefault();
+    bambuLogin?.dispose();
+    if (!bambuCleanup) bambuCleanup = bambuUtility.close().catch(() => undefined).then(async () => {
+      if (process.env.ORCA_E2E === '1' && !process.env.ORCA_E2E_BAMBU_DIRECTORY && bambuDirectory) await rm(bambuDirectory, { recursive: true, force: true }).catch(() => undefined);
+      bambuStopped = true; app.quit();
+    });
+    return;
+  }
   const cleanup = stopSlicerUtilities();
   if (cleanup) {
     event.preventDefault();

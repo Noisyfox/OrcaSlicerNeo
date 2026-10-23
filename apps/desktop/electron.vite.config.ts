@@ -27,14 +27,16 @@ export default defineConfig(({ mode }) => {
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       } },
-      build: { externalizeDeps: { exclude: ['yauzl', 'saxes'] }, rollupOptions: { input: {
+      build: { externalizeDeps: { exclude: ['yauzl', 'saxes', '@orca/bambu-native'] }, rollupOptions: { input: {
         index: resolve('src/main/index.ts'),
         'slicer-host': resolve('src/utility/slicer-host.ts'),
+        'bambu-host': resolve('src/utility/bambu-host.ts'),
+        ...(mode === 'e2e' ? { 'bambu-host-smoke': resolve('e2e/bambu-host-smoke.ts') } : {}),
         'slicer-worker': resolve('src/utility/slicer-worker.ts'),
         'recent-thumbnail-worker': resolve('src/utility/recent-thumbnail-worker.ts'),
       } } },
     },
-    preload: { resolve: { alias: { '@orca/printer-control': resolve(printerControlRoot, 'index.ts') } } },
+    preload: { build: { rollupOptions: { input: { index: resolve('src/preload/index.ts'), 'bambu-login': resolve('src/preload/bambu-login.ts') } } }, resolve: { alias: { '@orca/printer-control': resolve(printerControlRoot, 'index.ts') } } },
     renderer: {
       define: {
         __ORCA_E2E__: JSON.stringify(mode === 'e2e' || env.VITE_E2E === '1'),

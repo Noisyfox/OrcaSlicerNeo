@@ -3,6 +3,8 @@
 **Date:** 2026-09-09
 
 **Status:** Delivered shared architecture; current host/runtime boundaries.
+Section 4.2 records delivered service-provider contracts and native host
+execution and accepted development-host account flow.
 
 **Scope:** Refactor OrcaSlicerNeo so the same application functionality can ship
 as an Electron desktop application and a conventional static web application.
@@ -26,8 +28,12 @@ feature-equivalent interface:
    viewport.
 6. Download G-code.
 
-User-created preset repositories, cloud accounts/slicing, online profile
-updates, PWA/offline guarantees and richer startup recovery remain deferred.
+Local user-preset delivery and future synchronization are owned by
+[User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md).
+Electron Bambu account execution has passed development-host real-account
+acceptance; its scope and shared account boundary are recorded in section 4.2. Cloud
+slicing, online profile updates, PWA/offline guarantees and richer startup
+recovery remain deferred.
 Project configuration and explicit 3MF persistence are delivered under
 [Project and Scoped Configuration](Project%20and%20Scoped%20Configuration.md)
 and [3MF Project Persistence](3MF%20Project%20Persistence.md).
@@ -169,6 +175,237 @@ The platform contract carries a versioned menu model, complete state snapshot
 and guarded command dispatch. The shared app owns business availability;
 Electron owns native menu placement and validated preload/main IPC. Web owns
 browser download/link behavior. See [Application Shell](Application%20Shell.md).
+
+### 4.2 Service providers and accounts
+
+**Decision status:** The shared boundary and Electron-only Bambu native-addon
+direction are selected and implementation is authorized. Step 1 delivers the
+host-neutral [service-provider contracts](../packages/service-provider/src/index.ts)
+and platform account-capability injection. Account and printer interfaces are
+separate, with provider-owned account association. Step 2 adds common printer
+provider dispatch and reactive Device/Send catalogues while retaining Moonraker
+forms and console authentication. Electron now registers a Bambu account
+provider; Web retains an empty account list. Step 3 delivers the host-only
+native addon and
+pinned artifacts. Step 4 delivers the application-owned Bambu utility, typed
+read IPC, serialized local repository and real-plugin startup/shutdown. The
+Home login flow, isolated official-page bridge and provider settings are
+accepted on the macOS ARM64 development host with real China-region login,
+logout and remembered-login restart. Other regions/challenges and real-account
+authentication on the other hosts remain unverified.
+Step 6 registers the same Bambu provider for both account and printer
+capabilities, publishes validated Cloud account lists through the common Device
+catalogue, and retains unsupported control/upload/monitoring capabilities.
+LAN discovery/access are implemented and automatically accepted. Real LAN-only
+device qualification is deferred.
+Desktop build and packaging entry points now prepare the pinned native
+resources explicitly, and the six-target CI matrix uses matching native
+architectures with packaged-provider probes. Windows, Linux and macOS packages
+on x64 and ARM64 all pass real-plugin startup, configuration restart and
+isolated-login/system-browser handoff checks. The macOS ARM64 app also restores
+the real China-region account and Cloud catalogue across normal restart.
+
+Provider identity, account modeling and account methods belong in a shared
+contract module outside `printer-control`. They must be usable by services with
+no printer functionality, including future profile synchronization. The common
+provider boundary must not depend on the printer domain, Electron, Node.js,
+native plugin types or a vendor's authentication payloads.
+
+Account and printer capabilities are separate interfaces. A concrete provider
+offering both implements/extends both interfaces under the same provider
+identity. The printer interface does not inherit the account interface, and
+account support is not mandatory for a printer-only provider. Future profile
+synchronization is another capability with its own domain contract; it does not
+become a method on the printer service or a mandatory account capability.
+
+Printer consumers identify the provider and its printer/route identifiers;
+they do not supply or persist an account reference for discovery or printer
+operations. The provider owns the association with its current account,
+credential resolution, token refresh, account-change cleanup and rejection of
+stale results. It publishes the resulting device/route changes through the
+printer capability; consumers apply those changes without interpreting account
+identity. Common account contracts support login, logout and account-state
+presentation independently of printer functionality. Shared UI must not shuttle
+raw tokens between capabilities. Each provider has at most one logged-in account;
+different providers may be logged in concurrently. Bambu China and international
+regions belong to the same provider, not two independently active providers.
+Internally, Bambu account identity includes its region. Changing regions requires
+logout of the current account followed by login in the other region; it does not retain
+multiple regional sessions for quick switching. A cross-capability public
+account-reference format is not required for this integration. Bambu persistence
+follows the black-box plugin policy below. Account authentication
+does not itself authorize printer binding, profile synchronization or project
+changes. Profile/library transitions remain governed by
+[User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md#8-storage-synchronization-and-project-interchange).
+
+Expose Bambu login-region selection in application settings, following Orca's
+[Login region preference](../packages/slicer-wasm/cpp/src/slic3r/GUI/Preferences.cpp).
+Home initiates login using the saved region; it does not provide a separate
+region selector. The setting belongs to the Bambu provider, while account
+cleanup on region changes follows the rules below.
+After login, Home shows the account avatar next to the prominent display name,
+with the provider name underneath as secondary text and a default icon when the
+avatar is absent or unavailable. The Bambu host loads the public image
+without account credentials and supplies image data to the renderer, preserving
+its content security and cross-origin isolation policies. Image loading does
+not block account operations, and logout discards the image and pending load.
+On first use, default to `Others` and allow login without requiring an explicit
+region selection. Do not infer the region from system language or IP address.
+This uses Orca's unspecified-region fallback in
+[AppConfig::get_country_code](../packages/slicer-wasm/cpp/src/libslic3r/AppConfig.cpp).
+
+Future preset synchronization has a single designated account provider, following
+OrcaCloud's role in Orca. Other account providers may coexist for printer access,
+but do not each synchronize presets or contribute parallel synchronized preset
+libraries. This is a future capability boundary, not preset synchronization
+delivery in the Bambu phase.
+
+Account logout, whether explicitly requested or triggered by authentication
+expiry under Orca's error handling, removes that account's Cloud printer routes
+from Neo's saved configuration. A device with an independent LAN route remains
+saved; one with no remaining routes is removed. After re-login, a successful
+account-device fetch automatically restores the account's Cloud devices/routes;
+the user does not add each printer again. This is local cleanup, not
+cloud unbinding or deletion at the provider. Other providers' accounts and
+routes remain independent. Region changes use this same logout behavior.
+The printer-specific consequences are owned by
+[the printer domain](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design).
+Plugin error handling and logout calls follow Orca's behavior; an arbitrary
+transient network error is not itself an account logout.
+
+Bambu login uses an embedded, isolated Electron login window for the official
+page, with system-browser handoff and a local callback when the page requests
+it, following Orca's login flow. Login is remembered automatically across normal
+application shutdown/restart. Closing the application is not account logout.
+
+Neo uses its own host-owned configuration directory for the plugin and its own
+local LAN device configuration. The first delivery does not import or share an
+existing Orca installation's configuration, remembered LAN access codes or
+plugin session files. Users log in within Neo and enter LAN access codes on
+first use; subsequent launches restore Neo's own saved state. The plugin's
+private persistence remains opaque.
+
+For the first delivery, expose the login entry point only on Home. Account
+contracts and execution remain independent of the printer domain. After a
+system-browser handoff, closing the Neo login window does not cancel the current
+login attempt: its browser callback may still complete login, and Home then
+reflects the updated account state. This follows Orca's application-owned
+callback service rather than tying login completion to the window lifetime.
+See [Orca's login window lifecycle](../packages/slicer-wasm/cpp/src/slic3r/GUI/WebUserLoginDialog.cpp)
+and [browser callback handler](../packages/slicer-wasm/cpp/src/slic3r/GUI/HttpServer.cpp).
+
+While a provider's login window still exists, another Home login action brings
+that window to the foreground and preserves its page/input state, rather than
+starting a replacement login window. If the window has been closed, create a
+new one. This is an intentional host-UI difference from Orca's
+[ShowUserLogin](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_App.cpp),
+which recreates the dialog. It does not change the plugin-facing login flow or
+the application-owned browser callback lifetime described above.
+
+Treat `open-bamboo-networking` as a black box. Reproduce Orca's plugin-facing
+call pattern for the selected login/discovery scope: lifecycle ordering,
+parameters, callback registration/dispatch, login completion, restoration,
+connection, errors and logout. Electron replaces the wxWidgets host without
+changing those protocol-facing semantics. Account/profile capabilities remain
+separate public interfaces; this does not import Orca's combined cloud API or
+its unrelated features into Neo.
+
+The plugin owns Bambu session persistence and refresh. Provide its host-owned
+configuration directory and use the exposed lifecycle/status/login/logout
+functions as Orca does. Do not read or rewrite private auth files, call internal
+functions or Bambu REST endpoints to bypass the plugin, replace its token
+refresh policy, or change plugin-specific configuration to suppress behavior
+required by the Orca call pattern. Neo may handle ABI-returned login data within
+the native host as Orca does; shared UI never receives raw tokens. Normal
+shutdown preserves the plugin session rather than invoking user logout.
+
+Startup restoration and post-login connection may perform network I/O. This
+explicit Bambu lifecycle decision supersedes the earlier proposed on-demand
+authentication and no-background-connection restrictions for Bambu. Local
+catalogue/configuration methods still do not initiate new probes themselves;
+they do not promise that an already initialized plugin is network-idle.
+Moonraker's request-driven behavior remains unchanged. Do not claim control,
+monitoring or synchronization delivery merely because the plugin maintains a
+connection internally. The Orca call sites and qualification boundary are
+recorded in the printer specification.
+
+For the first Bambu integration, the selected approach is a Node-API native
+addon wrapping `open-bamboo-networking` in an Electron utility process. Native
+network execution stays outside the renderer and slicing runtime. Shared UI
+uses injected public capability contracts; plugin loading, browser callbacks,
+plugin configuration-directory ownership and IPC belong to the Electron
+implementation. Bambu uses one application-owned provider utility process shared
+by all windows and provider capabilities. Closing a device page or an individual
+window does not destroy the provider instance or log out its account. Normal
+application shutdown closes the process and releases its resources while
+preserving remembered login. This is separate from the window-owned slicing
+utility process.
+
+Ship a fixed compatible version of `open-bamboo-networking` with the Electron
+application, validated and released together with the native adapter. No
+first-use plugin download or user-managed plugin installation is part of the
+first delivery. Plugin updates are delivered through Neo application updates.
+Use upstream precompiled release artifacts, pinning their version and file
+checksums; Neo does not build the plugin from source. Follow Orca's common-header
+integration: reuse its shared plugin data/callback declarations and typed
+function-pointer signatures across platforms. Platform-specific code selects
+the matching library artifact and resolves its symbols with the native loader;
+do not create platform-specific ABI definitions or a separate per-platform
+ABI/dependency qualification workstream. Normal builds and feature verification
+still apply.
+
+The first delivery targets all six existing Electron platforms: Windows x64
+and ARM64, macOS Intel/x64 and Apple Silicon/ARM64, and Linux x64 and ARM64.
+Each package must include matching plugin and adapter artifacts. These are
+delivery targets, not a claim of completed builds or feature validation. The
+upstream release is pinned to `v2.2.0`, using its `02.08.01` library series;
+missing upstream binaries or
+actual build/load failures remain delivery gaps, not authorization to
+silently compile a replacement or drop a selected target.
+
+For the first delivery, assume the independent provider process remains stable.
+Provider-process crash handling is explicitly out of scope: do not add automatic
+restart, restart backoff, a manual crash-recovery flow or a crash-recovery state
+machine. This is a delivery assumption, not evidence that crashes are impossible.
+Normal startup, shutdown and Orca-compatible plugin/API error handling remain
+in scope; the exclusion does not remove ordinary resource cleanup.
+
+Only Electron execution is selected for this phase. The contracts remain shared
+so a later host or network service can implement them without redefining the
+account or printer domain. This does not deliver a Web provider, gateway or
+browser-compatible native plugin. Unsupported hosts must not advertise Bambu
+execution merely because they can import its interfaces. Local Web slicing and
+existing Moonraker behavior remain independent of this integration. Mobile
+account/provider execution is deferred along with mobile product support.
+
+Remaining engineering design and verification work is grouped below. It must
+preserve the selected product behavior and provider ownership boundaries:
+
+| Group | Remaining work |
+| --- | --- |
+| Authentication and credentials | Specify the public account methods and host request/state representation; map unavailable plugin/session state and superseded login results using Orca's applicable calls and errors. Window reuse and browser-handoff lifetime are already selected above. |
+| Discovery and adoption | Specify provider-internal identity association and stale-result handling, within the selected cloud auto-enumeration, LAN access-code and route-removal behavior. Consumers do not supply account references. |
+| Native host and delivery | Exact upstream binary release; ordinary build/feature verification and real-account/device acceptance. All six Electron targets are selected; use Orca's common headers and loader pattern. Orca configuration import and process crash recovery are excluded from the first delivery. |
+
+Authentication is handled by the provider, with account summaries available
+locally. The public account request/state contract is defined in the service-provider
+module; native transport/state handling must respect the selected window-close behavior. The Home-only login entry point, embedded
+login with external handoff, remembered login and Orca-compatible black-box
+plugin execution are accepted as described above. Existing stateless
+public printer access remains unchanged; internal plugin lifecycle is host-owned.
+
+The Bambu-specific scope and feasibility limits are owned by
+[Printer Domain and Control Architecture](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design).
+Its [implementation and acceptance sequence](Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence)
+defines eight independently reviewable increments, their dependencies and the
+evidence required before each is complete. Steps 1–3 are delivered; application
+Bambu Cloud enumeration and the application-owned provider
+process/account flow are validated on macOS ARM64, including real
+China-region login/logout/restart and Cloud devices in the common Device
+surface. LAN discovery/access are implemented, with real-device qualification
+deferred. Six-target packaging and packaged-provider startup are accepted;
+other regions/challenges and real-account authentication on the other hosts
+remain unverified.
 
 ## 5. Runtime and WASM Loading
 
@@ -459,8 +696,10 @@ high-risk task gate.
 - Mobile Chrome product support; every new feature must nevertheless assess it.
 - Profile package validation, signatures, hashes, compatibility gates,
   independent online updates and rollback.
-- Cloud accounts, cloud profile delivery/synchronization, user-created profile
-  persistence, and conflict resolution.
+- Cloud account execution (Electron Bambu login has a selected design in
+  section 4.2), cloud profile delivery/synchronization and cloud conflict
+  resolution. Local user-preset persistence is delivered under its own
+  [specification](User%20Preset%20Repository%20and%20Versioning.md).
 - Generated G-code/result persistence; explicit project input persistence
   and drag-and-drop are already delivered.
 - Remote slicing implementation.

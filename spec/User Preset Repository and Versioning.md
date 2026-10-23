@@ -884,6 +884,24 @@ without pretending it is a new project operation.
 
 ## 8. Storage, synchronization and project interchange
 
+The selected [common provider/account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts)
+owns account identity and authentication outside `printer-control`. Future
+profile synchronization is a separate provider capability that can share an
+account with printer functionality without depending on the printer interface.
+A provider offering both accounts and printers implements both contracts;
+neither Bambu login nor printer discovery enables profile synchronization in
+this phase. Account libraries and cloud synchronization remain design only.
+
+Only one designated account provider is responsible for future preset
+synchronization, following OrcaCloud's role in Orca. Other providers may be
+logged in for printer access without participating in preset synchronization.
+Do not introduce parallel per-provider synchronized preset libraries or require
+printer consumers to pass account references to support this future capability.
+The designated provider's account transitions still obey the snapshot and
+isolation rules below. In the checked-in Orca reference,
+[GUI_App.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_App.cpp)
+limits account preset loading on login to `ORCA_CLOUD_PROVIDER`.
+
 Proposed repository adapters are Electron JSON folders and Web IndexedDB under
 one shared contract. Keep account credentials outside profile files. Use native
 serialization for inherited/sparse/vector configuration; do not serialize form

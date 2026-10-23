@@ -33,8 +33,13 @@ export const Ipc = {
   recentReveal: 'recent:reveal',
   preferencesLoad: 'preferences:load',
   preferencesSave: 'preferences:save',
+  bambuRead: 'bambu:read',
+  bambuCommand: 'bambu:command',
+  bambuPrinterCommand: 'bambu:printer-command',
+  bambuChanged: 'bambu:changed',
   printerConfigurationLoad: 'printerConfiguration:load',
   printerConfigurationSave: 'printerConfiguration:save',
+  printerConfigurationChanged: 'printerConfiguration:changed',
   printerTransportRequest: 'printerTransport:request',
   printerTransportCancel: 'printerTransport:cancel',
   printerTransportProgress: 'printerTransport:progress',
@@ -72,6 +77,7 @@ export function isMenuCommandId(value: unknown): value is MenuCommandId {
 export type HostCommandId = 'quit' | 'open-configuration-folder';
 
 export interface ElectronBridge {
+  bambu: import('./bambu').BambuBridge;
   connectSlicerRuntime(): void;
   version: string;
   openFileDialog(filters: FileDialogFilter[]): Promise<OpenFileResult>;
@@ -111,6 +117,7 @@ export interface ElectronBridge {
     configuration: {
       load(): Promise<PrinterConfigurationDocument>;
       save(document: PrinterConfigurationDocument): Promise<void>;
+      onChanged(listener: () => void): () => void;
     };
     transport: {
       request(requestId: string, request: PrinterTransportIpcRequest): Promise<PrinterTransportIpcResponse>;

@@ -1,6 +1,6 @@
 # Documentation Index
 
-**Updated:** 2026-10-21
+**Updated:** 2026-10-22
 
 Specifications own accepted behavior, required constraints, exclusions and open
 decisions; engineering references own build/debug/verification procedures.
@@ -18,6 +18,7 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Topic | Maintained authority |
 | --- | --- |
 | Shared hosts, runtime and preferences | [Web–Electron architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md) |
+| Common service providers, accounts and capability boundaries | [Shared provider/account design](../spec/Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts) (shared contracts and Electron Bambu account execution delivered; six-target packaging/startup accepted, separate real-account/hardware limits recorded) |
 | Chrome, controls, layout and diagnostics | [Application Shell](../spec/Application%20Shell.md) |
 | Prepare/Preview navigation and lifetime | [Workspace modes](../spec/Workspace%20Prepare%20and%20Preview%20Modes.md) |
 | Picking, transforms, camera and rendering | [Viewport Interaction](../spec/Viewport%20Interaction.md) |
@@ -37,7 +38,7 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Colour editing | [Reusable Color Picker](../spec/Reusable%20Color%20Picker.md) |
 | Toolpath inspection and rendering | [G-code Preview](../spec/G-code%20Preview%20v2.md), [GPU Streaming Renderer](../spec/G-code%20Preview%20GPU%20Streaming%20Renderer.md) |
 | Device console and upload/print | [Printer Console](../spec/Printer%20Console%20and%20Control%20Integration.md) |
-| Printer discovery, capabilities, materials, sensors, cameras and remote files | [Printer Domain and Control Architecture](../spec/Printer%20Domain%20and%20Control%20Architecture.md) (domain interfaces and existing Moonraker subset integrated; other agents and gateway deferred) |
+| Printer discovery, capabilities, materials, sensors, cameras and remote files | [Printer Domain and Control Architecture](../spec/Printer%20Domain%20and%20Control%20Architecture.md) (Moonraker subset delivered; Electron Bambu [implementation and acceptance sequence](../spec/Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence) records accepted account/Cloud behavior and six-target packaging/startup; LAN hardware and broader real-account qualification remain open, gateway deferred) |
 | Electron utility, temporary files and proposed Python | [Native Python Plugin Architecture](../spec/Native%20Python%20Plugin%20Architecture.md) (host work delivered; Python remains design work) |
 
 ## Engineering references

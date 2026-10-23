@@ -1,3 +1,4 @@
+import { createPrinterService } from '@orca/printer-control';
 import {
   MODEL_FILE_ACCEPT,
   NO_RECENT_PROJECTS,
@@ -43,7 +44,16 @@ export function createBrowserPrinterConfigurationRepository(
   storage: Storage = localStorage,
 ): PrinterConfigurationRepository {
   let inMemory = emptyPrinterConfigurationDocument();
+  const listeners = new Set<() => void>();
   return {
+    onChanged(listener) {
+      listeners.add(listener);
+      const onStorage = (event: StorageEvent) => {
+        if (event.storageArea === storage && (event.key === PRINTER_CONFIGURATION_STORAGE_KEY || event.key === null)) listener();
+      };
+      window.addEventListener('storage', onStorage);
+      return () => { listeners.delete(listener); window.removeEventListener('storage', onStorage); };
+    },
     async load() {
       let raw: string | null;
       try {
@@ -69,6 +79,9 @@ export function createBrowserPrinterConfigurationRepository(
         storage.setItem(PRINTER_CONFIGURATION_STORAGE_KEY, JSON.stringify(normalized));
       } catch {
         // Storage can be disabled or out of quota; keep this session usable.
+      }
+      for (const listener of listeners) {
+        try { listener(); } catch { /* A view cannot invalidate an already saved document. */ }
       }
     },
   };
@@ -140,13 +153,17 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
         inMemory = normalized;
       },
     },
+    accounts: [],
     printers: {
       configuration: printerConfiguration,
-      service: createMoonrakerService({
-        configuration: printerConfiguration,
-        transport: createBrowserPrinterTransport(),
-        host: { id: 'browser' as Id<'agent-host'>, name: 'Browser', execution: 'browser' },
-      }),
+      service: createPrinterService([{
+        id: 'moonraker' as Id<'provider'>, name: 'Moonraker',
+        printers: createMoonrakerService({
+          configuration: printerConfiguration,
+          transport: createBrowserPrinterTransport(),
+          host: { id: 'browser' as Id<'agent-host'>, name: 'Browser', execution: 'browser' },
+        }),
+      }]),
     },
     webview: createBrowserWebViewHost(),
     runtime,

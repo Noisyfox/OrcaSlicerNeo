@@ -32,7 +32,7 @@ function setup(overrides: Record<string, unknown> = {}) {
       list: vi.fn(async () => []), thumbnail: vi.fn(async () => null), open: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
       record: vi.fn(async () => {}), remove: vi.fn(async () => {}), clear: vi.fn(async () => {}), reveal: vi.fn(async () => {}),
     };
-    const host = { preferences: { load, save }, projects, recentProjects, printers: { configuration: { load: configurationLoad, save: configurationSave }, transport }, menu, externalLinks, platform: 'win32', ...overrides };
+    const host = { bambu: { read: vi.fn(async (kind: string) => kind === 'printers.saved' ? { ok: true, value: [] } : { status: 'signed-out', error: null }), onChanged: () => () => {}, command: vi.fn(async () => ({ ok: true, value: undefined })) }, preferences: { load, save }, projects, recentProjects, printers: { configuration: { onChanged: () => () => {}, load: configurationLoad, save: configurationSave }, transport }, menu, externalLinks, platform: 'win32', ...overrides };
     vi.stubGlobal('window', { orca: host });
     return { host, adapter: createElectronAdapter({} as never), load, save, menu, externalLinks, configurationLoad, configurationSave, transport };
 }
