@@ -77,7 +77,7 @@ expanded; Workspace collapse preferences remain separate.
 Deleting a printer route requires confirmation. Adding or editing a printer opens a
 configuration dialog.
 
-Monitor currently provides explicit Refresh for supported status, sensor and
+The delivered Monitor currently provides explicit Refresh for supported status, sensor and
 heater-target readings, plus capability-gated Pause, Resume and Cancel print.
 Selecting a printer or entering Monitor does not start reads, polling or control
 commands. Missing readings remain unreported; failed reads retain previous
@@ -85,7 +85,9 @@ values with an error indication. Commands carry the selected route and its
 configuration revision; unknown outcomes ask the user to check the printer and
 are never automatically retried. Camera viewing and additional motion, material,
 and actuator cards remain future work. Current Bambu enumeration alone does not
-establish Monitor eligibility.
+establish Monitor eligibility. The accepted Bambu observation behavior below
+supersedes manual-only entry for that planned implementation; it does not change
+Moonraker's request-driven behavior.
 
 ### Bambu control design
 
@@ -117,7 +119,8 @@ content area without an empty video panel. A header identifies the printer,
 route and observation freshness. Task controls appear before temperature,
 actuator and motion cards; material units and tool paths form a dedicated area.
 Calibration, material editing and advanced settings can use dialogs. Exact card
-order, dialog grouping and selection persistence remain reviewable. Desktop
+order and dialog grouping remain reviewable. Selection persistence is defined
+under Console selection and behavior below. Desktop
 layout should accommodate narrow windows through internal scrolling and fewer
 columns; mobile support remains deferred.
 
@@ -143,16 +146,43 @@ project are not automatically added to this control scope. Current-print
 thumbnails, object skipping and camera-related settings require explicit scope
 decisions; omitting file browsing or video does not resolve their dependencies.
 
-#### Interaction decisions under review
+#### Accepted observation and access behavior
 
-Current production behavior remains manual Refresh as described above. The
-candidate Bambu behavior is automatic push observation while its control view is
-visible, with cached readings retained across navigation. Entry triggers,
-background observation and connection retention require clarification before
-changing the current behavior. UI visibility and native connection ownership
-are different: hiding a mounted React view must not accidentally retain a UI
-subscription, and releasing that subscription does not by itself define whether
-the shared plugin connection is closed. Moonraker remains request-driven.
+Selecting a Bambu printer and showing its control view automatically starts
+state acquisition and live monitoring; no Connect or Start monitoring action is
+required. Leaving Device for Home or Workspace pauses hidden-view updates but
+retains the provider connection, background state reception and cache updates.
+Outstanding operations continue to be tracked. Returning to the view displays
+the latest available state with its actual freshness. UI visibility, provider
+observation and operation lifetime are separate; hidden-page rendering must not
+be required to maintain device state. Moonraker remains request-driven.
+
+For Bambu control, choose the Cloud route whenever it exists; use an authorized
+LAN route only when no Cloud route exists. Do not provide a manual route switch.
+A LAN discovery announcement alone is not an authorized route. Temporary Cloud
+failure retains the Cloud choice, reports the connection problem and marks
+retained readings stale; it does not trigger automatic LAN fallback. Removing
+the Cloud route, for example on logout, is a catalogue change: a retained LAN
+route then becomes eligible under the same selection rule. Commands already
+dispatched keep their original route and outcome; changing the catalogue must
+not replay them on LAN. Connection recovery on the selected route is distinct
+from cross-route fallback.
+
+Each main desktop window is a complete independent Electron application
+instance, as defined by the
+[application shell](Application%20Shell.md#host-and-page-lifetime). Single-instance
+multi-main-window operation is not supported. Each instance owns its current
+selection, provider runtime, connections, observation cache and operations.
+There is no cross-instance live selection synchronization or shared-connection
+takeover UI. Persisting a last-selected device is a startup preference, not a
+mechanism for changing the selection of another running instance. This decision
+does not prescribe separate on-disk user-data directories.
+
+These are accepted design changes, not claims that current production code
+already implements them. Printer-selection persistence applies to all providers
+as specified below, independently of Bambu-specific monitoring policy.
+
+#### Remaining interaction decisions under review
 
 The following groups organize the remaining design decisions. Resolve questions
 interactively, one at a time, using the checked-in Orca implementation as a
@@ -161,11 +191,10 @@ sections rather than appending an answer log or editing after each answer.
 
 | Group | Decisions to resolve together |
 | --- | --- |
-| Observation and access | Start/stop triggers, behavior away from Device, Cloud/LAN selection and fallback, selection persistence, and contention between windows or devices. |
 | Feature and interaction scope | Advanced settings/calibration coverage, inline errors and recovery, thumbnails/object skipping, confirmation dialogs and final card organization. |
 | H2D and materials | Actual AMS hardware/routing, tool/path selection, metadata editing sources, load/unload temperature policy and drying options. |
 | Command and failure semantics | Confirmation evidence per command, operation visibility/retention, deduplication and timeout behavior, availability checks and recovery presentation. |
-| Qualification | Initial routes/hosts, representative device states and permitted physical operations, broader-model claims and release acceptance boundaries. |
+| Qualification | Initial routes/hosts, representative device states and permitted physical operations, independent-instance behavior and persistence, broader-model claims and release acceptance boundaries. |
 
 Reference behavior comes from the checked-in Orca revision identified in the
 [provider specification](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design),
@@ -198,10 +227,22 @@ require authentication.
 
 ## Console selection and behavior
 
-The Device console selection is always explicit and is not saved. Adding a
-printer does not select it automatically. If the selected printer is deleted,
-the selection becomes empty and the console shows an empty state rather than
-silently selecting another printer.
+**Accepted selection-persistence change; implementation pending:** Remember the
+last printer explicitly selected from Device's saved list, for every provider,
+not only Bambu. On the first entry into Device after application restart, restore
+that physical device if it still exists in the successfully loaded catalogue.
+Do not choose an arbitrary replacement when it is absent. Loading or failed
+catalogue reads do not establish absence. Persist the device identity, not a
+forced Bambu route; route choice follows the policy above. Restoring Bambu starts
+monitoring when its control view is shown. Restoring a request-based printer
+preserves that provider's existing access policy rather than enabling polling.
+The current implementation still uses an ephemeral selection until this change
+is implemented.
+
+Adding a printer does not select it automatically. If the selected printer is
+deleted, the selection becomes empty and the console shows an empty state rather
+than silently selecting another printer. Send and Send & Print retain their
+independent, non-persistent target selection.
 
 Selecting a printer opens its configured console in the right-hand card. The
 console is a focused printer-management surface, not a general browser: the

@@ -446,8 +446,10 @@ Do not silently substitute a source build or omit a platform when an upstream
 artifact is missing or incompatible.
 
 The [shared architecture](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts)
-owns the application-wide Bambu provider utility process, shared across windows
-and independent of the slicing runtime. The first delivery assumes this process
+owns one Bambu provider utility per independent Electron application instance,
+shared by account/printer capabilities and independent of the slicing runtime.
+Separate main windows are separate application instances, not consumers of a
+cross-instance provider. The first delivery assumes this process
 is stable and excludes provider-process crash handling, automatic restart and
 manual crash recovery. Normal startup/shutdown cleanup and Orca-compatible
 plugin/API errors remain in scope. Do not make crash-recovery scenarios a
@@ -569,7 +571,8 @@ Keep Moonraker forms and its native Web console behavior. A discovery-only
 Bambu device may appear in the list without a monitor, embedded console or
 send/print action. Add only the capability-driven presentation needed for this
 delivery, not the full future device-page suite. Provider-driven additions,
-updates and removals must reach all open windows without a UI account lookup.
+updates and removals must reach all subscribed consumers within the application
+instance without a UI account lookup.
 
 **Acceptance:** Deterministic provider fixtures prove dispatch isolation,
 catalogue updates, one Bambu identity with Cloud/LAN routes, allowed LAN
@@ -627,20 +630,23 @@ account state and discovery projection still belong to later steps.
 
 #### Step 4 — Shared Electron provider process and IPC
 
-Host the addon in one application-owned Bambu utility process, independent of
-the slicing utility and shared by windows and account/printer capabilities.
+Host the addon in one Bambu utility process per Electron application instance,
+independent of the slicing utility and shared by account/printer capabilities.
 Implement the main/preload/utility bindings for the selected contracts, normal
 startup/shutdown and callback dispatch. Apply Orca's configuration-directory,
 certificate, region, callback-registration and start ordering; keep Neo's
 configuration independent of Orca. Map native results into typed host replies
 and events, with no tokens or saved access codes in public snapshots or logs.
 Establish one host-owned Bambu device/credential repository for the later Cloud
-and LAN steps, so renderer windows cannot overwrite each other's saved state.
+and LAN steps, so concurrent consumers within the instance cannot overwrite
+each other's saved state. This serialization alone is not evidence of
+cross-process persistence coordination.
 The official login window must not inherit the application's privileged preload.
 
-**Acceptance:** Focused Electron integration proves one provider instance across
-two windows, continued provider lifetime after a page/window closes, correct
-event routing, and cleanup on normal application shutdown without logout.
+**Acceptance:** Focused Electron integration proves one provider per application
+instance, continued lifetime across page navigation, correct event routing and
+cleanup on normal instance shutdown without logout. Separate application
+instances do not share live provider state or retarget each other's selection.
 Exercise the real plugin's ordinary startup on the development host and compare
 the applicable call sequence with Orca. Malformed IPC/native results fail at
 the boundary. Do not add crash/restart/backoff tests or recovery machinery.
@@ -663,6 +669,9 @@ reading, and exits normally. Deterministic tests cover lifecycle ordering,
 serialized persistence and IPC rejection. Six-target packaged-runtime
 acceptance is recorded in step 8. Public account and printer registration remains absent
 at this step; the host's printer projection is empty.
+The two-window smoke is existing host-boundary test evidence, not a supported
+single-instance multi-main-window product model or proof of independent-instance
+qualification.
 
 #### Step 5 — Account login as a complete user flow
 
@@ -730,8 +739,8 @@ not select a print target or claim control/upload support.
 surface. Deterministic cases cover additions, renames, absent devices, empty
 lists, failed refreshes, logout/re-login and responses arriving after account
 changes. A LAN-route fixture proves Cloud cleanup cannot delete that route;
-the combined real LAN case follows in step 8. Multiple windows see the same
-provider result without duplicate saved devices.
+the combined real LAN case follows in step 8. Subscribed consumers within one
+instance see the same provider result without duplicate saved devices.
 
 **Implemented boundary:** The [device owner](../apps/desktop/src/utility/bambu/devices.ts)
 consumes the plugin's complete `devices` result, keyed by `dev_id`, with Orca's
@@ -926,23 +935,32 @@ provider. Emit coherent topic snapshots/replacements with route and configuratio
 provenance. Late events from removed routes, superseded connections or logged-out
 accounts must not repopulate current observations.
 
-The utility coordinates shared native state across consumers. Existing
+Each independent application's utility coordinates native state across its own
+account/printer consumers. Existing
 [LAN access](../apps/desktop/src/utility/bambu/lan.ts) maintains one active device,
 and Orca's
 [device selection](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevManager.cpp)
-switches LAN connections or the selected Cloud device. Do not infer independent
-per-window connections from the stateless public API. The candidate design shares
-same-target observations and reports contention when different targets cannot
-coexist. Whether to allow explicit takeover, how to select Cloud versus LAN, and
-when to release observation demand are pending decisions. Cloud subscription
-multiplicity requires verification rather than assuming LAN limitations apply
-unchanged. No silent cross-route retry may duplicate a dispatched command.
+switches LAN connections or the selected Cloud device. Neo does not support
+multiple main windows sharing one application instance; do not add a shared
+selection, window contention or connection-takeover protocol between independent
+instances. Within an instance, native target changes must still preserve the
+target and outcome of pending operations and reject obsolete callbacks.
+
+For Bambu control, a present Cloud route takes precedence over an authorized LAN
+route. There is no manual route switch and no automatic LAN fallback after
+Cloud failure. A successful catalogue change that removes Cloud may select a
+retained LAN route; already-dispatched commands remain bound to their original
+route and are not replayed. No route union or transient read failure may invent
+capabilities or change this policy.
 
 UI observation lifetime, provider connection lifetime and operation lifetime are
 separate. Stopping a view subscription does not cancel a physical operation.
-Exact background-observation and connection-retention policy is owned by the
-console specification's pending interaction decisions. Preserve request-driven
-Moonraker semantics while resolving Bambu's policy.
+Bambu observation starts automatically when the selected printer's control view
+is shown. Leaving that view pauses hidden UI updates while the provider retains
+the connection, receives status and updates its cache. Outstanding operations
+continue to be tracked. The console specification owns these accepted behaviors
+and restoration of the last selected Device printer across all providers.
+Restoring a Moonraker selection does not authorize background observation.
 
 #### Contract extension boundaries
 
@@ -988,7 +1006,8 @@ Qualification must cover independently reviewable boundaries: contract
 construction; read-only monitoring and route lifecycle; basic controls;
 material/tool routing; and the agreed advanced controls. Deterministic fixtures
 cover complete/incremental data, unsupported or missing readings, stale routes,
-multi-window contention, deduplication and uncertain command outcomes. Physical
+independent-instance isolation, device-selection changes, deduplication and
+uncertain command outcomes. Physical
 H2D + AMS evidence must establish the operations and Cloud/LAN routes actually
 claimed. The precise AMS hardware and first route to qualify remain unconfirmed;
 passing one route or model does not qualify another.

@@ -334,12 +334,14 @@ addon wrapping `open-bamboo-networking` in an Electron utility process. Native
 network execution stays outside the renderer and slicing runtime. Shared UI
 uses injected public capability contracts; plugin loading, browser callbacks,
 plugin configuration-directory ownership and IPC belong to the Electron
-implementation. Bambu uses one application-owned provider utility process shared
-by all windows and provider capabilities. Closing a device page or an individual
-window does not destroy the provider instance or log out its account. Normal
-application shutdown closes the process and releases its resources while
-preserving remembered login. This is separate from the window-owned slicing
-utility process.
+implementation. Following the [application-instance boundary](Application%20Shell.md#host-and-page-lifetime),
+each independent Electron application instance owns one Bambu provider utility
+shared by its account and printer capabilities. Single-instance multiple main
+windows and cross-instance utility sharing are not supported product behavior.
+Leaving Device or closing an auxiliary window does not destroy the provider or
+log out its account. Normal shutdown of that application instance closes its
+provider process and releases resources while preserving remembered login.
+This is separate from the slicing utility process.
 
 Ship a fixed compatible version of `open-bamboo-networking` with the Electron
 application, validated and released together with the native adapter. No

@@ -6,6 +6,13 @@
 
 ## Host and page lifetime
 
+Each main desktop window is a complete independent Electron application
+instance. Single-instance multi-main-window operation is not supported. Runtime
+services and live device selection belong to that instance; separate instances
+do not synchronize selection or share a provider utility. Auxiliary login or
+diagnostic windows are not additional main application instances. This product
+boundary does not by itself prescribe separate on-disk user-data directories.
+
 The application lives in `packages/slicer-app`; hosts inject platform services
 under the [shared architecture](Web-Electron%20Shared%20Application%20Architecture.md).
 Home, Prepare, Preview and Device remain mounted while the application is ready.
