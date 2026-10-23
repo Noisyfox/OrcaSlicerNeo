@@ -358,22 +358,24 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true }: 
                 </TooltipFor>
               </div>
             </div>
-            <Select value={selectedPrinterId} onValueChange={value => { setSelectedPrinterId(value); setSelectedPage('web'); }} items={printers.map(printer => ({ value: printer.identity.id, label: printer.identity.displayName }))}>
-              <SelectTrigger className="w-full min-w-0" disabled={!configurationLoaded || printers.length === 0} aria-label="Select printer" data-testid="device-printer-select">
-                <SelectValue className="truncate" placeholder="Select a printer" />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {printers.map(printer => <SelectItem key={printer.identity.id} value={printer.identity.id} data-testid={`device-select-${printer.identity.id}`}>{printer.identity.displayName}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {selectedPrinter && <div className="flex items-center justify-end gap-1">
-              {selectedPrinter.routes.some(route => route.providerId === 'moonraker' && route.management.configure) && <TooltipFor content={`Edit ${selectedPrinter.identity.displayName}`}>
-                <Button size="icon-xs" variant="ghost" onClick={() => void beginEdit(selectedPrinter)} aria-label={`Edit ${selectedPrinter.identity.displayName}`} data-testid={`device-edit-${selectedPrinter.identity.id}`}><Pencil /></Button>
-              </TooltipFor>}
-              {selectedPrinter.routes.filter(route => route.management.forget).map(route => <TooltipFor key={route.id} content={`Delete ${selectedPrinter.identity.displayName} (${route.label})`}>
-                <Button size="icon-xs" variant="ghost" onClick={() => beginDelete(selectedPrinter, route)} aria-label={`Delete ${selectedPrinter.identity.displayName} (${route.label})`} data-testid={`device-delete-${selectedPrinter.identity.id}`}><Trash2 /></Button>
-              </TooltipFor>)}
-            </div>}
+            <div className="flex min-w-0 items-center gap-1">
+              <Select value={selectedPrinterId} onValueChange={value => { setSelectedPrinterId(value); setSelectedPage('web'); }} items={printers.map(printer => ({ value: printer.identity.id, label: printer.identity.displayName }))}>
+                <SelectTrigger className="min-w-0 flex-1" disabled={!configurationLoaded || printers.length === 0} aria-label="Select printer" data-testid="device-printer-select">
+                  <SelectValue className="truncate" placeholder="Select a printer" />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {printers.map(printer => <SelectItem key={printer.identity.id} value={printer.identity.id} data-testid={`device-select-${printer.identity.id}`}>{printer.identity.displayName}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {selectedPrinter && <div className="flex shrink-0 items-center gap-1">
+                {selectedPrinter.routes.some(route => route.providerId === 'moonraker' && route.management.configure) && <TooltipFor content={`Edit ${selectedPrinter.identity.displayName}`}>
+                  <Button size="icon-xs" variant="ghost" onClick={() => void beginEdit(selectedPrinter)} aria-label={`Edit ${selectedPrinter.identity.displayName}`} data-testid={`device-edit-${selectedPrinter.identity.id}`}><Pencil /></Button>
+                </TooltipFor>}
+                {selectedPrinter.routes.filter(route => route.management.forget).map(route => <TooltipFor key={route.id} content={`Delete ${selectedPrinter.identity.displayName} (${route.label})`}>
+                  <Button size="icon-xs" variant="ghost" onClick={() => beginDelete(selectedPrinter, route)} aria-label={`Delete ${selectedPrinter.identity.displayName} (${route.label})`} data-testid={`device-delete-${selectedPrinter.identity.id}`}><Trash2 /></Button>
+                </TooltipFor>)}
+              </div>}
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {loadFailed && printers.length > 0 && <p role="alert" className="p-2 text-xs text-muted-foreground">Unable to refresh printers. Showing the last available list.</p>}
