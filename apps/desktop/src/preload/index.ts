@@ -73,6 +73,7 @@ const bridge: ElectronBridge = {
   },
 
   bambu: {
+    command: request => ipcRenderer.invoke(Ipc.bambuCommand, request),
     read: <K extends BambuRead>(request: K) => ipcRenderer.invoke(Ipc.bambuRead, request) as Promise<BambuReadResults[K]>,
     onChanged: listener => {
       const handler = (_event: IpcRendererEvent, change: unknown) => { if (isBambuChange(change)) listener(change); };

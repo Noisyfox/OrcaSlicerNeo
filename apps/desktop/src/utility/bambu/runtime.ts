@@ -3,11 +3,14 @@ import { join } from 'node:path';
 import { loadBambuNative, type BambuNative, type NativeEvent } from '@orca/bambu-native';
 import type { AccountState } from '@orca/service-provider';
 import { bambuRegionChoices, unavailableBambuAccount, type BambuChange, type BambuHostConfig, type BambuRead, type BambuReadResults } from '../../shared/bambu';
+import { BambuAccount, bambuCountry } from './account';
+import type { BambuHostRequest } from '../../shared/bambuHost';
 import { BambuRepository } from './repository';
 
 /** Native agent lifecycle and local state are application-owned, never window-owned. */
 export class BambuRuntime {
   private native: BambuNative | null = null;
+  private account: BambuAccount | null = null;
   private state: AccountState = { status: 'restoring', error: null };
   private ready: Promise<void>;
   private readonly repository: BambuRepository;
@@ -30,7 +33,7 @@ export class BambuRuntime {
       await ok(agent.initLog());
       await ok(agent.setCertificate(this.config.certificateDirectory, 'slicer_base64.cer'));
       await ok(agent.installCallbacks());
-      const country = settings.region === 'China' ? 'CN' : ['Europe', 'NorthAmerica'].includes(settings.region) ? 'US' : 'Others';
+      const country = bambuCountry(settings.region);
       await ok(agent.setCountryCode(country));
       // BBLCloudServiceAgent::start installs these headers before the native start call.
       await ok(agent.setExtraHttpHeaders({
@@ -42,30 +45,33 @@ export class BambuRuntime {
       await ok(agent.trackEnable(false)); await ok(agent.trackRemoveFiles());
       await ok(agent.installDiscoveryCallbacks());
       await agent.startDiscovery(true, false);
-      if (await agent.isUserLoggedIn()) {
-        await ok(agent.connectServer());
-        this.state = { status: 'signed-in', account: { displayName: await agent.getUserNickname() || await agent.getUserName(), avatarUrl: await agent.getUserAvatar() || null }, error: null };
-      } else this.state = { status: 'signed-out', error: null };
+      this.account = new BambuAccount(agent, this.repository, this.publish);
+      await this.account.restore();
     } catch {
-      this.state = unavailableBambuAccount();
+      this.account = null; this.state = unavailableBambuAccount();
       await this.native?.close().catch(() => undefined); this.native = null;
     }
     this.publish('account');
   }
   private onEvent(event: NativeEvent) {
     // Only invalidations leave the utility; native messages may contain credentials.
-    if (event.type === 'server-connected' || event.type === 'http-error') this.publish('account');
+    this.account?.onEvent(event);
     if (event.type === 'ssdp') this.publish('printers');
   }
   read<K extends BambuRead>(kind: K): Promise<BambuReadResults[K]>;
   async read(kind: BambuRead): Promise<BambuReadResults[BambuRead]> {
     await this.ready;
-    if (kind === 'account.state') return structuredClone(this.state);
+    if (kind === 'account.state') return structuredClone(this.account?.state ?? this.state);
     if (kind === 'account.settings') {
       const { region } = await this.repository.read();
       return [{ key: 'region', label: 'Region', value: region, choices: bambuRegionChoices }];
     }
     return { ok: true, value: [] };
   }
-  async close() { await this.ready; await this.native?.close(); this.native = null; }
+  async host(request: BambuHostRequest) {
+    await this.ready;
+    if (!this.account) throw new Error('Bambu networking is unavailable.');
+    return this.account.handle(request);
+  }
+  async close() { await this.ready; await this.account?.close(); await this.native?.close(); this.native = null; }
 }

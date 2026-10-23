@@ -1,7 +1,6 @@
-import { BambuUtility } from './bambuUtility';
-import { bambuPaths } from './bambuUtility';
-import { createBambuIpc } from './bambuUtility';
-import { unavailableBambuAccount } from '../shared/bambu';
+import { BambuUtility, bambuPaths, createBambuIpc } from './bambuUtility';
+import { BambuLogin } from './bambuLogin';
+import { BAMBU_REGIONS, isBambuCommand, unavailableBambuAccount } from '../shared/bambu';
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type WebContents } from 'electron';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
@@ -123,6 +122,7 @@ let mainWindow: BrowserWindow | null = null;
 let nativeMenuController: NativeMenuController | null = null;
 let allowWindowClose = false;
 let bambuUtility: BambuUtility | null = null;
+let bambuLogin: BambuLogin | null = null;
 let bambuDirectory: string | null = null;
 let bambuCleanup: Promise<void> | null = null;
 let bambuStopped = false;
@@ -403,6 +403,21 @@ function registerIpc(): void {
     return isCurrentRenderer(request.sender) && request.senderFrame === request.sender.mainFrame;
   }));
 
+  ipcMain.handle(Ipc.bambuCommand, async (event, request: unknown) => {
+    if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame || !isBambuCommand(request)) throw new Error('Bambu IPC request rejected');
+    try {
+      if (!bambuUtility || !bambuLogin) throw new Error('Unavailable');
+      if (request.action === 'login') return await bambuLogin.open();
+      if (request.action === 'setting') {
+        if (request.key !== 'region' || !BAMBU_REGIONS.some(region => region === request.value)) return { ok: false, error: { code: 'invalid-setting', message: 'Select a supported region.' } };
+        if ((await bambuUtility.read('account.settings'))[0].value === request.value) return { ok: true, value: undefined };
+      }
+      bambuLogin.dispose();
+      return request.action === 'logout' ? await bambuUtility.host('account.logout', null)
+        : await bambuUtility.host('account.setting', { key: request.key, value: request.value });
+    } catch { return { ok: false, error: { code: 'unavailable', message: 'Bambu networking is unavailable.' } }; }
+  });
+
   const printerConfigurationIpc = createPrinterConfigurationIpcHandlers({
     path: printerConfigurationPath,
     fs: {
@@ -562,12 +577,13 @@ app.whenReady().then(() => {
     app.dock?.setIcon(APP_ICON_PATH);
   }
   bambuDirectory = process.env.ORCA_E2E === '1'
-    ? join(app.getPath('temp'), `orca-bambu-e2e-${process.pid}`) : join(app.getPath('userData'), 'bambu');
+    ? (process.env.ORCA_E2E_BAMBU_DIRECTORY ?? join(app.getPath('temp'), `orca-bambu-e2e-${process.pid}`)) : join(app.getPath('userData'), 'bambu');
   try {
     bambuUtility = new BambuUtility(join(__dirname, 'bambu-host.js'), bambuPaths({
       packaged: app.isPackaged, resourcesPath: process.resourcesPath, projectRoot: join(__dirname, '../../../..'),
       directory: bambuDirectory, platform: process.platform, arch: process.arch, osVersion: process.getSystemVersion(),
     }));
+    bambuLogin = new BambuLogin(bambuUtility);
     bambuUtility.onChanged(change => {
       for (const window of BrowserWindow.getAllWindows()) {
         if (isCurrentRenderer(window.webContents)) window.webContents.send(Ipc.bambuChanged, change);
@@ -601,8 +617,9 @@ app.on('before-quit', () => {
 app.on('will-quit', (event) => {
   if (!bambuStopped && bambuUtility) {
     event.preventDefault();
+    bambuLogin?.dispose();
     if (!bambuCleanup) bambuCleanup = bambuUtility.close().catch(() => undefined).then(async () => {
-      if (process.env.ORCA_E2E === '1' && bambuDirectory) await rm(bambuDirectory, { recursive: true, force: true }).catch(() => undefined);
+      if (process.env.ORCA_E2E === '1' && !process.env.ORCA_E2E_BAMBU_DIRECTORY && bambuDirectory) await rm(bambuDirectory, { recursive: true, force: true }).catch(() => undefined);
       bambuStopped = true; app.quit();
     });
     return;

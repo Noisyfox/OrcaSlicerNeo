@@ -5,7 +5,9 @@
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
 Device Web entry and Send use the stateless service in both hosts. Electron
-Bambu login/discovery has a selected, unimplemented design in section 2.1.
+Bambu integration follows section 2.1; section 2.2 distinguishes delivered
+foundations and account flow, and
+unimplemented device discovery.
 The gateway and richer device features remain deferred. Interface availability
 alone does not establish device support or runtime delivery.
 
@@ -52,7 +54,7 @@ or implementation technique an additional user mandate.
 | Download, delete and reprint remote files | Define independent operations and their availability; reprinting starts an existing remote printable file. |
 | Support temperature probes without temperature control, plus other sensors such as door switches | Provide a generic read-only sensor collection with data that varies and can expand by sensor type. |
 | Integrate the design and check duplicates, omissions and responsibility boundaries | Maintain one coherent domain model and retain examples for different printer configurations. |
-| Defer concrete agents and the gateway during interface design | Existing Moonraker behavior is delivered. Bambu login/discovery is now in design under section 2.1; implementation and the gateway remain deferred. |
+| Defer concrete agents and the gateway during interface design | Existing Moonraker behavior is delivered. Bambu implementation follows the accepted sequence in section 2.2; the gateway remains deferred. |
 | Use open-bamboo-networking for initial Bambu login and printer discovery | Select the Electron native-addon approach; no Web execution in this phase. |
 | Keep account methods and modeling outside printer-control | The shared application architecture owns a separate common provider/account boundary; a provider offering account and printer functionality implements both interfaces. |
 | Support explicit overwrite as a normal upload capability | Overwrite is a first-class collision choice, advertised per destination and explicitly selected in upload requests. |
@@ -276,8 +278,8 @@ path, not a dependency of local slicing or an assertion of cloud support.
 [open-bamboo-networking](https://github.com/ClusterM/open-bamboo-networking).
 The selected implementation direction is an Electron Node-API addon hosted
 outside the renderer, with shared public provider contracts. It is not the
-standalone helper/gateway approach, nor a browser-WASM port. No implementation
-has been authorized or delivered by this design record.
+standalone helper/gateway approach, nor a browser-WASM port. Implementation is
+authorized under the independently accepted increments in section 2.2.
 
 The [common provider/account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts)
 owns account methods independently of printers. The Bambu provider implements
@@ -462,9 +464,9 @@ credential store merely because authentication is delegated to the plugin.
 
 ### 2.2 Bambu implementation and acceptance sequence
 
-**Status:** Steps 1–4 (shared contracts, provider composition/device consumers,
-the native addon and application-owned utility host) are delivered; steps 5–8
-remain unimplemented.
+**Status:** Steps 1–5 (shared contracts, provider composition/device consumers,
+the native addon, application-owned utility host and account flow) are delivered
+and accepted on the development host. Steps 6–8 remain unimplemented.
 This sequence implements the
 accepted behavior in section 2.1 and the
 [shared account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts).
@@ -497,8 +499,9 @@ Send requires a compatible G-code upload route and, for Send & Print, start
 support on that same route. An in-flight upload retains its operation target
 when the catalogue changes. Deterministic fixtures exercise multiple consumers
 and Bambu Cloud/LAN coexistence. The production host now starts the native
-runtime, but Bambu account/printer capabilities are not registered until their
-complete flows are delivered in the following steps.
+runtime, and the account implementation registers its capability on
+Electron. Bambu printer capability registration remains deferred to device
+delivery in the following steps.
 
 | Step | Deliverable | Prerequisites | Independent acceptance boundary |
 | --- | --- | --- | --- |
@@ -672,6 +675,31 @@ auth-expiry notification, transient failure and unavailable plugin state.
 Native login payloads remain inside the host. Other provider accounts are
 unaffected. Deterministic fixtures can cover unavailable challenges, but actual
 regional/challenge coverage must be reported separately from mocked evidence.
+
+**Implemented account boundary:** The [account lifecycle](../apps/desktop/src/utility/bambu/account.ts)
+keeps ticket exchange, profile retrieval, login payload preparation, session
+changes and expiry handling behind the host boundary. The
+[login controller](../apps/desktop/src/main/bambuLogin.ts) closes the embedded
+view after payload preparation and before `change_user`, matching Orca's modal
+handoff. Its dedicated sandboxed preload exposes only the official page's
+`wx.postMessage` bridge; the application bridge is absent. Loopback callbacks
+stay in main/utility and survive an embedded-window close after browser handoff.
+The Home entry and immediate provider settings use only the common account
+contract. Match Orca's User-Agent structure, including a space after the client
+version: the official page uses this delimiter to recognize supported login
+features. Third-party login requests and popup links open the system browser
+while preserving the embedded form and its inputs. Web still has no account provider. No preset synchronization is added.
+
+Deterministic tests cover window reuse, callback lifetime, stale attempts,
+region/logout separation from LAN records, public state projection and Orca's
+401 grace period. The real plugin starts and the live official sign-in page
+loads with the isolated bridge on macOS ARM64. A real China-region account
+passes login, remembered-login restart and explicit logout; a further restart
+retains signed-out state. The live official page dispatches the localhost and
+third-party handoff commands without navigating the embedded form away. This
+verifies browser launch dispatch, not completion of a third-party identity
+provider challenge. Other regions, third-party completion and challenge flows
+remain separately unverified; other platforms remain in step 8.
 
 #### Step 6 — Cloud device population and route lifecycle
 

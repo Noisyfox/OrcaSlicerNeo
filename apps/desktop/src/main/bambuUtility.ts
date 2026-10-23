@@ -1,3 +1,4 @@
+import type { BambuHostInputs, BambuHostMethod, BambuHostResults } from '../shared/bambuHost';
 import { join } from 'node:path';
 import { utilityProcess, type UtilityProcess } from 'electron';
 import { isBambuChange, isBambuRead, isBambuReadResult, type BambuChange, type BambuHostConfig, type BambuRead, type BambuReadResults } from '../shared/bambu';
@@ -15,7 +16,7 @@ export class BambuUtility {
   private sequence = 0;
   private closing: Promise<void> | null = null;
   private readonly listeners = new Set<(change: BambuChange) => void>();
-  private readonly pending = new Map<number, { kind: BambuRead; resolve(value: unknown): void; reject(error: Error): void }>();
+  private readonly pending = new Map<number, { kind: BambuRead | null; resolve(value: unknown): void; reject(error: Error): void }>();
   constructor(modulePath: string, config: BambuHostConfig, fork: (path: string) => BambuUtilityChild = path => utilityProcess.fork(path, [], {
     serviceName: 'Orca Bambu Provider', stdio: 'ignore', allowLoadingUnsignedLibraries: true,
   }) as UtilityProcess) {
@@ -33,7 +34,7 @@ export class BambuUtility {
         const request = this.pending.get(value.id);
         if (!request) return;
         this.pending.delete(value.id);
-        if ('error' in value || !isBambuReadResult(request.kind, value.value)) request.reject(new Error('Bambu provider reply unavailable'));
+        if ('error' in value || (request.kind !== null && !isBambuReadResult(request.kind, value.value))) request.reject(new Error('Bambu provider reply unavailable'));
         else request.resolve(value.value);
       }
     });
@@ -47,6 +48,17 @@ export class BambuUtility {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { kind: request, resolve: value => resolve(value as BambuReadResults[K]), reject });
       try { this.child.postMessage({ type: 'read', id, request }); }
+      catch { this.pending.delete(id); reject(new Error('Bambu provider request unavailable')); }
+    });
+  }
+  /** Private host operations: only the login controller and trusted IPC handlers call this. */
+  async host<K extends BambuHostMethod>(method: K, input: BambuHostInputs[K]): Promise<BambuHostResults[K]> {
+    await this.ready;
+    if (this.closing) throw new Error('Bambu provider is closing');
+    const id = ++this.sequence;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { kind: null, resolve: value => resolve(value as BambuHostResults[K]), reject });
+      try { this.child.postMessage({ type: 'host', id, request: { method, input } }); }
       catch { this.pending.delete(id); reject(new Error('Bambu provider request unavailable')); }
     });
   }

@@ -248,6 +248,9 @@ importers:
       '@orca/printer-control':
         specifier: workspace:*
         version: link:../printer-control
+      '@orca/service-provider':
+        specifier: workspace:*
+        version: link:../service-provider
       '@orca/slicer-runtime':
         specifier: workspace:*
         version: link:../slicer-runtime

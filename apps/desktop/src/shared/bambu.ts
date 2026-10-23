@@ -1,4 +1,4 @@
-import type { AccountSetting, AccountState } from '@orca/service-provider';
+import type { AccountError, AccountResult, AccountSetting, AccountState } from '@orca/service-provider';
 import type { Result, SavedPrinter } from '@orca/printer-control/domain';
 
 export const BAMBU_REGIONS = ['China', 'AsiaPacific', 'NorthAmerica', 'Europe', 'Others'] as const;
@@ -10,7 +10,14 @@ export interface BambuReadResults {
   'account.settings': readonly AccountSetting[];
   'printers.saved': Result<readonly SavedPrinter[]>;
 }
+export type BambuCommand = { action: 'login' } | { action: 'logout' } | { action: 'setting'; key: string; value: string };
+export function isBambuCommand(value: unknown): value is BambuCommand {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as BambuCommand;
+  return v.action === 'login' || v.action === 'logout' || (v.action === 'setting' && typeof v.key === 'string' && typeof v.value === 'string');
+}
 export interface BambuBridge {
+  command(request: BambuCommand): Promise<AccountResult<void>>;
   read<K extends BambuRead>(request: K): Promise<BambuReadResults[K]>;
   onChanged(listener: (change: BambuChange) => void): () => void;
 }
@@ -36,12 +43,12 @@ export function isBambuReadResult(kind: BambuRead, value: unknown): boolean {
   if (kind === 'account.state') {
     if (object.status === 'signed-in') {
       const account = object.account as Record<string, unknown> | undefined;
-      return Boolean(account && typeof account.displayName === 'string' && (account.avatarUrl === null || typeof account.avatarUrl === 'string') && object.error === null
+      return Boolean(account && typeof account.displayName === 'string' && (account.avatarUrl === null || typeof account.avatarUrl === 'string') && isAccountError(object.error)
         && Object.keys(account).every(key => key === 'displayName' || key === 'avatarUrl')
         && Object.keys(object).every(key => ['status', 'account', 'error'].includes(key)));
     }
-    if (object.status === 'signed-out' || object.status === 'restoring' || object.status === 'signing-in') return object.error === null && Object.keys(object).every(key => key === 'status' || key === 'error');
-    return object.status === 'unavailable' && JSON.stringify(value) === JSON.stringify(unavailableBambuAccount());
+    if (object.status === 'signed-out' || object.status === 'restoring' || object.status === 'signing-in') return isAccountError(object.error) && Object.keys(object).every(key => key === 'status' || key === 'error');
+    return object.status === 'unavailable' && isAccountError(object.error) && object.error !== null && Object.keys(object).every(key => key === 'status' || key === 'error');
   }
   if (kind === 'account.settings') return Array.isArray(value) && value.length === 1 && object[0] !== null
     && JSON.stringify((value as AccountSetting[])[0]?.choices) === JSON.stringify(bambuRegionChoices)
@@ -52,3 +59,11 @@ export function isBambuReadResult(kind: BambuRead, value: unknown): boolean {
   return object.ok === true && Array.isArray(object.value) && object.value.length === 0 && Object.keys(object).every(key => key === 'ok' || key === 'value');
 }
 export const bambuRegionChoices = BAMBU_REGIONS.map(value => ({ value, label: ({ AsiaPacific: 'Asia Pacific', NorthAmerica: 'North America' } as Record<string, string>)[value] ?? value })) as [AccountSetting['choices'][0], ...AccountSetting['choices'][0][]];
+
+function isAccountError(value: unknown): value is AccountError | null {
+  if (value === null) return true;
+  if (!value || typeof value !== 'object') return false;
+  const error = value as AccountError;
+  return ['unavailable', 'authentication', 'network', 'invalid-setting', 'busy'].includes(error.code) && typeof error.message === 'string'
+    && Object.keys(value).every(key => key === 'code' || key === 'message');
+}

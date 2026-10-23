@@ -14,6 +14,7 @@ function nativeFixture() {
   const calls: { method: string; args: unknown[] }[] = [];
   const methods = ['createAgent', 'setConfigDirectory', 'initLog', 'setCertificate', 'installCallbacks', 'setCountryCode', 'setExtraHttpHeaders', 'start', 'trackEnable', 'trackRemoveFiles', 'installDiscoveryCallbacks', 'connectServer'];
   const native = Object.fromEntries(methods.map(method => [method, vi.fn(async (...args: unknown[]) => { calls.push({ method, args }); return 0; })])) as unknown as BambuNative;
+  native.getUserPrintInfo = vi.fn(async () => ({ result: 0, httpCode: 200, body: '{}' }));
   native.getVersion = vi.fn(async () => '02.08.01.99');
   native.startDiscovery = vi.fn(async (...args) => { calls.push({ method: 'startDiscovery', args }); return true; });
   native.isUserLoggedIn = vi.fn(async () => false);
@@ -35,7 +36,7 @@ describe('Bambu utility runtime', () => {
     expect(calls[6].args[0]).toMatchObject({ 'X-BBL-Client-Type': 'slicer', 'X-BBL-Client-Name': 'BambuStudio', 'X-BBL-Client-Version': '02.08.01.55' });
     expect(calls.at(-1)?.args).toEqual([true, false]);
     emit({ type: 'http-error', args: [401, 'must-not-cross-ipc'] }); emit({ type: 'ssdp', args: ['access-code-must-not-cross-ipc'] });
-    expect(changes.mock.calls).toEqual([['account'], ['account'], ['printers']]);
+    expect(changes.mock.calls).toEqual([['account'], ['printers']]);
     expect(await runtime.read('printers.saved')).toEqual({ ok: true, value: [] });
     expect((await runtime.read('account.settings'))[0].value).toBe('Others');
     await runtime.close(); expect(native.close).toHaveBeenCalledOnce();

@@ -1,3 +1,4 @@
+import { HomeAccounts } from '@/components/accounts/AccountControls';
 import { useEffect, useRef, useState } from 'react';
 import { Box, FilePlus2, FolderOpen, FolderSearch, History, MoreHorizontal, Trash2 } from 'lucide-react';
 import { usePlatform, type RecentProject } from '@orca/platform-contract';
@@ -70,6 +71,7 @@ export function HomePage({ active, canOpen, canCreate, history, onOpen, onCreate
   return (
     <main data-testid="home-page" className="min-h-0 min-w-0 flex-1 overflow-auto bg-background p-8 text-foreground">
       <div className="mx-auto max-w-6xl space-y-10">
+        <HomeAccounts />
         <div className="flex flex-wrap gap-5" aria-label="Project actions">
           <Button data-testid="home-new-project" variant="outline" disabled={busy || !canCreate}
             className="h-28 min-w-64 flex-1 justify-start gap-5 rounded-xl px-7 text-left"

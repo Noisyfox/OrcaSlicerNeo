@@ -36,7 +36,7 @@ export default defineConfig(({ mode }) => {
         'recent-thumbnail-worker': resolve('src/utility/recent-thumbnail-worker.ts'),
       } } },
     },
-    preload: { resolve: { alias: { '@orca/printer-control': resolve(printerControlRoot, 'index.ts') } } },
+    preload: { build: { rollupOptions: { input: { index: resolve('src/preload/index.ts'), 'bambu-login': resolve('src/preload/bambu-login.ts') } } }, resolve: { alias: { '@orca/printer-control': resolve(printerControlRoot, 'index.ts') } } },
     renderer: {
       define: {
         __ORCA_E2E__: JSON.stringify(mode === 'e2e' || env.VITE_E2E === '1'),

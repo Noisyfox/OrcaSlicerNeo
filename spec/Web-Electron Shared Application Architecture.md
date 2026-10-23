@@ -3,8 +3,8 @@
 **Date:** 2026-09-09
 
 **Status:** Delivered shared architecture; current host/runtime boundaries.
-Section 4.2 records delivered service-provider contracts and the selected,
-unimplemented Bambu account execution.
+Section 4.2 records delivered service-provider contracts and native host
+execution and accepted development-host account flow.
 
 **Scope:** Refactor OrcaSlicerNeo so the same application functionality can ship
 as an Electron desktop application and a conventional static web application.
@@ -30,8 +30,8 @@ feature-equivalent interface:
 
 Local user-preset delivery and future synchronization are owned by
 [User Preset Repository and Versioning](User%20Preset%20Repository%20and%20Versioning.md).
-Cloud account execution remains unimplemented; the selected Electron Bambu
-login scope and shared account boundary are recorded in section 4.2. Cloud
+Electron Bambu account execution has passed development-host real-account
+acceptance; its scope and shared account boundary are recorded in section 4.2. Cloud
 slicing, online profile updates, PWA/offline guarantees and richer startup
 recovery remain deferred.
 Project configuration and explicit 3MF persistence are delivered under
@@ -184,11 +184,16 @@ host-neutral [service-provider contracts](../packages/service-provider/src/index
 and platform account-capability injection. Account and printer interfaces are
 separate, with provider-owned account association. Step 2 adds common printer
 provider dispatch and reactive Device/Send catalogues while retaining Moonraker
-forms and console authentication. Both hosts currently expose
-an empty account-provider list. Step 3 delivers the host-only native addon and
+forms and console authentication. Electron now registers a Bambu account
+provider; Web retains an empty account list. Step 3 delivers the host-only
+native addon and
 pinned artifacts. Step 4 delivers the application-owned Bambu utility, typed
-read IPC, serialized local repository and real-plugin startup/shutdown. Login
-execution and public Bambu capability registration remain unimplemented.
+read IPC, serialized local repository and real-plugin startup/shutdown. The
+Home login flow, isolated official-page bridge and provider settings are
+accepted on the macOS ARM64 development host with real China-region login,
+logout and remembered-login restart. Other regions/challenges and release
+platform qualification remain unverified.
+Bambu printer capability registration remains unimplemented.
 
 Provider identity, account modeling and account methods belong in a shared
 contract module outside `printer-control`. They must be usable by services with
@@ -378,8 +383,10 @@ The Bambu-specific scope and feasibility limits are owned by
 Its [implementation and acceptance sequence](Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence)
 defines eight independently reviewable increments, their dependencies and the
 evidence required before each is complete. Steps 1–3 are delivered; application
-Bambu account login and printer discovery remain planned; the application-owned
-provider process is implemented and validated on macOS ARM64.
+Bambu printer discovery remains planned. The application-owned provider
+process and account flow are validated on macOS ARM64, including real
+China-region login/logout/restart. Other regions/challenges and release
+platform qualification remain unverified.
 
 ## 5. Runtime and WASM Loading
 
