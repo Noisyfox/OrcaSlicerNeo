@@ -28,7 +28,8 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
   const readController = useRef<AbortController | null>(null), reading = useRef(false);
   const { stream, manual } = monitorTopics(capabilities);
   const streamKey = stream.join(',');
-  const target = { printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision };
+  // Observation/description contracts accept identity only; revision guards belong to commands/previews.
+  const target: D.PrinterTarget = { printerId: printer.identity.id, routeId: route.id };
   function reportError(source: 'stream' | 'manual', message: string | null) {
     latestErrors.current[source] = message;
     if (shown.current) setError(latestErrors.current.stream ?? latestErrors.current.manual);
@@ -63,7 +64,7 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
       }
     });
     return () => abort.abort();
-  }, [service, target.printerId, target.routeId, target.expectedConfigurationRevision, started, streamKey]);
+  }, [service, target.printerId, target.routeId, route.configurationRevision, started, streamKey]);
   async function refresh() {
     if (reading.current || !manual.length) return;
     reading.current = true; setRefreshing(true);

@@ -1,4 +1,5 @@
 import { _electron, desktopLaunchOptions } from './electron-fixture';
+import { isBambuControlRequest } from '../src/shared/bambuControl';
 import { expect, test } from '@playwright/test';
 import { installControlFixture, publishControlSnapshot } from './bambu-control-fixture';
 test('Bambu control cards retain selection, bind edits and cancellation, and disable stale controls', async () => {
@@ -14,6 +15,12 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
     const panel = page.locator('#device-content');
     await expect(panel.getByText('External task', { exact: true })).toBeVisible();
+    const validateRequests = async () => {
+      const requests = await app.evaluate(() => globalThis.bambuControlFixture.requests);
+      expect(requests.length).toBeGreaterThan(0);
+      for (const request of requests) expect(isBambuControlRequest(request), JSON.stringify(request)).toBe(true);
+    };
+    await validateRequests();
     await expect(panel.getByText('AMS 2 Pro 128', { exact: true })).toBeVisible();
     await expect(panel.getByText('Bambu Cloud', { exact: true })).toHaveCount(0);
     for (const [unit, tool] of [[255, 0], [254, 1]]) {
@@ -70,5 +77,6 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     await page.setViewportSize({ width: 820, height: 900 });
     await expect.poll(() => panel.getByTestId('device-monitor').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.screenshot({ path: '/tmp/orca-bambu-control-narrow.png' });
+    await validateRequests();
   } finally { await app.close(); }
 });

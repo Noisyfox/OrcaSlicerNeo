@@ -45,6 +45,7 @@ async function fixture() {
 it('automatically monitors, lays out reported material units and retains the subscription while hidden', async () => {
   const f = await fixture(); try {
     await f.render(); expect(f.watch).toHaveBeenCalledOnce(); expect(f.element.textContent).toContain('External task');
+    expect(f.watch.mock.calls[0][0].target).toEqual(f.snapshot.target);
     for (const name of ['AMS 0', 'AMS 4', 'AMS 128']) expect(f.element.textContent).toContain(name);
     expect(f.element.textContent).not.toMatch(/HMS|Browse files|Start monitoring|Connect printer/);
     await f.render(false); await f.update('Hidden update'); expect(f.element.textContent).toContain('External task');

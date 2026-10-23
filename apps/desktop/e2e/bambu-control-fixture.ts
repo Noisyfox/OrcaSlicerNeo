@@ -20,17 +20,18 @@ export function controlSnapshot(device: string, task = 'External task', fresh = 
   const capabilities = commandCapabilities({ ...telemetry.project(target, printer.identity), target, configurationRevision: printer.routes[0].configurationRevision, model: 'H2D' });
   return { snapshot, description: { target, configurationRevision: printer.routes[0].configurationRevision, descriptor: snapshot.values.descriptor, capabilities } };
 }
-interface FixtureState { data: Record<string, ReturnType<typeof controlSnapshot>>; commands: D.CommandRequest[]; tokens: string[]; operations: Record<string, D.CommandOperation> }
+interface FixtureState { requests: unknown[]; data: Record<string, ReturnType<typeof controlSnapshot>>; commands: D.CommandRequest[]; tokens: string[]; operations: Record<string, D.CommandOperation> }
 declare global { var bambuControlFixture: FixtureState; }
 export async function installControlFixture(app: ElectronApplication) {
   await app.evaluate(({ ipcMain, BrowserWindow }, { channels, devices, data }) => {
-    globalThis.bambuControlFixture = { data, commands: [], tokens: [], operations: {} };
+    globalThis.bambuControlFixture = { data, requests: [], commands: [], tokens: [], operations: {} };
     ipcMain.removeHandler(channels.bambuRead);
     ipcMain.handle(channels.bambuRead, (_event, kind) => kind === 'printers.saved' ? { ok: true, value: devices }
       : kind === 'account.state' ? { status: 'signed-out', error: null } : { ok: true, value: [] });
     ipcMain.removeHandler(channels.bambuControl);
     ipcMain.handle(channels.bambuControl, (_event, request) => {
       const fixture = globalThis.bambuControlFixture, { method, input } = request;
+      fixture.requests.push(request);
       const target = input.target ?? input;
       const current = fixture.data[target.printerId];
       if (method === 'describe') return { ok: true, value: current.description };

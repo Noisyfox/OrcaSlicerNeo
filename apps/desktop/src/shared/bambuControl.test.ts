@@ -11,6 +11,9 @@ it('accepts only bounded typed observation requests, never native payloads or ho
   for (const request of [
     { method: 'send_message', input: { payload: '{}' } },
     { method: 'describe', input: { ...target, accessCode: 'code' } },
+    { method: 'describe', input: { ...target, expectedConfigurationRevision: 'r1' } },
+    { method: 'observe', input: { target: { ...target, expectedConfigurationRevision: 'r1' }, token: 'subscription' } },
+    { method: 'read', input: { target: { ...target, expectedConfigurationRevision: 'r1' }, topics: ['status'], source: 'cache' } },
     { method: 'read', input: { target, topics: [], source: 'device' } },
     { method: 'read', input: { target, topics: ['raw'], source: 'device' } },
     { method: 'read', input: { target, topics: ['status', 'status'], source: 'cache' } },
