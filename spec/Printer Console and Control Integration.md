@@ -359,8 +359,19 @@ one instance without proactive synchronization to others, and server/plugin
 invalidation of another instance's session. Verify concurrent writes and normal
 shutdown do not corrupt saved configuration or resurrect removed account/device
 state from an obsolete snapshot. Existing tests within a single Electron process
-do not establish these multi-process behaviors. This remains a design requirement,
-not a claim of completed hardware or persistence qualification.
+do not establish these multi-process behaviors.
+
+Implemented storage uses short cross-process file locks and atomic publication.
+Preference field updates use compare-and-swap and reapply on conflict. Saved
+Moonraker devices merge per-record changes and reject conflicting edits/deletions;
+Bambu provider updates read the latest document inside the lock. Existing Bambu
+instances retain their own read snapshot. Plugin-owned authentication files are
+not edited or locked by Neo. Unit tests cover actual competing Node processes,
+conflicting preference snapshots and stale device edits. The Electron smoke
+launches two independent applications with distinct real-plugin utilities,
+checks one can close without stopping the other, and restores the shared client
+identity in a third instance. Logged-in simultaneous operation and server-side
+session invalidation still require account/hardware acceptance.
 
 #### Remaining implementation and qualification details
 

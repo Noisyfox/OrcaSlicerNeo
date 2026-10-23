@@ -210,6 +210,8 @@ export interface RememberedFilamentRack {
 }
 
 export interface UserPreferencesRepository {
+  /** Host-atomic read/modify/write when multiple application instances share storage. */
+  update?(change: (current: UserPreferences) => UserPreferences): Promise<UserPreferences>;
   load(): Promise<UserPreferences>;
   save(value: UserPreferences): Promise<void>;
 }

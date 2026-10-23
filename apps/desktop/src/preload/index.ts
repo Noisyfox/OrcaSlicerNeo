@@ -64,6 +64,7 @@ const bridge: ElectronBridge = {
   },
 
   preferences: {
+    compareAndSwap: (base, next) => ipcRenderer.invoke(Ipc.preferencesCompareAndSwap, base, next),
     load: () => ipcRenderer.invoke(Ipc.preferencesLoad) as Promise<PreferencesLoadResult>,
     save: (json: unknown) => ipcRenderer.invoke(Ipc.preferencesSave, json) as Promise<void>,
   },

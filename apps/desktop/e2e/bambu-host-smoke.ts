@@ -1,4 +1,4 @@
-/** Test entry: real utility/native plugin, two isolated renderer windows. */
+/** Test entry: real utility/native plugin, one main window per independent Electron instance. */
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
 import { BambuUtility } from '../src/main/bambuUtility';
@@ -19,7 +19,7 @@ app.whenReady().then(async () => {
     const request = event as Electron.IpcMainInvokeEvent;
     return [...windows].some(window => !window.isDestroyed() && window.webContents === request.sender && request.senderFrame === request.sender.mainFrame);
   }));
-  for (let i = 0; i < 2; ++i) {
+  {
     const window = new BrowserWindow({ show: false, webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: false, nodeIntegration: false } });
     windows.add(window); window.on('closed', () => windows.delete(window));
     await window.loadURL('data:text/html,<title>Bambu host smoke</title>');

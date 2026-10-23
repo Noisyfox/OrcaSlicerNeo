@@ -39,3 +39,17 @@ describe('printer configuration IPC sender policy', () => {
     expect(writeText).toHaveBeenCalledWith('printer-config.json', expect.stringContaining('complete-key'));
   });
 });
+
+it('merges independent instance additions and refuses to resurrect a concurrently removed printer', async () => {
+  let disk = JSON.stringify(document);
+  const deps = { path: () => 'shared', fs: { readText: async () => disk, writeText: async (_path: string, value: string) => { disk = value; } }, isCurrentRenderer: () => true };
+  const a = createPrinterConfigurationIpcHandlers(deps), b = createPrinterConfigurationIpcHandlers(deps);
+  const first = await a.load('a'), second = await b.load('b');
+  await a.save('a', { ...first, printers: [...first.printers, { ...first.printers[0], id: 'p2' }] });
+  await b.save('b', { ...second, printers: [...second.printers, { ...second.printers[0], id: 'p3' }] });
+  expect(JSON.parse(disk).printers.map((value: { id: string }) => value.id)).toEqual(['p1', 'p2', 'p3']);
+  const latest = await a.load('a');
+  await a.save('a', { ...latest, printers: latest.printers.filter(printer => printer.id !== 'p1') });
+  await expect(b.save('b', { ...second, printers: [{ ...second.printers[0], displayName: 'Edited old snapshot' }] })).rejects.toThrow('another application instance');
+  expect(JSON.parse(disk).printers.map((value: { id: string }) => value.id)).toEqual(['p2', 'p3']);
+});

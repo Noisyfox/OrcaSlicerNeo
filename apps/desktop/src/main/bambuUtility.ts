@@ -9,7 +9,7 @@ export interface BambuUtilityChild {
   once(event: 'exit', listener: (code: number) => void): unknown;
   postMessage(message: unknown): void;
 }
-/** Exactly one instance is created by app startup, shared by all trusted windows. */
+/** Exactly one instance is created by app startup, owned by this independent application instance. */
 export class BambuUtility {
   private readonly child: BambuUtilityChild;
   private readonly ready: Promise<void>;

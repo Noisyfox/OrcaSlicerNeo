@@ -36,3 +36,19 @@ export async function savePrinterConfigurationFile(
   if (!fs.writeText) throw new Error('printer configuration storage is unavailable');
   await fs.writeText(path, JSON.stringify(normalized, null, 2));
 }
+
+/** Apply only the records this instance edited; refuse conflicting edits/deletions. */
+export function mergePrinterConfigurations(base: PrinterConfigurationDocument, next: PrinterConfigurationDocument, current: PrinterConfigurationDocument): PrinterConfigurationDocument {
+  const before = new Map(base.printers.map(printer => [printer.id, printer]));
+  const after = new Map(next.printers.map(printer => [printer.id, printer]));
+  const merged = new Map(current.printers.map(printer => [printer.id, printer]));
+  for (const id of new Set([...before.keys(), ...after.keys()])) {
+    if (JSON.stringify(before.get(id)) === JSON.stringify(after.get(id))) continue;
+    if (JSON.stringify(merged.get(id)) !== JSON.stringify(before.get(id)) && JSON.stringify(merged.get(id)) !== JSON.stringify(after.get(id))) {
+      throw new Error('This printer was changed in another application instance. Reload the device list before saving.');
+    }
+    const value = after.get(id);
+    if (value) merged.set(id, value); else merged.delete(id);
+  }
+  return { version: 1, printers: [...merged.values()] };
+}
