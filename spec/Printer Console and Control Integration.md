@@ -97,10 +97,10 @@ target is **H2D + AMS**. Only documentation and interactive design clarification
 are currently authorized; implementation has not started. This UI choice is
 separate from the earlier domain-architecture option B.
 
-The selected scope excludes video, remote-file browsing and an HMS tab. These
-exclusions do not authorize removing current-operation failure explanations.
-The exact extent of inline device alerts and recovery actions remains a review
-item below. Existing account, discovery and route management remain in place.
+The selected scope excludes video, remote-file browsing and an HMS tab. Current
+task/material errors and supported contextual recovery actions remain available
+inside the relevant cards. The additional feature boundaries below are accepted.
+Existing account, discovery and route management remain in place.
 The Electron host supplies native Bambu execution; shared React components use
 the printer service. This work does not introduce a Web gateway.
 
@@ -118,23 +118,27 @@ The working layout retains the explicit printer selector and uses the available
 content area without an empty video panel. A header identifies the printer,
 route and observation freshness. Task controls appear before temperature,
 actuator and motion cards; material units and tool paths form a dedicated area.
-Calibration, material editing and advanced settings can use dialogs. Exact card
+Material editing, hardware details and in-scope settings can use dialogs. Exact card
 order and dialog grouping remain reviewable. Selection persistence is defined
 under Console selection and behavior below. Desktop
 layout should accommodate narrow windows through internal scrolling and fewer
 columns; mobile support remains deferred.
 
-The working feature envelope is:
+The feature envelope combines accepted scope decisions with the remaining
+material-system details:
 
 | Area | Intended coverage and unresolved detail |
 | --- | --- |
-| Current print | Name, phase, progress, remaining time, detailed stage and layer counts; pause, resume, cancel and speed selection. Extended observations and speed semantics need contract changes. |
+| Current print | Name, phase, progress, remaining time, detailed stage and layer counts; pause, resume, cancel and speed selection. Display a current-task thumbnail when obtainable, otherwise a placeholder. Extended observations, previews and speed semantics need contract changes. Object skipping is excluded. |
 | Thermal and actuators | Separately identified nozzle/tool temperatures, bed and supported chamber control, fans and lights; unknown limits must not become unrestricted inputs. |
 | Motion and tools | Homing, jogging, extrusion/retraction and supported tool selection, with explicit targets and device/state-dependent availability. |
 | Materials | AMS units, external holders, slots, reported metadata/remaining material and paths to tools; load, unload, switch, editable metadata and tag refresh. Exact editable fields and material-selection sources remain open. |
 | Drying and environment | Reported temperature/humidity and supported drying controls. The AMS generation and full drying-option scope are not yet established. |
-| Advanced controls | Device calibration, AMS settings and print/detection options, gated by actual capabilities. The precise feature list remains to be agreed. |
-| Feedback | Command progress, rejection, stale data and unknown outcomes. Inline blocking alerts and contextual recovery are to be clarified without adding an HMS tab. |
+| Hardware details | Read-only information for each nozzle, including type/material, diameter and flow type when reported. Offer an explicit device-supported refresh/re-identification action; no device-configuration or slicer-preset edits. |
+| Calibration and detection | No device-calibration launch UI or print-detection settings in this delivery. Show reported calibration state when calibration is started elsewhere. Existing detection settings remain unchanged. |
+| Camera settings | No recording, timelapse or camera-resolution settings. Preserve existing device configuration; no video playback or recording-file browsing. |
+| AMS settings | Detailed setting/editing/drying scope remains part of material-system clarification. |
+| Feedback | Command progress, rejection, stale data and unknown outcomes. Show current relevant device errors and supported retry, recovery and abort actions in the task or material cards, without an HMS tab. |
 
 H2D acceptance must exercise separately addressed tools/nozzles and AMS-to-tool
 paths rather than assuming one nozzle and four fixed slots. The AMS generation,
@@ -142,9 +146,45 @@ number of units and physical routing remain unconfirmed. Other models remain
 representable, but H2D acceptance is not qualification for every Bambu model.
 
 Upload/Send & Print, firmware upgrades and importing device materials into the
-project are not automatically added to this control scope. Current-print
-thumbnails, object skipping and camera-related settings require explicit scope
-decisions; omitting file browsing or video does not resolve their dependencies.
+project are not automatically added to this control scope. Filament-calibration
+workflows are also outside this delivery.
+
+#### Accepted task, hardware and recovery scope
+
+Current-task thumbnails are independent of file-browser UI. Display an available
+task image, or a placeholder when absent or unavailable. Loading failures must
+not block observations or controls. Resolve the image through the provider's
+typed current-task/media boundary; do not substitute the active Neo workspace's
+model or require a Neo-originated upload. Switching task, printer or route must
+not let an earlier asynchronous image result replace the current image.
+Orca's reference is the current-task and SD-card thumbnail handling in
+[StatusPanel](../packages/slicer-wasm/cpp/src/slic3r/GUI/StatusPanel.cpp).
+Object picking, object metadata acquisition and skip-object commands are not
+part of this thumbnail scope.
+
+Show the reported details of both H2D nozzles separately. Hardware information
+is read-only; the explicit refresh/re-identification action is offered only
+where the provider establishes support. It must not silently rewrite printer
+configuration or slicer presets. The reference
+[PrinterPartsDialog](../packages/slicer-wasm/cpp/src/slic3r/GUI/PrintOptionsDialog.cpp)
+disables editing and conditionally exposes nozzle refresh. Ordinary observation
+refresh and device re-identification are separate operations.
+
+Errors relevant to the current print, tool change or material operation belong
+in that task/material card. Expose supported contextual retry, recovery or abort
+actions rather than directing every failure to the printer. Follow the existing
+opaque action-reference contract and validate context at execution; a user
+invoking a device-provided recovery action is not automatic replay of an
+uncertain command. Presentation of confirmations and operation details remains
+part of command-interaction clarification. This does not introduce an HMS
+browser, an error-history page or unrelated diagnostics.
+
+Device calibration may be visible as reported activity, but no calibration
+selection/start dialog is included. Detection settings, including device-side
+AI/print-detection switches and sensitivity, are excluded even though they do
+not require video playback. Camera recording, timelapse and resolution settings
+are also excluded. None of these exclusions turns off an existing device
+feature: the device keeps its current configuration.
 
 #### Accepted observation and access behavior
 
@@ -191,9 +231,8 @@ sections rather than appending an answer log or editing after each answer.
 
 | Group | Decisions to resolve together |
 | --- | --- |
-| Feature and interaction scope | Advanced settings/calibration coverage, inline errors and recovery, thumbnails/object skipping, confirmation dialogs and final card organization. |
 | H2D and materials | Actual AMS hardware/routing, tool/path selection, metadata editing sources, load/unload temperature policy and drying options. |
-| Command and failure semantics | Confirmation evidence per command, operation visibility/retention, deduplication and timeout behavior, availability checks and recovery presentation. |
+| Command and failure semantics | Confirmation evidence per command, confirmation dialogs, operation visibility/retention, deduplication and timeout behavior, availability checks and recovery presentation. |
 | Qualification | Initial routes/hosts, representative device states and permitted physical operations, independent-instance behavior and persistence, broader-model claims and release acceptance boundaries. |
 
 Reference behavior comes from the checked-in Orca revision identified in the

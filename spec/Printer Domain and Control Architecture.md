@@ -969,19 +969,38 @@ operations. They are a starting point, not evidence of complete H2D support.
 The following gaps need coordinated contract/specification/consumer updates:
 
 - Detailed print stages and layer counts, and selectable printing-speed modes.
-- Parameterized calibration and device/AMS settings, with discoverable supported
-  choices and current values where available.
+- Independently obtainable current-task thumbnail resources, without requiring
+  file browsing, history lookup or correlation with a Neo-submitted job.
+- Reported per-nozzle hardware details and an explicit supported nozzle
+  refresh/re-identification operation, distinct from an ordinary observation read.
+- In-scope AMS settings, with discoverable supported choices and current values
+  where available; their exact scope remains under material-system clarification.
 - Material metadata required for editing and loading, including any temperature
   policy and catalogue identity that cannot be derived reliably by the provider.
 - Drying choices beyond the existing temperature/duration request when exposed by
   the agreed product scope, and any discrete motion constraints not expressible
   faithfully by current ranges.
 
+Do not add calibration-start, print-detection configuration, camera recording,
+timelapse/resolution settings or object-skipping executors for this delivery.
+Their exclusion from this implementation does not remove existing general domain
+contracts or disable device-side features. Calibration started elsewhere remains
+observable. Per-nozzle details are read-only and must not mutate printer
+configuration or slicer presets.
+
+Current-task image resources must retain target, route and current-task
+provenance without exposing private vendor payloads. Missing or failed image
+retrieval does not make basic print status unavailable. Task changes and late
+image results must not display an earlier task's image as the current one.
+The exact typed resource representation remains a contract-design decision;
+do not force file-list support merely to expose a current-task thumbnail.
+
 Prefer shared semantics where they fit, with narrowly typed Bambu-specific
 extensions where necessary. The exact extension representation remains open;
 do not introduce arbitrary vendor JSON or string-command escape hatches.
-Contextual action references remain appropriate for device-issued recovery
-actions, not parameterized calibration/settings. Update the single current
+Contextual action references carry the selected inline device-issued recovery
+actions, not arbitrary parameterized settings. If general calibration is added
+in a later scope, it still needs its own semantics. Update the single current
 contract, producers, consumers and compile fixtures together. Check for hidden
 session prerequisites, incomplete capability-to-request construction and unsafe
 widened unions before implementation.
@@ -1000,14 +1019,18 @@ movement needs an appropriate terminal result. Preserve unknown outcomes after
 ambiguous dispatch; do not automatically resend motion or material commands.
 The provider owns request deduplication, protocol response correlation and
 operation lookup independently of the view. Retention duration, confirmation
-timeouts and recovery UI remain open decisions.
+timeouts and recovery confirmations remain open decisions. Relevant device
+errors and supported contextual recovery actions are included in the control
+cards; an independent HMS page remains excluded.
 
 Qualification must cover independently reviewable boundaries: contract
 construction; read-only monitoring and route lifecycle; basic controls;
 material/tool routing; and the agreed advanced controls. Deterministic fixtures
 cover complete/incremental data, unsupported or missing readings, stale routes,
-independent-instance isolation, device-selection changes, deduplication and
-uncertain command outcomes. Physical
+independent-instance isolation, device-selection changes, deduplication,
+uncertain command outcomes, stale recovery contexts and late/missing task
+thumbnails. Check read-only nozzle details, explicit refresh capability and
+absence of the excluded calibration/detection/camera/object-skipping controls. Physical
 H2D + AMS evidence must establish the operations and Cloud/LAN routes actually
 claimed. The precise AMS hardware and first route to qualify remain unconfirmed;
 passing one route or model does not qualify another.
