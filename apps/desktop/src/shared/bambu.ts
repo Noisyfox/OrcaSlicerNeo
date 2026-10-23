@@ -1,3 +1,4 @@
+import type { BambuControlCall } from './bambuControl';
 import type { AccountError, AccountResult, AccountSetting, AccountState } from '@orca/service-provider';
 import { isBambuDevice, isBambuLanCandidate, type BambuLanCandidate, type BambuDevice } from './bambuDevices';
 import type { Result } from '@orca/printer-control/domain';
@@ -5,7 +6,7 @@ import type { Result } from '@orca/printer-control/domain';
 export const BAMBU_REGIONS = ['China', 'AsiaPacific', 'NorthAmerica', 'Europe', 'Others'] as const;
 export type BambuRegion = typeof BAMBU_REGIONS[number];
 export type BambuRead = 'account.state' | 'account.settings' | 'printers.saved' | 'printers.candidates';
-export type BambuChange = 'account' | 'printers';
+export type BambuChange = 'account' | 'printers' | 'control';
 export interface BambuReadResults {
   'account.state': AccountState;
   'account.settings': readonly AccountSetting[];
@@ -26,6 +27,7 @@ export function isBambuPrinterCommand(value: unknown): value is BambuPrinterComm
     : request.action === 'forget' && typeof request.deviceId === 'string' && (request.expectedRevision === undefined || typeof request.expectedRevision === 'string');
 }
 export interface BambuBridge {
+  control: BambuControlCall;
   printerCommand(request: BambuPrinterCommand): Promise<Result<null>>;
   command(request: BambuCommand): Promise<AccountResult<void>>;
   read<K extends BambuRead>(request: K): Promise<BambuReadResults[K]>;
@@ -43,7 +45,7 @@ export interface BambuHostConfig {
 export function isBambuRead(value: unknown): value is BambuRead {
   return value === 'account.state' || value === 'account.settings' || value === 'printers.saved' || value === 'printers.candidates';
 }
-export function isBambuChange(value: unknown): value is BambuChange { return value === 'account' || value === 'printers'; }
+export function isBambuChange(value: unknown): value is BambuChange { return value === 'account' || value === 'printers' || value === 'control'; }
 export function unavailableBambuAccount(): AccountState {
   return { status: 'unavailable', error: { code: 'unavailable', message: 'Bambu networking is unavailable.' } };
 }

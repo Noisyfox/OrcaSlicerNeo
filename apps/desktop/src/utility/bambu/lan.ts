@@ -134,5 +134,11 @@ export class BambuLan {
       this.changed(); return ok();
     } catch (error) { return error === stale ? fail('stale-context', 'This LAN connection has changed.') : fail('transport', 'The LAN connection could not be forgotten.'); }
   }
+  /** Transfer the native LAN connection to the ordinary monitor after authorization. */
+  async release() {
+    if (this.operation) throw new Error('LAN authorization is in progress');
+    await this.tail;
+    if (this.activeDevice) { await this.native.disconnectPrinter(); this.activeDevice = null; }
+  }
   async close() { this.closed = true; clearInterval(this.timer); this.pending?.finish(fail('cancelled', 'The application is closing.')); await this.operation?.catch(() => undefined); await this.tail; }
 }

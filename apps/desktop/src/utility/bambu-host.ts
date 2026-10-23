@@ -1,3 +1,4 @@
+import { isBambuControlRequest } from '../shared/bambuControl';
 import { isBambuHostRequest } from '../shared/bambuHost';
 import { isAbsolute } from 'node:path';
 import { isBambuRead, type BambuHostConfig } from '../shared/bambu';
@@ -23,6 +24,10 @@ process.parentPort.on('message', event => {
   } else if (data.type === 'read' && Number.isSafeInteger(data.id) && isBambuRead(data.request) && runtime) {
     const id = data.id;
     void runtime.read(data.request).then(value => process.parentPort.postMessage({ type: 'reply', id, value }))
+      .catch(() => process.parentPort.postMessage({ type: 'reply', id, error: 'unavailable' }));
+  } else if (data.type === 'control' && Number.isSafeInteger(data.id) && isBambuControlRequest(data.request) && runtime) {
+    const id = data.id;
+    void runtime.control(data.request).then(value => process.parentPort.postMessage({ type: 'reply', id, value }))
       .catch(() => process.parentPort.postMessage({ type: 'reply', id, error: 'unavailable' }));
   } else if (data.type === 'host' && Number.isSafeInteger(data.id) && isBambuHostRequest(data.request) && runtime) {
     const id = data.id;

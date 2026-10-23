@@ -39,6 +39,7 @@ export interface TelemetryProjection {
 }
 export class BambuTelemetry {
   private print: Report = {};
+  generation = 0;
   private info: Report = {};
   private baseline = false;
   private receivedAt: number | null = null;
@@ -64,6 +65,7 @@ export class BambuTelemetry {
       for (const key of ['mc_percent', 'mc_remaining_time', 'layer_num', 'total_layer_num', 'stg_cur', 'subtask_name', 'gcode_file', 'thumbnail_url']) delete this.print[key];
     }
     this.print = update.msg === 0 ? merge({}, update) : merge(this.print, update);
+    ++this.generation;
     this.baseline = true; this.disconnected = false; this.receivedAt = this.now();
     return 'updated';
   }

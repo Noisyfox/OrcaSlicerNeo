@@ -1,3 +1,4 @@
+import { isBambuControlRequest } from '../shared/bambuControl';
 import { BambuUtility, bambuPaths, createBambuIpc } from './bambuUtility';
 import { BambuLogin } from './bambuLogin';
 import { BAMBU_REGIONS, isBambuPrinterCommand, isBambuCommand, unavailableBambuAccount } from '../shared/bambu';
@@ -417,6 +418,14 @@ function registerIpc(): void {
       return request.action === 'logout' ? await bambuUtility.host('account.logout', null)
         : await bambuUtility.host('account.setting', { key: request.key, value: request.value });
     } catch { return { ok: false, error: { code: 'unavailable', message: 'Bambu networking is unavailable.' } }; }
+  });
+
+  ipcMain.handle(Ipc.bambuControl, async (event, request: unknown) => {
+    if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame || !isBambuControlRequest(request)) throw new Error('Bambu IPC request rejected');
+    try {
+      if (!bambuUtility) throw new Error('Unavailable');
+      return await bambuUtility.control(request.method, request.input);
+    } catch { return { ok: false, error: { code: 'transport', message: 'Bambu networking is unavailable.' } }; }
   });
 
   ipcMain.handle(Ipc.bambuPrinterCommand, async (event, request: unknown) => {

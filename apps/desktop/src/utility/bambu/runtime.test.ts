@@ -90,3 +90,23 @@ it('publishes native account devices through the host and clears only Cloud rout
   expect((await repository.read()).lan[0].accessCode).toBe('private-lan'); expect(native.logout).toHaveBeenCalledWith(true);
   await runtime.close();
 }));
+
+it('connects normalized monitoring through the runtime and never publishes native private fields', async () => fixture(async directory => {
+  const { native } = nativeFixture(); let emit!: (event: NativeEvent) => void;
+  native.isUserLoggedIn = vi.fn(async () => true);
+  native.getUserPrintInfo = vi.fn(async () => ({ result: 0, httpCode: 200, body: JSON.stringify({ devices: [{ dev_id: 'a', dev_name: 'Printer' }] }) }));
+  native.setSelectedMachine = vi.fn(async () => 0); native.startSubscribe = vi.fn(async () => 0); native.stopSubscribe = vi.fn(async () => 0);
+  native.sendMessage = vi.fn(async () => 0);
+  const runtime = new BambuRuntime({ directory, addonPath: '/addon', pluginPath: '/plugin', certificateDirectory: '/cert', osType: 'macos', osVersion: '15' }, () => {},
+    (_addon, _plugin, listener) => { emit = listener; return native; });
+  const target = { printerId: 'bambu:a' as never, routeId: 'bambu:a:cloud' as never };
+  try {
+    expect(await runtime.control({ method: 'describe', input: target })).toMatchObject({ ok: true, value: { descriptor: { kind: 'unknown' } } });
+    expect(native.setSelectedMachine).not.toHaveBeenCalled();
+    expect(await runtime.control({ method: 'observe', input: { target, token: 'view' } })).toEqual({ ok: true, value: null });
+    emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: 'RUNNING', mc_percent: 25, access_code: 'PRIVATE', extra: { token: 'PRIVATE' } } })] });
+    const result = await runtime.control({ method: 'read', input: { target, topics: ['status'], source: 'cache' } });
+    expect(result).toMatchObject({ ok: true, value: { values: { status: { freshness: 'fresh', value: { printStatus: { progressFraction: { value: 0.25 } } } } } } });
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE|access_code|token/);
+  } finally { await runtime.close(); }
+}));
