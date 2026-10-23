@@ -8,8 +8,9 @@ Device Web entry and Send use the stateless service in both hosts. Electron
 Bambu integration follows section 2.1; section 2.2 distinguishes delivered
 foundations, account flow, Cloud device enumeration and LAN access. LAN
 real-device qualification is deferred and does not block packaging work.
-Section 2.3 records the selected Bambu monitoring/control design and its open
-decisions; implementation is not yet authorized. The gateway remains deferred.
+Section 2.3 records the accepted Bambu monitoring/control scope and interactions,
+with implementation details and qualification pending; implementation is not yet
+authorized. The gateway remains deferred.
 Interface availability alone does not establish device support or runtime delivery.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
@@ -946,6 +947,18 @@ selection, window contention or connection-takeover protocol between independent
 instances. Within an instance, native target changes must still preserve the
 target and outcome of pending operations and reject obsolete callbacks.
 
+Keep ordinary monitoring focused on the selected printer. On selection change,
+release the old printer's ordinary monitoring connection/selection/subscription
+as applicable, retain its cached data with actual freshness, and acquire the new
+printer's state. Do not accumulate monitoring for previously visited printers.
+A pending operation does not block selection. Preserve its original target,
+route and identity, and continue necessary result tracking where the native
+protocol permits; inability to confirm after switching yields an unknown outcome,
+not a fabricated success. Switching does not cancel, replay or redirect commands.
+Late results update only the original operation and must not contaminate the new
+printer's snapshots. Retaining an operation record does not imply the native
+plugin can maintain simultaneous live telemetry for every old target.
+
 Instances share persistent configuration and plugin configuration storage, not
 the provider runtime. Reuse remembered login, saved devices and last-selection
 preferences; do not assign a profile directory per process. Do not proactively
@@ -1068,8 +1081,9 @@ construction; read-only monitoring and route lifecycle; basic controls;
 material/tool routing; and the agreed advanced controls. Deterministic fixtures
 cover complete/incremental data, unsupported or missing readings, stale routes,
 independent-instance isolation, device-selection changes, deduplication,
-uncertain command outcomes, stale recovery contexts and late/missing task
-thumbnails. Cover cancellation context changes, Enter/focus-loss deduplication,
+switching during pending commands without cancellation/replay, release of old
+ordinary monitoring, correct late-result routing, uncertain command outcomes,
+stale recovery contexts and late/missing task thumbnails. Cover cancellation context changes, Enter/focus-loss deduplication,
 temperature edit target changes, control disabling/restoration on stale state,
 and pre-dispatch motion checks without automatic heating or movement replay.
 Check read-only nozzle details, explicit refresh capability and

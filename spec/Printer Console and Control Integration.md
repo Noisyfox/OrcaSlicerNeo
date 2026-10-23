@@ -3,9 +3,9 @@
 **Updated:** 2026-10-23
 
 **Status:** Current console/Send experience and basic Monitor are delivered.
-Bambu control design is selected; its detailed interaction decisions remain
-under review in the Bambu control section below. No Bambu control delivery is
-claimed by this document.
+Bambu control scope and principal interaction decisions are recorded below;
+protocol-dependent implementation details and physical qualification remain
+pending. No Bambu control delivery is claimed by this document.
 
 **Scope:** The printer-console and printer-control experience shared by the
 Electron desktop application and the Web application.
@@ -242,6 +242,25 @@ the latest available state with its actual freshness. UI visibility, provider
 observation and operation lifetime are separate; hidden-page rendering must not
 be required to maintain device state. Moonraker remains request-driven.
 
+Maintain ordinary monitoring only for the currently selected printer. Selecting
+another printer releases the previous printer's ordinary monitoring connection
+or selection/subscription as applicable; it does not accumulate background
+monitoring for every visited device. Retain the previous device's cached readings
+with their actual freshness and its submitted-operation records. Returning to
+that printer reacquires valid state before controls become available.
+
+Allow immediate printer selection changes even while a command awaits a result.
+The submitted command stays bound to its original printer, route and operation
+identity. Continue necessary outcome tracking where the native connection and
+protocol permit; if switching prevents confirmation, preserve an unknown outcome
+rather than guessing completion. Do not block selection until operations finish,
+cancel the physical task, or resend/reassign a command because selection changed.
+Late results may update the original operation only, not the newly selected
+printer's state. Necessary operation tracking is separate from ordinary monitoring
+and does not promise simultaneous live telemetry from previously visited printers.
+Orca's reference selection flow is in
+[DevManager](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevManager.cpp).
+
 For Bambu control, choose the Cloud route whenever it exists; use an authorized
 LAN route only when no Cloud route exists. Do not provide a manual route switch.
 A LAN discovery announcement alone is not an authorized route. Temporary Cloud
@@ -340,17 +359,19 @@ state from an obsolete snapshot. Existing tests within a single Electron process
 do not establish these multi-process behaviors. This remains a design requirement,
 not a claim of completed hardware or persistence qualification.
 
-#### Remaining interaction decisions under review
+#### Remaining implementation and qualification details
 
-The following groups organize the remaining design decisions. Resolve questions
-interactively, one at a time, using the checked-in Orca implementation as a
-reference for every question. Consolidate each related group into its owning
-sections rather than appending an answer log or editing after each answer.
+The principal scope and product-interaction choices are settled. The following
+details require implementation evidence or the physical acceptance environment;
+they are not additional product options that must be guessed in advance. If new
+evidence requires a product-level change, clarify it interactively, one question
+at a time, explaining the checked-in Orca behavior. Consolidate related decisions
+in their owning sections rather than maintaining an answer log. Implementation
+still requires separate authorization.
 
-| Group | Decisions to resolve together |
+| Group | Evidence and decisions still required |
 | --- | --- |
-| Command implementation details | Command-specific completion evidence, freshness thresholds, operation retention/deduplication windows and confirmation timeouts need protocol evidence and validation during implementation. User-facing feedback follows Orca as selected above; these details do not imply a new operation-history UI. |
-| Monitoring selection lifetime | Whether selecting a different printer releases ordinary monitoring of the previous printer, while preserving pending operation identity and outcomes. |
+| Command implementation details | Command-specific completion evidence, freshness thresholds, operation retention/deduplication windows and confirmation timeouts need protocol evidence and validation during implementation. Verify which pending outcomes remain observable after a device switch; preserve unknown outcomes when evidence is unavailable. User-facing feedback follows Orca as selected above; these details do not imply a new operation-history UI. |
 | Qualification details | Confirm the physical fixture, representative device states and permitted physical operations at acceptance. Cloud precedes LAN; independent runtimes share persistence without proactive account synchronization. Broader-model and release claims require separate evidence. |
 
 Reference behavior comes from the checked-in Orca revision identified in the

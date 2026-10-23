@@ -422,8 +422,9 @@ remain unverified.
 
 The subsequent [Bambu monitoring/control design](Printer%20Domain%20and%20Control%20Architecture.md#23-bambu-monitoring-and-control-design)
 selects shared React control cards with Bambu-specific composition and H2D + AMS
-acceptance through the same Electron provider boundary. It is a design under
-clarification, not delivered control support or authorization to implement.
+acceptance through the same Electron provider boundary. Product scope and main
+interactions are settled; protocol-dependent details and physical qualification
+remain pending. This is not delivered control support or authorization to implement.
 
 ## 5. Runtime and WASM Loading
 
