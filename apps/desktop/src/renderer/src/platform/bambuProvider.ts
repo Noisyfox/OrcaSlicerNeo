@@ -91,7 +91,7 @@ export function createBambuProvider(bridge: BambuBridge): AccountProvider & D.Pr
     observations: bambuObservations(bridge), controls: bambuControls(bridge),
     operations: bambuOperations(bridge),
     files: { listStorages: reject, list: reject, stat: reject, listPreviews: reject, download: reject, upload: submission, watchChanges: stream },
-    media: { readCurrentPrintPreview: reject, open: reject, watch: stream, renew: reject, sendSignal: reject, readContent: reject, close: reject, captureSnapshot: reject },
+    media: { readCurrentPrintPreview: target => bridge.control('preview', target), open: reject, watch: stream, renew: reject, sendSignal: reject, readContent: reject, close: reject, captureSnapshot: reject },
     webInterfaces: { describe: reject, resolve: reject },
   };
   return { id: providerId, name: 'Bambu Lab', printers, account: {

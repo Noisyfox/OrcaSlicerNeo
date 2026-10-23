@@ -1,4 +1,5 @@
 /** Host-private normalization of Orca DeviceManager / DeviceCore push reports. */
+import { stageLabel } from './stages';
 import type * as D from '@orca/printer-control/domain';
 
 export type Report = Record<string, unknown>;
@@ -36,6 +37,7 @@ export interface TelemetryProjection {
   /** Private normalized source needed by the command adapter; never sent over IPC. */
   report: Report;
   fresh: boolean;
+  generation: number;
 }
 export class BambuTelemetry {
   private print: Report = {};
@@ -61,7 +63,7 @@ export class BambuTelemetry {
     if (update.msg !== undefined && update.msg !== 0 && update.msg !== 1) return 'resync';
     if (update.msg === 1 && !this.baseline) { this.disconnected = true; return 'resync'; }
     // A new task cannot inherit progress/layers from the previous print when its first push omits them.
-    if (update.subtask_id !== undefined && update.subtask_id !== this.print.subtask_id) {
+    if (update.subtask_id !== undefined && update.subtask_id !== this.print.subtask_id || update.gcode_state === 'IDLE' || update.gcode_state === 'READY') {
       for (const key of ['mc_percent', 'mc_remaining_time', 'layer_num', 'total_layer_num', 'stg_cur', 'subtask_name', 'gcode_file', 'thumbnail_url']) delete this.print[key];
     }
     this.print = update.msg === 0 ? merge({}, update) : merge(this.print, update);
@@ -147,14 +149,14 @@ export class BambuTelemetry {
       activeToolIds: read(activeId !== undefined && tools.some(tool => tool.id === `tool:${activeId}`) ? [id<'tool'>(`tool:${activeId}`)] : undefined), actions: read([]),
       printStatus: { phase: read(phase), taskId: read(phase === 'idle' ? null : task && task !== '0' ? id<'device-task'>(task) : undefined), name: read(phase === 'idle' ? null : name),
         progressFraction: read(phase === 'idle' ? undefined : fraction(p.mc_percent, 100)), remainingSeconds: read(phase === 'idle' ? undefined : nonNegative(p.mc_remaining_time) === undefined ? undefined : number(p.mc_remaining_time)! * 60),
-        stage: read(stage === undefined ? undefined : stage === 255 ? null : { code: String(stage), label: `Stage ${stage}` }),
+        stage: read(stage === undefined ? undefined : stage === 255 ? null : { code: String(stage), label: stageLabel(stage) }),
         currentLayer: read(nonNegative(p.layer_num)), totalLayers: read(nonNegative(p.total_layer_num)), speedModeId: read(identifier(p.spd_lvl)) } };
     const home = number(p.home_flag);
     const motion: D.PrinterState['motion'] = tools.length ? [{ motionGroupId: id('gantry'), positionMm: unknown,
       homedAxes: read(home === undefined ? undefined : (['x', 'y', 'z'] as const).filter((_, bit) => (home & (1 << bit)) !== 0)) }] : [];
     const error = nonNegative(p.print_error);
     const alerts: D.PrinterObservationMap['alerts'] = error ? [{ id: id(`print:${error}`), code: error.toString(16).toUpperCase(), severity: 'error', message: `Printer error ${error.toString(16).toUpperCase()}`, actions: [] }] : [];
-    return { fresh, report: merge(p, { capabilities: record(this.info.capabilities) }), values: {
+    return { fresh, generation: this.generation, report: merge(p, { capabilities: record(this.info.capabilities) }), values: {
       descriptor: { revision: topology.revision, identity, technology: 'fdm', buildVolume: null, firmware: firmware.length ? read(firmware) : unknown, topology },
       status: state, thermal, motion, actuators: { fans: fanState, lights: lightState }, sensors: { definitionRevision: topology.revision, definitions, readings },
       materials: material, firmware, cameras: [], alerts,
@@ -191,7 +193,8 @@ function materialInventory(p: Report, extruders: Report[], toolIds: D.Id<'tool'>
       diameterMm: number(tray.tray_diameter) ?? null, catalogRef: typeof tray.tray_info_idx === 'string' && tray.tray_info_idx ? { namespace: 'bambu-filament', value: tray.tray_info_idx } : null };
     const tag = text(tray.tray_uuid) || text(tray.tag_uid);
     // Presence is a hardware bitmap, never inferred from metadata (which may be stale).
-    const index = external ? undefined : Number(unit) >= 128 ? 16 + Number(unit) - 128 : Number(unit) * 4 + Number(slot);
+    const type = bits(entries.find(entry => String(entry.id) === unit)?.info, 0, 4);
+    const index = external ? undefined : type === 5 ? 24 + Number(slot) : Number(unit) >= 128 ? 16 + Number(unit) - 128 : Number(unit) * 4 + Number(slot);
     const exists = index === undefined || index > 63 ? undefined : bits(ams.tray_exist_bits, index);
     slotState.push({ slotId, presence: read(exists === undefined ? undefined : exists ? 'present' : 'empty'),
       material: read(Object.values(material).some(value => value !== null) ? material : undefined),

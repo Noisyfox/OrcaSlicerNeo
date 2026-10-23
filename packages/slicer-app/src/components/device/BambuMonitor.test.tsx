@@ -20,10 +20,11 @@ async function fixture() {
   const status: D.PrinterObservationMap['status'] = { operationalState: known('busy'), activeToolIds: unknown, actions: known([]), printStatus: { phase: known('printing'), taskId: known('task-1' as D.Id<'device-task'>), name: known('External task'), progressFraction: known(0.42), remainingSeconds: known(1200), currentLayer: known(4), totalLayers: known(10), stage: known({ code: '0', label: 'Printing' }), speedModeId: known('2') } };
   let snapshot: D.PrinterSnapshot = { target, configurationRevision: route.configurationRevision, values: { descriptor: known({ revision: 'topology', identity: printer.identity, technology: 'fdm', buildVolume: null, topology, firmware: unknown }), status: known(status), materials: known(material), thermal: known([{ heaterId: 'nozzle:3' as never, targetC: known(220) }]), sensors: known({ definitionRevision: 'topology', definitions: [], readings: [] }), alerts: known([]) } };
   const caps = structuredClone(route.capabilities); caps.revision = 'cap'; caps.commands['thermal.setTarget'] = { kind: 'supported', constraints: [{ heaterId: 'nozzle:3' as never, targetC: { min: 0, max: 350, step: 1 } }] };
+  let broken = false;
   let wake: (() => void) | undefined;
   const watch = vi.fn(async function* (_request, options) {
     const onAbort = () => wake?.(); options?.signal?.addEventListener('abort', onAbort);
-    try { while (!options?.signal?.aborted) { yield { type: 'snapshot', cursor: 'cursor', snapshot }; await new Promise<void>(resolve => { wake = resolve; if (options?.signal?.aborted) resolve(); }); } }
+    try { while (!options?.signal?.aborted) { if (broken) throw new Error('Disconnected'); yield { type: 'snapshot', cursor: 'cursor', snapshot }; await new Promise<void>(resolve => { wake = resolve; if (options?.signal?.aborted) resolve(); }); } }
     finally { options?.signal?.removeEventListener('abort', onAbort); }
   });
   const submit = vi.fn(async () => ({ kind: 'recorded', operation: { ...target, id: 'op' } }));
@@ -37,7 +38,7 @@ async function fixture() {
     snapshot = { ...snapshot, values: { ...snapshot.values, status: reading } }; wake?.(); await Promise.resolve();
   });
   const click = async (label: string) => act(async () => { [...element.querySelectorAll('button')].find(button => button.textContent === label)!.click(); });
-  return { element, render, update, click, watch, submit, close: async () => { await act(async () => root.unmount()); element.remove(); } };
+  return { element, render, update, click, watch, submit, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
 }
 it('automatically monitors, lays out reported material units and retains the subscription while hidden', async () => {
   const f = await fixture(); try {
@@ -68,4 +69,14 @@ it('submits a temperature edit once for Enter followed by blur', async () => {
     await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' })); input.blur(); });
     expect(submit).toHaveBeenCalledExactlyOnceWith(220);
   } finally { await act(async () => root.unmount()); element.remove(); }
+});
+
+it('retains a hidden stream failure and disables controls when the page returns', async () => {
+  const f = await fixture(); try {
+    await f.render(); await f.render(false); await f.fail();
+    expect(f.element.textContent).not.toContain('Printer monitoring is unavailable.');
+    await f.render(true);
+    expect(f.element.textContent).toContain('Printer monitoring is unavailable.');
+    expect([...f.element.querySelectorAll('button')].find(button => button.textContent === 'Pause')?.disabled).toBe(true);
+  } finally { await f.close(); }
 });

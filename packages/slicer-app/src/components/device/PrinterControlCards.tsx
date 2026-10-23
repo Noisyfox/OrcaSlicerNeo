@@ -9,18 +9,20 @@ export interface CardControls { capabilities: D.PrinterCapabilities; snapshot: D
 /** Enter and blur share one submission path, bound to the target by the parent's keyed lifetime. */
 export function TemperatureInput({ label, current, target, limits, disabled, submit }: { label: string; current?: D.Reading<number>; target?: D.Reading<number>; limits: D.Range; disabled: boolean; submit(value: number): void }) {
   const reported = valueOf(target), [draft, setDraft] = useState(reported === undefined ? '' : String(reported));
+  const [validation, setValidation] = useState<string | null>(null);
   const editing = useRef(false), sent = useRef<string | null>(null), live = useRef(true);
   useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
   useEffect(() => { if (!editing.current) { setDraft(reported === undefined ? '' : String(reported)); sent.current = null; } }, [reported]);
   const commit = () => {
     if (!live.current || disabled || !draft.trim()) return;
     const value = Number(draft);
-    if (!Number.isInteger(value) || value < 0 || limits.min !== null && value < limits.min || limits.max !== null && value > limits.max || value === reported || sent.current === draft) return;
+    if (!Number.isInteger(value) || value < 0 || limits.min !== null && value < limits.min || limits.max !== null && value > limits.max) { setValidation(`Enter a whole temperature from ${limits.min ?? 0} to ${limits.max ?? 'the supported maximum'} °C.`); return; }
+    setValidation(null); if (value === reported || sent.current === draft) return;
     sent.current = draft; submit(value);
   };
-  return <label className="flex items-center justify-between gap-3 text-sm"><span>{label}<span className="block text-xs text-muted-foreground">{display(current, value => `${value} °C`)}</span></span>
+  return <div><label className="flex items-center justify-between gap-3 text-sm"><span>{label}<span className="block text-xs text-muted-foreground">{display(current, value => `${value} °C`)}</span></span>
     <span className="flex items-center gap-1"><Input aria-label={`${label} target`} className="w-24" type="number" min={limits.min ?? 0} max={limits.max ?? undefined} step="1" value={draft} disabled={disabled} placeholder="—"
-      onFocus={() => { editing.current = true; }} onChange={event => { sent.current = null; setDraft(event.target.value); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(); event.currentTarget.blur(); } }} onBlur={() => { editing.current = false; commit(); }} /><span>°C</span></span></label>;
+      onFocus={() => { editing.current = true; }} onChange={event => { setValidation(null); sent.current = null; setDraft(event.target.value); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(); event.currentTarget.blur(); } }} onBlur={() => { editing.current = false; commit(); }} /><span>°C</span></span></label>{validation && <p role="alert" className="mt-1 text-xs text-destructive">{validation}</p>}</div>;
 }
 export function ThermalCard({ capabilities, snapshot, disabled, send }: CardControls) {
   const topology = valueOf(snapshot?.values.descriptor)?.topology;
@@ -37,10 +39,20 @@ export function ThermalCard({ capabilities, snapshot, disabled, send }: CardCont
 export function ActuatorCard({ capabilities, snapshot, disabled, send }: CardControls) {
   const topology = valueOf(snapshot?.values.descriptor)?.topology, actuators = valueOf(snapshot?.values.actuators);
   const fans = capabilities.commands['fans.setSpeed'], lights = capabilities.commands['lights.set'];
-  return <ControlCard title="Fans and lighting">{topology?.fans.map(fan => <label key={fan.id} className="flex items-center justify-between gap-3 text-sm"><span>{fan.name}</span>
-    <select aria-label={`${fan.name} speed`} className="rounded border bg-background p-1" disabled={disabled || fans.kind !== 'supported' || !fans.constraints.some(item => item.fanId === fan.id)} value={String(Math.round((valueOf(actuators?.fans.find(item => item.fanId === fan.id)?.speedFraction) ?? -0.01) * 100))}
-      onChange={event => send({ type: 'fans.setSpeed', params: { fanId: fan.id, speedFraction: Number(event.target.value) / 100 } })}>
-      <option value="-1">Not reported</option>{Array.from({ length: 11 }, (_, index) => index * 10).map(value => <option key={value} value={value}>{value}%</option>)}</select></label>)}
+  return <ControlCard title="Fans and lighting">{topology?.fans.map(fan => {
+    const limit = fans.kind === 'supported' ? fans.constraints.find(item => item.fanId === fan.id)?.speedFraction : undefined;
+    const current = valueOf(actuators?.fans.find(item => item.fanId === fan.id)?.speedFraction);
+    const percentage = current === undefined ? -1 : Math.round(current * 100);
+    const allowed = (value: number) => value >= 0 && value <= 100 && (!limit || (limit.min === null || value >= limit.min * 100) && (limit.max === null || value <= limit.max * 100));
+    const options = [...new Set([...Array.from({ length: 11 }, (_, index) => index * 10), percentage,
+      ...(limit?.min === null || limit?.min === undefined ? [] : [Math.ceil(limit.min * 100)]),
+      ...(limit?.max === null || limit?.max === undefined ? [] : [Math.floor(limit.max * 100)])])]
+      .filter(value => value >= 0 && (value === percentage || allowed(value))).sort((a, b) => a - b);
+    return <label key={fan.id} className="flex items-center justify-between gap-3 text-sm"><span>{fan.name}</span>
+      <select aria-label={`${fan.name} speed`} className="rounded border bg-background p-1" disabled={disabled || !limit} value={String(percentage)}
+        onChange={event => send({ type: 'fans.setSpeed', params: { fanId: fan.id, speedFraction: Number(event.target.value) / 100 } })}>
+        <option value="-1" disabled>Not reported</option>{options.map(value => <option key={value} value={value} disabled={!allowed(value)}>{value}%</option>)}</select></label>;
+  })}
     {topology?.lights.map(light => <label key={light.id} className="flex items-center justify-between text-sm"><span>{light.name.replaceAll('_', ' ')}</span><input type="checkbox" aria-label={light.name.replaceAll('_', ' ')} disabled={disabled || lights.kind !== 'supported' || !lights.constraints.lightIds.includes(light.id)} checked={valueOf(actuators?.lights.find(item => item.lightId === light.id)?.on) ?? false} onChange={event => send({ type: 'lights.set', params: { lightId: light.id, on: event.target.checked } })} /></label>)}
     {!topology?.fans.length && !topology?.lights.length && <p className="text-sm text-muted-foreground">No actuators reported.</p>}</ControlCard>;
 }

@@ -58,3 +58,8 @@ it('allows only current error-episode recovery references and suppresses abort d
   const next = recovery.decorate(f.context()); expect(next.recovery).toHaveLength(1);
   expect(prepareCommand(next, { type: 'actions.invoke', params: { actionRef: action.actionRef } })).toMatchObject({ ok: false, error: { code: 'stale-context' } });
 });
+it('uses reported fan limits instead of assuming every fan allows the full range', () => {
+  const context = fixture({ device: { airduct: { parts: [{ id: 16, state: 52, range: (80 << 16) | 20 }] } } }).context();
+  expect(commandCapabilities(context).commands['fans.setSpeed']).toMatchObject({ constraints: [{ fanId: 'fan:1', speedFraction: { min: 0.2, max: 0.8 } }] });
+  expect(prepareCommand(context, { type: 'fans.setSpeed', params: { fanId: 'fan:1' as never, speedFraction: 1 } })).toMatchObject({ ok: false, error: { code: 'out-of-range' } });
+});

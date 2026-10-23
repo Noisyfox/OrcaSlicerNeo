@@ -1,3 +1,4 @@
+import { readCurrentPrintPreview } from './preview';
 import { BambuOperations } from './operations';
 import type { BambuControlRequest } from '../../shared/bambuControl';
 import { BambuMonitor } from './monitor';
@@ -99,6 +100,7 @@ export class BambuRuntime {
     await this.ready;
     if (!this.monitor || !this.operations) return request.method === 'submit' ? { kind: 'rejected' as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } } : { ok: false as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } };
     switch (request.method) {
+      case 'preview': return readCurrentPrintPreview(this.monitor, this.native!, request.input);
       case 'evaluate': return this.operations.evaluate(request.input.target, request.input.command);
       case 'submit': return this.operations.submit(request.input);
       case 'operation': return this.operations.get(request.input);

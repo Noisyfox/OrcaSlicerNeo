@@ -6,7 +6,7 @@ import { BambuMonitor } from './monitor';
 import { record, text } from './telemetry';
 interface Tracked {
   operation: D.CommandOperation; request: D.CommandRequest; prepared: PreparedCommand;
-  sequence: string; token: string; timer: ReturnType<typeof setTimeout>;
+  generation: number; sequence: string; token: string; timer: ReturnType<typeof setTimeout>;
 }
 const failure = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });
 const terminal = (phase: D.CommandOperation['phase']) => ['completed', 'failed', 'outcome-unknown'].includes(phase.kind);
@@ -41,7 +41,7 @@ export class BambuOperations {
           ref: { ...context.target, id: randomUUID() as D.Id<'operation'> }, requestId: request.requestId,
           configurationRevision: context.configurationRevision, revision: 1, updatedAtMs: this.now(), phase: { kind: 'sent' } };
         const timer = setTimeout(() => { if (tracked && !terminal(tracked.operation.phase)) this.update(tracked, { kind: 'outcome-unknown', reason: 'The printer did not confirm completion. Check its current state before issuing another command.' }); }, this.timeoutMs); timer.unref();
-        tracked = { operation, request, prepared: prepared.value, sequence, token: lease.value, timer };
+        tracked = { generation: context.generation, operation, request, prepared: prepared.value, sequence, token: lease.value, timer };
         this.operations.set(operation.ref.id, tracked); this.changed();
         try {
           const code = await send(prepared.value.section, { ...prepared.value.fields, sequence_id: sequence }, prepared.value.qos);
@@ -73,7 +73,7 @@ export class BambuOperations {
       }
       if (record(root.print).command === 'push_status' && tracked.prepared.confirmed) {
         const context = await this.monitor.context(ref);
-        if (context.ok && context.value.fresh && context.value.configurationRevision === tracked.operation.configurationRevision && tracked.prepared.confirmed(context.value)) this.update(tracked, { kind: 'completed', result: null, confirmation: 'observed-state' });
+        if (context.ok && context.value.fresh && context.value.generation > tracked.generation && context.value.configurationRevision === tracked.operation.configurationRevision && tracked.prepared.confirmed(context.value)) this.update(tracked, { kind: 'completed', result: null, confirmation: 'observed-state' });
       }
     }
   }

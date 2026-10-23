@@ -114,6 +114,7 @@ Output PluginAgent::call(const std::string& method, const std::vector<Input>& ar
     if (method == "install_device_cert") { install_device_cert_(agent_, string(0), boolean(1)); return 0; }
     HttpResult response{0, 0, {}};
     if (method == "get_user_print_info") response.result = get_user_print_info_(agent_, &response.http_code, &response.body);
+    else if (method == "get_subtask_info") { std::string http_body; response.result = get_subtask_info_(agent_, string(0), &response.body, &response.http_code, &http_body); }
     else if (method == "get_my_token") response.result = get_my_token_(agent_, string(0), &response.http_code, &response.body);
     else if (method == "get_my_profile") response.result = get_my_profile_(agent_, string(0), &response.http_code, &response.body);
     else throw std::runtime_error("Unsupported native method");

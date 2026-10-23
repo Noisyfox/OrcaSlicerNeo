@@ -3,6 +3,8 @@ import { isBambuControlRequest } from './bambuControl';
 it('accepts only bounded typed observation requests, never native payloads or host settings', () => {
   const target = { printerId: 'bambu:a', routeId: 'bambu:a:cloud' };
   expect(isBambuControlRequest({ method: 'describe', input: target })).toBe(true);
+  expect(isBambuControlRequest({ method: 'preview', input: { ...target, expectedConfigurationRevision: 'r1' } })).toBe(true);
+  expect(isBambuControlRequest({ method: 'preview', input: { ...target, url: 'https://private/' } })).toBe(false);
   expect(isBambuControlRequest({ method: 'read', input: { target, topics: ['status', 'materials'], source: 'device' } })).toBe(true);
   expect(isBambuControlRequest({ method: 'observe', input: { target, token: 'subscription' } })).toBe(true);
   expect(isBambuControlRequest({ method: 'release', input: { token: 'subscription' } })).toBe(true);

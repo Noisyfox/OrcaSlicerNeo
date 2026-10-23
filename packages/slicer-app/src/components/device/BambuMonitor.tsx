@@ -20,6 +20,7 @@ export function BambuMonitor({ printer, route, visible }: { printer: D.SavedPrin
   useEffect(() => () => controller.current?.abort(), []);
   useEffect(() => {
     if (!visible || capabilities.currentPrintPreview.kind !== 'supported' || !taskId) { setPreview(null); return; }
+    setPreview(null);
     const abort = new AbortController(); let url: string | null = null;
     void service.media.readCurrentPrintPreview({ printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision }, { signal: abort.signal }).then(result => {
       if (!abort.signal.aborted && result.ok && result.value.taskId === taskId) { url = URL.createObjectURL(new Blob([new Uint8Array(result.value.bytes)], { type: result.value.mimeType })); setPreview(url); }
@@ -61,7 +62,7 @@ export function BambuMonitor({ printer, route, visible }: { printer: D.SavedPrin
     {feedback && <div role="status" className="flex items-center justify-between gap-3 rounded border p-2 text-sm"><span>{feedback}</span><Button size="sm" variant="ghost" onClick={() => setFeedback(null)}>Dismiss</Button></div>}
     {valueOf(snapshot?.values.alerts)?.map(alert => <section key={alert.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-destructive/40 p-3 text-sm"><span>{alert.message} <span className="text-muted-foreground">{alert.code}</span></span><div className="flex gap-2">{alert.actions.map(action => <Button key={action.actionRef.token} size="sm" variant="secondary" disabled={controls.disabled || action.availability.kind !== 'available'} onClick={() => void send({ type: 'actions.invoke', params: { actionRef: action.actionRef } })}>{action.label}</Button>)}</div></section>)}
     <div className="grid gap-4 lg:grid-cols-2">
-      <ControlCard title="Current print"><div className="flex gap-4"><div className="flex size-28 shrink-0 items-center justify-center rounded bg-muted text-center text-xs text-muted-foreground">{preview ? <img className="size-full object-contain" src={preview} alt="Current print preview" /> : 'No preview available'}</div><dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-3 gap-y-1 text-sm">
+      <ControlCard title="Current print"><div className="flex gap-4"><div className="flex size-28 shrink-0 items-center justify-center rounded border bg-muted/20 text-center text-xs text-muted-foreground">{preview ? <img className="size-full object-contain" src={preview} alt="Current print preview" /> : 'No preview available'}</div><dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-3 gap-y-1 text-sm">
         <dt>Task</dt><dd className="truncate">{display(status?.printStatus.name, name => name ?? 'No active print')}</dd><dt>State</dt><dd>{display(status?.printStatus.phase)}</dd>
         <dt>Stage</dt><dd>{display(status?.printStatus.stage, stage => stage?.label ?? '—')}</dd><dt>Layer</dt><dd>{display(status?.printStatus.currentLayer)} / {display(status?.printStatus.totalLayers)}</dd>
         <dt>Progress</dt><dd>{display(status?.printStatus.progressFraction, value => `${Math.round(value * 100)}%`)}</dd><dt>Remaining</dt><dd>{display(status?.printStatus.remainingSeconds, value => `${Math.ceil(value / 60)} min`)}</dd>

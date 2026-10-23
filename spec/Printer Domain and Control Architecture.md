@@ -1076,9 +1076,15 @@ temperature target is different from waiting for that temperature, and material
 movement needs an appropriate terminal result. Preserve unknown outcomes after
 ambiguous dispatch; do not automatically resend motion or material commands.
 The provider owns request deduplication, protocol response correlation and
-operation lookup independently of the view. Command-specific evidence, retention
-and deduplication windows, freshness thresholds and confirmation timeouts require
-protocol evidence and validation during implementation. The selected UI follows
+operation lookup independently of the view. The implementation retains requests
+and operation records for the current utility lifetime, with a 30-second completion
+timeout. Telemetry becomes stale after 15 seconds; explicit reads time out after
+10 seconds. Target temperatures, fan/light settings, task state, tools and material
+paths can complete only from a newly accepted report satisfying the command's
+predicate. ACK is recorded separately. Jog/home/extrusion, identification refresh
+and recovery currently have no proven terminal predicate and therefore become
+unknown when confirmation times out. Hardware acceptance must verify these
+observations against firmware behavior. No outcomes survive utility restart. The selected UI follows
 Orca's corresponding control states, local messages and necessary dialogs; it
 does not add a unified operation-history panel or uniformly persistent outcome
 badges. This does not weaken underlying outcome tracking or replay restrictions.

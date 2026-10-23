@@ -1,0 +1,48 @@
+import { _electron, desktopLaunchOptions } from './electron-fixture';
+import { expect, test } from '@playwright/test';
+import { installControlFixture, publishControlSnapshot } from './bambu-control-fixture';
+test('Bambu control cards retain selection, bind edits and cancellation, and disable stale controls', async () => {
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await installControlFixture(app);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
+    const panel = page.locator('#device-content');
+    await expect(panel.getByText('External task', { exact: true })).toBeVisible();
+    await expect(panel.getByText('AMS 128', { exact: true })).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
+    const commands = () => app.evaluate(() => globalThis.bambuControlFixture.commands);
+    const tokens = () => app.evaluate(() => globalThis.bambuControlFixture.tokens);
+    await expect.poll(tokens).toHaveLength(1); const originalTokens = await tokens();
+    const temperature = panel.getByRole('spinbutton', { name: 'Nozzle 0 target', exact: true });
+    await temperature.fill('235'); await temperature.press('Enter');
+    await expect.poll(commands).toHaveLength(1);
+    expect((await commands())[0]).toMatchObject({ target: { printerId: 'bambu:a' }, command: { type: 'thermal.setTarget', params: { targetC: 235 } } });
+    await panel.getByRole('button', { name: 'Cancel print', exact: true }).click();
+    await publishControlSnapshot(app, 'a', 'Replacement task');
+    await expect(panel.getByText('Replacement task', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Confirm cancellation', exact: true }).click();
+    expect(await commands()).toHaveLength(1);
+    await expect(panel.getByText('The active task changed. Review it before cancelling.')).toBeVisible();
+    await page.locator('#app-tab-home').click();
+    await publishControlSnapshot(app, 'a', 'Hidden task');
+    expect(await tokens()).toEqual(originalTokens);
+    await page.getByTestId('tab-device').click();
+    await expect(panel.getByText('Hidden task', { exact: true })).toBeVisible();
+    await publishControlSnapshot(app, 'a', 'Hidden task', false);
+    await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeDisabled();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Workshop B', exact: true }).click();
+    await expect(panel.getByText('Second task', { exact: true })).toBeVisible();
+    await expect.poll(tokens).toHaveLength(1); expect(await tokens()).not.toEqual(originalTokens);
+    await panel.getByRole('button', { name: 'Pause', exact: true }).click();
+    await expect.poll(commands).toHaveLength(2);
+    expect((await commands())[1]).toMatchObject({ target: { printerId: 'bambu:b' }, command: { type: 'jobs.pause' } });
+    await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
+    await expect(page.getByRole('option', { name: 'Workshop B', exact: true })).toBeHidden();
+    await page.screenshot({ path: '/tmp/orca-bambu-control.png' });
+  } finally { await app.close(); }
+});

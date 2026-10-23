@@ -2,10 +2,10 @@
 
 **Updated:** 2026-10-23
 
-**Status:** Current console/Send experience and basic Monitor are delivered.
-Bambu control scope and principal interaction decisions are recorded below;
-protocol-dependent implementation details and physical qualification remain
-pending. No Bambu control delivery is claimed by this document.
+**Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
+implementation are delivered. Bambu protocol fixtures and desktop interaction
+regression cover software behavior; physical H2D + AMS acceptance remains last,
+Cloud followed by LAN. No hardware or six-target control qualification is claimed.
 
 **Scope:** The printer-console and printer-control experience shared by the
 Electron desktop application and the Web application.
@@ -23,7 +23,7 @@ The shared device model is owned by
 [Printer Domain and Control Architecture](Printer%20Domain%20and%20Control%20Architecture.md).
 That design covers discovery, capabilities, material systems, sensors, cameras
 and remote files. The existing Moonraker subset implements that service;
-Bambu account/discovery foundations are delivered, with control design recorded
+Bambu account/discovery and control execution are implemented as described
 below. Other agents and the gateway remain deferred. This document
 continues to own the existing console and sending experience, including printer
 selection and upload/start retry behavior. Its saved API-key representation
@@ -43,7 +43,8 @@ APIs are stateless. Both hosts inject the Moonraker domain service; Device
 resolves its Web entry locally and Send submits explicit upload/start requests
 and observes operation references. The old driver/Send service is retired.
 Uploads explicitly select the advertised overwrite policy, preserving existing
-same-name behavior. Configuration persistence and host transports are unchanged.
+same-name behavior. The saved document shape and host transport boundary are preserved; Electron
+configuration writes now protect independent-instance updates as described below.
 
 The embedded console is a convenience and management surface. Sending and
 printing use the printer API directly, so either surface can continue to be
@@ -77,17 +78,13 @@ expanded; Workspace collapse preferences remain separate.
 Deleting a printer route requires confirmation. Adding or editing a printer opens a
 configuration dialog.
 
-The delivered Monitor currently provides explicit Refresh for supported status, sensor and
-heater-target readings, plus capability-gated Pause, Resume and Cancel print.
-Selecting a printer or entering Monitor does not start reads, polling or control
-commands. Missing readings remain unreported; failed reads retain previous
-values with an error indication. Commands carry the selected route and its
-configuration revision; unknown outcomes ask the user to check the printer and
-are never automatically retried. Camera viewing and additional motion, material,
-and actuator cards remain future work. Current Bambu enumeration alone does not
-establish Monitor eligibility. The accepted Bambu observation behavior below
-supersedes manual-only entry for that planned implementation; it does not change
-Moonraker's request-driven behavior.
+Moonraker Monitor provides explicit Refresh for supported status, sensors and
+heater targets, plus capability-gated Pause, Resume and Cancel. Selecting it does
+not start polling. Bambu Monitor starts live observation for the selected device
+and composes task, temperature, actuator, motion, tool and material cards. The
+provider validates commands against fresh observations and their original target.
+Missing readings stay unreported; disconnected data is marked stale. Unknown
+outcomes never cause an automatic retry. Video remains outside this delivery.
 
 ### Bambu control design
 
@@ -102,8 +99,8 @@ task/material errors and supported contextual recovery actions remain available
 inside the relevant cards. The additional feature boundaries below are accepted.
 Existing account, discovery and route management remain in place. The shared
 control composition, live subscription and Device selection restoration are
-implemented. Desktop integration regression and physical H2D + AMS qualification
-remain separate acceptance gates.
+implemented and covered by desktop integration regression. Physical H2D + AMS
+qualification remains a separate acceptance gate.
 The Electron host supplies native Bambu execution; shared React components use
 the printer service. This work does not introduce a Web gateway.
 
@@ -131,7 +128,7 @@ The accepted feature envelope is:
 
 | Area | Accepted coverage |
 | --- | --- |
-| Current print | Name, phase, progress, remaining time, detailed stage and layer counts; pause, resume, cancel and speed selection. Display a current-task thumbnail when obtainable, otherwise a placeholder. Extended observations, previews and speed semantics need contract changes. Object skipping is excluded. |
+| Current print | Name, phase, progress, remaining time, detailed stage and layer counts; pause, resume, cancel and speed selection. Display a current-task thumbnail when obtainable, otherwise a placeholder. The typed contract includes task previews, detailed observations and speed modes. Object skipping is excluded. |
 | Thermal and actuators | Separately identified nozzle/tool temperatures, bed and supported chamber control, fans and lights; unknown limits must not become unrestricted inputs. |
 | Motion and tools | Homing, jogging, extrusion/retraction and supported tool selection, with explicit targets and device/state-dependent availability. |
 | Materials | Dynamically reported AMS units, external holders, slots, read-only metadata/remaining material and paths to tools; load, unload and switch. No metadata editing or manual RFID re-read. |
@@ -164,7 +161,12 @@ not let an earlier asynchronous image result replace the current image.
 Orca's reference is the current-task and SD-card thumbnail handling in
 [StatusPanel](../packages/slicer-wasm/cpp/src/slic3r/GUI/StatusPanel.cpp).
 Object picking, object metadata acquisition and skip-object commands are not
-part of this thumbnail scope.
+part of this thumbnail scope. The provider reads the current task through the
+native subtask-info export and selects its reported plate, or uses a reported
+thumbnail URL. Only bounded PNG/JPEG bytes leave the utility; signed URLs remain
+private. Missing task identity, unsupported URLs, absent images and failed
+retrieval retain the placeholder. Completion rechecks task/configuration identity.
+No LAN filesystem or FTP browsing is introduced by this path.
 
 Show the reported details of both H2D nozzles separately. Hardware information
 is read-only; the explicit refresh/re-identification action is offered only
@@ -385,7 +387,7 @@ physical acceptance remains last.
 
 | Group | Evidence and decisions still required |
 | --- | --- |
-| Command implementation details | Command-specific completion evidence, freshness thresholds, operation retention/deduplication windows and confirmation timeouts need protocol evidence and validation during implementation. Verify which pending outcomes remain observable after a device switch; preserve unknown outcomes when evidence is unavailable. User-facing feedback follows Orca as selected above; these details do not imply a new operation-history UI. |
+| Command implementation details | Implemented: 15-second telemetry freshness, 10-second explicit-read timeout, 30-second completion timeout, and instance-lifetime operation/request retention. ACK is separate from completion. New accepted telemetry can confirm target/task/path state; motion, refresh and recovery without reliable terminal evidence remain unknown on timeout. Hardware acceptance must establish actual firmware outcomes and tune these bounds if evidence requires it. |
 | Qualification details | Confirm the physical fixture, representative device states and permitted physical operations at acceptance. Cloud precedes LAN; independent runtimes share persistence without proactive account synchronization. Broader-model and release claims require separate evidence. |
 
 Reference behavior comes from the checked-in Orca revision identified in the
@@ -428,8 +430,6 @@ catalogue reads do not establish absence. Persist the device identity, not a
 forced Bambu route; route choice follows the policy above. Restoring Bambu starts
 monitoring when its control view is shown. Restoring a request-based printer
 preserves that provider's existing access policy rather than enabling polling.
-The current implementation still uses an ephemeral selection until this change
-is implemented.
 
 Adding a printer does not select it automatically. If the selected printer is
 deleted, the selection becomes empty and the console shows an empty state rather
@@ -578,6 +578,39 @@ The focused real-WASM naming contract is
 It covers template defaults, empty/custom formats, real statistics, per-plate
 names/numbers, Unicode folding, extensions, template errors, per-operation
 timestamps, generation reuse and stale receipts.
+
+## Bambu software verification
+
+The 2026-10-23 local software gate ran on macOS ARM64. `pnpm test` passed
+2,508 tests with four existing conditional skips, and `pnpm typecheck` passed.
+The desktop and shared-app suites were rerun after the final fan-range/UI
+adjustments (236 and 1,405 passed). The platform import guard
+(`pnpm --filter @orca/platform-contract test:import-guard`), native ABI declaration
+check (`node packages/bambu-native/scripts/verify-declarations.mjs`) and pinned
+plugin load (`pnpm --filter @orca/bambu-native smoke`) passed. The actual plugin
+is Open Bamboo Networking v2.2.0, ABI `02.08.01.99`.
+
+Desktop verification builds with
+`pnpm --filter @orca/desktop exec electron-vite build --mode e2e`, checks CSS with
+`pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs`, then runs
+`pnpm --filter @orca/desktop exec playwright test e2e/bambu-control.e2e.ts e2e/bambu-provider.e2e.ts e2e/bambu-account.e2e.ts e2e/printer-control.e2e.ts e2e/app.e2e.ts`.
+The initial run had 41 passes, three real-WASM-only skips, and one sidebar-layout
+coordinate failure after viewport resizing. The unchanged isolated command
+`pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts --grep 'sidebar panels resize independently'`
+passed; the failure was not reproduced and is not claimed as a fixed root cause.
+After the final fan/UI adjustments, the rebuilt application passed all seven
+focused cases in the four Bambu/Moonraker files above (excluding `app.e2e.ts`).
+The Bambu control journey uses a typed main-IPC fixture to exercise renderer,
+preload, target selection, temperature submission, cancellation context and stale
+controls. Separate provider unit/native tests cover protocol validation and
+outcomes. The independent-instance smoke uses actual native utilities with empty
+account state. None of these substitutes for a logged-in physical printer test.
+
+Real H2D + AMS Cloud and LAN operations, account invalidation between live
+instances, and the six-target release matrix remain unrun for this control
+increment. No C++ slicing/WASM bridge changed, so no new dual-WASM build or real
+Web release run was required. Perform physical acceptance only after these
+software gates, confirming reported hardware and current device state first.
 
 ## Upload verification
 

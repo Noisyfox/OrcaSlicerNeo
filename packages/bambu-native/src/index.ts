@@ -46,6 +46,7 @@ export interface BambuNative {
   getBambuLabHost(): Promise<string>;
   getMyToken(ticket: string): Promise<NativeHttpResult>;
   getMyProfile(token: string): Promise<NativeHttpResult>;
+  getSubtaskInfo(subtaskId: string): Promise<NativeHttpResult>;
   getUserPrintInfo(): Promise<NativeHttpResult>;
   startDiscovery(start: boolean, sending: boolean): Promise<boolean>;
   connectPrinter(deviceId: string, ip: string, username: string, password: string, ssl: boolean): Promise<number>;
@@ -90,7 +91,7 @@ export function loadBambuNative(addonPath: string, pluginPath: string, listener:
     getUserId: () => call('get_user_id'), getUserName: () => call('get_user_name'), getUserAvatar: () => call('get_user_avatar'),
     getUserNickname: () => call('get_user_nickanme'), buildLoginCommand: () => call('build_login_cmd'),
     buildLogoutCommand: () => call('build_logout_cmd'), buildLoginInfo: () => call('build_login_info'), getBambuLabHost: () => call('get_bambulab_host'),
-    getMyToken: ticket => call('get_my_token', ticket), getMyProfile: token => call('get_my_profile', token), getUserPrintInfo: () => call('get_user_print_info'),
+    getMyToken: ticket => call('get_my_token', ticket), getMyProfile: token => call('get_my_profile', token), getSubtaskInfo: id => call('get_subtask_info', id), getUserPrintInfo: () => call('get_user_print_info'),
     startDiscovery: (start, sending) => call('start_discovery', start, sending),
     connectPrinter: (id, ip, username, password, ssl) => call('connect_printer', id, ip, username, password, ssl),
     startSubscribe: module => call('start_subscribe', module), stopSubscribe: module => call('stop_subscribe', module),

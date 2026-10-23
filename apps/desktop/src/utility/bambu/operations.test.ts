@@ -63,3 +63,13 @@ it('sanitizes device rejection and never exposes raw error bodies', async () => 
     expect(JSON.stringify(f.operations.get(result.operation))).not.toContain('PRIVATE_TOKEN');
   } finally { await f.close(); }
 });
+it('does not mistake an ignored report for fresh completion evidence', async () => {
+  const f = fixture(); try {
+    await f.monitor.start(target, 'view'); await f.push();
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 1, lights_report: [{ node: 'chamber_light', mode: 'on' }] } })] });
+    const result = await f.operations.submit(request({ command: { type: 'lights.set', params: { lightId: 'chamber_light' as never, on: true } } }));
+    if (result.kind !== 'recorded') throw new Error('Not recorded');
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 7 } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'sent' } } } });
+  } finally { await f.close(); }
+});

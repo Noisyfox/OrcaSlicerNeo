@@ -2,6 +2,7 @@ import { isBambuCommandPayload } from './bambuCommandValidation';
 /** Renderer-safe domain RPC. Native protocol JSON and credentials have no representation here. */
 import type * as D from '@orca/printer-control/domain';
 export interface BambuControlInputs {
+  preview: D.TargetRequest;
   evaluate: { target: D.PrinterTarget; command: D.PrinterCommand };
   submit: D.CommandRequest;
   operation: D.OperationRef;
@@ -12,6 +13,7 @@ export interface BambuControlInputs {
   release: { token: string };
 }
 export interface BambuControlResults {
+  preview: D.Result<D.CurrentPrintPreview>;
   evaluate: D.Result<D.CommandEvaluation>;
   submit: D.Submission;
   operation: D.Result<D.OperationLookup>;
@@ -41,6 +43,7 @@ export function isBambuControlRequest(value: unknown): value is BambuControlRequ
     && object(input.target) && exact(input.target, ['printerId', 'routeId', 'expectedConfigurationRevision']) && string(input.target.printerId) && string(input.target.routeId)
     && (input.target.expectedConfigurationRevision === undefined || string(input.target.expectedConfigurationRevision))
     && (input.guard === undefined || object(input.guard) && exact(input.guard, ['capabilityRevision', 'topologyRevision', 'inventoryRevision', 'expectedTaskId']) && Object.values(input.guard).every(string));
+  if (value.method === 'preview') return exact(input, ['printerId', 'routeId', 'expectedConfigurationRevision']) && string(input.printerId) && string(input.routeId) && (input.expectedConfigurationRevision === undefined || string(input.expectedConfigurationRevision));
   if (value.method === 'describe') return isBambuTarget(input);
   if (value.method === 'release') return exact(input, ['token']) && string(input.token);
   if (value.method === 'observe') return exact(input, ['target', 'token']) && isBambuTarget(input.target) && string(input.token);

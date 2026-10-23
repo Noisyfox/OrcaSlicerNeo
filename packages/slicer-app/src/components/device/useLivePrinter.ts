@@ -7,9 +7,10 @@ export function useLivePrinter(service: D.PrinterService, printer: D.SavedPrinte
   const [snapshot, setSnapshot] = useState<D.PrinterSnapshot | null>(null);
   const [capabilities, setCapabilities] = useState(route.capabilities);
   const [error, setError] = useState<string | null>(null);
+  const latestError = useRef<string | null>(null);
   const latest = useRef<D.PrinterSnapshot | null>(null), visibleRef = useRef(visible);
   visibleRef.current = visible;
-  useEffect(() => { if (visible) { setStarted(true); setSnapshot(latest.current); } }, [visible]);
+  useEffect(() => { if (visible) { setStarted(true); setSnapshot(latest.current); setError(latestError.current); } }, [visible]);
   useEffect(() => {
     if (!started) return;
     const abort = new AbortController();
@@ -19,11 +20,12 @@ export function useLivePrinter(service: D.PrinterService, printer: D.SavedPrinte
         if (abort.signal.aborted) return;
         if (event.type === 'snapshot') latest.current = event.snapshot;
         else if (latest.current) latest.current = { ...latest.current, configurationRevision: event.configurationRevision, values: { ...latest.current.values, ...event.values } };
+        latestError.current = null;
         if (visibleRef.current) { setSnapshot(latest.current); setError(null); }
         const description = await service.describe(target, { signal: abort.signal });
         if (!abort.signal.aborted && visibleRef.current && description.ok) setCapabilities(description.value.capabilities);
       }
-    })().catch(() => { if (!abort.signal.aborted && visibleRef.current) setError('Printer monitoring is unavailable.'); });
+    })().catch(() => { if (!abort.signal.aborted) { latestError.current = 'Printer monitoring is unavailable.'; if (visibleRef.current) setError(latestError.current); } });
     return () => abort.abort();
   }, [service, printer.identity.id, route.id, route.configurationRevision, started]);
   useEffect(() => {

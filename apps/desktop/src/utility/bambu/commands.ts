@@ -18,7 +18,7 @@ export interface PreparedCommand {
   confirmed?: (next: TelemetryProjection) => boolean;
 }
 export function commandCapabilities(context: CommandContext): D.PrinterCapabilities {
-  const result = bambuCapabilities(); const c = result.commands;
+  const result = bambuCapabilities(); result.currentPrintPreview = supported({ mimeTypes: ['image/jpeg', 'image/png'] as const }); const c = result.commands;
   c['actions.invoke'] = supported({ sources: ['alerts'] });
   const p = protocolReport(context.model, context.report), topology = context.values.descriptor.topology;
   for (const name of ['jobs.pause', 'jobs.resume', 'jobs.cancel'] as const) c[name] = supported({});
@@ -27,7 +27,12 @@ export function commandCapabilities(context: CommandContext): D.PrinterCapabilit
   const heaters = nonempty(topology.heaters.filter(heater => heater.role !== 'chamber' || p.support_chamber_temp_edit === true).map(heater => ({ heaterId: heater.id,
     targetC: range(heater.role === 'nozzle' ? p.nozzle_temp_range : heater.role === 'bed' ? p.bed_temp_range : p.support_chamber_temp_edit_range) })));
   if (heaters) c['thermal.setTarget'] = supported(heaters);
-  const fans = nonempty(topology.fans.map(fan => ({ fanId: fan.id, speedFraction: { min: 0, max: 1, step: null } })));
+  const fans = nonempty(topology.fans.map(fan => {
+    const part = records(record(record(p.device).airduct).parts).find(part => bits(part.id, 0, 4) === 0 && `fan:${bits(part.id, 4, 8)}` === fan.id);
+    const min = bits(part?.range, 0, 16), max = bits(part?.range, 16, 16);
+    const reported = min !== undefined && max !== undefined && min <= max && max > 0 && max <= 100;
+    return { fanId: fan.id, speedFraction: { min: reported ? min / 100 : 0, max: reported ? max / 100 : 1, step: null } };
+  }));
   if (fans) c['fans.setSpeed'] = supported(fans);
   const lights = nonempty(topology.lights.filter(light => ['chamber_light', 'chamber_light2'].includes(light.id)).map(light => light.id));
   if (lights) c['lights.set'] = supported({ lightIds: lights });
@@ -108,7 +113,9 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
     case 'fans.setSpeed': {
       const { fanId, speedFraction } = command.params;
       if (!topology.fans.some(fan => fan.id === fanId)) return reject('invalid-target', 'The fan is no longer available.');
-      if (!Number.isFinite(speedFraction) || speedFraction < 0 || speedFraction > 1) return reject('out-of-range', 'Fan speed must be between 0 and 100%.');
+      const supported = capabilities.commands['fans.setSpeed'];
+      const limit = supported.kind === 'supported' ? supported.constraints.find(item => item.fanId === fanId)?.speedFraction : undefined;
+      if (!limit || !within(speedFraction, limit)) return reject('out-of-range', 'Choose a speed within the reported fan limits.');
       const index = Number(fanId.split(':')[1]); const modern = records(record(record(p.device).airduct).parts).length > 0;
       return prepared(modern ? { command: 'set_fan', fan_index: index, speed: Math.round(speedFraction * 100) } : { command: 'gcode_line', param: `M106 P${index} S${Math.round(speedFraction * 255)}\n` }, next => {
         const current = known(next.values.actuators.fans.find(fan => fan.fanId === fanId)?.speedFraction ?? { kind: 'unknown', reason: 'not-reported' }); return current !== undefined && Math.abs(current - speedFraction) < 0.04;

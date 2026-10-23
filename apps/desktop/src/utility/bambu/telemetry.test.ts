@@ -86,3 +86,12 @@ describe('Bambu telemetry normalization', () => {
     expect(telemetry.project(target, identity).values.status.printStatus.phase.kind).toBe('unknown');
   });
 });
+it('labels known stages, clears prior layers on idle and handles mixed AMS Lite presence bits', () => {
+  const { telemetry } = model();
+  telemetry.accept(push({ ...report(), stg_cur: 7, ams: { tray_exist_bits: '4000000', ams: [{ id: 4, info: '5', tray: [{ id: 2, tray_type: 'PLA' }] }] } }));
+  const values = telemetry.project(target, identity).values;
+  expect(values.status.printStatus.stage).toMatchObject({ value: { code: '7', label: 'Heating nozzle' } });
+  expect(values.materials.state.slots[0].presence).toMatchObject({ value: 'present' });
+  telemetry.accept(push({ msg: 1, gcode_state: 'IDLE' }));
+  expect(telemetry.project(target, identity).values.status.printStatus.currentLayer.kind).toBe('unknown');
+});
