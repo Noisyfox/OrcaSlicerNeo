@@ -1,76 +1,72 @@
-import { useEffect, useRef, useState } from 'react';
-import { usePlatform } from '@orca/platform-contract';
-import type { PrinterCapabilities, PrinterRoute, PrinterSnapshot, SavedPrinter, StateTopic } from '@orca/printer-control/domain';
-import { usePrinterCommands } from './usePrinterControl';
-import { Button } from '@/components/ui/button';
-import { ControlCard, display as reading, valueOf } from './PrinterControlCards';
+import { useRef, useState } from 'react';
 import { PrinterMonitorLayout, PrintProgressCard } from './PrinterMonitorLayout';
+import { usePlatform } from '@orca/platform-contract';
+import type * as D from '@orca/printer-control/domain';
+import { Button } from '@/components/ui/button';
+import { usePrinterCommands, useCurrentPrintPreview } from './usePrinterControl';
+import { usePrinterObservation } from './usePrinterObservation';
+import { ActuatorCard, ControlCard, display, MotionCard, ThermalCard, valueOf } from './PrinterControlCards';
+import { MaterialControlCard } from './MaterialControlCard';
 
 const monitoringTopics = ['status', 'thermal', 'motion', 'actuators', 'materials', 'sensors'] as const;
-const printControls = [
-  { type: 'jobs.pause', label: 'Pause' },
-  { type: 'jobs.resume', label: 'Resume' },
-  { type: 'jobs.cancel', label: 'Cancel print' },
-] as const;
-
-export function supportsMonitor(capabilities: PrinterCapabilities): boolean {
+export function supportsMonitor(capabilities: D.PrinterCapabilities): boolean {
   return monitoringTopics.some(topic => capabilities.observations[topic].kind === 'supported')
     || capabilities.cameras.some(camera => camera.liveView.kind === 'supported' || camera.snapshot.kind === 'supported')
     || Object.entries(capabilities.commands).some(([name, capability]) => capability.kind === 'supported'
       && !['jobs.start', 'files.delete', 'actions.invoke', 'materials.writeMetadata', 'materials.refreshTag'].includes(name));
 }
 
-/** Explicit reads and commands on one route; selecting a printer never starts polling. */
-export function PrinterMonitor({ printer, route }: { printer: SavedPrinter; route: PrinterRoute }) {
+export function PrinterMonitor({ printer, route, visible = true }: { printer: D.SavedPrinter; route: D.PrinterRoute; visible?: boolean }) {
   const { printers: { service } } = usePlatform();
-  const [snapshot, setSnapshot] = useState<PrinterSnapshot | null>(null);
-  const [busy, setBusy] = useState(false);
-  const pending = useRef(false);
-  const abort = useRef<AbortController | null>(null);
-  useEffect(() => () => { abort.current?.abort(); }, []);
-  const topics = (['status', 'sensors', 'thermal'] as const).filter(topic => route.capabilities.observations[topic].kind === 'supported');
+  const { snapshot, capabilities, error, refreshing, refresh, live, liveStatus, canRefresh } = usePrinterObservation(service, printer, route, visible);
   const target = { printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision };
-  const { send, pending: sending, feedback: message, setFeedback: setMessage } = usePrinterCommands(service, target, route.capabilities.revision);
-
-
-  async function refresh() {
-    if (pending.current || sending || topics.length === 0) return;
-    pending.current = true; setBusy(true); setMessage(null);
-    const controller = new AbortController(); abort.current = controller;
-    try {
-      const result = await service.observations.read({ target, source: 'device', topics: topics as [StateTopic, ...StateTopic[]] }, { signal: controller.signal });
-      if (controller.signal.aborted) return;
-      if (result.ok) setSnapshot(result.value);
-      else setMessage('Unable to refresh. Previously reported readings may be stale.');
-    } catch { if (!controller.signal.aborted) setMessage('Unable to refresh. Previously reported readings may be stale.'); }
-    finally { pending.current = false; if (!controller.signal.aborted) setBusy(false); }
+  const { send: submit, feedback, pending, setFeedback } = usePrinterCommands(service, target, capabilities.revision);
+  const [cancel, setCancel] = useState<{ name: string; taskId?: D.Id<'device-task'> } | null>(null);
+  const status = valueOf(snapshot?.values.status), topology = valueOf(snapshot?.values.descriptor)?.topology;
+  const fresh = snapshot?.values.status?.kind === 'known' && snapshot.values.status.freshness === 'fresh' && !error;
+  const phase = valueOf(status?.printStatus.phase), taskId = valueOf(status?.printStatus.taskId);
+  const latestTask = useRef(taskId); latestTask.current = taskId;
+  const preview = useCurrentPrintPreview(service, target, taskId, visible && capabilities.currentPrintPreview.kind === 'supported');
+  async function send(command: D.PrinterCommand, expectedTaskId?: D.Id<'device-task'>) {
+    if (pending || refreshing || liveStatus && !fresh) return;
+    if (expectedTaskId && latestTask.current !== expectedTaskId) { setFeedback('The active task changed. Review it before cancelling.'); setCancel(null); return; }
+    setCancel(null); await submit(command, expectedTaskId);
   }
-
-  function command(type: typeof printControls[number]['type']) {
-    if (!busy) void send({ type, params: {} });
-  }
-
-  const status = snapshot?.values.status;
-  const controls = <>{printControls.filter(control => route.capabilities.commands[control.type].kind === 'supported').map(control => <Button key={control.type} size="sm" variant="secondary" disabled={busy || sending} onClick={() => void command(control.type)}>{control.label}</Button>)}
-    {!printControls.some(control => route.capabilities.commands[control.type].kind === 'supported') && <p className="text-xs text-muted-foreground">No basic print controls are available on this route.</p>}</>;
+  const controls = { capabilities, snapshot, disabled: pending || refreshing || liveStatus && !fresh, send: (command: D.PrinterCommand) => { void send(command); } };
+  const hasThermal = capabilities.observations.thermal.kind === 'supported' || capabilities.commands['thermal.setTarget'].kind === 'supported';
+  const hasSensors = capabilities.observations.sensors.kind === 'supported';
+  const hasActuators = capabilities.observations.actuators.kind === 'supported' || capabilities.commands['fans.setSpeed'].kind === 'supported' || capabilities.commands['lights.set'].kind === 'supported';
+  const hasMotion = capabilities.observations.motion.kind === 'supported' || ['motion.home', 'motion.jog', 'extrusion.move', 'tools.select'].some(type => capabilities.commands[type as keyof D.CommandCapabilities].kind === 'supported');
   const sensors = valueOf(snapshot?.values.sensors), thermal = valueOf(snapshot?.values.thermal);
-  const hasSensors = route.capabilities.observations.sensors.kind === 'supported', hasThermal = route.capabilities.observations.thermal.kind === 'supported';
-  return <PrinterMonitorLayout testId="device-monitor" title={printer.identity.displayName} subtitle={route.label}
-    toolbar={topics.length > 0 && <Button size="sm" variant="secondary" disabled={busy || sending} onClick={() => void refresh()}>Refresh</Button>}
+  const speeds = capabilities.commands['jobs.setSpeed'];
+  return <><PrinterMonitorLayout testId="device-monitor" title={printer.identity.displayName} subtitle={`${printer.identity.model ?? ''} · ${route.label}`}
+    toolbar={canRefresh && <Button size="sm" variant="secondary" disabled={pending || refreshing} onClick={() => void refresh()}>Refresh</Button>}
+    status={live && <span className="text-xs" role="status">{error ? 'Disconnected or stale' : liveStatus ? fresh ? 'Live' : snapshot ? 'Disconnected or stale' : 'Connecting…' : snapshot ? 'Live observations' : 'Connecting…'}</span>}
+    preview={preview}
     notices={<>
-      {message && <p role="status" className="text-sm text-muted-foreground">{message}</p>}
-      {status?.kind === 'known' && status.freshness === 'stale' && <p className="text-xs text-muted-foreground">Stale readings</p>}
-      {topics.length === 0 && <p className="text-sm text-muted-foreground">This route does not provide status, sensor or temperature readings. Additional monitor controls and camera viewing are not available in this view yet.</p>}
-      {topics.length > 0 && !snapshot && <p className="text-sm text-muted-foreground">No readings requested. Use Refresh to read the printer.</p>}
+    {canRefresh && !snapshot && <p className="text-sm text-muted-foreground">No readings requested. Use Refresh to read the printer.</p>}
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {feedback && <div role="status" className="flex items-center justify-between gap-3 rounded border p-2 text-sm"><span>{feedback}</span><Button size="sm" variant="ghost" onClick={() => setFeedback(null)}>Dismiss</Button></div>}
+    {valueOf(snapshot?.values.alerts)?.map(alert => <section key={alert.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-destructive/40 p-3 text-sm"><span>{alert.message} <span className="text-muted-foreground">{alert.code}</span></span><div className="flex gap-2">{alert.actions.map(action => <Button key={action.actionRef.token} size="sm" variant="secondary" disabled={controls.disabled || action.availability.kind !== 'available'} onClick={() => void send({ type: 'actions.invoke', params: { actionRef: action.actionRef } })}>{action.label}</Button>)}</div></section>)}
     </>}
-    progress={<PrintProgressCard status={valueOf(status)?.printStatus} details={route.capabilities.observations.status.kind === 'supported' && <><dt>State</dt><dd>{reading(valueOf(status)?.operationalState)}</dd></>}>{controls}</PrintProgressCard>}
-    controls={<ControlCard title="Control">
-      {hasSensors && <ControlCard title="Sensors">{sensors ? sensors.definitions.map(sensor => {
-        const state = sensors.readings.find(state => state.sensorId === sensor.id);
-        return <p key={sensor.id} className="text-sm">{sensor.name}: {reading<unknown>(state?.reading, value => typeof value === 'object' ? Object.entries(value ?? {}).map(([axis, number]) => `${axis}: ${number}`).join(', ') : String(value))}{sensor.unit ? ` ${sensor.unit}` : ''}</p>;
-      }) : <p className="text-sm text-muted-foreground">Not reported</p>}</ControlCard>}
-      {hasThermal && <ControlCard title="Heater targets">{thermal ? thermal.map(heater => <p key={heater.heaterId} className="text-sm">{heater.heaterId}: {reading(heater.targetC, value => `${value} °C`)}</p>) : <p className="text-sm text-muted-foreground">Not reported</p>}</ControlCard>}
-      {!hasSensors && !hasThermal && <p className="text-sm text-muted-foreground">Temperature and sensor readings are not available on this route.</p>}
-    </ControlCard>}
-  />;
+    progress={<PrintProgressCard status={status?.printStatus} details={<><dt>State</dt><dd>{display(status?.operationalState)}</dd><dt>Stage</dt><dd>{display(status?.printStatus.stage, stage => stage?.label ?? '—')}</dd><dt>Layer</dt><dd>{display(status?.printStatus.currentLayer)} / {display(status?.printStatus.totalLayers)}</dd></>}>
+        {capabilities.commands['jobs.pause'].kind === 'supported' && <Button size="sm" variant="secondary" disabled={controls.disabled || liveStatus && phase !== 'printing'} onClick={() => void send({ type: 'jobs.pause', params: {} })}>Pause</Button>}
+        {capabilities.commands['jobs.resume'].kind === 'supported' && <Button size="sm" variant="secondary" disabled={controls.disabled || liveStatus && phase !== 'paused'} onClick={() => void send({ type: 'jobs.resume', params: {} })}>Resume</Button>}
+        {capabilities.commands['jobs.cancel'].kind === 'supported' && <Button size="sm" variant="destructive" disabled={controls.disabled || liveStatus && !['printing', 'paused', 'preparing'].includes(phase ?? '')} onClick={() => { if (liveStatus || taskId) setCancel({ name: valueOf(status?.printStatus.name) ?? 'Current task', taskId: taskId ?? undefined }); else void send({ type: 'jobs.cancel', params: {} }); }}>Cancel print</Button>}
+        {speeds.kind === 'supported' && <label className="printer-print-speed"><span>Print speed</span><select aria-label="Print speed" className="rounded border bg-background p-1 text-sm" value={valueOf(status?.printStatus.speedModeId) ?? ''} disabled={controls.disabled || !['printing', 'paused'].includes(phase ?? '')} onChange={event => void send({ type: 'jobs.setSpeed', params: { modeId: event.target.value } })}><option value="" disabled>Print speed</option>{speeds.constraints.modes.map(mode => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select></label>}
+    </PrintProgressCard>}
+    controls={<ControlCard title="Control"><div className={hasMotion ? 'printer-machine-controls' : 'space-y-3'}><div className={hasMotion ? 'printer-environment-controls' : 'space-y-3'}>
+      {hasThermal && (topology?.heaters.length ? <ThermalCard {...controls} /> : <ControlCard title="Heater targets">{thermal?.map(heater => <p key={heater.heaterId}>{heater.heaterId}: {display(heater.targetC, value => `${value} °C`)}</p>) ?? 'Not reported'}</ControlCard>)}
+      {hasSensors && !topology?.heaters.length && <ControlCard title="Sensors">{sensors?.definitions.map(sensor => <p key={sensor.id}>{sensor.name}: {display<unknown>(sensors.readings.find(state => state.sensorId === sensor.id)?.reading, value => typeof value === 'object' ? Object.entries(value ?? {}).map(([axis, number]) => `${axis}: ${number}`).join(', ') : String(value))}{sensor.unit ? ` ${sensor.unit}` : ''}</p>) ?? 'Not reported'}</ControlCard>}
+      {hasActuators && <ActuatorCard {...controls} />}
+      {!hasThermal && !hasSensors && !hasActuators && !hasMotion && <p className="text-sm text-muted-foreground">Temperature and sensor readings are not available on this route.</p>}
+    </div>{hasMotion && <MotionCard {...controls} />}</div></ControlCard>}
+    materials={capabilities.observations.materials.kind === 'supported' && <MaterialControlCard {...controls} />}
+    hardware={(!!topology?.nozzles.length || capabilities.commands['hardware.refreshNozzles'].kind === 'supported') && <details className="printer-hardware-details"><summary>Nozzle hardware</summary>
+    <ControlCard title="Nozzles"><div className="flex flex-wrap gap-4">{topology?.nozzles.map(nozzle => <div key={nozzle.id} className="text-sm"><strong>{nozzle.id.replace('nozzle:', 'Nozzle ')}</strong><p>{nozzle.diameterMm === null ? 'Diameter not reported' : `${nozzle.diameterMm} mm`} · {nozzle.constructionMaterial ?? 'Material not reported'}</p><p className="text-xs text-muted-foreground">{nozzle.flowType ?? 'Flow type not reported'}{nozzle.type ? ` · ${nozzle.type}` : ''}</p></div>)}</div>
+      {capabilities.commands['hardware.refreshNozzles'].kind === 'supported' && <Button size="sm" variant="secondary" disabled={controls.disabled} onClick={() => void send({ type: 'hardware.refreshNozzles', params: {} })}>Refresh nozzle identification</Button>}
+    </ControlCard></details>}
+  />
+    {cancel && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="alertdialog" aria-modal="true" aria-labelledby="cancel-print-title"><div className="w-full max-w-sm space-y-4 rounded-lg border bg-card p-5 shadow-lg"><h2 id="cancel-print-title" className="font-semibold">Cancel print?</h2><p className="text-sm">Stop “{cancel.name}” on “{printer.identity.displayName}”?</p><div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setCancel(null)}>Keep printing</Button><Button variant="destructive" disabled={controls.disabled} onClick={() => void send({ type: 'jobs.cancel', params: {} }, cancel.taskId)}>Confirm cancellation</Button></div></div></div>}
+  </>;
 }

@@ -68,7 +68,7 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     expect(controlBounds!.x).toBeGreaterThan(previewBounds!.x + previewBounds!.width);
     await page.screenshot({ path: '/tmp/orca-bambu-control.png' });
     await page.setViewportSize({ width: 820, height: 900 });
-    await expect.poll(() => panel.getByTestId('bambu-monitor').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await expect.poll(() => panel.getByTestId('device-monitor').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.screenshot({ path: '/tmp/orca-bambu-control-narrow.png' });
   } finally { await app.close(); }
 });

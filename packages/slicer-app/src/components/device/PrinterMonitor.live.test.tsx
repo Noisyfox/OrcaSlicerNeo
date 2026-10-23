@@ -5,14 +5,14 @@ import { expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { createMoonrakerService } from '@orca/printer-control';
 import type * as D from '@orca/printer-control/domain';
-import { BambuMonitor } from './BambuMonitor';
+import { PrinterMonitor } from './PrinterMonitor';
 import { TemperatureInput } from './PrinterControlCards';
 const unknown = { kind: 'unknown', reason: 'not-reported' } as const;
 async function fixture() {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const base = createMoonrakerService({ host: { id: 'desktop' as never, name: 'Desktop', execution: 'desktop' }, configuration: { load: async () => ({ version: 1, printers: [{ id: 'p', displayName: 'Workshop', driverId: 'moonraker', apiBaseUrl: 'http://printer/', consoleUrl: '', apiKey: '' }] }), save: async () => {} }, transport: { request: async () => { throw new Error('No network'); } } });
   const saved = await base.listSaved(); if (!saved.ok) throw new Error('Fixture');
-  const printer = saved.value[0], route = printer.routes[0]; route.providerId = 'bambu' as never; route.label = 'Bambu Cloud';
+  const printer = saved.value[0], route = printer.routes[0]; route.providerId = 'fixture-printer' as never; route.label = 'Test printer';
   const target = { printerId: printer.identity.id, routeId: route.id };
   const known = <T,>(value: T): D.Reading<T> => ({ kind: 'known', value, freshness: 'fresh', sourceRouteId: route.id, observedAtMs: null, receivedAtMs: 100 });
   const topology: D.PrinterTopology = { revision: 'topology', completeness: 'partial', tools: [], motionGroups: [], extruders: [], nozzles: [], heaters: [{ id: 'nozzle:3' as never, name: 'Nozzle 3', role: 'nozzle', temperatureSensorId: 'temperature' as never }], fans: [], lights: [], cameras: [], sensors: [], materials: { units: [], slots: [], paths: [], dryers: [] } };
@@ -20,25 +20,27 @@ async function fixture() {
   const status: D.PrinterObservationMap['status'] = { operationalState: known('busy'), activeToolIds: unknown, actions: known([]), printStatus: { phase: known('printing'), taskId: known('task-1' as D.Id<'device-task'>), name: known('External task'), progressFraction: known(0.42), remainingSeconds: known(1200), currentLayer: known(4), totalLayers: known(10), stage: known({ code: '0', label: 'Printing' }), speedModeId: known('2') } };
   let snapshot: D.PrinterSnapshot = { target, configurationRevision: route.configurationRevision, values: { descriptor: known({ revision: 'topology', identity: printer.identity, technology: 'fdm', buildVolume: null, topology, firmware: unknown }), status: known(status), materials: known(material), thermal: known([{ heaterId: 'nozzle:3' as never, targetC: known(220) }]), sensors: known({ definitionRevision: 'topology', definitions: [], readings: [] }), alerts: known([]) } };
   const caps = structuredClone(route.capabilities); caps.revision = 'cap'; caps.commands['thermal.setTarget'] = { kind: 'supported', constraints: [{ heaterId: 'nozzle:3' as never, targetC: { min: 0, max: 350, step: 1 } }] };
+  for (const topic of ['descriptor', 'status', 'thermal', 'motion', 'actuators', 'materials', 'sensors', 'alerts'] as const) caps.observations[topic] = { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } };
+  route.capabilities = caps;
   let broken = false;
   let wake: (() => void) | undefined;
   const watch = vi.fn(async function* (_request, options) {
     const onAbort = () => wake?.(); options?.signal?.addEventListener('abort', onAbort);
-    try { while (!options?.signal?.aborted) { if (broken) throw new Error('Disconnected'); yield { type: 'snapshot', cursor: 'cursor', snapshot }; await new Promise<void>(resolve => { wake = resolve; if (options?.signal?.aborted) resolve(); }); } }
+    try { while (!options?.signal?.aborted) { if (broken) throw new Error('Disconnected'); yield { type: 'snapshot', cursor: 'cursor', snapshot: { ...snapshot, values: Object.fromEntries(Object.entries(snapshot.values).filter(([topic]) => _request.topics.includes(topic))) } }; await new Promise<void>(resolve => { wake = resolve; if (options?.signal?.aborted) resolve(); }); } }
     finally { options?.signal?.removeEventListener('abort', onAbort); }
   });
   const submit = vi.fn(async () => ({ kind: 'recorded', operation: { ...target, id: 'op' } }));
   const service = { ...base, describe: async () => ({ ok: true, value: { target, configurationRevision: route.configurationRevision, capabilities: caps, descriptor: snapshot.values.descriptor } }), observations: { ...base.observations, watch }, controls: { evaluate: async () => ({ ok: true, value: { availability: { kind: 'available' }, basis: {} } }), submit }, operations: { ...base.operations, watch: async function* () { yield { phase: { kind: 'completed' } }; } } } as unknown as D.PrinterService;
   const platform = { printers: { service } } as unknown as PlatformCapabilities;
   const element = document.createElement('div'); document.body.append(element); const root = createRoot(element);
-  const render = async (visible = true) => act(async () => { root.render(<PlatformProvider value={platform}><BambuMonitor printer={printer} route={route} visible={visible} /></PlatformProvider>); });
+  const render = async (visible = true) => act(async () => { root.render(<PlatformProvider value={platform}><PrinterMonitor printer={printer} route={route} visible={visible} /></PlatformProvider>); });
   const update = async (name: string, task = 'task-1', freshness: 'fresh' | 'stale' = 'fresh') => act(async () => {
     const reading = known({ ...status, printStatus: { ...status.printStatus, name: known(name), taskId: known(task as D.Id<'device-task'>) } });
     if (reading.kind === 'known') reading.freshness = freshness;
     snapshot = { ...snapshot, values: { ...snapshot.values, status: reading } }; wake?.(); await Promise.resolve();
   });
   const click = async (label: string) => act(async () => { [...element.querySelectorAll('button')].find(button => button.textContent === label)!.click(); });
-  return { element, render, update, click, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
+  return { service, snapshot, known, element, render, update, click, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
 }
 it('automatically monitors, lays out reported material units and retains the subscription while hidden', async () => {
   const f = await fixture(); try {
@@ -97,5 +99,40 @@ it('keeps directional movement and extrusion bound to the reported group and too
     await f.update('Stale', 'task-1', 'stale');
     expect(f.element.querySelector<HTMLButtonElement>('[aria-label="Move X negative"]')!.disabled).toBe(true);
     expect(f.element.querySelector<HTMLButtonElement>('[aria-label="Extrude 10 mm with Tool 7"]')!.disabled).toBe(true);
+  } finally { await f.close(); }
+});
+
+it('combines streamed hardware with manual status without adding a status preflight', async () => {
+  const f = await fixture(); try {
+    f.caps.observations.status = { kind: 'supported', constraints: { delivery: ['on-demand'] } };
+    const read = vi.fn(async () => ({ ok: true as const, value: { ...f.snapshot, values: { status: f.snapshot.values.status } } }));
+    f.service.observations.read = read as D.PrinterService['observations']['read'];
+    await f.render();
+    expect(f.watch.mock.calls[0][0].topics).not.toContain('status');
+    expect(f.watch.mock.calls[0][0].topics).not.toContain('firmware');
+    expect(read).not.toHaveBeenCalled();
+    await f.click('Pause'); expect(f.submit).toHaveBeenCalledOnce();
+    await f.click('Refresh');
+    expect(read).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ topics: ['status'] }), expect.anything());
+    expect(f.element.textContent).toContain('External task');
+    expect(f.element.textContent).toContain('AMS 128');
+    expect(f.watch).toHaveBeenCalledOnce();
+  } finally { await f.close(); }
+});
+
+it('keeps stream and manual refresh errors independent across updates and hidden views', async () => {
+  const f = await fixture(); try {
+    f.caps.observations.sensors = { kind: 'supported', constraints: { delivery: ['on-demand'] } };
+    const read = vi.fn<D.PrinterService['observations']['read']>().mockRejectedValue(new Error('Disconnected'));
+    f.service.observations.read = read as D.PrinterService['observations']['read'];
+    await f.render(); await f.click('Refresh');
+    await f.update('New task'); await f.render(false); await f.render(true);
+    expect(f.element.textContent).toContain('Unable to refresh');
+    await f.fail();
+    read.mockResolvedValue({ ok: true, value: { ...f.snapshot, values: { sensors: f.snapshot.values.sensors! } } });
+    await f.click('Refresh');
+    expect(f.element.textContent).toContain('Printer monitoring is unavailable.');
+    expect([...f.element.querySelectorAll('button')].find(button => button.textContent === 'Pause')?.disabled).toBe(true);
+    expect(f.watch).toHaveBeenCalledOnce();
   } finally { await f.close(); }
 });
