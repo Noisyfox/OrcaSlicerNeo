@@ -21,8 +21,8 @@ export function TemperatureInput({ label, current, target, limits, disabled, sub
     setValidation(null); if (value === reported || sent.current === draft) return;
     sent.current = draft; submit(value);
   };
-  return <div className="bambu-temperature-row"><label className="flex items-center justify-between gap-3 text-sm"><span>{label}<span className="block text-xs text-muted-foreground">{display(current, value => `${value} °C`)}</span></span>
-    <span className="flex items-center gap-1"><Input aria-label={`${label} target`} className="bambu-temperature-input w-24" type="number" min={limits.min ?? 0} max={limits.max ?? undefined} step="1" value={draft} disabled={disabled} placeholder="—"
+  return <div className="printer-temperature-row"><label className="flex items-center justify-between gap-3 text-sm"><span>{label}<span className="block text-xs text-muted-foreground">{display(current, value => `${value} °C`)}</span></span>
+    <span className="flex items-center gap-1"><Input aria-label={`${label} target`} className="printer-temperature-input w-24" type="number" min={limits.min ?? 0} max={limits.max ?? undefined} step="1" value={draft} disabled={disabled} placeholder="—"
       onFocus={() => { editing.current = true; }} onChange={event => { setValidation(null); sent.current = null; setDraft(event.target.value); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(); event.currentTarget.blur(); } }} onBlur={() => { editing.current = false; commit(); }} /><span>°C</span></span></label>{validation && <p role="alert" className="mt-1 text-xs text-destructive">{validation}</p>}</div>;
 }
 export function ThermalCard({ capabilities, snapshot, disabled, send }: CardControls) {
@@ -40,7 +40,7 @@ export function ThermalCard({ capabilities, snapshot, disabled, send }: CardCont
 export function ActuatorCard({ capabilities, snapshot, disabled, send }: CardControls) {
   const topology = valueOf(snapshot?.values.descriptor)?.topology, actuators = valueOf(snapshot?.values.actuators);
   const fans = capabilities.commands['fans.setSpeed'], lights = capabilities.commands['lights.set'];
-  return <ControlCard title="Fans and lighting">{!!topology?.fans.length && <details className="bambu-fan-controls"><summary>Fans · {topology.fans.length}</summary><div>{topology.fans.map(fan => {
+  return <ControlCard title="Fans and lighting">{!!topology?.fans.length && <details className="printer-fan-controls"><summary>Fans · {topology.fans.length}</summary><div>{topology.fans.map(fan => {
     const limit = fans.kind === 'supported' ? fans.constraints.find(item => item.fanId === fan.id)?.speedFraction : undefined;
     const current = valueOf(actuators?.fans.find(item => item.fanId === fan.id)?.speedFraction);
     const percentage = current === undefined ? -1 : Math.round(current * 100);
@@ -67,26 +67,26 @@ export function MotionCard({ capabilities, snapshot, disabled, send }: CardContr
     if (!limit || limit.kind !== 'step') return null;
     const effectiveStep = limit.steps.some(item => item.id === step) ? step : limit.steps[0]?.id;
     if (!effectiveStep) return null;
-    return <Button className={`bambu-jog bambu-jog-${axis}-${direction}`} size="sm" variant="ghost" disabled={disabled} aria-label={`Move ${axis.toUpperCase()} ${direction}`} onClick={() => send({ type: 'motion.jog', params: { kind: 'step', motionGroupId: group, axis, stepId: effectiveStep, direction } })}>{direction === 'negative' ? '−' : '+'}{axis.toUpperCase()}</Button>;
+    return <Button className={`printer-jog printer-jog-${axis}-${direction}`} size="sm" variant="ghost" disabled={disabled} aria-label={`Move ${axis.toUpperCase()} ${direction}`} onClick={() => send({ type: 'motion.jog', params: { kind: 'step', motionGroupId: group, axis, stepId: effectiveStep, direction } })}>{direction === 'negative' ? '−' : '+'}{axis.toUpperCase()}</Button>;
   }
-  return <div className="bambu-motion-controls">
-    <section className="bambu-axis-controls" aria-label="Motion">
+  return <div className="printer-motion-controls">
+    <section className="printer-axis-controls" aria-label="Motion">
       <h4>Motion</h4>
-      {groups.map(group => <div key={group.id} className="bambu-axis-group">
-        <div className="bambu-jog-wheel">
+      {groups.map(group => <div key={group.id} className="printer-axis-group">
+        <div className="printer-jog-wheel">
           {move(group.id, 'y', 'positive')}{move(group.id, 'x', 'negative')}{move(group.id, 'x', 'positive')}{move(group.id, 'y', 'negative')}
-          {home.kind === 'supported' && home.constraints.filter(item => item.motionGroupId === group.id).map(item => <Button className="bambu-home" key={item.motionGroupId} size="icon" variant="secondary" title="Home axes" aria-label="Home axes" disabled={disabled} onClick={() => send({ type: 'motion.home', params: { motionGroupId: item.motionGroupId, axes: item.axes } })}><Home size={20} /></Button>)}
+          {home.kind === 'supported' && home.constraints.filter(item => item.motionGroupId === group.id).map(item => <Button className="printer-home" key={item.motionGroupId} size="icon" variant="secondary" title="Home axes" aria-label="Home axes" disabled={disabled} onClick={() => send({ type: 'motion.home', params: { motionGroupId: item.motionGroupId, axes: item.axes } })}><Home size={20} /></Button>)}
         </div>
-        <div className="bambu-z-controls"><span>Z axis</span>{move(group.id, 'z', 'negative')}{move(group.id, 'z', 'positive')}</div>
+        <div className="printer-z-controls"><span>Z axis</span>{move(group.id, 'z', 'negative')}{move(group.id, 'z', 'positive')}</div>
       </div>)}
-      {jog.kind === 'supported' && <label className="bambu-movement-step"><span>Movement step</span><select aria-label="Movement step" value={step} onChange={event => setStep(event.target.value)}>{jog.constraints.find(item => item.kind === 'step')?.steps.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
+      {jog.kind === 'supported' && <label className="printer-movement-step"><span>Movement step</span><select aria-label="Movement step" value={step} onChange={event => setStep(event.target.value)}>{jog.constraints.find(item => item.kind === 'step')?.steps.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
       {!groups.length && <p className="text-xs text-muted-foreground">Waiting for motion information.</p>}
     </section>
-    <section className="bambu-tool-controls" aria-label="Extruders"><h4>Extruders</h4>
-      {topology?.tools.map(tool => <div key={tool.id} className="bambu-tool" data-active={active.includes(tool.id)}>
+    <section className="printer-tool-controls" aria-label="Extruders"><h4>Extruders</h4>
+      {topology?.tools.map(tool => <div key={tool.id} className="printer-tool" data-active={active.includes(tool.id)}>
         <strong>{tool.name}</strong>
         {tools.kind === 'supported' && tools.constraints.toolIds.includes(tool.id) && <Button size="sm" variant="secondary" disabled={disabled} aria-pressed={active.includes(tool.id)} onClick={() => send({ type: 'tools.select', params: { toolId: tool.id } })}>Select {tool.name}</Button>}
-        {extrusion.kind === 'supported' && extrusion.constraints.some(item => item.extruderId === tool.extruderId && item.speed.kind === 'device-controlled') && <div className="bambu-extrusion-controls">{[-10, 10].map(distanceMm => <Button size="sm" variant="outline" disabled={disabled} key={distanceMm} title={`${distanceMm > 0 ? 'Extrude' : 'Retract'} 10 mm`} aria-label={`${distanceMm > 0 ? 'Extrude' : 'Retract'} 10 mm with ${tool.name}`} onClick={() => send({ type: 'extrusion.move', params: { extruderId: tool.extruderId, distanceMm, speed: { kind: 'device-controlled' } } })}>{distanceMm > 0 ? <ArrowDown size={16} /> : <ArrowUp size={16} />}<span>{distanceMm > 0 ? 'Extrude' : 'Retract'}</span></Button>)}</div>}
+        {extrusion.kind === 'supported' && extrusion.constraints.some(item => item.extruderId === tool.extruderId && item.speed.kind === 'device-controlled') && <div className="printer-extrusion-controls">{[-10, 10].map(distanceMm => <Button size="sm" variant="outline" disabled={disabled} key={distanceMm} title={`${distanceMm > 0 ? 'Extrude' : 'Retract'} 10 mm`} aria-label={`${distanceMm > 0 ? 'Extrude' : 'Retract'} 10 mm with ${tool.name}`} onClick={() => send({ type: 'extrusion.move', params: { extruderId: tool.extruderId, distanceMm, speed: { kind: 'device-controlled' } } })}>{distanceMm > 0 ? <ArrowDown size={16} /> : <ArrowUp size={16} />}<span>{distanceMm > 0 ? 'Extrude' : 'Retract'}</span></Button>)}</div>}
       </div>)}
     </section>
   </div>;

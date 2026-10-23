@@ -16,6 +16,7 @@ interface MoonrakerFixtureState {
   startPaths: string[];
   startApiKeys: Array<string | undefined>;
   startFailures: number;
+  statusReads: number;
 }
 
 interface MoonrakerFixture {
@@ -54,6 +55,7 @@ async function startMoonrakerFixture(startFailures = 1): Promise<MoonrakerFixtur
     startApiKeys: [],
     // The first Send & Print start fails. The explicit retry succeeds.
     startFailures,
+    statusReads: 0,
   };
 
   const server: Server = createServer(async (request, response) => {
@@ -104,6 +106,7 @@ async function startMoonrakerFixture(startFailures = 1): Promise<MoonrakerFixtur
       return;
     }
     if (request.method === 'GET' && pathname === '/printer/objects/query') {
+      state.statusReads += 1;
       sendJson(response, 200, { result: { status: { print_stats: { state: 'standby' } } } });
       return;
     }
@@ -247,7 +250,26 @@ test('Device config and Electron console fixture inject the API key', async () =
     await expect(page.getByRole('tab', { name: 'Web Interface', exact: true })).toBeVisible();
     await page.getByRole('tab', { name: 'Monitor', exact: true }).click();
     await expect(page.getByTestId('device-monitor')).toBeVisible();
-    await page.screenshot({ path: test.info().outputPath('device-monitor.png') });
+    const monitor = page.getByTestId('device-monitor');
+    await expect(monitor.getByRole('heading', { name: 'Printing progress', exact: true })).toBeVisible();
+    expect(fixture.state.statusReads).toBe(0);
+    await expect(monitor.getByRole('combobox', { name: 'Print speed' })).toHaveCount(0);
+    await expect(monitor.getByRole('spinbutton')).toHaveCount(0);
+    await expect(monitor.getByRole('button', { name: 'Home axes' })).toHaveCount(0);
+    await monitor.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect.poll(() => fixture.state.statusReads).toBe(1);
+    await expect(monitor.getByText('No readings requested. Use Refresh to read the printer.')).toHaveCount(0);
+    const preview = await monitor.getByRole('heading', { name: 'Print preview', exact: true }).boundingBox();
+    const control = await monitor.getByRole('heading', { name: 'Control', exact: true }).boundingBox();
+    expect(control!.x).toBeGreaterThan(preview!.x + preview!.width);
+    await page.screenshot({ path: '/tmp/orca-moonraker-monitor.png' });
+    const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    await page.setViewportSize({ width: 820, height: 900 });
+    await expect.poll(() => monitor.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: '/tmp/orca-moonraker-monitor-narrow.png' });
+    await page.setViewportSize(viewport);
+    expect(fixture.state.statusReads).toBe(1);
+
     await expect(page.locator('webview')).toBeHidden();
     await page.getByRole('tab', { name: 'Web Interface', exact: true }).click();
     const collapse = page.getByTestId('titlebar-toggle-left-sidebar');

@@ -81,7 +81,12 @@ configuration dialog.
 
 Moonraker Monitor provides explicit Refresh for supported status, sensors and
 heater targets, plus capability-gated Pause, Resume and Cancel. Selecting it does
-not start polling. Bambu Monitor starts live observation for the selected device
+not start polling. Both monitors use the same responsive layout and printing
+progress card: preview area and print actions on the left, existing readings
+and controls on the right. Moonraker retains a preview placeholder without
+fetching thumbnails; unsupported sections are omitted. Sharing the layout does
+not add Moonraker speed, temperature, motion, material or camera controls.
+Bambu Monitor starts live observation for the selected device
 and composes task, temperature, actuator, motion, tool and material cards. The
 provider validates commands against fresh observations and their original target.
 Missing readings stay unreported; disconnected data is marked stale. Unknown

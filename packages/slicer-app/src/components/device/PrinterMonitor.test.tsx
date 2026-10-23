@@ -20,8 +20,9 @@ it('shows route capabilities, reads only on Refresh, retains the console and nev
   const known = <T,>(value: T): Reading<T> => ({ kind: 'known', value, freshness: 'fresh', sourceRouteId: printer.routes[0].id, observedAtMs: 1, receivedAtMs: 1 });
   const unknown = { kind: 'unknown', reason: 'not-reported' } as const;
   const read = vi.fn(async (..._args: unknown[]) => ({ ok: true, value: { target: { printerId: printer.identity.id, routeId: printer.routes[0].id }, configurationRevision: printer.routes[0].configurationRevision, values: { status: known({ operationalState: known('busy'), activeToolIds: unknown, actions: unknown, printStatus: { phase: known('printing'), name: known('cube.gcode'), progressFraction: known(0.42), remainingSeconds: unknown } }) } } }));
+  const readPreview = vi.fn();
   const submit = vi.fn(async (..._args: unknown[]) => ({ kind: 'outcome-unknown' }));
-  const service = { ...base, observations: { ...base.observations, read }, controls: { ...base.controls, submit } } as unknown as PrinterService;
+  const service = { ...base, media: { ...base.media, readCurrentPrintPreview: readPreview }, observations: { ...base.observations, read }, controls: { ...base.controls, submit } } as unknown as PrinterService;
   const dispose = vi.fn();
   const mount = vi.fn(() => ({ state: { status: 'idle', url: null, error: null }, load: vi.fn(), dispose }));
   const platform = { printers: { service, configuration: { load: async () => ({ printers: [] }) } }, preferences: { load: async () => ({ ui: {} }) }, webview: { mount } } as unknown as PlatformCapabilities;
@@ -32,6 +33,11 @@ it('shows route capabilities, reads only on Refresh, retains the console and nev
     expect(element.querySelectorAll('[role="tab"]')).toHaveLength(2);
     await click('#device-tab-monitor');
     expect(read).not.toHaveBeenCalled();
+    expect(readPreview).not.toHaveBeenCalled();
+    expect(element.textContent).toContain('Printing progress');
+    expect(element.querySelector('[aria-label="Print speed"]')).toBeNull();
+    expect(element.querySelector('input[type="number"]')).toBeNull();
+    expect(element.textContent).not.toMatch(/Home axes|Material system|Nozzle hardware/);
     expect(element.textContent).toContain('Not reported');
     const refresh = [...element.querySelectorAll('button')].find(button => button.textContent === 'Refresh')!;
     await act(async () => { refresh.click(); });
@@ -40,6 +46,8 @@ it('shows route capabilities, reads only on Refresh, retains the console and nev
     expect(element.textContent).toContain('42%');
     await click('#device-tab-web');
     await click('#device-tab-monitor');
+    expect(read).toHaveBeenCalledOnce();
+    expect(readPreview).not.toHaveBeenCalled();
     expect(mount).toHaveBeenCalledOnce();
     expect(dispose).not.toHaveBeenCalled();
     const pause = [...element.querySelectorAll('button')].find(button => button.textContent === 'Pause')!;

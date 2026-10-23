@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
-import type { CommandRequest, Id, PrinterCapabilities, PrinterRoute, PrinterSnapshot, Reading, SavedPrinter, StateTopic } from '@orca/printer-control/domain';
+import type { CommandRequest, Id, PrinterCapabilities, PrinterRoute, PrinterSnapshot, SavedPrinter, StateTopic } from '@orca/printer-control/domain';
 import { Button } from '@/components/ui/button';
+import { ControlCard, display as reading, valueOf } from './PrinterControlCards';
+import { PrinterMonitorLayout, PrintProgressCard } from './PrinterMonitorLayout';
 
 const monitoringTopics = ['status', 'thermal', 'motion', 'actuators', 'materials', 'sensors'] as const;
 const printControls = [
@@ -15,11 +17,6 @@ export function supportsMonitor(capabilities: PrinterCapabilities): boolean {
     || capabilities.cameras.some(camera => camera.liveView.kind === 'supported' || camera.snapshot.kind === 'supported')
     || Object.entries(capabilities.commands).some(([name, capability]) => capability.kind === 'supported'
       && !['jobs.start', 'files.delete', 'actions.invoke', 'materials.writeMetadata', 'materials.refreshTag'].includes(name));
-}
-
-function reading<T>(value: Reading<T> | undefined, format: (value: T) => string = String): string {
-  if (!value || value.kind === 'unknown') return 'Not reported';
-  return `${format(value.value)}${value.freshness === 'stale' ? ' (stale)' : ''}`;
 }
 
 /** Explicit reads and commands on one route; selecting a printer never starts polling. */
@@ -69,42 +66,26 @@ export function PrinterMonitor({ printer, route }: { printer: SavedPrinter; rout
   }
 
   const status = snapshot?.values.status;
-  return <div className="h-full overflow-y-auto p-4" data-testid="device-monitor">
-    <div className="mb-4 flex items-center justify-between gap-3">
-      <div><h2 className="text-sm font-semibold">{printer.identity.displayName}</h2><p className="text-xs text-muted-foreground">{route.label}</p></div>
-      {topics.length > 0 && <Button size="sm" variant="secondary" disabled={busy} onClick={() => void refresh()}>Refresh</Button>}
-    </div>
-    {message && <p role="status" className="mb-3 text-sm text-muted-foreground">{message}</p>}
-    <div className="grid gap-3 md:grid-cols-2">
-      {route.capabilities.observations.status.kind === 'supported' && <section className="rounded-md border p-3">
-        <h3 className="mb-2 text-sm font-medium">Print status</h3>
-        <dl className="grid grid-cols-2 gap-2 text-sm">
-          <dt>State</dt><dd>{reading(status?.kind === 'known' ? status.value.operationalState : undefined)}</dd>
-          <dt>Print</dt><dd>{reading(status?.kind === 'known' ? status.value.printStatus.name : undefined, value => value ?? 'No active print')}</dd>
-          <dt>Phase</dt><dd>{reading(status?.kind === 'known' ? status.value.printStatus.phase : undefined)}</dd>
-          <dt>Progress</dt><dd>{reading(status?.kind === 'known' ? status.value.printStatus.progressFraction : undefined, value => `${Math.round(value * 100)}%`)}</dd>
-          <dt>Remaining</dt><dd>{reading(status?.kind === 'known' ? status.value.printStatus.remainingSeconds : undefined, value => `${Math.ceil(value / 60)} min`)}</dd>
-        </dl>
-        {status?.kind === 'known' && status.freshness === 'stale' && <p className="mt-2 text-xs text-muted-foreground">Stale readings</p>}
-      </section>}
-      {route.capabilities.observations.sensors.kind === 'supported' && <section className="rounded-md border p-3">
-        <h3 className="mb-2 text-sm font-medium">Sensors</h3>
-        {snapshot?.values.sensors?.kind === 'known' ? snapshot.values.sensors.value.definitions.map(sensor => {
-          const value = snapshot.values.sensors;
-          const state = value?.kind === 'known' ? value.value.readings.find(state => state.sensorId === sensor.id) : undefined;
-          return <p key={sensor.id} className="text-sm">{sensor.name}: {reading<unknown>(state?.reading, value => typeof value === 'object' ? Object.entries(value ?? {}).map(([axis, number]) => `${axis}: ${number}`).join(', ') : String(value))}{sensor.unit ? ` ${sensor.unit}` : ''}</p>;
-        }) : <p className="text-sm text-muted-foreground">Not reported</p>}
-      </section>}
-      {route.capabilities.observations.thermal.kind === 'supported' && <section className="rounded-md border p-3">
-        <h3 className="mb-2 text-sm font-medium">Heater targets</h3>
-        {snapshot?.values.thermal?.kind === 'known' ? snapshot.values.thermal.value.map(heater => <p key={heater.heaterId} className="text-sm">{heater.heaterId}: {reading(heater.targetC, value => `${value} °C`)}</p>) : <p className="text-sm text-muted-foreground">Not reported</p>}
-      </section>}
-      <section className="rounded-md border p-3"><h3 className="mb-2 text-sm font-medium">Printer controls</h3>
-        <div className="flex flex-wrap gap-2">{printControls.filter(control => route.capabilities.commands[control.type].kind === 'supported').map(control => <Button key={control.type} size="sm" variant="secondary" disabled={busy} onClick={() => void command(control.type)}>{control.label}</Button>)}</div>
-        {!printControls.some(control => route.capabilities.commands[control.type].kind === 'supported') && <p className="text-xs text-muted-foreground">No basic print controls are available on this route.</p>}
-      </section>
-    </div>
-    {topics.length === 0 && <p className="mt-4 text-sm text-muted-foreground">This route does not provide status, sensor or temperature readings. Additional monitor controls and camera viewing are not available in this view yet.</p>}
-    {topics.length > 0 && !snapshot && <p className="mt-4 text-sm text-muted-foreground">No readings requested. Use Refresh to read the printer.</p>}
-  </div>;
+  const controls = <>{printControls.filter(control => route.capabilities.commands[control.type].kind === 'supported').map(control => <Button key={control.type} size="sm" variant="secondary" disabled={busy} onClick={() => void command(control.type)}>{control.label}</Button>)}
+    {!printControls.some(control => route.capabilities.commands[control.type].kind === 'supported') && <p className="text-xs text-muted-foreground">No basic print controls are available on this route.</p>}</>;
+  const sensors = valueOf(snapshot?.values.sensors), thermal = valueOf(snapshot?.values.thermal);
+  const hasSensors = route.capabilities.observations.sensors.kind === 'supported', hasThermal = route.capabilities.observations.thermal.kind === 'supported';
+  return <PrinterMonitorLayout testId="device-monitor" title={printer.identity.displayName} subtitle={route.label}
+    toolbar={topics.length > 0 && <Button size="sm" variant="secondary" disabled={busy} onClick={() => void refresh()}>Refresh</Button>}
+    notices={<>
+      {message && <p role="status" className="text-sm text-muted-foreground">{message}</p>}
+      {status?.kind === 'known' && status.freshness === 'stale' && <p className="text-xs text-muted-foreground">Stale readings</p>}
+      {topics.length === 0 && <p className="text-sm text-muted-foreground">This route does not provide status, sensor or temperature readings. Additional monitor controls and camera viewing are not available in this view yet.</p>}
+      {topics.length > 0 && !snapshot && <p className="text-sm text-muted-foreground">No readings requested. Use Refresh to read the printer.</p>}
+    </>}
+    progress={<PrintProgressCard status={valueOf(status)?.printStatus} details={route.capabilities.observations.status.kind === 'supported' && <><dt>State</dt><dd>{reading(valueOf(status)?.operationalState)}</dd></>}>{controls}</PrintProgressCard>}
+    controls={<ControlCard title="Control">
+      {hasSensors && <ControlCard title="Sensors">{sensors ? sensors.definitions.map(sensor => {
+        const state = sensors.readings.find(state => state.sensorId === sensor.id);
+        return <p key={sensor.id} className="text-sm">{sensor.name}: {reading<unknown>(state?.reading, value => typeof value === 'object' ? Object.entries(value ?? {}).map(([axis, number]) => `${axis}: ${number}`).join(', ') : String(value))}{sensor.unit ? ` ${sensor.unit}` : ''}</p>;
+      }) : <p className="text-sm text-muted-foreground">Not reported</p>}</ControlCard>}
+      {hasThermal && <ControlCard title="Heater targets">{thermal ? thermal.map(heater => <p key={heater.heaterId} className="text-sm">{heater.heaterId}: {reading(heater.targetC, value => `${value} °C`)}</p>) : <p className="text-sm text-muted-foreground">Not reported</p>}</ControlCard>}
+      {!hasSensors && !hasThermal && <p className="text-sm text-muted-foreground">Temperature and sensor readings are not available on this route.</p>}
+    </ControlCard>}
+  />;
 }
