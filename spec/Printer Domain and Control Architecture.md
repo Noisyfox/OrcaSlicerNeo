@@ -454,10 +454,10 @@ China-region real-account login, normal restart restoration, explicit logout
 and Cloud discovery are validated on the macOS ARM64 development host. Other
 regions, additional verification challenges, credential refresh and LAN hardware
 remain unqualified. Successful login/listing does not establish permission or
-support for later printing. Browser callbacks and addon/plugin packaging on the
-six selected targets remain subject to normal feature/build verification,
-without an additional ABI
-qualification gate. The grouped open decisions are tracked in the shared
+support for later printing. Addon/plugin packaging, packaged startup and
+login-window/browser-handoff fixtures pass on all six selected targets, without
+an additional ABI qualification gate. These fixtures do not establish real
+authentication on every host or endpoint. The grouped open decisions are tracked in the shared
 architecture. Browser-login mode, remembered login, black-box lifecycle,
 single-account, regional switching, explicit/expiry-triggered logout cleanup,
 automatic cloud device population and LAN access-code entry follow the accepted
@@ -470,8 +470,9 @@ credential store merely because authentication is delegated to the plugin.
 the native addon, application-owned utility host, account flow and Cloud device
 enumeration) are delivered and accepted on the development host. Step 7 passes
 automatic acceptance, with real LAN-only device qualification deferred by the
-user. Step 8 packaging and CI integration are implemented; its development-host
-acceptance and outstanding release qualification are recorded below.
+user. Step 8 packaging and packaged-provider startup acceptance pass on all six
+selected targets; the separate real-account/hardware qualification limits are
+recorded below.
 This sequence implements the
 accepted behavior in section 2.1 and the
 [shared account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts).
@@ -599,7 +600,8 @@ uses the [pinned v2.2.0 artifacts](../packages/bambu-native/artifacts.json), sel
 the `02.08.01` library series supported by the checked-in Orca declarations. All six
 archives have been downloaded, SHA-256 verified and staged. The macOS ARM64
 plugin reports `02.08.01.99` through the addon in both Node and Electron's Node
-runtime. Other platform runtime/build acceptance remains in step 8.
+runtime. The six-platform packaged checks in step 8 verify the same plugin
+version during ordinary startup.
 
 The addon copies the required common public typedefs from Orca into one header;
 its build checks them against the checked-in source. `LoadLibraryExW` or `dlopen`
@@ -655,8 +657,8 @@ The macOS ARM64 [Electron smoke](../apps/desktop/e2e/bambu-provider.e2e.ts)
 starts the real plugin, obtains signed-out state in two isolated windows,
 checks one named utility process, closes one window while the other continues
 reading, and exits normally. Deterministic tests cover lifecycle ordering,
-serialized persistence and IPC rejection. Other platform runtime qualification
-remains in step 8. Public account and printer registration remains absent
+serialized persistence and IPC rejection. Six-target packaged-runtime
+acceptance is recorded in step 8. Public account and printer registration remains absent
 at this step; the host's printer projection is empty.
 
 #### Step 5 — Account login as a complete user flow
@@ -828,28 +830,27 @@ the separate E2E build mode retains the mock slicer fixture. The engineering
 [packaging reference](../doc/2026-09-25-github-pages-deployment.md#desktop-packaging)
 owns the build procedure.
 
-**Implementation acceptance:** Native resource and host regressions pass on
-the development host. A macOS ARM64 installer is produced, and its packaged app
-passes real-plugin startup, configuration restart and login-window handoff
-checks. Login-page fixtures prove host behavior without authenticating a real
-account. The app installed from the DMG separately restores the real
+**Packaged delivery acceptance:** Installers are produced for Windows, Linux and
+macOS on both x64 and ARM64. Each packaged app passes real-plugin startup,
+configuration restart, isolated-login-window reuse and system-browser handoff
+checks on a matching native CI runner. Login-page fixtures prove host behavior
+without authenticating a real account. The macOS ARM64 app installed from the
+DMG separately restores the real
 China-region Neo test account and its Cloud catalogue across normal restart,
-including common Device rows without automatic target selection. This qualifies
-the development-host implementation; combined release qualification remains
-open below.
+including common Device rows without automatic target selection. This
+qualifies the six-target packaging/startup boundary; it does not close the
+separate real-account and hardware limits below.
 
-**Release qualification still required:** Produce all six target packages and record ordinary installed-app
-startup/plugin-load evidence for each. Validate OS-specific login-window,
-system-browser callback and persistence seams on the applicable hosts. Run a
-primary real-account/device journey covering login, automatic Cloud population,
+**Separate real-account/hardware qualification:** The combined device journey
+still covers real login, automatic Cloud population,
 LAN access, a combined identity, logout retaining LAN, re-login, LAN forgetting
 and application restart. Record CN/international results and any untested
 challenge/device/environment explicitly. Packaging success alone does not prove
 real login or discovery. No additional ABI gate or process-crash qualification
-is introduced. The remaining five target packages and their runtime probes await
-CI execution. LAN hardware qualification remains deferred as authorized in step
-7; international account/challenge journeys also remain unverified. Step 8 is
-not fully qualified until the applicable evidence is available.
+is introduced. LAN hardware qualification remains deferred as authorized in step
+7; international account/challenge journeys and real-account authentication on
+the other hosts remain unverified. These limits do not reopen the accepted
+six-target packaging and startup checks.
 
 #### Verification and completion rules
 

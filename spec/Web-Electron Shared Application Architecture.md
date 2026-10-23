@@ -191,19 +191,19 @@ pinned artifacts. Step 4 delivers the application-owned Bambu utility, typed
 read IPC, serialized local repository and real-plugin startup/shutdown. The
 Home login flow, isolated official-page bridge and provider settings are
 accepted on the macOS ARM64 development host with real China-region login,
-logout and remembered-login restart. Other regions/challenges and release
-platform qualification remain unverified.
+logout and remembered-login restart. Other regions/challenges and real-account
+authentication on the other hosts remain unverified.
 Step 6 registers the same Bambu provider for both account and printer
 capabilities, publishes validated Cloud account lists through the common Device
 catalogue, and retains unsupported control/upload/monitoring capabilities.
 LAN discovery/access are implemented and automatically accepted. Real LAN-only
-device qualification is deferred; packaging work may proceed.
+device qualification is deferred.
 Desktop build and packaging entry points now prepare the pinned native
 resources explicitly, and the six-target CI matrix uses matching native
-architectures with packaged-provider probes. The macOS ARM64 package passes
-startup, configuration restart and isolated-login/system-browser handoff
-checks, and restores the real China-region account and Cloud catalogue across
-normal restart. The remaining platform release evidence is pending.
+architectures with packaged-provider probes. Windows, Linux and macOS packages
+on x64 and ARM64 all pass real-plugin startup, configuration restart and
+isolated-login/system-browser handoff checks. The macOS ARM64 app also restores
+the real China-region account and Cloud catalogue across normal restart.
 
 Provider identity, account modeling and account methods belong in a shared
 contract module outside `printer-control`. They must be usable by services with
@@ -397,8 +397,9 @@ Bambu Cloud enumeration and the application-owned provider
 process/account flow are validated on macOS ARM64, including real
 China-region login/logout/restart and Cloud devices in the common Device
 surface. LAN discovery/access are implemented, with real-device qualification
-deferred. Other regions/challenges and
-release platform qualification remain unverified.
+deferred. Six-target packaging and packaged-provider startup are accepted;
+other regions/challenges and real-account authentication on the other hosts
+remain unverified.
 
 ## 5. Runtime and WASM Loading
 
