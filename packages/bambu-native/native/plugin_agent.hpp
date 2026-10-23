@@ -4,7 +4,7 @@
 #include <mutex>
 #include <variant>
 
-using Input = std::variant<std::string, bool, std::map<std::string, std::string>>;
+using Input = std::variant<std::string, bool, int, std::map<std::string, std::string>>;
 using EventArgument = std::variant<std::string, bool, int>;
 struct HttpResult { int result; unsigned http_code; std::string body; };
 using Output = std::variant<int, bool, std::string, HttpResult>;

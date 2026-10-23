@@ -20,3 +20,14 @@ export function isBambuDevice(value: unknown): value is BambuDevice {
       : typeof route.address === 'string' && Object.keys(route).every(key => ['channel', 'revision', 'address'].includes(key));
   });
 }
+
+export interface BambuLanCandidate {
+  candidateId: string; deviceId: string; name: string; model: string; address: string; expiresAtMs: number;
+}
+export function isBambuLanCandidate(value: unknown): value is BambuLanCandidate {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as BambuLanCandidate;
+  return ['candidateId', 'deviceId', 'name', 'model', 'address'].every(key => typeof candidate[key as keyof BambuLanCandidate] === 'string')
+    && typeof candidate.expiresAtMs === 'number' && Number.isFinite(candidate.expiresAtMs)
+    && Object.keys(candidate).every(key => ['candidateId', 'deviceId', 'name', 'model', 'address', 'expiresAtMs'].includes(key));
+}

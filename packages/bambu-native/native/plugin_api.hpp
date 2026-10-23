@@ -64,6 +64,9 @@ typedef int (*func_disconnect_printer)(void *agent);
 typedef std::string (*func_get_user_selected_machine)(void *agent);
 typedef int (*func_set_user_selected_machine)(void *agent, std::string dev_id);
 typedef int (*func_track_remove_files)(void *agent);
+typedef int (*func_send_message_to_printer)(void *agent, std::string dev_id, std::string json_str, int qos, int flag);
+typedef void (*func_install_device_cert)(void* agent, std::string dev_id, bool lan_only);
+
 }
 
 #define NEO_BAMBU_EXPORTS(X) \
@@ -109,6 +112,8 @@ typedef int (*func_track_remove_files)(void *agent);
     X(get_user_print_info) \
     X(get_my_token) \
     X(get_my_profile) \
+    X(send_message_to_printer) \
+    X(install_device_cert) \
     X(connect_printer) \
     X(disconnect_printer) \
     X(get_user_selected_machine) \

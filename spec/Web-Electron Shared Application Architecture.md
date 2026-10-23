@@ -196,7 +196,8 @@ platform qualification remain unverified.
 Step 6 registers the same Bambu provider for both account and printer
 capabilities, publishes validated Cloud account lists through the common Device
 catalogue, and retains unsupported control/upload/monitoring capabilities.
-LAN discovery and access remain unimplemented.
+LAN discovery/access are implemented and automatically accepted. Real LAN-only
+device qualification is deferred; packaging work may proceed.
 
 Provider identity, account modeling and account methods belong in a shared
 contract module outside `printer-control`. They must be usable by services with
@@ -389,7 +390,8 @@ evidence required before each is complete. Steps 1–3 are delivered; applicatio
 Bambu Cloud enumeration and the application-owned provider
 process/account flow are validated on macOS ARM64, including real
 China-region login/logout/restart and Cloud devices in the common Device
-surface. LAN discovery/access remain planned. Other regions/challenges and
+surface. LAN discovery/access are implemented, with real-device qualification
+deferred. Other regions/challenges and
 release platform qualification remain unverified.
 
 ## 5. Runtime and WASM Loading

@@ -1,6 +1,8 @@
 #include <napi.h>
 #include "plugin_agent.hpp"
 #include <atomic>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <mutex>
 
@@ -127,6 +129,13 @@ private:
             auto value = array.Get(i);
             if (value.IsString()) arguments.emplace_back(value.As<Napi::String>().Utf8Value());
             else if (value.IsBoolean()) arguments.emplace_back(value.As<Napi::Boolean>().Value());
+            else if (value.IsNumber()) {
+                if (method != "send_message_to_printer" || (i != 2 && i != 3)) throw Napi::TypeError::New(info.Env(), "Invalid native argument");
+                const double number = value.As<Napi::Number>().DoubleValue();
+                if (!std::isfinite(number) || std::trunc(number) != number || number < std::numeric_limits<int>::min() || number > std::numeric_limits<int>::max())
+                    throw Napi::TypeError::New(info.Env(), "Native integer argument required");
+                arguments.emplace_back(static_cast<int>(number));
+            }
             else if (value.IsObject() && !value.IsArray()) {
                 std::map<std::string, std::string> headers;
                 auto object = value.As<Napi::Object>(); auto keys = object.GetPropertyNames();

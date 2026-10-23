@@ -43,7 +43,7 @@ it('exchanges tickets with plugin exports, closes the preparation boundary befor
 });
 it('keeps remembered LAN records while changing region and rejects late prior-login replies', async () => {
   const f = await fixture(); const attempt = await f.signIn();
-  await f.repository.update(state => ({ ...state, lan: [{ deviceId: 'd', name: 'P', ip: '192.0.2.1', model: 'X1', accessCode: 'private-code' }] }));
+  await f.repository.update(state => ({ ...state, lan: [{ deviceId: 'd', name: 'P', ip: '192.0.2.1', model: 'X1', accessCode: 'private-code', revision: 'lan-fixture' }] }));
   expect(await f.account.handle({ method: 'account.setting', input: { key: 'region', value: 'China' } })).toEqual({ ok: true, value: undefined });
   expect(f.calls.slice(-2)).toEqual(['logout', 'country']); expect(f.native.setCountryCode).toHaveBeenCalledWith('CN');
   expect((await f.repository.read()).lan[0].accessCode).toBe('private-code');

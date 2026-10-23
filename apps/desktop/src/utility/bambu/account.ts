@@ -1,7 +1,7 @@
 import type { BambuNative, NativeEvent, NativeHttpResult } from '@orca/bambu-native';
 import type { AccountError, AccountResult, AccountState } from '@orca/service-provider';
 import { BAMBU_REGIONS, type BambuChange, type BambuRegion } from '../../shared/bambu';
-import type { BambuHostRequest, BambuHostResults, LoginCompletion } from '../../shared/bambuHost';
+import type { BambuAccountRequest, BambuHostResults, LoginCompletion } from '../../shared/bambuHost';
 import { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';
 
@@ -44,7 +44,7 @@ export class BambuAccount {
     if (await this.native.isUserLoggedIn()) { this.devices.activate(); await this.summarize(); await this.connected().catch(() => { this.state = { ...this.state, error: { code: 'network', message: 'The cloud connection is unavailable. Please try again.' } }; }); }
     else this.state = { status: 'signed-out', error: null };
   }
-  handle(request: BambuHostRequest): Promise<BambuHostResults[keyof BambuHostResults]> {
+  handle(request: BambuAccountRequest): Promise<BambuHostResults[keyof BambuHostResults]> {
     return this.queue(async () => {
       if (request.method === 'printers.refresh') return await this.devices.refresh(() => this.native.getUserPrintInfo()) ? success() : failure('network', 'The cloud device list could not be refreshed.');
       if (request.method === 'account.logout') return this.logout();

@@ -40,7 +40,7 @@ it('ignores old requests after logout, account/region replacement and a newer re
   expect(await older).toBe(false); expect(await f.devices.list()).toEqual([]);
 });
 it('uses serial identity and preserves independently authorized LAN routes across cloud cleanup', async () => {
-  const f = await fixture(); await f.repository.update(state => ({ ...state, lan: [{ deviceId: 'a', name: 'LAN name', model: 'X1C', ip: '192.0.2.1', accessCode: 'private-lan-code' }] }));
+  const f = await fixture(); await f.repository.update(state => ({ ...state, lan: [{ deviceId: 'a', name: 'LAN name', model: 'X1C', ip: '192.0.2.1', accessCode: 'private-lan-code', revision: 'lan-fixture' }] }));
   await f.devices.refresh(async () => response([device('a')])); const combined = await f.devices.list(); expect(combined).toHaveLength(1); expect(combined[0].routes.map(route => route.channel)).toEqual(['cloud', 'lan']);
   f.devices.clear(); const remaining = await f.devices.list(); expect(remaining).toHaveLength(1); expect(remaining[0].routes.map(route => route.channel)).toEqual(['lan']);
   expect((await f.repository.read()).lan[0].accessCode).toBe('private-lan-code'); expect(JSON.stringify(remaining)).not.toContain('private-lan-code');

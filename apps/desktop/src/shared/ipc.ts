@@ -35,6 +35,7 @@ export const Ipc = {
   preferencesSave: 'preferences:save',
   bambuRead: 'bambu:read',
   bambuCommand: 'bambu:command',
+  bambuPrinterCommand: 'bambu:printer-command',
   bambuChanged: 'bambu:changed',
   printerConfigurationLoad: 'printerConfiguration:load',
   printerConfigurationSave: 'printerConfiguration:save',

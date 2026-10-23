@@ -5,12 +5,14 @@ import type { AccountState } from '@orca/service-provider';
 import { bambuRegionChoices, unavailableBambuAccount, type BambuChange, type BambuHostConfig, type BambuRead, type BambuReadResults } from '../../shared/bambu';
 import { BambuAccount, bambuCountry } from './account';
 import type { BambuHostRequest } from '../../shared/bambuHost';
+import { BambuLan } from './lan';
 import { BambuDevices } from './devices';
 import { BambuRepository } from './repository';
 
 /** Native agent lifecycle and local state are application-owned, never window-owned. */
 export class BambuRuntime {
   private native: BambuNative | null = null;
+  private lan: BambuLan | null = null;
   private account: BambuAccount | null = null;
   private state: AccountState = { status: 'restoring', error: null };
   private ready: Promise<void>;
@@ -29,6 +31,7 @@ export class BambuRuntime {
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const agent = this.load(this.config.addonPath, this.config.pluginPath, event => this.onEvent(event));
       this.native = agent;
+      this.lan = new BambuLan(agent, this.repository, () => this.publish('printers'));
       const ok = async (result: Promise<number>) => { if (await result !== 0) throw new Error('Bambu initialization failed'); };
       if (await agent.getVersion() !== '02.08.01.99') throw new Error('Unexpected Bambu plugin version');
       await ok(agent.createAgent(directory));
@@ -51,7 +54,7 @@ export class BambuRuntime {
       this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
     } catch {
-      this.account = null; this.state = unavailableBambuAccount();
+      await this.lan?.close(); this.lan = null; this.account = null; this.state = unavailableBambuAccount();
       await this.native?.close().catch(() => undefined); this.native = null;
     }
     this.publish('account');
@@ -59,7 +62,7 @@ export class BambuRuntime {
   private onEvent(event: NativeEvent) {
     // Only invalidations leave the utility; native messages may contain credentials.
     this.account?.onEvent(event);
-    if (event.type === 'ssdp') this.publish('printers');
+    this.lan?.onEvent(event);
   }
   read<K extends BambuRead>(kind: K): Promise<BambuReadResults[K]>;
   async read(kind: BambuRead): Promise<BambuReadResults[BambuRead]> {
@@ -69,12 +72,15 @@ export class BambuRuntime {
       const { region } = await this.repository.read();
       return [{ key: 'region', label: 'Region', value: region, choices: bambuRegionChoices }];
     }
+    if (kind === 'printers.candidates') return this.lan ? { ok: true, value: await this.lan.list() } : { ok: false, error: { code: 'unsupported', message: 'LAN discovery is unavailable.' } };
     return { ok: true, value: await this.devices.list() };
   }
   async host(request: BambuHostRequest) {
     await this.ready;
+    if (request.method === 'lan.authorize') { if (!this.lan) throw new Error('Unavailable'); return this.lan.authorize(request.input.candidateId, request.input.accessCode); }
+    if (request.method === 'lan.forget') { if (!this.lan) throw new Error('Unavailable'); return this.lan.forget(request.input.deviceId, request.input.expectedRevision); }
     if (!this.account) throw new Error('Bambu networking is unavailable.');
     return this.account.handle(request);
   }
-  async close() { await this.ready; await this.account?.close(); await this.native?.close(); this.native = null; }
+  async close() { await this.ready; await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
 }

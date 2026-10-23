@@ -1,14 +1,16 @@
 import { expect, it, vi } from 'vitest';
 import { createBambuProvider } from './bambuProvider';
-import type { BambuBridge, BambuChange, BambuRead } from '../../../shared/bambu';
-import type { BambuDevice } from '../../../shared/bambuDevices';
+import type { BambuBridge, BambuChange, BambuPrinterCommand, BambuRead } from '../../../shared/bambu';
+import type { BambuDevice, BambuLanCandidate } from '../../../shared/bambuDevices';
 function fixture() {
   let devices: readonly BambuDevice[] = [{ deviceId: 'serial-a', name: 'Same name', model: 'X1C', routes: [{ channel: 'cloud', revision: 'r1' }] }];
+  let candidates: readonly BambuLanCandidate[] = [];
   const listeners = new Set<(change: BambuChange) => void>();
   const command = vi.fn(async () => ({ ok: true as const, value: undefined }));
-  const read = vi.fn(async (kind: BambuRead) => kind === 'printers.saved' ? { ok: true, value: devices } : kind === 'account.state' ? { status: 'signed-out', error: null } : []);
-  const bridge = { read, command, onChanged: (listener: (change: BambuChange) => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; } } as unknown as BambuBridge;
-  return { provider: createBambuProvider(bridge), second: createBambuProvider(bridge), read, command, listeners,
+  const printerCommand = vi.fn(async (_request: BambuPrinterCommand) => ({ ok: true as const, value: null }));
+  const read = vi.fn(async (kind: BambuRead): Promise<unknown> => kind === 'printers.candidates' ? { ok: true, value: candidates } : kind === 'printers.saved' ? { ok: true, value: devices } : kind === 'account.state' ? { status: 'signed-out', error: null } : []);
+  const bridge = { read, command, printerCommand, onChanged: (listener: (change: BambuChange) => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; } } as unknown as BambuBridge;
+  return { provider: createBambuProvider(bridge), second: createBambuProvider(bridge), read, command, printerCommand, listeners, candidates: (next: readonly BambuLanCandidate[]) => { candidates = next; },
     update: (next: readonly BambuDevice[]) => { devices = next; listeners.forEach(listener => listener('printers')); } };
 }
 it('projects stable provider/printer/route identities and exposes discovery-only capabilities', async () => {
@@ -36,4 +38,26 @@ it('lists locally and refreshes only through an explicit account discovery call'
   const f = fixture(); await f.provider.printers.listSaved(); await f.provider.printers.listProviders(); expect(f.command).not.toHaveBeenCalled();
   const events = []; for await (const event of f.provider.printers.discover(f.provider.id, { kind: 'account', hostId: 'desktop' as never })) events.push(event);
   expect(events).toEqual([{ type: 'completed' }]); expect(f.command).toHaveBeenCalledWith({ action: 'printers.refresh' });
+});
+
+it('discovers LAN candidates, authorizes only the same physical identity, and forgets LAN while retaining Cloud', async () => {
+  const f = fixture(); const controller = new AbortController();
+  f.candidates([{ candidateId: 'candidate', deviceId: 'serial-a', name: 'LAN name', model: 'X1C', address: '192.0.2.1', expiresAtMs: Date.now() + 60_000 }]);
+  const discovery = f.provider.printers.discover(f.provider.id, { kind: 'lan', hostId: 'desktop' as never }, { signal: controller.signal })[Symbol.asyncIterator]();
+  const first = await discovery.next(); if (first.done || first.value.type !== 'upsert') throw new Error('No candidate');
+  const request = { requestId: 'request' as never, candidate: first.value.candidate, accessCode: 'ABCDEFGH' };
+  expect(await f.provider.printers.authorize({ ...request, existingPrinterId: 'wrong-printer' as never })).toMatchObject({ ok: false, error: { code: 'invalid-target' } });
+  expect(f.printerCommand).not.toHaveBeenCalled();
+  f.printerCommand.mockImplementation(async command => {
+    f.update([{ deviceId: 'serial-a', name: 'Same name', model: 'X1C', routes: command.action === 'authorize'
+      ? [{ channel: 'cloud', revision: 'r1' }, { channel: 'lan', revision: 'lan-r1', address: '192.0.2.1' }] : [{ channel: 'cloud', revision: 'r1' }] }]);
+    return { ok: true, value: null };
+  });
+  const authorized = await f.provider.printers.authorize(request); if (!authorized.ok) throw new Error('Not authorized');
+  const route = authorized.value.routes.find(route => route.configuration.channel === 'lan')!;
+  expect(route.management.forget).toBe(true); expect(route.configuration.credentialRef).not.toBeNull(); expect(JSON.stringify(authorized)).not.toContain('ABCDEFGH');
+  expect(await f.provider.printers.forget({ printerId: route.printerId, routeId: route.id, expectedConfigurationRevision: route.configurationRevision })).toMatchObject({ ok: true });
+  expect(f.printerCommand).toHaveBeenLastCalledWith({ action: 'forget', deviceId: 'serial-a', expectedRevision: 'lan-r1' });
+  expect(await f.provider.printers.listSaved()).toMatchObject({ ok: true, value: [{ routes: [{ configuration: { channel: 'cloud' } }] }] });
+  controller.abort(); await discovery.return?.(); expect(f.listeners.size).toBe(0);
 });

@@ -36,7 +36,7 @@ describe('Bambu utility runtime', () => {
     expect(calls[6].args[0]).toMatchObject({ 'X-BBL-Client-Type': 'slicer', 'X-BBL-Client-Name': 'BambuStudio', 'X-BBL-Client-Version': '02.08.01.55' });
     expect(calls.at(-1)?.args).toEqual([true, false]);
     emit({ type: 'http-error', args: [401, 'must-not-cross-ipc'] }); emit({ type: 'ssdp', args: ['access-code-must-not-cross-ipc'] });
-    expect(changes.mock.calls).toEqual([['account'], ['printers']]);
+    expect(changes.mock.calls).toEqual([['account']]);
     expect(await runtime.read('printers.saved')).toEqual({ ok: true, value: [] });
     expect((await runtime.read('account.settings'))[0].value).toBe('Others');
     await runtime.close(); expect(native.close).toHaveBeenCalledOnce();
@@ -65,7 +65,7 @@ it('serializes host-owned state changes and persists LAN credentials independent
   const initial = await repository.read();
   await Promise.all([
     repository.update(state => ({ ...state, region: 'Europe' })),
-    repository.update(state => ({ ...state, lan: [{ deviceId: 'device', name: 'Printer', model: 'X1C', ip: '192.0.2.1', accessCode: 'fixture-code' }] })),
+    repository.update(state => ({ ...state, lan: [{ deviceId: 'device', name: 'Printer', model: 'X1C', ip: '192.0.2.1', accessCode: 'fixture-code', revision: 'lan-fixture' }] })),
   ]);
   const reopened = await new BambuRepository(directory).read();
   expect(reopened).toMatchObject({ region: 'Europe', clientId: initial.clientId, lan: [{ accessCode: 'fixture-code' }] });
@@ -75,7 +75,7 @@ it('serializes host-owned state changes and persists LAN credentials independent
 
 it('publishes native account devices through the host and clears only Cloud routes on logout', async () => fixture(async directory => {
   const repository = new BambuRepository(directory);
-  await repository.update(state => ({ ...state, lan: [{ deviceId: 'serial', name: 'LAN printer', model: 'X1C', ip: '192.0.2.1', accessCode: 'private-lan' }] }));
+  await repository.update(state => ({ ...state, lan: [{ deviceId: 'serial', name: 'LAN printer', model: 'X1C', ip: '192.0.2.1', accessCode: 'private-lan', revision: 'lan-fixture' }] }));
   const { native } = nativeFixture(); const changed = vi.fn();
   vi.mocked(native.isUserLoggedIn).mockResolvedValue(true);
   vi.mocked(native.getUserPrintInfo).mockResolvedValue({ result: 0, httpCode: 200, body: JSON.stringify({ devices: [{ dev_id: 'serial', dev_name: 'Cloud printer', dev_model_name: 'X1C', dev_access_code: 'private-cloud' }] }) });

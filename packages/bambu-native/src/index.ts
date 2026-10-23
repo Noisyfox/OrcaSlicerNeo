@@ -49,6 +49,8 @@ export interface BambuNative {
   getUserPrintInfo(): Promise<NativeHttpResult>;
   startDiscovery(start: boolean, sending: boolean): Promise<boolean>;
   connectPrinter(deviceId: string, ip: string, username: string, password: string, ssl: boolean): Promise<number>;
+  sendMessageToPrinter(deviceId: string, payload: string, qos: number, flag: number): Promise<number>;
+  installDeviceCertificate(deviceId: string, lanOnly: boolean): Promise<void>;
   disconnectPrinter(): Promise<number>;
   getSelectedMachine(): Promise<string>;
   setSelectedMachine(deviceId: string): Promise<number>;
@@ -88,6 +90,8 @@ export function loadBambuNative(addonPath: string, pluginPath: string, listener:
     getMyToken: ticket => call('get_my_token', ticket), getMyProfile: token => call('get_my_profile', token), getUserPrintInfo: () => call('get_user_print_info'),
     startDiscovery: (start, sending) => call('start_discovery', start, sending),
     connectPrinter: (id, ip, username, password, ssl) => call('connect_printer', id, ip, username, password, ssl),
+    sendMessageToPrinter: (id, payload, qos, flag) => call('send_message_to_printer', id, payload, qos, flag),
+    installDeviceCertificate: async (id, lanOnly) => { await call('install_device_cert', id, lanOnly); },
     disconnectPrinter: () => call('disconnect_printer'), getSelectedMachine: () => call('get_user_selected_machine'), setSelectedMachine: id => call('set_user_selected_machine', id),
     close() {
       if (!closing) closing = tail.then(async () => {

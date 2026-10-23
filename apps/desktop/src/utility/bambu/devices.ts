@@ -46,7 +46,7 @@ export class BambuDevices {
     for (const record of (await this.repository.read()).lan) {
       const previous = devices.get(record.deviceId);
       devices.set(record.deviceId, { deviceId: record.deviceId, name: previous?.name ?? record.name, model: previous?.model ?? record.model,
-        routes: [...previous?.routes ?? [], { channel: 'lan', revision: `lan-${record.ip}`, address: record.ip }] });
+        routes: [...previous?.routes ?? [], { channel: 'lan', revision: record.revision, address: record.ip }] });
     }
     return [...devices.values()];
   }

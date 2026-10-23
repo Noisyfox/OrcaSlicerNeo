@@ -1,3 +1,4 @@
+import { PrinterDiscovery } from './PrinterDiscovery';
 import {
   useEffect,
   useMemo,
@@ -345,11 +346,12 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
               <h1 className="text-sm font-semibold">Devices</h1>
               <p className="text-xs text-muted-foreground">Printer consoles</p>
             </div>
+            <div className="flex items-center gap-1"><PrinterDiscovery saved={printers} />
             <TooltipFor content="Add printer">
               <Button size="icon-xs" variant="secondary" onClick={beginAdd} disabled={!configurationLoaded} aria-label="Add printer" data-testid="device-add-printer">
                 <Plus />
               </Button>
-            </TooltipFor>
+            </TooltipFor></div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {loadFailed && printers.length > 0 && <p role="alert" className="p-2 text-xs text-muted-foreground">Unable to refresh printers. Showing the last available list.</p>}

@@ -4,15 +4,15 @@ import { join } from 'node:path';
 import { writeFileAtomically } from '../../main/atomicFile';
 import { BAMBU_REGIONS, type BambuRegion } from '../../shared/bambu';
 
-export interface BambuLanRecord { deviceId: string; name: string; model: string; ip: string; accessCode: string }
+export interface BambuLanRecord { deviceId: string; name: string; model: string; ip: string; accessCode: string; revision: string }
 export interface BambuLocalState { version: 1; region: BambuRegion; clientId: string; lan: readonly BambuLanRecord[] }
 function validate(value: unknown): BambuLocalState {
   if (!value || typeof value !== 'object') throw new Error('Invalid Bambu provider configuration');
   const state = value as BambuLocalState;
   if (state.version !== 1 || !BAMBU_REGIONS.includes(state.region) || typeof state.clientId !== 'string' || !state.clientId
-    || !Array.isArray(state.lan) || state.lan.some(record => !record || ['deviceId', 'name', 'model', 'ip', 'accessCode'].some(key => typeof record[key as keyof BambuLanRecord] !== 'string'))
+    || !Array.isArray(state.lan) || state.lan.some(record => !record || ['deviceId', 'name', 'model', 'ip', 'accessCode', 'revision'].some(key => typeof record[key as keyof BambuLanRecord] !== 'string'))
     || new Set(state.lan.map(record => record.deviceId)).size !== state.lan.length) throw new Error('Invalid Bambu provider configuration');
-  return { version: 1, region: state.region, clientId: state.clientId, lan: state.lan.map(record => ({ deviceId: record.deviceId, name: record.name, model: record.model, ip: record.ip, accessCode: record.accessCode })) };
+  return { version: 1, region: state.region, clientId: state.clientId, lan: state.lan.map(record => ({ deviceId: record.deviceId, name: record.name, model: record.model, ip: record.ip, accessCode: record.accessCode, revision: record.revision })) };
 }
 /** One utility owns updates; there is no renderer save-document API. */
 export class BambuRepository {

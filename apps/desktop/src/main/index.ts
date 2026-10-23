@@ -1,6 +1,6 @@
 import { BambuUtility, bambuPaths, createBambuIpc } from './bambuUtility';
 import { BambuLogin } from './bambuLogin';
-import { BAMBU_REGIONS, isBambuCommand, unavailableBambuAccount } from '../shared/bambu';
+import { BAMBU_REGIONS, isBambuPrinterCommand, isBambuCommand, unavailableBambuAccount } from '../shared/bambu';
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type WebContents } from 'electron';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
@@ -417,6 +417,15 @@ function registerIpc(): void {
       return request.action === 'logout' ? await bambuUtility.host('account.logout', null)
         : await bambuUtility.host('account.setting', { key: request.key, value: request.value });
     } catch { return { ok: false, error: { code: 'unavailable', message: 'Bambu networking is unavailable.' } }; }
+  });
+
+  ipcMain.handle(Ipc.bambuPrinterCommand, async (event, request: unknown) => {
+    if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame || !isBambuPrinterCommand(request)) throw new Error('Bambu IPC request rejected');
+    try {
+      if (!bambuUtility) throw new Error('Unavailable');
+      return request.action === 'authorize' ? await bambuUtility.host('lan.authorize', { candidateId: request.candidateId, accessCode: request.accessCode })
+        : await bambuUtility.host('lan.forget', { deviceId: request.deviceId, expectedRevision: request.expectedRevision });
+    } catch { return { ok: false, error: { code: 'transport', message: 'Bambu networking is unavailable.' } }; }
   });
 
   const printerConfigurationIpc = createPrinterConfigurationIpcHandlers({

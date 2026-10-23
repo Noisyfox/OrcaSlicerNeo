@@ -83,3 +83,16 @@ test('rejects malformed arguments without poisoning subsequent calls or echoing 
   assert.throws(() => new binding.Agent(addon, () => {}), /Missing plugin export/);
   assert.throws(() => loadBambuNative('relative.node', fixture, () => {}), /absolute/);
 });
+
+test('copies LAN bootstrap arguments and rejects non-integer QoS without leaking payloads', async () => {
+  await session(async (agent, trace) => {
+    await agent.createAgent(trace);
+    await agent.sendMessageToPrinter('device', '{"info":{"command":"get_version"}}', 1, 0);
+    await agent.installDeviceCertificate('device', true);
+    await assert.rejects(agent.sendMessageToPrinter('device', 'private', 0.5, 0), /integer argument/);
+    await agent.close();
+    const lines = await readFile(trace, 'utf8');
+    assert(lines.includes('send:device:{"info":{"command":"get_version"}}:1:0'));
+    assert(lines.includes('cert:device:lan'));
+  });
+});

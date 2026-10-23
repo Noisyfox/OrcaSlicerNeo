@@ -13,7 +13,7 @@ describe('DevicePanel configuration loading', () => {
     const load = vi.fn(() => new Promise<Result<readonly SavedPrinter[]>>((resolve) => { resolveLoad = resolve; }));
     const platform = {
       preferences: { load: vi.fn(async () => ({ ui: {} })) },
-      printers: { service: { listSaved: load, onSavedChanged: () => () => {} } },
+      printers: { service: { listProviders: async () => ({ ok: true, value: [] }), listSaved: load, onSavedChanged: () => () => {} } },
     } as unknown as PlatformCapabilities;
     const container = document.createElement('div');
     document.body.append(container);

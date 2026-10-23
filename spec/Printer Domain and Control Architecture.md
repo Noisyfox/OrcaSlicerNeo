@@ -6,8 +6,8 @@
 TypeScript domain contracts and the existing Moonraker subset are implemented.
 Device Web entry and Send use the stateless service in both hosts. Electron
 Bambu integration follows section 2.1; section 2.2 distinguishes delivered
-foundations, account flow and Cloud device enumeration; LAN discovery remains
-unimplemented.
+foundations, account flow, Cloud device enumeration and LAN access. LAN
+real-device qualification is deferred and does not block packaging work.
 The gateway and richer device features remain deferred. Interface availability
 alone does not establish device support or runtime delivery.
 
@@ -466,8 +466,9 @@ credential store merely because authentication is delegated to the plugin.
 
 **Status:** Steps 1–6 (shared contracts, provider composition/device consumers,
 the native addon, application-owned utility host, account flow and Cloud device
-enumeration) are delivered and accepted on the development host. Steps 7–8
-remain unimplemented.
+enumeration) are delivered and accepted on the development host. Step 7 passes
+automatic acceptance, with real LAN-only device qualification deferred by the
+user. Step 8 packaging work is authorized; release qualification remains open.
 This sequence implements the
 accepted behavior in section 2.1 and the
 [shared account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts).
@@ -502,7 +503,8 @@ when the catalogue changes. Deterministic fixtures exercise multiple consumers
 and Bambu Cloud/LAN coexistence. The production host now starts the native
 runtime, and the account implementation registers its capability on
 Electron. The same provider registers its printer capability alongside the account
-capability. LAN authorization and management remain in the following step.
+capability. LAN authorization and management are implemented; their real-device
+qualification remains deferred.
 
 | Step | Deliverable | Prerequisites | Independent acceptance boundary |
 | --- | --- | --- | --- |
@@ -512,7 +514,7 @@ capability. LAN authorization and management remain in the following step.
 | 4 | Application-owned Electron provider host | 1, 3 | Utility-process, IPC and normal lifecycle integration |
 | 5 | Bambu account login and Home/settings UX | 4 | Real login/logout/restart on a development host plus deterministic UI/error cases |
 | 6 | Cloud device enumeration and reconciliation | 2, 5 | Real account list plus deterministic route-lifecycle cases |
-| 7 | LAN discovery, access and forgetting | 2, 4 | Real LAN-only device plus deterministic persistence/route cases |
+| 7 | LAN discovery, access and forgetting | 2, 4 | Deterministic persistence/route cases; real LAN-only device qualification deferred |
 | 8 | Combined acceptance and six-target release packaging | 5, 6, 7 | Packaged applications and integrated real-account/device evidence |
 
 Steps 1 and 3 can proceed independently. After the common foundations, LAN
@@ -771,6 +773,36 @@ IP/name updates, Cloud/LAN identity association, retained Cloud routes on LAN
 forgetting, and retained LAN routes on logout. No remembered code is exposed by
 the public saved-device model. Real network observations and fixture-driven
 edge cases are recorded as different evidence.
+
+**Implementation accepted with hardware qualification deferred:** The
+[LAN owner](../apps/desktop/src/utility/bambu/lan.ts) treats plugin SSDP messages
+as expiring candidates and keeps `connection_name` association within the
+current process, as Orca does. Same-device address/name updates preserve the
+remembered code and invalidate obsolete route revisions. Restart restores only
+explicitly authorized host records; re-verification can reuse a saved code
+without returning it to the UI. After forgetting, blank-code reuse is rejected
+until the user enters access again. No plugin-private configuration is read or
+modified directly.
+
+Explicit LAN authorization follows Orca's native selection, connection and
+callback initialization pattern. A successful local callback precedes saving;
+incorrect-code, missing-callback, stale-candidate and closing-app cases do not
+create a saved route. Bootstrap messages and certificate setup remain private
+host operations and do not enable product control/monitoring capabilities.
+Host mutations serialize across clients. Forgetting compares the current route
+revision and removes only its LAN record, preserving independent Cloud routes.
+
+The shared [Device discovery UI](../packages/slicer-app/src/components/device/PrinterDiscovery.tsx)
+uses public provider discovery/authorization operations, shows masked transient
+access input and provides verification of saved access. It does not select a
+print target. Deterministic native/host/provider/UI fixtures cover this boundary,
+including code rejection, callback order, expiry, restart reuse, address rules
+and Cloud/LAN cleanup. The real plugin's ordinary startup remains qualified;
+actual LAN-only authentication, restart/reuse and forgetting have not been
+verified on hardware. The user has deferred these real-device checks and
+authorized the implementation commit and step 8. Keep the outstanding hardware
+journey in combined release qualification; automatic acceptance does not
+establish real-device support.
 
 #### Step 8 — Packaged delivery and combined acceptance
 

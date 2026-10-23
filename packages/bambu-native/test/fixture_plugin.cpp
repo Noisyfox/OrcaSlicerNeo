@@ -88,6 +88,12 @@ EXPORT int bambu_network_connect_printer(void* handle, std::string id, std::stri
 EXPORT int bambu_network_disconnect_printer(void* handle) { fixture(handle).record("disconnect"); return 0; }
 EXPORT std::string bambu_network_get_user_selected_machine(void* handle) { return fixture(handle).selected; }
 EXPORT int bambu_network_set_user_selected_machine(void* handle, std::string id) { fixture(handle).selected = id; return 0; }
+EXPORT int bambu_network_send_message_to_printer(void* handle, std::string id, std::string payload, int qos, int flag) {
+    fixture(handle).record("send:" + id + ":" + payload + ":" + std::to_string(qos) + ":" + std::to_string(flag)); return 0;
+}
+EXPORT void bambu_network_install_device_cert(void* handle, std::string id, bool lan_only) {
+    fixture(handle).record("cert:" + id + ":" + (lan_only ? "lan" : "cloud"));
+}
 #define CHECK(name) static_assert(std::is_same_v<decltype(&bambu_network_##name), Slic3r::func_##name>);
 NEO_BAMBU_EXPORTS(CHECK)
 #undef CHECK
