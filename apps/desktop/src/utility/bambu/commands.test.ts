@@ -48,6 +48,36 @@ it('constructs material temperature mapping privately and rejects absent/empty p
   expect(prepareCommand(fixture({ ams: { tray_exist_bits: '0', ams: [{ id: 0, info: '3', tray: [{ id: 0 }] }] } }).context(), command)).toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
   expect(prepareCommand(fixture().context(), { type: 'materials.load', params: { pathId: 'path:99:0:0' as never } })).toMatchObject({ ok: false, error: { code: 'invalid-target' } });
 });
+it.each([[255, 0, 210], [254, 1, 250]])('encodes external holder %i like Orca without confusing its logical path', (unit, tool, temperature) => {
+  const f = fixture({ vir_slot: [
+    { id: '254', tray_type: 'PETG', nozzle_temp_min: 240, nozzle_temp_max: 260 },
+    { id: '255', tray_type: 'PLA', nozzle_temp_min: 200, nozzle_temp_max: 220 },
+  ] });
+  const pathId = `path:${unit}:0:${tool}` as D.Id<'path'>;
+  const result = prepareCommand(f.context(), { type: 'materials.load', params: { pathId } });
+  expect(result).toMatchObject({ ok: true, value: { fields: { command: 'ams_change_filament', curr_temp: temperature, tar_temp: temperature, ams_id: 255, slot_id: 0, target: 255 } } });
+  if (!result.ok) throw new Error('Expected external load');
+  expect(result.value.fields).not.toHaveProperty('extruder_id');
+  const reportLoaded = (reportedUnit: number) => f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1,
+    device: { extruder: { info: [{ id: tool, temp: 25, snow: reportedUnit << 8, star: reportedUnit << 8, stat: 0 }] } } } }));
+  reportLoaded(unit === 255 ? 254 : 255);
+  expect(result.value.confirmed!(f.context())).toBe(false);
+  reportLoaded(unit);
+  expect(result.value.confirmed!(f.context())).toBe(true);
+  const unload = prepareCommand(f.context(), { type: 'materials.unload', params: { toolId: `tool:${tool}` as D.Id<'tool'> } });
+  expect(unload).toMatchObject({ ok: true, value: { fields: { ams_id: 255, slot_id: 255, target: 255, curr_temp: 210, tar_temp: 210 } } });
+  if (!unload.ok) throw new Error('Expected external unload');
+  expect(unload.value.confirmed!(f.context())).toBe(false);
+  f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, device: { extruder: { info: [{ id: tool, snow: (unit << 8) | 255, stat: 0 }] } } } }));
+  expect(unload.value.confirmed!(f.context())).toBe(true);
+});
+it('uses external spool sentinels without borrowing another holder or legacy metadata', () => {
+  const context = fixture({ vir_slot: [{ id: 254 }], vt_tray: { nozzle_temp_min: 200, nozzle_temp_max: 220 } }).context();
+  expect(prepareCommand(context, { type: 'materials.load', params: { pathId: 'path:254:0:1' as D.Id<'path'> } })).toMatchObject({ ok: true, value: { fields: { curr_temp: -1, tar_temp: -1 } } });
+  expect(prepareCommand(context, { type: 'materials.load', params: { pathId: 'path:255:0:0' as D.Id<'path'> } })).toMatchObject({ ok: false, error: { code: 'invalid-target' } });
+  expect(prepareCommand(fixture({ vt_tray: { nozzle_temp_min: 200, nozzle_temp_max: 220 } }).context(),
+    { type: 'materials.load', params: { pathId: 'path:255:0:0' as D.Id<'path'> } })).toMatchObject({ ok: true, value: { fields: { curr_temp: 210, tar_temp: 210 } } });
+});
 it('allows only current error-episode recovery references and suppresses abort during a print', () => {
   const f = fixture(); const recovery = new BambuRecovery();
   f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, device: { extruder: { state: 3 << 12 } } } }));

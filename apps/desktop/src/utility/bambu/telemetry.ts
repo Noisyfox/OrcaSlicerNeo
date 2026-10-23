@@ -185,7 +185,7 @@ function materialInventory(p: Report, extruders: Report[], toolIds: D.Id<'tool'>
   const addSlot = (unit: string, tray: Report, bindings: string[], external = false) => {
     const slot = identifier(tray.id); if (slot === undefined) return;
     const slotId = slotKey(unit, slot);
-    slots.push({ id: slotId, unitId: id(`unit:${unit}`), name: external ? `External ${slot}` : `Slot ${slot}` });
+    slots.push({ id: slotId, unitId: id(`unit:${unit}`), name: external ? 'External spool' : `Slot ${slot}` });
     for (const tool of bindings) if (toolIds.includes(id(`tool:${tool}`))) paths.push({ id: pathKey(unit, slot, tool), slotId, toolId: id(`tool:${tool}`), loading: 'automatic' });
     const rawColor = text(tray.tray_color), rgba = rawColor && /^[\da-fA-F]{8}$/.test(rawColor) ? `#${rawColor}` : null;
     const colors = Array.isArray(tray.cols) ? tray.cols.filter((color): color is string => typeof color === 'string' && /^[\da-fA-F]{8}$/.test(color)).map(color => `#${color}`) : [];
@@ -229,13 +229,13 @@ function materialInventory(p: Report, extruders: Report[], toolIds: D.Id<'tool'>
       dryerState.push({ dryerId, phase: read(phase), remainingSeconds: read(nonNegative(unit.dry_time) === undefined ? undefined : number(unit.dry_time)! * 60) });
     }
   }
-  const virtual = Array.isArray(p.vir_slot) ? records(p.vir_slot) : Object.keys(record(p.vt_tray)).length ? [{ ...record(p.vt_tray), id: 0 }] : [];
-  if (virtual.length) {
-    units.push({ id: id('unit:255'), name: 'External holders', kind: 'manual-holder', sensorIds: [] });
-    for (const tray of virtual) {
-      const slot = identifier(tray.id);
-      addSlot('255', tray, slot !== undefined && toolIds.includes(id(`tool:${slot}`)) ? [slot] : [], true);
-    }
+  const virtual = Array.isArray(p.vir_slot) ? records(p.vir_slot) : Object.keys(record(p.vt_tray)).length ? [{ ...record(p.vt_tray), id: 255 }] : [];
+  // Orca DevFilaSystem: virtual IDs identify units, each with slot 0, not tool IDs.
+  for (const [unit, tool] of [['255', '0'], ['254', '1']]) {
+    const tray = virtual.find(tray => identifier(tray.id) === unit);
+    if (!tray) continue;
+    units.push({ id: id(`unit:${unit}`), name: `External holder ${unit}`, kind: 'manual-holder', sensorIds: [] });
+    addSlot(unit, { ...tray, id: 0 }, [tool], true);
   }
   const resolvePath = (value: unknown, tool: string, legacy: boolean): D.Reading<D.Id<'path'> | null> => {
     let unit: string, slot: string;

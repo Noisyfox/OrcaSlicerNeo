@@ -14,6 +14,12 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     await expect(panel.getByText('External task', { exact: true })).toBeVisible();
     await expect(panel.getByText('AMS 2 Pro 128', { exact: true })).toBeVisible();
     await expect(panel.getByText('Bambu Cloud', { exact: true })).toHaveCount(0);
+    for (const [unit, tool] of [[255, 0], [254, 1]]) {
+      const holder = panel.getByRole('heading', { name: `External holder ${unit}`, exact: true }).locator('..');
+      await expect(holder.getByRole('button', { name: `Load to Tool ${tool}`, exact: true })).toBeVisible();
+      await expect(holder.getByText('No available tool path reported.', { exact: true })).toHaveCount(0);
+      await expect(holder.getByRole('button', { name: `Load to Tool ${1 - tool}`, exact: true })).toHaveCount(0);
+    }
     await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
     const commands = () => app.evaluate(() => globalThis.bambuControlFixture.commands);
     const tokens = () => app.evaluate(() => globalThis.bambuControlFixture.tokens);

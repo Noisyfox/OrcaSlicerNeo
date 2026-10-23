@@ -54,8 +54,10 @@ function within(value: number, limit: D.Range) { return Number.isFinite(value) &
 function trayFor(p: Report, pathId: string | null | undefined): Report {
   if (!pathId) return {};
   const [, unit, slot] = pathId.split(':');
-  return unit === '255' ? records(p.vir_slot).find(tray => String(tray.id) === slot) ?? record(p.vt_tray)
-    : records(records(record(p.ams).ams).find(ams => String(ams.id) === unit)?.tray).find(tray => String(tray.id) === slot) ?? {};
+  if (unit === '255' || unit === '254') return Array.isArray(p.vir_slot)
+    ? records(p.vir_slot).find(tray => String(tray.id) === unit) ?? {}
+    : unit === '255' ? record(p.vt_tray) : {};
+  return records(records(record(p.ams).ams).find(ams => String(ams.id) === unit)?.tray).find(tray => String(tray.id) === slot) ?? {};
 }
 function materialTemperature(tray: Report): number | undefined {
   const low = number(tray.nozzle_temp_min), high = number(tray.nozzle_temp_max);
@@ -165,8 +167,11 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
       const loading = command.type !== 'materials.unload';
       const next = materialTemperature(trayFor(p, path?.id));
       const previous = materialTemperature(trayFor(p, loaded));
-      const fields: Report = { command: 'ams_change_filament', curr_temp: loading ? previous ?? -1 : 210, tar_temp: loading ? next ?? -1 : 210,
-        ams_id: Number(unit), slot_id: loading ? Number(tray) : 255, target: loading ? Number(unit) < 16 ? Number(unit) * 4 + Number(tray) : Number(unit) : 255 };
+      // Orca's external-load handler uses the selected spool's range for both temperatures.
+      // Its command encoder aliases 254 to 255; retain the original path for confirmation.
+      const external = unit === '254' || unit === '255', wireUnit = unit === '254' ? 255 : Number(unit);
+      const fields: Report = { command: 'ams_change_filament', curr_temp: loading ? (external ? next : previous) ?? -1 : 210, tar_temp: loading ? next ?? -1 : 210,
+        ams_id: wireUnit, slot_id: loading ? Number(tray) : 255, target: loading ? wireUnit < 16 ? wireUnit * 4 + Number(tray) : wireUnit : 255 };
       if (bits(p.aux, 29) === 1) fields.extruder_id = Number(toolId.split(':')[1]);
       return prepared(fields, next => {
         const current = next.values.materials.state.tools.find(tool => tool.toolId === toolId);

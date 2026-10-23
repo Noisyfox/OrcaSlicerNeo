@@ -44,6 +44,39 @@ describe('Bambu telemetry normalization', () => {
     expect(result.values.materials.state.tools[1].loadedPathId).toMatchObject({ value: 'path:1:3:1' });
     expect(result.values.descriptor.topology.nozzles[1]).toMatchObject({ diameterMm: 0.6, constructionMaterial: 'hardened steel', flowType: 'high flow' });
   });
+  it('maps external unit IDs independently of report order and keeps requested and loaded paths separate', () => {
+    const { telemetry } = model();
+    telemetry.accept(push({ msg: 0, vir_slot: [{ id: '254', tray_type: 'PETG' }, { id: '255', tray_type: 'PLA' }, { id: '0', tray_type: 'PC' }],
+      device: { extruder: { info: [{ id: 0, snow: 0xff00, star: 0xffff, stat: 0 }, { id: 1, snow: 0xfeff, star: 0xfe00, stat: 0 }] } } }));
+    const inventory = () => telemetry.project(target, identity).values.materials;
+    expect(inventory().topology.units.map(unit => unit.id)).toEqual(['unit:255', 'unit:254']);
+    expect(inventory().topology.paths).toEqual([
+      { id: 'path:255:0:0', slotId: 'slot:255:0', toolId: 'tool:0', loading: 'automatic' },
+      { id: 'path:254:0:1', slotId: 'slot:254:0', toolId: 'tool:1', loading: 'automatic' },
+    ]);
+    expect(inventory().state.slots).toMatchObject([
+      { slotId: 'slot:255:0', material: { value: { materialType: 'PLA' } }, presence: { kind: 'unknown' }, remaining: { kind: 'unknown' } },
+      { slotId: 'slot:254:0', material: { value: { materialType: 'PETG' } }, presence: { kind: 'unknown' } },
+    ]);
+    expect(inventory().state.tools).toMatchObject([
+      { toolId: 'tool:0', loadedPathId: { value: 'path:255:0:0' }, selectedPathId: { value: null } },
+      { toolId: 'tool:1', loadedPathId: { value: null }, selectedPathId: { value: 'path:254:0:1' } },
+    ]);
+    telemetry.accept(push({ msg: 1, device: { extruder: { info: [{ id: 0, snow: 0xfe00 }] } } }));
+    expect(inventory().topology.paths.map(path => path.id)).toEqual(['path:255:0:0']);
+    expect(inventory().state.tools[0].loadedPathId.kind).toBe('unknown');
+    telemetry.accept(push({ msg: 1, vir_slot: [] }));
+    expect(inventory().topology.units).toEqual([]);
+  });
+  it('normalizes legacy vt_tray to the main external holder and distinguishes loaded 254 from empty 255', () => {
+    const { telemetry } = model();
+    telemetry.accept(push({ msg: 0, nozzle_temper: 25, vt_tray: { id: '254', tray_type: 'PLA' }, ams: { tray_now: 254, tray_tar: 255 } }));
+    const inventory = () => telemetry.project(target, identity).values.materials;
+    expect(inventory().topology.paths.map(path => path.id)).toEqual(['path:255:0:0']);
+    expect(inventory().state.tools[0]).toMatchObject({ loadedPathId: { value: 'path:255:0:0' }, selectedPathId: { value: null } });
+    telemetry.accept(push({ msg: 1, ams: { tray_now: 255 } }));
+    expect(inventory().state.tools[0].loadedPathId).toMatchObject({ value: null });
+  });
   it('keeps humidity grades distinct from percentages and reports dryer minutes as seconds', () => {
     const { telemetry } = model(); telemetry.accept(push(report())); const result = telemetry.project(target, identity).values;
     expect(result.sensors.definitions).toContainEqual(expect.objectContaining({ id: 'ams:1:humidity', kind: 'numeric', unit: null }));

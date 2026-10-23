@@ -13,6 +13,7 @@ export function controlSnapshot(device: string, task = 'External task', fresh = 
   telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: 'RUNNING', subtask_id: task, subtask_name: task, stg_cur: 0, mc_percent: 42, mc_remaining_time: 15, layer_num: 42, total_layer_num: 100,
     device: { extruder: { state: 2, info: [{ id: 0, temp: (220 << 16) | 215 }, { id: 1, temp: 25 }] }, bed_temp: (60 << 16) | 60 },
     ams: { ams: [0, 4, 128].map(id => ({ id, info: '3', tray: [{ id: 0, tray_type: 'PLA', tray_color: '33AA66FF' }] })) }, lights_report: [{ node: 'chamber_light', mode: 'on' }], cooling_fan_speed: 8,
+    vir_slot: [{ id: '254', tray_type: 'PETG' }, { id: '255', tray_type: 'PLA' }],
   } }));
   if (!fresh) telemetry.invalidate();
   const snapshot = telemetry.snapshot(target, printer.identity, printer.routes[0].configurationRevision, ['descriptor', 'status', 'thermal', 'motion', 'actuators', 'materials', 'sensors', 'alerts', 'firmware']);

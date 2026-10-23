@@ -201,6 +201,18 @@ hardware layout in the UI. Use the sole usable feed target directly and show
 its nozzle. When multiple targets are available, require explicit selection.
 Unknown routing or an unready transfer mechanism must explain and block the
 operation rather than guess a target. Keep actual and requested paths distinct.
+For Bambu external holders, reported virtual unit 255 feeds Tool 0 and unit 254
+feeds Tool 1, each through slot 0, following Orca
+[DevFilaSystem](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevFilaSystem.cpp).
+Only reported holders and tools produce usable paths; array order, remembered
+material metadata and unknown IDs do not imply routing or filament presence.
+Legacy `vt_tray` describes only the main holder. Keep these logical identities
+separate from Orca
+[command encoding](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.cpp),
+which aliases unit 254 to 255 for load/unload. External-load temperatures use
+the selected holder's material range for both current and target values, as in
+Orca's handler; completion still requires the originally selected logical path
+and tool to be reported, not merely an acknowledgement of the aliased command.
 Orca's load handler in
 [StatusPanel](../packages/slicer-wasm/cpp/src/slic3r/GUI/StatusPanel.cpp)
 checks transfer readiness and opens a feed-direction dialog when applicable.
@@ -634,11 +646,11 @@ the two-unit arrangement; the model/nozzle detail above comes from device report
 This verifies account-backed monitoring on the mixed network, not isolated Cloud
 transport or a physically forced failover.
 
-Read-only acceptance remains incomplete for external holders: reported virtual
-IDs 254/255 are currently incorrectly treated as tool IDs, leaving their paths
-unbound. Orca maps them to separate virtual units with slot 0 and Tool 1/0, but
-also applies a special 254-to-255 command conversion. Resolve the observation and
-command mapping together before accepting external-holder material operations.
+External-holder normalization and command preparation now follow the Orca
+mapping above. Automated coverage checks both holders, legacy reports, unknown
+and removed paths, per-holder temperatures and completion against the original
+logical path despite the command alias. Read-only hardware revalidation of
+this correction is pending; actual load/unload behavior remains unqualified.
 No heating, motion, loading, unloading or other physical control command was
 sent during this read-only check; each such operation requires individual user
 confirmation. Real control operations, isolated Cloud/LAN transport qualification,
