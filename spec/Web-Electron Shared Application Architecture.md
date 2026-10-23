@@ -424,7 +424,8 @@ The subsequent [Bambu monitoring/control design](Printer%20Domain%20and%20Contro
 selects shared React control cards with Bambu-specific composition and H2D + AMS
 acceptance through the same Electron provider boundary. Product scope and main
 interactions are settled; protocol-dependent details and physical qualification
-remain pending. This is not delivered control support or authorization to implement.
+remain pending. Implementation is authorized in independently tested and committed
+increments, with physical acceptance last; this does not claim delivered control support.
 
 ## 5. Runtime and WASM Loading
 

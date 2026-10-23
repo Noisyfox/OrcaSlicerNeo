@@ -99,6 +99,7 @@ export function createPrinterService(providers: readonly D.PrinterProvider[]): D
       watchChanges: (t, o) => stream(t, s => s.files.watchChanges(t, o)),
     },
     media: {
+      readCurrentPrintPreview: (t, o) => call(t, s => s.media.readCurrentPrintPreview(t, o)),
       open: (r, o) => call(r.target, s => s.media.open(r, o)), watch: (r, o) => stream(r, s => s.media.watch(r, o)), renew: (r, o) => call(r, s => s.media.renew(r, o)),
       sendSignal: (r, signal) => call(r, s => s.media.sendSignal(r, signal)), readContent: (r, o) => call(r.media, s => s.media.readContent(r, o)),
       close: r => call(r, s => s.media.close(r)), captureSnapshot: (t, camera, o) => call(t, s => s.media.captureSnapshot(t, camera, o)),

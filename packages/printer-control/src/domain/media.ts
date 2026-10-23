@@ -139,7 +139,16 @@ export interface CameraImage {
   receivedAtMs: UnixMs;
   bytes: Uint8Array;
 }
+/** A current-task image, scoped to the exact device task and route used to fetch it. */
+export interface CurrentPrintPreview extends PrinterTarget {
+  configurationRevision: Revision;
+  taskId: Id<'device-task'>;
+  mimeType: 'image/jpeg' | 'image/png';
+  bytes: Uint8Array;
+}
 export interface PrinterMedia {
+  /** Resolve the current task independently; requires no watch, history or file listing. */
+  readCurrentPrintPreview(target: TargetRequest, options?: ReadOptions): Promise<Result<CurrentPrintPreview>>;
   /** Same request ID must not allocate duplicate viewers within the advertised retention lifetime. */
   open(request: OpenMediaRequest, options?: ReadOptions): Promise<Result<MediaDescriptor>>;
   /** Initial descriptor first; retain early signaling until watched, or report a gap. */

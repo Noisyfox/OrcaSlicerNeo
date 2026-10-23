@@ -46,6 +46,9 @@ export interface PrinterCommandSpecs {
   'jobs.pause': CommandSpec<NoConstraints, NoConstraints>;
   'jobs.resume': CommandSpec<NoConstraints, NoConstraints>;
   'jobs.cancel': CommandSpec<NoConstraints, NoConstraints>;
+  'jobs.setSpeed': CommandSpec<{ modeId: string }, { modes: NonEmptyReadonlyArray<{ id: string; label: string }> }>;
+  /** Explicit device re-identification; does not edit nozzle configuration. */
+  'hardware.refreshNozzles': CommandSpec<NoConstraints, NoConstraints>;
   'actions.invoke': CommandSpec<{
     actionRef: PrinterActionRef;
   }, {
@@ -170,6 +173,8 @@ export type CommandCapabilities = { [K in CommandName]: Capability<PrinterComman
 /** Optional comparison conditions, never authorization obtained from a previous call. */
 export interface ControlBasis {
   capabilityRevision?: Revision;
+  /** Optional device task identity check; never a prerequisite for current-print controls. */
+  expectedTaskId?: Id<'device-task'>;
 }
 export type InventoryCommand = 'jobs.start' | 'materials.load' | 'materials.unload' | 'materials.switch' | 'materials.writeMetadata' | 'materials.refreshTag';
 export type CommandGuard<K extends CommandName> = ControlBasis & (K extends 'files.delete' | 'jobs.pause' | 'jobs.resume' | 'jobs.cancel' | 'actions.invoke' ? {} : {

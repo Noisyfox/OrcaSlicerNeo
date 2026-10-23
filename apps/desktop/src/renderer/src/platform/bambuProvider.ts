@@ -14,14 +14,14 @@ function capabilities(): D.PrinterCapabilities {
   return {
     revision: 'bambu-discovery-1',
     commands: {
-      'jobs.start': unsupported, 'jobs.pause': unsupported, 'jobs.resume': unsupported, 'jobs.cancel': unsupported, 'actions.invoke': unsupported,
+      'jobs.start': unsupported, 'jobs.pause': unsupported, 'jobs.resume': unsupported, 'jobs.cancel': unsupported, 'jobs.setSpeed': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
       'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported, 'motion.home': unsupported,
       'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
       'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,
       'materials.writeMetadata': unsupported, 'materials.refreshTag': unsupported, 'drying.start': unsupported, 'drying.stop': unsupported,
       'camera.setEnabled': unsupported, 'camera.setDeviceTimelapse': unsupported, 'files.delete': unsupported,
     },
-    cameras: [], webInterface: unsupported,
+    cameras: [], currentPrintPreview: unsupported, webInterface: unsupported,
     files: { upload: unsupported, list: unsupported, stat: unsupported, download: unsupported, preview: unsupported, changes: unsupported },
     observations: { descriptor: unsupported, status: unsupported, firmware: unsupported, thermal: unsupported, motion: unsupported,
       actuators: unsupported, materials: unsupported, cameras: unsupported, sensors: unsupported, alerts: unsupported },
@@ -119,7 +119,7 @@ export function createBambuProvider(bridge: BambuBridge): AccountProvider & D.Pr
     observations: { read: reject, watch: stream }, controls: { evaluate: reject, submit: submission },
     operations: { get: reject, find: reject, watch: stream, requestUploadCancellation: reject },
     files: { listStorages: reject, list: reject, stat: reject, listPreviews: reject, download: reject, upload: submission, watchChanges: stream },
-    media: { open: reject, watch: stream, renew: reject, sendSignal: reject, readContent: reject, close: reject, captureSnapshot: reject },
+    media: { readCurrentPrintPreview: reject, open: reject, watch: stream, renew: reject, sendSignal: reject, readContent: reject, close: reject, captureSnapshot: reject },
     webInterfaces: { describe: reject, resolve: reject },
   };
   return { id: providerId, name: 'Bambu Lab', printers, account: {

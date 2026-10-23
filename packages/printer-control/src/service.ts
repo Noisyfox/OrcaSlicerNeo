@@ -110,7 +110,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
       revision: 'moonraker-domain-2',
       commands: {
         'jobs.start': supported({ sources: [{ storageId, versionCheck: 'unavailable' }], formats: ['gcode'], materialMapping: 'none', jobTimelapse: [] }),
-        'jobs.pause': supported({}), 'jobs.resume': supported({}), 'jobs.cancel': supported({}), 'actions.invoke': unsupported,
+        'jobs.pause': supported({}), 'jobs.resume': supported({}), 'jobs.cancel': supported({}), 'jobs.setSpeed': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
         'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported,
         'motion.home': unsupported, 'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
         'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,
@@ -118,7 +118,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
         'drying.start': unsupported, 'drying.stop': unsupported, 'camera.setEnabled': unsupported,
         'camera.setDeviceTimelapse': unsupported, 'files.delete': unsupported,
       },
-      cameras: [], webInterface: supported({ id: webId, name: 'Moonraker Web interface' }),
+      cameras: [], currentPrintPreview: unsupported, webInterface: supported({ id: webId, name: 'Moonraker Web interface' }),
       files: {
         upload: supported([{ destination: { kind: 'default' }, formats: ['gcode'], maxBytes: 0x7fffffff, collisionPolicies: ['overwrite'] }]),
         list: unsupported, stat: unsupported, download: unsupported, preview: unsupported, changes: unsupported,
@@ -179,7 +179,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
         phase: phase ? known(target, phase) : unknown,
         name: phase === 'idle' ? known(target, null) : typeof stats.filename === 'string' && stats.filename.length > 0 ? known(target, stats.filename) : unknown,
         progressFraction: phase !== 'idle' && typeof sd.progress === 'number' && Number.isFinite(sd.progress) && sd.progress >= 0 && sd.progress <= 1 ? known(target, sd.progress) : unknown,
-        remainingSeconds: unknown,
+        remainingSeconds: unknown, taskId: unknown, stage: unknown, currentLayer: unknown, totalLayers: unknown, speedModeId: unknown,
       },
       actions: known(target, []),
     };
@@ -220,6 +220,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
     if (!cap || cap.kind !== 'supported') fail('unsupported', unsupported.reason);
     if (guard?.capabilityRevision !== undefined && guard.capabilityRevision !== capabilities().revision) fail('stale-context', 'Capability description changed');
     if (guard?.topologyRevision !== undefined && guard.topologyRevision !== resolved.entry.revision) fail('stale-context', 'Topology changed');
+    if (guard?.expectedTaskId !== undefined) fail('unsupported', 'Device task identity comparison is unavailable');
     if (guard?.inventoryRevision !== undefined) fail('unsupported', 'Inventory comparison is unavailable');
     if (command.type === 'jobs.start') {
       filePath(command.params.source, target, resolved.entry);
@@ -338,7 +339,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   }
   const service: D.PrinterService = {
     operations: operations.api, controls, files, observations,
-    media: { open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },
+    media: { readCurrentPrintPreview: async () => rejected(), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },
     listProviders: async () => ({ ok: true, value: [{ id: providerId, name: 'Moonraker', hosts: [{ ...options.host, discovery: unsupported }] }] }),
     listTypes: async () => ({ ok: true, value: [{ id: typeId, providerId, name: 'Moonraker', description: 'Request-based Moonraker HTTP and native Web interface' }] }),
     listSaved: () => safe(async () => (await withConfiguration(loadConfiguration)).printers.map(saved)),

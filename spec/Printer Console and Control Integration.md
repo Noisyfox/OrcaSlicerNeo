@@ -93,8 +93,8 @@ Moonraker's request-driven behavior.
 
 **Decision status:** The user selected shared control cards with a Bambu-specific
 composition and advanced controls (UI option B). The first physical acceptance
-target is **H2D + AMS**. Only documentation and interactive design clarification
-are currently authorized; implementation has not started. This UI choice is
+target is **H2D + AMS**. Implementation is authorized in independently verified increments;
+physical acceptance follows software verification. This UI choice is
 separate from the earlier domain-architecture option B.
 
 The selected scope excludes video, remote-file browsing and an HMS tab. Current
@@ -366,8 +366,8 @@ details require implementation evidence or the physical acceptance environment;
 they are not additional product options that must be guessed in advance. If new
 evidence requires a product-level change, clarify it interactively, one question
 at a time, explaining the checked-in Orca behavior. Consolidate related decisions
-in their owning sections rather than maintaining an answer log. Implementation
-still requires separate authorization.
+in their owning sections rather than maintaining an answer log. Implementation proceeds in independently tested and committed increments;
+physical acceptance remains last.
 
 | Group | Evidence and decisions still required |
 | --- | --- |

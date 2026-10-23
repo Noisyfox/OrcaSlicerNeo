@@ -490,6 +490,14 @@ describe('Moonraker stateless service', () => {
       expect(transport.requests).toHaveLength(1);
     });
 
+  it('does not silently ignore an unsupported current-task comparison', async () => {
+    const { service, transport } = setup();
+    expect(await service.controls.submit({ target, requestId: id('task-guard'),
+      command: { type: 'jobs.cancel', params: {} }, guard: { expectedTaskId: id<'device-task'>('old') } }))
+      .toMatchObject({ kind: 'rejected', error: { code: 'unsupported' } });
+    expect(transport.requests).toEqual([]);
+  });
+
   it('rejects obsolete job-targeted parameters and unsupported special actions before printer I/O', async () => {
     const { service, transport } = setup();
     const obsolete = { type: 'jobs.cancel', params: { jobId: 'old-native-id' } } as unknown as D.CommandOf<'jobs.cancel'>;

@@ -9,8 +9,8 @@ Bambu integration follows section 2.1; section 2.2 distinguishes delivered
 foundations, account flow, Cloud device enumeration and LAN access. LAN
 real-device qualification is deferred and does not block packaging work.
 Section 2.3 records the accepted Bambu monitoring/control scope and interactions,
-with implementation details and qualification pending; implementation is not yet
-authorized. The gateway remains deferred.
+with implementation authorized in independently verified increments and physical
+qualification deferred until software verification is complete. The gateway remains deferred.
 Interface availability alone does not establish device support or runtime delivery.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
@@ -887,8 +887,8 @@ work actually changes milestone status.
 
 **Decision status:** Shared control cards with Bambu-specific composition and
 advanced controls are selected, with H2D + AMS as the first physical acceptance
-target. This is a documentation/design increment, not control implementation or
-hardware qualification. The
+target. Implementation is authorized in independently tested and committed
+increments; physical qualification is performed last. The
 [console specification](Printer%20Console%20and%20Control%20Integration.md#bambu-control-design)
 owns the feature envelope, presentation and grouped interaction decisions,
 including the exclusions of video, file browsing and an HMS tab.
@@ -991,6 +991,22 @@ and restoration of the last selected Device printer across all providers.
 Restoring a Moonraker selection does not authorize background observation.
 
 #### Contract extension boundaries
+
+The current typed contract includes `jobs.setSpeed` with discoverable mode IDs
+and labels, and `hardware.refreshNozzles` for explicit device re-identification.
+Nozzle records include nullable type and flow type alongside material and diameter.
+Print status includes individually unknown-capable device task identity, detailed
+stage, current/total layers and speed mode. Device task identity is independent
+of Neo jobs; an optional `expectedTaskId` guard must be checked or explicitly
+rejected, never silently ignored. No prior observation is mandatory.
+
+`currentPrintPreview` declares image-format support independently of files and
+cameras. `media.readCurrentPrintPreview` resolves the current device task and
+returns image bytes with printer, route, configuration and task identity. It
+requires no file listing, history or watch; consumers discard late images that
+do not match the displayed task/target. Private source URLs stay in the provider.
+Moonraker leaves these new capabilities unsupported and new status fields unknown.
+These contract additions alone do not enable Bambu runtime execution.
 
 Existing domain types cover basic thermal, actuator, motion, tool and material
 operations. They are a starting point, not evidence of complete H2D support.
