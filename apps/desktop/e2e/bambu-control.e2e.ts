@@ -5,6 +5,8 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
   try {
     const page = await app.firstWindow();
+    // Hosted desktop work areas may clamp the native window below the layout breakpoint.
+    await page.setViewportSize({ width: 1280, height: 800 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await installControlFixture(app);
     await page.getByTestId('tab-device').click();

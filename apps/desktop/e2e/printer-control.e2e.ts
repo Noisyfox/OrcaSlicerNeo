@@ -203,6 +203,8 @@ test('Device config and Electron console fixture inject the API key', async () =
   const { app } = await launchApp({ version: 1, printers: [] });
   try {
     const page = await app.firstWindow();
+    // This journey asserts wide columns before explicitly exercising the narrow layout.
+    await page.setViewportSize({ width: 1280, height: 800 });
     await waitForReady(page);
     await page.getByTestId('tab-device').click();
     await expect(page.getByTestId('device-empty-list')).toBeVisible();
