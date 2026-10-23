@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
-import type { CommandRequest, Id, PrinterCapabilities, PrinterRoute, PrinterSnapshot, SavedPrinter, StateTopic } from '@orca/printer-control/domain';
+import type { PrinterCapabilities, PrinterRoute, PrinterSnapshot, SavedPrinter, StateTopic } from '@orca/printer-control/domain';
+import { usePrinterCommands } from './usePrinterControl';
 import { Button } from '@/components/ui/button';
 import { ControlCard, display as reading, valueOf } from './PrinterControlCards';
 import { PrinterMonitorLayout, PrintProgressCard } from './PrinterMonitorLayout';
@@ -24,15 +25,16 @@ export function PrinterMonitor({ printer, route }: { printer: SavedPrinter; rout
   const { printers: { service } } = usePlatform();
   const [snapshot, setSnapshot] = useState<PrinterSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const pending = useRef(false);
   const abort = useRef<AbortController | null>(null);
   useEffect(() => () => { abort.current?.abort(); }, []);
   const topics = (['status', 'sensors', 'thermal'] as const).filter(topic => route.capabilities.observations[topic].kind === 'supported');
   const target = { printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision };
+  const { send, pending: sending, feedback: message, setFeedback: setMessage } = usePrinterCommands(service, target, route.capabilities.revision);
+
 
   async function refresh() {
-    if (pending.current || topics.length === 0) return;
+    if (pending.current || sending || topics.length === 0) return;
     pending.current = true; setBusy(true); setMessage(null);
     const controller = new AbortController(); abort.current = controller;
     try {
@@ -44,34 +46,17 @@ export function PrinterMonitor({ printer, route }: { printer: SavedPrinter; rout
     finally { pending.current = false; if (!controller.signal.aborted) setBusy(false); }
   }
 
-  async function command(type: typeof printControls[number]['type']) {
-    if (pending.current) return;
-    pending.current = true; setBusy(true); setMessage(null);
-    const controller = new AbortController(); abort.current = controller;
-    try {
-      const request = { target, requestId: crypto.randomUUID() as Id<'request'>, command: { type, params: {} } } as Extract<CommandRequest, { command: { type: typeof type } }>;
-      const result = await service.controls.submit(request);
-      if (controller.signal.aborted) return;
-      if (result.kind === 'rejected') { setMessage('The printer rejected the command.'); return; }
-      if (result.kind === 'outcome-unknown') { setMessage('Command outcome unknown. Check the printer before trying again.'); return; }
-      for await (const operation of service.operations.watch(result.operation, { signal: controller.signal })) {
-        if (controller.signal.aborted) return;
-        if (operation.phase.kind === 'completed') { setMessage('Command completed. Refresh to read the current state.'); return; }
-        if (operation.phase.kind === 'failed') { setMessage('The printer could not complete the command.'); return; }
-        if (operation.phase.kind === 'outcome-unknown') break;
-      }
-      if (!controller.signal.aborted) setMessage('Command outcome unknown. Check the printer before trying again.');
-    } catch { if (!controller.signal.aborted) setMessage('Command outcome unknown. Check the printer before trying again.'); }
-    finally { pending.current = false; if (!controller.signal.aborted) setBusy(false); }
+  function command(type: typeof printControls[number]['type']) {
+    if (!busy) void send({ type, params: {} });
   }
 
   const status = snapshot?.values.status;
-  const controls = <>{printControls.filter(control => route.capabilities.commands[control.type].kind === 'supported').map(control => <Button key={control.type} size="sm" variant="secondary" disabled={busy} onClick={() => void command(control.type)}>{control.label}</Button>)}
+  const controls = <>{printControls.filter(control => route.capabilities.commands[control.type].kind === 'supported').map(control => <Button key={control.type} size="sm" variant="secondary" disabled={busy || sending} onClick={() => void command(control.type)}>{control.label}</Button>)}
     {!printControls.some(control => route.capabilities.commands[control.type].kind === 'supported') && <p className="text-xs text-muted-foreground">No basic print controls are available on this route.</p>}</>;
   const sensors = valueOf(snapshot?.values.sensors), thermal = valueOf(snapshot?.values.thermal);
   const hasSensors = route.capabilities.observations.sensors.kind === 'supported', hasThermal = route.capabilities.observations.thermal.kind === 'supported';
   return <PrinterMonitorLayout testId="device-monitor" title={printer.identity.displayName} subtitle={route.label}
-    toolbar={topics.length > 0 && <Button size="sm" variant="secondary" disabled={busy} onClick={() => void refresh()}>Refresh</Button>}
+    toolbar={topics.length > 0 && <Button size="sm" variant="secondary" disabled={busy || sending} onClick={() => void refresh()}>Refresh</Button>}
     notices={<>
       {message && <p role="status" className="text-sm text-muted-foreground">{message}</p>}
       {status?.kind === 'known' && status.freshness === 'stale' && <p className="text-xs text-muted-foreground">Stale readings</p>}

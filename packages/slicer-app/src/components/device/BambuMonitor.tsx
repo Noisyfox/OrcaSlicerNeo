@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { PrinterMonitorLayout, PrintProgressCard } from './PrinterMonitorLayout';
 import { usePlatform } from '@orca/platform-contract';
 import type * as D from '@orca/printer-control/domain';
 import { Button } from '@/components/ui/button';
+import { usePrinterCommands, useCurrentPrintPreview } from './usePrinterControl';
 import { useLivePrinter } from './useLivePrinter';
 import { ActuatorCard, ControlCard, display, MotionCard, ThermalCard, valueOf } from './PrinterControlCards';
 import { MaterialControlCard } from './MaterialControlCard';
@@ -10,50 +11,18 @@ import { MaterialControlCard } from './MaterialControlCard';
 export function BambuMonitor({ printer, route, visible }: { printer: D.SavedPrinter; route: D.PrinterRoute; visible: boolean }) {
   const { printers: { service } } = usePlatform();
   const { snapshot, capabilities, error } = useLivePrinter(service, printer, route, visible);
-  const [feedback, setFeedback] = useState<string | null>(null), [pending, setPending] = useState(false);
+  const target = { printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision };
+  const { send: submit, feedback, pending, setFeedback } = usePrinterCommands(service, target, capabilities.revision);
   const [cancel, setCancel] = useState<{ name: string; taskId?: D.Id<'device-task'> } | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const busy = useRef(false), controller = useRef<AbortController | null>(null);
   const status = valueOf(snapshot?.values.status), topology = valueOf(snapshot?.values.descriptor)?.topology;
   const fresh = snapshot?.values.status?.kind === 'known' && snapshot.values.status.freshness === 'fresh' && !error;
   const phase = valueOf(status?.printStatus.phase), taskId = valueOf(status?.printStatus.taskId);
   const latestTask = useRef(taskId); latestTask.current = taskId;
-  useEffect(() => () => controller.current?.abort(), []);
-  useEffect(() => {
-    if (!visible || capabilities.currentPrintPreview.kind !== 'supported' || !taskId) { setPreview(null); return; }
-    setPreview(null);
-    const abort = new AbortController(); let url: string | null = null;
-    void service.media.readCurrentPrintPreview({ printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision }, { signal: abort.signal }).then(result => {
-      if (!abort.signal.aborted && result.ok && result.value.taskId === taskId) { url = URL.createObjectURL(new Blob([new Uint8Array(result.value.bytes)], { type: result.value.mimeType })); setPreview(url); }
-    }).catch(() => {});
-    return () => { abort.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [service, printer.identity.id, route.id, route.configurationRevision, taskId, visible, capabilities.currentPrintPreview.kind]);
+  const preview = useCurrentPrintPreview(service, target, taskId, visible && capabilities.currentPrintPreview.kind === 'supported');
   async function send(command: D.PrinterCommand, expectedTaskId?: D.Id<'device-task'>) {
-    if (busy.current || !fresh) return;
+    if (!fresh || pending) return;
     if (expectedTaskId && latestTask.current !== expectedTaskId) { setFeedback('The active task changed. Review it before cancelling.'); setCancel(null); return; }
-    busy.current = true; setPending(true); setFeedback(null); setCancel(null);
-    const abort = new AbortController(); controller.current = abort;
-    try {
-      const target = { printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision };
-      const assessment = await service.controls.evaluate({ printerId: target.printerId, routeId: target.routeId }, command, { signal: abort.signal });
-      if (abort.signal.aborted) return;
-      if (!assessment.ok) { setFeedback(assessment.error.message); return; }
-      if (assessment.value.availability.kind !== 'available') { setFeedback(assessment.value.availability.kind === 'blocked' ? assessment.value.availability.reasons.map(reason => reason.message).join(' ') : assessment.value.availability.reason); return; }
-      const request = { target, requestId: crypto.randomUUID() as D.Id<'request'>, command, guard: { capabilityRevision: capabilities.revision, ...(expectedTaskId ? { expectedTaskId } : {}) } } as D.CommandRequest;
-      const result = await service.controls.submit(request);
-      if (abort.signal.aborted) return;
-      if (result.kind === 'rejected') { setFeedback(result.error.message); return; }
-      if (result.kind === 'outcome-unknown') { setFeedback('Command outcome unknown. Check the printer before trying again.'); return; }
-      setFeedback('Command sent. Waiting for the printer.');
-      for await (const operation of service.operations.watch(result.operation, { signal: abort.signal })) {
-        if (abort.signal.aborted) return;
-        if (operation.phase.kind === 'completed') { setFeedback('Command completed.'); return; }
-        if (operation.phase.kind === 'failed') { setFeedback(operation.phase.error.message); return; }
-        if (operation.phase.kind === 'acknowledged') setFeedback('Printer acknowledged the command. Waiting for completion.');
-        if (operation.phase.kind === 'outcome-unknown') { setFeedback(operation.phase.reason); return; }
-      }
-    } catch { if (!abort.signal.aborted) setFeedback('Command outcome unknown. Check the printer before trying again.'); }
-    finally { busy.current = false; if (!abort.signal.aborted) setPending(false); }
+    setCancel(null); await submit(command, expectedTaskId);
   }
   const controls = { capabilities, snapshot, disabled: !fresh || pending, send: (command: D.PrinterCommand) => { void send(command); } };
   const speeds = capabilities.commands['jobs.setSpeed'];
