@@ -29,6 +29,7 @@ async function seed() {
   route.label = 'Cloud'; route.configuration.channel = 'cloud';
   route.management = { rename: false, configure: false, forget: false };
   const unsupported = { kind: 'unsupported', layer: 'adapter', reason: 'Discovery only' } as const;
+  route.capabilities.observations = Object.fromEntries(Object.keys(route.capabilities.observations).map(topic => [topic, unsupported])) as typeof route.capabilities.observations;
   route.capabilities.webInterface = unsupported;
   route.capabilities.files.upload = unsupported;
   route.capabilities.commands = Object.fromEntries(Object.keys(route.capabilities.commands).map(name => [name, unsupported])) as typeof route.capabilities.commands;
@@ -53,25 +54,26 @@ it('publishes Bambu to two Device views, hides unsupported actions and forgets o
   const first = root(); const second = root();
   await act(async () => { for (const view of [first, second]) view.renderer.render(<PlatformProvider value={platform}><DevicePanel /></PlatformProvider>); });
   for (const view of [first, second]) {
-    expect(view.element.querySelector('[data-testid="device-select-bambu-device"]')).not.toBeNull();
+    expect(view.element.querySelector('[data-testid="device-printer-select"]')).not.toBeNull();
     expect(view.element.querySelector('[data-testid="device-edit-bambu-device"]')).toBeNull();
     expect(view.element.querySelector('[data-testid="device-delete-bambu-device"]')).toBeNull();
   }
   expect(sendRoute(printer)).toBeUndefined();
   expect(sendRoute(printer, true)).toBeUndefined();
-  await act(async () => { first.element.querySelector<HTMLButtonElement>('[data-testid="device-select-bambu-device"]')!.click(); });
+  await act(async () => { first.element.querySelector<HTMLButtonElement>('[data-testid="device-printer-select"]')!.click(); });
+  await act(async () => { document.querySelector<HTMLElement>('[data-testid="device-select-bambu-device"]')!.click(); });
   expect(first.element.querySelector('[data-testid="device-details"]')?.textContent).toContain('does not provide a console');
   expect(mount).not.toHaveBeenCalled();
   const cloud = printer.routes[0];
   const lan = { ...cloud, id: 'lan' as Id<'route'>, label: 'LAN', management: { ...cloud.management, forget: true }, configuration: { ...cloud.configuration, channel: 'lan' as const } };
   await act(async () => { saved = [{ ...printer, identity: { ...printer.identity, displayName: 'Renamed' }, routes: [cloud, lan] }]; publish(); });
-  for (const view of [first, second]) expect(view.element.querySelector('[data-testid="device-select-bambu-device"]')?.textContent).toBe('Renamed');
+  expect(first.element.querySelector('[data-testid="device-printer-select"]')?.textContent).toContain('Renamed');
   await act(async () => { first.element.querySelector<HTMLButtonElement>('[data-testid="device-delete-bambu-device"]')!.click(); });
   await act(async () => { first.element.querySelector<HTMLButtonElement>('[data-testid="device-confirm-delete"]')!.click(); });
   expect(forget).toHaveBeenCalledWith({ printerId: printer.identity.id, routeId: lan.id, expectedConfigurationRevision: lan.configurationRevision });
   for (const view of [first, second]) {
     expect(view.element.querySelector('[data-testid="device-delete-bambu-device"]')).toBeNull();
-    expect(view.element.querySelector('[data-testid="device-select-bambu-device"]')).not.toBeNull();
+    expect(view.element.querySelector('[data-testid="device-printer-select"]')).not.toBeNull();
   }
   await act(async () => { saved = []; publish(); });
   expect(first.element.querySelector('[data-testid="device-console-empty"]')).not.toBeNull();

@@ -172,6 +172,7 @@ export interface UserPreferences {
     leftSidebarCollapsed?: boolean;
     rightSidebarCollapsed?: boolean;
     deviceSidebarWidth?: number;
+    deviceSidebarCollapsed?: boolean;
     /** Whether successful G-code sends should navigate to Device by default. */
     switchToDeviceAfterSend: boolean;
     /** Last usable G-code text overlay geometry. */
@@ -387,6 +388,8 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
         ? { leftSidebarCollapsed: ui.leftSidebarCollapsed } : {}),
       ...(typeof ui.rightSidebarCollapsed === 'boolean'
         ? { rightSidebarCollapsed: ui.rightSidebarCollapsed } : {}),
+      ...(typeof ui.deviceSidebarCollapsed === 'boolean'
+        ? { deviceSidebarCollapsed: ui.deviceSidebarCollapsed } : {}),
       ...(typeof ui.deviceSidebarWidth === 'number' && Number.isFinite(ui.deviceSidebarWidth)
         ? { deviceSidebarWidth: ui.deviceSidebarWidth } : {}),
       switchToDeviceAfterSend: typeof ui.switchToDeviceAfterSend === 'boolean'

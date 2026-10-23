@@ -144,7 +144,7 @@ export function TitleBar({ chrome, model, state, onCommand, activeTab = 'home', 
       <HistoryNavigation activeTab={activeTab} coordinator={historyRestoreCoordinator} />
       <Separator orientation="vertical" className="mx-2 h-5 self-center" />
       <TooltipFor content={leftSidebarVisible ? 'Hide left sidebar' : 'Show left sidebar'}>
-        <Button size="icon" variant="ghost" className="titlebar-action titlebar-sidebar-toggle [-webkit-app-region:no-drag]" aria-label="Toggle left sidebar" aria-controls="workspace-sidebar" aria-pressed={isWorkspaceTab(activeTab) && leftSidebarVisible} data-testid="titlebar-toggle-left-sidebar" disabled={navigationDisabled || !isWorkspaceTab(activeTab)} onClick={onToggleLeftSidebar}>
+        <Button size="icon" variant="ghost" className="titlebar-action titlebar-sidebar-toggle [-webkit-app-region:no-drag]" aria-label="Toggle left sidebar" aria-controls={activeTab === 'device' ? 'device-sidebar' : 'workspace-sidebar'} aria-pressed={(isWorkspaceTab(activeTab) || activeTab === 'device') && leftSidebarVisible} data-testid="titlebar-toggle-left-sidebar" disabled={navigationDisabled || (!isWorkspaceTab(activeTab) && activeTab !== 'device')} onClick={onToggleLeftSidebar}>
           <PanelLeftIcon />
         </Button>
       </TooltipFor>

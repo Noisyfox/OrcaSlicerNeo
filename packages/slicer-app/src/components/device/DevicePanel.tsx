@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
+import { PrinterMonitor, supportsMonitor } from './PrinterMonitor';
 
 type DialogState =
   | { kind: 'add' }
@@ -64,6 +65,7 @@ export function panelMessage(state: WebViewPanelState): string | null {
 export interface DevicePanelProps {
   /** Optional test seam; production state always starts from the repository. */
   initialSelection?: string | null;
+  sidebarVisible?: boolean;
 }
 
 /** Shared, host-neutral lifecycle seam; useful for deterministic fake-host tests. */
@@ -112,10 +114,11 @@ export function removePrinter(printers: readonly PrinterConfiguration[], printer
   });
 }
 
-export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) {
+export function DevicePanel({ initialSelection = null, sidebarVisible = true }: DevicePanelProps = {}) {
   const platform = usePlatform();
   const { printers, loaded: configurationLoaded, failed: loadFailed, refresh } = usePrinterCatalogue(platform.printers.service);
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
+  const [selectedPage, setSelectedPage] = useState<'web' | 'monitor'>('web');
   const [dialog, setDialog] = useState<DialogState>(null);
   const [draft, setDraft] = useState<PrinterDraft>(EMPTY_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
@@ -236,6 +239,9 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
 
   const consoleRoute = selectedPrinter?.routes.find(route => route.capabilities.webInterface.kind === 'supported');
 
+  const monitorRoute = selectedPrinter?.routes.find(route => supportsMonitor(route.capabilities));
+  const activePage = selectedPage === 'web' && consoleRoute ? 'web' : selectedPage === 'monitor' && monitorRoute ? 'monitor' : consoleRoute ? 'web' : monitorRoute ? 'monitor' : null;
+
   // Mount without a URL first, register the fixed built-in script, then load
   // the configured URL. This ordering is required for Electron document_start.
   useEffect(() => {
@@ -333,74 +339,64 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
   return (
     <section className="flex h-full min-h-0 w-full" data-testid="device-panel">
         <aside
-          className="flex shrink-0 flex-col overflow-hidden rounded-md border bg-card"
-          aria-label="Saved printers"
+          className={cn('shrink-0 flex-col overflow-hidden rounded-md border bg-card', sidebarVisible ? 'flex' : 'hidden')}
+          id="device-sidebar"
+          aria-label="Device sidebar"
+          hidden={!sidebarVisible}
           style={{
             width: `${sidebarWidth}px`,
             minWidth: `${MIN_DEVICE_SIDEBAR_WIDTH}px`,
             maxWidth: `${MAX_DEVICE_SIDEBAR_WIDTH}px`,
           }}
         >
-          <div className="flex items-center justify-between border-b px-3 py-2">
-            <div>
+          <div className="space-y-2 border-b p-3">
+            <div className="flex items-center justify-between gap-2">
               <h1 className="text-sm font-semibold">Devices</h1>
-              <p className="text-xs text-muted-foreground">Printer consoles</p>
+              <div className="flex items-center gap-1"><PrinterDiscovery saved={printers} />
+                <TooltipFor content="Add printer">
+                  <Button size="icon-xs" variant="secondary" onClick={beginAdd} disabled={!configurationLoaded} aria-label="Add printer" data-testid="device-add-printer"><Plus /></Button>
+                </TooltipFor>
+              </div>
             </div>
-            <div className="flex items-center gap-1"><PrinterDiscovery saved={printers} />
-            <TooltipFor content="Add printer">
-              <Button size="icon-xs" variant="secondary" onClick={beginAdd} disabled={!configurationLoaded} aria-label="Add printer" data-testid="device-add-printer">
-                <Plus />
-              </Button>
-            </TooltipFor></div>
+            <Select value={selectedPrinterId} onValueChange={value => { setSelectedPrinterId(value); setSelectedPage('web'); }} items={printers.map(printer => ({ value: printer.identity.id, label: printer.identity.displayName }))}>
+              <SelectTrigger className="w-full min-w-0" disabled={!configurationLoaded || printers.length === 0} aria-label="Select printer" data-testid="device-printer-select">
+                <SelectValue className="truncate" placeholder="Select a printer" />
+              </SelectTrigger>
+              <SelectContent align="start">
+                {printers.map(printer => <SelectItem key={printer.identity.id} value={printer.identity.id} data-testid={`device-select-${printer.identity.id}`}>{printer.identity.displayName}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {selectedPrinter && <div className="flex items-center justify-end gap-1">
+              {selectedPrinter.routes.some(route => route.providerId === 'moonraker' && route.management.configure) && <TooltipFor content={`Edit ${selectedPrinter.identity.displayName}`}>
+                <Button size="icon-xs" variant="ghost" onClick={() => void beginEdit(selectedPrinter)} aria-label={`Edit ${selectedPrinter.identity.displayName}`} data-testid={`device-edit-${selectedPrinter.identity.id}`}><Pencil /></Button>
+              </TooltipFor>}
+              {selectedPrinter.routes.filter(route => route.management.forget).map(route => <TooltipFor key={route.id} content={`Delete ${selectedPrinter.identity.displayName} (${route.label})`}>
+                <Button size="icon-xs" variant="ghost" onClick={() => beginDelete(selectedPrinter, route)} aria-label={`Delete ${selectedPrinter.identity.displayName} (${route.label})`} data-testid={`device-delete-${selectedPrinter.identity.id}`}><Trash2 /></Button>
+              </TooltipFor>)}
+            </div>}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {loadFailed && printers.length > 0 && <p role="alert" className="p-2 text-xs text-muted-foreground">Unable to refresh printers. Showing the last available list.</p>}
-            {!configurationLoaded ? (
-              <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground" data-testid="device-loading-list">
-                Loading printers…
-              </p>
-            ) : printers.length === 0 ? (
-              <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground" data-testid="device-empty-list">
-                {loadFailed ? 'No saved printers are available.' : 'No printers configured.'}
-              </p>
-            ) : (
-              <div className="flex flex-col gap-1" role="list" aria-label="Printers">
-                {printers.map((printer) => (
-                  <div
-                    key={printer.identity.id}
-                    role="listitem"
-                    className={cn(
-                      'group flex items-center gap-1 rounded-md border px-2 py-1.5',
-                      selectedPrinterId === printer.identity.id ? 'border-primary bg-accent/20' : 'border-transparent hover:bg-muted/60',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 truncate text-left text-sm"
-                      aria-pressed={selectedPrinterId === printer.identity.id}
-                      onClick={() => setSelectedPrinterId(printer.identity.id)}
-                      data-testid={`device-select-${printer.identity.id}`}
-                    >
-                      {printer.identity.displayName}
-                    </button>
-                    {printer.routes.some(route => route.providerId === 'moonraker' && route.management.configure) && <TooltipFor content={`Edit ${printer.identity.displayName}`}>
-                      <Button size="icon-xs" variant="ghost" onClick={() => void beginEdit(printer)} aria-label={`Edit ${printer.identity.displayName}`} data-testid={`device-edit-${printer.identity.id}`}>
-                        <Pencil />
-                      </Button>
-                    </TooltipFor>}
-                    {printer.routes.filter(route => route.management.forget).map(route => <TooltipFor key={route.id} content={`Delete ${printer.identity.displayName}`}>
-                      <Button size="icon-xs" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => beginDelete(printer, route)} aria-label={`Delete ${printer.identity.displayName}`} data-testid={`device-delete-${printer.identity.id}`}>
-                        <Trash2 />
-                      </Button>
-                    </TooltipFor>)}
-                  </div>
-                ))}
-              </div>
-            )}
+            {!configurationLoaded ? <p data-testid="device-loading-list" className="p-3 text-xs text-muted-foreground">Loading printers…</p>
+              : printers.length === 0 ? <p data-testid="device-empty-list" className="p-3 text-xs text-muted-foreground">{loadFailed ? 'No saved printers are available.' : 'No printers configured.'}</p>
+              : !selectedPrinter ? <p className="p-3 text-xs text-muted-foreground">Select a printer to view its features.</p>
+              : <div role="tablist" aria-label="Printer features" aria-orientation="vertical" className="flex flex-col gap-1" onKeyDown={event => {
+                  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+                  const index = tabs.indexOf(event.target as HTMLButtonElement);
+                  const next = event.key === 'ArrowDown' ? (index + 1) % tabs.length : event.key === 'ArrowUp' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
+                  if (next >= 0 && tabs[next]) { event.preventDefault(); tabs[next].focus(); tabs[next].click(); }
+                }}>
+                  {([{ id: 'web', label: 'Web Interface', available: !!consoleRoute }, { id: 'monitor', label: 'Monitor', available: !!monitorRoute }] as const).filter(page => page.available).map(page => <button
+                    key={page.id} id={`device-tab-${page.id}`} role="tab" aria-selected={activePage === page.id} aria-controls="device-content" tabIndex={activePage === page.id ? 0 : -1}
+                    className={cn('rounded-md border px-3 py-2 text-left text-sm', activePage === page.id ? 'border-primary bg-accent/20' : 'border-transparent hover:bg-muted/60')}
+                    onClick={() => setSelectedPage(page.id)}>{page.label}</button>)}
+                  {!activePage && <p className="p-3 text-xs text-muted-foreground">No supported features are available. Some printer capabilities may not yet be known.</p>}
+                </div>}
           </div>
         </aside>
 
         <div
+          hidden={!sidebarVisible}
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize device sidebar"
@@ -412,11 +408,12 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
           onPointerDown={handleResizePointerDown}
           onMouseDown={handleResizeMouseDown}
           onKeyDown={handleResizeKeyDown}
-          className="w-1.5 shrink-0 cursor-ew-resize touch-none self-stretch rounded-full bg-clip-content px-px transition-colors hover:bg-accent/20 focus-visible:bg-accent/30 focus-visible:outline-none"
+          className={cn(!sidebarVisible && 'hidden', "w-1.5 shrink-0 cursor-ew-resize touch-none self-stretch rounded-full bg-clip-content px-px transition-colors hover:bg-accent/20 focus-visible:bg-accent/30 focus-visible:outline-none")}
         />
 
-        <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card" aria-label="Printer console">
-          <div ref={webviewContainerRef} className="absolute inset-0 [&>iframe]:h-full [&>iframe]:w-full [&>webview]:h-full [&>webview]:w-full" data-testid="device-webview-container" />
+        <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card" id="device-content" role={activePage ? "tabpanel" : undefined} aria-labelledby={activePage ? `device-tab-${activePage}` : undefined} aria-label={activePage ? undefined : "Printer details"}>
+          {selectedPrinter && monitorRoute && <div hidden={activePage !== 'monitor'} className="h-full"><PrinterMonitor key={`${selectedPrinter.identity.id}:${monitorRoute.id}:${monitorRoute.configurationRevision}`} printer={selectedPrinter} route={monitorRoute} /></div>}
+          <div hidden={activePage !== 'web'} ref={webviewContainerRef} className="absolute inset-0 [&>iframe]:h-full [&>iframe]:w-full [&>webview]:h-full [&>webview]:w-full" data-testid="device-webview-container" />
           {!selectedPrinter && (
             <div className="absolute inset-0 flex items-center justify-center p-6">
               <div className="max-w-sm text-center text-sm text-muted-foreground" data-testid="device-console-empty">
@@ -425,7 +422,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
               </div>
             </div>
           )}
-          {selectedPrinter && !consoleRoute && (
+          {selectedPrinter && !activePage && (
             <div className="absolute inset-0 flex items-center justify-center p-6" data-testid="device-details">
               <div className="text-center text-sm">
                 <p className="font-medium">{selectedPrinter.identity.displayName}</p>
@@ -435,7 +432,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
               </div>
             </div>
           )}
-          {selectedPrinter && panelMessage(panelState) && (
+          {selectedPrinter && activePage === 'web' && panelMessage(panelState) && (
             <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-background/85 px-2 py-1 text-xs text-muted-foreground" data-testid="device-console-status" role={panelState.status === 'error' ? 'alert' : undefined}>
               {panelMessage(panelState)}
             </div>

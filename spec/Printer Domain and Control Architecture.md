@@ -1093,8 +1093,8 @@ page-opening implementation or credential migration.
 
 The application derives page eligibility from semantic capabilities and the
 viewing host environment. Agents do not supply page names, visibility flags,
-tab order or default selection. Use one application policy when UI integration
-is implemented; the current change defines that policy without implementing it.
+tab order or default selection. The Device UI applies one application policy for
+its Web Interface and Monitor tabs; other pages remain future work.
 Locally established capabilities are sufficient for eligibility; no connected
 snapshot is required. Eligibility does not authorize automatic device reads.
 In particular, selecting a request-based printer must not start capability
@@ -1140,7 +1140,9 @@ Do not union LAN and cloud capabilities or reuse an Electron embedding decision
 in Web. Supported Web entry access with no usable opening mode retains an
 explanation rather than implying the printer lacks the entry. The exact tabs,
 layout and initial selection are not fixed here; existing explicit printer
-selection behavior is preserved. No UI policy helper or page is implemented yet.
+selection behavior is preserved. The initial Monitor exposes status, sensors,
+heater targets and basic print controls; camera viewing and other monitor cards
+remain future work.
 
 ### 4.3 Firmware observations
 

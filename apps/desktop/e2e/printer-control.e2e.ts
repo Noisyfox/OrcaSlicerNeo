@@ -216,12 +216,14 @@ test('Device config and Electron console fixture inject the API key', async () =
 
     await addPrinter('Fixture A', API_KEY);
     await addPrinter('Fixture B', 'second-fixture-key');
-    const rows = page.locator('[role="listitem"]');
-    await expect(rows).toHaveCount(2);
+    await page.getByTestId('device-printer-select').click();
+    await expect(page.getByRole('option')).toHaveCount(2);
+    await page.keyboard.press('Escape');
     // Newly saved records remain unselected until the user explicitly chooses one.
     await expect(page.getByTestId('device-console-empty')).toContainText('Select a printer');
 
-    await rows.filter({ hasText: 'Fixture A' }).locator('button[data-testid^="device-select-"]').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Fixture A', exact: true }).click();
     await waitForConsoleKey(fixture, API_KEY);
     // The console and its Workers must retain the printer's policy rather
     // than receiving the slicer's cross-origin isolation response headers.
@@ -242,6 +244,23 @@ test('Device config and Electron console fixture inject the API key', async () =
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
     await expect(page.getByTestId('device-console-status')).toHaveCount(0);
 
+    await expect(page.getByRole('tab', { name: 'Web Interface', exact: true })).toBeVisible();
+    await page.getByRole('tab', { name: 'Monitor', exact: true }).click();
+    await expect(page.getByTestId('device-monitor')).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath('device-monitor.png') });
+    await expect(page.locator('webview')).toBeHidden();
+    await page.getByRole('tab', { name: 'Web Interface', exact: true }).click();
+    const collapse = page.getByTestId('titlebar-toggle-left-sidebar');
+    await collapse.click();
+    await expect(page.locator('#device-sidebar')).toBeHidden();
+    await expect(page.getByTestId('device-sidebar-resizer')).toBeHidden();
+    await page.locator('#app-tab-prepare').click();
+    await expect(collapse).toHaveAttribute('aria-pressed', 'true');
+    await page.getByTestId('tab-device').click();
+    await expect(collapse).toHaveAttribute('aria-pressed', 'false');
+    await collapse.click();
+    await expect(page.locator('#device-sidebar')).toBeVisible();
+
     // A guest reload creates a new document without another panel.load().
     // The API-key wrapper must be installed again in that document.
     const receiptsBeforeReload = fixture.state.consoleApiKeys.length;
@@ -251,16 +270,19 @@ test('Device config and Electron console fixture inject the API key', async () =
     await expect.poll(() => fixture.state.consoleApiKeys.slice(receiptsBeforeReload), { timeout: 20_000 }).toContain(API_KEY);
 
     // Editing a selected printer keeps its console integration attached.
-    await rows.filter({ hasText: 'Fixture A' }).getByTestId(/device-edit-/).click();
+    await page.getByTestId(/device-edit-/).click();
     await page.getByTestId('device-display-name').fill('Fixture A edited');
     await page.getByTestId('device-save-printer').click();
 
     // Delete requires confirmation and removes the second record only.
-    await rows.filter({ hasText: 'Fixture B' }).getByTestId(/device-delete-/).click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Fixture B', exact: true }).click();
+    await page.getByTestId(/device-delete-/).click();
     await expect(page.getByTestId('device-delete-dialog')).toBeVisible();
     await page.getByTestId('device-confirm-delete').click();
-    await expect(page.locator('[role="listitem"]')).toHaveCount(1);
-    await expect(page.locator('[role="listitem"]')).toContainText('Fixture A edited');
+    await page.getByTestId('device-printer-select').click();
+    await expect(page.getByRole('option')).toHaveCount(1);
+    await page.getByRole('option', { name: 'Fixture A edited', exact: true }).click();
     // A host-published change reaches the mounted catalogue without a form refresh.
     await page.evaluate(async () => {
       const repository = (window as unknown as { orca: import('../src/shared/ipc').ElectronBridge }).orca.printers.configuration;
@@ -268,7 +290,19 @@ test('Device config and Electron console fixture inject the API key', async () =
       document.printers[0].displayName = 'Updated through host';
       await repository.save(document);
     });
-    await expect(page.locator('[role="listitem"]')).toContainText('Updated through host');
+    await expect(page.getByTestId('device-printer-select')).toContainText('Updated through host');
+    await page.screenshot({ path: test.info().outputPath('device-web-interface.png') });
+    await collapse.click();
+    await expect.poll(async () => page.evaluate(async () => {
+      const result = await (window as unknown as { orca: import('../src/shared/ipc').ElectronBridge }).orca.preferences.load();
+      return result;
+    })).toMatchObject({ json: { ui: { deviceSidebarCollapsed: true } } });
+    await page.reload();
+    await waitForReady(page);
+    await expect(page.getByTestId('titlebar-toggle-left-sidebar')).toHaveAttribute('aria-pressed', 'true');
+    await page.getByTestId('tab-device').click();
+    await expect(page.locator('#device-sidebar')).toBeHidden();
+    await expect(page.getByTestId('titlebar-toggle-left-sidebar')).toHaveAttribute('aria-pressed', 'false');
   } finally {
     await app.close();
     await fixture.close();
@@ -293,6 +327,7 @@ test('Send and Send & Print use Moonraker fixture without re-upload on start fai
     const page = await app.firstWindow();
     await waitForReady(page);
     await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
     await page.getByTestId(`device-select-${printerId}`).click();
     await waitForConsoleKey(fixture, API_KEY);
     await addFixtureModelAndSlice(page);

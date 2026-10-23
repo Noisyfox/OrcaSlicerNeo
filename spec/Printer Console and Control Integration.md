@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-10-21
+**Updated:** 2026-10-23
 
 **Status:** Final user experience
 
@@ -28,7 +28,7 @@ migration decision before this persistence contract changes.
 
 The domain specification also owns the accepted
 [native Web entry and device-page eligibility rules](Printer%20Domain%20and%20Control%20Architecture.md#41-native-web-interface).
-Their interfaces do not yet change this console UI. Control connectivity is
+Device feature tabs follow those eligibility rules. Control connectivity is
 independent of native-page access, and the existing Moonraker Console URL
 fallback and host authentication behavior are provider-specific conventions.
 The domain contract preserves request-driven Moonraker operation: loading saved
@@ -53,14 +53,35 @@ the state of both surfaces.
 
 The Device page uses the same card-style visual language as Workspace:
 
-- The left card contains the saved printer list and an add-printer action.
-- The right card contains the selected printer's embedded console.
+- The left card starts with an explicit printer dropdown and add/discovery actions.
+  Edit and route-specific Delete actions apply to the selected printer.
+- Below the dropdown, vertical feature tabs show **Web Interface** and **Monitor**
+  only when a route has locally established support. Web Interface is initially
+  selected when available, otherwise Monitor. Unknown capabilities are explained
+  without probing or inventing support.
+- The right card shows the selected feature. Switching feature tabs retains the
+  embedded console and monitor readings. Features use their own eligible route;
+  capabilities from different routes are not combined.
 - The sidebar can be resized, starts at 288 px, and stays between 220 px and
   560 px. Its width is remembered independently from the Workspace sidebar.
 
-Each printer row shows its name and has separate Edit and Delete actions.
-Deleting a printer requires confirmation. Adding or editing a printer opens a
+The title bar's left collapse icon hides the Device sidebar and resizer without
+unmounting their content or changing the saved width. Its independent
+`ui.deviceSidebarCollapsed` preference is restored at startup and defaults to
+expanded; Workspace collapse preferences remain separate.
+
+Deleting a printer route requires confirmation. Adding or editing a printer opens a
 configuration dialog.
+
+Monitor currently provides explicit Refresh for supported status, sensor and
+heater-target readings, plus capability-gated Pause, Resume and Cancel print.
+Selecting a printer or entering Monitor does not start reads, polling or control
+commands. Missing readings remain unreported; failed reads retain previous
+values with an error indication. Commands carry the selected route and its
+configuration revision; unknown outcomes ask the user to check the printer and
+are never automatically retried. Camera viewing and additional motion, material,
+and actuator cards remain future work. Current Bambu enumeration alone does not
+establish Monitor eligibility.
 
 ## Printer configuration
 

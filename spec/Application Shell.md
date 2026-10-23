@@ -375,7 +375,8 @@ status bar; saved geometry uses this workspace coordinate space.
 
 Title-bar sidebar toggles sit between Redo and Home on the left and before the window
 controls on the right. Expanded sidebars use a teal pressed state. The left toggle is
-available in Prepare and Preview; the right toggle is available in Preview. Collapsing
+available in Prepare, Preview and Device; Device controls its own sidebar and
+independent `ui.deviceSidebarCollapsed` setting. The right toggle is available in Preview. Collapsing
 hides both the sidebar and its resizer without unmounting content or changing its saved
 width. The viewport fills the released space; toggle state is saved independently as
 `ui.leftSidebarCollapsed` and `ui.rightSidebarCollapsed` and restored at startup

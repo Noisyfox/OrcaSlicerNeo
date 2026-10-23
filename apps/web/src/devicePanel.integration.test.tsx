@@ -68,6 +68,7 @@ function setInput(testId: string, value: string) {
 }
 
 async function click(testId: string) {
+  if (testId.startsWith('device-select-')) await click('device-printer-select');
   await act(async () => {
     (document.querySelector(`[data-testid="${testId}"]`) as HTMLElement).click();
   });
@@ -90,7 +91,7 @@ describe('DevicePanel component', () => {
       root?.render(<PlatformProvider value={platform}><DevicePanel /></PlatformProvider>);
     });
     expect(container.querySelector('[data-testid="device-panel"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="device-select-p1"]')?.getAttribute('aria-pressed')).toBe('false');
+    expect(container.querySelector('[data-testid="device-printer-select"]')?.textContent).toContain('Select a printer');
 
     await click('device-add-printer');
     expect(container.querySelector('[data-testid="device-config-dialog"]')).not.toBeNull();
@@ -108,12 +109,11 @@ describe('DevicePanel component', () => {
     setInput('device-api-key', 'second-secret');
     await click('device-save-printer');
     expect(configuration.save).toHaveBeenCalledOnce();
-    const selections = [...container.querySelectorAll('[data-testid^="device-select-"]')];
-    expect(selections).toHaveLength(2);
-    expect(selections.every((item) => item.getAttribute('aria-pressed') === 'false')).toBe(true);
+    expect(container.querySelector('[data-testid="device-printer-select"]')?.textContent).toContain('Select a printer');
     expect(configuration.save.mock.calls[0][0].printers).toHaveLength(2);
     expect(configuration.save.mock.calls[0][0].printers[1].apiKey).toBe('second-secret');
 
+    await click('device-select-p1');
     await click('device-edit-p1');
     setInput('device-display-name', 'Edited workshop');
     await click('device-save-printer');
@@ -162,6 +162,12 @@ describe('DevicePanel component', () => {
     expect(sidebar.style.width).toBe('320px');
     expect(console.className).toContain('rounded-md');
     expect(console.className).toContain('border');
+    await act(async () => { root?.render(<PlatformProvider value={platform}><DevicePanel sidebarVisible={false} /></PlatformProvider>); });
+    expect(sidebar.hidden).toBe(true);
+    expect(resizer.hidden).toBe(true);
+    expect(sidebar.style.width).toBe('320px');
+    await act(async () => { root?.render(<PlatformProvider value={platform}><DevicePanel sidebarVisible /></PlatformProvider>); });
+    expect(sidebar.hidden).toBe(false);
     expect(resizer.getAttribute('aria-valuenow')).toBe('320');
     expect(resizer.getAttribute('aria-valuemin')).toBe('220');
     expect(resizer.getAttribute('aria-valuemax')).toBe('560');

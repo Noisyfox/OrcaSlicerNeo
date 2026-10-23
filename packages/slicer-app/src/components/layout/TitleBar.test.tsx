@@ -73,7 +73,7 @@ describe('TitleBar menu surface', () => {
     const platform = { runtime: { getRuntimeExecutionState: () => ({ threaded: true, sliceActive: false }) } } as unknown as PlatformCapabilities;
     const container = document.createElement('div');
     const root = createRoot(container);
-    const render = (activeTab: 'prepare' | 'preview', visible: boolean) => act(() => root.render(
+    const render = (activeTab: 'prepare' | 'preview' | 'device' | 'home', visible: boolean) => act(() => root.render(
       <PlatformProvider value={platform}><TitleBar chrome={chrome} model={buildMenuModel(snapshot, chrome)} state={snapshot} onCommand={vi.fn()} activeTab={activeTab}
         leftSidebarVisible={visible} rightSidebarVisible={visible} onToggleLeftSidebar={leftToggle} onToggleRightSidebar={rightToggle} /></PlatformProvider>,
     ));
@@ -92,6 +92,12 @@ describe('TitleBar menu surface', () => {
       render('prepare', true);
       expect(left.disabled).toBe(false);
       expect(right.disabled).toBe(true);
+      render('device', true);
+      expect(left.disabled).toBe(false);
+      expect(left.getAttribute('aria-controls')).toBe('device-sidebar');
+      expect(left.getAttribute('aria-pressed')).toBe('true');
+      render('home', true);
+      expect(left.disabled).toBe(true);
     } finally { act(() => root.unmount()); }
   });
   it('renders custom Electron and browser menus with explicit no-drag controls', () => {

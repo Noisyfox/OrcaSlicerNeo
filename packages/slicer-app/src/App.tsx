@@ -118,6 +118,8 @@ function AppContent() {
   const refreshRecentProjects = recentHistory.refresh;
   const [leftSidebarVisible, setLeftSidebarVisible] = useState(true);
   const [rightSidebarVisible, setRightSidebarVisible] = useState(true);
+  const [deviceSidebarVisible, setDeviceSidebarVisible] = useState(true);
+  const deviceSidebarVisibleRef = useRef(true);
   const sidebarVisibilityRef = useRef({ left: true, right: true });
   const sidebarPreferenceSaveRef = useRef(Promise.resolve());
   const toggleSidebar = (side: 'left' | 'right') => {
@@ -132,6 +134,14 @@ function AppContent() {
         ui: { ...preferences.ui, leftSidebarCollapsed: !visibility.left, rightSidebarCollapsed: !visibility.right },
       }));
     }).catch(() => undefined);
+  };
+  const toggleDeviceSidebar = () => {
+    const visible = !deviceSidebarVisibleRef.current;
+    deviceSidebarVisibleRef.current = visible;
+    setDeviceSidebarVisible(visible);
+    void updateUserPreferences(platform.preferences, preferences => ({
+      ...preferences, ui: { ...preferences.ui, deviceSidebarCollapsed: !visible },
+    })).catch(() => undefined);
   };
   // Navigation hides the workspace without changing its internal mode. Update
   // during render so children never commit an intermediate Prepare/Preview mode.
@@ -447,9 +457,9 @@ function AppContent() {
       projectName={projectState.projectName}
       projectDirty={projectState.dirty}
       navigationDisabled={boot !== 'ready' || setup !== null}
-      leftSidebarVisible={leftSidebarVisible}
+      leftSidebarVisible={activeTab === 'device' ? deviceSidebarVisible : leftSidebarVisible}
       rightSidebarVisible={rightSidebarVisible}
-      onToggleLeftSidebar={() => toggleSidebar('left')}
+      onToggleLeftSidebar={() => activeTab === 'device' ? toggleDeviceSidebar() : toggleSidebar('left')}
       onToggleRightSidebar={() => toggleSidebar('right')}
       onCommand={(command) => { void dispatcher.dispatch(command); }}
     />
@@ -495,6 +505,8 @@ function AppContent() {
         sidebarVisibilityRef.current = sidebarVisibility;
         setLeftSidebarVisible(sidebarVisibility.left);
         setRightSidebarVisible(sidebarVisibility.right);
+        deviceSidebarVisibleRef.current = preferences.ui.deviceSidebarCollapsed !== true;
+        setDeviceSidebarVisible(deviceSidebarVisibleRef.current);
         setBootProgress('Starting slicer runtime...');
         const init = await platform.runtime.init(preferences.profileActivation ?? null);
         if (!init.ok) throw new Error(init.error ?? 'orc_init failed');
@@ -695,7 +707,7 @@ function AppContent() {
             await runOpenProject(id);
           }} />}
         workspace={<Workspace leftSidebarVisible={leftSidebarVisible} rightSidebarVisible={rightSidebarVisible} actionControls={<SliceButton activeTab={workspaceTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />} activeTab={workspaceTab} onEditingSessionChange={setWorkspaceEditing} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
-        device={<DevicePanel />}
+        device={<DevicePanel sidebarVisible={deviceSidebarVisible} />}
         status={<StatusBar />}
       />
       <ProjectLoadChoiceDialog
