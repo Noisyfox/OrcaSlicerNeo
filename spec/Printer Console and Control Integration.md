@@ -621,11 +621,30 @@ and Cloud reports, retaining fresh state when one channel fails, correlating
 command acknowledgements across channels without resending, and retaining the
 logical target when account removal leaves independently authorized LAN access.
 
-Real H2D + AMS Cloud and LAN operations, account invalidation between live
-instances, and the six-target release matrix remain unrun for this control
-increment. No C++ slicing/WASM bridge changed, so no new dual-WASM build or real
-Web release run was required. Perform physical acceptance only after these
-software gates, confirming reported hardware and current device state first.
+On 2026-10-23, a normal production build started with
+`env -u ORCA_E2E -u ELECTRON_RENDERER_URL pnpm --filter @orca/desktop exec electron .`
+restored the existing account and selected H2D. Its single Bambu Lab endpoint
+remained Live for several minutes on the ordinary mixed LAN/Cloud network,
+beyond the former approximately 15-second stale boundary. Read-only UI evidence
+showed idle, nozzle temperatures 26/27 C, bed/chamber temperatures 25 C, two
+0.4 mm hardened-steel standard-flow nozzles, four-slot AMS 0 bound to Tool 1 and
+four-slot AMS 2 Pro 1 bound to Tool 0. Only the AMS 2 Pro exposed a dryer;
+remaining material was unknown rather than a fabricated zero. The user confirmed
+the two-unit arrangement; the model/nozzle detail above comes from device reports.
+This verifies account-backed monitoring on the mixed network, not isolated Cloud
+transport or a physically forced failover.
+
+Read-only acceptance remains incomplete for external holders: reported virtual
+IDs 254/255 are currently incorrectly treated as tool IDs, leaving their paths
+unbound. Orca maps them to separate virtual units with slot 0 and Tool 1/0, but
+also applies a special 254-to-255 command conversion. Resolve the observation and
+command mapping together before accepting external-holder material operations.
+No heating, motion, loading, unloading or other physical control command was
+sent during this read-only check; each such operation requires individual user
+confirmation. Real control operations, isolated Cloud/LAN transport qualification,
+account invalidation between live instances, and the six-target release matrix
+remain unrun. No C++ slicing/WASM bridge changed, so no new dual-WASM build or
+real Web release run was required.
 
 ## Upload verification
 
