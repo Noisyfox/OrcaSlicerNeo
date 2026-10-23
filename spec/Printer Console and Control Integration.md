@@ -649,8 +649,15 @@ transport or a physically forced failover.
 External-holder normalization and command preparation now follow the Orca
 mapping above. Automated coverage checks both holders, legacy reports, unknown
 and removed paths, per-holder temperatures and completion against the original
-logical path despite the command alias. Read-only hardware revalidation of
-this correction is pending; actual load/unload behavior remains unqualified.
+logical path despite the command alias. The H2D read-only hardware recheck
+confirmed separate external-holder cards: 255 to Tool 0 and 254 to Tool 1,
+with no unavailable-path warning. Neither holder was reported loaded, and
+unknown spool presence/remaining values stayed unknown. Returning from Home
+retained the selected device and Live state, with subsequent nozzle and AMS
+temperature changes confirming continued reports. Together with the
+nozzle, AMS and live-status checks above, this completes the current
+account-backed mixed-network read-only acceptance scope. Actual load/unload
+behavior, including the command alias on physical firmware, remains unqualified.
 No heating, motion, loading, unloading or other physical control command was
 sent during this read-only check; each such operation requires individual user
 confirmation. Real control operations, isolated Cloud/LAN transport qualification,
