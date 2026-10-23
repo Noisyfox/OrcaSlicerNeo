@@ -96,3 +96,19 @@ test('copies LAN bootstrap arguments and rejects non-integer QoS without leaking
     assert(lines.includes('cert:device:lan'));
   });
 });
+
+test('copies Cloud control and subscription arguments without sharing the LAN send path', async () => {
+  await session(async (agent, trace) => {
+    await agent.createAgent(trace);
+    await agent.startSubscribe('app');
+    await agent.sendMessage('cloud-device', '{"pushing":{"command":"pushall"}}', 1, 0);
+    await agent.stopSubscribe('app');
+    await assert.rejects(agent.sendMessage('cloud-device', 'private', 0.5, 0), /integer argument/);
+    await agent.close();
+    const lines = (await readFile(trace, 'utf8')).split('\n');
+    assert(lines.includes('subscribe:app'));
+    assert(lines.includes('cloud-send:cloud-device:{"pushing":{"command":"pushall"}}:1:0'));
+    assert(lines.includes('unsubscribe:app'));
+    assert(!lines.some(line => line.startsWith('send:')));
+  });
+});

@@ -88,6 +88,15 @@ EXPORT int bambu_network_connect_printer(void* handle, std::string id, std::stri
 EXPORT int bambu_network_disconnect_printer(void* handle) { fixture(handle).record("disconnect"); return 0; }
 EXPORT std::string bambu_network_get_user_selected_machine(void* handle) { return fixture(handle).selected; }
 EXPORT int bambu_network_set_user_selected_machine(void* handle, std::string id) { fixture(handle).selected = id; return 0; }
+EXPORT int bambu_network_start_subscribe(void* handle, std::string module) {
+    fixture(handle).record("subscribe:" + module); return 0;
+}
+EXPORT int bambu_network_stop_subscribe(void* handle, std::string module) {
+    fixture(handle).record("unsubscribe:" + module); return 0;
+}
+EXPORT int bambu_network_send_message(void* handle, std::string id, std::string payload, int qos, int flag) {
+    fixture(handle).record("cloud-send:" + id + ":" + payload + ":" + std::to_string(qos) + ":" + std::to_string(flag)); return 0;
+}
 EXPORT int bambu_network_send_message_to_printer(void* handle, std::string id, std::string payload, int qos, int flag) {
     fixture(handle).record("send:" + id + ":" + payload + ":" + std::to_string(qos) + ":" + std::to_string(flag)); return 0;
 }

@@ -130,7 +130,7 @@ private:
             if (value.IsString()) arguments.emplace_back(value.As<Napi::String>().Utf8Value());
             else if (value.IsBoolean()) arguments.emplace_back(value.As<Napi::Boolean>().Value());
             else if (value.IsNumber()) {
-                if (method != "send_message_to_printer" || (i != 2 && i != 3)) throw Napi::TypeError::New(info.Env(), "Invalid native argument");
+                if ((method != "send_message_to_printer" && method != "send_message") || (i != 2 && i != 3)) throw Napi::TypeError::New(info.Env(), "Invalid native argument");
                 const double number = value.As<Napi::Number>().DoubleValue();
                 if (!std::isfinite(number) || std::trunc(number) != number || number < std::numeric_limits<int>::min() || number > std::numeric_limits<int>::max())
                     throw Napi::TypeError::New(info.Env(), "Native integer argument required");
