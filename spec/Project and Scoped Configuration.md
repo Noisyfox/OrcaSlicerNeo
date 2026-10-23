@@ -156,6 +156,9 @@ target(s).
 Category highlighting considers the full catalogue, even while search hides
 the overridden option. Reset clears each highlight when its last qualifying
 local override is removed.
+Right-clicking a Process section offers `Reset <section title>`. It resets
+only that section's supported fields for the current binding, including fields
+hidden by search, and preserves overrides in other sections of the same tab.
 `Reset All` is enabled only when the current mode and target(s) have supported
 local overrides; a category's Reset is enabled only when that category has
 one. An explicit local value counts even when it equals the inherited value.

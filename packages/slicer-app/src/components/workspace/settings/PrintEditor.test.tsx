@@ -152,10 +152,16 @@ it('uses loaded Hybrid choices, one captured typed mutation/history operation, m
   await type('228');
   const history=await h.runtime.getHistoryStatus();
   await act(async()=>{(document.querySelector('[data-testid="config-category-toggle-Other layers speed"]') as HTMLElement).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10}));});
-  await click('config-reset-category-Speed');
+  expect(document.querySelector('[data-testid="config-reset-category-Other layers speed"]')?.textContent).toBe('Reset Other layers speed');
+  await click('config-reset-category-Other layers speed');
   expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({operation:'reset-fields',fields:expect.arrayContaining([
-    {key:'outer_wall_speed',kind:'indexed',index:1},{key:'enable_overhang_speed',kind:'indexed',index:1},{key:'layer_height',kind:'shared'},
+    {key:'outer_wall_speed',kind:'indexed',index:1},
   ])}));
+  const sectionReset = h.mutate.mock.calls.at(-1)![0];
+  if(sectionReset.operation==='reset-fields') {
+    expect(sectionReset.fields.some(field=>field.key==='layer_height')).toBe(false);
+    expect(sectionReset.fields.some(field=>field.key==='enable_overhang_speed')).toBe(false);
+  }
   expect((await h.runtime.getHistoryStatus()).undoEntries).toHaveLength(history.undoEntries.length+1);
   await act(async()=>{const restored=await h.runtime.undoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});
   expect(input().value).toBe('228');expect(selectedChoice()).toBe('T1 HF');
@@ -183,7 +189,7 @@ it('aggregates explicit Process ownership across nozzles while field/category re
   await click('config-reset-outer_wall_speed');expect(dirtyChoices()).toEqual(['T1 HF']);expect(profileDirty()).toBe('true');
   await type('246');
   await act(async()=>document.querySelector('[data-testid="config-category-toggle-Other layers speed"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10})));
-  await click('config-reset-category-Speed');
+  await click('config-reset-category-Other layers speed');
   expect(dirtyChoices()).toEqual(['T1 HF']);expect(profileDirty()).toBe('true');
   await choose('T1 HF');await click('config-reset-outer_wall_speed');
   expect(dirtyChoices()).toEqual([]);expect(profileDirty()).toBe('false');
@@ -278,8 +284,9 @@ it('reconciles semantic identity on ordinal reorder, missing mappings and bounde
   expect(document.querySelector('[data-testid="config-nozzle-icon-outer_wall_speed"]')).not.toBeNull();
   expect(document.querySelector('[data-testid="config-reset-outer_wall_speed"]')).toBeNull();
   await act(async()=>{await commitPrintConfigurationMutation(h.platform,{version:1,operation:'set',targets:[{scope:'project'}],key:'layer_height',value:'0.17'});});
-  await act(async()=>{document.querySelector('[data-testid="config-category-toggle-Other layers speed"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10}));});
-  await click('config-reset-category-Speed');
+  await click('config-page-Quality');
+  await act(async()=>{document.querySelector('[data-testid="config-category-toggle-Layer height"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10}));});
+  await click('config-reset-category-Layer height');
   const reset=h.mutate.mock.calls.at(-1)![0];
   expect(reset.operation).toBe('reset-fields');
   if(reset.operation==='reset-fields')expect(reset.fields.some(field=>field.key==='outer_wall_speed')).toBe(false);
@@ -429,9 +436,9 @@ it('unions selected owners only, preserves global dirty across nozzles/search/pa
   expect(speedInput()).toBeNull();expect(dirtyChoices()).toEqual(['T1 HF','T2 SF']);
   await act(async()=>document.querySelector<HTMLButtonElement>('[aria-label="Search settings"]')!.click());
   await act(async()=>document.querySelector<HTMLElement>('[data-testid="config-category-toggle-Other layers speed"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10})));
-  await click('config-reset-category-Speed');
+  await click('config-reset-category-Other layers speed');
   expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({operation:'reset-fields',targets:h.objects.map(o=>({scope:'object',id:String(o.id)})),
-    fields:expect.arrayContaining([{key:'outer_wall_speed',kind:'indexed',index:1},{key:'layer_height',kind:'shared'}])}));
+    fields:expect.arrayContaining([{key:'outer_wall_speed',kind:'indexed',index:1}])}));
   expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual(['T2 SF']);
   await choose('T2 SF');await click('config-reset-outer_wall_speed');expect(targetDirty()).toBe('false');
   await act(async()=>{const restored=await h.runtime.undoHistory();if(restored.ok)useSettingsStore.getState().applyNativeScopedConfigTransport(restored.nativeScopedConfig);useHistoryRestoreStore.getState().advanceRevision();});
@@ -476,8 +483,9 @@ it('keeps whole-target ownership with unavailable/short native mappings and excl
   await choose('T2 SF');expect(speedInput()?.value).toBe('200');expect(targetDirty()).toBe('true');expect(dirtyChoices()).toEqual([]);
   await choose('T1 HF');
   await act(async()=>{const targets=[{scope:'object' as const,id:String(h.objects[0].id)}];await commitScopedEditorMutation(h.platform,{version:1,operation:'set',targets,key:'layer_height',value:'0.17'},targets);});
-  await act(async()=>document.querySelector<HTMLElement>('[data-testid="config-category-toggle-Other layers speed"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10})));
-  await click('config-reset-category-Speed');
+  await click('config-page-Quality');
+  await act(async()=>document.querySelector<HTMLElement>('[data-testid="config-category-toggle-Layer height"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10})));
+  await click('config-reset-category-Layer height');
   const category=h.mutate.mock.calls.at(-1)![0];expect(category.operation).toBe('reset-fields');
   if(category.operation==='reset-fields')expect(category.fields.some(field=>field.key==='outer_wall_speed')).toBe(false);
   expect(targetDirty()).toBe('true');
@@ -593,7 +601,7 @@ it('uses native first-choice fallback and hides the Scoped strip for one choice 
 });
 
 
-it('keeps native Print shared settings on whole-option edit/reset and includes them in one mapped category reset',async()=>{
+it('keeps native Print shared settings on whole-option edit/reset and preserves other sections on mapped section reset',async()=>{
   const h=await setup();
   const snapshot=await h.runtime.getPrintConfigEditor();if(!snapshot.ok)throw Error(snapshot.error);
   expect(snapshot.editorSelection.fieldBindings.print_sequence).toEqual({kind:'shared'});
@@ -611,15 +619,21 @@ it('keeps native Print shared settings on whole-option edit/reset and includes t
   await click('config-reset-print_sequence');
   expect(h.mutate).toHaveBeenLastCalledWith({version:1,operation:'reset',targets:[{scope:'project'}],key:'print_sequence'});
   expect(useSettingsStore.getState().nativeScopedConfig.project.print_sequence).toBeUndefined();
-  await select();await click('config-page-Speed');await choose('T1 HF');await type('227');
+  await select();await click('config-page-Speed');await choose('T1 HF');
+  await act(async()=>{document.querySelector('[data-testid="config-category-toggle-Other layers speed"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10}));});
+  expect(document.querySelector('[data-testid="config-reset-category-Other layers speed"]')?.hasAttribute('data-disabled')).toBe(true);
+  await act(async()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
+  await type('227');
   const before=await h.runtime.getHistoryStatus();
   await act(async()=>{document.querySelector('[data-testid="config-category-toggle-Other layers speed"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10}));});
-  await click('config-reset-category-Speed');
+  await click('config-reset-category-Other layers speed');
   expect(h.mutate).toHaveBeenLastCalledWith(expect.objectContaining({operation:'reset-fields',fields:expect.arrayContaining([
-    {key:'outer_wall_speed',kind:'indexed',index:1},{key:'print_sequence',kind:'shared'},
+    {key:'outer_wall_speed',kind:'indexed',index:1},
   ])}));
+  const sectionReset = h.mutate.mock.calls.at(-1)![0];
+  if(sectionReset.operation==='reset-fields') expect(sectionReset.fields.some(field=>field.key==='print_sequence')).toBe(false);
   expect((await h.runtime.getHistoryStatus()).undoEntries).toHaveLength(before.undoEntries.length+1);
-  expect(useSettingsStore.getState().nativeScopedConfig.project.print_sequence).toBeUndefined();
+  expect(useSettingsStore.getState().nativeScopedConfig.project.print_sequence).toBe('by object');
 });
 
 it('distinguishes external whole options from genuinely unavailable Print-owned mappings',async()=>{
@@ -733,7 +747,7 @@ it.each([false,true])('reads the editor once for each accepted set/reset/categor
   await once(()=>type('230'));
   await act(async()=>document.querySelector<HTMLElement>('[data-testid="config-category-toggle-Other layers speed"]')!
     .dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2,clientX:10,clientY:10})));
-  await once(()=>click('config-reset-category-Speed'));
+  await once(()=>click('config-reset-category-Other layers speed'));
   await once(()=>type('231'));
   await once(()=>click('config-reset-all'));
 });

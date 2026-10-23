@@ -385,7 +385,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const scopedSelection = useConfigEditorSelection(scopedEditor.selection, scopedEditor.entry);
   const selectionMetadata = mode === 'project' ? printEditor.snapshot?.editorSelection : mode === 'scoped' ? scopedEditor.selection : null;
   const selectedChoice = mode === 'project' ? printSelection : scopedSelection;
-  // Reset actions operate on the whole selected category/catalogue, not just
+  // Reset actions operate on the whole selected section/catalogue, not just
   // the subset currently visible through the search query.
   const allFields = useMemo(() => metadata
     ? (mode==='scoped' ? scopedConfigurationCatalogue(metadata,resolution) : projectScopedConfigurationFields({ mode, metadata, baseValues, snapshot, resolution, search: '' })).filter((field) => isVisiblePrintSetting(field, mode) &&
@@ -519,13 +519,13 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   }, [allFields, commitField, resetField, optionLocked, optionScope, optionRows, mode, printers, activePrinter, baseValues,
     scopedDisplaySnapshot, scopedSelection.choiceId, printEditor.snapshot, printSelection.choiceId, selectionMetadata, selectedChoice.choiceId]);
   const displayedOptionKeys = useMemo(() => categories.flatMap(category => category.fields.map(field => field.key)), [categories]);
-  const resetCategory = async (category: string) => {
+  const resetGroup = async (keys: readonly string[]) => {
     if (mode !== 'project' && resolution.scope === 'invalid') return;
-    const candidates = allFields.filter((field) => field.category === category && field.local);
-    if (candidates.length === 0) return;
+    const groupFields = allFields.filter(field => keys.includes(field.key) && field.resettable);
+    if (!groupFields.some(field => field.local)) return;
     if(mode==='project') {
       if(!printEditor.snapshot) return;
-      const fields=allFields.filter(field=>field.category===category && field.resettable).flatMap(field=>{
+      const fields=groupFields.flatMap(field=>{
         const target=printOwnsField(printEditor.snapshot!,field.key)
           ? editorFieldTarget(printEditor.snapshot!,field.key,printSelection.choiceId) : {kind:'shared' as const};
         return target.kind==='unavailable'?[]:[{key:field.key,...target}];
@@ -536,18 +536,12 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     }
     if(mode==='scoped') {
       if(!scopedEditor.snapshot) return;
-      const fields=allFields.filter(field=>field.category===category && field.resettable).flatMap(field=>
+      const fields=groupFields.flatMap(field=>
         field.editor && field.editor.target.kind!=='unavailable' ? [{key:field.key,...field.editor.target}] : []);
       try{await scopedEditor.mutate({version:1,operation:'reset-fields',targets:scopedTargets,expectedRevision:scopedEditor.snapshot.revision,fields},scopedTargets);}
       catch(reason){setError(reason instanceof Error?reason.message:String(reason));}
       return;
     }
-    const request: NativeScopedConfigMutationRequest = {
-      version: 1, operation: 'reset-category', targets: targetRequestTargets(resolution.targets), category,
-    };
-    try {
-      await commitScopedConfigurationMutation(platform, request);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const resetAll = async () => {
     if (mode !== 'project' && resolution.scope === 'invalid') return;
@@ -616,7 +610,6 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
             const expansionKey = `${page}/${group}`;
             const open = expanded[expansionKey] ?? true;
             const groupCatalogue = allFields.filter((field) => keys.includes(field.key));
-            const nativeCategories = [...new Set(groupCatalogue.map((field) => field.category))];
             const highlighted = groupCatalogue.some((field) => field.local && field.resettable);
             return <OptionGroupVisibility key={`${page}/${group}`} scope={optionScope} keys={keys}><div data-testid={`config-category-${category}`}>
               {group && <ContextMenu>
@@ -628,9 +621,9 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
                     {category}{open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
                   </Button>
                 </ContextMenuTrigger>
-                <ContextMenuContent>{nativeCategories.map((nativeCategory) => <ContextMenuItem key={nativeCategory}
-                  data-testid={`config-reset-category-${nativeCategory}`} disabled={!highlightedCategories.has(nativeCategory)}
-                  onClick={() => void resetCategory(nativeCategory)}>Reset {nativeCategory}</ContextMenuItem>)}</ContextMenuContent>
+                <ContextMenuContent><ContextMenuItem
+                  data-testid={`config-reset-category-${group}`} disabled={!highlighted}
+                  onClick={() => void resetGroup(keys)}>Reset {group}</ContextMenuItem></ContextMenuContent>
               </ContextMenu>}
               {open && <div className="py-1">{categoryFields.map((field, index) => {
                 const section = printSettingPlacement(field)?.section;

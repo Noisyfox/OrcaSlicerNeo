@@ -277,11 +277,11 @@ describe('scoped field drafts', () => {
       <ScopedConfigurationPanel sceneInteraction={controller} />
     </TooltipProvider></PlatformProvider>));
     const button = (testId: string) => container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
-    const resetDisabled = async (group: string, nativeCategory: string) => {
+    const resetDisabled = async (group: string, section: string) => {
       await act(async () => button(`config-category-toggle-${group}`).dispatchEvent(
         new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 }),
       ));
-      const item = document.querySelector(`[data-testid="config-reset-category-${nativeCategory}"]`)!;
+      const item = document.querySelector(`[data-testid="config-reset-category-${section}"]`)!;
       expect(item).not.toBeNull();
       const disabled = item.hasAttribute('data-disabled');
       await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
@@ -292,7 +292,7 @@ describe('scoped field drafts', () => {
     expect(button('config-mode-scoped').hasAttribute('data-local-override-highlight')).toBe(false);
     expect(quality().classList.contains('config-override-label')).toBe(true);
     expect(button('config-category-toggle-Layer height').getAttribute('data-local-override-highlight')).toBe('true');
-    expect(await resetDisabled('Layer height', 'Quality')).toBe(false);
+    expect(await resetDisabled('Layer height', 'Layer height')).toBe(false);
     expect(button('config-reset-all').disabled).toBe(false);
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Search settings"]')!.click());
     const search = container.querySelector<HTMLInputElement>('[data-testid="scoped-config-search"]')!;
@@ -302,14 +302,14 @@ describe('scoped field drafts', () => {
     });
     expect(container.querySelector('[data-testid="config-option-label-layer_height"]')).toBeNull();
     expect(button('config-category-toggle-Quality / Layer height').getAttribute('data-local-override-highlight')).toBe('true');
-    expect(await resetDisabled('Quality / Layer height', 'Quality')).toBe(false);
+    expect(await resetDisabled('Quality / Layer height', 'Layer height')).toBe(false);
     // A historical preset identity alone cannot enable Reset All. Native
     // project overrides contain only actual differences from the saved head.
     await act(async () => useSettingsStore.setState({ selectedPrint: 'P [snapshot 1]', nativeScopedConfig: {
       project: {}, plates: {}, parts: {}, objects: { '42': { wall_loops: '3' } },
     } }));
     expect(button('config-category-toggle-Quality / Layer height').getAttribute('data-local-override-highlight')).toBe('false');
-    expect(await resetDisabled('Quality / Layer height', 'Quality')).toBe(true);
+    expect(await resetDisabled('Quality / Layer height', 'Layer height')).toBe(true);
     expect(button('config-reset-all').disabled).toBe(true);
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, '');
@@ -321,14 +321,14 @@ describe('scoped field drafts', () => {
     await act(async () => button('config-page-Strength').click());
     const walls = button('config-category-toggle-Walls');
     expect(walls.getAttribute('data-local-override-highlight')).toBe('true');
-    expect(await resetDisabled('Walls', 'Strength')).toBe(false);
+    expect(await resetDisabled('Walls', 'Walls')).toBe(false);
     expect(button('config-reset-all').disabled).toBe(false);
     await act(async () => useSettingsStore.setState({ nativeScopedConfigRevision:(useSettingsStore.getState().nativeScopedConfigRevision??0)+1,nativeScopedConfig: {
       project: {}, plates: {}, parts: {}, objects: { '42': { machine_gcode: 'G28' } },
     } }));
     expect(button('config-category-toggle-Walls').getAttribute('data-local-override-highlight')).toBe('false');
     expect(button('config-page-Strength').classList.contains('config-override-label')).toBe(false);
-    expect(await resetDisabled('Walls', 'Strength')).toBe(true);
+    expect(await resetDisabled('Walls', 'Walls')).toBe(true);
     expect(button('config-reset-all').disabled).toBe(true);
   });
 
