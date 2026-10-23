@@ -38,7 +38,7 @@ async function fixture() {
     snapshot = { ...snapshot, values: { ...snapshot.values, status: reading } }; wake?.(); await Promise.resolve();
   });
   const click = async (label: string) => act(async () => { [...element.querySelectorAll('button')].find(button => button.textContent === label)!.click(); });
-  return { element, render, update, click, watch, submit, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
+  return { element, render, update, click, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
 }
 it('automatically monitors, lays out reported material units and retains the subscription while hidden', async () => {
   const f = await fixture(); try {
@@ -78,5 +78,24 @@ it('retains a hidden stream failure and disables controls when the page returns'
     await f.render(true);
     expect(f.element.textContent).toContain('Printer monitoring is unavailable.');
     expect([...f.element.querySelectorAll('button')].find(button => button.textContent === 'Pause')?.disabled).toBe(true);
+  } finally { await f.close(); }
+});
+
+it('keeps directional movement and extrusion bound to the reported group and tool after layout changes', async () => {
+  const f = await fixture(); try {
+    const group = 'gantry-7' as D.Id<'motion'>, tool = 'tool:7' as D.Id<'tool'>, extruder = 'extruder:7' as D.Id<'extruder'>;
+    f.topology.motionGroups = [{ id: group, name: 'Gantry', axes: ['x', 'y', 'z'] }];
+    f.topology.tools = [{ id: tool, name: 'Tool 7', extruderId: extruder, nozzleId: 'nozzle:7' as D.Id<'nozzle'>, motionGroupId: group }];
+    f.caps.commands['motion.jog'] = { kind: 'supported', constraints: [{ motionGroupId: group, axis: 'x', kind: 'step', steps: [{ id: 'small', label: 'Small step' }] }] };
+    f.caps.commands['extrusion.move'] = { kind: 'supported', constraints: [{ extruderId: extruder, distanceMm: { min: -10, max: 10, step: 10 }, speed: { kind: 'device-controlled' } }] };
+    await f.render();
+    await act(async () => { f.element.querySelector<HTMLButtonElement>('[aria-label="Move X negative"]')!.click(); });
+    expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'motion.jog', params: { motionGroupId: group, axis: 'x', direction: 'negative', stepId: 'small' } } });
+    expect(f.element.querySelector('[aria-label="Move Y positive"]')).toBeNull();
+    await act(async () => { f.element.querySelector<HTMLButtonElement>('[aria-label="Extrude 10 mm with Tool 7"]')!.click(); });
+    expect((f.submit.mock.calls[1] as unknown[])[0]).toMatchObject({ command: { type: 'extrusion.move', params: { extruderId: extruder, distanceMm: 10 } } });
+    await f.update('Stale', 'task-1', 'stale');
+    expect(f.element.querySelector<HTMLButtonElement>('[aria-label="Move X negative"]')!.disabled).toBe(true);
+    expect(f.element.querySelector<HTMLButtonElement>('[aria-label="Extrude 10 mm with Tool 7"]')!.disabled).toBe(true);
   } finally { await f.close(); }
 });

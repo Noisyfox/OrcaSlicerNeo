@@ -115,15 +115,18 @@ directly. Protocol normalization and capability derivation belong to the provide
 as specified in the
 [Bambu control architecture](Printer%20Domain%20and%20Control%20Architecture.md#23-bambu-monitoring-and-control-design).
 
-The working layout retains the explicit printer selector and uses the available
-content area without an empty video panel. A header identifies the printer,
-route and observation freshness. Task controls appear before temperature,
-actuator and motion cards; material units and tool paths form a dedicated area.
-Hardware details and material-target selection can use dialogs. Exact card
-order and dialog grouping remain reviewable. Selection persistence is defined
-under Console selection and behavior below. Desktop
-layout should accommodate narrow windows through internal scrolling and fewer
-columns; mobile support remains deferred.
+The Monitor follows the reference's two-column desktop composition without a
+video panel: task preview above printing progress on the left; temperature,
+lighting/fans, a directional XY pad with homing and Z controls, and individually
+addressed extruders on the right. A visible Print speed label accompanies the
+mode selector. Material units form a grid beneath the controls, with compact
+reported slots and explicit tool paths; external holders remain distinct.
+Fan controls and nozzle hardware details can expand within their sections.
+No calibration, print-options, RFID or material-editing entry is implied by the
+reference image. The explicit printer selector, current-device header and
+freshness feedback remain visible. Narrow content areas stack the sections
+without horizontal overflow; mobile support remains deferred. Selection
+persistence is defined under Console selection and behavior below.
 
 The accepted feature envelope is:
 

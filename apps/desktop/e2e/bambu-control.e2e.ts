@@ -19,6 +19,9 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
       await expect(holder.getByRole('button', { name: `Load to Tool ${tool}`, exact: true })).toBeVisible();
       await expect(holder.getByText('No available tool path reported.', { exact: true })).toHaveCount(0);
       await expect(holder.getByRole('button', { name: `Load to Tool ${1 - tool}`, exact: true })).toHaveCount(0);
+      await holder.getByText('Details', { exact: true }).click();
+      await expect(holder.getByText('Remaining: Not reported', { exact: true })).toBeVisible();
+      await holder.getByText('Details', { exact: true }).click();
     }
     await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
     const commands = () => app.evaluate(() => globalThis.bambuControlFixture.commands);
@@ -50,6 +53,20 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     expect((await commands())[1]).toMatchObject({ target: { printerId: 'bambu:b' }, command: { type: 'jobs.pause' } });
     await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
     await expect(page.getByRole('option', { name: 'Workshop B', exact: true })).toBeHidden();
+    await expect(panel.locator('label').filter({ has: page.getByRole('combobox', { name: 'Print speed', exact: true }) })).toContainText('Print speed');
+    await expect(panel.getByRole('progressbar', { name: 'Print progress' })).toHaveAttribute('aria-valuenow', '42');
+    const moveRight = panel.getByRole('button', { name: 'Move X positive', exact: true });
+    const pad = await moveRight.boundingBox();
+    await moveRight.click({ position: { x: pad!.width * 0.85, y: pad!.height / 2 } });
+    await expect.poll(commands).toHaveLength(3);
+    expect((await commands())[2]).toMatchObject({ target: { printerId: 'bambu:b' }, command: { type: 'motion.jog', params: { axis: 'x', direction: 'positive', stepId: 'small' } } });
+    await panel.getByRole('button', { name: 'Dismiss', exact: true }).click();
+    const previewBounds = await panel.getByRole('heading', { name: 'Print preview', exact: true }).boundingBox();
+    const controlBounds = await panel.getByRole('heading', { name: 'Control', exact: true }).boundingBox();
+    expect(controlBounds!.x).toBeGreaterThan(previewBounds!.x + previewBounds!.width);
     await page.screenshot({ path: '/tmp/orca-bambu-control.png' });
+    await page.setViewportSize({ width: 820, height: 900 });
+    await expect.poll(() => panel.getByTestId('bambu-monitor').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: '/tmp/orca-bambu-control-narrow.png' });
   } finally { await app.close(); }
 });

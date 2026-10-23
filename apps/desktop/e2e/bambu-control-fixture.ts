@@ -10,9 +10,9 @@ const devices: BambuDevice[] = ['a', 'b'].map(deviceId => ({ deviceId, name: `Wo
 export function controlSnapshot(device: string, task = 'External task', fresh = true) {
   const printer = savedBambuPrinter(devices.find(value => value.deviceId === device)!);
   const target = { printerId: printer.identity.id, routeId: printer.routes[0].id }, telemetry = new BambuTelemetry();
-  telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: 'RUNNING', subtask_id: task, subtask_name: task, stg_cur: 0, mc_percent: 42, mc_remaining_time: 15, layer_num: 42, total_layer_num: 100,
+  telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: 'RUNNING', subtask_id: task, subtask_name: task, stg_cur: 0, home_flag: 7, fun: ((1n << 32n) | (1n << 38n)).toString(16), spd_lvl: 2, mc_percent: 42, mc_remaining_time: 15, layer_num: 42, total_layer_num: 100,
     device: { extruder: { state: 2, info: [{ id: 0, temp: (220 << 16) | 215 }, { id: 1, temp: 25 }] }, bed_temp: (60 << 16) | 60 },
-    ams: { ams: [0, 4, 128].map(id => ({ id, info: '3', tray: [{ id: 0, tray_type: 'PLA', tray_color: '33AA66FF' }] })) }, lights_report: [{ node: 'chamber_light', mode: 'on' }], cooling_fan_speed: 8,
+    ams: { ams: [0, 4, 128].map(id => ({ id, info: '3', tray: [0, 1, 2, 3].map(slot => ({ id: slot, tray_type: ['PETG-CF', 'PETG', 'PC', 'PLA'][slot], tray_color: ['333333FF', '33AAFFFF', 'EEEEEEFF', '33AA66FF'][slot] })) })) }, lights_report: [{ node: 'chamber_light', mode: 'on' }], cooling_fan_speed: 8,
     vir_slot: [{ id: '254', tray_type: 'PETG' }, { id: '255', tray_type: 'PLA' }],
   } }));
   if (!fresh) telemetry.invalidate();
