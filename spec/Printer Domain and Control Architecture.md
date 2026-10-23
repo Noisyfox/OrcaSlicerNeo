@@ -946,6 +946,21 @@ selection, window contention or connection-takeover protocol between independent
 instances. Within an instance, native target changes must still preserve the
 target and outcome of pending operations and reject obsolete callbacks.
 
+Instances share persistent configuration and plugin configuration storage, not
+the provider runtime. Reuse remembered login, saved devices and last-selection
+preferences; do not assign a profile directory per process. Do not proactively
+synchronize login/logout/account switches to other running instances. New
+instances restore the latest saved state; existing instances respond normally
+to server/plugin session invalidation and remove invalid account-owned routes.
+The plugin remains responsible for its private session format and refresh;
+shared storage does not authorize reading or rewriting private auth files.
+Qualify concurrent startup/writes/shutdown and account changes across independent
+processes. Within-instance write serialization alone is insufficient evidence,
+and stale saved snapshots must not resurrect removed account/device state.
+Orca's reference uses a shared default data directory and local account handlers
+in [GUI_App](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_App.cpp); this is not
+proof of black-box plugin concurrency behavior.
+
 For Bambu control, a present Cloud route takes precedence over an authorized LAN
 route. There is no manual route switch and no automatic LAN fallback after
 Cloud failure. A successful catalogue change that removes Cloud may select a
@@ -1063,9 +1078,12 @@ Also cover dynamic material topology, unique/ambiguous/unavailable feed targets,
 load/unload temperature applicability and read-only material/drying observations.
 Verify absence of metadata editing, RFID re-read, drying controls and AMS settings.
 Physical H2D + AMS evidence must establish the operations and Cloud/LAN routes actually
-claimed. Confirm the precise AMS hardware and routing during physical acceptance;
-the first route to qualify remains an open qualification decision. Passing one
-route or model does not qualify another.
+claimed. Qualify Cloud first, then LAN, with separate evidence for each path.
+Confirm the precise AMS hardware and routing during physical acceptance. Passing
+one route or model does not qualify another. Independently running Electron
+processes must demonstrate the accepted shared-persistence and non-synchronized
+account behavior, including invalidation and concurrent-write cases; a historical
+single-process multi-window fixture does not qualify this behavior.
 
 Follow [testing guidelines](../doc/testing_guidelines.md) for affected-package
 tests/typechecks, contract fixtures, host E2E and repository handoff checks.

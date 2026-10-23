@@ -260,8 +260,18 @@ multi-main-window operation is not supported. Each instance owns its current
 selection, provider runtime, connections, observation cache and operations.
 There is no cross-instance live selection synchronization or shared-connection
 takeover UI. Persisting a last-selected device is a startup preference, not a
-mechanism for changing the selection of another running instance. This decision
-does not prescribe separate on-disk user-data directories.
+mechanism for changing the selection of another running instance. Instances
+share persisted configuration, including remembered login, saved devices and
+last-selected-device preference; do not create a separate profile directory per
+instance. This sharing does not merge live provider state or connections.
+
+Do not actively synchronize login, logout or account switching across running
+instances. Each instance maintains its own session; newly started instances read
+the latest saved configuration. If the server or plugin invalidates an existing
+session, that instance performs normal account/route cleanup and presents the
+need to sign in again. Lack of proactive synchronization is not a guarantee that
+another instance's session remains valid after logout. Shared-storage concurrency
+must be qualified without exposing or rewriting private plugin auth files.
 
 These are accepted design changes, not claims that current production code
 already implements them. Printer-selection persistence applies to all providers
@@ -313,6 +323,23 @@ extrusion threshold as universal. The reference Z handlers send movement before
 checking homing; do not reproduce that ordering. All applicable checks precede
 dispatch, including provider-side validation.
 
+#### Accepted qualification sequence
+
+Qualify real H2D + AMS control over Cloud first, then LAN. This is an acceptance
+order, not a change to Cloud-preferred runtime routing and not permission to
+claim LAN support from Cloud results. Determine the exact AMS hardware and
+physical routing at hardware acceptance, using device-reported topology in the
+design. Both paths require their own evidence for the operations claimed.
+
+Independent-instance acceptance must cover shared configuration with separate
+provider runtimes, simultaneous use, startup restoration, account changes in
+one instance without proactive synchronization to others, and server/plugin
+invalidation of another instance's session. Verify concurrent writes and normal
+shutdown do not corrupt saved configuration or resurrect removed account/device
+state from an obsolete snapshot. Existing tests within a single Electron process
+do not establish these multi-process behaviors. This remains a design requirement,
+not a claim of completed hardware or persistence qualification.
+
 #### Remaining interaction decisions under review
 
 The following groups organize the remaining design decisions. Resolve questions
@@ -323,7 +350,8 @@ sections rather than appending an answer log or editing after each answer.
 | Group | Decisions to resolve together |
 | --- | --- |
 | Command implementation details | Command-specific completion evidence, freshness thresholds, operation retention/deduplication windows and confirmation timeouts need protocol evidence and validation during implementation. User-facing feedback follows Orca as selected above; these details do not imply a new operation-history UI. |
-| Qualification | Initial routes/hosts, representative device states and permitted physical operations, independent-instance behavior and persistence, broader-model claims and release acceptance boundaries. |
+| Monitoring selection lifetime | Whether selecting a different printer releases ordinary monitoring of the previous printer, while preserving pending operation identity and outcomes. |
+| Qualification details | Confirm the physical fixture, representative device states and permitted physical operations at acceptance. Cloud precedes LAN; independent runtimes share persistence without proactive account synchronization. Broader-model and release claims require separate evidence. |
 
 Reference behavior comes from the checked-in Orca revision identified in the
 [provider specification](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design),

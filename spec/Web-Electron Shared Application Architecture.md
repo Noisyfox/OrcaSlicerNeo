@@ -343,6 +343,17 @@ log out its account. Normal shutdown of that application instance closes its
 provider process and releases resources while preserving remembered login.
 This is separate from the slicing utility process.
 
+The accepted control design shares persistent configuration across independent
+instances while retaining separate runtime ownership. It does not introduce
+per-instance profile directories or proactive cross-instance synchronization of
+login/logout/account changes. New instances restore the latest persisted state;
+already running instances handle their own session and any server/plugin
+invalidation. See the [instance boundary](Application%20Shell.md#host-and-page-lifetime)
+and [qualification sequence](Printer%20Console%20and%20Control%20Integration.md#accepted-qualification-sequence).
+Concurrent storage behavior remains to be qualified. This decision does not
+permit private plugin auth-file manipulation or imply that within-process
+serialization protects independent processes.
+
 Ship a fixed compatible version of `open-bamboo-networking` with the Electron
 application, validated and released together with the native adapter. No
 first-use plugin download or user-managed plugin installation is part of the
