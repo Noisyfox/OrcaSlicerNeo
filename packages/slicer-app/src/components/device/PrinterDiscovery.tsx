@@ -40,7 +40,7 @@ export function PrinterDiscovery({ saved }: { saved: readonly SavedPrinter[] }) 
   }, [open, providers, service]);
   const existing = (candidate: DiscoveryCandidate) => saved.find(printer => printer.routes.some(route => route.providerId === candidate.providerId)
     && printer.identity.externalRefs.some(reference => candidate.externalRefs.some(other => other.namespace === reference.namespace && other.value === reference.value)));
-  const remembered = selected ? existing(selected)?.routes.some(route => route.providerId === selected.providerId && route.configuration.channel === 'lan' && route.configuration.credentialRef !== null) : false;
+  const remembered = selected ? existing(selected)?.routes.some(route => route.providerId === selected.providerId && route.configuration.credentialRef !== null) : false;
   const submit = async () => {
     if (!selected || busy) return;
     const candidate = selected; const accessCode = code;

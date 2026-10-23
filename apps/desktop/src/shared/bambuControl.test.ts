@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { isBambuControlRequest } from './bambuControl';
 it('accepts only bounded typed observation requests, never native payloads or host settings', () => {
-  const target = { printerId: 'bambu:a', routeId: 'bambu:a:cloud' };
+  const target = { printerId: 'bambu:a', routeId: 'bambu:a:agent' };
   expect(isBambuControlRequest({ method: 'describe', input: target })).toBe(true);
   expect(isBambuControlRequest({ method: 'preview', input: { ...target, expectedConfigurationRevision: 'r1' } })).toBe(true);
   expect(isBambuControlRequest({ method: 'preview', input: { ...target, url: 'https://private/' } })).toBe(false);
@@ -21,7 +21,7 @@ it('accepts only bounded typed observation requests, never native payloads or ho
   ]) expect(isBambuControlRequest(request)).toBe(false);
 });
 it('rejects command injection and malformed guards before native dispatch', () => {
-  const target = { printerId: 'bambu:a', routeId: 'bambu:a:cloud' };
+  const target = { printerId: 'bambu:a', routeId: 'bambu:a:agent' };
   const input = { target, requestId: 'request', command: { type: 'jobs.pause', params: {} } };
   expect(isBambuControlRequest({ method: 'submit', input })).toBe(true);
   expect(isBambuControlRequest({ method: 'submit', input: { ...input, guard: { expectedTaskId: 'task' } } })).toBe(true);

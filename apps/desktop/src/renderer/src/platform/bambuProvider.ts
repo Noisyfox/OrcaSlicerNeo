@@ -81,11 +81,16 @@ export function createBambuProvider(bridge: BambuBridge): AccountProvider & D.Pr
       } catch { return { ok: false, error: { code: 'transport', message: 'LAN access could not be established.' } }; }
     },
     forget: async target => {
-      const devices = await listSaved(); if (!devices.ok) return devices;
-      const printer = devices.value.find(printer => printer.identity.id === target.printerId);
-      const route = printer?.routes.find(route => route.id === target.routeId);
-      if (!route || route.configuration.channel !== 'lan') return reject();
-      try { return await bridge.printerCommand({ action: 'forget', deviceId: printer!.identity.serialNumber!, expectedRevision: target.expectedConfigurationRevision }); }
+      try {
+        const devices = await bridge.read('printers.saved'); if (!devices.ok) return devices;
+        const device = devices.value.find(device => `bambu:${encodeURIComponent(device.deviceId)}` === target.printerId);
+        const printer = device && savedBambuPrinter(device);
+        const route = printer?.routes.find(route => route.id === target.routeId);
+        const lan = device?.routes.find(route => route.channel === 'lan');
+        if (!route || !lan) return reject();
+        if (target.expectedConfigurationRevision !== undefined && target.expectedConfigurationRevision !== route.configurationRevision) return { ok: false, error: { code: 'stale-context', message: 'Printer configuration changed.' } };
+        return await bridge.printerCommand({ action: 'forget', deviceId: device!.deviceId, expectedRevision: lan.revision });
+      }
       catch { return { ok: false, error: { code: 'transport', message: 'The LAN connection could not be forgotten.' } }; }
     },
     observations: bambuObservations(bridge), controls: bambuControls(bridge),

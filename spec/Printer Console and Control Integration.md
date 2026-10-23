@@ -5,7 +5,8 @@
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
 regression cover software behavior; physical H2D + AMS acceptance remains last,
-Cloud followed by LAN. No hardware or six-target control qualification is claimed.
+Account-backed automatic networking followed by LAN-only access. No complete
+hardware or six-target control qualification is claimed.
 
 **Scope:** The printer-console and printer-control experience shared by the
 Electron desktop application and the Web application.
@@ -266,16 +267,19 @@ and does not promise simultaneous live telemetry from previously visited printer
 Orca's reference selection flow is in
 [DevManager](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevManager.cpp).
 
-For Bambu control, choose the Cloud route whenever it exists; use an authorized
-LAN route only when no Cloud route exists. Do not provide a manual route switch.
-A LAN discovery announcement alone is not an authorized route. Temporary Cloud
-failure retains the Cloud choice, reports the connection problem and marks
-retained readings stale; it does not trigger automatic LAN fallback. Removing
-the Cloud route, for example on logout, is a catalogue change: a retained LAN
-route then becomes eligible under the same selection rule. Commands already
-dispatched keep their original route and outcome; changing the catalogue must
-not replay them on LAN. Connection recovery on the selected route is distinct
-from cross-route fallback.
+Bambu control addresses one physical printer through one stable agent endpoint.
+The caller and UI do not select, prioritize or interpret LAN versus Cloud
+transport. The native agent automatically manages account-backed mixed networking;
+both message callbacks feed the same printer state and operation tracking, as in
+Orca's `MachineObject::parse_json` and the callback wiring in `GUI_App`.
+Do not provide a manual route switch or describe an account-backed device as
+necessarily using Cloud transport. A failed channel does not invalidate fresh
+data from the other channel. Missing all fresh data disables controls.
+Independent saved LAN authorization still determines LAN-only access after
+logout; discovery alone does not authorize it. Access/configuration changes
+invalidate old guards while preserving the logical printer identity. Already
+dispatched commands retain their target and outcome and are never replayed
+because a transport or account state changed.
 
 Each main desktop window is a complete independent Electron application
 instance, as defined by the
@@ -349,11 +353,12 @@ dispatch, including provider-side validation.
 
 #### Accepted qualification sequence
 
-Qualify real H2D + AMS control over Cloud first, then LAN. This is an acceptance
-order, not a change to Cloud-preferred runtime routing and not permission to
-claim LAN support from Cloud results. Determine the exact AMS hardware and
-physical routing at hardware acceptance, using device-reported topology in the
-design. Both paths require their own evidence for the operations claimed.
+Qualify real H2D + AMS control with account-backed automatic networking first,
+then independently authorized LAN-only access. Mixed LAN/Cloud reports are a
+normal account-backed case, not an acceptance blocker. Dedicated Cloud-only or
+network-loss claims still require their own network evidence; ordinary acceptance
+does not require the caller to isolate or select a transport. Determine exact
+AMS hardware and physical routing at acceptance from device reports.
 
 Independent-instance acceptance must cover shared configuration with separate
 provider runtimes, simultaneous use, startup restoration, account changes in
@@ -388,7 +393,7 @@ physical acceptance remains last.
 | Group | Evidence and decisions still required |
 | --- | --- |
 | Command implementation details | Implemented: 15-second telemetry freshness, 10-second explicit-read timeout, 30-second completion timeout, and instance-lifetime operation/request retention. ACK is separate from completion. New accepted telemetry can confirm target/task/path state; motion, refresh and recovery without reliable terminal evidence remain unknown on timeout. Hardware acceptance must establish actual firmware outcomes and tune these bounds if evidence requires it. |
-| Qualification details | Confirm the physical fixture, representative device states and permitted physical operations at acceptance. Cloud precedes LAN; independent runtimes share persistence without proactive account synchronization. Broader-model and release claims require separate evidence. |
+| Qualification details | Confirm the physical fixture, representative device states and permitted physical operations at acceptance. Account-backed automatic networking precedes LAN-only access; independent runtimes share persistence without proactive account synchronization. Broader-model and release claims require separate evidence. |
 
 Reference behavior comes from the checked-in Orca revision identified in the
 [provider specification](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design),
@@ -605,6 +610,16 @@ preload, target selection, temperature submission, cancellation context and stal
 controls. Separate provider unit/native tests cover protocol validation and
 outcomes. The independent-instance smoke uses actual native utilities with empty
 account state. None of these substitutes for a logged-in physical printer test.
+
+The automatic-agent transport correction passed `pnpm test` (2,510 tests,
+four existing conditional skips), `pnpm typecheck`, the platform import guard,
+and all seven focused desktop cases in the four Bambu/Moonraker files above.
+After aligning the remaining fixtures with the single endpoint, the desktop
+and shared-app suites passed again (238 and 1,405 tests), as did the full
+typecheck and the Bambu control E2E case. Tests cover merging same-device LAN
+and Cloud reports, retaining fresh state when one channel fails, correlating
+command acknowledgements across channels without resending, and retaining the
+logical target when account removal leaves independently authorized LAN access.
 
 Real H2D + AMS Cloud and LAN operations, account invalidation between live
 instances, and the six-target release matrix remain unrun for this control

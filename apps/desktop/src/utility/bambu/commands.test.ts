@@ -3,7 +3,7 @@ import type * as D from '@orca/printer-control/domain';
 import { BambuTelemetry } from './telemetry';
 import { commandCapabilities, prepareCommand, type CommandContext } from './commands';
 import { BambuRecovery } from './recovery';
-const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:cloud' as D.Id<'route'> };
+const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 const identity: D.PrinterIdentity = { id: target.printerId, displayName: 'Printer', manufacturer: 'Bambu Lab', model: 'H2D', serialNumber: 'a', externalRefs: [] };
 function fixture(patch = {}, model: string | null = 'H2D') {
   const telemetry = new BambuTelemetry(() => 100);

@@ -23,13 +23,15 @@ export function bambuCapabilities(): D.PrinterCapabilities {
 }
 export function savedBambuPrinter(device: BambuDevice): D.SavedPrinter {
   const printerId = `bambu:${encodeURIComponent(device.deviceId)}` as D.Id<'printer'>;
+  const lan = device.routes.find(route => route.channel === 'lan');
+  const revision = JSON.stringify(device.routes.map(route => [route.channel, route.revision]).sort((a, b) => a[0].localeCompare(b[0])));
   return {
     identity: { id: printerId, displayName: device.name, manufacturer: 'Bambu Lab', model: device.model, serialNumber: device.deviceId,
       externalRefs: [{ namespace: 'bambu', value: device.deviceId }] },
-    routes: device.routes.map(route => ({ id: `${printerId}:${route.channel}` as D.Id<'route'>, printerId, providerId,
-      label: route.channel === 'cloud' ? 'Bambu Cloud' : 'Bambu LAN', configurationRevision: route.revision,
-      configuration: { typeId, hostId, channel: route.channel, address: route.channel === 'lan' ? route.address : null, webInterfaceUrl: null, credentialRef: route.channel === 'lan' ? `bambu-lan:${encodeURIComponent(device.deviceId)}` as D.Id<'credential'> : null },
-      management: { rename: false, configure: false, forget: route.channel === 'lan' }, capabilities: bambuCapabilities(),
-    })),
+    routes: [{ id: `${printerId}:agent` as D.Id<'route'>, printerId, providerId,
+      label: 'Bambu Lab', configurationRevision: revision,
+      configuration: { typeId, hostId, channel: 'automatic', address: lan?.address ?? null, webInterfaceUrl: null, credentialRef: lan ? `bambu-lan:${encodeURIComponent(device.deviceId)}` as D.Id<'credential'> : null },
+      management: { rename: false, configure: false, forget: !!lan }, capabilities: bambuCapabilities(),
+    }],
   };
 }

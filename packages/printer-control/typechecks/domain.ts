@@ -487,6 +487,11 @@ export const moonrakerRoute: PrinterRoute = {
 export const enumeratedPrinter: SavedPrinter = {
   identity: manualPrinter.identity, routes: [moonrakerRoute],
 };
+// The endpoint belongs to the agent, whose internal transports are not selected by callers.
+export const automaticAgentRoute: PrinterRoute = {
+  ...moonrakerRoute, id: id<'route'>('printer-agent'), providerId: id<'provider'>('bambu'),
+  configuration: { ...moonrakerRoute.configuration, channel: 'automatic', address: null },
+};
 export const discoveredPrinter: DiscoveryCandidate = {
   id: id<'candidate'>('moonraker-lan'), providerId: moonrakerRoute.providerId,
   configuration: moonrakerRoute.configuration, capabilities: moonrakerCapabilities,

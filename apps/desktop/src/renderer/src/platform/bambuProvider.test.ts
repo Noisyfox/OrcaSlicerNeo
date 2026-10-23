@@ -21,7 +21,7 @@ function fixture() {
 it('projects stable provider/printer/route identities and exposes monitoring capabilities with controls still unsupported', async () => {
   const f = fixture(); const result = await f.provider.printers.listSaved(); if (!result.ok) throw new Error('Missing catalogue');
   const printer = result.value[0]; expect(printer.identity.id).toBe('bambu:serial-a'); expect(printer.routes[0].providerId).toBe(f.provider.id);
-  expect(printer.routes[0].configuration).toMatchObject({ channel: 'cloud', address: null, credentialRef: null, webInterfaceUrl: null });
+  expect(printer.routes[0].configuration).toMatchObject({ channel: 'automatic', address: null, credentialRef: null, webInterfaceUrl: null });
   expect(printer.routes[0].management).toEqual({ rename: false, configure: false, forget: false });
   expect(Object.values(printer.routes[0].capabilities.commands).every(capability => capability.kind === 'unsupported')).toBe(true);
   expect(printer.routes[0].capabilities.files.upload.kind).toBe('unsupported');
@@ -59,10 +59,13 @@ it('discovers LAN candidates, authorizes only the same physical identity, and fo
     return { ok: true, value: null };
   });
   const authorized = await f.provider.printers.authorize(request); if (!authorized.ok) throw new Error('Not authorized');
-  const route = authorized.value.routes.find(route => route.configuration.channel === 'lan')!;
+  const route = authorized.value.routes[0];
+  expect(authorized.value.routes).toHaveLength(1);
+  expect(route.id).toBe('bambu:serial-a:agent');
   expect(route.management.forget).toBe(true); expect(route.configuration.credentialRef).not.toBeNull(); expect(JSON.stringify(authorized)).not.toContain('ABCDEFGH');
+  expect(await f.provider.printers.forget({ printerId: route.printerId, routeId: route.id, expectedConfigurationRevision: 'obsolete' })).toMatchObject({ ok: false, error: { code: 'stale-context' } });
   expect(await f.provider.printers.forget({ printerId: route.printerId, routeId: route.id, expectedConfigurationRevision: route.configurationRevision })).toMatchObject({ ok: true });
   expect(f.printerCommand).toHaveBeenLastCalledWith({ action: 'forget', deviceId: 'serial-a', expectedRevision: 'lan-r1' });
-  expect(await f.provider.printers.listSaved()).toMatchObject({ ok: true, value: [{ routes: [{ configuration: { channel: 'cloud' } }] }] });
+  expect(await f.provider.printers.listSaved()).toMatchObject({ ok: true, value: [{ routes: [{ configuration: { channel: 'automatic' } }] }] });
   controller.abort(); await discovery.return?.(); expect(f.listeners.size).toBe(0);
 });

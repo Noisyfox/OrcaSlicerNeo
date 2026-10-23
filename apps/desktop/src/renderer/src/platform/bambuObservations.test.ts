@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import type { BambuBridge, BambuChange } from '../../../shared/bambu';
 import { bambuObservations } from './bambuObservations';
-const target = { printerId: 'bambu:a' as never, routeId: 'bambu:a:cloud' as never };
+const target = { printerId: 'bambu:a' as never, routeId: 'bambu:a:agent' as never };
 it('opens before reading, wakes on invalidation, and releases only its token on abort', async () => {
   const listeners = new Set<(change: BambuChange) => void>();
   const control = vi.fn(async (method: string) => ({ ok: true, value: method === 'read' ? { target, configurationRevision: 'r1', values: { status: { kind: 'unknown', reason: 'not-reported' } } } : null }));

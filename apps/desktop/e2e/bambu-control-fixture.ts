@@ -15,9 +15,9 @@ export function controlSnapshot(device: string, task = 'External task', fresh = 
     ams: { ams: [0, 4, 128].map(id => ({ id, info: '3', tray: [{ id: 0, tray_type: 'PLA', tray_color: '33AA66FF' }] })) }, lights_report: [{ node: 'chamber_light', mode: 'on' }], cooling_fan_speed: 8,
   } }));
   if (!fresh) telemetry.invalidate();
-  const snapshot = telemetry.snapshot(target, printer.identity, 'r1', ['descriptor', 'status', 'thermal', 'motion', 'actuators', 'materials', 'sensors', 'alerts', 'firmware']);
-  const capabilities = commandCapabilities({ ...telemetry.project(target, printer.identity), target, configurationRevision: 'r1', model: 'H2D' });
-  return { snapshot, description: { target, configurationRevision: 'r1', descriptor: snapshot.values.descriptor, capabilities } };
+  const snapshot = telemetry.snapshot(target, printer.identity, printer.routes[0].configurationRevision, ['descriptor', 'status', 'thermal', 'motion', 'actuators', 'materials', 'sensors', 'alerts', 'firmware']);
+  const capabilities = commandCapabilities({ ...telemetry.project(target, printer.identity), target, configurationRevision: printer.routes[0].configurationRevision, model: 'H2D' });
+  return { snapshot, description: { target, configurationRevision: printer.routes[0].configurationRevision, descriptor: snapshot.values.descriptor, capabilities } };
 }
 interface FixtureState { data: Record<string, ReturnType<typeof controlSnapshot>>; commands: D.CommandRequest[]; tokens: string[]; operations: Record<string, D.CommandOperation> }
 declare global { var bambuControlFixture: FixtureState; }
@@ -41,7 +41,7 @@ export async function installControlFixture(app: ElectronApplication) {
       if (method === 'submit') {
         fixture.commands.push(input);
         const ref = { printerId: target.printerId, routeId: target.routeId, id: `operation-${fixture.commands.length}` };
-        fixture.operations[ref.id] = { kind: 'command', ref: ref as D.OperationRef, commandType: input.command.type, requestId: input.requestId, configurationRevision: 'r1', revision: 1, updatedAtMs: Date.now(), phase: { kind: 'completed', result: null, confirmation: 'observed-state' } };
+        fixture.operations[ref.id] = { kind: 'command', ref: ref as D.OperationRef, commandType: input.command.type, requestId: input.requestId, configurationRevision: current.description.configurationRevision, revision: 1, updatedAtMs: Date.now(), phase: { kind: 'completed', result: null, confirmation: 'observed-state' } };
         return { kind: 'recorded', operation: ref };
       }
       if (method === 'operation') return { ok: true, value: { kind: 'found', operation: fixture.operations[input.id] } };

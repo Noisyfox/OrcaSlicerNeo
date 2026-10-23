@@ -3,7 +3,7 @@ import type { BambuNative, NativeEvent } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
 import { BambuMonitor } from './monitor';
 import { BambuOperations } from './operations';
-const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:cloud' as D.Id<'route'> };
+const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 const request = (extra: Partial<D.CommandRequest> = {}): D.CommandRequest => ({ target, requestId: 'request' as D.Id<'request'>, command: { type: 'jobs.pause', params: {} }, ...extra } as D.CommandRequest);
 function fixture(timeout = 1000) {
   const methods = ['setSelectedMachine', 'startSubscribe', 'stopSubscribe', 'sendMessage', 'sendMessageToPrinter', 'disconnectPrinter', 'connectPrinter'];
@@ -23,10 +23,13 @@ it('submits without observe/evaluate, deduplicates request IDs, and treats ACK s
     expect(first).toEqual(second); if (first.kind !== 'recorded') throw new Error('Not recorded');
     expect(f.commands()).toHaveLength(1); expect(f.operations.get(first.operation)).toMatchObject({ ok: true, value: { operation: { phase: { kind: 'sent' } } } });
     const sent = f.commands()[0];
-    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: sent.command, sequence_id: sent.sequence_id, result: 'success' } })] });
+    await f.emit({ type: 'local-message', args: ['b', JSON.stringify({ print: { command: sent.command, sequence_id: sent.sequence_id, result: 'success' } })] });
+    expect(f.operations.get(first.operation)).toMatchObject({ value: { operation: { phase: { kind: 'sent' } } } });
+    await f.emit({ type: 'local-message', args: ['a', JSON.stringify({ print: { command: sent.command, sequence_id: sent.sequence_id, result: 'success' } })] });
     expect(f.operations.get(first.operation)).toMatchObject({ value: { operation: { phase: { kind: 'acknowledged' } } } });
-    await f.push('PAUSE');
+    await f.emit({ type: 'local-message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 1, gcode_state: 'PAUSE' } })] });
     expect(f.operations.get(first.operation)).toMatchObject({ value: { operation: { phase: { kind: 'completed', confirmation: 'observed-state' } } } });
+    expect(f.commands()).toHaveLength(1);
     expect(await f.operations.submit(request({ command: { type: 'jobs.cancel', params: {} } }))).toMatchObject({ kind: 'rejected', error: { code: 'invalid-request' } });
     expect(f.operations.find({ ...target, requestId: 'request' as never })).toMatchObject({ value: { kind: 'found' } });
     expect(f.operations.get({ ...first.operation, printerId: 'bambu:b' as never })).toMatchObject({ value: { kind: 'unknown' } });
@@ -46,7 +49,7 @@ it('pins old operations across printer switches and reports unknown without retr
   const f = fixture(30); try {
     await f.monitor.start(target, 'old'); await f.push();
     const result = await f.operations.submit(request()); if (result.kind !== 'recorded') throw new Error('Not recorded');
-    await f.monitor.start({ printerId: 'bambu:b' as never, routeId: 'bambu:b:cloud' as never }, 'new'); await f.push('PAUSE', 'b');
+    await f.monitor.start({ printerId: 'bambu:b' as never, routeId: 'bambu:b:agent' as never }, 'new'); await f.push('PAUSE', 'b');
     expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { ref: target, phase: { kind: 'sent' } } } });
     await new Promise(resolve => setTimeout(resolve, 45));
     expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'outcome-unknown' } } } });

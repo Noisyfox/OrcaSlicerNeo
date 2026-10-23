@@ -26,7 +26,7 @@ async function seed() {
   const printer = structuredClone(saved.value[0]);
   const route = printer.routes[0];
   route.providerId = 'bambu' as Id<'provider'>;
-  route.label = 'Cloud'; route.configuration.channel = 'cloud';
+  route.label = 'Bambu Lab'; route.configuration.channel = 'automatic';
   route.management = { rename: false, configure: false, forget: false };
   const unsupported = { kind: 'unsupported', layer: 'adapter', reason: 'Discovery only' } as const;
   route.capabilities.observations = Object.fromEntries(Object.keys(route.capabilities.observations).map(topic => [topic, unsupported])) as typeof route.capabilities.observations;
@@ -36,13 +36,13 @@ async function seed() {
   return { printer, moonraker };
 }
 
-it('publishes Bambu to two Device views, hides unsupported actions and forgets only the LAN route', async () => {
+it('publishes Bambu to two Device views, hides unsupported actions and forgets remembered LAN access while retaining the device endpoint', async () => {
   const { printer, moonraker } = await seed();
   let saved = [printer];
   const listeners = new Set<() => void>();
   const publish = () => listeners.forEach(listener => listener());
   const forget = vi.fn<PrinterService['forget']>(async target => {
-    saved = saved.map(p => ({ ...p, routes: p.routes.filter(route => route.id !== target.routeId) }));
+    saved = saved.map(p => ({ ...p, routes: p.routes.map(route => route.id === target.routeId ? { ...route, management: { ...route.management, forget: false }, configuration: { ...route.configuration, credentialRef: null } } : route) }));
     publish(); return { ok: true, value: null };
   });
   const service = createPrinterService([{ id: 'bambu' as Id<'provider'>, name: 'Bambu', printers: {
@@ -64,13 +64,13 @@ it('publishes Bambu to two Device views, hides unsupported actions and forgets o
   await act(async () => { document.querySelector<HTMLElement>('[data-testid="device-select-bambu-device"]')!.click(); });
   expect(first.element.querySelector('[data-testid="device-details"]')?.textContent).toContain('does not provide a console');
   expect(mount).not.toHaveBeenCalled();
-  const cloud = printer.routes[0];
-  const lan = { ...cloud, id: 'lan' as Id<'route'>, label: 'LAN', management: { ...cloud.management, forget: true }, configuration: { ...cloud.configuration, channel: 'lan' as const } };
-  await act(async () => { saved = [{ ...printer, identity: { ...printer.identity, displayName: 'Renamed' }, routes: [cloud, lan] }]; publish(); });
+  const agent = printer.routes[0];
+  const remembered = { ...agent, management: { ...agent.management, forget: true }, configuration: { ...agent.configuration, credentialRef: 'remembered' as Id<'credential'> } };
+  await act(async () => { saved = [{ ...printer, identity: { ...printer.identity, displayName: 'Renamed' }, routes: [remembered] }]; publish(); });
   expect(first.element.querySelector('[data-testid="device-printer-select"]')?.textContent).toContain('Renamed');
   await act(async () => { first.element.querySelector<HTMLButtonElement>('[data-testid="device-delete-bambu-device"]')!.click(); });
   await act(async () => { first.element.querySelector<HTMLButtonElement>('[data-testid="device-confirm-delete"]')!.click(); });
-  expect(forget).toHaveBeenCalledWith({ printerId: printer.identity.id, routeId: lan.id, expectedConfigurationRevision: lan.configurationRevision });
+  expect(forget).toHaveBeenCalledWith({ printerId: printer.identity.id, routeId: remembered.id, expectedConfigurationRevision: remembered.configurationRevision });
   for (const view of [first, second]) {
     expect(view.element.querySelector('[data-testid="device-delete-bambu-device"]')).toBeNull();
     expect(view.element.querySelector('[data-testid="device-printer-select"]')).not.toBeNull();

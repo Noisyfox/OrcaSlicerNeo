@@ -23,7 +23,8 @@ export interface AgentHost {
 export interface PrinterRouteConfiguration {
   typeId: Id<'printer-type'>;
   hostId: Id<'agent-host'>;
-  channel: 'lan' | 'cloud';
+  /** Automatic routes address an agent-owned device; callers do not select its transport. */
+  channel: 'lan' | 'cloud' | 'automatic';
   /** Type-specific address: IP, hostname or endpoint URL, including port/path as needed. */
   address: string | null;
   webInterfaceUrl: `http://${string}` | `https://${string}` | null;

@@ -64,8 +64,7 @@ export class BambuOperations {
     let root: Record<string, unknown>; try { root = record(JSON.parse(event.args[1])); } catch { return; }
     for (const tracked of this.operations.values()) {
       const ref = tracked.operation.ref;
-      if (terminal(tracked.operation.phase) || ref.printerId !== `bambu:${encodeURIComponent(event.args[0])}`
-        || !ref.routeId.endsWith(event.type === 'message' ? ':cloud' : ':lan')) continue;
+      if (terminal(tracked.operation.phase) || ref.printerId !== `bambu:${encodeURIComponent(event.args[0])}`) continue;
       const response = record(root[tracked.prepared.section]);
       if (text(response.sequence_id) === tracked.sequence && response.command === tracked.prepared.fields.command) {
         if (response.result === 'fail' || response.result === 'failed' || response.result === 'error') this.update(tracked, { kind: 'failed', error: { code: 'device-rejected', message: 'The printer rejected this command. Check the printer status.' } });

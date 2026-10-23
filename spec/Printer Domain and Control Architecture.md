@@ -976,12 +976,22 @@ Orca's reference uses a shared default data directory and local account handlers
 in [GUI_App](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_App.cpp); this is not
 proof of black-box plugin concurrency behavior.
 
-For Bambu control, a present Cloud route takes precedence over an authorized LAN
-route. There is no manual route switch and no automatic LAN fallback after
-Cloud failure. A successful catalogue change that removes Cloud may select a
-retained LAN route; already-dispatched commands remain bound to their original
-route and are not replayed. No route union or transient read failure may invent
-capabilities or change this policy.
+For Bambu control, expose a single stable `automatic` agent route per physical
+printer. Cloud membership and independently saved LAN credentials remain
+provider-owned access metadata, not two caller-selected control endpoints.
+The native agent handles account-backed LAN/Cloud networking. Both Cloud and
+local message callbacks normalize into the same device state, and command ACKs
+and completion observations are correlated by physical device and command
+identity, independent of callback channel. This follows Orca's callback wiring
+in `GUI_App` and `MachineObject::parse_json` / `publish_json` in `DeviceManager`.
+Failure of one channel does not stale another channel's fresh observations;
+all-data loss retains marked stale readings and blocks new commands. Transport
+changes do not change the logical route ID or its configuration revision.
+Account/credential configuration changes do change the revision, invalidate old
+guards and reconcile access to the same printer; retained LAN-only access does
+not accept late Cloud callbacks after logout. No automatic transition replays
+an already dispatched command or invents capabilities. The UI has no transport
+selection policy or manual transport switch.
 
 UI observation lifetime, provider connection lifetime and operation lifetime are
 separate. Stopping a view subscription does not cancel a physical operation.
@@ -1118,8 +1128,11 @@ absence of the excluded calibration/detection/camera/object-skipping controls.
 Also cover dynamic material topology, unique/ambiguous/unavailable feed targets,
 load/unload temperature applicability and read-only material/drying observations.
 Verify absence of metadata editing, RFID re-read, drying controls and AMS settings.
-Physical H2D + AMS evidence must establish the operations and Cloud/LAN routes actually
-claimed. Qualify Cloud first, then LAN, with separate evidence for each path.
+Physical H2D + AMS evidence must establish the operations actually claimed.
+Qualify account-backed automatic networking, including mixed callbacks, first;
+then separately qualify independently authorized LAN-only access. Pure Cloud
+and transport-loss claims need explicit network evidence, but are not a
+prerequisite for ordinary mixed-network acceptance.
 Confirm the precise AMS hardware and routing during physical acceptance. Passing
 one route or model does not qualify another. Independently running Electron
 processes must demonstrate the accepted shared-persistence and non-synchronized

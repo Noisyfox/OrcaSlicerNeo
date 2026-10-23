@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { BambuTelemetry } from './telemetry';
 import { readCurrentPrintPreview } from './preview';
 import type * as D from '@orca/printer-control/domain';
-const target = { printerId: 'bambu:p' as D.Id<'printer'>, routeId: 'bambu:p:cloud' as D.Id<'route'> };
+const target = { printerId: 'bambu:p' as D.Id<'printer'>, routeId: 'bambu:p:agent' as D.Id<'route'> };
 function fixture() {
   const telemetry = new BambuTelemetry();
   const push = (task = '123') => telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: 'RUNNING', subtask_id: task } }));
