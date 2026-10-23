@@ -4,8 +4,10 @@ import { _electron } from './electron-fixture';
 //
 // Requires (run in order; public/wasm is gitignored so this never ships):
 //   node scripts/stage-stub-wasm.mjs    # plain-JS stub module → public/wasm/
-//   pnpm --filter @orca/desktop package:dir   # release/win-unpacked/ (no-mock build)
-//   pnpm exec playwright test e2e/packaged.e2e.ts
+//   pnpm --filter @orca/desktop exec electron-vite build
+//   pnpm --filter @orca/desktop exec electron-builder --dir --publish never
+//   pnpm --filter @orca/desktop exec playwright test e2e/packaged.e2e.ts
+// Direct tools preserve the explicit stub; package:dir stages production WASM.
 // CI e2e-real covers the same path with the real module in the dev build.
 import { expect, test, type ElectronApplication } from '@playwright/test';
 import { existsSync } from 'node:fs';

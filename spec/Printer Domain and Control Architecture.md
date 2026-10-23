@@ -450,11 +450,13 @@ manual crash recovery. Normal startup/shutdown cleanup and Orca-compatible
 plugin/API errors remain in scope. Do not make crash-recovery scenarios a
 first-delivery acceptance requirement.
 
-Real-account login, regional endpoints, verification challenges, credential
-refresh and real-device discovery have not been validated in Neo. Successful
-login/listing does not establish permission or support for later printing.
-Browser callbacks and addon/plugin packaging on the six selected targets remain
-subject to normal feature/build verification, without an additional ABI
+China-region real-account login, normal restart restoration, explicit logout
+and Cloud discovery are validated on the macOS ARM64 development host. Other
+regions, additional verification challenges, credential refresh and LAN hardware
+remain unqualified. Successful login/listing does not establish permission or
+support for later printing. Browser callbacks and addon/plugin packaging on the
+six selected targets remain subject to normal feature/build verification,
+without an additional ABI
 qualification gate. The grouped open decisions are tracked in the shared
 architecture. Browser-login mode, remembered login, black-box lifecycle,
 single-account, regional switching, explicit/expiry-triggered logout cleanup,
@@ -468,7 +470,8 @@ credential store merely because authentication is delegated to the plugin.
 the native addon, application-owned utility host, account flow and Cloud device
 enumeration) are delivered and accepted on the development host. Step 7 passes
 automatic acceptance, with real LAN-only device qualification deferred by the
-user. Step 8 packaging work is authorized; release qualification remains open.
+user. Step 8 packaging and CI integration are implemented; its development-host
+acceptance and outstanding release qualification are recorded below.
 This sequence implements the
 accepted behavior in section 2.1 and the
 [shared account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts).
@@ -806,15 +809,36 @@ establish real-device support.
 
 #### Step 8 — Packaged delivery and combined acceptance
 
-Integrate the addon and pinned plugin artifacts into existing desktop packaging
-and the six-target CI matrix. Review
-[electron-builder.yml](../apps/desktop/electron-builder.yml), whose current
-node-modules exclusion and `npmRebuild: false` assume no native Node dependency;
-ensure native runtime files are explicitly staged and loadable in the installed
-application. Update the normal build/release path rather than requiring a user
-download or manual plugin installation.
+The [native resource stage](../packages/bambu-native/scripts/stage.mjs) builds
+the Node-API addon on the target host and acquires the checksum-pinned upstream
+plugin. Normal desktop development/build/E2E entry points prepare these inputs;
+the packaging hook performs the same preparation for the requested target.
+[electron-builder.yml](../apps/desktop/electron-builder.yml) keeps bundled
+JavaScript and excludes production node_modules, while explicit extra resources
+carry the addon, the complete plugin directory and Orca's complete public
+certificate directory outside asar. The existing `set_cert_file` call still
+passes the certificate directory and `slicer_base64.cer`; `printer.cer` is
+preserved alongside it. No user download or manual installation is required.
 
-**Acceptance:** Produce all six target packages and record ordinary installed-app
+The [six-target CI matrix](../.github/workflows/ci.yml) uses native runners and
+matching Node architectures. Each package runs real-plugin startup,
+configuration restart and isolated-login/system-browser handoff probes against
+its packaged app directory. Production builds use the real WASM runtime;
+the separate E2E build mode retains the mock slicer fixture. The engineering
+[packaging reference](../doc/2026-09-25-github-pages-deployment.md#desktop-packaging)
+owns the build procedure.
+
+**Implementation acceptance:** Native resource and host regressions pass on
+the development host. A macOS ARM64 installer is produced, and its packaged app
+passes real-plugin startup, configuration restart and login-window handoff
+checks. Login-page fixtures prove host behavior without authenticating a real
+account. The app installed from the DMG separately restores the real
+China-region Neo test account and its Cloud catalogue across normal restart,
+including common Device rows without automatic target selection. This qualifies
+the development-host implementation; combined release qualification remains
+open below.
+
+**Release qualification still required:** Produce all six target packages and record ordinary installed-app
 startup/plugin-load evidence for each. Validate OS-specific login-window,
 system-browser callback and persistence seams on the applicable hosts. Run a
 primary real-account/device journey covering login, automatic Cloud population,
@@ -822,7 +846,10 @@ LAN access, a combined identity, logout retaining LAN, re-login, LAN forgetting
 and application restart. Record CN/international results and any untested
 challenge/device/environment explicitly. Packaging success alone does not prove
 real login or discovery. No additional ABI gate or process-crash qualification
-is introduced.
+is introduced. The remaining five target packages and their runtime probes await
+CI execution. LAN hardware qualification remains deferred as authorized in step
+7; international account/challenge journeys also remain unverified. Step 8 is
+not fully qualified until the applicable evidence is available.
 
 #### Verification and completion rules
 

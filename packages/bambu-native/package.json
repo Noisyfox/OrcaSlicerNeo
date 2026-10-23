@@ -10,7 +10,8 @@
   "scripts": {
     "install": "node -e \"\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build": "node scripts/verify-declarations.mjs && node-gyp rebuild && tsc -p tsconfig.json",
+    "build": "node scripts/stage.mjs --build-only",
+    "stage:runtime": "node scripts/stage.mjs",
     "acquire": "node scripts/acquire.mjs",
     "test": "pnpm build && node --test test/*.test.mjs",
     "smoke": "node scripts/smoke.mjs"

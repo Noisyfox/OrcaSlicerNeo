@@ -246,6 +246,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
       - uses: pnpm/action-setup@v6 # installs pnpm@10.0.0 from root packageManager field
       - uses: actions/setup-node@v7
         with:
@@ -388,34 +390,48 @@ jobs:
   package:
     name: Package (${{ matrix.id }})
     needs: [wasm_threaded, wasm_serial, profile-pack]
+    env:
+      ORCA_E2E_REAL: "1"
     strategy:
       fail-fast: false
       matrix:
         include:
           - id: win-x64-nsis
             os: windows-latest
+            arch: x64
             args: --win --x64
             suffix: -win-x64.exe
+            unpacked: release/win-unpacked
           - id: win-arm64-nsis
-            os: windows-latest
+            os: windows-11-arm
+            arch: arm64
             args: --win --arm64
             suffix: -win-arm64.exe
+            unpacked: release/win-arm64-unpacked
           - id: linux-x64-appimage
             os: ubuntu-latest
+            arch: x64
             args: --linux --x64
             suffix: -linux-x86_64.AppImage
+            unpacked: release/linux-unpacked
           - id: linux-arm64-appimage
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
+            arch: arm64
             args: --linux --arm64
             suffix: -linux-arm64.AppImage
+            unpacked: release/linux-arm64-unpacked
           - id: mac-x64-dmg
-            os: macos-14 # macos-13 runners retired (2026); electron-builder downloads the x64 Electron dist
+            os: macos-15-intel
+            arch: x64
             args: --mac --x64
             suffix: -mac-x64.dmg
+            unpacked: release/mac/OrcaSlicerNeo.app
           - id: mac-arm64-dmg
             os: macos-14
+            arch: arm64
             args: --mac --arm64
             suffix: -mac-arm64.dmg
+            unpacked: release/mac-arm64/OrcaSlicerNeo.app
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -425,6 +441,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
+          architecture: ${{ matrix.arch }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v8
@@ -444,6 +461,27 @@ jobs:
         run: pnpm --filter @orca/desktop package ${{ matrix.args }}
       - name: Verify one installer for this architecture
         run: node scripts/verify-installer.mjs '${{ matrix.suffix }}'
+      - name: Linux packaged-probe system dependencies
+        if: runner.os == 'Linux'
+        run: pnpm --filter @orca/desktop exec playwright install-deps chromium
+      - name: Packaged native provider and login-window seams
+        if: runner.os != 'Linux'
+        env:
+          ORCA_E2E_PACKAGED_ROOT: ${{ matrix.unpacked }}
+        run: pnpm --filter @orca/desktop exec playwright test e2e/bambu-packaged.e2e.ts e2e/bambu-account.e2e.ts
+      - name: Packaged native provider and login-window seams (Linux)
+        if: runner.os == 'Linux'
+        env:
+          ORCA_E2E_PACKAGED_ROOT: ${{ matrix.unpacked }}
+        run: xvfb-run -a pnpm --filter @orca/desktop exec playwright test e2e/bambu-packaged.e2e.ts e2e/bambu-account.e2e.ts
+      - name: Upload packaged probe failures
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: packaged-bambu-failures-${{ matrix.id }}
+          path: apps/desktop/test-results
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:

@@ -198,6 +198,12 @@ capabilities, publishes validated Cloud account lists through the common Device
 catalogue, and retains unsupported control/upload/monitoring capabilities.
 LAN discovery/access are implemented and automatically accepted. Real LAN-only
 device qualification is deferred; packaging work may proceed.
+Desktop build and packaging entry points now prepare the pinned native
+resources explicitly, and the six-target CI matrix uses matching native
+architectures with packaged-provider probes. The macOS ARM64 package passes
+startup, configuration restart and isolated-login/system-browser handoff
+checks, and restores the real China-region account and Cloud catalogue across
+normal restart. The remaining platform release evidence is pending.
 
 Provider identity, account modeling and account methods belong in a shared
 contract module outside `printer-control`. They must be usable by services with

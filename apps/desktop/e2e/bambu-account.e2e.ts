@@ -1,14 +1,14 @@
-import { _electron } from './electron-fixture';
+import { _electron, desktopLaunchOptions } from './electron-fixture';
 import { expect, test } from '@playwright/test';
-import { resolve } from 'node:path';
+const startupTimeout = process.env.ORCA_E2E_REAL === '1' ? 300_000 : 30_000;
 
 test('Home owns the Bambu entry and an isolated reusable login window cancels cleanly', async () => {
-  const app = await _electron.launch({ args: [resolve(__dirname, '../out/main/index.js')], env: { ...process.env, ORCA_E2E: '1' } });
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
   try {
     // The real plugin supplies the URL; page content is deterministic and does not authenticate.
     await app.context().route('https://bambulab.com/**', route => route.fulfill({ contentType: 'text/html', body: '<title>Official login fixture</title><input aria-label="Email"><script>window.addEventListener("message", e => window.loginReply = e.data);</script>' }));
     const page = await app.firstWindow();
-    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: startupTimeout });
     await page.locator('#app-tab-home').click();
     const signIn = page.getByRole('button', { name: 'Sign in to Bambu Lab' });
     await expect(signIn).toBeEnabled({ timeout: 30_000 });
@@ -26,7 +26,7 @@ test('Home owns the Bambu entry and an isolated reusable login window cancels cl
 });
 
 test('third-party login opens the system browser and preserves the embedded form and loopback', async () => {
-  const app = await _electron.launch({ args: [resolve(__dirname, '../out/main/index.js')], env: { ...process.env, ORCA_E2E: '1' } });
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
   try {
     await app.evaluate(({ shell }) => {
       (globalThis as typeof globalThis & { bambuExternal: string[] }).bambuExternal = [];
@@ -53,7 +53,7 @@ test('third-party login opens the system browser and preserves the embedded form
         document.getElementById('popup').onclick = () => window.open('https://bambulab.com/oauth/popup');
       </script>` }));
     const page = await app.firstWindow();
-    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: startupTimeout });
     await page.locator('#app-tab-home').click();
     const opened = app.waitForEvent('window'); await page.getByRole('button', { name: 'Sign in to Bambu Lab' }).click(); const login = await opened;
     await login.getByRole('textbox', { name: 'Email' }).fill('preserved-input');
