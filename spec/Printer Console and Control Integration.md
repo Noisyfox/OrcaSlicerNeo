@@ -176,9 +176,9 @@ in that task/material card. Expose supported contextual retry, recovery or abort
 actions rather than directing every failure to the printer. Follow the existing
 opaque action-reference contract and validate context at execution; a user
 invoking a device-provided recovery action is not automatic replay of an
-uncertain command. Presentation of confirmations and operation details remains
-part of command-interaction clarification. This does not introduce an HMS
-browser, an error-history page or unrelated diagnostics.
+uncertain command. Presentation follows the accepted command interaction below.
+This does not introduce an HMS browser, an error-history page or unrelated
+diagnostics.
 
 Device calibration may be visible as reported activity, but no calibration
 selection/start dialog is included. Detection settings, including device-side
@@ -267,6 +267,52 @@ These are accepted design changes, not claims that current production code
 already implements them. Printer-selection persistence applies to all providers
 as specified below, independently of Bambu-specific monitoring policy.
 
+#### Accepted command interaction
+
+Pause and resume do not add a generic confirmation dialog. Cancelling the
+current print requires confirmation identifying the target printer and task;
+revalidate that context before dispatch so a selection/task change cannot
+redirect the confirmation. Device-specific blocking conditions and contextual
+prompts remain independent of this generic confirmation policy. Orca's reference
+pause/resume and cancel handlers are in
+[StatusPanel](../packages/slicer-wasm/cpp/src/slic3r/GUI/StatusPanel.cpp).
+
+Temperature edits submit valid input on Enter or loss of focus, following
+[TempInput](../packages/slicer-wasm/cpp/src/slic3r/GUI/Widgets/TempInput.cpp).
+Do not add an Apply button or a generic confirmation dialog. Enter followed by
+focus loss must not duplicate the same submission. Bind the edit to its original
+printer, route and heater; a selection change must not send it to a new target.
+The provider still validates current capability, limits and availability.
+
+Initially follow Orca's corresponding control states, local messages and
+necessary dialogs for command feedback. Do not introduce a unified operation
+history panel or require every failure/unknown outcome to remain as a persistent
+inline badge. This choice concerns presentation: native send success is still
+not physical completion, and ambiguous results must not cause automatic replay.
+Orca's temporary protection of edited values from incoming telemetry is not
+proof that the device applied a command. Provider operation tracking remains
+independent of the visible page; the UI must not invent a successful result.
+
+Disconnected, connecting, or stale-state control views must not accept new
+control commands. Retain available old readings with an explicit stale marker;
+restore controls only after valid state is received and the operation's other
+conditions are satisfied. Apply this restriction even if the transport still
+appears connected. Continue tracking commands already dispatched; do not queue
+new user actions for automatic dispatch after recovery. The reference
+[Monitor](../packages/slicer-wasm/cpp/src/slic3r/GUI/Monitor.cpp) resets display
+on connection loss; Neo retains stale readings as already selected above.
+
+Manual homing, jogging and extrusion/retraction do not add generic per-action
+confirmation dialogs. Check device capabilities and current conditions before
+sending; an unmet homing or extrusion-temperature prerequisite blocks the
+requested operation and explains the requirement. A contextual homing prompt
+may offer explicit homing, following Orca's XY behavior, but must not replay the
+original movement afterwards. Do not automatically heat or replay blocked
+extrusion. Use device-applicable constraints rather than treating Orca's fixed
+extrusion threshold as universal. The reference Z handlers send movement before
+checking homing; do not reproduce that ordering. All applicable checks precede
+dispatch, including provider-side validation.
+
 #### Remaining interaction decisions under review
 
 The following groups organize the remaining design decisions. Resolve questions
@@ -276,7 +322,7 @@ sections rather than appending an answer log or editing after each answer.
 
 | Group | Decisions to resolve together |
 | --- | --- |
-| Command and failure semantics | Confirmation evidence per command, confirmation dialogs, operation visibility/retention, deduplication and timeout behavior, availability checks and recovery presentation. |
+| Command implementation details | Command-specific completion evidence, freshness thresholds, operation retention/deduplication windows and confirmation timeouts need protocol evidence and validation during implementation. User-facing feedback follows Orca as selected above; these details do not imply a new operation-history UI. |
 | Qualification | Initial routes/hosts, representative device states and permitted physical operations, independent-instance behavior and persistence, broader-model claims and release acceptance boundaries. |
 
 Reference behavior comes from the checked-in Orca revision identified in the

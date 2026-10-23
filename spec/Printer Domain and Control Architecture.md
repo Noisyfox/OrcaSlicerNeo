@@ -1027,10 +1027,26 @@ temperature target is different from waiting for that temperature, and material
 movement needs an appropriate terminal result. Preserve unknown outcomes after
 ambiguous dispatch; do not automatically resend motion or material commands.
 The provider owns request deduplication, protocol response correlation and
-operation lookup independently of the view. Retention duration, confirmation
-timeouts and recovery confirmations remain open decisions. Relevant device
-errors and supported contextual recovery actions are included in the control
-cards; an independent HMS page remains excluded.
+operation lookup independently of the view. Command-specific evidence, retention
+and deduplication windows, freshness thresholds and confirmation timeouts require
+protocol evidence and validation during implementation. The selected UI follows
+Orca's corresponding control states, local messages and necessary dialogs; it
+does not add a unified operation-history panel or uniformly persistent outcome
+badges. This does not weaken underlying outcome tracking or replay restrictions.
+Relevant device errors and supported contextual recovery actions remain included
+in the control cards; an independent HMS page remains excluded.
+
+Follow the accepted
+[command interaction](Printer%20Console%20and%20Control%20Integration.md#accepted-command-interaction):
+confirm print cancellation with printer/task identity; do not add generic
+pause/resume or manual-motion confirmations; submit valid temperature edits on
+Enter or focus loss without duplicate submission. Preserve the original command
+target across edits and dialogs and reject a changed/invalid context at dispatch.
+Check motion prerequisites before sending, without automatically heating or
+replaying a blocked movement. Disconnected, connecting or stale-state views
+retain marked old readings but disable new controls until valid state returns.
+Do not queue new commands for later replay on reconnection. The provider validates
+operation-specific conditions independently of UI availability.
 
 Qualification must cover independently reviewable boundaries: contract
 construction; read-only monitoring and route lifecycle; basic controls;
@@ -1038,7 +1054,10 @@ material/tool routing; and the agreed advanced controls. Deterministic fixtures
 cover complete/incremental data, unsupported or missing readings, stale routes,
 independent-instance isolation, device-selection changes, deduplication,
 uncertain command outcomes, stale recovery contexts and late/missing task
-thumbnails. Check read-only nozzle details, explicit refresh capability and
+thumbnails. Cover cancellation context changes, Enter/focus-loss deduplication,
+temperature edit target changes, control disabling/restoration on stale state,
+and pre-dispatch motion checks without automatic heating or movement replay.
+Check read-only nozzle details, explicit refresh capability and
 absence of the excluded calibration/detection/camera/object-skipping controls.
 Also cover dynamic material topology, unique/ambiguous/unavailable feed targets,
 load/unload temperature applicability and read-only material/drying observations.
