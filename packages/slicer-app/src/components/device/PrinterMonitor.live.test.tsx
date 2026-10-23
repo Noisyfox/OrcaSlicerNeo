@@ -40,7 +40,7 @@ async function fixture() {
     snapshot = { ...snapshot, values: { ...snapshot.values, status: reading } }; wake?.(); await Promise.resolve();
   });
   const click = async (label: string) => act(async () => { [...element.querySelectorAll('button')].find(button => button.textContent === label)!.click(); });
-  return { service, snapshot, known, element, render, update, click, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
+  return { service, snapshot, known, material, element, render, update, click, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
 }
 it('automatically monitors, lays out reported material units and retains the subscription while hidden', async () => {
   const f = await fixture(); try {
@@ -135,4 +135,103 @@ it('keeps stream and manual refresh errors independent across updates and hidden
     expect([...f.element.querySelectorAll('button')].find(button => button.textContent === 'Pause')?.disabled).toBe(true);
     expect(f.watch).toHaveBeenCalledOnce();
   } finally { await f.close(); }
+});
+
+it('uses reported tool names while keeping material and nozzle IDs opaque', async () => {
+  const f = await fixture(); try {
+    const tool = 'opaque-head' as D.Id<'tool'>, nozzle = 'opaque-tip' as D.Id<'nozzle'>, slot = 'opaque-slot' as D.Id<'slot'>, path = 'opaque-path' as D.Id<'path'>;
+    f.topology.tools = [{ id: tool, name: 'Left head', extruderId: 'opaque-drive' as D.Id<'extruder'>, nozzleId: nozzle, motionGroupId: 'opaque-gantry' as D.Id<'motion'> }];
+    f.topology.nozzles = [{ id: nozzle, heaterId: 'opaque-heater' as D.Id<'heater'>, diameterMm: 0.4, constructionMaterial: 'hardened steel', flowType: null, type: null }];
+    f.material.topology.slots = [{ id: slot, unitId: f.material.topology.units[0].id, name: 'Spool A' }];
+    f.material.topology.paths = [{ id: path, slotId: slot, toolId: tool, loading: 'automatic' }];
+    f.caps.commands['materials.load'] = { kind: 'supported', constraints: { pathIds: [path] } };
+    f.caps.commands['materials.unload'] = { kind: 'supported', constraints: { toolIds: [tool] } };
+    await f.render();
+    expect(f.element.textContent).toContain('Left head · Nozzle');
+    expect(f.element.textContent).not.toMatch(/opaque-head|opaque-tip/);
+    await act(async () => f.element.querySelector<HTMLButtonElement>('[aria-label="Load to Left head"]')!.click());
+    expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'materials.load', params: { pathId: path } } });
+    await f.click('Unload Left head');
+    expect((f.submit.mock.calls[1] as unknown[])[0]).toMatchObject({ command: { type: 'materials.unload', params: { toolId: tool } } });
+  } finally { await f.close(); }
+});
+
+it.each([
+  [{ min: -4, max: 6, step: 2 }, [-4, 6]],
+  [{ min: 2, max: 4, step: 1 }, [4]],
+  [{ min: -3, max: 3, step: 0.5 }, [-3, 3]],
+  [{ min: null, max: 10, step: 1 }, []],
+  [{ min: -10, max: 10, step: null }, []],
+] satisfies [D.Range, number[]][])('constrains extrusion presets to reported range %j', async (range, expected) => {
+  const f = await fixture(); try {
+    const extruder = 'opaque-drive' as D.Id<'extruder'>;
+    f.topology.tools = [{ id: 'opaque-head' as D.Id<'tool'>, name: 'Side head', extruderId: extruder, nozzleId: 'opaque-tip' as D.Id<'nozzle'>, motionGroupId: 'opaque-gantry' as D.Id<'motion'> }];
+    f.caps.commands['extrusion.move'] = { kind: 'supported', constraints: [{ extruderId: extruder, distanceMm: range, speed: { kind: 'device-controlled' } }] };
+    await f.render();
+    const buttons = [...f.element.querySelectorAll<HTMLButtonElement>('[aria-label$="with Side head"]')];
+    expect(buttons).toHaveLength(expected.length);
+    for (let index = 0; index < expected.length; index++) {
+      expect(buttons[index].ariaLabel).toContain(`${Math.abs(expected[index])} mm`);
+      await act(async () => buttons[index].click());
+      expect((f.submit.mock.calls[index] as unknown[])[0]).toMatchObject({ command: { type: 'extrusion.move', params: { extruderId: extruder, distanceMm: expected[index] } } });
+    }
+  } finally { await f.close(); }
+});
+
+it('never substitutes a different movement step for an axis that lacks the selected step', async () => {
+  const f = await fixture(); try {
+    const group = 'opaque-motion' as D.Id<'motion'>;
+    f.topology.motionGroups = [{ id: group, name: 'Gantry', axes: ['x', 'y'] }];
+    f.caps.commands['motion.jog'] = { kind: 'supported', constraints: [
+      { motionGroupId: group, axis: 'x', kind: 'step', steps: [{ id: 'fine-x', label: 'Fine X' }] },
+      { motionGroupId: group, axis: 'y', kind: 'step', steps: [{ id: 'fine-y', label: 'Fine Y' }] },
+    ] };
+    await f.render();
+    const x = f.element.querySelector<HTMLButtonElement>('[aria-label="Move X positive"]')!, y = f.element.querySelector<HTMLButtonElement>('[aria-label="Move Y positive"]')!;
+    expect(x.disabled).toBe(false); expect(y.disabled).toBe(true);
+    const select = f.element.querySelector<HTMLSelectElement>('[aria-label="Movement step"]')!;
+    expect(select.value).toBe('fine-x');
+    await act(async () => { select.value = 'fine-y'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(x.disabled).toBe(true); expect(y.disabled).toBe(false);
+    await act(async () => y.click());
+    expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'motion.jog', params: { motionGroupId: group, axis: 'y', stepId: 'fine-y' } } });
+  } finally { await f.close(); }
+});
+
+it('reports an interrupted operation as unknown and never duplicates a pending command', async () => {
+  const f = await fixture(); try {
+    f.service.operations.watch = async function* () {};
+    await f.render();
+    const pause = [...f.element.querySelectorAll('button')].find(button => button.textContent === 'Pause')!;
+    await act(async () => { pause.click(); pause.click(); });
+    expect(f.submit).toHaveBeenCalledOnce();
+    expect(f.element.textContent).toContain('Command outcome unknown');
+    await f.render(false); await f.update('Still printing'); await f.render(true);
+    expect(f.submit).toHaveBeenCalledOnce();
+  } finally { await f.close(); }
+});
+
+it('discards a late task preview and releases object URLs on hide', async () => {
+  const f = await fixture();
+  const create = vi.fn(() => 'blob:fixture-preview'), revoke = vi.fn();
+  const OriginalURL = URL;
+  vi.stubGlobal('URL', class extends OriginalURL { static createObjectURL = create; static revokeObjectURL = revoke; });
+  const pending: { resolve(value: D.Result<D.CurrentPrintPreview>): void; signal?: AbortSignal }[] = [];
+  f.caps.currentPrintPreview = { kind: 'supported', constraints: { mimeTypes: ['image/png'] } };
+  f.service.media.readCurrentPrintPreview = vi.fn<D.PrinterService['media']['readCurrentPrintPreview']>((_target, options) => new Promise(resolve => pending.push({ resolve, signal: options?.signal })));
+  const result = (task: string): D.Result<D.CurrentPrintPreview> => ({ ok: true, value: { ...f.snapshot.target, configurationRevision: f.snapshot.configurationRevision, taskId: task as D.Id<'device-task'>, mimeType: 'image/png', bytes: new Uint8Array([1]) } });
+  try {
+    await f.render(); expect(pending).toHaveLength(1);
+    await f.update('Next task', 'task-2');
+    expect(pending[0].signal?.aborted).toBe(true); expect(pending).toHaveLength(2);
+    await act(async () => pending[0].resolve(result('task-1')));
+    expect(create).not.toHaveBeenCalled();
+    await act(async () => pending[1].resolve(result('task-2')));
+    expect(create).toHaveBeenCalledOnce();
+    expect(f.element.querySelector('img')?.src).toBe('blob:fixture-preview');
+    await f.render(false);
+    expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:fixture-preview');
+    expect(f.element.querySelector('img')).toBeNull();
+    expect(f.service.media.readCurrentPrintPreview).toHaveBeenCalledTimes(2);
+  } finally { await f.close(); vi.unstubAllGlobals(); }
 });

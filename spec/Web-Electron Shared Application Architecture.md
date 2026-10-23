@@ -421,11 +421,13 @@ other regions/challenges and real-account authentication on the other hosts
 remain unverified.
 
 The subsequent [Bambu monitoring/control design](Printer%20Domain%20and%20Control%20Architecture.md#23-bambu-monitoring-and-control-design)
-selects shared React control cards with Bambu-specific composition and H2D + AMS
-acceptance through the same Electron provider boundary. Product scope and main
-interactions are settled; protocol-dependent details and physical qualification
-remain pending. Implementation is authorized in independently tested and committed
-increments, with physical acceptance last; this does not claim delivered control support.
+uses one shared capability- and topology-driven React Monitor for all providers,
+with H2D + AMS acceptance through the same Electron provider boundary. Observation
+delivery and available controls come from the printer contract rather than a
+provider-name branch in the shared application. Moonraker retains its existing
+manual Refresh and basic print controls. Software implementation and fixture
+regressions do not establish physical control qualification; real heating, motion
+and material operations require separate acceptance.
 
 ## 5. Runtime and WASM Loading
 

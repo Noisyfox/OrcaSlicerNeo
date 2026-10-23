@@ -57,17 +57,38 @@ export function ActuatorCard({ capabilities, snapshot, disabled, send }: CardCon
     {topology?.lights.map(light => <label key={light.id} className="flex items-center justify-between text-sm"><span>{light.name.replaceAll('_', ' ')}</span><input type="checkbox" aria-label={light.name.replaceAll('_', ' ')} disabled={disabled || lights.kind !== 'supported' || !lights.constraints.lightIds.includes(light.id)} checked={valueOf(actuators?.lights.find(item => item.lightId === light.id)?.on) ?? false} onChange={event => send({ type: 'lights.set', params: { lightId: light.id, on: event.target.checked } })} /></label>)}
     {!topology?.fans.length && !topology?.lights.length && <p className="text-sm text-muted-foreground">No actuators reported.</p>}</ControlCard>;
 }
+/** Prefer a short 10 mm move, constrained to the reported range and increment.
+ * Unknown bounds/granularity do not establish a safe UI preset; evaluation remains authoritative.
+ */
+function extrusionDistances(range: D.Range | undefined): number[] {
+  if (!range || range.min === null || range.max === null || range.step === null) return [];
+  const { min, max, step } = range;
+  if (![min, max, step].every(Number.isFinite) || min > max || step <= 0) return [];
+  const last = Math.floor((max - min) / step);
+  return [-1, 1].flatMap(direction => {
+    let index = Math.max(0, Math.min(last, Math.round((direction * 10 - min) / step)));
+    let distance = min + index * step;
+    if (direction * distance <= 0) {
+      index += direction;
+      distance = min + index * step;
+    }
+    distance = Number(distance.toFixed(10));
+    return index >= 0 && index <= last && direction * distance > 0 && distance >= min && distance <= max ? [distance] : [];
+  });
+}
 export function MotionCard({ capabilities, snapshot, disabled, send }: CardControls) {
-  const [step, setStep] = useState('small'); const home = capabilities.commands['motion.home'], jog = capabilities.commands['motion.jog'], extrusion = capabilities.commands['extrusion.move'], tools = capabilities.commands['tools.select'];
+  const [selectedStep, setStep] = useState<string | null>(null); const home = capabilities.commands['motion.home'], jog = capabilities.commands['motion.jog'], extrusion = capabilities.commands['extrusion.move'], tools = capabilities.commands['tools.select'];
   const topology = valueOf(snapshot?.values.descriptor)?.topology;
   const active = valueOf(valueOf(snapshot?.values.status)?.activeToolIds) ?? [];
   const groups = topology?.motionGroups ?? [];
+  const steps = jog.kind === 'supported' ? [...new Map(jog.constraints.flatMap(item => item.kind === 'step' ? item.steps.map(step => [step.id, step] as const) : [])).values()] : [];
+  const step = steps.some(item => item.id === selectedStep) ? selectedStep! : steps[0]?.id;
   function move(group: D.Id<'motion'>, axis: D.Axis, direction: 'negative' | 'positive') {
     const limit = jog.kind === 'supported' ? jog.constraints.find(item => item.kind === 'step' && item.motionGroupId === group && item.axis === axis) : undefined;
     if (!limit || limit.kind !== 'step') return null;
-    const effectiveStep = limit.steps.some(item => item.id === step) ? step : limit.steps[0]?.id;
-    if (!effectiveStep) return null;
-    return <Button className={`printer-jog printer-jog-${axis}-${direction}`} size="sm" variant="ghost" disabled={disabled} aria-label={`Move ${axis.toUpperCase()} ${direction}`} onClick={() => send({ type: 'motion.jog', params: { kind: 'step', motionGroupId: group, axis, stepId: effectiveStep, direction } })}>{direction === 'negative' ? '−' : '+'}{axis.toUpperCase()}</Button>;
+    if (!step) return null;
+    const supportsStep = limit.steps.some(item => item.id === step);
+    return <Button className={`printer-jog printer-jog-${axis}-${direction}`} size="sm" variant="ghost" disabled={disabled || !supportsStep} title={supportsStep ? undefined : 'Selected step is unavailable for this axis'} aria-label={`Move ${axis.toUpperCase()} ${direction}`} onClick={() => send({ type: 'motion.jog', params: { kind: 'step', motionGroupId: group, axis, stepId: step, direction } })}>{direction === 'negative' ? '−' : '+'}{axis.toUpperCase()}</Button>;
   }
   return <div className="printer-motion-controls">
     <section className="printer-axis-controls" aria-label="Motion">
@@ -79,14 +100,14 @@ export function MotionCard({ capabilities, snapshot, disabled, send }: CardContr
         </div>
         <div className="printer-z-controls"><span>Z axis</span>{move(group.id, 'z', 'negative')}{move(group.id, 'z', 'positive')}</div>
       </div>)}
-      {jog.kind === 'supported' && <label className="printer-movement-step"><span>Movement step</span><select aria-label="Movement step" value={step} onChange={event => setStep(event.target.value)}>{jog.constraints.find(item => item.kind === 'step')?.steps.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
+      {!!steps.length && <label className="printer-movement-step"><span>Movement step</span><select aria-label="Movement step" value={step} onChange={event => setStep(event.target.value)}>{steps.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
       {!groups.length && <p className="text-xs text-muted-foreground">Waiting for motion information.</p>}
     </section>
     <section className="printer-tool-controls" aria-label="Extruders"><h4>Extruders</h4>
       {topology?.tools.map(tool => <div key={tool.id} className="printer-tool" data-active={active.includes(tool.id)}>
         <strong>{tool.name}</strong>
         {tools.kind === 'supported' && tools.constraints.toolIds.includes(tool.id) && <Button size="sm" variant="secondary" disabled={disabled} aria-pressed={active.includes(tool.id)} onClick={() => send({ type: 'tools.select', params: { toolId: tool.id } })}>Select {tool.name}</Button>}
-        {extrusion.kind === 'supported' && extrusion.constraints.some(item => item.extruderId === tool.extruderId && item.speed.kind === 'device-controlled') && <div className="printer-extrusion-controls">{[-10, 10].map(distanceMm => <Button size="sm" variant="outline" disabled={disabled} key={distanceMm} title={`${distanceMm > 0 ? 'Extrude' : 'Retract'} 10 mm`} aria-label={`${distanceMm > 0 ? 'Extrude' : 'Retract'} 10 mm with ${tool.name}`} onClick={() => send({ type: 'extrusion.move', params: { extruderId: tool.extruderId, distanceMm, speed: { kind: 'device-controlled' } } })}>{distanceMm > 0 ? <ArrowDown size={16} /> : <ArrowUp size={16} />}<span>{distanceMm > 0 ? 'Extrude' : 'Retract'}</span></Button>)}</div>}
+        {extrusion.kind === 'supported' && <div className="printer-extrusion-controls">{extrusionDistances(extrusion.constraints.find(item => item.extruderId === tool.extruderId && item.speed.kind === 'device-controlled')?.distanceMm).map(distanceMm => <Button size="sm" variant="outline" disabled={disabled} key={distanceMm} title={`${distanceMm > 0 ? 'Extrude' : 'Retract'} ${Math.abs(distanceMm)} mm`} aria-label={`${distanceMm > 0 ? 'Extrude' : 'Retract'} ${Math.abs(distanceMm)} mm with ${tool.name}`} onClick={() => send({ type: 'extrusion.move', params: { extruderId: tool.extruderId, distanceMm, speed: { kind: 'device-controlled' } } })}>{distanceMm > 0 ? <ArrowDown size={16} /> : <ArrowUp size={16} />}<span>{distanceMm > 0 ? 'Extrude' : 'Retract'}</span></Button>)}</div>}
       </div>)}
     </section>
   </div>;

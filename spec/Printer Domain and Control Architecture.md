@@ -885,8 +885,9 @@ work actually changes milestone status.
 
 ### 2.3 Bambu monitoring and control design
 
-**Decision status:** Shared control cards with Bambu-specific composition and
-advanced controls are selected, with H2D + AMS as the first physical acceptance
+**Decision status:** One shared capability- and topology-driven Monitor composes
+control cards for all providers. Bambu supplies normalized observations and advanced
+command capabilities, with H2D + AMS as the first physical acceptance
 target. Implementation is authorized in independently tested and committed
 increments; physical qualification is performed last. The
 [console specification](Printer%20Console%20and%20Control%20Integration.md#bambu-control-design)

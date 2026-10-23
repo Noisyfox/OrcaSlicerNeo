@@ -81,21 +81,22 @@ configuration dialog.
 
 Moonraker Monitor provides explicit Refresh for supported status, sensors and
 heater targets, plus capability-gated Pause, Resume and Cancel. Selecting it does
-not start polling. Both monitors use the same responsive layout and printing
+not start polling. All printers use one capability-driven Monitor and printing
 progress card: preview area and print actions on the left, existing readings
 and controls on the right. Moonraker retains a preview placeholder without
 fetching thumbnails; unsupported sections are omitted. Sharing the layout does
 not add Moonraker speed, temperature, motion, material or camera controls.
-Bambu Monitor starts live observation for the selected device
-and composes task, temperature, actuator, motion, tool and material cards. The
+Bambu capabilities enable live observation for the selected device
+and task, temperature, actuator, motion, tool and material cards. The
 provider validates commands against fresh observations and their original target.
 Missing readings stay unreported; disconnected data is marked stale. Unknown
 outcomes never cause an automatic retry. Video remains outside this delivery.
 
 ### Bambu control design
 
-**Decision status:** The user selected shared control cards with a Bambu-specific
-composition and advanced controls (UI option B). The first physical acceptance
+**Decision status:** The shared application uses one capability- and topology-driven
+Monitor (the approved refactoring option B), including advanced controls where
+supported. This supersedes the original Bambu-specific composition. The first physical acceptance
 target is **H2D + AMS**. Implementation is authorized in independently verified increments;
 physical acceptance follows software verification. This UI choice is
 separate from the earlier domain-architecture option B.
@@ -110,12 +111,33 @@ qualification remains a separate acceptance gate.
 The Electron host supplies native Bambu execution; shared React components use
 the printer service. This work does not introduce a Web gateway.
 
-#### Shared cards and Bambu composition
+#### Capability-driven Monitor composition
 
-Reuse common print-status, temperature, actuator, motion and operation-feedback
-components. Compose them into a Bambu control surface, with specialized material
-presentation and advanced settings where the device requires them. Shared UI
-must not parse vendor messages, build protocol commands or access native IPC
+[PrinterMonitor](../packages/slicer-app/src/components/device/PrinterMonitor.tsx)
+is the only Monitor composition. Device selection does not branch on provider ID.
+Shared print-status, temperature, actuator, motion, material and operation-feedback
+cards are selected by advertised capabilities and populated from reported topology.
+Hardware IDs are opaque; tool/nozzle labels use descriptor names. Movement choices
+use advertised step IDs without silently substituting another step for an axis.
+Extrusion presets use reported range and granularity; unknown bounds or increments
+do not establish a preset. The provider still evaluates every command.
+
+[Observation ownership](../packages/slicer-app/src/components/device/usePrinterObservation.ts)
+splits consumed topics by delivery: `push` or `poll` topics use the service's watch,
+while on-demand-only topics use explicit Refresh. The application adds no polling
+loop. Mixed deliveries merge per topic and retain independent stream/read errors;
+a successful manual read cannot clear a failed stream. Hidden views retain the
+selected printer's subscription/cache and apply changes on return. A target or
+configuration change ends that keyed lifetime. A standalone descriptor/firmware
+capability does not start device access.
+
+[Control and preview ownership](../packages/slicer-app/src/components/device/usePrinterControl.ts)
+centralizes evaluation, guarded submission, operation feedback and task-scoped
+preview cleanup. Ending observation never cancels a physical command, and an
+unknown outcome never retries it. Preview reads require the capability and an
+identified task; stale task results are discarded and object URLs released.
+Moonraker keeps its existing manual observation and basic print-control envelope.
+Shared UI must not parse vendor messages, build protocol commands or access native IPC
 directly. Protocol normalization and capability derivation belong to the provider,
 as specified in the
 [Bambu control architecture](Printer%20Domain%20and%20Control%20Architecture.md#23-bambu-monitoring-and-control-design).
