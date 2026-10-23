@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react';
+import { UserRound } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
 import type { AccountProvider, AccountResult, AccountSetting, AccountState } from '@orca/service-provider';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
+function AccountAvatar({ url }: { url: string | null }) {
+  const [failed, setFailed] = useState(false);
+  return <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-muted-foreground">
+    {url && !failed
+      ? <img src={url} alt="Account avatar" className="size-full object-cover" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+      : <UserRound aria-label="Default account avatar" role="img" className="size-5" />}
+  </div>;
+}
 
 function AccountCard({ provider }: { provider: AccountProvider }) {
   const [state, setState] = useState<AccountState>({ status: 'restoring', error: null });
@@ -26,10 +36,12 @@ function AccountCard({ provider }: { provider: AccountProvider }) {
   };
   return <section aria-label={`${provider.name} account`} className="rounded-xl border border-border p-4">
     <div className="flex items-center justify-between gap-4">
-      <div><h2 className="font-medium">{provider.name}</h2><p className="text-sm text-muted-foreground" role="status">
+      <div className="flex min-w-0 items-center gap-3">
+      {state.status === 'signed-in' && <AccountAvatar key={state.account.avatarUrl} url={state.account.avatarUrl} />}
+      <div className="min-w-0"><h2 className="font-medium">{provider.name}</h2><p className="truncate text-sm text-muted-foreground" role="status">
         {state.status === 'signed-in' ? state.account.displayName : state.status === 'restoring' ? 'Restoring account…'
           : state.status === 'signing-in' ? 'Complete sign in in the login window or browser.' : state.status === 'unavailable' ? 'Unavailable' : 'Not signed in'}
-      </p></div>
+      </p></div></div>
       {state.status === 'signed-in'
         ? <Button variant="outline" disabled={busy} onClick={() => void run(() => provider.account.logout())}>Sign out</Button>
         : <Button variant="outline" disabled={busy || state.status === 'restoring' || state.status === 'unavailable'} onClick={() => void run(() => provider.account.login())}>

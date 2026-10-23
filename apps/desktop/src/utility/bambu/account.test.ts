@@ -8,7 +8,7 @@ import { BambuAccount } from './account';
 import { BambuRepository } from './repository';
 import type { BambuHostRequest } from '../../shared/bambuHost';
 const directories: string[] = [];
-afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
+afterEach(async () => { vi.unstubAllGlobals(); for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'neo-bambu-account-')); directories.push(directory);
   const repository = new BambuRepository(directory); const calls: string[] = []; let loggedIn = false; let time = 100_000;
@@ -84,4 +84,51 @@ it('reports native failure return codes without skipping post-login calls or cle
   await f.signIn(); expect(f.native.getUserPrintInfo).toHaveBeenCalledOnce();
   expect(f.account.state).toMatchObject({ status: 'signed-in', error: { code: 'network' } });
   expect(f.native.logout).not.toHaveBeenCalled();
+});
+
+it('loads public avatar bytes without blocking login, and restores them with the remembered account', async () => {
+  const f = await fixture();
+  f.native.getUserAvatar.mockResolvedValue('https://cdn.example.test/avatar.png');
+  const fetchImage = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }));
+  vi.stubGlobal('fetch', fetchImage);
+  await f.signIn();
+  await vi.waitFor(() => expect(f.account.state).toMatchObject({ status: 'signed-in', account: { avatarUrl: 'data:image/png;base64,AQID' } }));
+  expect(fetchImage).toHaveBeenCalledWith(new URL('https://cdn.example.test/avatar.png'), expect.objectContaining({ credentials: 'omit', redirect: 'error' }));
+  await f.account.restore();
+  await vi.waitFor(() => expect(f.account.state).toMatchObject({ account: { avatarUrl: 'data:image/png;base64,AQID' } }));
+  expect(fetchImage).toHaveBeenCalledTimes(2);
+});
+it('discards a late avatar after logout and never blocks account operations on the image request', async () => {
+  const f = await fixture();
+  f.native.getUserAvatar.mockResolvedValue('https://cdn.example.test/avatar.png');
+  let resolve!: (response: Response) => void;
+  const fetchImage = vi.fn((_url: URL, _options: RequestInit) => new Promise<Response>(done => { resolve = done; }));
+  vi.stubGlobal('fetch', fetchImage);
+  await f.signIn();
+  expect(f.account.state).toMatchObject({ status: 'signed-in', account: { avatarUrl: null } });
+  await f.account.handle({ method: 'account.logout', input: null });
+  expect(fetchImage.mock.calls[0][1].signal?.aborted).toBe(true);
+  resolve(new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } }));
+  await new Promise(done => setTimeout(done, 0));
+  expect(f.account.state).toEqual({ status: 'signed-out', error: null });
+});
+it.each(['http://cdn.example.test/a', 'file:///private/a', 'https://user:password@cdn.example.test/a'])('does not fetch unsupported avatar URL %s', async url => {
+  const f = await fixture(); f.native.getUserAvatar.mockResolvedValue(url);
+  const fetchImage = vi.fn(); vi.stubGlobal('fetch', fetchImage);
+  await f.signIn();
+  expect(fetchImage).not.toHaveBeenCalled();
+  expect(f.account.state).toMatchObject({ status: 'signed-in', account: { avatarUrl: null } });
+});
+it.each(['network', 'html', 'oversized', 'stream-oversized'])('keeps login successful when avatar delivery fails: %s', async mode => {
+  const f = await fixture(); f.native.getUserAvatar.mockResolvedValue('https://cdn.example.test/avatar');
+  const fetchImage = vi.fn(async () => {
+    if (mode === 'network') throw new Error('private network detail');
+    return new Response(new Uint8Array(mode === 'stream-oversized' ? 2 * 1024 * 1024 + 1 : 1), { headers: {
+      'content-type': mode === 'html' ? 'text/html' : 'image/png',
+      ...(mode === 'oversized' ? { 'content-length': String(2 * 1024 * 1024 + 1) } : {}),
+    } });
+  });
+  vi.stubGlobal('fetch', fetchImage);
+  await f.signIn(); await new Promise(done => setTimeout(done, 0));
+  expect(f.account.state).toEqual({ status: 'signed-in', account: { displayName: 'User', avatarUrl: null }, error: null });
 });

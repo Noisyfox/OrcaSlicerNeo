@@ -54,3 +54,20 @@ it('shows provider settings without creating another login entry', async () => {
   expect(container.textContent).not.toContain('Sign in');
   expect(p.value.account.login).not.toHaveBeenCalled();
 });
+
+it('shows the signed-in avatar, falls back on image failure, and clears it on logout', async () => {
+  const p = provider(); const container = await render([p.value]);
+  expect(container.querySelector('img')).toBeNull();
+  const signIn = (avatarUrl: string | null) => act(async () => p.change({ status: 'signed-in', account: { displayName: 'User', avatarUrl }, error: null }));
+  await signIn('data:image/png;base64,first');
+  expect(container.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,first');
+  await act(async () => container.querySelector('img')!.dispatchEvent(new Event('error')));
+  expect(container.querySelector('img')).toBeNull();
+  expect(container.querySelector('[aria-label="Default account avatar"]')).not.toBeNull();
+  await signIn('data:image/png;base64,second');
+  expect(container.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,second');
+  await signIn(null);
+  expect(container.querySelector('[aria-label="Default account avatar"]')).not.toBeNull();
+  await act(async () => p.change({ status: 'signed-out', error: null }));
+  expect(container.querySelector('[role="img"], img')).toBeNull();
+});

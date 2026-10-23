@@ -16,6 +16,33 @@ function body(result: NativeHttpResult): Record<string, unknown> {
 const string = (value: unknown) => typeof value === 'string' ? value : '';
 export const bambuCountry = (region: BambuRegion) => region === 'China' ? 'CN' : ['Europe', 'NorthAmerica'].includes(region) ? 'US' : 'Others';
 
+/** Image bytes, not an authenticated API call. Keep renderer CSP/isolation intact. */
+async function readAvatar(url: string, signal: AbortSignal): Promise<string | null> {
+  const limit = 2 * 1024 * 1024;
+  try {
+    const source = new URL(url);
+    if (source.protocol !== 'https:' || source.username || source.password) return null;
+    const response = await fetch(source, { signal, credentials: 'omit', redirect: 'error' });
+    const type = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+    if (!response.ok || !type || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(type)
+      || Number(response.headers.get('content-length')) > limit) {
+      await response.body?.cancel(); return null;
+    }
+    if (!response.body) return null;
+    const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > limit) { await reader.cancel(); return null; }
+        chunks.push(value);
+      }
+    } finally { reader.releaseLock(); }
+    return size ? `data:${type};base64,${Buffer.concat(chunks).toString('base64')}` : null;
+  } catch { return null; }
+}
+
 /** Serializes account transitions; raw login material stays in the utility/main login boundary. */
 export class BambuAccount {
   state: AccountState = { status: 'restoring', error: null };
@@ -24,6 +51,7 @@ export class BambuAccount {
   private activeAttempt: number | null = null;
   private prepared: unknown = null;
   private lastLogin = 0;
+  private avatarRequest: AbortController | null = null;
   constructor(private readonly native: BambuNative, private readonly repository: BambuRepository,
     private readonly publish: (change: BambuChange) => void, private readonly devices: BambuDevices, private readonly now = () => Date.now()) {}
   private queue<T>(work: () => Promise<T>): Promise<T> {
@@ -31,7 +59,18 @@ export class BambuAccount {
   }
   private notify() { this.publish('account'); }
   private async summarize() {
-    this.state = { status: 'signed-in', account: { displayName: await this.native.getUserNickname() || await this.native.getUserName(), avatarUrl: await this.native.getUserAvatar() || null }, error: null };
+    this.avatarRequest?.abort();
+    const account = { displayName: await this.native.getUserNickname() || await this.native.getUserName(), avatarUrl: null as string | null };
+    const url = await this.native.getUserAvatar();
+    this.state = { status: 'signed-in', account, error: null };
+    if (!url) return;
+    const request = new AbortController(); this.avatarRequest = request;
+    // Slow/broken avatar delivery must not delay login, device loading or logout.
+    void readAvatar(url, AbortSignal.any([request.signal, AbortSignal.timeout(5_000)])).then(avatarUrl => {
+      if (request.signal.aborted || this.state.status !== 'signed-in' || this.state.account !== account) return;
+      if (avatarUrl) { this.state = { ...this.state, account: { ...account, avatarUrl } }; this.notify(); }
+      if (this.avatarRequest === request) this.avatarRequest = null;
+    });
   }
   private async connected() {
     this.lastLogin = this.now();
@@ -108,6 +147,7 @@ export class BambuAccount {
   private async logout(expired = false): Promise<AccountResult<void>> {
     this.prepared = null; this.activeAttempt = null; ++this.attempt;
     if (await this.native.logout(true) !== 0) return failure('network', 'Sign out failed. Please try again.');
+    this.avatarRequest?.abort(); this.avatarRequest = null;
     this.devices.clear();
     this.state = { status: 'signed-out', error: expired ? { code: 'authentication', message: 'Login information expired. Please sign in again.' } : null };
     this.notify(); return success();
@@ -129,5 +169,5 @@ export class BambuAccount {
       this.notify();
     }).catch(() => { /* Never forward native error bodies. */ });
   }
-  async close() { await this.tail; }
+  async close() { await this.tail; this.avatarRequest?.abort(); this.avatarRequest = null; }
 }

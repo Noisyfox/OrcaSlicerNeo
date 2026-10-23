@@ -243,6 +243,11 @@ Expose Bambu login-region selection in application settings, following Orca's
 Home initiates login using the saved region; it does not provide a separate
 region selector. The setting belongs to the Bambu provider, while account
 cleanup on region changes follows the rules below.
+After login, Home shows the account avatar next to its display name, with a
+default icon when absent or unavailable. The Bambu host loads the public image
+without account credentials and supplies image data to the renderer, preserving
+its content security and cross-origin isolation policies. Image loading does
+not block account operations, and logout discards the image and pending load.
 On first use, default to `Others` and allow login without requiring an explicit
 region selection. Do not infer the region from system language or IP address.
 This uses Orca's unspecified-region fallback in
