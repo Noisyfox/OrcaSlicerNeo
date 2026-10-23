@@ -100,7 +100,10 @@ separate from the earlier domain-architecture option B.
 The selected scope excludes video, remote-file browsing and an HMS tab. Current
 task/material errors and supported contextual recovery actions remain available
 inside the relevant cards. The additional feature boundaries below are accepted.
-Existing account, discovery and route management remain in place.
+Existing account, discovery and route management remain in place. The shared
+control composition, live subscription and Device selection restoration are
+implemented. Desktop integration regression and physical H2D + AMS qualification
+remain separate acceptance gates.
 The Electron host supplies native Bambu execution; shared React components use
 the printer service. This work does not introduce a Web gateway.
 
@@ -405,7 +408,7 @@ require authentication.
 
 ## Console selection and behavior
 
-**Accepted selection-persistence change; implementation pending:** Remember the
+**Implemented Device selection:** Remember the
 last printer explicitly selected from Device's saved list, for every provider,
 not only Bambu. On the first entry into Device after application restart, restore
 that physical device if it still exists in the successfully loaded catalogue.

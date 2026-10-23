@@ -171,6 +171,8 @@ export interface UserPreferences {
     rightSidebarWidth?: number;
     leftSidebarCollapsed?: boolean;
     rightSidebarCollapsed?: boolean;
+    /** Last explicit Device-list selection, independent of the Send target. */
+    lastDevicePrinterId?: string;
     deviceSidebarWidth?: number;
     deviceSidebarCollapsed?: boolean;
     /** Whether successful G-code sends should navigate to Device by default. */
@@ -390,6 +392,8 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
         ? { rightSidebarCollapsed: ui.rightSidebarCollapsed } : {}),
       ...(typeof ui.deviceSidebarCollapsed === 'boolean'
         ? { deviceSidebarCollapsed: ui.deviceSidebarCollapsed } : {}),
+      ...(typeof ui.lastDevicePrinterId === 'string' && ui.lastDevicePrinterId.length > 0 && ui.lastDevicePrinterId.length <= 512
+        ? { lastDevicePrinterId: ui.lastDevicePrinterId } : {}),
       ...(typeof ui.deviceSidebarWidth === 'number' && Number.isFinite(ui.deviceSidebarWidth)
         ? { deviceSidebarWidth: ui.deviceSidebarWidth } : {}),
       switchToDeviceAfterSend: typeof ui.switchToDeviceAfterSend === 'boolean'

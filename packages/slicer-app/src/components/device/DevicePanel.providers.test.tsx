@@ -106,3 +106,25 @@ it('ignores stale reads and retains the current catalogue on failure', async () 
   await act(async () => { pending[3]({ ok: true, value: [] }); });
   expect(stop).toHaveBeenCalledOnce();
 });
+
+it.each(['bambu', 'moonraker'])('restores the saved %s Device identity only after a successful catalogue load', async providerId => {
+  const { printer, moonraker } = await seed(); printer.routes[0].providerId = providerId as Id<'provider'>;
+  let succeed = false; let notify = () => {};
+  const service = { ...moonraker, listSaved: async () => succeed ? { ok: true, value: [printer] } : { ok: false, error: { code: 'transport', message: 'Unavailable' } },
+    onSavedChanged: (listener: () => void) => { notify = listener; return () => {}; } } as PrinterService;
+  const save = vi.fn();
+  const platform = { printers: { service }, preferences: { load: async () => ({ ui: { lastDevicePrinterId: printer.identity.id } }), save }, webview: { mount: vi.fn() } } as unknown as PlatformCapabilities;
+  const view = root(); await act(async () => { view.renderer.render(<PlatformProvider value={platform}><DevicePanel /></PlatformProvider>); });
+  expect(view.element.querySelector('[data-testid="device-details"]')).toBeNull();
+  await act(async () => { succeed = true; notify(); });
+  expect(view.element.querySelector('[data-testid="device-details"]')).not.toBeNull();
+  expect(save).not.toHaveBeenCalled();
+});
+
+it('does not replace a missing remembered printer with the first available device', async () => {
+  const { printer, moonraker } = await seed();
+  const platform = { printers: { service: { ...moonraker, listSaved: async () => ({ ok: true, value: [printer] }) } }, preferences: { load: async () => ({ ui: { lastDevicePrinterId: 'removed' } }) }, webview: { mount: vi.fn() } } as unknown as PlatformCapabilities;
+  const view = root(); await act(async () => { view.renderer.render(<PlatformProvider value={platform}><DevicePanel /></PlatformProvider>); });
+  expect(view.element.querySelector('[data-testid="device-details"]')).toBeNull();
+  expect(view.element.querySelector('[data-testid="device-console-empty"]')).not.toBeNull();
+});

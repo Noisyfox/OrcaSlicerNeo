@@ -905,16 +905,18 @@ gateway is part of this design. Provider-process crash recovery remains outside
 the existing first-delivery scope; ordinary transport failures still need
 accurate observations and operation outcomes.
 
-The current
-[renderer provider](../apps/desktop/src/renderer/src/platform/bambuProvider.ts)
-advertises discovery-only support. The
-[native boundary](../packages/bambu-native/src/index.ts) already exposes message
-callbacks and LAN sending, but control requires additional exported plugin calls
-and an explicit observation/operation IPC binding. Follow the checked-in Orca
-callers and declarations for Cloud sending, subscriptions and any specialized
-material operations; do not assume LAN sending covers Cloud control. Public IPC
-must validate typed requests and return normalized data without vendor payloads
-or credentials.
+The [renderer provider](../apps/desktop/src/renderer/src/platform/bambuProvider.ts)
+now binds typed observations, control requests and operation lookups to the
+utility. The [native boundary](../packages/bambu-native/src/index.ts) exposes
+Cloud/LAN sends and subscription control. The utility normalizes push reports,
+keeps a target-scoped cache, validates current conditions at dispatch, and treats
+native send/ACK separately from observed completion. H2D/H2D Pro protocol defaults
+come from the pinned Orca resource tables and are overridden by reported values;
+these defaults never instantiate hardware units, slots, tools or paths. Manual
+extrusion uses the reported loaded/selected material minimum temperature and
+blocks when that requirement is unknown. Other unsupported or unknown device
+commands remain unavailable instead of guessing a protocol or hardware layout.
+Physical execution and cross-instance integration remain qualification work.
 
 Retain independently addressed requests. Reading, subscribing or evaluating
 availability must not become a caller prerequisite for command submission.
