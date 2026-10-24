@@ -892,7 +892,8 @@ target. Implementation is authorized in independently tested and committed
 increments; physical qualification is performed last. The
 [console specification](Printer%20Console%20and%20Control%20Integration.md#bambu-control-design)
 owns the feature envelope, presentation and grouped interaction decisions,
-including the exclusions of video, file browsing and an HMS tab.
+including that control increment's exclusions of video, file browsing and an
+HMS tab. The separately accepted camera follow-up is defined in section 8.1.
 
 #### Execution and ownership
 
@@ -1732,6 +1733,145 @@ timelapse is a remote file, not a live camera resource. Neither camera capture
 state nor recording metadata requires or exposes a native job ID to correlate
 with application-submitted work. Watching a camera must not implicitly enable
 recording.
+
+### 8.1 Bambu LAN live view and shared playback
+
+**Decision status:** Accepted design. The current authorized increment records
+this design and builds an isolated H.264 timing, fMP4 and MSE feasibility probe.
+Production media contracts, native streaming integration and Camera UI are not
+delivered by that probe. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
+owns presentation and viewing intent.
+
+Keep the existing `open-bamboo-networking` **v2.2.0** artifact pins and all six
+desktop targets. Use its companion `BambuSource` through the public
+[Orca tunnel declarations](../packages/slicer-wasm/cpp/src/slic3r/GUI/Printer/BambuTunnel.h).
+Do not build or patch the plugin. This increment excludes TUTK/Agora, native
+WebRTC delivery, remote-file browsing, recording/timelapse settings, snapshots,
+a browser-native Bambu provider and a new gateway. Shared remote-URL playback
+is an agent-neutral player capability, not Bambu WAN connectivity.
+
+#### Delivery and ownership
+
+| Source | Agent/host delivery | Shared presentation |
+| --- | --- | --- |
+| Bambu H.264 | Fragmented MP4 initialization and media segments | MSE feeding an HTML `video` element |
+| Bambu MJPEG | Complete JPEG frames, without transcoding | Blob-backed HTML `img` |
+| Remote browser-playable video | URL, MIME and explicit credentials mode | HTML `video` URL playback |
+| Remote HLS | Playlist URL and explicit credentials mode | Native HLS when supported, otherwise hls.js feeding `video` |
+| Remote HTTP MJPEG | Multipart MJPEG URL | HTML `img` URL playback |
+
+Protocol-specific addresses, access codes, certificate setup and plugin handles
+remain private to the existing Bambu utility. LAN-only devices use authorized
+host records and the reported liveview protocol. Cloud-associated devices may
+use v2.2.0's camera URL accessor for a **LAN** connection; no returned URL means
+LAN access is unavailable, not permission to switch to a WAN implementation.
+Use reported `ipcam.liveview.local` rather than an unconditional model-to-port
+table. Unknown camera fields remain unknown; camera hardware, adapter support,
+device-disabled liveview and temporary reachability are distinct conditions.
+
+The native reader uses a dedicated thread, copies borrowed samples before the
+next plugin read, and supports orderly cancellation/close before destroying
+the tunnel or unloading the library. It must not occupy the account/control
+call queue. Encoded-video remuxing belongs to the host; no slicer-WASM or
+wxWidgets dependency is introduced. Main establishes a document-owned binary
+channel between utility and renderer; frame traffic does not traverse ordinary
+state RPC or React state. No local HTTP server is required. Bound every queue
+in the reader, muxer, channel and player, including bytes as well as item count.
+The first production increment permits one Bambu view per application instance;
+this is an adapter limit, not a discovered printer hardware limit.
+
+#### Media resource contract changes
+
+Extend the single current [media contract](../packages/printer-control/src/domain/media.ts)
+with explicit `mse-fmp4` and `jpeg-frames` delivery variants. Each carries an
+opaque stream identity and its format; MSE carries the complete MIME/codec
+string. Keep URL delivery separate from binary delivery. A future `readStream`
+operation takes the media reference, stream identity and cancellation signal,
+returning binary messages as a local asynchronous stream. This is an SDK
+interface, not a JSON DTO or a prescribed gateway wire protocol. Neither
+descriptors nor shared UI expose Electron MessagePorts or native objects.
+Update capability negotiation, dispatch, bindings, mocks and compile fixtures
+together; do not add parallel old/new contracts.
+
+`open` is request-ID-idempotent within its declared retention lifetime. `watch`
+publishes descriptors, state and errors, not video bytes. Binary messages carry
+generation and sequence plus initialization/media-segment or JPEG-frame kind.
+Only one binary consumer attaches to a local media resource in this increment.
+Retain initialization state until attachment without retaining unbounded video;
+start H.264 delivery at a decodable keyframe. A changed codec/configuration or
+reconnection starts a new generation and invalidates old data. Report a gap
+rather than silently concatenating missing segments. `readContent` remains for
+content/range reads and is not repurposed as a live-stream poll.
+
+Resources bind the printer, route and configuration revision. Opening does not
+require a caller-owned observation subscription or an active print job; the
+host coordinates any needed device read without stealing another selection.
+Closing is idempotent. Reader cancellation, document navigation/closure and
+unattached-open expiry release native and JS resources. Account invalidation
+closes account-dependent views while preserving independently authorized LAN
+resources. Video failure does not invalidate controls or log out the account.
+Retain the existing exclusion of provider-process restart/recovery.
+
+#### H.264 timing, fragmentation and recovery
+
+Read SPS/PPS and IDR flags, convert Annex-B access units to length-prefixed AVC,
+and remux without encoding. A muxer emits fMP4 initialization followed by media
+segments. Begin on an IDR; a decoder-configuration change requires a new
+generation. Prefer a maintained muxer behind a narrow host boundary; its actual
+fragment emission behavior must pass the probe before selecting it for product
+use. A fragment-duration option alone is not evidence of low latency.
+
+The pinned plugin exposes `decode_time` in 100ns units, derived from host
+arrival time rather than independent original PTS/DTS. For a verified stream
+without frame reordering, normalize to a monotonic timeline relative to the
+first accepted IDR, retaining measured frame spacing. Do not assume arbitrary
+streams have PTS equal to DTS. Frame reordering, timestamp regressions and long
+gaps must be detected/rejected or explicitly handled before their input class
+is advertised. Arrival-time fixture tests do not qualify real-printer timing.
+
+The plugin's ready queue can discard old access units without exposing a loss
+sequence. Keep reading promptly; do not propagate a stalled UI into an
+indefinitely blocked native read. Own-channel overflow/gaps trigger generation
+reset and IDR resynchronization; plugin-internal loss is a separate limitation
+requiring decoder-error/stall recovery and hardware qualification. Never drop
+arbitrary interdependent H.264 packets and call the remaining stream complete.
+
+The MSE consumer checks the actual MIME/profile, serializes append/remove,
+limits pending bytes and buffered duration, evicts old media and follows the
+live edge. Failed append, codec change or generation change rebuilds playback
+from initialization plus an IDR. JPEG delivery instead replaces stale pending
+frames, displays only a successfully decoded image and revokes displaced Blob
+URLs. Neither path buffers an entire live session.
+
+#### Remote URL compatibility
+
+Agents declare delivery type rather than relying on URL suffixes. Include MIME,
+live/seekable properties, expiry and credentials mode; use renewable signed
+URLs or an explicitly supported cookie mode. Do not assume `video.src` can set
+arbitrary Authorization headers. HLS playlists, segments and keys must all be
+browser-accessible. Preserve HTTPS, CSP and Web COOP/COEP; configure the media
+origins and CORS/CORP instead of disabling isolation. Direct playback must not
+download a whole file first. URL support does not create an agent-management
+UI or a gateway. Mobile product acceptance remains deferred; viewing controls
+must remain touch-usable and hidden views must release buffers and connections.
+
+#### Implementation and acceptance sequence
+
+| Increment | Deliverable | Acceptance boundary |
+| --- | --- | --- |
+| 1 — feasibility (authorized now) | Isolated probe for pinned-plugin H.264 samples, timestamp normalization, fMP4 emission and real MSE playback | Record source provenance, timestamp/fragment timings and actual decoded frames; test short/long GOPs and disrupted timelines. Separate fixtures from physical-printer evidence. Keep the probe out of production entrypoints. |
+| 2 — shared contract/player | Binary media contract, URL/HLS/JPEG/MSE adapters | Compile fixtures and dispatch coverage; cancel/switch/expiry/cleanup; real HTTP URL/HLS and MSE playback in affected hosts. |
+| 3 — native media owner | Public BambuSource loader, reader, lifetime and binary transport | Real library open/read/close, buffer ownership, bounded queues and control responsiveness during viewing; ordinary connection failures. |
+| 4 — camera integration | Capability/observation mapping and shared Camera card | LAN-only and cloud-associated LAN cases, absent/disabled/unknown camera states, first frame, user stop and hidden-page cleanup. |
+| 5 — qualification | Six-platform packaged playback plus hardware acceptance | At least one JPEG and one H.264 printer; sustained playback, reconnect, bad credentials, stop latency and concurrent control responsiveness. |
+
+Each production increment remains separately reviewable and verified under the
+[testing guidelines](../doc/testing_guidelines.md). The current request does
+not authorize treating the feasibility probe as completion of increments 2–5.
+Measured first-frame/fragment delays are evidence, not automatic product SLAs.
+No WASM rebuild is needed unless the implementation actually changes that
+boundary. A working generated stream, fixture server or plugin load must not
+be reported as real-printer, TLS/authentication or six-platform acceptance.
 
 ## 9. Remote files, previews and transfers
 

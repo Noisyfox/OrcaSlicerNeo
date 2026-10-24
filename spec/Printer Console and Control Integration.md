@@ -101,7 +101,8 @@ target is **H2D + AMS**. Implementation is authorized in independently verified 
 physical acceptance follows software verification. This UI choice is
 separate from the earlier domain-architecture option B.
 
-The selected scope excludes video, remote-file browsing and an HMS tab. Current
+The delivered control increment excludes video, remote-file browsing and an HMS tab.
+The accepted [camera follow-up](#camera-live-view) is a separate increment. Current
 task/material errors and supported contextual recovery actions remain available
 inside the relevant cards. The additional feature boundaries below are accepted.
 Existing account, discovery and route management remain in place. The shared
@@ -230,6 +231,46 @@ AI/print-detection switches and sensitivity, are excluded even though they do
 not require video playback. Camera recording, timelapse and resolution settings
 are also excluded. None of these exclusions turns off an existing device
 feature: the device keeps its current configuration.
+
+#### Camera live view
+
+**Status:** Accepted design; specification and an isolated H.264/fMP4/MSE probe
+are authorized now. Camera UI and production media integration remain pending.
+The [printer-domain camera design](Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback)
+owns contracts, host execution, implementation order and qualification gates.
+Keep the pinned Bambu v2.2.0; this is LAN video, including LAN-reachable
+cloud-associated devices, without TUTK. Existing recording, timelapse,
+resolution-setting and file-browser exclusions remain in force.
+
+The shared Monitor adds a capability-driven Camera card separate from the
+current-task Print preview. Its player chooses by delivery descriptor, not
+printer vendor: H.264 fMP4 through MSE into `video`, JPEG frames or HTTP MJPEG
+through `img`, remote browser-compatible URLs directly in `video`, and HLS
+through native support or hls.js. JPEG is not transcoded to unify elements.
+Unknown/unavailable camera information must not be presented as confirmed
+hardware absence. A source format unsupported by the current host gets an
+explicit playback-unavailable state without disabling other monitor cards.
+
+Provide Play/Stop, retry, fullscreen and connection/playback status. User Play
+opens the resource; connection readiness is distinct from the first displayed
+frame. Use muted inline video and handle browser autoplay rejection with a
+Play action rather than a reconnect loop. Live view is not a recording or
+seekable history. Keep aspect ratio and use the same surrounding controls for
+image and video presentation.
+
+Stop on device/route change, leaving the monitor, document hiding or closure.
+Top-level pages remain mounted, so cleanup must follow visibility as well as
+component destruction. Returning from temporary hiding may reopen only while
+the same device retains prior viewing intent; explicit Stop clears that intent.
+Late open results must be closed and old callbacks/frames ignored. Bounded
+transport retries are allowed while viewing is requested; authentication,
+disabled-camera and unsupported-format failures require user action. Do not
+change device recording, timelapse or print state when viewing starts/stops.
+
+The first delivery has one Bambu view per application instance. Remote-URL
+player verification may use a fixture agent; it does not deliver a remote-agent
+configuration UI. Mobile product support is deferred, with touch-usable controls
+and bounded memory/hidden-view cleanup required by the shared design.
 
 #### Accepted materials and AMS behavior
 
