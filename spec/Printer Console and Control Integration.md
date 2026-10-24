@@ -793,6 +793,29 @@ Other speed ranges, active-print interaction and Cloud-only operation remain
 unqualified. No chamber-mode change, heating, motion, extrusion or material
 command was issued in these fan stages.
 
+### Independent LAN bed-heating acceptance
+
+On 2026-10-24, the user explicitly authorized setting the bed to 40 C, waiting
+for the actual reported temperature to reach 40 C, holding that target for ten
+seconds, and restoring the target to zero. The production Monitor performed this
+sequence on the same independently LAN-authorized H2D. Initial target was zero,
+with actual bed temperature approximately 25 C. Fresh telemetry confirmed the
+40 C target and subsequent actual warm-up; command completion alone was not
+used as evidence of reaching temperature.
+
+After a fresh actual reading reached 40 C, the 40 C target was maintained for
+ten seconds before the zero-target command. Both operations completed, and
+fresh telemetry confirmed target zero with residual actual temperature about
+41 C. The nozzle and chamber targets stayed at zero. A later read showed the
+bed cooling to 39 C. The user confirmed that the printer screen matched the
+warm-up and target changes and accepted this test. Timestamped local evidence
+is in `.vitest/lan-acceptance/bed-40.json`.
+
+This qualifies the authorized bed set/warm-up/restore sequence on this H2D over
+LAN. Other temperatures and print-time behavior remain unqualified. No nozzle
+or chamber heating, motion, extrusion or material command was issued in this
+stage; each further heating or physical-control test needs its own user approval.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
