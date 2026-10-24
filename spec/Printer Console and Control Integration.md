@@ -930,6 +930,28 @@ unreported, and these operations still lack a reliable terminal predicate, so
 acknowledgment and the UI completion timeout do not prove physical completion.
 No other axis, large step, extrusion or material operation was exercised.
 
+### Independent LAN Y-axis small-step acceptance
+
+On 2026-10-24, the user authorized one positive Y Small step followed by one
+negative Y Small step after stopping. Fresh observations reported idle status,
+Y homed and no alerts. The production Monitor dispatched positive Y once by
+clicking inside its visible direction sector; the printer acknowledged it and
+the user confirmed correct direction, movement and stopping. The negative-Y
+button initially remained disabled while the prior operation awaited completion
+confirmation. No second command was dispatched during that interval. After the
+operation timed out and the button recovered, fresh state was checked again
+and negative Y was dispatched once through its visible sector. The printer
+acknowledged it and the user confirmed correct direction, movement and stopping.
+No retry or additional Home action was performed in this stage.
+
+The final fresh state was idle with no alerts, all heater targets zero and all
+four reported fan setpoints zero. Local timestamped evidence is in
+`.vitest/lan-acceptance/y-small-step.json`. This qualifies physical positive and
+negative Y Small step direction and stopping on this H2D over LAN. Exact travel
+distance and automatic completion remain unqualified because position is not
+reported and these operations have no reliable terminal predicate. No other
+axis, large step, extrusion or material operation was exercised in this stage.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
