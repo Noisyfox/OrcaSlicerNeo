@@ -35,8 +35,13 @@ the idempotent fetch script when their production-artifact cache misses.
 Each WASM variant caches its production output only after all of that job's
 native tests and smokes pass, including serial publication-rollback injection.
 The artifact key includes the superproject's pinned Orca submodule commit (no
-submodule file-content hashing), toolchain versions, build/bridge inputs and
-test/fixture/profile-packaging inputs. Only an exact hit skips that variant's
+submodule file-content hashing), Emscripten version and native build inputs.
+Standalone test sources, harnesses, fixtures, JS dependencies, profile-packaging
+code and workflow test steps do not participate in the artifact key. Changes
+only to those inputs reuse an available exact cache and skip native tests;
+a miss still runs every native test before saving. Native build scripts and
+CMake configuration remain inputs even when an edit concerns their test logic.
+Only an exact hit skips that variant's
 toolchain/dependency setup, compilation and native tests/smokes. Test-enabled
 build trees are never cached. Both hits and misses upload the production
 artifacts for the current run, including the legacy threaded copy. Dependent

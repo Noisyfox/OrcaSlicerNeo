@@ -32,6 +32,7 @@ env:
   # (table64 binaries fail to instantiate on older V8 — "invalid table
   # elements limits flags"). Volta-pinned in root package.json.
   NODE_VERSION: "24.19.0"
+  EMSDK_VERSION: "6.0.4"
 
 jobs:
   profile-pack:
@@ -73,21 +74,22 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - uses: emscripten-core/setup-emsdk@v15 # official action; jaxvanyang/setup-emsdk repo no longer resolves
         with:
-          version: "6.0.4" # spike-validated (design doc risk table); emsdk tag verified to exist
+          version: ${{ env.EMSDK_VERSION }}
       - name: Select compiled dependency cache key
         id: dependency-key
         env:
           DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/stubs/freetype-port-probe.c') }}
-        run: echo "key=${{ runner.os }}-wasm64-deps-emsdk-6.0.4-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
+        run: echo "key=${{ runner.os }}-wasm64-deps-emsdk-${EMSDK_VERSION}-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Select tested WASM artifact cache key
         id: build-key
         env:
-          # Hash only superproject inputs. The submodule is identified by its
-          # recorded gitlink below, never by walking/hashing its file contents.
-          WASM_INPUT_HASH: ${{ hashFiles('.github/workflows/ci.yml', 'package.json', 'pnpm-lock.yaml', 'scripts/**', 'packages/slicer-wasm/*.sh', 'packages/slicer-wasm/*.txt', 'packages/slicer-wasm/*.cmake', 'packages/slicer-wasm/*.json', 'packages/slicer-wasm/src/**', 'packages/slicer-wasm/shim/**', 'packages/slicer-wasm/stubs/**', 'packages/slicer-wasm/patches/**', 'packages/slicer-wasm/harness/**', 'packages/slicer-wasm/fixtures/**', 'packages/profile-resources/package.json', 'packages/profile-resources/scripts/**', 'packages/profile-resources/src/**') }}
+          # Hash native build inputs only; tests, fixtures, JS dependencies and
+          # workflow test steps do not invalidate production artifacts. The
+          # submodule is identified by its recorded gitlink, never file hashes.
+          WASM_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/stubs/freetype-port-probe.c', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*') }}
         run: |
           orca_pin=$(git rev-parse HEAD:packages/slicer-wasm/cpp)
-          echo "key=${{ runner.os }}-${{ runner.arch }}-wasm64-tested-v1-emsdk-6.0.4-node-${NODE_VERSION}-${orca_pin}-${WASM_INPUT_HASH}" >> "$GITHUB_OUTPUT"
+          echo "key=${{ runner.os }}-${{ runner.arch }}-wasm64-tested-v2-emsdk-${EMSDK_VERSION}-${orca_pin}-${WASM_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Restore compiled WASM dependencies
         id: dependency-cache
         uses: actions/cache/restore@v6
@@ -160,7 +162,7 @@ jobs:
       - uses: emscripten-core/setup-emsdk@v15
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         with:
-          version: "6.0.4"
+          version: ${{ env.EMSDK_VERSION }}
       - name: Restore compiled WASM dependencies
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         id: dependency-cache
@@ -249,7 +251,7 @@ jobs:
       - uses: emscripten-core/setup-emsdk@v15
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         with:
-          version: "6.0.4"
+          version: ${{ env.EMSDK_VERSION }}
       - name: Restore compiled WASM dependencies
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         id: dependency-cache
