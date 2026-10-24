@@ -973,6 +973,31 @@ completion remain unqualified because position is not reported and these
 operations have no reliable terminal predicate. No large step, extrusion or
 material operation was exercised in this stage.
 
+### Independent LAN X-axis large-step acceptance and unresolved anomaly
+
+On 2026-10-24, the user confirmed motion clearance and authorized one positive
+and one negative X Large step, with a physical stop confirmation between them.
+Fresh motion/status preconditions were checked before each dispatch. The printer
+acknowledged positive X; the user confirmed normal direction, visibly greater
+travel than Small step and stopping. The first negative-X command was also
+acknowledged, but the user reported no movement. The step selector was restored
+to Small step and no automatic retry was performed.
+
+The user then explicitly authorized one negative-X Large step retry. After fresh
+precondition checks, this single retry was dispatched and acknowledged; the user
+confirmed normal negative-X movement, greater travel than Small step and stopping.
+The selector was restored to Small step. Final fresh state was idle with no alerts,
+all heater targets zero and all four reported fan setpoints zero. Local evidence
+preserving both attempts is in `.vitest/lan-acceptance/x-large-step.json`.
+
+The source audit found that X uses `xyz_ctrl`, negative `dir = -1` and Large step
+`mode = 1`, matching Orca's `DevAxis::Ctrl_Axis`. No mapping correction was made.
+The first acknowledged-but-unobserved negative movement remains unexplained;
+the successful retry does not establish its cause or constitute a fix. This stage
+records physically confirmed positive and retried negative large-step movement,
+not consistent delivery or exact travel distance. Automatic completion remains
+unqualified. No other axis, extrusion or material operation was exercised.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
