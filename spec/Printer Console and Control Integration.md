@@ -380,11 +380,15 @@ not physical completion, and ambiguous results must not cause automatic replay.
 
 For Bambu commands without reliable physical-completion evidence (jog, home,
 extrusion, nozzle refresh and contextual recovery), a matching successful device
-ACK ends the pending interaction and displays `Printer accepted the command.`
+ACK ends the pending interaction silently, without a success confirmation message.
 Controls become available subject to current telemetry and normal preconditions;
 there is no subsequent completion timeout for that accepted command. Commands
 with reliable completion predicates continue waiting after ACK. Neither a native
 send return nor an unrelated ACK is sufficient to accept a command.
+Observed completion also clears pending feedback without a success message.
+Only errors and unknown outcomes display command feedback. Intermediate sent,
+acknowledged and running phases show no status message; pending controls remain
+disabled to prevent duplicate submission.
 
 Orca's temporary protection of edited values from incoming telemetry is not
 proof that the device applied a command. Provider operation tracking remains
