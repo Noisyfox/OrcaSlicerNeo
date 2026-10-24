@@ -1017,6 +1017,26 @@ travel on this H2D over LAN. Exact travel distance and automatic completion rema
 unqualified. No other axis, extrusion or material operation was exercised in this
 stage; the earlier X-axis anomaly remains unresolved.
 
+### Independent LAN Z-axis large-step acceptance
+
+On 2026-10-24, the user confirmed vertical movement clearance and authorized one
+positive Z Large step followed by one negative Z Large step after stopping, with
+the selector restored afterward. Fresh idle status and Z homed were checked before
+each dispatch. Positive Z was dispatched once and acknowledged; the user confirmed
+normal bed descent, visibly greater travel than Small step and stopping. After the
+prior operation's completion-confirmation timeout released the controls, negative
+Z was dispatched once and acknowledged; the user confirmed normal bed ascent,
+visibly greater travel and stopping. No retry or additional Home action occurred.
+
+The selector was restored to Small step. Final fresh state was idle with no alerts,
+all heater targets zero and all four reported fan setpoints zero. Local evidence
+is in `.vitest/lan-acceptance/z-large-step.json`. This qualifies physical positive
+and negative Z Large step direction, stopping and visibly greater travel on this
+H2D over LAN. Exact distance and automatic completion remain unqualified. No
+extrusion or material operation was exercised in this stage. The earlier X-axis
+acknowledged-but-unobserved movement remains unresolved despite its successful
+explicitly authorized retry.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
