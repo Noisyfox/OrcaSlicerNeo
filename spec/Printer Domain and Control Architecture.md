@@ -1740,7 +1740,7 @@ recording.
 feasibility is demonstrated with generated fixtures on macOS ARM64 in Chrome
 and Electron. Production implementation is authorized in independently verified
 and committed increments. Shared media contracts, the delivery player and native reader/remux are
-delivered, including document-owned resource/transport integration and the shared Camera card. Hardware and six-platform packaged playback remain qualification gates. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
+delivered, including document-owned resource/transport integration and the shared Camera card. H2D H.264 LAN playback is accepted on the macOS ARM64 development host; JPEG hardware and six-platform packaged playback remain qualification gates. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
 owns presentation and viewing intent.
 
 Keep the existing `open-bamboo-networking` **v2.2.0** artifact pins and all six
@@ -1888,7 +1888,7 @@ must remain touch-usable and hidden views must release buffers and connections.
 | 3a — native reader/remux (delivered) | Public BambuSource loader, independent reader and continuous AVC fragments | Real library open/read/close, buffer ownership, bounded queues, failure/cancellation and short/long GOP MSE playback. |
 | 3b — native media owner/transport (delivered) | Resource lifetime, credentials and document-owned binary delivery | Request idempotency, route/account lifecycle, cancellation, channel bounds and control responsiveness during viewing. |
 | 4 — camera integration (delivered within fixture scope) | Capability/observation mapping and shared Camera card | LAN-only and cloud-associated LAN cases, absent/disabled/unknown camera states, first frame, user stop and hidden-page cleanup. |
-| 5 — qualification | Six-platform packaged playback plus hardware acceptance | At least one JPEG and one H.264 printer; sustained playback, reconnect, bad credentials, stop latency and concurrent control responsiveness. |
+| 5 — qualification (H2D LAN development-host subset accepted) | Six-platform packaged playback plus hardware acceptance | At least one JPEG and one H.264 printer; sustained playback, reconnect, bad credentials, stop latency and concurrent control responsiveness. |
 
 Each production increment remains separately reviewable and verified under the
 [testing guidelines](../doc/testing_guidelines.md). Complete and commit each increment after its independent acceptance before
@@ -1938,9 +1938,10 @@ Startup still waits for an IDR. A fresh bounded builder per chunk prevents
 MP4Box sample/box metadata from growing over a live session. No transcoding or
 plugin change is introduced. Slice admission rejects B slices and unsupported
 partition/extension slices rather than assuming their PTS equals arrival DTS.
-Real-printer timestamp/profile behavior, hidden plugin-queue loss, printer
-certificate/authentication handling, sustained cleanup/recovery and packaged
-six-target playback remain unqualified. JPEG and remote URL/HLS delivery are exercised separately by the shared-player
+The H2D timestamp/profile and saved-credential RTSPS path have the scoped
+acceptance below. Other hardware/profile behavior, hidden plugin-queue loss,
+forced network-loss recovery, bad-credential handling and packaged six-target
+playback remain unqualified. JPEG and remote URL/HLS delivery are exercised separately by the shared-player
 check described below; they are not exercised by this H.264 probe.
 
 The native reader uses its own thread and the common Orca tunnel header. It
@@ -1977,6 +1978,48 @@ abort/source cleanup, expired access, oversized packets and sequence/initializat
 gaps. Native-HLS execution remains a host qualification item. Future
 agent origins require explicit host/deployment CSP permission plus media-server
 CORS/CORP; the player does not weaken application isolation or grant origins.
+
+
+#### H2D LAN development-host acceptance
+
+On 2026-10-24, the production desktop build used the previously authorized,
+independent LAN profile with the account signed out. The actual H2D reported
+RTSPS/H.264; v2.2.0 connected on TCP 322 while MQTT status remained on TCP 8883.
+No mock printer handler, transcoding, TUTK or recording-setting change was used.
+The real reader, host muxer, utility/main/preload binary channel and shared
+Monitor player all participated. The decoded stream was 1680×1080,
+`avc1.64c029`.
+
+| Measurement | Observed result, not an SLA |
+| --- | --- |
+| Reopen to initialization / first media fragment / first presented frame | 1.279 s / 1.480 s / 1.508 s, measured from Play |
+| First 100 media-fragment intervals | Mean 222.9 ms; range 198.7–268.6 ms |
+| Continuous live timeline | Over 406 s, crossing a five-minute resource lease without replacing playback; no observed media-time regression or playback error |
+| Retained MSE range / live-edge distance at checkpoints | About 4.4–5.2 s / 0.16–0.32 s; this distance is not camera-to-screen latency |
+| Browser frame accounting at the final long-run checkpoint | `totalVideoFrames=12215`, `droppedVideoFrames=465`; this run is not zero-drop qualification and includes live-edge following and display transitions |
+| Concurrent on-demand status read | Fresh response in about 0.95–1.20 s during video |
+| Explicit Stop / leaving Device for Home | Video TCP connection absent after about 94 ms / 137 ms; MQTT remained available |
+| Closing the normal window during video | Video and MQTT connections absent after about 329 ms |
+
+A normal Electron launch, without Playwright startup flags, also passed
+application-window HTML fullscreen entry/exit, hidden-document release and
+restored playback after minimize. The Playwright page connection was detached
+for visibility acceptance: its focus emulation otherwise forces the document
+visible while the native window is minimized. Returning from Home resumes
+prior viewing intent; explicit Stop remains stopped after leaving and returning.
+The final macOS window policy and enlarged player pass both real-H2D and
+Electron fixture acceptance. Local metrics/screenshot evidence is ignored under
+`.vitest/camera-acceptance/`; it contains no access codes or camera source URLs.
+
+Available software checks pass: workspace `pnpm test` (with the existing
+opt-in WASM/runtime skips), `pnpm typecheck`, production desktop build/CSS smoke,
+real v2.2.0 native smoke, shared-player Chrome/Electron cases, and the targeted
+camera/control Electron journeys. No native WASM rebuild was required.
+Only one H2D was available. Physical MJPEG, cloud-associated camera URL
+resolution on hardware, wrong credentials, forced network loss/reconnect,
+longer unattended runs and six-platform packaged camera playback remain open.
+The six v2.2.0 artifact pins, including macOS x64, are unchanged. Earlier
+six-platform plugin-startup qualification does not qualify this new video path.
 
 ## 9. Remote files, previews and transfers
 

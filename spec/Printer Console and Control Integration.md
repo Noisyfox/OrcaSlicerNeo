@@ -238,7 +238,8 @@ feature: the device keeps its current configuration.
 **Status:** Implementation is authorized in separately verified increments.
 Shared delivery playback, binary contracts, native media integration and the
 capability-driven Camera card are delivered within development-host fixture
-acceptance. Physical-printer and six-platform packaged playback remain open.
+acceptance. H2D H.264 LAN playback is now accepted on the development host;
+physical MJPEG and six-platform packaged playback remain open.
 The [printer-domain camera design](Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback)
 owns contracts, host execution, implementation order and qualification gates.
 Keep the pinned Bambu v2.2.0; this is LAN video, including LAN-reachable
@@ -294,6 +295,12 @@ generated JPEG frame through the production renderer adapter and MessagePorts.
 The UI fixture verifies first decoded frame, control submission during viewing,
 hide/resume, explicit Stop and device switching. It does not establish physical
 printer control responsiveness, LAN authentication or hardware stop latency.
+
+The real-H2D follow-up passes sustained H.264 playback across lease renewal,
+Play/Stop/reopen, Home hide/return, normal-window minimize/restore and window
+closure. Fullscreen enters/exits without replacing playback. Precise timings,
+browser dropped-frame accounting and remaining hardware/host boundaries are in
+[H2D camera acceptance](Printer%20Domain%20and%20Control%20Architecture.md#h2d-lan-development-host-acceptance).
 
 The first delivery has one Bambu view per application instance. Remote-URL
 player verification may use a fixture agent; it does not deliver a remote-agent
