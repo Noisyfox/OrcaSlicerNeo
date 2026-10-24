@@ -952,6 +952,27 @@ distance and automatic completion remain unqualified because position is not
 reported and these operations have no reliable terminal predicate. No other
 axis, large step, extrusion or material operation was exercised in this stage.
 
+### Independent LAN Z-axis small-step acceptance
+
+On 2026-10-24, the user confirmed the bed and vertical movement space were clear
+and authorized one positive Z Small step followed by one negative Z Small step
+after stopping. With fresh idle status and Z homed, the production Monitor
+dispatched positive Z once. The printer acknowledged it; the user confirmed
+normal motion, stopping and physical bed descent. After the prior operation's
+completion-confirmation timeout released the controls, fresh preconditions were
+checked again and negative Z was dispatched once. The printer acknowledged it;
+the user confirmed physical bed ascent, normal motion and stopping. No retry
+or additional Home action was performed in this stage.
+
+The final fresh state was idle with no alerts, all heater targets zero and all
+four reported fan setpoints zero. Local timestamped evidence is in
+`.vitest/lan-acceptance/z-small-step.json`. This qualifies physical positive and
+negative Z Small step direction and stopping on this H2D over LAN, completing
+the three-axis small-step direction checks. Exact travel distance and automatic
+completion remain unqualified because position is not reported and these
+operations have no reliable terminal predicate. No large step, extrusion or
+material operation was exercised in this stage.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
