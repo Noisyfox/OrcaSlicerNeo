@@ -10,6 +10,7 @@ export function MediaPlayer({ descriptor, media, onError }: {
 }) {
   const video = useRef<HTMLVideoElement>(null), image = useRef<HTMLImageElement>(null);
   const player = useRef<ReturnType<typeof startMediaPlayback> | null>(null);
+  const previous = useRef(Promise.resolve());
   const [state, setState] = useState<PlaybackState>('connecting');
   const [aspectRatio, setAspectRatio] = useState('16 / 9');
   const onErrorRef = useRef(onError); onErrorRef.current = onError;
@@ -20,15 +21,16 @@ export function MediaPlayer({ descriptor, media, onError }: {
     setAspectRatio('16 / 9');
     const controller = new AbortController();
     let active: ReturnType<typeof startMediaPlayback> | undefined;
-    // StrictMode replays setup/cleanup before this microtask. A discarded setup
-    // must never attach the single-consumer stream: detaching it closes the view.
-    queueMicrotask(() => {
+    // Defer past StrictMode replay, and let the prior player's async cleanup
+    // finish before sharing these elements with a replacement URL/stream.
+    const before = previous.current;
+    previous.current = before.then(async () => {
       if (controller.signal.aborted) return;
       active = startMediaPlayback({ descriptor: latest.current, media, video: video.current!, image: image.current!,
         signal: controller.signal, onState: setState });
       player.current = active;
-      void active.done.catch(error => { if (!controller.signal.aborted) onErrorRef.current(error.message); });
-    });
+      await active.done;
+    }).catch(error => { if (!controller.signal.aborted) onErrorRef.current(error.message); });
     return () => { controller.abort(); active?.stop(); if (player.current === active) player.current = null; };
   }, [identity, media]);
   useEffect(() => { player.current?.setExpiresAt(descriptor.expiresAtMs); }, [descriptor.expiresAtMs]);
