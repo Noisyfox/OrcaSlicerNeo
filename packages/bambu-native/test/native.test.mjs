@@ -26,6 +26,7 @@ test('copies strings and HTTP output parameters, and serializes submitted calls'
     assert.equal(await agent.isUserLoggedIn(), true);
     assert.equal(await agent.getUserId(), payload);
     assert.equal(await agent.getUserName(), '账户名');
+    assert.equal(await agent.getCameraUrl('fixture-device'), 'bambu:///local/fixture?port=6000&user=bblp&passwd=fixture');
     assert.deepEqual(await agent.getMyToken('ticket-值'), { result: -19, httpCode: 201, body: 'ticket-值' });
     assert.deepEqual(await agent.getUserPrintInfo(), { result: 0, httpCode: 200, body: '{"devices":[]}' });
     assert.deepEqual(await agent.getSubtaskInfo('task-值'), { result: 0, httpCode: 200, body: 'task-值' });

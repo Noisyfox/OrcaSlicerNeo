@@ -235,8 +235,8 @@ feature: the device keeps its current configuration.
 #### Camera live view
 
 **Status:** Implementation is authorized in separately verified increments.
-Shared delivery playback and its binary contracts are delivered; Camera UI and
-native media integration remain pending.
+Shared delivery playback, binary contracts and native media integration are
+delivered; Camera UI remains pending.
 The [printer-domain camera design](Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback)
 owns contracts, host execution, implementation order and qualification gates.
 Keep the pinned Bambu v2.2.0; this is LAN video, including LAN-reachable

@@ -1,3 +1,6 @@
+import { BambuMedia } from './media';
+import type { BambuMediaRequest, BambuMediaAttachment } from '../../shared/bambuMedia';
+import type { CameraPort } from './mediaChannel';
 import { readCurrentPrintPreview } from './preview';
 import { BambuOperations } from './operations';
 import type { BambuControlRequest } from '../../shared/bambuControl';
@@ -18,6 +21,7 @@ export class BambuRuntime {
   private native: BambuNative | null = null;
   private lan: BambuLan | null = null;
   private monitor: BambuMonitor | null = null;
+  private media: BambuMedia | null = null;
   private operations: BambuOperations | null = null;
   private account: BambuAccount | null = null;
   private state: AccountState = { status: 'restoring', error: null };
@@ -27,7 +31,7 @@ export class BambuRuntime {
   constructor(private readonly config: BambuHostConfig, private readonly publish: (change: BambuChange) => void,
     private readonly load: typeof loadBambuNative = loadBambuNative) {
     this.repository = new BambuRepository(config.directory);
-    this.devices = new BambuDevices(this.repository, () => { publish('printers'); void this.monitor?.reconcile().catch(() => undefined); });
+    this.devices = new BambuDevices(this.repository, () => { publish('printers'); void this.monitor?.reconcile().catch(() => undefined); void this.media?.reconcile().catch(() => undefined); });
     this.ready = this.initialize();
   }
   private async initialize() {
@@ -58,10 +62,12 @@ export class BambuRuntime {
       await ok(agent.installDiscoveryCallbacks());
       await agent.startDiscovery(true, false);
       this.monitor = new BambuMonitor(agent, this.devices, this.repository, () => this.lan!.release(), () => this.publish('control'));
+      this.media = new BambuMedia(this.config, agent, this.monitor, this.devices, this.repository, () => this.publish('media'));
       this.operations = new BambuOperations(this.monitor, () => this.publish('control'));
       this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
     } catch {
+      await this.media?.close(); this.media = null;
       await this.monitor?.close(); this.monitor = null;
       await this.lan?.close(); this.lan = null; this.account = null; this.state = unavailableBambuAccount();
       await this.native?.close().catch(() => undefined); this.native = null;
@@ -111,5 +117,14 @@ export class BambuRuntime {
       case 'release': return this.monitor.stop(request.input.token);
     }
   }
-  async close() { await this.ready; this.operations?.close(); await this.monitor?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
+  async mediaCall(owner: string, request: BambuMediaRequest) {
+    await this.ready;
+    return this.media ? this.media.call(owner, request) : { ok: false as const, error: { code: 'transport' as const, message: 'Camera unavailable.' } };
+  }
+  async mediaAttach(owner: string, request: BambuMediaAttachment, port: CameraPort) {
+    await this.ready;
+    if (this.media) this.media.attach(owner, request, port); else port.close();
+  }
+  async mediaCloseOwner(owner: string) { await this.ready; await this.media?.closeOwner(owner); }
+  async close() { await this.ready; this.operations?.close(); await this.media?.close(); await this.monitor?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
 }

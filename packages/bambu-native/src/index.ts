@@ -19,6 +19,7 @@ interface Binding {
 
 export interface BambuNative {
   getVersion(): Promise<string>;
+  getCameraUrl(deviceId: string): Promise<string>;
   createAgent(logDirectory: string): Promise<number>;
   setConfigDirectory(path: string): Promise<number>;
   initLog(): Promise<number>;
@@ -79,7 +80,7 @@ export function loadBambuNative(addonPath: string, pluginPath: string, listener:
     return result;
   };
   return {
-    getVersion: () => call('get_version'),
+    getVersion: () => call('get_version'), getCameraUrl: id => call('get_camera_url', id),
     createAgent: async path => { const result = await call<number>('create_agent', path); created = result === 0; return result; },
     setConfigDirectory: path => call('set_config_dir', path), initLog: () => call('init_log'),
     setCertificate: (folder, filename) => call('set_cert_file', folder, filename),

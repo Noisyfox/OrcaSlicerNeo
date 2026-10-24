@@ -74,6 +74,8 @@ const bridge: ElectronBridge = {
   },
 
   bambu: {
+    media: (method, input) => ipcRenderer.invoke(Ipc.bambuMedia, { method, input }),
+    connectMedia: request => ipcRenderer.send(Ipc.bambuMediaConnect, request),
     control: (method, input) => ipcRenderer.invoke(Ipc.bambuControl, { method, input }),
     printerCommand: request => ipcRenderer.invoke(Ipc.bambuPrinterCommand, request),
     command: request => ipcRenderer.invoke(Ipc.bambuCommand, request),
@@ -160,4 +162,9 @@ ipcRenderer.on(Ipc.slicerPort, (event) => {
 });
 ipcRenderer.on(Ipc.slicerFailed, (_event, error: string) => {
   window.postMessage({ channel: 'orca:slicer-failed', error }, window.location.origin);
+});
+
+// Only a trusted main-frame request can cause main to offer this dedicated port.
+ipcRenderer.on(Ipc.bambuMediaPort, (event, token: unknown) => {
+  if (typeof token === 'string' && event.ports.length === 1) window.postMessage({ channel: 'orca:bambu-media', token }, window.location.origin, event.ports);
 });

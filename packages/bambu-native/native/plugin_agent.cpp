@@ -1,3 +1,4 @@
+#include <future>
 #include "plugin_agent.hpp"
 #include <stdexcept>
 
@@ -111,6 +112,15 @@ Output PluginAgent::call(const std::string& method, const std::vector<Input>& ar
     if (method == "connect_printer") return connect_printer_(agent_, string(0), string(1), string(2), string(3), boolean(4));
     if (method == "send_message") return send_message_(agent_, string(0), string(1), std::get<int>(arguments.at(2)), std::get<int>(arguments.at(3)));
     if (method == "send_message_to_printer") return send_message_to_printer_(agent_, string(0), string(1), std::get<int>(arguments.at(2)), std::get<int>(arguments.at(3)));
+    if (method == "get_camera_url") {
+        auto result = std::make_shared<std::promise<std::string>>();
+        auto future = result->get_future();
+        const auto library = library_;
+        if (get_camera_url_(agent_, string(0), [result, library](std::string url) { try { result->set_value(std::move(url)); } catch (...) {} }) != 0)
+            throw std::runtime_error("Camera URL unavailable");
+        if (future.wait_for(std::chrono::seconds(10)) != std::future_status::ready) throw std::runtime_error("Camera URL unavailable");
+        return future.get();
+    }
     if (method == "install_device_cert") { install_device_cert_(agent_, string(0), boolean(1)); return 0; }
     HttpResult response{0, 0, {}};
     if (method == "get_user_print_info") response.result = get_user_print_info_(agent_, &response.http_code, &response.body);

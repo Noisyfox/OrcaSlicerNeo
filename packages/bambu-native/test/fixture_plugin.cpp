@@ -105,6 +105,7 @@ EXPORT void bambu_network_install_device_cert(void* handle, std::string id, bool
 }
 EXPORT int bambu_network_get_subtask_info(void*, std::string id, std::string* task, unsigned* code, std::string* body) { *task = id; *code = 200; *body = "private-http-body"; return 0; }
 
+EXPORT int bambu_network_get_camera_url(void*, std::string, std::function<void(std::string)> callback) { callback("bambu:///local/fixture?port=6000&user=bblp&passwd=fixture"); return 0; }
 #define CHECK(name) static_assert(std::is_same_v<decltype(&bambu_network_##name), Slic3r::func_##name>);
 NEO_BAMBU_EXPORTS(CHECK)
 #undef CHECK

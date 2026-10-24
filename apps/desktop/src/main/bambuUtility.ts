@@ -1,3 +1,5 @@
+import type { BambuMediaRequest, BambuMediaAttachment } from '../shared/bambuMedia';
+import type { MessagePortMain } from 'electron';
 import { isBambuControlRequest, type BambuControlInputs, type BambuControlMethod, type BambuControlResults } from '../shared/bambuControl';
 import type { BambuHostInputs, BambuHostMethod, BambuHostResults } from '../shared/bambuHost';
 import { join } from 'node:path';
@@ -7,7 +9,7 @@ import { isBambuChange, isBambuRead, isBambuReadResult, type BambuChange, type B
 export interface BambuUtilityChild {
   on(event: 'message', listener: (message: unknown) => void): unknown;
   once(event: 'exit', listener: (code: number) => void): unknown;
-  postMessage(message: unknown): void;
+  postMessage(message: unknown, ports?: MessagePortMain[]): void;
 }
 /** Exactly one instance is created by app startup, owned by this independent application instance. */
 export class BambuUtility {
@@ -74,6 +76,22 @@ export class BambuUtility {
       catch { this.pending.delete(id); reject(new Error('Bambu provider request unavailable')); }
     });
   }
+  async media(owner: string, request: BambuMediaRequest): Promise<unknown> {
+    await this.ready;
+    if (this.closing) throw new Error('Bambu provider is closing');
+    const id = ++this.sequence;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { kind: null, resolve, reject });
+      try { this.child.postMessage({ type: 'media', id, owner, request }); }
+      catch { this.pending.delete(id); reject(new Error('Camera unavailable')); }
+    });
+  }
+  async connectMedia(owner: string, request: BambuMediaAttachment, port: MessagePortMain) {
+    await this.ready;
+    if (this.closing) { port.close(); return; }
+    this.child.postMessage({ type: 'media-port', owner, request }, [port]);
+  }
+  closeMediaOwner(owner: string) { this.child.postMessage({ type: 'media-owner-close', owner }); }
   onChanged(listener: (change: BambuChange) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   close(): Promise<void> {
     if (!this.closing) this.closing = this.ready.then(async () => {

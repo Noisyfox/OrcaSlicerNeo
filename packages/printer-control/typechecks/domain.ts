@@ -616,10 +616,10 @@ const emptyStorages: FileCapabilities['list'] = { kind: 'supported', constraints
 // @ts-expect-error Snapshot support must describe at least one image format.
 const emptySnapshotFormats: CameraMediaCapability['snapshot'] = { kind: 'supported', constraints: { mimeTypes: [] } };
 const defaultCamera: CameraMediaCapability['liveView'] = {
-  kind: 'supported', constraints: { transports: ['mjpeg'], profiles: [], maxConcurrentViews: null },
+  kind: 'supported', constraints: { transports: ['mjpeg'], profiles: [], maxConcurrentViews: null, requestIdRetentionMs: 300_000 },
 };
 // @ts-expect-error A live-view capability must provide a delivery transport.
-const emptyTransports: CameraMediaCapability['liveView'] = { kind: 'supported', constraints: { transports: [], profiles: [], maxConcurrentViews: null } };
+const emptyTransports: CameraMediaCapability['liveView'] = { kind: 'supported', constraints: { transports: [], profiles: [], maxConcurrentViews: null, requestIdRetentionMs: 300_000 } };
 // @ts-expect-error Observation support must specify a usable delivery mode.
 const emptyDelivery: PrinterCapabilities['observations']['materials'] = { kind: 'supported', constraints: { delivery: [] } };
 // @ts-expect-error Discovery support must identify at least one supported scope kind.

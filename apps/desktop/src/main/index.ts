@@ -1,3 +1,4 @@
+import { BambuMediaIpc } from './bambuMediaIpc';
 import { compareAndSwapPreferences, savePreferences } from './preferencePersistence';
 import { withFileLock } from './fileLock';
 import { normalizeUserPreferences } from '../../../../packages/platform-contract/src/contracts';
@@ -405,6 +406,10 @@ function registerIpc(): void {
     return summarizeElectronMemory(app.getAppMetrics());
   });
 
+  const cameraIpc = new BambuMediaIpc(() => bambuUtility, isCurrentRenderer);
+  ipcMain.handle(Ipc.bambuMedia, (event, request: unknown) => cameraIpc.call(event, request));
+  ipcMain.on(Ipc.bambuMediaConnect, (event, request: unknown) => { try { cameraIpc.connect(event, request); } catch { /* Reject guest/invalid requests without exposing private state. */ } });
+
   ipcMain.handle(Ipc.bambuRead, createBambuIpc(async kind => {
     if (bambuUtility) return bambuUtility.read(kind);
     if (kind === 'account.state') return unavailableBambuAccount() as import('../shared/bambu').BambuReadResults[typeof kind];
@@ -587,7 +592,7 @@ function startRendererServer(): void {
         'content-security-policy':
           "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; " +
           // Bed artwork is decoded from Worker filesystem bytes via Blob URLs.
-          "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+          "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; " +
           // The Vite e2e/mock renderer emits its bundled module worker as a
           // data URL. Keep this narrowly scoped to workers, not scripts.
           "font-src 'self' data:; connect-src 'self'; worker-src 'self' data:; child-src 'self' data:",

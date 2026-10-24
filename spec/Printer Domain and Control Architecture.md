@@ -1740,7 +1740,7 @@ recording.
 feasibility is demonstrated with generated fixtures on macOS ARM64 in Chrome
 and Electron. Production implementation is authorized in independently verified
 and committed increments. Shared media contracts, the delivery player and native reader/remux are
-delivered; resource/transport integration and Camera UI remain pending. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
+delivered, including document-owned resource/transport integration. Camera UI remains pending. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
 owns presentation and viewing intent.
 
 Keep the existing `open-bamboo-networking` **v2.2.0** artifact pins and all six
@@ -1813,6 +1813,25 @@ closes account-dependent views while preserving independently authorized LAN
 resources. Video failure does not invalidate controls or log out the account.
 Retain the existing exclusion of provider-process restart/recovery.
 
+The implemented [media owner](../apps/desktop/src/utility/bambu/media.ts) retains
+request IDs for five minutes (advertised in live-view constraints), renews
+five-minute resource leases, and closes unattached resources after ten seconds.
+It owns a private monitor lease while resolving reported protocol and LAN
+credentials. [Main-process ownership](../apps/desktop/src/main/bambuMediaIpc.ts)
+binds resource references to the initiating main-frame document. Navigation,
+renderer loss and window destruction retire that owner, including late opens.
+The dedicated channel admits one outstanding pull and bounds queued data to
+64 packets / 8 MiB; JPEG replaces pending stale frames. Overflow terminates the
+stream with a gap error rather than dropping AVC dependencies.
+
+Native callback/ownership tests, resource/channel tests, workspace typechecks
+and the [Electron port test](../apps/desktop/e2e/bambu-camera.e2e.ts) pass on the
+development host. The latter uses the production resource owner, utility/main/
+preload boundary and real MessagePorts with a synthetic JPEG reader; navigation
+proves reader closure. It does not qualify printer authentication or real-device
+control responsiveness during video. The production decoder/remux path is
+verified separately by the pinned-plugin fixture below.
+
 #### H.264 timing, fragmentation and recovery
 
 Read SPS/PPS and IDR flags, convert Annex-B access units to length-prefixed AVC,
@@ -1863,7 +1882,7 @@ must remain touch-usable and hidden views must release buffers and connections.
 | 1 — feasibility (delivered within fixture scope) | Isolated probe for pinned-plugin H.264 samples, timestamp normalization, fMP4 emission and real MSE playback | Record source provenance, timestamp/fragment timings and actual decoded frames; short/long GOP and arrival-jitter playback, plus unit rejection of discontinuous timelines. Separate fixtures from physical-printer evidence. Keep the probe out of production entrypoints. |
 | 2 — shared contract/player (delivered) | Binary media contract, URL/HLS/JPEG/MSE adapters | Compile fixtures and dispatch coverage; cancel/switch/expiry/cleanup; real HTTP URL/HLS and MSE playback in affected hosts. |
 | 3a — native reader/remux (delivered) | Public BambuSource loader, independent reader and continuous AVC fragments | Real library open/read/close, buffer ownership, bounded queues, failure/cancellation and short/long GOP MSE playback. |
-| 3b — native media owner/transport | Resource lifetime, credentials and document-owned binary delivery | Request idempotency, route/account lifecycle, cancellation, channel bounds and control responsiveness during viewing. |
+| 3b — native media owner/transport (delivered) | Resource lifetime, credentials and document-owned binary delivery | Request idempotency, route/account lifecycle, cancellation, channel bounds and control responsiveness during viewing. |
 | 4 — camera integration | Capability/observation mapping and shared Camera card | LAN-only and cloud-associated LAN cases, absent/disabled/unknown camera states, first frame, user stop and hidden-page cleanup. |
 | 5 — qualification | Six-platform packaged playback plus hardware acceptance | At least one JPEG and one H.264 printer; sustained playback, reconnect, bad credentials, stop latency and concurrent control responsiveness. |
 

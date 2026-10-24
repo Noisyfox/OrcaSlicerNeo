@@ -21,6 +21,8 @@ export interface CameraMediaCapability {
     profiles: readonly VideoProfile[];
     /** Unknown viewer limit; null does not mean unlimited viewers. */
     maxConcurrentViews: number | null;
+    /** Minimum idempotency retention for an open request ID, including closed resources. */
+    requestIdRetentionMs: number;
   }>;
   snapshot: Capability<{
     mimeTypes: NonEmptyReadonlyArray<'image/jpeg' | 'image/png'>;

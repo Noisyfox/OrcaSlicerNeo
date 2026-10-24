@@ -31,7 +31,7 @@ export default defineConfig(({ mode }) => {
         index: resolve('src/main/index.ts'),
         'slicer-host': resolve('src/utility/slicer-host.ts'),
         'bambu-host': resolve('src/utility/bambu-host.ts'),
-        ...(mode === 'e2e' ? { 'bambu-host-smoke': resolve('e2e/bambu-host-smoke.ts') } : {}),
+        ...(mode === 'e2e' ? { 'bambu-host-smoke': resolve('e2e/bambu-host-smoke.ts'), 'bambu-camera-smoke': resolve('e2e/bambu-camera-smoke.ts'), 'bambu-camera-host': resolve('e2e/bambu-camera-host.ts') } : {}),
         'slicer-worker': resolve('src/utility/slicer-worker.ts'),
         'recent-thumbnail-worker': resolve('src/utility/recent-thumbnail-worker.ts'),
       } } },

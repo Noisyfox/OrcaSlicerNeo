@@ -169,6 +169,9 @@ pnpm --filter @orca/desktop camera:prototype:test
 pnpm --filter @orca/desktop camera:prototype --help
 pnpm --filter @orca/desktop camera:prototype
 pnpm --filter @orca/desktop camera:player:check
+# Real Electron utility/preload binary transport and document cleanup:
+pnpm --filter @orca/desktop exec electron-vite build --mode e2e
+pnpm --filter @orca/desktop exec playwright test e2e/bambu-camera.e2e.ts
 pnpm --filter @orca/bambu-native build
 pnpm --filter @orca/desktop camera:prototype --production
 ```
