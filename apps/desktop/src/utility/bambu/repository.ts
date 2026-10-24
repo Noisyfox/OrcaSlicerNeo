@@ -1,3 +1,4 @@
+import { withFileLock } from '../../main/fileLock';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -14,14 +15,12 @@ function validate(value: unknown): BambuLocalState {
     || new Set(state.lan.map(record => record.deviceId)).size !== state.lan.length) throw new Error('Invalid Bambu provider configuration');
   return { version: 1, region: state.region, clientId: state.clientId, lan: state.lan.map(record => ({ deviceId: record.deviceId, name: record.name, model: record.model, ip: record.ip, accessCode: record.accessCode, revision: record.revision })) };
 }
-/** One utility owns updates; there is no renderer save-document API. */
+/** Each instance keeps its own snapshot; writes merge against the latest shared document under a process lock. */
 export class BambuRepository {
   private state: BambuLocalState | null = null;
   private tail: Promise<unknown> = Promise.resolve();
   constructor(private readonly directory: string) {}
-  private async load(): Promise<BambuLocalState> {
-    if (this.state) return this.state;
-    await mkdir(this.directory, { recursive: true, mode: 0o700 });
+  private async loadDisk(): Promise<BambuLocalState> {
     try { this.state = validate(JSON.parse(await readFile(join(this.directory, 'provider.json'), 'utf8'))); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('Cannot read Bambu provider configuration');
@@ -36,11 +35,20 @@ export class BambuRepository {
       rename, unlink,
     });
   }
-  read(): Promise<BambuLocalState> { return this.queue(async () => structuredClone(await this.load())); }
+  read(): Promise<BambuLocalState> { return this.queue(async () => {
+    if (!this.state) {
+      await mkdir(this.directory, { recursive: true, mode: 0o700 });
+      await withFileLock(join(this.directory, 'provider.json'), () => this.loadDisk());
+    }
+    return structuredClone(this.state!);
+  }); }
   update(change: (current: BambuLocalState) => BambuLocalState): Promise<void> {
     return this.queue(async () => {
-      const next = validate(change(structuredClone(await this.load())));
-      await this.persist(next); this.state = next;
+      await mkdir(this.directory, { recursive: true, mode: 0o700 });
+      await withFileLock(join(this.directory, 'provider.json'), async () => {
+        const next = validate(change(structuredClone(await this.loadDisk())));
+        await this.persist(next); this.state = next;
+      });
     });
   }
   private queue<T>(work: () => Promise<T>): Promise<T> {

@@ -48,7 +48,7 @@ export const manualPrinter = {
     nozzles: [{
       id: id<'nozzle'>('nozzle-0'),
       diameterMm: 0.4,
-      constructionMaterial: 'brass',
+      constructionMaterial: 'brass', type: null, flowType: null,
       heaterId
     }],
     tools: [{
@@ -171,7 +171,7 @@ export const multiToolPrinter = {
     nozzles: [...manualPrinter.topology.nozzles, {
       id: id<'nozzle'>('nozzle-1'),
       diameterMm: 0.6,
-      constructionMaterial: null,
+      constructionMaterial: null, type: null, flowType: null,
       heaterId: id<'heater'>('hotend-1')
     }],
     tools: [...manualPrinter.topology.tools, {
@@ -448,7 +448,7 @@ capabilities.showMonitorTab;
 // Compile-only type profiles, not concrete agents or claims of device qualification.
 const unknown = { kind: 'unknown', reason: 'Not established by this type or device' } as const;
 const unknownCommands = {
-  'jobs.start': unknown, 'jobs.pause': unknown, 'jobs.resume': unknown, 'jobs.cancel': unknown, 'actions.invoke': unknown,
+  'jobs.start': unknown, 'jobs.pause': unknown, 'jobs.resume': unknown, 'jobs.cancel': unknown, 'jobs.setSpeed': unknown, 'hardware.refreshNozzles': unknown, 'actions.invoke': unknown,
   'thermal.setTarget': unknown, 'fans.setSpeed': unknown, 'lights.set': unknown,
   'motion.home': unknown, 'motion.jog': unknown, 'extrusion.move': unknown, 'tools.select': unknown,
   'materials.load': unknown, 'materials.unload': unknown, 'materials.switch': unknown,
@@ -457,7 +457,7 @@ const unknownCommands = {
   'camera.setEnabled': unknown, 'camera.setDeviceTimelapse': unknown, 'files.delete': unknown,
 } satisfies CommandCapabilities;
 export const moonrakerCapabilities: PrinterCapabilities = {
-  revision: 'type-1', commands: unknownCommands, cameras: [],
+  revision: 'type-1', commands: unknownCommands, cameras: [], currentPrintPreview: unknown,
   files: {
     list: { kind: 'unsupported', layer: 'adapter', reason: 'Upload-only type' },
     stat: unknown, download: unknown, preview: unknown, changes: unknown,
@@ -486,6 +486,11 @@ export const moonrakerRoute: PrinterRoute = {
 };
 export const enumeratedPrinter: SavedPrinter = {
   identity: manualPrinter.identity, routes: [moonrakerRoute],
+};
+// The endpoint belongs to the agent, whose internal transports are not selected by callers.
+export const automaticAgentRoute: PrinterRoute = {
+  ...moonrakerRoute, id: id<'route'>('printer-agent'), providerId: id<'provider'>('bambu'),
+  configuration: { ...moonrakerRoute.configuration, channel: 'automatic', address: null },
 };
 export const discoveredPrinter: DiscoveryCandidate = {
   id: id<'candidate'>('moonraker-lan'), providerId: moonrakerRoute.providerId,
@@ -939,3 +944,29 @@ service.discover(discoveryProvider.id, { kind: 'account', hostId: id<'agent-host
 service.forget(target.printerId);
 void service.forget(target);
 void service.authorize({ requestId: id<'request'>('authorize'), candidate: { ...discoveredPrinter, access: 'access-code' }, accessCode: 'transient-input' });
+
+// Current-task media and controls require no previous observation or Neo job.
+service.media.readCurrentPrintPreview(target).then(result => {
+  if (result.ok) {
+    const task: Id<'device-task'> = result.value.taskId;
+    const bytes: Uint8Array = result.value.bytes;
+  }
+});
+const speedCapability: CommandCapabilities['jobs.setSpeed'] = {
+  kind: 'supported', constraints: { modes: [{ id: 'standard', label: 'Standard' }] },
+};
+if (speedCapability.kind === 'supported') {
+  service.controls.submit({ target, requestId: id<'request'>('speed'), command: {
+    type: 'jobs.setSpeed', params: { modeId: speedCapability.constraints.modes[0].id },
+  } });
+}
+// @ts-expect-error Supported speed control requires selectable modes.
+const emptySpeedModes: CommandCapabilities['jobs.setSpeed'] = { kind: 'supported', constraints: { modes: [] } };
+command({ type: 'hardware.refreshNozzles', params: {} });
+service.controls.submit({ target, requestId: id<'request'>('cancel-current'),
+  command: { type: 'jobs.cancel', params: {} }, guard: { expectedTaskId: id<'device-task'>('observed-task') } });
+
+// Firmware steps do not claim a physical distance or a caller-controlled speed.
+const stepJog: CommandOf<'motion.jog'> = { type: 'motion.jog', params: { motionGroupId: 'gantry' as Id<'motion'>, axis: 'x', kind: 'step', stepId: 'small', direction: 'positive' } };
+const firmwareExtrusion: CommandOf<'extrusion.move'> = { type: 'extrusion.move', params: { extruderId: 'extruder' as Id<'extruder'>, distanceMm: 10, speed: { kind: 'device-controlled' } } };
+void stepJog; void firmwareExtrusion;

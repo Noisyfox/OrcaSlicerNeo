@@ -172,13 +172,8 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     },
     async save(document) {
       const normalized = normalizePrinterConfigurationDocument(document);
+      await host.printers.configuration.save(normalized);
       inMemoryPrinterConfiguration = normalized;
-      try {
-        await host.printers.configuration.save(normalized);
-      } catch {
-        // Keep the normalized value available for this session if persistence
-        // is unavailable; never include the document in diagnostics.
-      }
     },
   };
   return {
@@ -242,6 +237,17 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
       reveal: (id) => host.recentProjects.reveal(id),
     },
     preferences: {
+      async update(change) {
+        let current = await this.load();
+        for (let attempt = 0; attempt < 20; ++attempt) {
+          const next = normalizeUserPreferences(change(structuredClone(current)));
+          const result = await host.preferences.compareAndSwap(current, next);
+          inMemoryPreferences = normalizeUserPreferences(result.current);
+          if (result.updated) return inMemoryPreferences;
+          current = inMemoryPreferences;
+        }
+        throw new Error('Preferences changed concurrently. Try again.');
+      },
       async load() {
         try {
           const result = await host.preferences.load();

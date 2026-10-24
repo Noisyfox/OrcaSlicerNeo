@@ -1,10 +1,24 @@
 # Application Shell
 
-**Updated:** 2026-10-17
+**Updated:** 2026-10-23
 **Status:** Delivered behavior
 **Scope:** Shared layout, desktop window chrome, menus and diagnostics.
 
 ## Host and page lifetime
+
+Each main desktop window is a complete independent Electron application
+instance. Single-instance multi-main-window operation is not supported. Runtime
+services and live device selection belong to that instance; separate instances
+do not synchronize selection or share a provider utility. Auxiliary login or
+diagnostic windows are not additional main application instances.
+
+The accepted Bambu control design uses shared persistent configuration across
+these instances, including remembered login, saved devices and last selection;
+it does not create a profile directory per process. Login/logout/account changes
+are not proactively synchronized to other running instances. New instances read
+the latest saved state; existing sessions still react to server/plugin invalidation.
+These are accepted design requirements pending implementation and qualification;
+see [observation and access behavior](Printer%20Console%20and%20Control%20Integration.md#accepted-observation-and-access-behavior).
 
 The application lives in `packages/slicer-app`; hosts inject platform services
 under the [shared architecture](Web-Electron%20Shared%20Application%20Architecture.md).

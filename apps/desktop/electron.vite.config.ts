@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       } },
-      build: { externalizeDeps: { exclude: ['yauzl', 'saxes', '@orca/bambu-native'] }, rollupOptions: { input: {
+      build: { externalizeDeps: { exclude: ['yauzl', 'saxes', 'proper-lockfile', '@orca/bambu-native'] }, rollupOptions: { input: {
         index: resolve('src/main/index.ts'),
         'slicer-host': resolve('src/utility/slicer-host.ts'),
         'bambu-host': resolve('src/utility/bambu-host.ts'),

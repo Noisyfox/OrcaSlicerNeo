@@ -46,6 +46,9 @@ export interface PrinterCommandSpecs {
   'jobs.pause': CommandSpec<NoConstraints, NoConstraints>;
   'jobs.resume': CommandSpec<NoConstraints, NoConstraints>;
   'jobs.cancel': CommandSpec<NoConstraints, NoConstraints>;
+  'jobs.setSpeed': CommandSpec<{ modeId: string }, { modes: NonEmptyReadonlyArray<{ id: string; label: string }> }>;
+  /** Explicit device re-identification; does not edit nozzle configuration. */
+  'hardware.refreshNozzles': CommandSpec<NoConstraints, NoConstraints>;
   'actions.invoke': CommandSpec<{
     actionRef: PrinterActionRef;
   }, {
@@ -82,22 +85,20 @@ export interface PrinterCommandSpecs {
   'motion.jog': CommandSpec<{
     motionGroupId: Id<'motion'>;
     axis: Axis;
-    distanceMm: number;
-    speedMmPerSecond: number;
-  }, NonEmptyReadonlyArray<{
+  } & ({ kind: 'distance'; distanceMm: number; speedMmPerSecond: number }
+    | { kind: 'step'; stepId: string; direction: 'positive' | 'negative' }), NonEmptyReadonlyArray<{
     motionGroupId: Id<'motion'>;
     axis: Axis;
-    distanceMm: Range;
-    speedMmPerSecond: Range;
-  }>>;
+  } & ({ kind: 'distance'; distanceMm: Range; speedMmPerSecond: Range }
+    | { kind: 'step'; steps: NonEmptyReadonlyArray<{ id: string; label: string }> })>>;
   'extrusion.move': CommandSpec<{
     extruderId: Id<'extruder'>;
     distanceMm: number;
-    speedMmPerSecond: number;
+    speed: { kind: 'specified'; mmPerSecond: number } | { kind: 'device-controlled' };
   }, NonEmptyReadonlyArray<{
     extruderId: Id<'extruder'>;
     distanceMm: Range;
-    speedMmPerSecond: Range;
+    speed: { kind: 'specified'; mmPerSecond: Range } | { kind: 'device-controlled' };
   }>>;
   'tools.select': CommandSpec<{
     toolId: Id<'tool'>;
@@ -170,6 +171,8 @@ export type CommandCapabilities = { [K in CommandName]: Capability<PrinterComman
 /** Optional comparison conditions, never authorization obtained from a previous call. */
 export interface ControlBasis {
   capabilityRevision?: Revision;
+  /** Optional device task identity check; never a prerequisite for current-print controls. */
+  expectedTaskId?: Id<'device-task'>;
 }
 export type InventoryCommand = 'jobs.start' | 'materials.load' | 'materials.unload' | 'materials.switch' | 'materials.writeMetadata' | 'materials.refreshTag';
 export type CommandGuard<K extends CommandName> = ControlBasis & (K extends 'files.delete' | 'jobs.pause' | 'jobs.resume' | 'jobs.cancel' | 'actions.invoke' ? {} : {

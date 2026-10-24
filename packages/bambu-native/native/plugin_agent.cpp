@@ -93,6 +93,8 @@ Output PluginAgent::call(const std::string& method, const std::vector<Input>& ar
     NO_ARGUMENT(get_user_selected_machine)
 #undef NO_ARGUMENT
 #define STRING_ARGUMENT(name) if (method == #name) return name##_(agent_, string(0));
+    STRING_ARGUMENT(start_subscribe)
+    STRING_ARGUMENT(stop_subscribe)
     STRING_ARGUMENT(set_config_dir)
     STRING_ARGUMENT(change_user)
     STRING_ARGUMENT(set_user_selected_machine)
@@ -107,10 +109,12 @@ Output PluginAgent::call(const std::string& method, const std::vector<Input>& ar
     if (method == "user_logout") return user_logout_(agent_, boolean(0));
     if (method == "start_discovery") return start_discovery_(agent_, boolean(0), boolean(1));
     if (method == "connect_printer") return connect_printer_(agent_, string(0), string(1), string(2), string(3), boolean(4));
+    if (method == "send_message") return send_message_(agent_, string(0), string(1), std::get<int>(arguments.at(2)), std::get<int>(arguments.at(3)));
     if (method == "send_message_to_printer") return send_message_to_printer_(agent_, string(0), string(1), std::get<int>(arguments.at(2)), std::get<int>(arguments.at(3)));
     if (method == "install_device_cert") { install_device_cert_(agent_, string(0), boolean(1)); return 0; }
     HttpResult response{0, 0, {}};
     if (method == "get_user_print_info") response.result = get_user_print_info_(agent_, &response.http_code, &response.body);
+    else if (method == "get_subtask_info") { std::string http_body; response.result = get_subtask_info_(agent_, string(0), &response.body, &response.http_code, &http_body); }
     else if (method == "get_my_token") response.result = get_my_token_(agent_, string(0), &response.http_code, &response.body);
     else if (method == "get_my_profile") response.result = get_my_profile_(agent_, string(0), &response.http_code, &response.body);
     else throw std::runtime_error("Unsupported native method");

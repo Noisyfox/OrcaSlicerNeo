@@ -170,3 +170,9 @@ it('retains valid automatic flushing preferences and discards invalid saved valu
   expect(normalizeUserPreferences({ version: 1, autoFlushPolicy: 'invalid' }).autoFlushPolicy).toBeUndefined();
   expect(normalizeUserPreferences({ version: 1 }).autoFlushPolicy).toBeUndefined();
 });
+
+it('persists only a bounded physical Device selection, independently of send preferences', () => {
+  expect(normalizeUserPreferences({ version: 1, ui: { lastDevicePrinterId: 'moonraker:workshop', switchToDeviceAfterSend: false } }).ui)
+    .toMatchObject({ lastDevicePrinterId: 'moonraker:workshop', switchToDeviceAfterSend: false });
+  for (const value of ['', 1, null, 'a'.repeat(513)]) expect(normalizeUserPreferences({ version: 1, ui: { lastDevicePrinterId: value } }).ui.lastDevicePrinterId).toBeUndefined();
+});

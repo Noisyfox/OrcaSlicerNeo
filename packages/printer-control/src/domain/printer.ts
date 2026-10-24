@@ -23,7 +23,8 @@ export interface AgentHost {
 export interface PrinterRouteConfiguration {
   typeId: Id<'printer-type'>;
   hostId: Id<'agent-host'>;
-  channel: 'lan' | 'cloud';
+  /** Automatic routes address an agent-owned device; callers do not select its transport. */
+  channel: 'lan' | 'cloud' | 'automatic';
   /** Type-specific address: IP, hostname or endpoint URL, including port/path as needed. */
   address: string | null;
   webInterfaceUrl: `http://${string}` | `https://${string}` | null;
@@ -74,6 +75,8 @@ export interface Nozzle {
   id: Id<'nozzle'>;
   diameterMm: number | null;
   constructionMaterial: string | null;
+  type: string | null;
+  flowType: string | null;
   heaterId: Id<'heater'> | null;
 }
 export interface Tool {
@@ -137,6 +140,12 @@ export interface PrinterDescriptor {
 export type PrintPhase = 'idle' | 'preparing' | 'printing' | 'paused' | 'completed' | 'cancelled' | 'failed';
 /** Display observations, including prints started elsewhere; no application task correlation. */
 export interface PrintStatus {
+  /** Provider-issued current-device-task identity, independent of Neo submissions. */
+  taskId: Reading<Id<'device-task'> | null>;
+  stage: Reading<{ code: string; label: string } | null>;
+  currentLayer: Reading<number>;
+  totalLayers: Reading<number>;
+  speedModeId: Reading<string>;
   phase: Reading<PrintPhase>;
   /** Known null means no print name, distinct from an unreported name. */
   name: Reading<string | null>;
@@ -190,6 +199,7 @@ export interface PrinterCapabilities {
   revision: Revision;
   commands: CommandCapabilities;
   cameras: readonly CameraMediaCapability[];
+  currentPrintPreview: Capability<{ mimeTypes: NonEmptyReadonlyArray<'image/jpeg' | 'image/png'> }>;
   files: FileCapabilities;
   /** Original printer UI, independently resolvable through PrinterService.webInterfaces. */
   webInterface: WebInterfaceCapability;

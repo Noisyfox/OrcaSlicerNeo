@@ -19,7 +19,7 @@ async function render(remembered = false, failure = false) {
       await new Promise<void>(resolve => { options.signal.addEventListener('abort', () => { stopped(); resolve(); }, { once: true }); });
     }, authorize,
   } as unknown as PrinterService;
-  const saved = remembered ? [{ identity: { id: 'printer', externalRefs: candidate.externalRefs }, routes: [{ providerId: 'provider', configuration: { channel: 'lan', credentialRef: 'opaque-reference' } }] }] as unknown as SavedPrinter[] : [];
+  const saved = remembered ? [{ identity: { id: 'printer', externalRefs: candidate.externalRefs }, routes: [{ providerId: 'provider', configuration: { channel: 'automatic', credentialRef: 'opaque-reference' } }] }] as unknown as SavedPrinter[] : [];
   const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
   await act(async () => root.render(<PlatformProvider value={{ printers: { service } } as unknown as PlatformCapabilities}><PrinterDiscovery saved={saved} /></PlatformProvider>));
   cleanup = () => { act(() => root.unmount()); container.remove(); };

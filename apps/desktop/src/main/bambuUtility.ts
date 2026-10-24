@@ -1,3 +1,4 @@
+import { isBambuControlRequest, type BambuControlInputs, type BambuControlMethod, type BambuControlResults } from '../shared/bambuControl';
 import type { BambuHostInputs, BambuHostMethod, BambuHostResults } from '../shared/bambuHost';
 import { join } from 'node:path';
 import { utilityProcess, type UtilityProcess } from 'electron';
@@ -8,7 +9,7 @@ export interface BambuUtilityChild {
   once(event: 'exit', listener: (code: number) => void): unknown;
   postMessage(message: unknown): void;
 }
-/** Exactly one instance is created by app startup, shared by all trusted windows. */
+/** Exactly one instance is created by app startup, owned by this independent application instance. */
 export class BambuUtility {
   private readonly child: BambuUtilityChild;
   private readonly ready: Promise<void>;
@@ -59,6 +60,17 @@ export class BambuUtility {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { kind: null, resolve: value => resolve(value as BambuHostResults[K]), reject });
       try { this.child.postMessage({ type: 'host', id, request: { method, input } }); }
+      catch { this.pending.delete(id); reject(new Error('Bambu provider request unavailable')); }
+    });
+  }
+  async control<K extends BambuControlMethod>(method: K, input: BambuControlInputs[K]): Promise<BambuControlResults[K]> {
+    if (!isBambuControlRequest({ method, input })) throw new Error('Bambu IPC request rejected');
+    await this.ready;
+    if (this.closing) throw new Error('Bambu provider is closing');
+    const id = ++this.sequence;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { kind: null, resolve: value => resolve(value as BambuControlResults[K]), reject });
+      try { this.child.postMessage({ type: 'control', id, request: { method, input } }); }
       catch { this.pending.delete(id); reject(new Error('Bambu provider request unavailable')); }
     });
   }

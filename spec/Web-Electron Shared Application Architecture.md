@@ -334,12 +334,25 @@ addon wrapping `open-bamboo-networking` in an Electron utility process. Native
 network execution stays outside the renderer and slicing runtime. Shared UI
 uses injected public capability contracts; plugin loading, browser callbacks,
 plugin configuration-directory ownership and IPC belong to the Electron
-implementation. Bambu uses one application-owned provider utility process shared
-by all windows and provider capabilities. Closing a device page or an individual
-window does not destroy the provider instance or log out its account. Normal
-application shutdown closes the process and releases its resources while
-preserving remembered login. This is separate from the window-owned slicing
-utility process.
+implementation. Following the [application-instance boundary](Application%20Shell.md#host-and-page-lifetime),
+each independent Electron application instance owns one Bambu provider utility
+shared by its account and printer capabilities. Single-instance multiple main
+windows and cross-instance utility sharing are not supported product behavior.
+Leaving Device or closing an auxiliary window does not destroy the provider or
+log out its account. Normal shutdown of that application instance closes its
+provider process and releases resources while preserving remembered login.
+This is separate from the slicing utility process.
+
+The accepted control design shares persistent configuration across independent
+instances while retaining separate runtime ownership. It does not introduce
+per-instance profile directories or proactive cross-instance synchronization of
+login/logout/account changes. New instances restore the latest persisted state;
+already running instances handle their own session and any server/plugin
+invalidation. See the [instance boundary](Application%20Shell.md#host-and-page-lifetime)
+and [qualification sequence](Printer%20Console%20and%20Control%20Integration.md#accepted-qualification-sequence).
+Concurrent storage behavior remains to be qualified. This decision does not
+permit private plugin auth-file manipulation or imply that within-process
+serialization protects independent processes.
 
 Ship a fixed compatible version of `open-bamboo-networking` with the Electron
 application, validated and released together with the native adapter. No
@@ -406,6 +419,15 @@ surface. LAN discovery/access are implemented, with real-device qualification
 deferred. Six-target packaging and packaged-provider startup are accepted;
 other regions/challenges and real-account authentication on the other hosts
 remain unverified.
+
+The subsequent [Bambu monitoring/control design](Printer%20Domain%20and%20Control%20Architecture.md#23-bambu-monitoring-and-control-design)
+uses one shared capability- and topology-driven React Monitor for all providers,
+with H2D + AMS acceptance through the same Electron provider boundary. Observation
+delivery and available controls come from the printer contract rather than a
+provider-name branch in the shared application. Moonraker retains its existing
+manual Refresh and basic print controls. Software implementation and fixture
+regressions do not establish physical control qualification; real heating, motion
+and material operations require separate acceptance.
 
 ## 5. Runtime and WASM Loading
 

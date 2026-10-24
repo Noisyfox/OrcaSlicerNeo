@@ -66,6 +66,7 @@ export interface DevicePanelProps {
   /** Optional test seam; production state always starts from the repository. */
   initialSelection?: string | null;
   sidebarVisible?: boolean;
+  visible?: boolean;
 }
 
 /** Shared, host-neutral lifecycle seam; useful for deterministic fake-host tests. */
@@ -114,10 +115,12 @@ export function removePrinter(printers: readonly PrinterConfiguration[], printer
   });
 }
 
-export function DevicePanel({ initialSelection = null, sidebarVisible = true }: DevicePanelProps = {}) {
+export function DevicePanel({ initialSelection = null, sidebarVisible = true, visible = true }: DevicePanelProps = {}) {
   const platform = usePlatform();
   const { printers, loaded: configurationLoaded, failed: loadFailed, refresh } = usePrinterCatalogue(platform.printers.service);
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
+  const [remembered, setRemembered] = useState<string | null | undefined>(undefined);
+  const selectionTouched = useRef(initialSelection !== null);
   const [selectedPage, setSelectedPage] = useState<'web' | 'monitor'>('web');
   const [dialog, setDialog] = useState<DialogState>(null);
   const [draft, setDraft] = useState<PrinterDraft>(EMPTY_DRAFT);
@@ -133,10 +136,11 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true }: 
     let active = true;
     void platform.preferences.load().then((prefs) => {
       if (!active) return;
+      setRemembered(prefs.ui.lastDevicePrinterId ?? null);
       const width = clampDeviceSidebarWidth(prefs.ui.deviceSidebarWidth);
       sidebarWidthRef.current = width;
       setSidebarWidth(width);
-    });
+    }).catch(() => { if (active) setRemembered(null); });
     return () => {
       active = false;
       stopResizeRef.current?.();
@@ -231,8 +235,16 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true }: 
     [printers, selectedPrinterId],
   );
 
-  // Selection is deliberately ephemeral. If an edit or another view removes
-  // its record, do not silently select a different printer.
+  useEffect(() => {
+    if (selectionTouched.current || remembered === undefined || !configurationLoaded || loadFailed) return;
+    selectionTouched.current = true;
+    if (remembered && printers.some(printer => printer.identity.id === remembered)) setSelectedPrinterId(remembered);
+  }, [remembered, configurationLoaded, loadFailed, printers]);
+  function selectPrinter(value: string | null) {
+    selectionTouched.current = true; setSelectedPrinterId(value); setSelectedPage('web');
+    void updateUserPreferences(platform.preferences, prefs => ({ ...prefs, ui: { ...prefs.ui, lastDevicePrinterId: value ?? undefined } })).catch(() => undefined);
+  }
+  // Successful absence clears only the live selection; never choose a replacement.
   useEffect(() => {
     if (configurationLoaded && !loadFailed && selectedPrinterId && !selectedPrinter) setSelectedPrinterId(null);
   }, [configurationLoaded, loadFailed, selectedPrinter, selectedPrinterId]);
@@ -359,7 +371,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true }: 
               </div>
             </div>
             <div className="flex min-w-0 items-center gap-1">
-              <Select value={selectedPrinterId} onValueChange={value => { setSelectedPrinterId(value); setSelectedPage('web'); }} items={printers.map(printer => ({ value: printer.identity.id, label: printer.identity.displayName }))}>
+              <Select value={selectedPrinterId} onValueChange={selectPrinter} items={printers.map(printer => ({ value: printer.identity.id, label: printer.identity.displayName }))}>
                 <SelectTrigger className="min-w-0 flex-1" disabled={!configurationLoaded || printers.length === 0} aria-label="Select printer" data-testid="device-printer-select">
                   <SelectValue className="truncate" placeholder="Select a printer" />
                 </SelectTrigger>
@@ -414,7 +426,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true }: 
         />
 
         <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card" id="device-content" role={activePage ? "tabpanel" : undefined} aria-labelledby={activePage ? `device-tab-${activePage}` : undefined} aria-label={activePage ? undefined : "Printer details"}>
-          {selectedPrinter && monitorRoute && <div hidden={activePage !== 'monitor'} className="h-full"><PrinterMonitor key={`${selectedPrinter.identity.id}:${monitorRoute.id}:${monitorRoute.configurationRevision}`} printer={selectedPrinter} route={monitorRoute} /></div>}
+          {selectedPrinter && monitorRoute && <div hidden={activePage !== 'monitor'} className="h-full"><PrinterMonitor key={`${selectedPrinter.identity.id}:${monitorRoute.id}:${monitorRoute.configurationRevision}`} printer={selectedPrinter} route={monitorRoute} visible={visible && activePage === 'monitor'} /></div>}
           <div hidden={activePage !== 'web'} ref={webviewContainerRef} className="absolute inset-0 [&>iframe]:h-full [&>iframe]:w-full [&>webview]:h-full [&>webview]:w-full" data-testid="device-webview-container" />
           {!selectedPrinter && (
             <div className="absolute inset-0 flex items-center justify-center p-6">

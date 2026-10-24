@@ -1,5 +1,6 @@
 import { completeSetupWizard } from '../../../../../../packages/slicer-app/src/components/wizard/setupWizardCompletion';
 import { describe, expect, it, vi } from 'vitest';
+import { normalizeUserPreferences, updateUserPreferences } from '@orca/platform-contract';
 import { createElectronAdapter } from './electronAdapter';
 import { createElectronPrinterTransport } from './electronPrinterTransport';
 import type { PrinterConfigurationDocument } from '@orca/printer-control';
@@ -33,6 +34,8 @@ function setup(overrides: Record<string, unknown> = {}) {
       record: vi.fn(async () => {}), remove: vi.fn(async () => {}), clear: vi.fn(async () => {}), reveal: vi.fn(async () => {}),
     };
     const host = { bambu: { read: vi.fn(async (kind: string) => kind === 'printers.saved' ? { ok: true, value: [] } : { status: 'signed-out', error: null }), onChanged: () => () => {}, command: vi.fn(async () => ({ ok: true, value: undefined })) }, preferences: { load, save }, projects, recentProjects, printers: { configuration: { onChanged: () => () => {}, load: configurationLoad, save: configurationSave }, transport }, menu, externalLinks, platform: 'win32', ...overrides };
+    const preferences = host.preferences as { load: typeof load; save: (value: unknown) => Promise<void>; compareAndSwap?: unknown };
+    preferences.compareAndSwap ??= async (_base: unknown, next: unknown) => { await preferences.save(next); return { updated: true, current: normalizeUserPreferences(next) }; };
     vi.stubGlobal('window', { orca: host });
     return { host, adapter: createElectronAdapter({} as never), load, save, menu, externalLinks, configurationLoad, configurationSave, transport };
 }
@@ -376,4 +379,14 @@ it('opens recent projects through private location tokens and never accepts a fa
   await adapter.recentProjects.record(opened.input.location!);
   expect(record).toHaveBeenCalledWith('private-token');
   await expect(adapter.recentProjects.record({} as never)).rejects.toThrow('Unknown project location');
+});
+
+it('reapplies a field update after a concurrent preference change', async () => {
+  const latest = normalizeUserPreferences({ version: 1, ui: { sidebarWidth: 500 } });
+  const compareAndSwap = vi.fn().mockResolvedValueOnce({ updated: false, current: latest })
+    .mockImplementationOnce(async (_base, next) => ({ updated: true, current: next }));
+  const { adapter } = setup({ preferences: { load: async () => ({ found: false, json: null }), save: vi.fn(), compareAndSwap } });
+  const result = await updateUserPreferences(adapter.preferences, current => ({ ...current, ui: { ...current.ui, lastDevicePrinterId: 'bambu:p' } }));
+  expect(compareAndSwap).toHaveBeenCalledTimes(2);
+  expect(result.ui).toMatchObject({ sidebarWidth: 500, lastDevicePrinterId: 'bambu:p' });
 });

@@ -1,3 +1,7 @@
+import { compareAndSwapPreferences, savePreferences } from './preferencePersistence';
+import { withFileLock } from './fileLock';
+import { normalizeUserPreferences } from '../../../../packages/platform-contract/src/contracts';
+import { isBambuControlRequest } from '../shared/bambuControl';
 import { BambuUtility, bambuPaths, createBambuIpc } from './bambuUtility';
 import { BambuLogin } from './bambuLogin';
 import { BAMBU_REGIONS, isBambuPrinterCommand, isBambuCommand, unavailableBambuAccount } from '../shared/bambu';
@@ -383,10 +387,17 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle(Ipc.preferencesSave, async (_event, json: unknown): Promise<void> => {
+  ipcMain.handle(Ipc.preferencesCompareAndSwap, async (event, base: unknown, next: unknown) => {
+    if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame) throw new Error('Preferences IPC request rejected');
+    if (!preferencesPersisted()) return { updated: true, current: normalizeUserPreferences(next) };
+    return compareAndSwapPreferences(preferencesPath(), base, next);
+  });
+
+  ipcMain.handle(Ipc.preferencesSave, async (event, json: unknown): Promise<void> => {
+    if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame) throw new Error('Preferences IPC request rejected');
     if (!preferencesPersisted()) return;
     // Publish the complete document so readers never observe a truncated save.
-    await writeFileAtomically(preferencesPath(), Buffer.from(JSON.stringify(json, null, 2), 'utf8'));
+    await savePreferences(preferencesPath(), json);
   });
 
   ipcMain.handle(Ipc.memorySample, async (event) => {
@@ -419,6 +430,17 @@ function registerIpc(): void {
     } catch { return { ok: false, error: { code: 'unavailable', message: 'Bambu networking is unavailable.' } }; }
   });
 
+  ipcMain.handle(Ipc.bambuControl, async (event, request: unknown) => {
+    if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame || !isBambuControlRequest(request)) throw new Error('Bambu IPC request rejected');
+    try {
+      if (!bambuUtility) throw new Error('Unavailable');
+      return await bambuUtility.control(request.method, request.input);
+    } catch {
+      return request.method === 'submit' ? { kind: 'outcome-unknown', lookup: { printerId: request.input.target.printerId, routeId: request.input.target.routeId, requestId: request.input.requestId } }
+        : { ok: false, error: { code: 'transport', message: 'Bambu networking is unavailable.' } };
+    }
+  });
+
   ipcMain.handle(Ipc.bambuPrinterCommand, async (event, request: unknown) => {
     if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame || !isBambuPrinterCommand(request)) throw new Error('Bambu IPC request rejected');
     try {
@@ -430,9 +452,10 @@ function registerIpc(): void {
 
   const printerConfigurationIpc = createPrinterConfigurationIpcHandlers({
     path: printerConfigurationPath,
+    transaction: work => withFileLock(printerConfigurationPath(), work),
     fs: {
       readText: (path) => readFile(path, 'utf8'),
-      writeText: (path, value) => writeFile(path, value, 'utf8'),
+      writeText: (path, value) => writeFileAtomically(path, Buffer.from(value, 'utf8')),
     },
     isCurrentRenderer,
   });

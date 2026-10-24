@@ -8,8 +8,10 @@ Device Web entry and Send use the stateless service in both hosts. Electron
 Bambu integration follows section 2.1; section 2.2 distinguishes delivered
 foundations, account flow, Cloud device enumeration and LAN access. LAN
 real-device qualification is deferred and does not block packaging work.
-The gateway and richer device features remain deferred. Interface availability
-alone does not establish device support or runtime delivery.
+Section 2.3 records the accepted Bambu monitoring/control scope and interactions,
+with implementation authorized in independently verified increments and physical
+qualification deferred until software verification is complete. The gateway remains deferred.
+Interface availability alone does not establish device support or runtime delivery.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
 capabilities, controls, material systems, read-only sensors, cameras, remote
@@ -274,12 +276,14 @@ path, not a dependency of local slicing or an assertion of cloud support.
 
 ### 2.1 Bambu Electron provider design
 
-**Selected scope:** Integrate Bambu account login and printer discovery using
+**Foundation scope:** Integrate Bambu account login and printer discovery using
 [open-bamboo-networking](https://github.com/ClusterM/open-bamboo-networking).
 The selected implementation direction is an Electron Node-API addon hosted
 outside the renderer, with shared public provider contracts. It is not the
 standalone helper/gateway approach, nor a browser-WASM port. Implementation is
 authorized under the independently accepted increments in section 2.2.
+The subsequent monitoring/control design is recorded separately in section 2.3;
+its selection does not change the delivered scope of those foundation increments.
 
 The [common provider/account boundary](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts)
 owns account methods independently of printers. The Bambu provider implements
@@ -443,8 +447,10 @@ Do not silently substitute a source build or omit a platform when an upstream
 artifact is missing or incompatible.
 
 The [shared architecture](Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts)
-owns the application-wide Bambu provider utility process, shared across windows
-and independent of the slicing runtime. The first delivery assumes this process
+owns one Bambu provider utility per independent Electron application instance,
+shared by account/printer capabilities and independent of the slicing runtime.
+Separate main windows are separate application instances, not consumers of a
+cross-instance provider. The first delivery assumes this process
 is stable and excludes provider-process crash handling, automatic restart and
 manual crash recovery. Normal startup/shutdown cleanup and Orca-compatible
 plugin/API errors remain in scope. Do not make crash-recovery scenarios a
@@ -566,7 +572,8 @@ Keep Moonraker forms and its native Web console behavior. A discovery-only
 Bambu device may appear in the list without a monitor, embedded console or
 send/print action. Add only the capability-driven presentation needed for this
 delivery, not the full future device-page suite. Provider-driven additions,
-updates and removals must reach all open windows without a UI account lookup.
+updates and removals must reach all subscribed consumers within the application
+instance without a UI account lookup.
 
 **Acceptance:** Deterministic provider fixtures prove dispatch isolation,
 catalogue updates, one Bambu identity with Cloud/LAN routes, allowed LAN
@@ -624,20 +631,23 @@ account state and discovery projection still belong to later steps.
 
 #### Step 4 — Shared Electron provider process and IPC
 
-Host the addon in one application-owned Bambu utility process, independent of
-the slicing utility and shared by windows and account/printer capabilities.
+Host the addon in one Bambu utility process per Electron application instance,
+independent of the slicing utility and shared by account/printer capabilities.
 Implement the main/preload/utility bindings for the selected contracts, normal
 startup/shutdown and callback dispatch. Apply Orca's configuration-directory,
 certificate, region, callback-registration and start ordering; keep Neo's
 configuration independent of Orca. Map native results into typed host replies
 and events, with no tokens or saved access codes in public snapshots or logs.
 Establish one host-owned Bambu device/credential repository for the later Cloud
-and LAN steps, so renderer windows cannot overwrite each other's saved state.
+and LAN steps, so concurrent consumers within the instance cannot overwrite
+each other's saved state. This serialization alone is not evidence of
+cross-process persistence coordination.
 The official login window must not inherit the application's privileged preload.
 
-**Acceptance:** Focused Electron integration proves one provider instance across
-two windows, continued provider lifetime after a page/window closes, correct
-event routing, and cleanup on normal application shutdown without logout.
+**Acceptance:** Focused Electron integration proves one provider per application
+instance, continued lifetime across page navigation, correct event routing and
+cleanup on normal instance shutdown without logout. Separate application
+instances do not share live provider state or retarget each other's selection.
 Exercise the real plugin's ordinary startup on the development host and compare
 the applicable call sequence with Orca. Malformed IPC/native results fail at
 the boundary. Do not add crash/restart/backoff tests or recovery machinery.
@@ -660,6 +670,9 @@ reading, and exits normally. Deterministic tests cover lifecycle ordering,
 serialized persistence and IPC rejection. Six-target packaged-runtime
 acceptance is recorded in step 8. Public account and printer registration remains absent
 at this step; the host's printer projection is empty.
+The two-window smoke is existing host-boundary test evidence, not a supported
+single-instance multi-main-window product model or proof of independent-instance
+qualification.
 
 #### Step 5 — Account login as a complete user flow
 
@@ -727,8 +740,8 @@ not select a print target or claim control/upload support.
 surface. Deterministic cases cover additions, renames, absent devices, empty
 lists, failed refreshes, logout/re-login and responses arriving after account
 changes. A LAN-route fixture proves Cloud cleanup cannot delete that route;
-the combined real LAN case follows in step 8. Multiple windows see the same
-provider result without duplicate saved devices.
+the combined real LAN case follows in step 8. Subscribed consumers within one
+instance see the same provider result without duplicate saved devices.
 
 **Implemented boundary:** The [device owner](../apps/desktop/src/utility/bambu/devices.ts)
 consumes the plugin's complete `devices` result, keyed by `dev_id`, with Orca's
@@ -869,6 +882,283 @@ at the indicated steps; unavailable evidence remains unverified. Keep secrets
 out of committed fixtures and reports. Use the existing documentation owners
 for contract/behavior changes, and update the Grand Plan only when delivered
 work actually changes milestone status.
+
+### 2.3 Bambu monitoring and control design
+
+**Decision status:** One shared capability- and topology-driven Monitor composes
+control cards for all providers. Bambu supplies normalized observations and advanced
+command capabilities, with H2D + AMS as the first physical acceptance
+target. Implementation is authorized in independently tested and committed
+increments; physical qualification is performed last. The
+[console specification](Printer%20Console%20and%20Control%20Integration.md#bambu-control-design)
+owns the feature envelope, presentation and grouped interaction decisions,
+including the exclusions of video, file browsing and an HMS tab.
+
+#### Execution and ownership
+
+Extend the existing provider and application-owned Bambu utility, retaining the
+native addon and pinned black-box networking plugin. Shared React code accesses
+the typed printer service through the platform adapter. The utility owns device
+message interpretation, native connection coordination, observation caches and
+command execution/tracking. Account association, credentials and raw messages
+remain host-private. No wxWidgets GUI port, slicer-WASM dependency or new browser
+gateway is part of this design. Provider-process crash recovery remains outside
+the existing first-delivery scope; ordinary transport failures still need
+accurate observations and operation outcomes.
+
+The [renderer provider](../apps/desktop/src/renderer/src/platform/bambuProvider.ts)
+now binds typed observations, control requests and operation lookups to the
+utility. The [native boundary](../packages/bambu-native/src/index.ts) exposes
+Cloud/LAN sends and subscription control. The utility normalizes push reports,
+keeps a target-scoped cache, validates current conditions at dispatch, and treats
+native send/ACK separately from observed completion. H2D/H2D Pro protocol defaults
+come from the pinned Orca resource tables and are overridden by reported values;
+these defaults never instantiate hardware units, slots, tools or paths. Manual
+extrusion uses the reported loaded/selected material minimum temperature and
+blocks when that requirement is unknown. Other unsupported or unknown device
+commands remain unavailable instead of guessing a protocol or hardware layout.
+Physical execution and cross-instance integration remain qualification work.
+
+Retain independently addressed requests. Reading, subscribing or evaluating
+availability must not become a caller prerequisite for command submission.
+Capabilities must include sufficient information to construct requests, and
+execution revalidates the target, route, supplied revisions, parameters and
+relevant device conditions. Unsupported and unknown capabilities remain distinct.
+Model/firmware information and retained observations inform resource constraints;
+an account-list entry alone does not prove every control is supported.
+
+#### Observation and connection coordination
+
+The provider must interpret complete and incremental messages according to the
+reference [DeviceManager](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.cpp)
+and [JSON reconstruction logic](../packages/slicer-wasm/cpp/src/slic3r/Utils/json_diff.cpp).
+Maintain a valid reconstruction baseline, recover from missing baselines/gaps,
+and preserve unknown/stale readings rather than inventing zeros or idle state.
+Normalize units, tool/resource identities and model-specific state in the
+provider. Emit coherent topic snapshots/replacements with route and configuration
+provenance. Late events from removed routes, superseded connections or logged-out
+accounts must not repopulate current observations.
+
+Each independent application's utility coordinates native state across its own
+account/printer consumers. Existing
+[LAN access](../apps/desktop/src/utility/bambu/lan.ts) maintains one active device,
+and Orca's
+[device selection](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevManager.cpp)
+switches LAN connections or the selected Cloud device. Neo does not support
+multiple main windows sharing one application instance; do not add a shared
+selection, window contention or connection-takeover protocol between independent
+instances. Within an instance, native target changes must still preserve the
+target and outcome of pending operations and reject obsolete callbacks.
+
+Keep ordinary monitoring focused on the selected printer. On selection change,
+release the old printer's ordinary monitoring connection/selection/subscription
+as applicable, retain its cached data with actual freshness, and acquire the new
+printer's state. Do not accumulate monitoring for previously visited printers.
+A pending operation does not block selection. Preserve its original target,
+route and identity, and continue necessary result tracking where the native
+protocol permits; inability to confirm after switching yields an unknown outcome,
+not a fabricated success. Switching does not cancel, replay or redirect commands.
+Late results update only the original operation and must not contaminate the new
+printer's snapshots. Retaining an operation record does not imply the native
+plugin can maintain simultaneous live telemetry for every old target.
+
+Instances share persistent configuration and plugin configuration storage, not
+the provider runtime. Reuse remembered login, saved devices and last-selection
+preferences; do not assign a profile directory per process. Do not proactively
+synchronize login/logout/account switches to other running instances. New
+instances restore the latest saved state; existing instances respond normally
+to server/plugin session invalidation and remove invalid account-owned routes.
+The plugin remains responsible for its private session format and refresh;
+shared storage does not authorize reading or rewriting private auth files.
+Qualify concurrent startup/writes/shutdown and account changes across independent
+processes. Within-instance write serialization alone is insufficient evidence,
+and stale saved snapshots must not resurrect removed account/device state.
+Orca's reference uses a shared default data directory and local account handlers
+in [GUI_App](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_App.cpp); this is not
+proof of black-box plugin concurrency behavior.
+
+For Bambu control, expose a single stable `automatic` agent route per physical
+printer. Cloud membership and independently saved LAN credentials remain
+provider-owned access metadata, not two caller-selected control endpoints.
+The native agent handles account-backed LAN/Cloud networking. Both Cloud and
+local message callbacks normalize into the same device state, and command ACKs
+and completion observations are correlated by physical device and command
+identity, independent of callback channel. This follows Orca's callback wiring
+in `GUI_App` and `MachineObject::parse_json` / `publish_json` in `DeviceManager`.
+Failure of one channel does not stale another channel's fresh observations;
+all-data loss retains marked stale readings and blocks new commands. Transport
+changes do not change the logical route ID or its configuration revision.
+Account/credential configuration changes do change the revision, invalidate old
+guards and reconcile access to the same printer; retained LAN-only access does
+not accept late Cloud callbacks after logout. No automatic transition replays
+an already dispatched command or invents capabilities. The UI has no transport
+selection policy or manual transport switch.
+
+UI observation lifetime, provider connection lifetime and operation lifetime are
+separate. Stopping a view subscription does not cancel a physical operation.
+Bambu observation starts automatically when the selected printer's control view
+is shown. Leaving that view pauses hidden UI updates while the provider retains
+the connection, receives status and updates its cache. Outstanding operations
+continue to be tracked. The console specification owns these accepted behaviors
+and restoration of the last selected Device printer across all providers.
+Restoring a Moonraker selection does not authorize background observation.
+
+#### Contract extension boundaries
+
+The current typed contract includes `jobs.setSpeed` with discoverable mode IDs
+and labels, and `hardware.refreshNozzles` for explicit device re-identification.
+Nozzle records include nullable type and flow type alongside material and diameter.
+Print status includes individually unknown-capable device task identity, detailed
+stage, current/total layers and speed mode. Device task identity is independent
+of Neo jobs; an optional `expectedTaskId` guard must be checked or explicitly
+rejected, never silently ignored. No prior observation is mandatory.
+
+`currentPrintPreview` declares image-format support independently of files and
+cameras. `media.readCurrentPrintPreview` resolves the current device task and
+returns image bytes with printer, route, configuration and task identity. It
+requires no file listing, history or watch; consumers discard late images that
+do not match the displayed task/target. Private source URLs stay in the provider.
+Moonraker leaves these new capabilities unsupported and new status fields unknown.
+These contract additions alone do not enable Bambu runtime execution.
+
+Existing domain types cover basic thermal, actuator, motion, tool and material
+operations. They are a starting point, not evidence of complete H2D support.
+The following gaps need coordinated contract/specification/consumer updates:
+
+- Detailed print stages and layer counts, and selectable printing-speed modes.
+- Independently obtainable current-task thumbnail resources, without requiring
+  file browsing, history lookup or correlation with a Neo-submitted job.
+- Reported per-nozzle hardware details and an explicit supported nozzle
+  refresh/re-identification operation, distinct from an ordinary observation read.
+- Reported material topology, read-only metadata and load/unload/switch constraints
+  wherever existing types cannot faithfully express device-supported targets.
+  Keep protocol-specific temperature derivation inside the provider; no dedicated
+  per-operation temperature override is exposed.
+- Jogging distinguishes a distance/speed request from a named firmware step and
+  direction. Extrusion speed is either explicitly specified or device-controlled;
+  providers must reject the wrong request kind rather than silently discard a
+  distance or speed. Capability constraints supply the available request kind.
+
+Do not add calibration-start, print-detection configuration, camera recording,
+timelapse/resolution settings, object-skipping, material-metadata editing, manual
+RFID re-read, drying-control or AMS behavior-settings executors for this delivery.
+Drying/environment observations remain included. These restrictions do not remove
+load/unload/switch, contextual recovery or supported nozzle re-identification.
+Their exclusion from this implementation does not remove existing general domain
+contracts or disable device-side features. Calibration started elsewhere remains
+observable. Per-nozzle details are read-only and must not mutate printer
+configuration or slicer presets.
+
+Current-task image resources must retain target, route and current-task
+provenance without exposing private vendor payloads. Missing or failed image
+retrieval does not make basic print status unavailable. Task changes and late
+image results must not display an earlier task's image as the current one.
+The exact typed resource representation remains a contract-design decision;
+do not force file-list support merely to expose a current-task thumbnail.
+
+Prefer shared semantics where they fit, with narrowly typed Bambu-specific
+extensions where necessary. The exact extension representation remains open;
+do not introduce arbitrary vendor JSON or string-command escape hatches.
+Contextual action references carry the selected inline device-issued recovery
+actions, not arbitrary parameterized settings. If general calibration is added
+in a later scope, it still needs its own semantics. Update the single current
+contract, producers, consumers and compile fixtures together. Check for hidden
+session prerequisites, incomplete capability-to-request construction and unsafe
+widened unions before implementation.
+
+H2D acceptance must distinguish tools/nozzles, material units/slots and paths to
+each tool. Keep actual and requested tool/path state distinct when a transition
+is in progress. Derive topology and capabilities from device reports; do not
+assume a fixed AMS count, generation, slot layout or transfer mechanism. Resolve
+the physical fixture details at hardware acceptance. A unique usable feed target
+can be used directly and displayed; multiple targets require explicit selection,
+and unknown routing or an unready mechanism blocks execution with an explanation.
+The provider owns the reference load/unload temperature policy, including
+validation of protocol-specific sentinel/default behavior; uncertain applicability
+must not become a guessed temperature. The accepted interaction boundaries are in
+[Materials and AMS behavior](Printer%20Console%20and%20Control%20Integration.md#accepted-materials-and-ams-behavior).
+Telemetry must not silently mutate the slicer's project or presets.
+
+#### Commands and acceptance boundaries
+
+Use the operation semantics in section 7. A successful native send is not
+physical completion. Define confirmation evidence for each command: setting a
+temperature target is different from waiting for that temperature, and material
+movement needs an appropriate terminal result. Preserve unknown outcomes after
+ambiguous dispatch; do not automatically resend motion or material commands.
+The provider owns request deduplication, protocol response correlation and
+operation lookup independently of the view. The implementation retains requests
+and operation records for the current utility lifetime, with a 30-second ordinary
+completion timeout. Material load/switch/unload allow ten minutes for firmware
+warm-up, feeding and wiping, following the multi-minute LAN load observation.
+Telemetry becomes stale after 15 seconds; explicit reads time out after
+10 seconds. Target temperatures, fan/light settings, task state, tools and material
+paths can complete only from a newly accepted report satisfying the command's
+predicate. ACK is recorded separately. Jog/home/extrusion, identification refresh
+and recovery currently have no proven terminal predicate and therefore become
+unknown when confirmation times out. Hardware acceptance must verify these
+observations against firmware behavior. No outcomes survive utility restart. The selected UI follows
+Orca's corresponding control states, local messages and necessary dialogs; it
+does not add a unified operation-history panel or uniformly persistent outcome
+badges. This does not weaken underlying outcome tracking or replay restrictions.
+Relevant device errors and supported contextual recovery actions remain included
+in the control cards; an independent HMS page remains excluded.
+
+For Bambu FAILED reports, explicit print error 0300400C means task cancellation
+according to Orca's checked-in HMS resources. Project it as cancelled/ready with
+an informational cancellation message; other failures remain failed/error. A
+running task is not cancelled merely because that code appears. If firmware
+clears the reason before a new utility obtains its baseline, FAILED alone cannot
+establish cancellation and retains the failure projection. Do not synthesize a
+confirmed cancellation from a stop request or carry operation outcomes across
+utility restarts. The scoped H2D LAN physical qualification and these limits are
+recorded in the console's
+[LAN round completion](Printer%20Console%20and%20Control%20Integration.md#independent-lan-real-task-controls-and-round-completion).
+
+Follow the accepted
+[command interaction](Printer%20Console%20and%20Control%20Integration.md#accepted-command-interaction):
+confirm print cancellation with printer/task identity; do not add generic
+pause/resume or manual-motion confirmations; submit valid temperature edits on
+Enter or focus loss without duplicate submission. Preserve the original command
+target across edits and dialogs and reject a changed/invalid context at dispatch.
+Check motion prerequisites before sending, without automatically heating or
+replaying a blocked movement. Disconnected, connecting or stale-state views
+retain marked old readings but disable new controls until valid state returns.
+Do not queue new commands for later replay on reconnection. The provider validates
+operation-specific conditions independently of UI availability.
+
+Qualification must cover independently reviewable boundaries: contract
+construction; read-only monitoring and route lifecycle; basic controls;
+material/tool routing; and the agreed advanced controls. Deterministic fixtures
+cover complete/incremental data, unsupported or missing readings, stale routes,
+independent-instance isolation, device-selection changes, deduplication,
+switching during pending commands without cancellation/replay, release of old
+ordinary monitoring, correct late-result routing, uncertain command outcomes,
+stale recovery contexts and late/missing task thumbnails. Cover cancellation context changes, Enter/focus-loss deduplication,
+temperature edit target changes, control disabling/restoration on stale state,
+and pre-dispatch motion checks without automatic heating or movement replay.
+Check read-only nozzle details, explicit refresh capability and
+absence of the excluded calibration/detection/camera/object-skipping controls.
+Also cover dynamic material topology, unique/ambiguous/unavailable feed targets,
+load/unload temperature applicability and read-only material/drying observations.
+Verify absence of metadata editing, RFID re-read, drying controls and AMS settings.
+Physical H2D + AMS evidence must establish the operations actually claimed.
+Qualify account-backed automatic networking, including mixed callbacks, first;
+then separately qualify independently authorized LAN-only access. Pure Cloud
+and transport-loss claims need explicit network evidence, but are not a
+prerequisite for ordinary mixed-network acceptance.
+Confirm the precise AMS hardware and routing during physical acceptance. Passing
+one route or model does not qualify another. Independently running Electron
+processes must demonstrate the accepted shared-persistence and non-synchronized
+account behavior, including invalidation and concurrent-write cases; a historical
+single-process multi-window fixture does not qualify this behavior.
+
+Follow [testing guidelines](../doc/testing_guidelines.md) for affected-package
+tests/typechecks, contract fixtures, host E2E and repository handoff checks.
+Native export changes require affected addon/plugin and packaged-host checks,
+with the existing six-target release obligations retained. No slicer WASM build
+is implied by a networking-addon-only change. Existing real-account acceptance
+and packaged startup do not prove control authorization or physical execution.
 
 ## 3. Identity, configuration and stateless access
 

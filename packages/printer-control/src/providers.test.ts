@@ -91,4 +91,17 @@ describe('provider composition', () => {
     vi.mocked(bambu.provider.printers.listSaved).mockResolvedValueOnce({ ok: false, error: { code: 'transport', message: 'Unavailable' } });
     expect(await service.listSaved()).toMatchObject({ ok: false, error: { code: 'transport' } });
   });
+  it('routes current-task images without a prior observation or file listing', async () => {
+    const device = await fixture('bambu', 'device');
+    const saved = device.get()[0];
+    const target = { printerId: saved.identity.id, routeId: saved.routes[0].id };
+    const result = { ok: true as const, value: { ...target, configurationRevision: 'r',
+      taskId: 'external-task' as Id<'device-task'>, mimeType: 'image/png' as const, bytes: new Uint8Array([1, 2]) } };
+    const read = vi.spyOn(device.provider.printers.media, 'readCurrentPrintPreview').mockResolvedValue(result);
+    const service = createPrinterService([device.provider]);
+    expect(await service.media.readCurrentPrintPreview(target)).toEqual(result);
+    expect(read).toHaveBeenCalledWith(target, undefined);
+    expect(device.request).not.toHaveBeenCalled();
+  });
+
 });

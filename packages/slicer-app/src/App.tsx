@@ -707,7 +707,7 @@ function AppContent() {
             await runOpenProject(id);
           }} />}
         workspace={<Workspace leftSidebarVisible={leftSidebarVisible} rightSidebarVisible={rightSidebarVisible} actionControls={<SliceButton activeTab={workspaceTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />} activeTab={workspaceTab} onEditingSessionChange={setWorkspaceEditing} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
-        device={<DevicePanel sidebarVisible={deviceSidebarVisible} />}
+        device={<DevicePanel sidebarVisible={deviceSidebarVisible} visible={activeTab === 'device'} />}
         status={<StatusBar />}
       />
       <ProjectLoadChoiceDialog

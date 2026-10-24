@@ -33,7 +33,9 @@ export const Ipc = {
   recentReveal: 'recent:reveal',
   preferencesLoad: 'preferences:load',
   preferencesSave: 'preferences:save',
+  preferencesCompareAndSwap: 'preferences:compare-and-swap',
   bambuRead: 'bambu:read',
+  bambuControl: 'bambu:control',
   bambuCommand: 'bambu:command',
   bambuPrinterCommand: 'bambu:printer-command',
   bambuChanged: 'bambu:changed',
@@ -109,6 +111,7 @@ export interface ElectronBridge {
   preferences: {
     load(): Promise<PreferencesLoadResult>;
     save(json: unknown): Promise<void>;
+    compareAndSwap(base: unknown, next: unknown): Promise<{ updated: boolean; current: import('../../../../packages/platform-contract/src/contracts').UserPreferences }>;
   };
   memory: {
     sample(): Promise<ElectronMemoryIpcSnapshot>;

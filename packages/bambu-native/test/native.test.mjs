@@ -28,6 +28,7 @@ test('copies strings and HTTP output parameters, and serializes submitted calls'
     assert.equal(await agent.getUserName(), '账户名');
     assert.deepEqual(await agent.getMyToken('ticket-值'), { result: -19, httpCode: 201, body: 'ticket-值' });
     assert.deepEqual(await agent.getUserPrintInfo(), { result: 0, httpCode: 200, body: '{"devices":[]}' });
+    assert.deepEqual(await agent.getSubtaskInfo('task-值'), { result: 0, httpCode: 200, body: 'task-值' });
     assert.deepEqual(await agent.getMyProfile('opaque'), { result: 0, httpCode: 200, body: 'opaque' });
     assert.equal(await agent.startDiscovery(true, false), true);
     await agent.connectPrinter('id', '192.0.2.1', 'bblp', 'fixture-code', true);
@@ -94,5 +95,21 @@ test('copies LAN bootstrap arguments and rejects non-integer QoS without leaking
     const lines = await readFile(trace, 'utf8');
     assert(lines.includes('send:device:{"info":{"command":"get_version"}}:1:0'));
     assert(lines.includes('cert:device:lan'));
+  });
+});
+
+test('copies Cloud control and subscription arguments without sharing the LAN send path', async () => {
+  await session(async (agent, trace) => {
+    await agent.createAgent(trace);
+    await agent.startSubscribe('app');
+    await agent.sendMessage('cloud-device', '{"pushing":{"command":"pushall"}}', 1, 0);
+    await agent.stopSubscribe('app');
+    await assert.rejects(agent.sendMessage('cloud-device', 'private', 0.5, 0), /integer argument/);
+    await agent.close();
+    const lines = (await readFile(trace, 'utf8')).split('\n');
+    assert(lines.includes('subscribe:app'));
+    assert(lines.includes('cloud-send:cloud-device:{"pushing":{"command":"pushall"}}:1:0'));
+    assert(lines.includes('unsubscribe:app'));
+    assert(!lines.some(line => line.startsWith('send:')));
   });
 });

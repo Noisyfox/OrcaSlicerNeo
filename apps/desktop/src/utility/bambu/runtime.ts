@@ -1,3 +1,7 @@
+import { readCurrentPrintPreview } from './preview';
+import { BambuOperations } from './operations';
+import type { BambuControlRequest } from '../../shared/bambuControl';
+import { BambuMonitor } from './monitor';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadBambuNative, type BambuNative, type NativeEvent } from '@orca/bambu-native';
@@ -13,6 +17,8 @@ import { BambuRepository } from './repository';
 export class BambuRuntime {
   private native: BambuNative | null = null;
   private lan: BambuLan | null = null;
+  private monitor: BambuMonitor | null = null;
+  private operations: BambuOperations | null = null;
   private account: BambuAccount | null = null;
   private state: AccountState = { status: 'restoring', error: null };
   private ready: Promise<void>;
@@ -21,7 +27,7 @@ export class BambuRuntime {
   constructor(private readonly config: BambuHostConfig, private readonly publish: (change: BambuChange) => void,
     private readonly load: typeof loadBambuNative = loadBambuNative) {
     this.repository = new BambuRepository(config.directory);
-    this.devices = new BambuDevices(this.repository, () => publish('printers'));
+    this.devices = new BambuDevices(this.repository, () => { publish('printers'); void this.monitor?.reconcile().catch(() => undefined); });
     this.ready = this.initialize();
   }
   private async initialize() {
@@ -51,9 +57,12 @@ export class BambuRuntime {
       await ok(agent.trackEnable(false)); await ok(agent.trackRemoveFiles());
       await ok(agent.installDiscoveryCallbacks());
       await agent.startDiscovery(true, false);
+      this.monitor = new BambuMonitor(agent, this.devices, this.repository, () => this.lan!.release(), () => this.publish('control'));
+      this.operations = new BambuOperations(this.monitor, () => this.publish('control'));
       this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
     } catch {
+      await this.monitor?.close(); this.monitor = null;
       await this.lan?.close(); this.lan = null; this.account = null; this.state = unavailableBambuAccount();
       await this.native?.close().catch(() => undefined); this.native = null;
     }
@@ -63,6 +72,8 @@ export class BambuRuntime {
     // Only invalidations leave the utility; native messages may contain credentials.
     this.account?.onEvent(event);
     this.lan?.onEvent(event);
+    this.monitor?.onEvent(event);
+    void this.operations?.onEvent(event).catch(() => undefined);
   }
   read<K extends BambuRead>(kind: K): Promise<BambuReadResults[K]>;
   async read(kind: BambuRead): Promise<BambuReadResults[BambuRead]> {
@@ -77,10 +88,28 @@ export class BambuRuntime {
   }
   async host(request: BambuHostRequest) {
     await this.ready;
-    if (request.method === 'lan.authorize') { if (!this.lan) throw new Error('Unavailable'); return this.lan.authorize(request.input.candidateId, request.input.accessCode); }
-    if (request.method === 'lan.forget') { if (!this.lan) throw new Error('Unavailable'); return this.lan.forget(request.input.deviceId, request.input.expectedRevision); }
+    if (request.method === 'lan.authorize' || request.method === 'lan.forget') {
+      if (!this.lan || !this.monitor) throw new Error('Unavailable');
+      const lan = this.lan;
+      return this.monitor.suspend(() => request.method === 'lan.authorize' ? lan.authorize(request.input.candidateId, request.input.accessCode) : lan.forget(request.input.deviceId, request.input.expectedRevision));
+    }
     if (!this.account) throw new Error('Bambu networking is unavailable.');
     return this.account.handle(request);
   }
-  async close() { await this.ready; await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
+  async control(request: BambuControlRequest) {
+    await this.ready;
+    if (!this.monitor || !this.operations) return request.method === 'submit' ? { kind: 'rejected' as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } } : { ok: false as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } };
+    switch (request.method) {
+      case 'preview': return readCurrentPrintPreview(this.monitor, this.native!, request.input);
+      case 'evaluate': return this.operations.evaluate(request.input.target, request.input.command);
+      case 'submit': return this.operations.submit(request.input);
+      case 'operation': return this.operations.get(request.input);
+      case 'find': return this.operations.find(request.input);
+      case 'describe': return this.monitor.describe(request.input);
+      case 'read': return this.monitor.read(request.input);
+      case 'observe': return this.monitor.start(request.input.target, request.input.token);
+      case 'release': return this.monitor.stop(request.input.token);
+    }
+  }
+  async close() { await this.ready; this.operations?.close(); await this.monitor?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
 }

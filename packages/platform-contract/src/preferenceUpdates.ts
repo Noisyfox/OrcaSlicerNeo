@@ -9,6 +9,7 @@ export function updateUserPreferences(
   update: (current: UserPreferences) => UserPreferences,
 ): Promise<UserPreferences> {
   const task = (writes.get(repository) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    if (repository.update) return repository.update(update);
     const next = update(await repository.load());
     await repository.save(next);
     return next;

@@ -1,0 +1,98 @@
+import { _electron, desktopLaunchOptions } from './electron-fixture';
+import { isBambuControlRequest } from '../src/shared/bambuControl';
+import { expect, test } from '@playwright/test';
+import { installControlFixture, publishControlSnapshot } from './bambu-control-fixture';
+test('Bambu control cards retain selection, bind edits and cancellation, and disable stale controls', async () => {
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
+  try {
+    const page = await app.firstWindow();
+    // Hosted desktop work areas may clamp the native window below the layout breakpoint.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await installControlFixture(app);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
+    const panel = page.locator('#device-content');
+    await expect(panel.getByText('External task', { exact: true })).toBeVisible();
+    const validateRequests = async () => {
+      const requests = await app.evaluate(() => globalThis.bambuControlFixture.requests);
+      expect(requests.length).toBeGreaterThan(0);
+      for (const request of requests) expect(isBambuControlRequest(request), JSON.stringify(request)).toBe(true);
+    };
+    await validateRequests();
+    await panel.getByText('Fans · 4', { exact: true }).click();
+    for (const name of ['Parts', 'Aux', 'Exhaust', 'Heat']) {
+      await expect(panel.getByRole('combobox', { name: `${name} speed`, exact: true })).toBeVisible();
+    }
+    await expect(panel.getByRole('combobox', { name: 'Heat speed', exact: true })).toHaveValue('0');
+    await expect(panel.getByRole('combobox', { name: 'Fan 6 speed', exact: true })).toHaveCount(0);
+    await panel.getByText('Fans · 4', { exact: true }).click();
+    await expect(panel.getByText('AMS 2 Pro 128', { exact: true })).toBeVisible();
+    await expect(panel.getByText('Bambu Cloud', { exact: true })).toHaveCount(0);
+    for (const [unit, tool] of [[255, 0], [254, 1]]) {
+      const toolName = tool === 0 ? 'Right extruder' : 'Left extruder';
+      const otherToolName = tool === 0 ? 'Left extruder' : 'Right extruder';
+      const holder = panel.getByRole('heading', { name: `External holder ${unit}`, exact: true }).locator('..');
+      await expect(holder.getByRole('button', { name: `Load to ${toolName}`, exact: true })).toBeVisible();
+      await expect(holder.getByText('No available tool path reported.', { exact: true })).toHaveCount(0);
+      await expect(holder.getByRole('button', { name: `Load to ${otherToolName}`, exact: true })).toHaveCount(0);
+      await holder.getByText('Details', { exact: true }).click();
+      await expect(holder.getByText('Remaining: Not reported', { exact: true })).toBeVisible();
+      await holder.getByText('Details', { exact: true }).click();
+    }
+    await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
+    const commands = () => app.evaluate(() => globalThis.bambuControlFixture.commands);
+    const tokens = () => app.evaluate(() => globalThis.bambuControlFixture.tokens);
+    await expect.poll(tokens).toHaveLength(1); const originalTokens = await tokens();
+    await expect(panel.getByRole('spinbutton', { name: 'Left nozzle target', exact: true })).toBeVisible();
+    const temperature = panel.getByRole('spinbutton', { name: 'Right nozzle target', exact: true });
+    const leftBounds = await panel.getByRole('spinbutton', { name: 'Left nozzle target', exact: true }).boundingBox();
+    const rightBounds = await temperature.boundingBox();
+    expect(leftBounds!.y).toBeLessThan(rightBounds!.y);
+    const leftToolBounds = await panel.getByRole('button', { name: 'Select Left extruder', exact: true }).boundingBox();
+    const rightToolBounds = await panel.getByRole('button', { name: 'Select Right extruder', exact: true }).boundingBox();
+    expect(leftToolBounds!.y).toBeLessThan(rightToolBounds!.y);
+    await temperature.fill('235'); await temperature.press('Enter');
+    await expect.poll(commands).toHaveLength(1);
+    expect((await commands())[0]).toMatchObject({ target: { printerId: 'bambu:a' }, command: { type: 'thermal.setTarget', params: { heaterId: 'nozzle:0', targetC: 235 } } });
+    await panel.getByRole('button', { name: 'Cancel print', exact: true }).click();
+    await publishControlSnapshot(app, 'a', 'Replacement task');
+    await expect(panel.getByText('Replacement task', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Confirm cancellation', exact: true }).click();
+    expect(await commands()).toHaveLength(1);
+    await expect(panel.getByText('The active task changed. Review it before cancelling.')).toBeVisible();
+    await page.locator('#app-tab-home').click();
+    await publishControlSnapshot(app, 'a', 'Hidden task');
+    expect(await tokens()).toEqual(originalTokens);
+    await page.getByTestId('tab-device').click();
+    await expect(panel.getByText('Hidden task', { exact: true })).toBeVisible();
+    await publishControlSnapshot(app, 'a', 'Hidden task', false);
+    await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeDisabled();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Workshop B', exact: true }).click();
+    await expect(panel.getByText('Second task', { exact: true })).toBeVisible();
+    await expect.poll(tokens).toHaveLength(1); expect(await tokens()).not.toEqual(originalTokens);
+    await panel.getByRole('button', { name: 'Pause', exact: true }).click();
+    await expect.poll(commands).toHaveLength(2);
+    expect((await commands())[1]).toMatchObject({ target: { printerId: 'bambu:b' }, command: { type: 'jobs.pause' } });
+    await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
+    await expect(page.getByRole('option', { name: 'Workshop B', exact: true })).toBeHidden();
+    await expect(panel.locator('label').filter({ has: page.getByRole('combobox', { name: 'Print speed', exact: true }) })).toContainText('Print speed');
+    await expect(panel.getByRole('progressbar', { name: 'Print progress' })).toHaveAttribute('aria-valuenow', '42');
+    const moveRight = panel.getByRole('button', { name: 'Move X positive', exact: true });
+    const pad = await moveRight.boundingBox();
+    await moveRight.click({ position: { x: pad!.width * 0.85, y: pad!.height / 2 } });
+    await expect.poll(commands).toHaveLength(3);
+    expect((await commands())[2]).toMatchObject({ target: { printerId: 'bambu:b' }, command: { type: 'motion.jog', params: { axis: 'x', direction: 'positive', stepId: 'small' } } });
+    await panel.getByRole('button', { name: 'Dismiss', exact: true }).click();
+    const previewBounds = await panel.getByRole('heading', { name: 'Print preview', exact: true }).boundingBox();
+    const controlBounds = await panel.getByRole('heading', { name: 'Control', exact: true }).boundingBox();
+    expect(controlBounds!.x).toBeGreaterThan(previewBounds!.x + previewBounds!.width);
+    await page.screenshot({ path: '/tmp/orca-bambu-control.png' });
+    await page.setViewportSize({ width: 820, height: 900 });
+    await expect.poll(() => panel.getByTestId('device-monitor').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: '/tmp/orca-bambu-control-narrow.png' });
+    await validateRequests();
+  } finally { await app.close(); }
+});
