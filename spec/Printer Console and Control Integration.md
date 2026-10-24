@@ -302,6 +302,16 @@ closure. Fullscreen enters/exits without replacing playback. Precise timings,
 browser dropped-frame accounting and remaining hardware/host boundaries are in
 [H2D camera acceptance](Printer%20Domain%20and%20Control%20Architecture.md#h2d-lan-development-host-acceptance).
 
+Development-mode acceptance additionally covers React StrictMode: replayed
+mount effects must not attach and then close the single-consumer camera stream.
+The player defers attachment until after synchronous effect cleanup, while real
+unmount and Stop still release playback. Desktop dev CSP permits the same
+`media-src 'self' blob:` sources as production, so MSE can load its Blob URL.
+A real H2D dev run passes sustained decoding and three Stop/Play cycles with no
+media CSP violation; the StrictMode regression test fails before this fix.
+Changing dev-server CSP requires restarting the dev command, not only refreshing
+the renderer. Production-only playback acceptance does not cover these dev paths.
+
 The first delivery has one Bambu view per application instance. Remote-URL
 player verification may use a fixture agent; it does not deliver a remote-agent
 configuration UI. Mobile product support is deferred, with touch-usable controls

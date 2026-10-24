@@ -17,11 +17,17 @@ export function MediaPlayer({ descriptor, media, onError }: {
   const latest = useRef(descriptor); latest.current = descriptor;
   useEffect(() => {
     const controller = new AbortController();
-    const active = startMediaPlayback({ descriptor: latest.current, media, video: video.current!, image: image.current!,
-      signal: controller.signal, onState: setState });
-    player.current = active;
-    void active.done.catch(error => { if (!controller.signal.aborted) onErrorRef.current(error.message); });
-    return () => { controller.abort(); active.stop(); player.current = null; };
+    let active: ReturnType<typeof startMediaPlayback> | undefined;
+    // StrictMode replays setup/cleanup before this microtask. A discarded setup
+    // must never attach the single-consumer stream: detaching it closes the view.
+    queueMicrotask(() => {
+      if (controller.signal.aborted) return;
+      active = startMediaPlayback({ descriptor: latest.current, media, video: video.current!, image: image.current!,
+        signal: controller.signal, onState: setState });
+      player.current = active;
+      void active.done.catch(error => { if (!controller.signal.aborted) onErrorRef.current(error.message); });
+    });
+    return () => { controller.abort(); active?.stop(); if (player.current === active) player.current = null; };
   }, [identity, media]);
   useEffect(() => { player.current?.setExpiresAt(descriptor.expiresAtMs); }, [descriptor.expiresAtMs]);
   return <div className="relative min-h-24 overflow-hidden rounded bg-black" data-testid="camera-player">
