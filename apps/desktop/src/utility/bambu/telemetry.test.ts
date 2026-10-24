@@ -156,3 +156,35 @@ it('labels known stages, clears prior layers on idle and handles mixed AMS Lite 
   telemetry.accept(push({ msg: 1, gcode_state: 'IDLE' }));
   expect(telemetry.project(target, identity).values.status.printStatus.currentLayer.kind).toBe('unknown');
 });
+
+it('names only reported airduct fans using Orca functions and retains their command identities', () => {
+  const { telemetry } = model();
+  telemetry.accept(push({ msg: 0, device: { airduct: { parts: [0, 1, 2, 3, 4, 5, 6, 42].map(index => ({ id: index << 4, state: 30 })), modeCur: 0 } } }));
+  const value = telemetry.project(target, identity).values;
+  expect(value.descriptor.topology.fans.map(f => [f.id, f.name])).toEqual([
+    ['fan:0', 'Hotend cooling 0'], ['fan:1', 'Part cooling'], ['fan:2', 'Auxiliary cooling'],
+    ['fan:3', 'Chamber exhaust'], ['fan:4', 'Hotend cooling 1'], ['fan:5', 'Mainboard cooling'],
+    ['fan:6', 'Chamber heat circulation'], ['fan:42', 'Unknown fan (ID 42)'],
+  ]);
+  expect(value.actuators.fans.map(f => f.fanId)).toEqual(value.descriptor.topology.fans.map(f => f.id));
+  telemetry.accept(push({ msg: 1, device: { airduct: { parts: [{ id: 6 << 4, state: 0 }, { id: (6 << 4) | 1, state: 0 }] } } }));
+  expect(telemetry.project(target, identity).values.descriptor.topology.fans.map(f => f.id)).toEqual(['fan:6']);
+});
+
+it('follows pinned Orca model/mode/submode fan text and updates topology when labels change', () => {
+  const { telemetry } = model();
+  const n6identity = { ...identity, model: 'N6' };
+  telemetry.accept(push({ msg: 0, device: { airduct: { modeCur: 0, parts: [2, 10].map(index => ({ id: index << 4, state: 0 })) } } }));
+  const topology = () => telemetry.project(target, n6identity).values.descriptor.topology;
+  expect(topology().fans.map(f => f.name)).toEqual(['Left(Aux)', 'Right(Aux)']);
+  const revision = topology().revision;
+  telemetry.accept(push({ msg: 1, device: { airduct: { subMode: 1 } } }));
+  expect(topology().fans.map(f => f.name)).toEqual(['Left(Aux)', 'Right(Filter)']);
+  expect(topology().revision).not.toBe(revision);
+  telemetry.accept(push({ msg: 1, device: { airduct: { modeCur: 1 } } }));
+  expect(topology().fans.map(f => f.name)).toEqual(['Left(Heating)', 'Right(Filter)']);
+  expect(telemetry.project(target, { ...identity, model: 'N7' }).values.descriptor.topology.fans.map(f => f.name)).toEqual(['Right(Filter)', 'Left(Aux)']);
+  expect(telemetry.project(target, { ...identity, model: 'unknown-model' }).values.descriptor.topology.fans.map(f => f.name)).toEqual(['Auxiliary cooling', 'Unknown fan (ID 10)']);
+  telemetry.accept(push({ msg: 1, device: { airduct: { parts: [] } } }));
+  expect(topology().fans).toEqual([]);
+});

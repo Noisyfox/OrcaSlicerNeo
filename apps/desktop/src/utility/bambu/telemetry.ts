@@ -1,5 +1,7 @@
 /** Host-private normalization of Orca DeviceManager / DeviceCore push reports. */
 import { stageLabel } from './stages';
+import n6 from '../../../../../packages/slicer-wasm/cpp/resources/printers/N6.json';
+import n7 from '../../../../../packages/slicer-wasm/cpp/resources/printers/N7.json';
 import type * as D from '@orca/printer-control/domain';
 
 export type Report = Record<string, unknown>;
@@ -31,6 +33,25 @@ function merge(base: Report, patch: Report): Report {
 const nonNegative = (value: unknown) => { const n = number(value); return n !== undefined && n >= 0 ? n : undefined; };
 const fraction = (value: unknown, scale: number) => { const n = number(value); return n !== undefined && n >= 0 && n <= scale ? n / scale : undefined; };
 const phases: Record<string, D.PrintPhase> = { IDLE: 'idle', READY: 'idle', PREPARE: 'preparing', RUNNING: 'printing', PAUSE: 'paused', FINISH: 'completed', FAILED: 'failed' };
+
+/** Orca FanControlPopupNew::get_fan_func_name: model/mode text first, AIR_FUN fallback.
+ * Only names reported parts; resource data never creates hardware or command targets.
+ */
+function airductFanName(model: string | null, index: number, airduct: Report): string {
+  const profile = model === 'N6' ? n6 : model === 'N7' ? n7 : undefined;
+  const fanText = record(record(record(profile)['00.00.00.00']).fan);
+  const mode = number(airduct.modeCur), submode = number(airduct.subMode) ?? -1;
+  const override = mode === undefined ? undefined : record(fanText[String(mode)])[String(index)];
+  const label = text(override) ?? text(record(override)[String(submode)]);
+  if (label) return label;
+  // DevFan.h AIR_FUN and FanControl.cpp default labels, expanded for clarity.
+  const names: Record<number, string> = {
+    0: 'Hotend cooling 0', 1: 'Part cooling', 2: 'Auxiliary cooling',
+    3: 'Chamber exhaust', 4: 'Hotend cooling 1', 5: 'Mainboard cooling',
+    6: 'Chamber heat circulation',
+  };
+  return names[index] ?? `Unknown fan (ID ${index})`;
+}
 
 export interface TelemetryProjection {
   values: D.PrinterObservationMap;
@@ -108,12 +129,12 @@ export class BambuTelemetry {
     temperature('chamber', 'Chamber', 'chamber', chamber !== undefined ? bits(chamber, 0, 16) : p.chamber_temper,
       chamber !== undefined ? bits(chamber, 16, 16) : p.chamber_target_temper, chamber !== undefined || p.chamber_target_temper !== undefined);
     const fans: D.Fan[] = [], fanState: D.PrinterState['fans'][number][] = [];
-    const airParts = records(record(device.airduct).parts);
+    const airduct = record(device.airduct), airParts = records(airduct.parts);
     if (airParts.length) {
       for (const part of airParts) {
         if (bits(part.id, 0, 4) !== 0) continue;
         const key = bits(part.id, 4, 8); if (key === undefined) continue;
-        fans.push({ id: id(`fan:${key}`), name: `Fan ${key}`, role: 'other' });
+        fans.push({ id: id(`fan:${key}`), name: airductFanName(identity.model, key, airduct), role: 'other' });
         fanState.push({ fanId: id(`fan:${key}`), speedFraction: read(fraction(bits(part.state, 0, 8), 100)) });
       }
     } else {

@@ -21,6 +21,13 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
       for (const request of requests) expect(isBambuControlRequest(request), JSON.stringify(request)).toBe(true);
     };
     await validateRequests();
+    await panel.getByText('Fans · 4', { exact: true }).click();
+    for (const name of ['Part cooling', 'Auxiliary cooling', 'Chamber exhaust', 'Chamber heat circulation']) {
+      await expect(panel.getByRole('combobox', { name: `${name} speed`, exact: true })).toBeVisible();
+    }
+    await expect(panel.getByRole('combobox', { name: 'Chamber heat circulation speed', exact: true })).toHaveValue('0');
+    await expect(panel.getByRole('combobox', { name: 'Fan 6 speed', exact: true })).toHaveCount(0);
+    await panel.getByText('Fans · 4', { exact: true }).click();
     await expect(panel.getByText('AMS 2 Pro 128', { exact: true })).toBeVisible();
     await expect(panel.getByText('Bambu Cloud', { exact: true })).toHaveCount(0);
     for (const [unit, tool] of [[255, 0], [254, 1]]) {

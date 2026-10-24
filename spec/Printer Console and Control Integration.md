@@ -778,8 +778,15 @@ The [H2D user manual, section 6.5.1](https://csm.bblcdn.com/hub/4668d0ca43994ff3
 explains that the chamber heat circulation fan remains off in cooling mode and
 automatically starts in heating mode. Fan 6 therefore has command/report evidence
 only; physical behavior and mode-dependent applicability remain unqualified.
-Neo currently exposes the numeric fan names for these airduct reports rather
-than Orca's functional labels and mode presentation.
+The provider now derives descriptive fan names from Orca's AIR_FUN mapping,
+including Part cooling, Auxiliary cooling, Chamber exhaust and Chamber heat
+circulation. Pinned model/mode/submode label overrides take precedence as in
+Orca; unknown IDs are explicitly labelled as unknown fans. Only reported fan
+parts create controls and their opaque command IDs remain unchanged. The shared
+Monitor renders these domain names without interpreting vendor IDs. This naming
+change does not add chamber-mode controls or qualify mode-dependent execution.
+After rebuilding and restarting the real LAN profile, a read-only UI recheck
+confirmed these four functional names with all fan setpoints still at zero.
 
 This qualifies the set/restore sequences for Fans 1, 2 and 3 on the H2D.
 Other speed ranges, active-print interaction and Cloud-only operation remain
