@@ -973,15 +973,15 @@ completion remain unqualified because position is not reported and these
 operations have no reliable terminal predicate. No large step, extrusion or
 material operation was exercised in this stage.
 
-### Independent LAN X-axis large-step acceptance and unresolved anomaly
+### Independent LAN X-axis large-step acceptance and observation correction
 
 On 2026-10-24, the user confirmed motion clearance and authorized one positive
 and one negative X Large step, with a physical stop confirmation between them.
 Fresh motion/status preconditions were checked before each dispatch. The printer
 acknowledged positive X; the user confirmed normal direction, visibly greater
 travel than Small step and stopping. The first negative-X command was also
-acknowledged, but the user reported no movement. The step selector was restored
-to Small step and no automatic retry was performed.
+acknowledged, but the user initially reported no movement. The step selector was
+restored to Small step and no automatic retry was performed.
 
 The user then explicitly authorized one negative-X Large step retry. After fresh
 precondition checks, this single retry was dispatched and acknowledged; the user
@@ -992,11 +992,14 @@ preserving both attempts is in `.vitest/lan-acceptance/x-large-step.json`.
 
 The source audit found that X uses `xyz_ctrl`, negative `dir = -1` and Large step
 `mode = 1`, matching Orca's `DevAxis::Ctrl_Axis`. No mapping correction was made.
-The first acknowledged-but-unobserved negative movement remains unexplained;
-the successful retry does not establish its cause or constitute a fix. This stage
-records physically confirmed positive and retried negative large-step movement,
-not consistent delivery or exact travel distance. Automatic completion remains
-unqualified. No other axis, extrusion or material operation was exercised.
+The user later clarified that they likely missed the first negative-X movement.
+Its physical observation is therefore inconclusive rather than a confirmed
+failure to move; no reproducible motion failure or code fix is established by
+these attempts. This stage qualifies physically confirmed positive and retried
+negative large-step direction, stopping and visibly greater travel, without
+claiming the first attempt was physically observed. Exact travel distance and
+automatic completion remain unqualified. No other axis, extrusion or material
+operation was exercised.
 
 ### Independent LAN Y-axis large-step acceptance
 
@@ -1015,7 +1018,7 @@ timestamped evidence is in `.vitest/lan-acceptance/y-large-step.json`. This qual
 physical positive/negative Y Large step direction, stopping and visibly greater
 travel on this H2D over LAN. Exact travel distance and automatic completion remain
 unqualified. No other axis, extrusion or material operation was exercised in this
-stage; the earlier X-axis anomaly remains unresolved.
+stage.
 
 ### Independent LAN Z-axis large-step acceptance
 
@@ -1033,9 +1036,7 @@ all heater targets zero and all four reported fan setpoints zero. Local evidence
 is in `.vitest/lan-acceptance/z-large-step.json`. This qualifies physical positive
 and negative Z Large step direction, stopping and visibly greater travel on this
 H2D over LAN. Exact distance and automatic completion remain unqualified. No
-extrusion or material operation was exercised in this stage. The earlier X-axis
-acknowledged-but-unobserved movement remains unresolved despite its successful
-explicitly authorized retry.
+extrusion or material operation was exercised in this stage.
 
 ## Upload verification
 
