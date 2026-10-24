@@ -75,7 +75,7 @@ export class OperationStore {
           revision = value.revision;
           yield value;
           // An acknowledgement is the final evidence offered by this request-only provider.
-          if (['completed', 'failed', 'cancelled', 'outcome-unknown', 'acknowledged'].includes(value.phase.kind)) return;
+          if (['accepted', 'completed', 'failed', 'cancelled', 'outcome-unknown', 'acknowledged'].includes(value.phase.kind)) return;
         }
         if (entry.value.revision === revision && !options?.signal?.aborted) await new Promise<void>(resolve => { wake = resolve; });
         wake = undefined;

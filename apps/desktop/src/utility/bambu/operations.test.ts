@@ -4,7 +4,7 @@ import type * as D from '@orca/printer-control/domain';
 import { BambuMonitor } from './monitor';
 import { BambuOperations } from './operations';
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
-const request = (extra: Partial<D.CommandRequest> = {}): D.CommandRequest => ({ target, requestId: 'request' as D.Id<'request'>, command: { type: 'jobs.pause', params: {} }, ...extra } as D.CommandRequest);
+const request = (extra: Omit<Partial<D.CommandRequest>, 'command'> & { command?: D.PrinterCommand } = {}): D.CommandRequest => ({ target, requestId: 'request' as D.Id<'request'>, command: { type: 'jobs.pause', params: {} }, ...extra } as D.CommandRequest);
 function fixture(timeout: number | 'default' = 1000) {
   const methods = ['setSelectedMachine', 'startSubscribe', 'stopSubscribe', 'sendMessage', 'sendMessageToPrinter', 'disconnectPrinter', 'connectPrinter'];
   const native = Object.fromEntries(methods.map(method => [method, vi.fn(async () => 0)])) as unknown as BambuNative;
@@ -115,6 +115,61 @@ it('retains the thirty-second completion bound for ordinary commands', async () 
     if (result.kind !== 'recorded') throw new Error('Not recorded');
     await vi.advanceTimersByTimeAsync(30_001);
     expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'outcome-unknown' } } } });
+    expect(f.commands()).toHaveLength(1);
+  } finally { await f.close(); vi.useRealTimers(); }
+});
+const acceptanceCommands: D.PrinterCommand[] = [
+  ...(['x', 'y', 'z'] as const).map(axis => ({ type: 'motion.jog' as const, params: { motionGroupId: 'gantry' as D.Id<'motion'>, axis, kind: 'step' as const, stepId: 'small', direction: 'positive' as const } })),
+  { type: 'motion.home', params: { motionGroupId: 'gantry' as D.Id<'motion'>, axes: ['x', 'y', 'z'] } },
+  { type: 'extrusion.move', params: { extruderId: 'extruder:0' as D.Id<'extruder'>, distanceMm: 10, speed: { kind: 'device-controlled' } } },
+  { type: 'hardware.refreshNozzles', params: {} },
+];
+async function prepareIdle(f: ReturnType<typeof fixture>) {
+  await f.monitor.start(target, 'view');
+  await new Promise<void>(resolve => setImmediate(resolve));
+  await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: 'IDLE', home_flag: 7,
+    fun: ((1n << 32n) | (1n << 38n)).toString(16),
+    device: { extruder: { state: 1, info: [{ id: 0, temp: 220, snow: 0, star: 0, stat: 0 }] } },
+    ams: { tray_exist_bits: '1', ams: [{ id: 0, info: '3', tray: [{ id: 0, tray_type: 'PLA', nozzle_temp_min: 190, nozzle_temp_max: 230 }] }] } } })] });
+}
+it.each(acceptanceCommands)('ends $type tracking on matching ACK without claiming physical completion', async command => {
+  const f = fixture('default');
+  try {
+    await prepareIdle(f);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const stop = vi.spyOn(f.monitor, 'stop');
+    const submitted = request({ command });
+    const result = await f.operations.submit(submitted);
+    if (result.kind !== 'recorded') throw new Error(JSON.stringify(result));
+    const sent = f.commands()[0];
+    const ack = (device: string, sequence = sent.sequence_id, name = sent.command) => f.emit({ type: 'message', args: [device,
+      JSON.stringify({ print: { command: name, sequence_id: sequence, result: 'success' } })] });
+    await ack('b'); await ack('a', 'wrong-sequence'); await ack('a', sent.sequence_id, 'wrong-command');
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'sent' } } } });
+    expect(stop).not.toHaveBeenCalled();
+    await ack('a');
+    const accepted = f.operations.get(result.operation);
+    expect(accepted).toMatchObject({ value: { operation: { phase: { kind: 'accepted' } } } });
+    expect(stop).toHaveBeenCalledOnce(); expect(stop).not.toHaveBeenCalledWith('view');
+    await vi.advanceTimersByTimeAsync(30_001);
+    await ack('a'); f.operations.close();
+    expect(f.operations.get(result.operation)).toEqual(accepted);
+    expect(stop).toHaveBeenCalledOnce();
+    expect(await f.operations.submit(submitted)).toEqual(result);
+    expect(f.commands()).toHaveLength(1);
+  } finally { await f.close(); vi.useRealTimers(); }
+});
+it.each(['missing', 'fail'] as const)('does not accept a jog with %s ACK', async response => {
+  const f = fixture('default');
+  try {
+    await prepareIdle(f);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const result = await f.operations.submit(request({ command: acceptanceCommands[0] }));
+    if (result.kind !== 'recorded') throw new Error(JSON.stringify(result));
+    const sent = f.commands()[0];
+    if (response === 'fail') await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: sent.command, sequence_id: sent.sequence_id, result: 'fail' } })] });
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: response === 'fail' ? 'failed' : 'outcome-unknown' } } } });
     expect(f.commands()).toHaveLength(1);
   } finally { await f.close(); vi.useRealTimers(); }
 });

@@ -9,7 +9,7 @@ interface Tracked {
   generation: number; sequence: string; token: string; timer: ReturnType<typeof setTimeout>;
 }
 const failure = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });
-const terminal = (phase: D.CommandOperation['phase']) => ['completed', 'failed', 'outcome-unknown'].includes(phase.kind);
+const terminal = (phase: D.CommandOperation['phase']) => ['accepted', 'completed', 'failed', 'outcome-unknown'].includes(phase.kind);
 // Firmware material workflows include warm-up, feed and wiping, which take minutes.
 const completionTimeout = (command: D.PrinterCommand) =>
   ['materials.load', 'materials.switch', 'materials.unload'].includes(command.type) ? 10 * 60_000 : 30_000;
@@ -73,7 +73,7 @@ export class BambuOperations {
       const response = record(root[tracked.prepared.section]);
       if (text(response.sequence_id) === tracked.sequence && response.command === tracked.prepared.fields.command) {
         if (response.result === 'fail' || response.result === 'failed' || response.result === 'error') this.update(tracked, { kind: 'failed', error: { code: 'device-rejected', message: 'The printer rejected this command. Check the printer status.' } });
-        else if (response.result === 'success') this.update(tracked, { kind: 'acknowledged' });
+        else if (response.result === 'success') this.update(tracked, { kind: tracked.prepared.confirmed ? 'acknowledged' : 'accepted' });
       }
       if (record(root.print).command === 'push_status' && tracked.prepared.confirmed) {
         const context = await this.monitor.context(ref);
