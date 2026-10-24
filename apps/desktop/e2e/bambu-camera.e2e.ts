@@ -56,6 +56,12 @@ test('shared Monitor displays actual JPEG frames, retains controls and releases 
     await card.getByRole('button', { name: 'Play camera' }).click();
     await expect.poll(() => card.getByAltText('Live camera').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(320);
     await expect(card.getByText('Connecting…')).toHaveCount(0);
+    const fullscreen = card.getByRole('button', { name: 'Fullscreen', exact: true });
+    await fullscreen.click(); await expect(fullscreen).toBeEnabled();
+    await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
+    expect((await card.getByAltText('Live camera').boundingBox())!.height).toBeGreaterThan(400);
+    await fullscreen.click(); await expect(fullscreen).toBeEnabled();
+    await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(false);
     await page.locator('#device-content').getByRole('button', { name: 'Pause', exact: true }).click();
     await expect.poll(() => app.evaluate(() => globalThis.bambuControlFixture.commands.length)).toBe(1);
     await page.locator('#app-tab-home').click(); await expect.poll(counts).toEqual({ opened: 1, closed: 1 });

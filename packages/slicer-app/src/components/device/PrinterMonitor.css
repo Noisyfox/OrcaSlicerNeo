@@ -73,3 +73,7 @@
 .printer-slot-details summary { cursor: pointer; color: var(--color-muted-foreground); font-size: 10px; }
 .printer-slot-details[open] { grid-column: 1 / -1; }
 .printer-slot-details p { margin-top: 5px; }
+/* HTML fullscreen retains the player and its single binary consumer. */
+.printer-camera:fullscreen { display: flex; flex-direction: column; }
+.printer-camera:fullscreen [data-testid="camera-player"] { flex: 1; min-height: 0; }
+.printer-camera:fullscreen video, .printer-camera:fullscreen img { height: 100%; max-height: 100%; }

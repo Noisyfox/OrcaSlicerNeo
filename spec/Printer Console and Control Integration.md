@@ -259,7 +259,14 @@ opens the resource; connection readiness is distinct from the first displayed
 frame. Use muted inline video and handle browser autoplay rejection with a
 Play action rather than a reconnect loop. Live view is not a recording or
 seekable history. Keep aspect ratio and use the same surrounding controls for
-image and video presentation.
+image and video presentation. Fullscreen preserves the existing stream and
+scales the image/video to the available viewport. On macOS Electron, HTML
+fullscreen fills the app window using
+[`disableHtmlFullscreenWindowResize`](https://www.electronjs.org/docs/latest/api/structures/web-preferences);
+native window fullscreen remains an OS action. This avoids the observed
+HTML/native Space transition that left enter/exit promises pending during the
+H2D development-host run. The toggle is disabled while a transition is pending;
+Electron UI acceptance verifies both entry and exit with a decoded frame.
 
 Stop on device/route change, leaving the monitor, document hiding or closure.
 Top-level pages remain mounted, so cleanup must follow visibility as well as

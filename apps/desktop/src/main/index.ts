@@ -162,6 +162,9 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Keep HTML fullscreen inside the macOS app window; native Space transitions
+      // can leave Chromium's enter/exit promises pending. Window fullscreen remains an OS action.
+      ...(process.platform === 'darwin' ? { disableHtmlFullscreenWindowResize: true } : {}),
       sandbox: false, // preload uses node builtins for file IO
       // The shared app owns the element; guests remain isolated from Node and
       // receive no preload or arbitrary host API.
