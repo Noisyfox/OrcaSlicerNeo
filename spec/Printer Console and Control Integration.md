@@ -730,6 +730,28 @@ extrusion, material operations, wrong-code handling, forced network loss/recover
 and cross-instance invalidation were not exercised. Each physical control action
 still requires individual user confirmation.
 
+### Independent LAN lighting-control acceptance
+
+On 2026-10-24, the same signed-out, independently LAN-authorized H2D profile
+was used to test `lights.set` through the production Monitor. Reported
+capabilities allowed `chamber_light` and `chamber_light2`; both were initially
+on. `work_light` remained unknown and its control was disabled, so it was not
+sent a command.
+
+Each supported light was switched off and back on independently. Every command
+reached the UI's completed outcome and fresh device telemetry reported the
+requested state while the other light retained its state. At the user's request,
+the sequence was repeated with at least ten seconds in each off state to allow
+physical observation. The user confirmed that both physical lights turned off
+and back on normally. Both supported lights were restored to their initial on
+state. Timestamped local evidence is in `.vitest/lan-acceptance/lights.json` and
+`lights-repeat.json`; no credential data is recorded.
+
+This qualifies independent LAN on/off control and observed completion for these
+two reported lights on this H2D. It does not qualify the unsupported work light,
+other models, Cloud-only command execution or other control families. No heating,
+motion, extrusion or material operation was performed in this stage.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
