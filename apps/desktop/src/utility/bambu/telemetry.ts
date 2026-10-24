@@ -44,11 +44,11 @@ function airductFanName(model: string | null, index: number, airduct: Report): s
   const override = mode === undefined ? undefined : record(fanText[String(mode)])[String(index)];
   const label = text(override) ?? text(record(override)[String(submode)]);
   if (label) return label;
-  // DevFan.h AIR_FUN and FanControl.cpp default labels, expanded for clarity.
+  // DevFan.h AIR_FUN and FanControl.cpp functional labels, using compact names for the four user-facing fans.
   const names: Record<number, string> = {
-    0: 'Hotend cooling 0', 1: 'Part cooling', 2: 'Auxiliary cooling',
-    3: 'Chamber exhaust', 4: 'Hotend cooling 1', 5: 'Mainboard cooling',
-    6: 'Chamber heat circulation',
+    0: 'Hotend cooling 0', 1: 'Parts', 2: 'Aux',
+    3: 'Exhaust', 4: 'Hotend cooling 1', 5: 'Mainboard cooling',
+    6: 'Heat',
   };
   return names[index] ?? `Unknown fan (ID ${index})`;
 }
@@ -143,7 +143,7 @@ export class BambuTelemetry {
         fanState.push({ fanId: id(`fan:${key}`), speedFraction: read(fraction(bits(part.state, 0, 8), 100)) });
       }
     } else {
-      for (const [field, index, role, name] of [['cooling_fan_speed', 1, 'part', 'Part cooling'], ['big_fan1_speed', 2, 'auxiliary', 'Auxiliary'], ['big_fan2_speed', 3, 'chamber', 'Chamber']] as const) {
+      for (const [field, index, role, name] of [['cooling_fan_speed', 1, 'part', 'Parts'], ['big_fan1_speed', 2, 'auxiliary', 'Aux'], ['big_fan2_speed', 3, 'chamber', 'Exhaust']] as const) {
         if (p[field] === undefined && p.fan_gear === undefined) continue;
         fans.push({ id: id(`fan:${index}`), name, role });
         fanState.push({ fanId: id(`fan:${index}`), speedFraction: read(p.fan_gear !== undefined ? fraction(bits(p.fan_gear, (index - 1) * 8, 8), 255) : fraction(p[field], 15)) });

@@ -788,8 +788,8 @@ automatically starts in heating mode. The initial manual 30-percent Fan 6 test h
 its physical behavior remains unqualified. Automatic heat-circulation fan
 start/stop is separately qualified by the chamber-heating test below.
 The provider now derives descriptive fan names from Orca's AIR_FUN mapping,
-including Part cooling, Auxiliary cooling, Chamber exhaust and Chamber heat
-circulation. Pinned model/mode/submode label overrides take precedence as in
+using the compact labels Parts, Aux, Exhaust and Heat for fan IDs 1, 2, 3
+and 6, respectively. Pinned model/mode/submode label overrides take precedence as in
 Orca; unknown IDs are explicitly labelled as unknown fans. Only reported fan
 parts create controls and their opaque command IDs remain unchanged. The shared
 Monitor renders these domain names without interpreting vendor IDs. This naming
