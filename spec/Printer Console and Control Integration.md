@@ -837,6 +837,23 @@ zero before the naming change. A production rebuild/restart read-only check
 confirmed Right nozzle/Right extruder for 0, Left nozzle/Left extruder for 1,
 and zero targets for both nozzles, the bed and the chamber.
 
+The user subsequently accepted the right-nozzle test and separately authorized
+the left nozzle (ID 1) at 50 C, with a ten-second target hold after actual
+temperature reached 50 C and restoration to zero. Both left-nozzle commands
+completed with matching fresh telemetry; actual temperature was about 57 C at
+restoration. The other nozzle, bed and chamber targets stayed at zero. The user
+confirmed left/right identity, actual warm-up and target restoration against
+the printer screen and accepted both nozzle tests. A final read confirmed all
+four heater targets at zero. Local evidence is in
+`.vitest/lan-acceptance/nozzle0-50.json` and `nozzle1-50.json`.
+
+This qualifies these explicitly authorized dual-nozzle set/warm-up/restore
+sequences on this H2D over LAN. The tests held the requested target after actual
+temperature crossed it; reported overshoot to approximately 56/57 C is recorded
+rather than claiming stable 50 C regulation. Other temperatures and print-time
+behavior remain unqualified. No chamber heating, motion, extrusion or material
+operation was included in this nozzle stage.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
