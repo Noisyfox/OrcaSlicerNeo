@@ -1088,8 +1088,10 @@ movement needs an appropriate terminal result. Preserve unknown outcomes after
 ambiguous dispatch; do not automatically resend motion or material commands.
 The provider owns request deduplication, protocol response correlation and
 operation lookup independently of the view. The implementation retains requests
-and operation records for the current utility lifetime, with a 30-second completion
-timeout. Telemetry becomes stale after 15 seconds; explicit reads time out after
+and operation records for the current utility lifetime, with a 30-second ordinary
+completion timeout. Material load/switch/unload allow ten minutes for firmware
+warm-up, feeding and wiping, following the multi-minute LAN load observation.
+Telemetry becomes stale after 15 seconds; explicit reads time out after
 10 seconds. Target temperatures, fan/light settings, task state, tools and material
 paths can complete only from a newly accepted report satisfying the command's
 predicate. ACK is recorded separately. Jog/home/extrusion, identification refresh
@@ -1101,6 +1103,17 @@ does not add a unified operation-history panel or uniformly persistent outcome
 badges. This does not weaken underlying outcome tracking or replay restrictions.
 Relevant device errors and supported contextual recovery actions remain included
 in the control cards; an independent HMS page remains excluded.
+
+For Bambu FAILED reports, explicit print error 0300400C means task cancellation
+according to Orca's checked-in HMS resources. Project it as cancelled/ready with
+an informational cancellation message; other failures remain failed/error. A
+running task is not cancelled merely because that code appears. If firmware
+clears the reason before a new utility obtains its baseline, FAILED alone cannot
+establish cancellation and retains the failure projection. Do not synthesize a
+confirmed cancellation from a stop request or carry operation outcomes across
+utility restarts. The scoped H2D LAN physical qualification and these limits are
+recorded in the console's
+[LAN round completion](Printer%20Console%20and%20Control%20Integration.md#independent-lan-real-task-controls-and-round-completion).
 
 Follow the accepted
 [command interaction](Printer%20Console%20and%20Control%20Integration.md#accepted-command-interaction):

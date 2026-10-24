@@ -70,7 +70,7 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
   if (!context.fresh) return reject('offline', 'Wait for fresh printer status.');
   const p = protocolReport(context.model, context.report), state = context.values, topology = state.descriptor.topology;
   const phase = known(state.status.printStatus.phase);
-  const idle = phase === 'idle' || phase === 'completed' || phase === 'failed';
+  const idle = phase === 'idle' || phase === 'completed' || phase === 'cancelled' || phase === 'failed';
   const task = known(state.status.printStatus.taskId);
   const sameTask = (next: TelemetryProjection) => task === undefined || known(next.values.status.printStatus.taskId) === task;
   const prepared = (fields: Report, confirmed?: PreparedCommand['confirmed'], section: 'print' | 'system' = 'print', qos = 1): D.Result<PreparedCommand> => ({ ok: true, value: { section, fields, qos, confirmed } });
@@ -87,7 +87,7 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
       return prepared({ command: 'resume', param: '' }, next => sameTask(next) && known(next.values.status.printStatus.phase) === 'printing');
     case 'jobs.cancel':
       if (!['printing', 'paused', 'preparing'].includes(phase ?? '')) return reject('precondition-failed', 'There is no active print to cancel.');
-      return prepared({ command: 'stop', param: '' }, next => ['idle', 'failed'].includes(known(next.values.status.printStatus.phase) ?? '') && (known(next.values.status.printStatus.taskId) === null || sameTask(next)));
+      return prepared({ command: 'stop', param: '' }, next => ['idle', 'cancelled', 'failed'].includes(known(next.values.status.printStatus.phase) ?? '') && (known(next.values.status.printStatus.taskId) === null || sameTask(next)));
     case 'jobs.setSpeed':
       if (!['printing', 'paused'].includes(phase ?? '')) return reject('precondition-failed', 'Print speed is available during a print.');
       if (!['1', '2', '3', '4'].includes(command.params.modeId)) return reject('out-of-range', 'Select a supported speed mode.');

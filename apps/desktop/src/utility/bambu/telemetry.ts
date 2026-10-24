@@ -33,6 +33,8 @@ function merge(base: Report, patch: Report): Report {
 const nonNegative = (value: unknown) => { const n = number(value); return n !== undefined && n >= 0 ? n : undefined; };
 const fraction = (value: unknown, scale: number) => { const n = number(value); return n !== undefined && n >= 0 && n <= scale ? n / scale : undefined; };
 const phases: Record<string, D.PrintPhase> = { IDLE: 'idle', READY: 'idle', PREPARE: 'preparing', RUNNING: 'printing', PAUSE: 'paused', FINISH: 'completed', FAILED: 'failed' };
+// Orca resources/hms: 0300400C means "The task was canceled", not a printer fault.
+const taskCancelledError = 0x0300400c;
 
 /** Orca FanControlPopupNew::get_fan_func_name: model/mode text first, AIR_FUN fallback.
  * Only names reported parts; resource data never creates hardware or command targets.
@@ -166,7 +168,8 @@ export class BambuTelemetry {
       presence: slot.presence.kind === 'known' ? slot.presence.value : null, spoolIdentity: slot.spoolIdentity.kind === 'known' ? slot.spoolIdentity.value : null, remaining: undefined })));
     if (inventoryKey !== this.inventoryKey) { this.inventoryKey = inventoryKey; ++this.inventoryRevision; }
     material.topologyRevision = topology.revision; material.state.inventoryRevision = `inventory-${this.inventoryRevision}`;
-    const phase = phases[String(p.gcode_state)];
+    const error = nonNegative(p.print_error);
+    const phase = p.gcode_state === 'FAILED' && error === taskCancelledError ? 'cancelled' : phases[String(p.gcode_state)];
     const task = text(p.subtask_id), name = text(p.subtask_name) || text(p.gcode_file);
     const firmware = records(this.info.module).flatMap(item => typeof item.name === 'string' && typeof item.sw_ver === 'string' ? [{ name: item.name, version: item.sw_ver }] : []);
     const active = bits(ext.state, 4, 4);
@@ -182,8 +185,9 @@ export class BambuTelemetry {
     const home = number(p.home_flag);
     const motion: D.PrinterState['motion'] = tools.length ? [{ motionGroupId: id('gantry'), positionMm: unknown,
       homedAxes: read(home === undefined ? undefined : (['x', 'y', 'z'] as const).filter((_, bit) => home === 0 || (home & (1 << bit)) !== 0)) }] : [];
-    const error = nonNegative(p.print_error);
-    const alerts: D.PrinterObservationMap['alerts'] = error ? [{ id: id(`print:${error}`), code: error.toString(16).toUpperCase(), severity: 'error', message: `Printer error ${error.toString(16).toUpperCase()}`, actions: [] }] : [];
+    const alerts: D.PrinterObservationMap['alerts'] = error ? [{ id: id(`print:${error}`), code: error.toString(16).toUpperCase(),
+      severity: error === taskCancelledError ? 'info' : 'error',
+      message: error === taskCancelledError ? 'The task was canceled.' : `Printer error ${error.toString(16).toUpperCase()}`, actions: [] }] : [];
     return { fresh, generation: this.generation, report: merge(p, { capabilities: record(this.info.capabilities) }), values: {
       descriptor: { revision: topology.revision, identity, technology: 'fdm', buildVolume: null, firmware: firmware.length ? read(firmware) : unknown, topology },
       status: state, thermal, motion, actuators: { fans: fanState, lights: lightState }, sensors: { definitionRevision: topology.revision, definitions, readings },
@@ -281,10 +285,20 @@ function materialInventory(p: Report, extruders: Report[], toolIds: D.Id<'tool'>
   const tools: D.MaterialState['tools'] = extruders.map(ext => {
     const key = identifier(ext.id)!;
     const status = ext.legacy ? number(p.ams_status) : bits(ext.stat, 0, 16);
+    // Orca splits AMS main state (high byte) from its substate (low byte).
+    const mainStatus = status === undefined ? undefined : (status >> 8) & 0xff;
     const selected = resolvePath(ext.legacy ? ams.tray_tar : ext.star, key, !!ext.legacy);
     const loaded = resolvePath(ext.legacy ? ams.tray_now : ext.snow, key, !!ext.legacy);
+    // Orca DevExtderSystem::IsBusyLoading/GetLoadingExtder: modern printers
+    // report the active loading tool and busy bit in the system state.
+    const systemState = record(record(p.device).extruder).state;
+    const busy = bits(systemState, 19), loadingTool = bits(systemState, 15, 4);
+    const changing = selected.kind === 'known' ? selected.value === null ? 'unloading' : 'loading' : undefined;
+    const activity = ext.legacy ? mainStatus === 0 ? 'idle' : mainStatus === 1 ? changing : undefined
+      : busy === 0 ? 'idle' : busy === 1 && loadingTool !== undefined && toolIds.includes(id(`tool:${loadingTool}`))
+        ? String(loadingTool) === key ? changing : 'idle' : undefined;
     return { toolId: id(`tool:${key}`), selectedPathId: selected, loadedPathId: loaded,
-      activity: read(status === undefined ? undefined : status === 0 ? 'idle' : (status >> 8) === 1 ? selected.kind === 'known' && selected.value === null ? 'unloading' : 'loading' : undefined) };
+      activity: read(activity) };
   });
   return { topologyRevision: '', topology: { units, slots, paths, dryers }, toolIds, state: { inventoryRevision: '', slots: slotState, tools, dryers: dryerState } };
 }

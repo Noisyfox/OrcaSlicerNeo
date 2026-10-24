@@ -23,7 +23,7 @@ export class BambuRecovery {
       actions.push({ action, kind });
     };
     add('resume', episode.retry, 'Retry tool change');
-    if (phase.kind === 'known' && ['idle', 'completed', 'failed'].includes(phase.value)) add('abort', episode.abort, 'Abort tool change');
+    if (phase.kind === 'known' && ['idle', 'completed', 'cancelled', 'failed'].includes(phase.value)) add('abort', episode.abort, 'Abort tool change');
     return { ...context, recovery: actions, values: { ...context.values, alerts: [...context.values.alerts, {
       id: 'tool-switch' as D.Id<'alert'>, severity: 'error', code: 'tool-switch-failed', message: 'Tool change failed.', actions: actions.map(item => item.action),
     }] } };

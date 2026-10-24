@@ -10,12 +10,16 @@ interface Tracked {
 }
 const failure = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });
 const terminal = (phase: D.CommandOperation['phase']) => ['completed', 'failed', 'outcome-unknown'].includes(phase.kind);
+// Firmware material workflows include warm-up, feed and wiping, which take minutes.
+const completionTimeout = (command: D.PrinterCommand) =>
+  ['materials.load', 'materials.switch', 'materials.unload'].includes(command.type) ? 10 * 60_000 : 30_000;
 /** Instance-local request deduplication and immutable target-bound physical outcomes. */
 export class BambuOperations {
   private readonly operations = new Map<string, Tracked>();
   private readonly requests = new Map<string, { fingerprint: string; result: Promise<D.Submission> }>();
   private sequence = 1000000;
-  constructor(private readonly monitor: BambuMonitor, private readonly changed: () => void, private readonly timeoutMs = 30_000, private readonly now = () => Date.now()) {}
+  constructor(private readonly monitor: BambuMonitor, private readonly changed: () => void,
+    private readonly timeoutMs: number | ((command: D.PrinterCommand) => number) = completionTimeout, private readonly now = () => Date.now()) {}
   async evaluate(target: D.PrinterTarget, command: D.PrinterCommand): Promise<D.Result<D.CommandEvaluation>> {
     const context = await this.monitor.context(target); if (!context.ok) return context;
     const result = prepareCommand(context.value, command);
@@ -40,7 +44,8 @@ export class BambuOperations {
         const sequence = String(++this.sequence), operation: D.CommandOperation = { kind: 'command', commandType: request.command.type,
           ref: { ...context.target, id: randomUUID() as D.Id<'operation'> }, requestId: request.requestId,
           configurationRevision: context.configurationRevision, revision: 1, updatedAtMs: this.now(), phase: { kind: 'sent' } };
-        const timer = setTimeout(() => { if (tracked && !terminal(tracked.operation.phase)) this.update(tracked, { kind: 'outcome-unknown', reason: 'The printer did not confirm completion. Check its current state before issuing another command.' }); }, this.timeoutMs); timer.unref();
+        const timeout = typeof this.timeoutMs === 'number' ? this.timeoutMs : this.timeoutMs(request.command);
+        const timer = setTimeout(() => { if (tracked && !terminal(tracked.operation.phase)) this.update(tracked, { kind: 'outcome-unknown', reason: 'The printer did not confirm completion. Check its current state before issuing another command.' }); }, timeout); timer.unref();
         tracked = { generation: context.generation, operation, request, prepared: prepared.value, sequence, token: lease.value, timer };
         this.operations.set(operation.ref.id, tracked); this.changed();
         try {

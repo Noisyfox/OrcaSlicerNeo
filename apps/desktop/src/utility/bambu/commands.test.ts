@@ -100,3 +100,18 @@ it('allows motion on Orca explicit-zero home flag but blocks missing and unset a
   expect(prepareCommand(fixture({ home_flag: 6 }).context(), jog)).toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
   expect(prepareCommand(fixture({ home_flag: undefined }).context(), jog)).toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
 });
+
+it('confirms same-task cancellation and treats the cancelled task as inactive', () => {
+  const f = fixture({ gcode_state: 'RUNNING', subtask_id: 'cube' });
+  const cancel = prepareCommand(f.context(), { type: 'jobs.cancel', params: {} });
+  if (!cancel.ok) throw new Error('Expected cancel command');
+  f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, gcode_state: 'FAILED', print_error: 0x0300400c, subtask_id: 'other' } }));
+  expect(cancel.value.confirmed!(f.context())).toBe(false);
+  f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, subtask_id: 'cube' } }));
+  expect(cancel.value.confirmed!(f.context())).toBe(true);
+  expect(prepareCommand(f.context(), { type: 'jobs.cancel', params: {} })).toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
+  expect(prepareCommand(f.context(), { type: 'motion.home', params: { motionGroupId: 'gantry' as D.Id<'motion'>, axes: ['x', 'y', 'z'] } })).toMatchObject({ ok: true });
+  f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, device: { extruder: { state: 3 << 12 } } } }));
+  const recovered = new BambuRecovery().decorate(f.context());
+  expect(recovered.recovery?.map(item => item.kind)).toEqual(['resume', 'abort']);
+});

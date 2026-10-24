@@ -1,4 +1,7 @@
-/** Stage codes from checked-in Orca DeviceManager::get_stage_string. Unknown codes stay visible. */
+/** Stage codes from Orca DeviceManager::get_stage_string, with newer codes from
+ * Bambu Studio's same function. Unknown codes stay visible.
+ * https://github.com/bambulab/BambuStudio/blob/master/src/slic3r/GUI/DeviceManager.cpp
+ */
 const stages: Record<number, string> = {
   0: "Printing",
   1: "Auto bed leveling",
@@ -60,5 +63,6 @@ const stages: Record<number, string> = {
   57: "Measuring Surface",
   58: "Thermal Preconditioning for first layer optimization",
   65: "Calibrating the detection position of nozzle clumping",
+  74: "Heatbed surface foreign object detection",
 };
 export const stageLabel = (code: number) => stages[code] ?? `Stage ${code}`;

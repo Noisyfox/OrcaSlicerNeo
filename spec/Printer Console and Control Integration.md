@@ -442,7 +442,7 @@ physical acceptance remains last.
 
 | Group | Evidence and decisions still required |
 | --- | --- |
-| Command implementation details | Implemented: 15-second telemetry freshness, 10-second explicit-read timeout, 30-second completion timeout, and instance-lifetime operation/request retention. ACK is separate from completion. New accepted telemetry can confirm target/task/path state; motion, refresh and recovery without reliable terminal evidence remain unknown on timeout. Hardware acceptance must establish actual firmware outcomes and tune these bounds if evidence requires it. |
+| Command implementation details | Implemented: 15-second telemetry freshness, 10-second explicit-read timeout, 30-second ordinary-command completion timeout, ten-minute material load/switch/unload completion timeout, and instance-lifetime operation/request retention. The material bound accounts for firmware warm-up, feeding and wiping observed during LAN acceptance. ACK is separate from completion. New accepted telemetry can confirm target/task/path state; motion, refresh and recovery without reliable terminal evidence remain unknown on timeout. Hardware acceptance must establish actual firmware outcomes and tune these bounds if evidence requires it. |
 | Qualification details | Confirm the physical fixture, representative device states and permitted physical operations at acceptance. Account-backed automatic networking precedes LAN-only access; independent runtimes share persistence without proactive account synchronization. Broader-model and release claims require separate evidence. |
 
 Reference behavior comes from the checked-in Orca revision identified in the
@@ -1037,6 +1037,217 @@ is in `.vitest/lan-acceptance/z-large-step.json`. This qualifies physical positi
 and negative Z Large step direction, stopping and visibly greater travel on this
 H2D over LAN. Exact distance and automatic completion remain unqualified. No
 extrusion or material operation was exercised in this stage.
+
+### Independent LAN tool-selection and right AMS load acceptance
+
+On 2026-10-24, the user authorized selecting the left nozzle, then restoring the
+right nozzle after physical stop confirmation. Each action was dispatched once.
+Fresh active-tool observations changed from right Tool 0 to left Tool 1 and back
+to right Tool 0, satisfying the selection completion predicates. The user confirmed
+both physical changes, stopping and agreement with the printer screen. No heater
+target or material command was issued during tool selection. Local evidence is
+in `.vitest/lan-acceptance/tool-selection.json`.
+
+The user separately authorized loading AMS 2 Pro 1 Slot 0 (first physical slot,
+cyan PETG) to right Tool 0, including firmware heating, feeding and wiping. The
+reported path, material identity, slot presence and unloaded tool were checked
+before one Load dispatch. Firmware set the right nozzle target to 250 C and later
+245 C; all other heater targets stayed zero. The path became selected/loaded while
+activity still reported loading, so path selection alone was not taken as physical
+completion. The user confirmed the ongoing normal workflow and then its completion,
+with cyan PETG at the right nozzle, feed/purge/wiping stopped and screen agreement.
+Firmware restored the right target to zero without an additional command. No retry
+was issued. Local evidence is in `.vitest/lan-acceptance/right-ams-load.json`.
+
+This run exposed two feedback defects: the normal multi-minute workflow exceeded
+the ordinary 30-second confirmation bound, and completed H2D material activity was
+unknown despite a loaded path. Material load/switch/unload now allow ten minutes;
+ordinary commands retain their 30-second bound. Modern activity follows Orca
+`DevExtderSystem::IsBusyLoading/GetLoadingExtder` using the reported system busy bit
+and loading-tool ID. Legacy AMS activity uses the main high byte independently of
+its low-byte substate. Missing state or an unknown busy target stays unknown.
+
+After correction, a production restart with the same LAN profile performed only
+read-only verification: right Tool 0 retained the selected/loaded cyan PETG path,
+both tools reported idle, all heater targets were zero and no alerts were present.
+No second Load was performed. Root `pnpm test` passed 2,542 tests with four existing
+conditional skips, `pnpm typecheck` passed, and the focused Bambu Electron E2E,
+renderer CSS check and production build passed. Tests cover multi-minute material
+completion and ordinary-command timeouts. The subsequently authorized switch and
+unload below qualify the corrected long-workflow feedback end to end. This stage
+qualifies tool selection and the right AMS load's physical outcome; later material
+actions are recorded separately below.
+
+### Independent LAN right extrusion, retraction, switch and unload acceptance
+
+On 2026-10-24, the user separately authorized right-nozzle extrusion and retraction
+at actual 245 C, each using one 10 mm device-controlled action followed by target
+restoration to zero. The first extrusion's physical output was not observed or
+was uncertain; the user explicitly authorized one retry and confirmed normal
+extrusion on that retry. The separately authorized retraction was dispatched once
+and confirmed normal by the user. Before each action the fresh loaded cyan PETG
+path and applicable temperature prerequisite were checked; the reported minimum
+was 220 C. All heater targets were confirmed zero afterward with no alerts.
+No exact output quantity, travel distance or automatic extrusion/retraction
+completion is claimed. Local evidence is in `.vitest/lan-acceptance/` under
+`right-extrude-10.json`, `right-extrude-10-retry1.json` and `right-retract-10.json`.
+
+The user then authorized one right-nozzle switch from cyan Slot 0 to gray Slot 1
+in AMS 2 Pro 1, including firmware heating, cutting, unloading, feeding and wiping.
+The Monitor's Load entry selected the switch intent because a path was already
+loaded. Requested and actual paths initially differed, then both referenced the
+gray slot while activity was still loading; the operation remained pending.
+The right target was 245 C while the other heater targets stayed zero. After
+more than thirty seconds, fresh idle activity and the loaded gray path completed
+the operation in the UI. Firmware restored the target to zero. The user confirmed
+the physical workflow completed and stopped. No retry was issued; evidence is in
+`right-ams-switch.json`.
+
+Finally, the user authorized one right-nozzle unload, including firmware heating,
+cutting, rewinding and wiping. Requested path became null while the actual gray
+path remained, with activity unloading. Firmware selected a 225 C nozzle target.
+Fresh requested/loaded null paths and idle activity then completed the operation;
+all heater targets returned to zero without an additional command. The user
+confirmed normal return to the second physical AMS slot, stopping and agreement
+with the printer screen. Evidence is in `right-ams-unload.json`. No retry occurred.
+This group qualifies the right-side material workflow and corrected feedback on
+this H2D over LAN. Left-side material operations and external feeding remain
+separate.
+
+### Independent LAN left material-workflow acceptance
+
+On 2026-10-24, the user separately authorized each left-side action, including
+the associated firmware heating and movement. AMS 0 physical slot 2 (UI Slot 1)
+blue PETG was loaded once to left Tool 1. Firmware initially targeted 250 C, then
+245 C, and selected the left tool. The reported blue path plus idle activity
+completed the operation; firmware restored the target to zero. The user confirmed
+normal loading, stopping and agreement with the printer screen. Right Tool 0
+remained unloaded and idle throughout.
+
+The user then separately authorized one left Extrude 10 mm and one Retract 10 mm.
+Each action waited for actual left-nozzle temperature to reach 245 C and passed
+the dynamically reported material prerequisite (minimum 220 C) before dispatch.
+Each was dispatched once and the left target was restored to zero afterward;
+other heater targets stayed zero. The user confirmed normal extrusion and
+retraction and stopping. Exact quantity/distance and automatic completion of
+these manual actions remain unqualified.
+
+Next, the user authorized one left-side switch from blue Slot 1 to black PETG
+in physical slot 3 (UI Slot 2). Requested and actual paths initially differed,
+then matched the black slot while activity remained loading. Firmware first
+targeted 225 C, then 245 C. Fresh black loaded path and idle activity completed
+the operation; all targets returned to zero. The user confirmed normal physical
+switching, stopping and screen agreement. Finally, one separately authorized
+Unload returned black PETG to that third slot. Requested path cleared before
+actual loaded path; activity showed unloading. A 245 C firmware target was
+observed. Null requested/loaded paths plus idle completed the operation, with
+all heater targets restored to zero. The user confirmed normal return, stopping
+and screen agreement. Neither workflow was retried.
+
+Timestamped local evidence is in `.vitest/lan-acceptance/left-ams-load.json`,
+`left-extrude-10.json`, `left-retract-10.json`, `left-ams-switch.json` and
+`left-ams-unload.json`. Final fresh observations showed both tools unloaded and
+idle, all heater targets zero and no alerts. This qualifies the independently
+addressed left-side material workflow and completion feedback on this H2D over
+LAN. External holders and real print-task controls remain separate acceptance
+items; no such operation was performed in this group.
+
+### Independent LAN nozzle refresh and remaining scope
+
+On 2026-10-24, the user cleared the motion region and authorized one nozzle
+identification refresh. The Monitor sent it once and the printer acknowledged it.
+Fresh reports retained left/right 0.4 mm hardened-steel standard-flow HS01 nozzles,
+idle status, zero heater targets and no alerts. The user confirmed identification
+finished normally, stopped and matched the screen. The UI later reported an unknown
+outcome at its completion timeout; unchanged nozzle data and an ACK are not a
+reliable refresh-completion predicate. This qualifies the physically confirmed
+single refresh, while automatic completion remains unqualified. Evidence is in
+`.vitest/lan-acceptance/nozzle-refresh.json`.
+
+The user explicitly skipped physical external-holder 254/255 acceptance in this
+LAN round. Its earlier mapping/software checks do not establish physical feeding
+qualification. Idle read-only evaluations correctly blocked pause, resume, cancel
+and print-speed changes without dispatching commands; evidence is in
+`idle-print-guards.json`. Real-task control acceptance is recorded separately.
+
+The externally started Cube task exposed stage 74 as a numeric fallback. The pinned
+and upstream Orca stage tables did not map it; the official
+[Bambu Studio stage table](https://github.com/bambulab/BambuStudio/blob/master/src/slic3r/GUI/DeviceManager.cpp)
+defines it as Heatbed surface foreign object detection. The provider now supplies
+that label, preserving the numeric code and the unknown-stage fallback. Desktop
+tests (268 passed), desktop typecheck and the production build passed. A production
+restart reconnected read-only to the same task; its stage had already advanced,
+so the stage-74 projection itself is covered by the telemetry regression fixture,
+not a repeated physical detection action. Evidence remains in `print-controls.json`.
+
+### Independent LAN real-task controls and round completion
+
+On 2026-10-24, the user started Cube externally and separately authorized each
+control. The same device task ID was checked before every action. Pause was sent
+once after formal layer printing began; fresh paused state completed the operation,
+and the user confirmed the printer stopped and its screen agreed. Resume was then
+authorized and sent once; fresh printing state completed it, and the user confirmed
+normal continuation and screen agreement.
+
+Silent, Sport and Ludicrous were each separately authorized from Standard. Each
+mode was sent once, confirmed by a fresh same-task speed report, held for at least
+ten seconds, then restored to Standard once and confirmed by fresh telemetry.
+The Silent hold was approximately 22.7 seconds including tool scheduling; Sport
+and Ludicrous holds were approximately 10.0 seconds after their observed reports.
+The user confirmed each physical speed change, restoration and screen agreement.
+The task continued printing without alerts during these checks. No heater command
+was sent during the speed tests.
+
+Finally, the user authorized cancelling Cube once. The normal confirmation dialog
+identified the printer and task, and the same live task was rechecked before
+confirmation. The stop operation completed from observed terminal state. Firmware
+initially retained the print heater targets during its finish sequence, then
+restored both nozzle, bed and chamber targets to zero. The user confirmed cancelled
+status on the printer screen, physical stopping and no other abnormal prompt.
+No stop retry, manual cooldown or additional motion/material command was issued.
+Timestamped evidence for this group is in `.vitest/lan-acceptance/print-controls.json`.
+
+This exposed a presentation issue: firmware reports FAILED with print error
+0300400C for cancellation. Orca's checked-in
+[HMS resource](../packages/slicer-wasm/cpp/resources/hms/hms_en_094.json)
+defines that code as The task was canceled. The provider now maps that explicit
+combination to cancelled/ready, retains the cancellation code as an informational
+message, and preserves failure/error handling for other failure reports. Cancellation
+completion and inactive-task/recovery guards include the cancelled phase, retaining
+same-task checks. Fixtures cover unrelated tasks, real errors, missing error reasons
+and an active task carrying the cancellation code; the code alone does not terminate
+an active task. This does not introduce an HMS tab.
+
+A normal production restart then reconnected read-only with the same LAN profile:
+all heater targets were zero, both material activities were idle and no alerts
+were reported. Firmware had already cleared the cancellation code and retained
+only FAILED for Cube, so the new process still projected failed/error. The agent
+does not infer cancellation from its preceding stop request or persist outcomes
+across utility restarts. The explicit-code mapping is covered by regression
+fixtures; a second physical cancellation was not performed to demonstrate it.
+This round therefore qualifies physical cancellation and its zero-target finish,
+not recovery of a cleared cancellation reason after restart.
+
+The agreed development-host H2D + AMS LAN round is complete: read-only dynamic
+hardware, lights, authorized heater sequences, motion steps, tool selection,
+both AMS load/switch/unload and manual extrusion/retraction workflows, nozzle
+identification refresh, and real-task pause/resume/speed/cancel have the specific
+physical evidence recorded above. External-holder feeding was explicitly skipped.
+Manual Heat fan 30-percent execution remains physically unconfirmed; its automatic
+run/stop during chamber heating was confirmed. Exact manual travel/extrusion
+distance, automatic completion of commands lacking a terminal predicate, fault
+recovery, forced transport loss, cross-instance live account invalidation, other
+models/hosts and the full release matrix remain unqualified. Moonraker's existing
+function scope is unchanged.
+
+Final checks passed: `pnpm test` (2,557 passed, four existing conditional skips),
+`pnpm typecheck`, `pnpm --filter @orca/platform-contract test:import-guard`, the
+mock E2E build, renderer CSS smoke and seven Electron cases across
+`bambu-control.e2e.ts`, `bambu-provider.e2e.ts`, `bambu-account.e2e.ts` and
+`printer-control.e2e.ts`. The normal production build was restored and passed
+the read-only reconnect above. No C++/bridge/runtime artifact changed, so a new
+dual-WASM build, full Web/packaged release matrix and additional physical commands
+were intentionally not run for these provider fixes.
 
 ## Upload verification
 

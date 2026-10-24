@@ -13,6 +13,35 @@ const report = () => ({ msg: 0, gcode_state: 'RUNNING', subtask_id: 'external-ta
     { id: '1', info: '103', temp: '40.2', humidity: '2', humidity_raw: '25', dry_time: 65, tray: [{ id: '3', tray_type: 'PETG' }] }] } });
 
 describe('Bambu telemetry normalization', () => {
+  it.each([
+    ['FAILED', 0x0300400c, 'cancelled', 'ready', 'info'],
+    ['FAILED', 0x03004001, 'failed', 'error', 'error'],
+    ['FAILED', undefined, 'failed', 'error', undefined],
+    ['RUNNING', 0x0300400c, 'printing', 'busy', 'info'],
+  ])('distinguishes task cancellation from failures in %s / %s', (gcode_state, print_error, phase, operationalState, severity) => {
+    const { telemetry } = model();
+    telemetry.accept(push({ ...report(), gcode_state, print_error }));
+    const { values } = telemetry.project(target, identity);
+    expect(values.status.printStatus).toMatchObject({ phase: { value: phase }, taskId: { value: 'external-task' }, progressFraction: { value: 0.3 } });
+    expect(values.status.operationalState).toMatchObject({ value: operationalState });
+    expect(values.alerts.map(alert => alert.severity)).toEqual(severity ? [severity] : []);
+    if (print_error === 0x0300400c) expect(values.alerts[0]).toMatchObject({ code: '300400C', message: 'The task was canceled.', actions: [] });
+  });
+  it.each([undefined, 0, 0x20, 0x100, 0x120, 0x200])('uses legacy AMS main state independently of substate %s', stat => {
+    const expected = stat === undefined || stat === 0x200 ? { kind: 'unknown' } : { kind: 'known', value: stat < 0x100 ? 'idle' : 'loading' };
+    const legacy = model().telemetry;
+    legacy.accept(push({ msg: 0, nozzle_temper: 25, ams_status: stat, ams: { tray_tar: 0, ams: [{ id: 0, tray: [{ id: 0 }] }] } }));
+    expect(legacy.project(target, identity).values.materials.state.tools[0].activity).toMatchObject(expected);
+  });
+  it.each([
+    [undefined, [undefined, undefined]], [0x12, ['idle', 'idle']],
+    [(1 << 19) | 0x12, ['loading', 'idle']], [(1 << 19) | (1 << 15) | 0x12, ['idle', 'loading']],
+    [(1 << 19) | (15 << 15) | 0x12, [undefined, undefined]],
+  ] as const)('uses modern loading-tool and busy bits for system state %s', (state, expected) => {
+    const { telemetry } = model(); const p = report();
+    telemetry.accept(push({ ...p, device: { ...p.device, extruder: { ...p.device.extruder, state } } }));
+    expect(telemetry.project(target, identity).values.materials.state.tools.map(tool => tool.activity.kind === 'known' ? tool.activity.value : undefined)).toEqual(expected);
+  });
   it('rejects a delta without a full baseline and never converts absent values to zero', () => {
     const { telemetry } = model();
     expect(telemetry.accept(push({ msg: 1, mc_percent: 50 }))).toBe('resync');
@@ -149,9 +178,9 @@ it('reports remaining filament only for enabled RFID estimates, including a real
 });
 it('labels known stages, clears prior layers on idle and handles mixed AMS Lite presence bits', () => {
   const { telemetry } = model();
-  telemetry.accept(push({ ...report(), stg_cur: 7, ams: { tray_exist_bits: '4000000', ams: [{ id: 4, info: '5', tray: [{ id: 2, tray_type: 'PLA' }] }] } }));
+  telemetry.accept(push({ ...report(), stg_cur: 74, ams: { tray_exist_bits: '4000000', ams: [{ id: 4, info: '5', tray: [{ id: 2, tray_type: 'PLA' }] }] } }));
   const values = telemetry.project(target, identity).values;
-  expect(values.status.printStatus.stage).toMatchObject({ value: { code: '7', label: 'Heating nozzle' } });
+  expect(values.status.printStatus.stage).toMatchObject({ value: { code: '74', label: 'Heatbed surface foreign object detection' } });
   expect(values.materials.state.slots[0].presence).toMatchObject({ value: 'present' });
   telemetry.accept(push({ msg: 1, gcode_state: 'IDLE' }));
   expect(telemetry.project(target, identity).values.status.printStatus.currentLayer.kind).toBe('unknown');

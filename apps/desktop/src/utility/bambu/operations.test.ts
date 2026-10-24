@@ -5,12 +5,12 @@ import { BambuMonitor } from './monitor';
 import { BambuOperations } from './operations';
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 const request = (extra: Partial<D.CommandRequest> = {}): D.CommandRequest => ({ target, requestId: 'request' as D.Id<'request'>, command: { type: 'jobs.pause', params: {} }, ...extra } as D.CommandRequest);
-function fixture(timeout = 1000) {
+function fixture(timeout: number | 'default' = 1000) {
   const methods = ['setSelectedMachine', 'startSubscribe', 'stopSubscribe', 'sendMessage', 'sendMessageToPrinter', 'disconnectPrinter', 'connectPrinter'];
   const native = Object.fromEntries(methods.map(method => [method, vi.fn(async () => 0)])) as unknown as BambuNative;
   const monitor = new BambuMonitor(native, { list: async () => ['a', 'b'].map(deviceId => ({ deviceId, name: deviceId, model: 'H2D', routes: [{ channel: 'cloud' as const, revision: 'r1' }] })) },
     { read: async () => ({ version: 1, region: 'Others', clientId: 'test', lan: [] }) }, async () => {}, () => {}, Date.now, 300);
-  const operations = new BambuOperations(monitor, () => {}, timeout);
+  const operations = new BambuOperations(monitor, () => {}, timeout === 'default' ? undefined : timeout);
   const emit = async (event: NativeEvent) => { monitor.onEvent(event); await operations.onEvent(event); };
   const push = async (phase = 'RUNNING', device = 'a', task = 'task') => emit({ type: 'message', args: [device, JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: phase, subtask_id: task } })] });
   vi.mocked(native.sendMessage).mockImplementation(async (device, payload) => { if (JSON.parse(payload).pushing) setImmediate(() => { void push('RUNNING', device); }); return 0; });
@@ -75,4 +75,46 @@ it('does not mistake an ignored report for fresh completion evidence', async () 
     await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 7 } })] });
     expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'sent' } } } });
   } finally { await f.close(); }
+});
+it.each(['materials.load', 'materials.switch', 'materials.unload'] as const)('keeps %s pending through warm-up and completes only on idle path evidence', async type => {
+  const f = fixture('default');
+  try {
+    await f.monitor.start(target, 'view');
+    await new Promise<void>(resolve => setImmediate(resolve));
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: 'IDLE',
+      device: { extruder: { state: 1, info: [{ id: 0, snow: 0, star: type === 'materials.unload' ? 255 : 0, stat: 0x20 }] } },
+      ams: { tray_exist_bits: '1', ams: [{ id: 0, info: '3', tray: [{ id: 0, tray_type: 'PLA', nozzle_temp_min: 190, nozzle_temp_max: 230 }] }] } } })] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const requestId = 'material' as D.Id<'request'>;
+    const materialRequest: D.CommandRequest = type === 'materials.unload'
+      ? { target, requestId, command: { type, params: { toolId: 'tool:0' as D.Id<'tool'> } } }
+      : type === 'materials.load'
+        ? { target, requestId, command: { type, params: { pathId: 'path:0:0:0' as D.Id<'path'> } } }
+        : { target, requestId, command: { type, params: { pathId: 'path:0:0:0' as D.Id<'path'> } } };
+    const result = await f.operations.submit(materialRequest);
+    if (result.kind !== 'recorded') throw new Error(JSON.stringify(result));
+    const sent = f.commands()[0];
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: sent.command, sequence_id: sent.sequence_id, result: 'success' } })] });
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 1,
+      device: { extruder: { state: (1 << 19) | 1, info: [{ id: 0, snow: 0, star: type === 'materials.unload' ? 255 : 0, stat: 0x100 }] } } } })] });
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'acknowledged' } } } });
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 1,
+      device: { extruder: { state: 1, info: [{ id: 0, snow: type === 'materials.unload' ? 255 : 0, stat: 0x20 }] } } } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'completed', confirmation: 'observed-state' } } } });
+    expect(f.commands()).toHaveLength(1);
+  } finally { await f.close(); vi.useRealTimers(); }
+});
+it('retains the thirty-second completion bound for ordinary commands', async () => {
+  const f = fixture('default');
+  try {
+    await f.monitor.start(target, 'view'); await f.push();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const result = await f.operations.submit(request());
+    if (result.kind !== 'recorded') throw new Error('Not recorded');
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'outcome-unknown' } } } });
+    expect(f.commands()).toHaveLength(1);
+  } finally { await f.close(); vi.useRealTimers(); }
 });
