@@ -377,6 +377,15 @@ necessary dialogs for command feedback. Do not introduce a unified operation
 history panel or require every failure/unknown outcome to remain as a persistent
 inline badge. This choice concerns presentation: native send success is still
 not physical completion, and ambiguous results must not cause automatic replay.
+
+For Bambu commands without reliable physical-completion evidence (jog, home,
+extrusion, nozzle refresh and contextual recovery), a matching successful device
+ACK ends the pending interaction and displays `Printer accepted the command.`
+Controls become available subject to current telemetry and normal preconditions;
+there is no subsequent completion timeout for that accepted command. Commands
+with reliable completion predicates continue waiting after ACK. Neither a native
+send return nor an unrelated ACK is sufficient to accept a command.
+
 Orca's temporary protection of edited values from incoming telemetry is not
 proof that the device applied a command. Provider operation tracking remains
 independent of the visible page; the UI must not invent a successful result.
@@ -442,7 +451,7 @@ physical acceptance remains last.
 
 | Group | Evidence and decisions still required |
 | --- | --- |
-| Command implementation details | Implemented: 15-second telemetry freshness, 10-second explicit-read timeout, 30-second ordinary-command completion timeout, ten-minute material load/switch/unload completion timeout, and instance-lifetime operation/request retention. The material bound accounts for firmware warm-up, feeding and wiping observed during LAN acceptance. ACK is separate from completion. New accepted telemetry can confirm target/task/path state; motion, refresh and recovery without reliable terminal evidence remain unknown on timeout. Hardware acceptance must establish actual firmware outcomes and tune these bounds if evidence requires it. |
+| Command implementation details | Implemented: 15-second telemetry freshness, 10-second explicit-read timeout, 30-second ordinary-command response/completion timeout, ten-minute material load/switch/unload completion timeout, and instance-lifetime operation/request retention. The material bound accounts for firmware warm-up, feeding and wiping observed during LAN acceptance. New accepted telemetry can confirm target/task/path state. Commands without reliable physical-completion evidence finish tracking as accepted on a matching successful ACK; missing ACKs remain unknown on timeout. Acceptance never claims physical completion. Hardware acceptance must establish actual firmware outcomes and tune these bounds if evidence requires it. |
 | Qualification details | Confirm the physical fixture, representative device states and permitted physical operations at acceptance. Account-backed automatic networking precedes LAN-only access; independent runtimes share persistence without proactive account synchronization. Broader-model and release claims require separate evidence. |
 
 Reference behavior comes from the checked-in Orca revision identified in the

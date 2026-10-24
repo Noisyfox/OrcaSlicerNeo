@@ -26,6 +26,7 @@ export function usePrinterCommands(service: D.PrinterService, target: D.TargetRe
       setFeedback('Command sent. Waiting for the printer.');
       for await (const operation of service.operations.watch(result.operation, { signal: abort.signal })) {
         if (abort.signal.aborted) return;
+        if (operation.phase.kind === 'accepted') { setFeedback('Printer accepted the command.'); return; }
         if (operation.phase.kind === 'completed') { setFeedback('Command completed.'); return; }
         if (operation.phase.kind === 'failed') { setFeedback(operation.phase.error.message); return; }
         if (operation.phase.kind === 'acknowledged') setFeedback('Printer acknowledged the command. Waiting for completion.');
