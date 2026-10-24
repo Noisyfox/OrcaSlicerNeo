@@ -903,6 +903,33 @@ a motion precondition. This compatibility rule is for motion gating, not evidenc
 that a newly submitted Home axes operation completed. No completion predicate
 or automatic retry was added by this correction.
 
+### Independent LAN X-axis small-step acceptance
+
+On 2026-10-24, the user authorized positive X Small step followed by negative X
+after stopping. Initial pointer attempts did not dispatch: the automation tool
+targeted the center of each clipped direction button's full-wheel bounding box,
+where Home is located. Read-only DOM hit testing confirmed that the four visible
+direction sectors and the central Home region each hit their intended button.
+Subsequent keyboard activation of the focused positive-X button was acknowledged;
+the user separately requested one further positive-X attempt, which was also
+acknowledged, then confirmed positive-X movement and stopping. No automatic
+command retry was used.
+
+Before negative X, a fresh observation reported no homed axes, so no negative
+command was dispatched. The user confirmed clearance and authorized one further
+Home action, then confirmed its completion. With fresh X/Y/Z homed observations
+and idle status, the production Monitor dispatched one negative-X Small step.
+The printer acknowledged it and the user confirmed the correct negative
+direction, movement and stopping. Local timestamped evidence is in
+`.vitest/lan-acceptance/x-small-step.json`.
+
+This qualifies physical positive/negative X Small step direction and stopping on
+this H2D over LAN. It does not establish exact travel distance or return to the
+starting position; rehoming separated the two directions. Position remains
+unreported, and these operations still lack a reliable terminal predicate, so
+acknowledgment and the UI completion timeout do not prove physical completion.
+No other axis, large step, extrusion or material operation was exercised.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
