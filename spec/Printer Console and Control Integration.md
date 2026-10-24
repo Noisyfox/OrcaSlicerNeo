@@ -879,6 +879,30 @@ It does not qualify the earlier manual 30-percent Fan 6 setting, other chamber
 temperatures, print-time interactions or Cloud-only operation. No motion,
 extrusion or material command was issued in this stage.
 
+### Independent LAN homing acceptance
+
+On 2026-10-24, the user confirmed the bed was cleared and the motion region was
+unobstructed, then explicitly authorized one Home axes action. The production
+Monitor dispatched it once without resending. The device remained Live and
+subsequently reported idle without alerts. The UI retained the outcome-unknown
+message after its completion-confirmation timeout because this action has no
+reliable terminal predicate. The user confirmed normal physical homing. A later
+fresh motion observation reported all X/Y/Z axes homed; position remained unknown.
+Local evidence is in `.vitest/lan-acceptance/home-axes.json`.
+
+This qualifies the single authorized physical Home axes action on this H2D over
+LAN, independently of automatic operation completion, which remains unqualified.
+It does not qualify directional movement or other printers. No additional motion
+was performed to investigate the timeout.
+
+The source audit also aligned explicit-zero home-flag interpretation with
+[Orca DevAxis](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevAxis.h):
+an explicitly reported `home_flag = 0` permits all axes; other reported values
+use their individual axis bits. An absent flag remains unknown and cannot satisfy
+a motion precondition. This compatibility rule is for motion gating, not evidence
+that a newly submitted Home axes operation completed. No completion predicate
+or automatic retry was added by this correction.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host

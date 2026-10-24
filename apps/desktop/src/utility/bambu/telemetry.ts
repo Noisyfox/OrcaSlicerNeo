@@ -178,9 +178,10 @@ export class BambuTelemetry {
         progressFraction: read(phase === 'idle' ? undefined : fraction(p.mc_percent, 100)), remainingSeconds: read(phase === 'idle' ? undefined : nonNegative(p.mc_remaining_time) === undefined ? undefined : number(p.mc_remaining_time)! * 60),
         stage: read(stage === undefined ? undefined : stage === -1 || stage === 255 ? null : { code: String(stage), label: stageLabel(stage) }),
         currentLayer: read(nonNegative(p.layer_num)), totalLayers: read(nonNegative(p.total_layer_num)), speedModeId: read(identifier(p.spd_lvl)) } };
+    // Orca DevAxis::IsAxisAtHome*: explicit zero permits all axes; absence stays unknown.
     const home = number(p.home_flag);
     const motion: D.PrinterState['motion'] = tools.length ? [{ motionGroupId: id('gantry'), positionMm: unknown,
-      homedAxes: read(home === undefined ? undefined : (['x', 'y', 'z'] as const).filter((_, bit) => (home & (1 << bit)) !== 0)) }] : [];
+      homedAxes: read(home === undefined ? undefined : (['x', 'y', 'z'] as const).filter((_, bit) => home === 0 || (home & (1 << bit)) !== 0)) }] : [];
     const error = nonNegative(p.print_error);
     const alerts: D.PrinterObservationMap['alerts'] = error ? [{ id: id(`print:${error}`), code: error.toString(16).toUpperCase(), severity: 'error', message: `Printer error ${error.toString(16).toUpperCase()}`, actions: [] }] : [];
     return { fresh, generation: this.generation, report: merge(p, { capabilities: record(this.info.capabilities) }), values: {

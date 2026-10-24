@@ -205,3 +205,12 @@ it.each([false, true])('shows left before right regardless of dual report order 
   telemetry.accept(push({ msg: 1, device: { extruder: { info: [{ id: 5 }, { id: 9 }] } } }));
   expect(telemetry.project(target, identity).values.descriptor.topology.tools.map(t => t.name)).toEqual(['Tool 5', 'Tool 9']);
 });
+
+it.each([
+  [undefined, null], [0, ['x', 'y', 'z']], [1, ['x']], [6, ['y', 'z']], [7, ['x', 'y', 'z']],
+])('matches Orca explicit home_flag semantics while preserving missing state (%s)', (flag, axes) => {
+  const { telemetry } = model();
+  telemetry.accept(push({ msg: 0, home_flag: flag, nozzle_temper: 25 }));
+  const motion = telemetry.project(target, identity).values.motion[0];
+  expect(motion.homedAxes).toMatchObject(axes === null ? { kind: 'unknown' } : { kind: 'known', value: axes });
+});

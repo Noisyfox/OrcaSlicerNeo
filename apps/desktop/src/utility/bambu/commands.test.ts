@@ -93,3 +93,10 @@ it('uses reported fan limits instead of assuming every fan allows the full range
   expect(commandCapabilities(context).commands['fans.setSpeed']).toMatchObject({ constraints: [{ fanId: 'fan:1', speedFraction: { min: 0.2, max: 0.8 } }] });
   expect(prepareCommand(context, { type: 'fans.setSpeed', params: { fanId: 'fan:1' as never, speedFraction: 1 } })).toMatchObject({ ok: false, error: { code: 'out-of-range' } });
 });
+
+it('allows motion on Orca explicit-zero home flag but blocks missing and unset axis bits', () => {
+  const jog: D.PrinterCommand = { type: 'motion.jog', params: { motionGroupId: 'gantry' as never, axis: 'x', direction: 'positive', kind: 'step', stepId: 'small' } };
+  expect(prepareCommand(fixture({ home_flag: 0 }).context(), jog)).toMatchObject({ ok: true });
+  expect(prepareCommand(fixture({ home_flag: 6 }).context(), jog)).toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
+  expect(prepareCommand(fixture({ home_flag: undefined }).context(), jog)).toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
+});
