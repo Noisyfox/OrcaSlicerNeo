@@ -41,7 +41,22 @@ export default defineConfig(({ mode }) => {
       define: {
         __ORCA_E2E__: JSON.stringify(mode === 'e2e' || env.VITE_E2E === '1'),
       },
-      plugins: [react(), tailwindcss()],
+      plugins: [react(), tailwindcss(), {
+        name: 'desktop-dev-document-headers',
+        apply: 'serve',
+        configureServer(server) {
+          server.middlewares.use((request, _response, next) => {
+            // Vite's HTML ETag only covers the body; its 304 path omits
+            // configured headers. A CSP-only change otherwise leaves Electron
+            // using the cached policy even after restarting the dev server.
+            if (request.headers.accept?.includes('text/html')) {
+              delete request.headers['if-none-match'];
+              delete request.headers['if-modified-since'];
+            }
+            next();
+          });
+        },
+      }],
       server: {
         headers: {
           // Dev counterpart of the prod CSP (main/index.ts): same directives,

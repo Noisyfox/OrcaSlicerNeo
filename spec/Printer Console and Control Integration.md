@@ -310,7 +310,10 @@ unmount and Stop still release playback. Desktop dev CSP permits the same
 A real H2D dev run passes sustained decoding and three Stop/Play cycles with no
 media CSP violation; the StrictMode regression test fails before this fix.
 Changing dev-server CSP requires restarting the dev command, not only refreshing
-the renderer. Production-only playback acceptance does not cover these dev paths.
+the renderer. Desktop dev HTML requests bypass conditional caching so a cached
+document cannot retain the old CSP after a server restart; module caching remains
+enabled. Acceptance includes reloading with an existing HTML ETag and the normal
+development profile. Production-only playback acceptance does not cover these dev paths.
 
 The first delivery has one Bambu view per application instance. Remote-URL
 player verification may use a fixture agent; it does not deliver a remote-agent
