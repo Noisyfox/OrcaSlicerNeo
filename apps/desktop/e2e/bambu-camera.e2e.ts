@@ -51,11 +51,17 @@ test('shared Monitor displays actual JPEG frames, retains controls and releases 
     await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
     const card = page.getByTestId('camera-card');
     await expect(card.getByRole('button', { name: 'Play camera' })).toBeVisible();
+    const placeholder = card.getByRole('status');
+    const stoppedBounds = await placeholder.boundingBox();
+    expect(stoppedBounds!.width / stoppedBounds!.height).toBeCloseTo(16 / 9, 2);
     const counts = () => app.evaluate(() => ({ opened: globalThis.cameraFixture.opened, closed: globalThis.cameraFixture.closed.length }));
     expect(await counts()).toEqual({ opened: 0, closed: 0 });
     await card.getByRole('button', { name: 'Play camera' }).click();
     await expect.poll(() => card.getByAltText('Live camera').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(320);
     await expect(card.getByText('Connecting…')).toHaveCount(0);
+    const playerBounds = await card.getByTestId('camera-player').boundingBox();
+    expect(playerBounds!.width / playerBounds!.height).toBeCloseTo(4 / 3, 2);
+    expect(playerBounds!.width).toBeCloseTo(stoppedBounds!.width, 0);
     const fullscreen = card.getByRole('button', { name: 'Fullscreen', exact: true });
     await fullscreen.click(); await expect(fullscreen).toBeEnabled();
     await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
@@ -68,6 +74,10 @@ test('shared Monitor displays actual JPEG frames, retains controls and releases 
     await page.getByTestId('tab-device').click(); await expect.poll(counts).toEqual({ opened: 2, closed: 1 });
     await expect.poll(() => card.getByAltText('Live camera').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(320);
     await card.getByRole('button', { name: 'Stop camera' }).click(); await expect.poll(counts).toEqual({ opened: 2, closed: 2 });
+    const restoredBounds = await placeholder.boundingBox();
+    expect(restoredBounds!.width / restoredBounds!.height).toBeCloseTo(16 / 9, 2);
+    expect(restoredBounds!.height).toBeCloseTo(stoppedBounds!.height, 0);
+    await page.screenshot({ path: '/tmp/orca-camera-stopped-layout.png' });
     await page.locator('#app-tab-home').click(); await page.getByTestId('tab-device').click();
     expect(await counts()).toEqual({ opened: 2, closed: 2 });
     await card.getByRole('button', { name: 'Play camera' }).click(); await expect.poll(counts).toEqual({ opened: 3, closed: 2 });

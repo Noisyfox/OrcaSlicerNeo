@@ -43,20 +43,19 @@ export function PrinterMonitor({ printer, route, visible = true }: { printer: D.
   return <><PrinterMonitorLayout testId="device-monitor" title={printer.identity.displayName} subtitle={`${printer.identity.model ?? ''} · ${route.label}`}
     toolbar={canRefresh && <Button size="sm" variant="secondary" disabled={pending || refreshing} onClick={() => void refresh()}>Refresh</Button>}
     status={live && <span className="text-xs" role="status">{error ? 'Disconnected or stale' : liveStatus ? fresh ? 'Live' : snapshot ? 'Disconnected or stale' : 'Connecting…' : snapshot ? 'Live observations' : 'Connecting…'}</span>}
-    preview={preview}
     camera={capabilities.cameras.length ? capabilities.cameras.map(camera => <CameraCard
       key={`${target.printerId}:${target.routeId}:${route.configurationRevision}:${camera.cameraId}`}
       media={service.media} target={target} capability={camera} visible={visible}
       name={topology?.cameras.find(item => item.id === camera.cameraId)?.name ?? 'Camera'}
       disabled={valueOf(snapshot?.values.cameras)?.some(item => item.cameraId === camera.cameraId && valueOf(item.enabled) === false) ?? false}
-    />) : capabilities.observations.cameras.kind === 'supported' && <ControlCard title="Camera"><p className="text-sm text-muted-foreground">Camera information has not been reported.</p></ControlCard>}
+    />) : capabilities.observations.cameras.kind === 'supported' && <ControlCard title="Camera"><p role="status" className="printer-camera-viewport printer-camera-placeholder">Camera information has not been reported.</p></ControlCard>}
     notices={<>
     {canRefresh && !snapshot && <p className="text-sm text-muted-foreground">No readings requested. Use Refresh to read the printer.</p>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {feedback && <div role="status" className="flex items-center justify-between gap-3 rounded border p-2 text-sm"><span>{feedback}</span><Button size="sm" variant="ghost" onClick={() => setFeedback(null)}>Dismiss</Button></div>}
     {valueOf(snapshot?.values.alerts)?.map(alert => <section key={alert.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-destructive/40 p-3 text-sm"><span>{alert.message} <span className="text-muted-foreground">{alert.code}</span></span><div className="flex gap-2">{alert.actions.map(action => <Button key={action.actionRef.token} size="sm" variant="secondary" disabled={controls.disabled || action.availability.kind !== 'available'} onClick={() => void send({ type: 'actions.invoke', params: { actionRef: action.actionRef } })}>{action.label}</Button>)}</div></section>)}
     </>}
-    progress={<PrintProgressCard status={status?.printStatus} details={<><dt>State</dt><dd>{display(status?.operationalState)}</dd><dt>Stage</dt><dd>{display(status?.printStatus.stage, stage => stage?.label ?? '—')}</dd><dt>Layer</dt><dd>{display(status?.printStatus.currentLayer)} / {display(status?.printStatus.totalLayers)}</dd></>}>
+    progress={<PrintProgressCard preview={preview} status={status?.printStatus} details={<><dt>State</dt><dd>{display(status?.operationalState)}</dd><dt>Stage</dt><dd>{display(status?.printStatus.stage, stage => stage?.label ?? '—')}</dd><dt>Layer</dt><dd>{display(status?.printStatus.currentLayer)} / {display(status?.printStatus.totalLayers)}</dd></>}>
         {capabilities.commands['jobs.pause'].kind === 'supported' && <Button size="sm" variant="secondary" disabled={controls.disabled || liveStatus && phase !== 'printing'} onClick={() => void send({ type: 'jobs.pause', params: {} })}>Pause</Button>}
         {capabilities.commands['jobs.resume'].kind === 'supported' && <Button size="sm" variant="secondary" disabled={controls.disabled || liveStatus && phase !== 'paused'} onClick={() => void send({ type: 'jobs.resume', params: {} })}>Resume</Button>}
         {capabilities.commands['jobs.cancel'].kind === 'supported' && <Button size="sm" variant="destructive" disabled={controls.disabled || liveStatus && !['printing', 'paused', 'preparing'].includes(phase ?? '')} onClick={() => { if (liveStatus || taskId) setCancel({ name: valueOf(status?.printStatus.name) ?? 'Current task', taskId: taskId ?? undefined }); else void send({ type: 'jobs.cancel', params: {} }); }}>Cancel print</Button>}

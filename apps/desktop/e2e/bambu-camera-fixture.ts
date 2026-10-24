@@ -5,8 +5,8 @@ declare global { var cameraFixture: { opened: number; closed: string[]; resource
 /** Real renderer adapter/port/player; deterministic image source, no physical device. */
 export async function installCameraFixture(app: ElectronApplication, page: Page) {
   const jpeg = await page.evaluate(() => {
-    const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180;
-    const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#15aa44'; ctx.fillRect(0, 0, 320, 180);
+    const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 240;
+    const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#15aa44'; ctx.fillRect(0, 0, 320, 240);
     return canvas.toDataURL('image/jpeg').split(',')[1];
   });
   await app.evaluate(({ ipcMain, MessageChannelMain }, { channels, jpeg }) => {

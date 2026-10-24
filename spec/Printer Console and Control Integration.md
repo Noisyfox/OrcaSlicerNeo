@@ -152,8 +152,9 @@ directly. Protocol normalization and capability derivation belong to the provide
 as specified in the
 [Bambu control architecture](Printer%20Domain%20and%20Control%20Architecture.md#23-bambu-monitoring-and-control-design).
 
-The Monitor follows the reference's two-column desktop composition without a
-video panel: task preview above printing progress on the left; temperature,
+The Monitor follows the reference's two-column desktop composition: the camera
+card above printing progress on the left, with the current-task thumbnail to the
+left of the progress information inside the same card; temperature,
 lighting/fans, a directional XY pad with homing and Z controls, and individually
 addressed extruders on the right. A visible Print speed label accompanies the
 mode selector. Material units form a grid beneath the controls, with compact
@@ -259,9 +260,12 @@ Provide Play/Stop, retry, fullscreen and connection/playback status. User Play
 opens the resource; connection readiness is distinct from the first displayed
 frame. Use muted inline video and handle browser autoplay rejection with a
 Play action rather than a reconnect loop. Live view is not a recording or
-seekable history. Keep aspect ratio and use the same surrounding controls for
-image and video presentation. Fullscreen preserves the existing stream and
-scales the image/video to the available viewport. On macOS Electron, HTML
+seekable history. Use a 16:9 placeholder while stopped, connecting or
+unavailable. Once media dimensions are known, size the viewport to the actual
+video or image aspect ratio without cropping or stretching. Keep the same
+surrounding controls for both presentations. At narrower widths, the camera and
+progress cards remain vertically stacked above the controls. Fullscreen
+preserves the existing stream and scales the image/video to the available viewport. On macOS Electron, HTML
 fullscreen fills the app window using
 [`disableHtmlFullscreenWindowResize`](https://www.electronjs.org/docs/latest/api/structures/web-preferences);
 native window fullscreen remains an OS action. This avoids the observed
