@@ -105,3 +105,21 @@ describe('provider composition', () => {
   });
 
 });
+
+it('routes binary media by retained route ownership and forwards abort without a state subscription', async () => {
+  const fixtureProvider = await fixture('bambu', 'camera');
+  const printer = fixtureProvider.get()[0];
+  const service = createPrinterService([fixtureProvider.provider]);
+  await service.listSaved(); fixtureProvider.set([]);
+  const media = { printerId: printer.identity.id, routeId: printer.routes[0].id, id: 'media' as Id<'media'> };
+  const request = { media, streamId: 'stream' as Id<'media-stream'> }, controller = new AbortController();
+  const bytes = new Uint8Array([255, 216, 255, 217]);
+  const read = vi.spyOn(fixtureProvider.provider.printers.media, 'readStream').mockImplementation(async function* (_request, options) {
+    yield { generation: 0, sequence: 0, kind: 'jpeg', bytes };
+    expect(options?.signal?.aborted).toBe(true);
+  });
+  const iterator = service.media.readStream(request, { signal: controller.signal })[Symbol.asyncIterator]();
+  expect((await iterator.next()).value?.bytes).toBe(bytes);
+  controller.abort(); expect((await iterator.next()).done).toBe(true);
+  expect(read).toHaveBeenCalledWith(request, { signal: controller.signal });
+});

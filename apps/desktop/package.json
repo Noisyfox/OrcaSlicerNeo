@@ -9,6 +9,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "camera:prototype": "node scripts/camera-prototype/run.mjs",
+    "camera:player:check": "node scripts/camera-prototype/playback-check.mjs",
     "camera:prototype:test": "node --test scripts/camera-prototype/remux.test.mjs",
     "predev": "pnpm --filter @orca/bambu-native stage:runtime && node ../../scripts/stage.mjs --soft",
     "dev": "electron-vite dev --noSandbox",

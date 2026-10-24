@@ -1738,9 +1738,9 @@ recording.
 
 **Decision status:** Accepted design; isolated H.264 timing, fMP4 and MSE
 feasibility is demonstrated with generated fixtures on macOS ARM64 in Chrome
-and Electron. The current authorized increment is limited to that probe.
-Production media contracts, native streaming integration and Camera UI are not
-delivered by that probe. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
+and Electron. Production implementation is authorized in independently verified
+and committed increments. Shared media contracts and the delivery player are
+delivered; native streaming integration and Camera UI remain pending. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
 owns presentation and viewing intent.
 
 Keep the existing `open-bamboo-networking` **v2.2.0** artifact pins and all six
@@ -1783,10 +1783,10 @@ this is an adapter limit, not a discovered printer hardware limit.
 
 #### Media resource contract changes
 
-Extend the single current [media contract](../packages/printer-control/src/domain/media.ts)
-with explicit `mse-fmp4` and `jpeg-frames` delivery variants. Each carries an
+The single current [media contract](../packages/printer-control/src/domain/media.ts)
+now includes explicit `mse-fmp4` and `jpeg-frames` delivery variants. Each carries an
 opaque stream identity and its format; MSE carries the complete MIME/codec
-string. Keep URL delivery separate from binary delivery. A future `readStream`
+string. Keep URL delivery separate from binary delivery. The `readStream`
 operation takes the media reference, stream identity and cancellation signal,
 returning binary messages as a local asynchronous stream. This is an SDK
 interface, not a JSON DTO or a prescribed gateway wire protocol. Neither
@@ -1861,14 +1861,14 @@ must remain touch-usable and hidden views must release buffers and connections.
 | Increment | Deliverable | Acceptance boundary |
 | --- | --- | --- |
 | 1 — feasibility (delivered within fixture scope) | Isolated probe for pinned-plugin H.264 samples, timestamp normalization, fMP4 emission and real MSE playback | Record source provenance, timestamp/fragment timings and actual decoded frames; short/long GOP and arrival-jitter playback, plus unit rejection of discontinuous timelines. Separate fixtures from physical-printer evidence. Keep the probe out of production entrypoints. |
-| 2 — shared contract/player | Binary media contract, URL/HLS/JPEG/MSE adapters | Compile fixtures and dispatch coverage; cancel/switch/expiry/cleanup; real HTTP URL/HLS and MSE playback in affected hosts. |
+| 2 — shared contract/player (delivered) | Binary media contract, URL/HLS/JPEG/MSE adapters | Compile fixtures and dispatch coverage; cancel/switch/expiry/cleanup; real HTTP URL/HLS and MSE playback in affected hosts. |
 | 3 — native media owner | Public BambuSource loader, reader, lifetime and binary transport | Real library open/read/close, buffer ownership, bounded queues and control responsiveness during viewing; ordinary connection failures. |
 | 4 — camera integration | Capability/observation mapping and shared Camera card | LAN-only and cloud-associated LAN cases, absent/disabled/unknown camera states, first frame, user stop and hidden-page cleanup. |
 | 5 — qualification | Six-platform packaged playback plus hardware acceptance | At least one JPEG and one H.264 printer; sustained playback, reconnect, bad credentials, stop latency and concurrent control responsiveness. |
 
 Each production increment remains separately reviewable and verified under the
-[testing guidelines](../doc/testing_guidelines.md). The current request does
-not authorize treating the feasibility probe as completion of increments 2–5.
+[testing guidelines](../doc/testing_guidelines.md). Complete and commit each increment after its independent acceptance before
+starting the next. Fixture success does not replace hardware or release qualification.
 Measured first-frame/fragment delays are evidence, not automatic product SLAs.
 No WASM rebuild is needed unless the implementation actually changes that
 boundary. A working generated stream, fixture server or plugin load must not
@@ -1913,8 +1913,28 @@ an IDR. Alternatively, explicitly accept and qualify GOP-dependent latency.
 Do not silently add transcoding or change the pinned plugin to meet that gate.
 Real-printer timestamp/profile behavior, hidden plugin-queue loss, printer
 certificate/authentication handling, sustained cleanup/recovery and packaged
-six-target playback remain unqualified. JPEG and remote URL/HLS delivery are
-accepted designs only and are not exercised by this H.264 probe.
+six-target playback remain unqualified. JPEG and remote URL/HLS delivery are exercised separately by the shared-player
+check described below; they are not exercised by this H.264 probe.
+
+The shared [delivery player](../packages/slicer-app/src/components/device/media/playback.ts)
+consumes descriptors and `readStream` without printer-state subscriptions.
+URL descriptors carry MIME and `same-origin` or `include` credentials modes,
+matching HTML CORS semantics; arbitrary authorization headers are not supported.
+The owning view retains open/renew/close responsibility. The player cancels its
+reader, removes media sources and revokes object URLs on stop, switch, expiry
+or failure. MSE appends are serialized, packet bytes and retained duration are
+bounded, old live buffers are evicted, and excessive lag seeks toward the live
+edge. New generations recreate MSE from initialization; a missing packet fails
+rather than concatenating a damaged stream. JPEG decoding retains only the
+latest pending complete frame. Autoplay denial exposes a Play action.
+
+The opt-in shared-player check uses the actual shared module in Chrome and
+Electron with cross-origin HTTP media fixtures under COOP/COEP. It covers MSE,
+direct MP4 URL, hls.js fallback, JPEG bursts, HTTP MJPEG, generation switching,
+abort/source cleanup, expired access, oversized packets and sequence/initialization
+gaps. Native-HLS execution remains a host qualification item. Future
+agent origins require explicit host/deployment CSP permission plus media-server
+CORS/CORP; the player does not weaken application isolation or grant origins.
 
 ## 9. Remote files, previews and transfers
 

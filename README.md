@@ -168,6 +168,7 @@ starting the slicer application or contacting a printer/account:
 pnpm --filter @orca/desktop camera:prototype:test
 pnpm --filter @orca/desktop camera:prototype --help
 pnpm --filter @orca/desktop camera:prototype
+pnpm --filter @orca/desktop camera:player:check
 ```
 
 The native probe driver currently supports macOS/Linux and requires a C++17
@@ -178,6 +179,8 @@ select focused runs. It generates baseline H.264 locally, serves it over
 loopback RTSPS with a temporary fixture certificate and verifies the pinned
 archive checksum before loading its library. Evidence (JSON timings, generated
 H.264, fMP4 and screenshots) goes to `apps/desktop/out/camera-prototype/`.
+The separate `camera:player:check` exercises the shared production player with
+local MP4/HLS/JPEG/MSE fixtures in Chrome and Electron, including error cleanup.
 No production entrypoint imports the harness. This is fixture feasibility,
 not real-printer, printer-certificate/authentication, or six-platform
 qualification; see the [camera acceptance boundary](spec/Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback).
