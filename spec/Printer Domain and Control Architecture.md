@@ -1736,8 +1736,9 @@ recording.
 
 ### 8.1 Bambu LAN live view and shared playback
 
-**Decision status:** Accepted design. The current authorized increment records
-this design and builds an isolated H.264 timing, fMP4 and MSE feasibility probe.
+**Decision status:** Accepted design; isolated H.264 timing, fMP4 and MSE
+feasibility is demonstrated with generated fixtures on macOS ARM64 in Chrome
+and Electron. The current authorized increment is limited to that probe.
 Production media contracts, native streaming integration and Camera UI are not
 delivered by that probe. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
 owns presentation and viewing intent.
@@ -1859,7 +1860,7 @@ must remain touch-usable and hidden views must release buffers and connections.
 
 | Increment | Deliverable | Acceptance boundary |
 | --- | --- | --- |
-| 1 — feasibility (authorized now) | Isolated probe for pinned-plugin H.264 samples, timestamp normalization, fMP4 emission and real MSE playback | Record source provenance, timestamp/fragment timings and actual decoded frames; test short/long GOPs and disrupted timelines. Separate fixtures from physical-printer evidence. Keep the probe out of production entrypoints. |
+| 1 — feasibility (delivered within fixture scope) | Isolated probe for pinned-plugin H.264 samples, timestamp normalization, fMP4 emission and real MSE playback | Record source provenance, timestamp/fragment timings and actual decoded frames; short/long GOP and arrival-jitter playback, plus unit rejection of discontinuous timelines. Separate fixtures from physical-printer evidence. Keep the probe out of production entrypoints. |
 | 2 — shared contract/player | Binary media contract, URL/HLS/JPEG/MSE adapters | Compile fixtures and dispatch coverage; cancel/switch/expiry/cleanup; real HTTP URL/HLS and MSE playback in affected hosts. |
 | 3 — native media owner | Public BambuSource loader, reader, lifetime and binary transport | Real library open/read/close, buffer ownership, bounded queues and control responsiveness during viewing; ordinary connection failures. |
 | 4 — camera integration | Capability/observation mapping and shared Camera card | LAN-only and cloud-associated LAN cases, absent/disabled/unknown camera states, first frame, user stop and hidden-page cleanup. |
@@ -1872,6 +1873,48 @@ Measured first-frame/fragment delays are evidence, not automatic product SLAs.
 No WASM rebuild is needed unless the implementation actually changes that
 boundary. A working generated stream, fixture server or plugin load must not
 be reported as real-printer, TLS/authentication or six-platform acceptance.
+
+#### Feasibility result and remaining gate
+
+The opt-in [probe](../apps/desktop/scripts/camera-prototype/run.mjs) loads the
+checksum-verified v2.2.0 companion library through the checked-in Orca ABI.
+It generates baseline AVC locally, sends it through an isolated loopback
+RTSPS server with a fixture CA, and remuxes the returned samples with the
+development-only `mediabunny@1.62.1`. Fixture pacing and native sample drainage
+run in a separate Worker from the browser driver. The production account,
+control and media implementations are not involved. Reproduction commands and
+artifact locations are in the [README](../README.md).
+
+On the macOS ARM64 development host, Chrome 156 and Electron 43 passed all
+three generated-source cases: 30 fps with a 15-frame GOP, a 90-frame GOP, and
+a 15-frame GOP with arrival jitter. Every source sample reached the reader;
+100ns timestamps normalized to the expected stream span. MSE accepted the
+initialization/media fragments and presented sustained video with monotonic
+decoded frame identifiers through the tail of each source. This proves the
+fixture's no-reordering path, not arbitrary AVC profile/reordering support.
+Unit cases reject duplicate/regressing timestamps, gaps over the probe's
+one-second admission threshold, missing initial IDR and unsupported codec
+configuration. They do not establish reconnect or decoder-error recovery.
+
+The muxer emits fragments at keyframe boundaries: `minimumFragmentDuration`
+is a minimum, not a latency bound. With a 200ms setting and one-sample duration
+lookahead, measured first-fragment delay was about 0.53–0.54 seconds for the
+15-frame GOP and 3.04 seconds for the 90-frame GOP. First presented frame was
+about 0.56–0.86 seconds and 3.06–3.10 seconds respectively across the two hosts.
+These are short fixture runs, include browser-driver transport overhead, and
+do not establish an SLA or production live-edge behavior. The probe's finite
+buffers and end-of-stream drain do not qualify a sustained live player.
+
+**Product selection remains open:** MSE/fMP4 is feasible, but this muxer is not
+yet selected for production. Before claiming a bound shorter than the camera
+GOP, evaluate a muxer that can flush continuous fragments between keyframes
+while retaining decoder dependencies; generation startup must still wait for
+an IDR. Alternatively, explicitly accept and qualify GOP-dependent latency.
+Do not silently add transcoding or change the pinned plugin to meet that gate.
+Real-printer timestamp/profile behavior, hidden plugin-queue loss, printer
+certificate/authentication handling, sustained cleanup/recovery and packaged
+six-target playback remain unqualified. JPEG and remote URL/HLS delivery are
+accepted designs only and are not exercised by this H.264 probe.
 
 ## 9. Remote files, previews and transfers
 

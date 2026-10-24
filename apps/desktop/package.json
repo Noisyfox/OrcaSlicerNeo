@@ -8,6 +8,8 @@
   "license": "AGPL-3.0",
   "main": "out/main/index.js",
   "scripts": {
+    "camera:prototype": "node scripts/camera-prototype/run.mjs",
+    "camera:prototype:test": "node --test scripts/camera-prototype/remux.test.mjs",
     "predev": "pnpm --filter @orca/bambu-native stage:runtime && node ../../scripts/stage.mjs --soft",
     "dev": "electron-vite dev --noSandbox",
     "prebuild": "pnpm --filter @orca/bambu-native stage:runtime && node ../../scripts/stage.mjs",
@@ -64,6 +66,7 @@
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "fflate": "0.8.3",
+    "mediabunny": "1.62.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
