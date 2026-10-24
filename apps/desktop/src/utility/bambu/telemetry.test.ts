@@ -188,3 +188,20 @@ it('follows pinned Orca model/mode/submode fan text and updates topology when la
   telemetry.accept(push({ msg: 1, device: { airduct: { parts: [] } } }));
   expect(topology().fans).toEqual([]);
 });
+
+it('labels the reported dual 0/1 pair right/left by identity, without retargeting heaters or paths', () => {
+  const { telemetry } = model(); const raw = report(); raw.device.extruder.info.reverse();
+  telemetry.accept(push(raw)); const value = telemetry.project(target, identity).values;
+  expect(value.descriptor.topology.tools.map(t => [t.id, t.name, t.nozzleId, t.extruderId])).toEqual([
+    ['tool:1', 'Left extruder', 'nozzle:1', 'extruder:1'], ['tool:0', 'Right extruder', 'nozzle:0', 'extruder:0'],
+  ]);
+  expect(value.descriptor.topology.heaters.filter(h => h.role === 'nozzle').map(h => [h.id, h.name])).toEqual([
+    ['nozzle:1', 'Left nozzle'], ['nozzle:0', 'Right nozzle'],
+  ]);
+  expect(value.sensors.definitions.filter(s => s.location?.startsWith('nozzle:')).map(s => s.name)).toEqual(['Left nozzle', 'Right nozzle']);
+  expect(value.materials.topology.paths.map(p => p.toolId)).toEqual(['tool:0', 'tool:1']);
+  telemetry.accept(push({ msg: 1, device: { extruder: { info: [{ id: 0, temp: 25 }] } } }));
+  expect(telemetry.project(target, identity).values.descriptor.topology.tools.map(t => t.name)).toEqual(['Tool 0']);
+  telemetry.accept(push({ msg: 1, device: { extruder: { info: [{ id: 5 }, { id: 9 }] } } }));
+  expect(telemetry.project(target, identity).values.descriptor.topology.tools.map(t => t.name)).toEqual(['Tool 5', 'Tool 9']);
+});

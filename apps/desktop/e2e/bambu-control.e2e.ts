@@ -31,10 +31,12 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     await expect(panel.getByText('AMS 2 Pro 128', { exact: true })).toBeVisible();
     await expect(panel.getByText('Bambu Cloud', { exact: true })).toHaveCount(0);
     for (const [unit, tool] of [[255, 0], [254, 1]]) {
+      const toolName = tool === 0 ? 'Right extruder' : 'Left extruder';
+      const otherToolName = tool === 0 ? 'Left extruder' : 'Right extruder';
       const holder = panel.getByRole('heading', { name: `External holder ${unit}`, exact: true }).locator('..');
-      await expect(holder.getByRole('button', { name: `Load to Tool ${tool}`, exact: true })).toBeVisible();
+      await expect(holder.getByRole('button', { name: `Load to ${toolName}`, exact: true })).toBeVisible();
       await expect(holder.getByText('No available tool path reported.', { exact: true })).toHaveCount(0);
-      await expect(holder.getByRole('button', { name: `Load to Tool ${1 - tool}`, exact: true })).toHaveCount(0);
+      await expect(holder.getByRole('button', { name: `Load to ${otherToolName}`, exact: true })).toHaveCount(0);
       await holder.getByText('Details', { exact: true }).click();
       await expect(holder.getByText('Remaining: Not reported', { exact: true })).toBeVisible();
       await holder.getByText('Details', { exact: true }).click();
@@ -43,10 +45,11 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     const commands = () => app.evaluate(() => globalThis.bambuControlFixture.commands);
     const tokens = () => app.evaluate(() => globalThis.bambuControlFixture.tokens);
     await expect.poll(tokens).toHaveLength(1); const originalTokens = await tokens();
-    const temperature = panel.getByRole('spinbutton', { name: 'Nozzle 0 target', exact: true });
+    await expect(panel.getByRole('spinbutton', { name: 'Left nozzle target', exact: true })).toBeVisible();
+    const temperature = panel.getByRole('spinbutton', { name: 'Right nozzle target', exact: true });
     await temperature.fill('235'); await temperature.press('Enter');
     await expect.poll(commands).toHaveLength(1);
-    expect((await commands())[0]).toMatchObject({ target: { printerId: 'bambu:a' }, command: { type: 'thermal.setTarget', params: { targetC: 235 } } });
+    expect((await commands())[0]).toMatchObject({ target: { printerId: 'bambu:a' }, command: { type: 'thermal.setTarget', params: { heaterId: 'nozzle:0', targetC: 235 } } });
     await panel.getByRole('button', { name: 'Cancel print', exact: true }).click();
     await publishControlSnapshot(app, 'a', 'Replacement task');
     await expect(panel.getByText('Replacement task', { exact: true })).toBeVisible();

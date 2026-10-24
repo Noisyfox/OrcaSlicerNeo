@@ -117,7 +117,12 @@ the printer service. This work does not introduce a Web gateway.
 is the only Monitor composition. Device selection does not branch on provider ID.
 Shared print-status, temperature, actuator, motion, material and operation-feedback
 cards are selected by advertised capabilities and populated from reported topology.
-Hardware IDs are opaque; tool/nozzle labels use descriptor names. Movement choices
+Hardware IDs are opaque; tool/nozzle labels use descriptor names. For a reported
+Bambu dual 0/1 pair, the provider follows Orca's main-extruder convention: 0 is
+Right nozzle/Right extruder and 1 is Left nozzle/Left extruder. Temperature,
+tool-selection and material-path controls share those names while retaining
+the original command IDs. Single-tool and unknown layouts keep neutral names.
+Movement choices
 use advertised step IDs without silently substituting another step for an axis.
 Extrusion presets use reported range and granularity; unknown bounds or increments
 do not establish a preset. The provider still evaluates every command.
@@ -815,6 +820,19 @@ This qualifies the authorized bed set/warm-up/restore sequence on this H2D over
 LAN. Other temperatures and print-time behavior remain unqualified. No nozzle
 or chamber heating, motion, extrusion or material command was issued in this
 stage; each further heating or physical-control test needs its own user approval.
+
+### Nozzle-side identification during LAN acceptance
+
+During the subsequent user-authorized nozzle-0 50 C test, both target commands
+completed and telemetry showed actual temperature above 50 C followed by the
+zero-target restoration. The final actual reading was about 56 C. The user
+identified nozzle 0 as the physical right nozzle, exposing the ambiguity of the
+numeric UI label. The provider display-name correction above addresses that
+ambiguity; it does not change heater, extruder or material-path IDs or claim
+additional physical-control qualification. All heater targets were confirmed
+zero before the naming change. A production rebuild/restart read-only check
+confirmed Right nozzle/Right extruder for 0, Left nozzle/Left extruder for 1,
+and zero targets for both nozzles, the bed and the chamber.
 
 ## Upload verification
 

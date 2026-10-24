@@ -111,9 +111,13 @@ export class BambuTelemetry {
     };
     const extruders = records(ext.info).filter(item => identifier(item.id) !== undefined);
     if (!extruders.length && (p.nozzle_temper !== undefined || p.nozzle_target_temper !== undefined)) extruders.push({ id: 0, legacy: true });
+    // DevExtder::GetDisplayLoc/GetDisplayName: main (0) is right in a dual system.
+    // Require the reported 0/1 pair; other layouts keep neutral names.
+    const dualSides = extruders.length === 2 && ['0', '1'].every(key => extruders.some(item => identifier(item.id) === key));
     const nozzles: D.Nozzle[] = [], tools: D.Tool[] = [];
     for (const item of extruders) {
       const key = identifier(item.id)!;
+      const side = dualSides ? key === '0' ? 'Right' : 'Left' : null;
       // High nibble 1 identifies the nozzle rack; installed toolhead nozzles use 0.
       const nozzle = records(record(device.nozzle).info).find(nozzle => bits(nozzle.id, 0, 4) === number(item.hnow) && bits(nozzle.id, 4, 4) === 0);
       const type = text(nozzle?.type ?? (item.legacy ? p.nozzle_type : undefined));
@@ -121,8 +125,8 @@ export class BambuTelemetry {
       nozzles.push({ id: nozzleId, heaterId: id(`nozzle:${key}`), diameterMm: nonNegative(nozzle?.diameter ?? (item.legacy ? p.nozzle_diameter : undefined)) ?? null,
         type: type ?? null, constructionMaterial: type === 'hardened_steel' ? 'hardened steel' : type === 'stainless_steel' ? 'stainless steel' : ({ '00': 'stainless steel', '01': 'hardened steel', '05': 'tungsten carbide' } as Record<string, string>)[type?.slice(2, 4) ?? ''] ?? null,
         flowType: ({ S: 'standard flow', A: 'standard flow', X: 'standard flow', H: 'high flow', E: 'high flow', U: 'TPU high flow', B: 'E3D high flow' } as Record<string, string>)[type?.[1] ?? ''] ?? null });
-      tools.push({ id: id(`tool:${key}`), name: `Tool ${key}`, extruderId: id(`extruder:${key}`), nozzleId, motionGroupId: id('gantry') });
-      temperature(`nozzle:${key}`, `Nozzle ${key}`, 'nozzle', item.legacy ? p.nozzle_temper : bits(item.temp, 0, 16), item.legacy ? p.nozzle_target_temper : bits(item.temp, 16, 16));
+      tools.push({ id: id(`tool:${key}`), name: side ? `${side} extruder` : `Tool ${key}`, extruderId: id(`extruder:${key}`), nozzleId, motionGroupId: id('gantry') });
+      temperature(`nozzle:${key}`, side ? `${side} nozzle` : `Nozzle ${key}`, 'nozzle', item.legacy ? p.nozzle_temper : bits(item.temp, 0, 16), item.legacy ? p.nozzle_target_temper : bits(item.temp, 16, 16));
     }
     temperature('bed', 'Bed', 'bed', device.bed_temp !== undefined ? bits(device.bed_temp, 0, 16) : p.bed_temper, device.bed_temp !== undefined ? bits(device.bed_temp, 16, 16) : p.bed_target_temper);
     const chamber = record(record(device.ctc).info).temp;
