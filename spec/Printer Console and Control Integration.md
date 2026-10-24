@@ -763,9 +763,28 @@ and subsequently stopped normally. A final read confirmed all four reported
 fans at zero. Timestamped local evidence is in
 `.vitest/lan-acceptance/fan1.json`.
 
-This qualifies this Fan 1 set/restore sequence on the H2D. Other fans, speed
-ranges, active-print interaction and Cloud-only operation remain unqualified.
-No heating, motion, extrusion or material command was issued in this stage.
+The user then authorized sequential tests of Fans 2, 3 and 6, each at 30 percent
+for at least ten seconds followed by restoration to zero. All six operations
+completed with matching fresh device readings, and other fan setpoints remained
+at zero. The user confirmed physical start/stop for Fans 2 and 3, but could not
+identify Fan 6 physically. Final telemetry showed all four fans at zero. Local
+evidence is in `.vitest/lan-acceptance/fans-2-3-6.json`.
+
+Orca defines index 6 as `FAN_INNNER_LOOP_FAN_0_IDX` in
+[DevFan.h](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevFan.h)
+and labels it `Heat` in
+[FanControl.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/Widgets/FanControl.cpp).
+The [H2D user manual, section 6.5.1](https://csm.bblcdn.com/hub/4668d0ca43994ff3bff4b37f1a65c2e7.pdf)
+explains that the chamber heat circulation fan remains off in cooling mode and
+automatically starts in heating mode. Fan 6 therefore has command/report evidence
+only; physical behavior and mode-dependent applicability remain unqualified.
+Neo currently exposes the numeric fan names for these airduct reports rather
+than Orca's functional labels and mode presentation.
+
+This qualifies the set/restore sequences for Fans 1, 2 and 3 on the H2D.
+Other speed ranges, active-print interaction and Cloud-only operation remain
+unqualified. No chamber-mode change, heating, motion, extrusion or material
+command was issued in these fan stages.
 
 ## Upload verification
 
