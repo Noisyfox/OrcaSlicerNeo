@@ -752,6 +752,21 @@ two reported lights on this H2D. It does not qualify the unsupported work light,
 other models, Cloud-only command execution or other control families. No heating,
 motion, extrusion or material operation was performed in this stage.
 
+### Independent LAN fan-control acceptance
+
+On 2026-10-24, the user authorized a Fan 1 test at 30 percent for approximately
+ten seconds, followed by restoration to zero. The production Monitor sent both
+`fans.setSpeed` commands on the independently authorized LAN profile. Each
+operation completed, with fresh telemetry reporting Fan 1 at 0.3 and then 0;
+Fans 2, 3 and 6 remained at zero. The user confirmed the physical fan started
+and subsequently stopped normally. A final read confirmed all four reported
+fans at zero. Timestamped local evidence is in
+`.vitest/lan-acceptance/fan1.json`.
+
+This qualifies this Fan 1 set/restore sequence on the H2D. Other fans, speed
+ranges, active-print interaction and Cloud-only operation remain unqualified.
+No heating, motion, extrusion or material command was issued in this stage.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
