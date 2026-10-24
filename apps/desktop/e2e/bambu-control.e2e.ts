@@ -85,7 +85,10 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     await moveRight.click({ position: { x: pad!.width * 0.85, y: pad!.height / 2 } });
     await expect.poll(commands).toHaveLength(3);
     expect((await commands())[2]).toMatchObject({ target: { printerId: 'bambu:b' }, command: { type: 'motion.jog', params: { axis: 'x', direction: 'positive', stepId: 'small' } } });
-    await panel.getByRole('button', { name: 'Dismiss', exact: true }).click();
+    await expect(moveRight).toBeEnabled();
+    await expect(panel.getByText('Printer accepted the command.', { exact: true })).toHaveCount(0);
+    await expect(panel.getByText('Printer acknowledged the command. Waiting for completion.', { exact: true })).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0);
     const previewBounds = await panel.getByRole('heading', { name: 'Print preview', exact: true }).boundingBox();
     const controlBounds = await panel.getByRole('heading', { name: 'Control', exact: true }).boundingBox();
     expect(controlBounds!.x).toBeGreaterThan(previewBounds!.x + previewBounds!.width);

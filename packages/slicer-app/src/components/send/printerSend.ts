@@ -73,7 +73,7 @@ export async function startUploadedPrint(service: PrinterService, file: RemoteFi
     if (operation.kind !== 'command' || operation.commandType !== 'jobs.start') throw new SendFailure('device-failed');
     const phase = operation.phase;
     // Accepted by Moonraker; physical printing is not independently observed here.
-    if (phase.kind === 'acknowledged' || phase.kind === 'completed') return;
+    if (phase.kind === 'accepted' || phase.kind === 'acknowledged' || phase.kind === 'completed') return;
     if (phase.kind === 'failed') throw new SendFailure(phase.error.code);
     if (phase.kind === 'outcome-unknown') throw new SendFailure('outcome-unknown');
   }

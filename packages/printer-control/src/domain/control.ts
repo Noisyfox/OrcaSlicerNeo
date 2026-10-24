@@ -240,7 +240,10 @@ export interface OperationBase {
 export type CommandOperation = { [K in CommandName]: OperationBase & {
   kind: 'command';
   commandType: K;
-  phase: OperationPhase<PrinterCommandSpecs[K]['result']>;
+  phase: OperationPhase<PrinterCommandSpecs[K]['result']> | {
+    /** Terminal device acknowledgement when physical completion cannot be observed. */
+    kind: 'accepted';
+  };
 } }[CommandName];
 export type UploadOperation = OperationBase & {
   kind: 'upload';

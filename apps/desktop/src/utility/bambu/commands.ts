@@ -14,7 +14,7 @@ function range(value: unknown): D.Range {
 export interface CommandContext extends TelemetryProjection { target: D.PrinterTarget; configurationRevision: string; model: string | null; recovery?: { action: D.PrinterAction; kind: 'resume' | 'abort' }[] }
 export interface PreparedCommand {
   section: 'print' | 'system'; fields: Report; qos: number;
-  /** Only explicit report predicates can confirm completion. ACK is never physical completion. */
+  /** Only explicit report predicates confirm completion; without one, ACK ends tracking as accepted. */
   confirmed?: (next: TelemetryProjection) => boolean;
 }
 export function commandCapabilities(context: CommandContext): D.PrinterCapabilities {

@@ -1095,8 +1095,13 @@ Telemetry becomes stale after 15 seconds; explicit reads time out after
 10 seconds. Target temperatures, fan/light settings, task state, tools and material
 paths can complete only from a newly accepted report satisfying the command's
 predicate. ACK is recorded separately. Jog/home/extrusion, identification refresh
-and recovery currently have no proven terminal predicate and therefore become
-unknown when confirmation times out. Hardware acceptance must verify these
+and recovery currently have no proven physical-completion predicate. A correlated
+successful device ACK ends their tracking in the command-only `accepted` phase,
+clears the timeout and releases the operation's observation lease. This records
+device acceptance without claiming physical completion. Missing ACKs still time
+out as unknown; explicit device rejection remains failed. Commands with a
+completion predicate retain nonterminal `acknowledged` tracking until observed
+completion or timeout. Hardware acceptance must verify these
 observations against firmware behavior. No outcomes survive utility restart. The selected UI follows
 Orca's corresponding control states, local messages and necessary dialogs; it
 does not add a unified operation-history panel or uniformly persistent outcome
@@ -1679,6 +1684,12 @@ outcome. An accepted command is not necessarily acknowledged by the device;
 acknowledgment is not physical completion. Completion needs a device result or
 an appropriate observed-state confirmation. Transport loss after dispatch can
 leave the outcome unknown and must not be relabeled as safe failure.
+
+The command-only terminal phase `accepted` means that the device acknowledged the
+command and the provider cannot observe physical completion. It is distinct from
+submission's `recorded` result and from the nonterminal `acknowledged` phase used
+while awaiting completion evidence. Consumers end their pending interaction on
+`accepted`, without presenting it as `completed` or retrying the command.
 
 Preserve a way to reconcile submitted work after a view or subscription closes.
 Service-scoped operation tracking is the proposed solution; its concrete

@@ -34,7 +34,7 @@ export function bambuOperations(bridge: BambuBridge): D.PrinterOperations {
           if (!result.ok || result.value.kind !== 'found') throw new Error('The operation outcome is unavailable.');
           const operation = result.value.operation;
           if (operation.revision > revision) { revision = operation.revision; yield operation; }
-          if (['completed', 'failed', 'outcome-unknown'].includes(operation.phase.kind)) return;
+          if (['accepted', 'completed', 'failed', 'outcome-unknown'].includes(operation.phase.kind)) return;
           if (current === version && !options?.signal?.aborted) await new Promise<void>(resolve => { wake = resolve; if (current !== version || options?.signal?.aborted) resolve(); });
         }
       } finally { stop(); options?.signal?.removeEventListener('abort', abort); }

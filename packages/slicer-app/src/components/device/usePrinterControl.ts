@@ -23,12 +23,10 @@ export function usePrinterCommands(service: D.PrinterService, target: D.TargetRe
       if (abort.signal.aborted) return;
       if (result.kind === 'rejected') { setFeedback(result.error.message); return; }
       if (result.kind === 'outcome-unknown') { setFeedback('Command outcome unknown. Check the printer before trying again.'); return; }
-      setFeedback('Command sent. Waiting for the printer.');
       for await (const operation of service.operations.watch(result.operation, { signal: abort.signal })) {
         if (abort.signal.aborted) return;
-        if (operation.phase.kind === 'completed') { setFeedback('Command completed.'); return; }
+        if (operation.phase.kind === 'accepted' || operation.phase.kind === 'completed') { setFeedback(null); return; }
         if (operation.phase.kind === 'failed') { setFeedback(operation.phase.error.message); return; }
-        if (operation.phase.kind === 'acknowledged') setFeedback('Printer acknowledged the command. Waiting for completion.');
         if (operation.phase.kind === 'outcome-unknown') { setFeedback(operation.phase.reason); return; }
       }
       if (!abort.signal.aborted) setFeedback('Command outcome unknown. Check the printer before trying again.');

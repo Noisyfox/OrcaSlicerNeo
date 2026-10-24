@@ -43,7 +43,7 @@ export async function installControlFixture(app: ElectronApplication) {
       if (method === 'submit') {
         fixture.commands.push(input);
         const ref = { printerId: target.printerId, routeId: target.routeId, id: `operation-${fixture.commands.length}` };
-        fixture.operations[ref.id] = { kind: 'command', ref: ref as D.OperationRef, commandType: input.command.type, requestId: input.requestId, configurationRevision: current.description.configurationRevision, revision: 1, updatedAtMs: Date.now(), phase: { kind: 'completed', result: null, confirmation: 'observed-state' } };
+        fixture.operations[ref.id] = { kind: 'command', ref: ref as D.OperationRef, commandType: input.command.type, requestId: input.requestId, configurationRevision: current.description.configurationRevision, revision: 1, updatedAtMs: Date.now(), phase: input.command.type === 'motion.jog' ? { kind: 'accepted' } : { kind: 'completed', result: null, confirmation: 'observed-state' } };
         return { kind: 'recorded', operation: ref };
       }
       if (method === 'operation') return { ok: true, value: { kind: 'found', operation: fixture.operations[input.id] } };

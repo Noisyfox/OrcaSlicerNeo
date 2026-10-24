@@ -212,6 +212,35 @@ it('reports an interrupted operation as unknown and never duplicates a pending c
   } finally { await f.close(); }
 });
 
+it.each(['accepted', 'completed'] as const)('silently releases controls on %s and keeps pending commands disabled without status messages', async kind => {
+  const f = await fixture();
+  let release: (() => void) | undefined;
+  let closed = 0;
+  let phase: D.CommandOperation['phase'] = kind === 'accepted' ? { kind } : { kind, result: null, confirmation: 'observed-state' };
+  f.service.operations.watch = async function* (ref) {
+    try {
+      yield { kind: 'command', commandType: 'motion.jog', ref, requestId: 'request' as D.Id<'request'>, configurationRevision: 'r1', revision: 1, updatedAtMs: 0, phase };
+      await new Promise<void>(resolve => { release = resolve; });
+    } finally { closed++; }
+  };
+  try {
+    const group = 'gantry' as D.Id<'motion'>;
+    f.topology.motionGroups = [{ id: group, name: 'Gantry', axes: ['x'] }];
+    f.caps.commands['motion.jog'] = { kind: 'supported', constraints: [{ motionGroupId: group, axis: 'x', kind: 'step', steps: [{ id: 'small', label: 'Small step' }] }] };
+    await f.render();
+    const jog = f.element.querySelector<HTMLButtonElement>('[aria-label="Move X positive"]')!;
+    await act(async () => { jog.click(); });
+    expect(f.submit).toHaveBeenCalledOnce();
+    expect(f.element.textContent).not.toMatch(/Printer accepted|Command sent|Waiting for completion|Command completed|outcome unknown|Dismiss/);
+    expect(jog.disabled).toBe(false); expect(closed).toBe(1);
+    phase = { kind: 'acknowledged' };
+    await act(async () => { jog.click(); });
+    expect(f.submit).toHaveBeenCalledTimes(2);
+    expect(f.element.textContent).not.toMatch(/Command sent|Printer acknowledged|Waiting for completion|Dismiss/);
+    expect(jog.disabled).toBe(true); expect(closed).toBe(1);
+  } finally { await act(async () => { release?.(); }); await f.close(); }
+});
+
 it('discards a late task preview and releases object URLs on hide', async () => {
   const f = await fixture();
   const create = vi.fn(() => 'blob:fixture-preview'), revoke = vi.fn();
