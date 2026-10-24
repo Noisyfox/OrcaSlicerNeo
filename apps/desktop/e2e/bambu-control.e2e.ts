@@ -89,7 +89,11 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     await expect(panel.getByText('Printer accepted the command.', { exact: true })).toHaveCount(0);
     await expect(panel.getByText('Printer acknowledged the command. Waiting for completion.', { exact: true })).toHaveCount(0);
     await expect(panel.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0);
-    const previewBounds = await panel.getByRole('heading', { name: 'Print preview', exact: true }).boundingBox();
+    const previewBounds = await panel.getByLabel('Print preview', { exact: true }).boundingBox();
+    const progressBounds = await panel.getByRole('progressbar', { name: 'Print progress' }).boundingBox();
+    expect(previewBounds!.x + previewBounds!.width).toBeLessThan(progressBounds!.x);
+    expect(progressBounds!.y).toBeGreaterThanOrEqual(previewBounds!.y);
+    expect(progressBounds!.y).toBeLessThan(previewBounds!.y + previewBounds!.height);
     const controlBounds = await panel.getByRole('heading', { name: 'Control', exact: true }).boundingBox();
     expect(controlBounds!.x).toBeGreaterThan(previewBounds!.x + previewBounds!.width);
     await page.screenshot({ path: '/tmp/orca-bambu-control.png' });

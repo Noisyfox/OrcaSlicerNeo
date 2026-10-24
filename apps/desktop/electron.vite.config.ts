@@ -27,11 +27,11 @@ export default defineConfig(({ mode }) => {
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       } },
-      build: { externalizeDeps: { exclude: ['yauzl', 'saxes', 'proper-lockfile', '@orca/bambu-native'] }, rollupOptions: { input: {
+      build: { externalizeDeps: { exclude: ['yauzl', 'saxes', 'proper-lockfile', 'mp4box', '@orca/bambu-native'] }, rollupOptions: { input: {
         index: resolve('src/main/index.ts'),
         'slicer-host': resolve('src/utility/slicer-host.ts'),
         'bambu-host': resolve('src/utility/bambu-host.ts'),
-        ...(mode === 'e2e' ? { 'bambu-host-smoke': resolve('e2e/bambu-host-smoke.ts') } : {}),
+        ...(mode === 'e2e' ? { 'bambu-host-smoke': resolve('e2e/bambu-host-smoke.ts'), 'bambu-camera-smoke': resolve('e2e/bambu-camera-smoke.ts'), 'bambu-camera-host': resolve('e2e/bambu-camera-host.ts') } : {}),
         'slicer-worker': resolve('src/utility/slicer-worker.ts'),
         'recent-thumbnail-worker': resolve('src/utility/recent-thumbnail-worker.ts'),
       } } },
@@ -41,7 +41,22 @@ export default defineConfig(({ mode }) => {
       define: {
         __ORCA_E2E__: JSON.stringify(mode === 'e2e' || env.VITE_E2E === '1'),
       },
-      plugins: [react(), tailwindcss()],
+      plugins: [react(), tailwindcss(), {
+        name: 'desktop-dev-document-headers',
+        apply: 'serve',
+        configureServer(server) {
+          server.middlewares.use((request, _response, next) => {
+            // Vite's HTML ETag only covers the body; its 304 path omits
+            // configured headers. A CSP-only change otherwise leaves Electron
+            // using the cached policy even after restarting the dev server.
+            if (request.headers.accept?.includes('text/html')) {
+              delete request.headers['if-none-match'];
+              delete request.headers['if-modified-since'];
+            }
+            next();
+          });
+        },
+      }],
       server: {
         headers: {
           // Dev counterpart of the prod CSP (main/index.ts): same directives,
@@ -51,7 +66,7 @@ export default defineConfig(({ mode }) => {
           'content-security-policy':
             "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; " +
             // Bed artwork is decoded from Worker filesystem bytes via Blob URLs.
-            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; " +
             // Vite emits the package worker as a data URL in the e2e/mock bundle;
             // keep the allowance scoped to worker-src (never script-src).
             "font-src 'self' data:; connect-src 'self'; worker-src 'self' data:; child-src 'self' data:",

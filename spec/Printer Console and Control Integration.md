@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-10-23
+**Updated:** 2026-10-24
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
@@ -101,7 +101,9 @@ target is **H2D + AMS**. Implementation is authorized in independently verified 
 physical acceptance follows software verification. This UI choice is
 separate from the earlier domain-architecture option B.
 
-The selected scope excludes video, remote-file browsing and an HMS tab. Current
+The initial control increment excludes remote-file browsing and an HMS tab.
+LAN live video is delivered by the separately verified Camera increment below.
+The accepted [camera follow-up](#camera-live-view) is a separate increment. Current
 task/material errors and supported contextual recovery actions remain available
 inside the relevant cards. The additional feature boundaries below are accepted.
 Existing account, discovery and route management remain in place. The shared
@@ -150,8 +152,9 @@ directly. Protocol normalization and capability derivation belong to the provide
 as specified in the
 [Bambu control architecture](Printer%20Domain%20and%20Control%20Architecture.md#23-bambu-monitoring-and-control-design).
 
-The Monitor follows the reference's two-column desktop composition without a
-video panel: task preview above printing progress on the left; temperature,
+The Monitor follows the reference's two-column desktop composition: the camera
+card above printing progress on the left, with the current-task thumbnail to the
+left of the progress information inside the same card; temperature,
 lighting/fans, a directional XY pad with homing and Z controls, and individually
 addressed extruders on the right. A visible Print speed label accompanies the
 mode selector. Material units form a grid beneath the controls, with compact
@@ -230,6 +233,96 @@ AI/print-detection switches and sensitivity, are excluded even though they do
 not require video playback. Camera recording, timelapse and resolution settings
 are also excluded. None of these exclusions turns off an existing device
 feature: the device keeps its current configuration.
+
+#### Camera live view
+
+**Status:** Implementation is authorized in separately verified increments.
+Shared delivery playback, binary contracts, native media integration and the
+capability-driven Camera card are delivered within development-host fixture
+acceptance. H2D H.264 LAN playback is now accepted on the development host;
+physical MJPEG and six-platform packaged playback remain open.
+The [printer-domain camera design](Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback)
+owns contracts, host execution, implementation order and qualification gates.
+Keep the pinned Bambu v2.2.0; this is LAN video, including LAN-reachable
+cloud-associated devices, without TUTK. Existing recording, timelapse,
+resolution-setting and file-browser exclusions remain in force.
+
+The shared Monitor adds a capability-driven Camera card separate from the
+current-task Print preview. Its player chooses by delivery descriptor, not
+printer vendor: H.264 fMP4 through MSE into `video`, JPEG frames or HTTP MJPEG
+through `img`, remote browser-compatible URLs directly in `video`, and HLS
+through native support or hls.js. JPEG is not transcoded to unify elements.
+Unknown/unavailable camera information must not be presented as confirmed
+hardware absence. A source format unsupported by the current host gets an
+explicit playback-unavailable state without disabling other monitor cards.
+
+Provide Play/Stop, retry, fullscreen and connection/playback status. User Play
+opens the resource; connection readiness is distinct from the first displayed
+frame. Use muted inline video and handle browser autoplay rejection with a
+Play action rather than a reconnect loop. Live view is not a recording or
+seekable history. Use a 16:9 placeholder while stopped, connecting or
+unavailable. Once media dimensions are known, size the viewport to the actual
+video or image aspect ratio without cropping or stretching. Keep the same
+surrounding controls for both presentations. At narrower widths, the camera and
+progress cards remain vertically stacked above the controls. Fullscreen
+preserves the existing stream and scales the image/video to the available viewport. On macOS Electron, HTML
+fullscreen fills the app window using
+[`disableHtmlFullscreenWindowResize`](https://www.electronjs.org/docs/latest/api/structures/web-preferences);
+native window fullscreen remains an OS action. This avoids the observed
+HTML/native Space transition that left enter/exit promises pending during the
+H2D development-host run. The toggle is disabled while a transition is pending;
+Electron UI acceptance verifies both entry and exit with a decoded frame.
+
+Stop on device/route change, leaving the monitor, document hiding or closure.
+Top-level pages remain mounted, so cleanup must follow visibility as well as
+component destruction. Returning from temporary hiding may reopen only while
+the same device retains prior viewing intent; explicit Stop clears that intent.
+Late open results must be closed and old callbacks/frames ignored. Bounded
+transport retries are allowed while viewing is requested; authentication,
+disabled-camera and unsupported-format failures require user action. Do not
+change device recording, timelapse or print state when viewing starts/stops.
+
+The implemented [viewing owner](../packages/slicer-app/src/components/device/media/useCameraView.ts)
+serializes release/reopen, closes late opens, renews resource leases, watches
+metadata errors and stops on component, route or document visibility changes.
+Errors require explicit Retry; no automatic authentication or decoder retry is
+performed. The [Camera card](../packages/slicer-app/src/components/device/media/CameraCard.tsx)
+uses reported camera names and retains the independent current-task preview.
+Unknown camera fields show an explanation, not hardware absence; reported LAN
+protocols select JPEG or fMP4 capabilities. Disabled live view stops viewing and
+requires Play again once enabled. Recording/timelapse state remains unknown
+unless reported, and viewing never writes those settings.
+
+Development acceptance includes lifecycle/renewal tests, Chrome/Electron real
+MSE/JPEG/direct URL/HLS playback, and the full shared Monitor in Electron with a
+generated JPEG frame through the production renderer adapter and MessagePorts.
+The UI fixture verifies first decoded frame, control submission during viewing,
+hide/resume, explicit Stop and device switching. It does not establish physical
+printer control responsiveness, LAN authentication or hardware stop latency.
+
+The real-H2D follow-up passes sustained H.264 playback across lease renewal,
+Play/Stop/reopen, Home hide/return, normal-window minimize/restore and window
+closure. Fullscreen enters/exits without replacing playback. Precise timings,
+browser dropped-frame accounting and remaining hardware/host boundaries are in
+[H2D camera acceptance](Printer%20Domain%20and%20Control%20Architecture.md#h2d-lan-development-host-acceptance).
+
+Development-mode acceptance additionally covers React StrictMode: replayed
+mount effects must not attach and then close the single-consumer camera stream.
+The player defers attachment until after synchronous effect cleanup, while real
+unmount and Stop still release playback. Desktop dev CSP permits the same
+`media-src 'self' blob:` sources as production, so MSE can load its Blob URL.
+A real H2D dev run passes sustained decoding and three Stop/Play cycles with no
+media CSP violation; the StrictMode regression test fails before this fix.
+Changing dev-server CSP requires restarting the dev command, not only refreshing
+the renderer. Desktop dev HTML requests bypass conditional caching so a cached
+document cannot retain the old CSP after a server restart; module caching remains
+enabled. Acceptance includes reloading with an existing HTML ETag and the normal
+development profile. Production-only playback acceptance does not cover these dev paths.
+
+The first delivery has one Bambu view per application instance. Remote-URL
+player verification may use a fixture agent; it does not deliver a remote-agent
+configuration UI. Mobile product support is deferred, with touch-usable controls
+and bounded memory/hidden-view cleanup required by the shared design.
 
 #### Accepted materials and AMS behavior
 

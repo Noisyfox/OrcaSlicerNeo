@@ -69,12 +69,14 @@ typedef int (*func_start_subscribe)(void *agent, std::string module);
 typedef int (*func_stop_subscribe)(void *agent, std::string module);
 typedef int (*func_send_message)(void *agent, std::string dev_id, std::string json_str, int qos, int flag);
 typedef int (*func_send_message_to_printer)(void *agent, std::string dev_id, std::string json_str, int qos, int flag);
+typedef int (*func_get_camera_url)(void *agent, std::string dev_id, std::function<void(std::string)> callback);
 typedef void (*func_install_device_cert)(void* agent, std::string dev_id, bool lan_only);
 
 }
 
 #define NEO_BAMBU_EXPORTS(X) \
     X(check_debug_consistent) \
+    X(get_camera_url) \
     X(get_version) \
     X(create_agent) \
     X(destroy_agent) \

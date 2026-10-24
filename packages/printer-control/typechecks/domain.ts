@@ -616,10 +616,10 @@ const emptyStorages: FileCapabilities['list'] = { kind: 'supported', constraints
 // @ts-expect-error Snapshot support must describe at least one image format.
 const emptySnapshotFormats: CameraMediaCapability['snapshot'] = { kind: 'supported', constraints: { mimeTypes: [] } };
 const defaultCamera: CameraMediaCapability['liveView'] = {
-  kind: 'supported', constraints: { transports: ['mjpeg'], profiles: [], maxConcurrentViews: null },
+  kind: 'supported', constraints: { transports: ['mjpeg'], profiles: [], maxConcurrentViews: null, requestIdRetentionMs: 300_000 },
 };
 // @ts-expect-error A live-view capability must provide a delivery transport.
-const emptyTransports: CameraMediaCapability['liveView'] = { kind: 'supported', constraints: { transports: [], profiles: [], maxConcurrentViews: null } };
+const emptyTransports: CameraMediaCapability['liveView'] = { kind: 'supported', constraints: { transports: [], profiles: [], maxConcurrentViews: null, requestIdRetentionMs: 300_000 } };
 // @ts-expect-error Observation support must specify a usable delivery mode.
 const emptyDelivery: PrinterCapabilities['observations']['materials'] = { kind: 'supported', constraints: { delivery: [] } };
 // @ts-expect-error Discovery support must identify at least one supported scope kind.
@@ -970,3 +970,23 @@ service.controls.submit({ target, requestId: id<'request'>('cancel-current'),
 const stepJog: CommandOf<'motion.jog'> = { type: 'motion.jog', params: { motionGroupId: 'gantry' as Id<'motion'>, axis: 'x', kind: 'step', stepId: 'small', direction: 'positive' } };
 const firmwareExtrusion: CommandOf<'extrusion.move'> = { type: 'extrusion.move', params: { extruderId: 'extruder' as Id<'extruder'>, distanceMm: 10, speed: { kind: 'device-controlled' } } };
 void stepJog; void firmwareExtrusion;
+
+// Media descriptors alone construct playback; no observation/session preflight.
+async function consumeCamera(descriptor: import('@orca/printer-control/domain').MediaDescriptor) {
+  if (descriptor.presentation.kind !== 'video') return;
+  const delivery = descriptor.presentation.delivery;
+  if ('streamId' in delivery) {
+    for await (const packet of otherService.media.readStream({ media: descriptor.ref, streamId: delivery.streamId })) {
+      const bytes: Uint8Array = packet.bytes;
+      if (packet.kind === 'init') { const mime: string = packet.mimeType; }
+      // @ts-expect-error All packets do not carry decoder configuration.
+      packet.mimeType;
+    }
+  } else if ('url' in delivery) {
+    const credentials: 'same-origin' | 'include' = delivery.credentials;
+  }
+}
+// @ts-expect-error Raw strings cannot invent host-issued stream identities.
+service.media.readStream({ media: mediaRef, streamId: 'stream' });
+// @ts-expect-error A binary stream has no remote URL.
+const invalidBinary: import('@orca/printer-control/domain').VideoDelivery = { transport: 'jpeg-frames', url: 'https://example.org' };

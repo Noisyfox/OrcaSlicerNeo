@@ -9,6 +9,8 @@ directories:
 files:
   - out/**
   - "!out/**/*.map"
+  # Local camera probes write fixture media, reports and certificates under out.
+  - "!out/camera-prototype/**"
   # JavaScript dependencies are bundled; native binaries are extraResources.
   # Without this exclusion electron-builder copies workspace source and .work
   # dependency builds through production node_modules into every installer.

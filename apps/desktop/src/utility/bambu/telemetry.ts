@@ -21,6 +21,15 @@ export function bits(value: unknown, offset: number, width = 1): number | undefi
     return raw === undefined ? undefined : Number((raw >> BigInt(offset)) & ((1n << BigInt(width)) - 1n));
   } catch { return undefined; }
 }
+export function cameraProtocol(report: Record<string, unknown>): 'local' | 'rtsps' | 'rtsp' | 'disabled' | 'unavailable' | 'unknown' {
+  const camera = record(report.ipcam), live = record(camera.liveview);
+  if (camera.ipcam_dev === '0' || camera.ipcam_dev === 0) return 'unavailable';
+  if (camera.rtsp_url === 'disable') return 'disabled';
+  if (typeof camera.rtsp_url === 'string' && camera.rtsp_url.startsWith('rtsps://')) return 'rtsps';
+  if (typeof camera.rtsp_url === 'string' && camera.rtsp_url.startsWith('rtsp://')) return 'rtsp';
+  return ['local', 'rtsps', 'rtsp', 'disabled'].includes(String(live.local)) ? live.local as 'local' | 'rtsps' | 'rtsp' | 'disabled' : 'unknown';
+}
+
 export type ReadValue = <T>(value: T | undefined) => D.Reading<T>;
 function merge(base: Report, patch: Report): Report {
   const result = { ...base };
@@ -161,6 +170,12 @@ export class BambuTelemetry {
     Object.assign(topology, { motionGroups: tools.length ? [{ id: id('gantry'), name: 'Gantry', axes: ['x', 'y', 'z'] }] : [],
       tools, nozzles, extruders: tools.map(tool => ({ id: tool.extruderId, name: tool.name, filamentDiametersMm: null })),
       heaters, fans, lights, sensors: definitions, materials: material.topology });
+    const protocol = cameraProtocol(p), camera = record(p.ipcam);
+    const cameraReported = camera.ipcam_dev === '1' || camera.ipcam_dev === 1 || ['local', 'rtsps', 'rtsp', 'disabled'].includes(protocol);
+    if (cameraReported) topology.cameras = [{ id: id('chamber'), name: 'Chamber camera', role: 'chamber', toolId: null, lightId: null }];
+    const cameras: D.PrinterState['cameras'] = cameraReported ? [{ cameraId: id('chamber'),
+      enabled: read(protocol === 'disabled' ? false : ['local', 'rtsps', 'rtsp'].includes(protocol) ? true : undefined),
+      health: read(protocol === 'disabled' ? 'disabled' : undefined), deviceTimelapseMode: unknown, capture: unknown }] : [];
     const topologyKey = JSON.stringify(topology);
     if (topologyKey !== this.topologyKey) { this.topologyKey = topologyKey; ++this.topologyRevision; }
     topology.revision = `topology-${this.topologyRevision}`;
@@ -191,7 +206,7 @@ export class BambuTelemetry {
     return { fresh, generation: this.generation, report: merge(p, { capabilities: record(this.info.capabilities) }), values: {
       descriptor: { revision: topology.revision, identity, technology: 'fdm', buildVolume: null, firmware: firmware.length ? read(firmware) : unknown, topology },
       status: state, thermal, motion, actuators: { fans: fanState, lights: lightState }, sensors: { definitionRevision: topology.revision, definitions, readings },
-      materials: material, firmware, cameras: [], alerts,
+      materials: material, firmware, cameras, alerts,
     } };
   }
   snapshot<K extends D.StateTopic>(target: D.PrinterTarget, identity: D.PrinterIdentity, revision: string, topics: readonly [K, ...K[]]): D.PrinterSnapshot<K> {

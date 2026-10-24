@@ -6,7 +6,7 @@ export interface TimelapseSetting {
   cameraId: Id<'camera'>;
   mode: TimelapseMode;
 }
-export type VideoTransport = 'progressive-http' | 'hls' | 'mjpeg' | 'webrtc';
+export type VideoTransport = 'progressive-http' | 'hls' | 'mjpeg' | 'mse-fmp4' | 'jpeg-frames' | 'webrtc';
 export interface VideoProfile {
   id: string;
   width: number;
@@ -21,6 +21,8 @@ export interface CameraMediaCapability {
     profiles: readonly VideoProfile[];
     /** Unknown viewer limit; null does not mean unlimited viewers. */
     maxConcurrentViews: number | null;
+    /** Minimum idempotency retention for an open request ID, including closed resources. */
+    requestIdRetentionMs: number;
   }>;
   snapshot: Capability<{
     mimeTypes: NonEmptyReadonlyArray<'image/jpeg' | 'image/png'>;
@@ -58,6 +60,18 @@ export interface IceServer {
 export type VideoDelivery = {
   transport: 'progressive-http' | 'hls' | 'mjpeg';
   url: string;
+  mimeType: string;
+  /** HTML anonymous CORS uses same-origin credentials; include opts into credentialed CORS. */
+  credentials: 'same-origin' | 'include';
+} | {
+  transport: 'mse-fmp4';
+  streamId: Id<'media-stream'>;
+  /** Complete MSE MIME, including the AVC profile/level codec string. */
+  mimeType: string;
+} | {
+  transport: 'jpeg-frames';
+  streamId: Id<'media-stream'>;
+  mimeType: 'image/jpeg';
 } | {
   transport: 'webrtc';
   negotiationId: Id<'negotiation'>;
@@ -71,6 +85,7 @@ export type MediaPresentation = {
   durationSeconds: number | null;
   seekable: boolean;
   codecId: string | null;
+  live: boolean;
 } | {
   kind: 'image';
   mimeType: string;
@@ -132,6 +147,12 @@ export interface MediaEvent {
 export interface MediaRef extends PrinterTarget {
   id: Id<'media'>;
 }
+/** Owned bytes, never carried by watch/state RPC. Sequence starts at zero per generation. */
+export type MediaStreamPacket = {
+  generation: number;
+  sequence: number;
+  bytes: Uint8Array;
+} & ({ kind: 'init'; mimeType: string } | { kind: 'segment' } | { kind: 'jpeg' });
 export interface CameraImage {
   cameraId: Id<'camera'>;
   mimeType: 'image/jpeg' | 'image/png';
@@ -153,6 +174,11 @@ export interface PrinterMedia {
   open(request: OpenMediaRequest, options?: ReadOptions): Promise<Result<MediaDescriptor>>;
   /** Initial descriptor first; retain early signaling until watched, or report a gap. */
   watch(ref: MediaRef, options?: ReadOptions): AsyncIterable<MediaEvent>;
+  /** One reader per resource; cancellation detaches it. Throws PrinterStreamError on gaps/expiry.
+   * New generations begin at sequence zero with init+IDR or a complete JPEG.
+   * Providers bound pending bytes independently of consumer speed; they never silently drop AVC.
+   */
+  readStream(request: { media: MediaRef; streamId: Id<'media-stream'> }, options?: ReadOptions): AsyncIterable<MediaStreamPacket>;
   /** Delivery may change URLs/negotiation; inspect the returned revision. */
   renew(ref: MediaRef, options?: ReadOptions): Promise<Result<MediaDescriptor>>;
   /** Reject stale negotiation IDs and non-WebRTC resources. */

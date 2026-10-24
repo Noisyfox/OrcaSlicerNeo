@@ -1,3 +1,4 @@
+import { isBambuMediaRequest, isBambuMediaAttachment } from '../shared/bambuMedia';
 import { isBambuControlRequest } from '../shared/bambuControl';
 import { isBambuHostRequest } from '../shared/bambuHost';
 import { isAbsolute } from 'node:path';
@@ -33,6 +34,14 @@ process.parentPort.on('message', event => {
     const id = data.id;
     void runtime.host(data.request).then(value => process.parentPort.postMessage({ type: 'reply', id, value }))
       .catch(() => process.parentPort.postMessage({ type: 'reply', id, error: 'unavailable' }));
+  } else if (data.type === 'media' && Number.isSafeInteger(data.id) && typeof data.owner === 'string' && isBambuMediaRequest(data.request) && runtime) {
+    const id = data.id;
+    void runtime.mediaCall(data.owner, data.request).then(value => process.parentPort.postMessage({ type: 'reply', id, value }))
+      .catch(() => process.parentPort.postMessage({ type: 'reply', id, error: 'unavailable' }));
+  } else if (data.type === 'media-port' && typeof data.owner === 'string' && isBambuMediaAttachment(data.request) && event.ports.length === 1 && runtime) {
+    void runtime.mediaAttach(data.owner, data.request, event.ports[0]);
+  } else if (data.type === 'media-owner-close' && typeof data.owner === 'string' && runtime) {
+    void runtime.mediaCloseOwner(data.owner);
   } else if (data.type === 'shutdown' && initialized) {
     void runtime?.close().finally(() => process.exit(0));
   }

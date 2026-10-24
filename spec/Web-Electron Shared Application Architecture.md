@@ -407,6 +407,15 @@ login with external handoff, remembered login and Orca-compatible black-box
 plugin execution are accepted as described above. Existing stateless
 public printer access remains unchanged; internal plugin lifecycle is host-owned.
 
+The accepted [camera follow-up](Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback)
+retains v2.2.0 and the existing Bambu utility. Native LAN reads and H.264 fMP4
+remuxing stay host-side; shared HTML video/image playback receives typed media
+delivery. Binary frames use a bounded document-owned channel, not normal
+observation events or slicing IPC. Shared remote URL/HLS playback preserves
+Web isolation and does not imply a Web-native Bambu provider or TUTK support.
+Only its specification and isolated feasibility probe are currently authorized;
+production camera integration and hardware qualification remain pending.
+
 The Bambu-specific scope and feasibility limits are owned by
 [Printer Domain and Control Architecture](Printer%20Domain%20and%20Control%20Architecture.md#21-bambu-electron-provider-design).
 Its [implementation and acceptance sequence](Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence)

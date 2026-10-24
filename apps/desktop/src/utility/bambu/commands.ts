@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type * as D from '@orca/printer-control/domain';
 import { bambuCapabilities } from '../../shared/bambuPrinters';
-import { bits, id, number, record, records, type Report, type TelemetryProjection } from './telemetry';
+import { cameraProtocol, bits, id, number, record, records, type Report, type TelemetryProjection } from './telemetry';
 import { protocolReport } from './protocol';
 const known = <T>(value: D.Reading<T>): T | undefined => value.kind === 'known' && value.freshness === 'fresh' ? value.value : undefined;
 const fail = (code: D.ErrorCode, message: string): D.PrinterError => ({ code, message });
@@ -21,6 +21,11 @@ export function commandCapabilities(context: CommandContext): D.PrinterCapabilit
   const result = bambuCapabilities(); result.currentPrintPreview = supported({ mimeTypes: ['image/jpeg', 'image/png'] as const }); const c = result.commands;
   c['actions.invoke'] = supported({ sources: ['alerts'] });
   const p = protocolReport(context.model, context.report), topology = context.values.descriptor.topology;
+  const protocol = cameraProtocol(context.report);
+  result.cameras = [{ cameraId: id('chamber'), snapshot: { kind: 'unsupported', layer: 'adapter', reason: 'Snapshots are not supported.' },
+    liveView: protocol === 'local' || protocol === 'rtsps' ? supported({ transports: [protocol === 'local' ? 'jpeg-frames' : 'mse-fmp4'] as const, profiles: [], maxConcurrentViews: 1, requestIdRetentionMs: 300_000 })
+      : protocol === 'unknown' ? { kind: 'unknown', reason: 'LAN camera information has not been reported.' }
+      : { kind: 'unsupported', layer: protocol === 'rtsp' ? 'adapter' : 'device', reason: protocol === 'disabled' ? 'LAN live view is disabled on the printer.' : protocol === 'unavailable' ? 'The printer reports its camera unavailable.' : 'This LAN camera protocol is not supported.' } }];
   for (const name of ['jobs.pause', 'jobs.resume', 'jobs.cancel'] as const) c[name] = supported({});
   c['jobs.setSpeed'] = supported({ modes: [{ id: '1', label: 'Silent' }, { id: '2', label: 'Standard' }, { id: '3', label: 'Sport' }, { id: '4', label: 'Ludicrous' }] });
   if (p.support_refresh_nozzle === true) c['hardware.refreshNozzles'] = supported({});
@@ -48,7 +53,7 @@ export function commandCapabilities(context: CommandContext): D.PrinterCapabilit
   const paths = nonempty(context.values.materials.topology.paths.map(path => path.id));
   if (paths && p.support_command_ams_switch === true) { c['materials.load'] = supported({ pathIds: paths }); c['materials.switch'] = supported({ pathIds: paths }); }
   if (tools && p.support_command_ams_switch === true) c['materials.unload'] = supported({ toolIds: tools });
-  result.revision = createHash('sha256').update(JSON.stringify(c)).digest('hex'); return result;
+  result.revision = createHash('sha256').update(JSON.stringify({ commands: c, cameras: result.cameras })).digest('hex'); return result;
 }
 function within(value: number, limit: D.Range) { return Number.isFinite(value) && (limit.min === null || value >= limit.min) && (limit.max === null || value <= limit.max); }
 function trayFor(p: Report, pathId: string | null | undefined): Report {

@@ -261,7 +261,11 @@ test('Device config and Electron console fixture inject the API key', async () =
     await monitor.getByRole('button', { name: 'Refresh', exact: true }).click();
     await expect.poll(() => fixture.state.statusReads).toBe(1);
     await expect(monitor.getByText('No readings requested. Use Refresh to read the printer.')).toHaveCount(0);
-    const preview = await monitor.getByRole('heading', { name: 'Print preview', exact: true }).boundingBox();
+    const preview = await monitor.getByLabel('Print preview', { exact: true }).boundingBox();
+    const progress = await monitor.getByRole('progressbar', { name: 'Print progress' }).boundingBox();
+    expect(preview!.x + preview!.width).toBeLessThan(progress!.x);
+    expect(progress!.y).toBeGreaterThanOrEqual(preview!.y);
+    expect(progress!.y).toBeLessThan(preview!.y + preview!.height);
     const control = await monitor.getByRole('heading', { name: 'Control', exact: true }).boundingBox();
     expect(control!.x).toBeGreaterThan(preview!.x + preview!.width);
     await page.screenshot({ path: '/tmp/orca-moonraker-monitor.png' });

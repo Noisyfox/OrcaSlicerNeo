@@ -159,6 +159,40 @@ builds use real WASM; `--mode e2e` retains the mock fixture. See the
 [packaging reference](doc/2026-09-25-github-pages-deployment.md#desktop-packaging)
 for resource ownership and CI qualification.
 
+**Camera feasibility probe.** The isolated
+[camera harness](apps/desktop/scripts/camera-prototype/run.mjs) exercises the
+pinned v2.2.0 `BambuSource`, fMP4 remuxing and real HTML video/MSE without
+starting the slicer application or contacting a printer/account:
+
+```bash
+pnpm --filter @orca/desktop camera:prototype:test
+pnpm --filter @orca/desktop camera:prototype --help
+pnpm --filter @orca/desktop camera:prototype
+pnpm --filter @orca/desktop camera:player:check
+# Real Electron utility/preload binary transport and document cleanup:
+pnpm --filter @orca/desktop exec electron-vite build --mode e2e
+pnpm --filter @orca/desktop exec playwright test e2e/bambu-camera.e2e.ts
+pnpm --filter @orca/bambu-native build
+pnpm --filter @orca/desktop camera:prototype --production
+```
+
+The native probe driver currently supports macOS/Linux and requires a C++17
+compiler, OpenSSL and installed Google Chrome (override its path with
+`ORCA_CHROME_EXECUTABLE`). The default run uses visible Chrome and Electron;
+`--browser chrome|electron` and `--scenario short-gop|long-gop|arrival-jitter`
+select focused runs. It generates baseline H.264 locally, serves it over
+loopback RTSPS with a temporary fixture certificate and verifies the pinned
+archive checksum before loading its library. Evidence (JSON timings, generated
+H.264, fMP4 and screenshots) goes to `apps/desktop/out/camera-prototype/`.
+The separate `camera:player:check` exercises the shared production player with
+local MP4/HLS/JPEG/MSE fixtures in Chrome and Electron, including error cleanup.
+The `--production` comparison uses the production native reader and MP4Box
+remuxer, writing separate evidence under `out/camera-prototype/production/`.
+No production entrypoint imports the harness, and desktop packaging excludes
+its generated output directory. This is fixture feasibility,
+not real-printer, printer-certificate/authentication, or six-platform
+qualification; see the [camera acceptance boundary](spec/Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback).
+
 **Profile packages.** Both hosts' `predev` hooks stage the profile packages
 (manifest + core/vendor ZIPs) from `packages/profile-resources/dist` into the
 shared renderer public dir, so build them before starting the app or the e2e

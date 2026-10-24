@@ -19,6 +19,7 @@ interface Binding {
 
 export interface BambuNative {
   getVersion(): Promise<string>;
+  getCameraUrl(deviceId: string): Promise<string>;
   createAgent(logDirectory: string): Promise<number>;
   setConfigDirectory(path: string): Promise<number>;
   initLog(): Promise<number>;
@@ -79,7 +80,7 @@ export function loadBambuNative(addonPath: string, pluginPath: string, listener:
     return result;
   };
   return {
-    getVersion: () => call('get_version'),
+    getVersion: () => call('get_version'), getCameraUrl: id => call('get_camera_url', id),
     createAgent: async path => { const result = await call<number>('create_agent', path); created = result === 0; return result; },
     setConfigDirectory: path => call('set_config_dir', path), initLog: () => call('init_log'),
     setCertificate: (folder, filename) => call('set_cert_file', folder, filename),
@@ -122,4 +123,18 @@ export function loadBambuNative(addonPath: string, pluginPath: string, listener:
       return closing;
     },
   };
+}
+
+
+export interface NativeCameraSample { bytes: Uint8Array; time100ns: bigint; flags: number }
+export interface NativeCamera {
+  poll(): { ready: boolean; format: 'h264' | 'jpeg' | ''; width: number; height: number; samples: NativeCameraSample[] };
+  /** Cancels and joins on a worker; resolves after tunnel close/destroy and library unload. */
+  close(): Promise<void>;
+}
+/** Host-private LAN URL only. The independent reader never enters the account call queue. */
+export function loadBambuCamera(addonPath: string, sourcePath: string, url: string): NativeCamera {
+  if (!isAbsolute(addonPath) || !isAbsolute(sourcePath)) throw new Error('Native library paths must be absolute');
+  const addon = createRequire(addonPath)(addonPath) as { Camera: new (path: string, url: string) => NativeCamera };
+  return new addon.Camera(sourcePath, url);
 }

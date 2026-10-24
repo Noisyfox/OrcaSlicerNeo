@@ -115,3 +115,15 @@ it('confirms same-task cancellation and treats the cancelled task as inactive', 
   const recovered = new BambuRecovery().decorate(f.context());
   expect(recovered.recovery?.map(item => item.kind)).toEqual(['resume', 'abort']);
 });
+
+it('advertises camera delivery only from reported protocols and includes it in capability revision', () => {
+  const capabilities = (ipcam: object) => commandCapabilities(fixture({ ipcam }).context());
+  expect(capabilities({}).cameras[0].liveView).toMatchObject({ kind: 'unknown' });
+  expect(capabilities({ ipcam_dev: '0' }).cameras[0].liveView).toMatchObject({ kind: 'unsupported', layer: 'device' });
+  expect(capabilities({ liveview: { local: 'disabled' } }).cameras[0].liveView).toMatchObject({ kind: 'unsupported', reason: expect.stringContaining('disabled') });
+  expect(capabilities({ liveview: { local: 'rtsp' } }).cameras[0].liveView).toMatchObject({ kind: 'unsupported', layer: 'adapter' });
+  const jpeg = capabilities({ liveview: { local: 'local' } }), avc = capabilities({ rtsp_url: 'rtsps://private' });
+  expect(jpeg.cameras[0].liveView).toMatchObject({ kind: 'supported', constraints: { transports: ['jpeg-frames'], maxConcurrentViews: 1, requestIdRetentionMs: 300000 } });
+  expect(avc.cameras[0].liveView).toMatchObject({ kind: 'supported', constraints: { transports: ['mse-fmp4'] } });
+  expect(avc.revision).not.toBe(jpeg.revision); expect(JSON.stringify(avc)).not.toContain('private');
+});
