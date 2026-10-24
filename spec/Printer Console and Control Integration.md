@@ -784,8 +784,9 @@ and labels it `Heat` in
 [FanControl.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/Widgets/FanControl.cpp).
 The [H2D user manual, section 6.5.1](https://csm.bblcdn.com/hub/4668d0ca43994ff3bff4b37f1a65c2e7.pdf)
 explains that the chamber heat circulation fan remains off in cooling mode and
-automatically starts in heating mode. Fan 6 therefore has command/report evidence
-only; physical behavior and mode-dependent applicability remain unqualified.
+automatically starts in heating mode. The initial manual 30-percent Fan 6 test has command/report evidence only;
+its physical behavior remains unqualified. Automatic heat-circulation fan
+start/stop is separately qualified by the chamber-heating test below.
 The provider now derives descriptive fan names from Orca's AIR_FUN mapping,
 including Part cooling, Auxiliary cooling, Chamber exhaust and Chamber heat
 circulation. Pinned model/mode/submode label overrides take precedence as in
@@ -853,6 +854,30 @@ temperature crossed it; reported overshoot to approximately 56/57 C is recorded
 rather than claiming stable 50 C regulation. Other temperatures and print-time
 behavior remain unqualified. No chamber heating, motion, extrusion or material
 operation was included in this nozzle stage.
+
+### Independent LAN chamber-heating acceptance
+
+On 2026-10-24, the user separately authorized a 40 C chamber target, waiting
+for actual temperature to reach 40 C, a ten-second target hold and restoration
+to zero, including firmware-controlled fan/airduct interaction. The production
+Monitor set the target successfully. Fresh telemetry showed actual chamber
+temperature rising from approximately 27 C through 33, 36 and 39 C to 40 C.
+The ten-second hold began only after the actual 40 C reading. The zero-target
+command then completed and fresh telemetry confirmed its restoration.
+
+During heating, the heat-circulation fan (ID 6) automatically reported 100 percent.
+After restoring the chamber target to zero, the fan automatically reported zero;
+no independent fan or airduct-mode command was issued. A later read showed actual
+chamber temperature about 37 C, all heater targets zero and all four reported
+fan setpoints zero. The user confirmed that the chamber sequence matched the
+printer screen and that the physical heat-circulation fan ran and subsequently
+stopped. Local timestamped evidence is in `.vitest/lan-acceptance/chamber-40.json`.
+
+This qualifies the authorized LAN chamber set/warm-up/hold/restore sequence and
+the observed automatic heat-circulation fan behavior in this mode on this H2D.
+It does not qualify the earlier manual 30-percent Fan 6 setting, other chamber
+temperatures, print-time interactions or Cloud-only operation. No motion,
+extrusion or material command was issued in this stage.
 
 ## Upload verification
 
