@@ -35,14 +35,14 @@ describe('Bambu telemetry normalization', () => {
   });
   it('normalizes independently addressed nozzles, dynamic slots and paths to each tool', () => {
     const { telemetry } = model(); telemetry.accept(push(report())); const result = telemetry.project(target, identity);
-    expect(result.values.thermal.map(item => [item.heaterId, item.targetC.kind === 'known' && item.targetC.value])).toEqual([['nozzle:0', 220], ['nozzle:1', 230], ['bed', 65]]);
+    expect(result.values.thermal.map(item => [item.heaterId, item.targetC.kind === 'known' && item.targetC.value])).toEqual([['nozzle:1', 230], ['nozzle:0', 220], ['bed', 65]]);
     expect(result.values.status.activeToolIds).toMatchObject({ value: ['tool:1'] });
     expect(result.values.materials.topology.paths).toEqual([
       { id: 'path:0:2:0', slotId: 'slot:0:2', toolId: 'tool:0', loading: 'automatic' },
       { id: 'path:1:3:1', slotId: 'slot:1:3', toolId: 'tool:1', loading: 'automatic' },
     ]);
     expect(result.values.materials.state.tools[1].loadedPathId).toMatchObject({ value: 'path:1:3:1' });
-    expect(result.values.descriptor.topology.nozzles[1]).toMatchObject({ diameterMm: 0.6, constructionMaterial: 'hardened steel', flowType: 'high flow' });
+    expect(result.values.descriptor.topology.nozzles.find(n => n.id === 'nozzle:1')).toMatchObject({ diameterMm: 0.6, constructionMaterial: 'hardened steel', flowType: 'high flow' });
   });
   it('maps external unit IDs independently of report order and keeps requested and loaded paths separate', () => {
     const { telemetry } = model();
@@ -189,8 +189,8 @@ it('follows pinned Orca model/mode/submode fan text and updates topology when la
   expect(topology().fans).toEqual([]);
 });
 
-it('labels the reported dual 0/1 pair right/left by identity, without retargeting heaters or paths', () => {
-  const { telemetry } = model(); const raw = report(); raw.device.extruder.info.reverse();
+it.each([false, true])('shows left before right regardless of dual report order (reversed=%s), without retargeting heaters or paths', reversed => {
+  const { telemetry } = model(); const raw = report(); if (reversed) raw.device.extruder.info.reverse();
   telemetry.accept(push(raw)); const value = telemetry.project(target, identity).values;
   expect(value.descriptor.topology.tools.map(t => [t.id, t.name, t.nozzleId, t.extruderId])).toEqual([
     ['tool:1', 'Left extruder', 'nozzle:1', 'extruder:1'], ['tool:0', 'Right extruder', 'nozzle:0', 'extruder:0'],

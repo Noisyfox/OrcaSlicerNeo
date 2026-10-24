@@ -47,6 +47,12 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     await expect.poll(tokens).toHaveLength(1); const originalTokens = await tokens();
     await expect(panel.getByRole('spinbutton', { name: 'Left nozzle target', exact: true })).toBeVisible();
     const temperature = panel.getByRole('spinbutton', { name: 'Right nozzle target', exact: true });
+    const leftBounds = await panel.getByRole('spinbutton', { name: 'Left nozzle target', exact: true }).boundingBox();
+    const rightBounds = await temperature.boundingBox();
+    expect(leftBounds!.y).toBeLessThan(rightBounds!.y);
+    const leftToolBounds = await panel.getByRole('button', { name: 'Select Left extruder', exact: true }).boundingBox();
+    const rightToolBounds = await panel.getByRole('button', { name: 'Select Right extruder', exact: true }).boundingBox();
+    expect(leftToolBounds!.y).toBeLessThan(rightToolBounds!.y);
     await temperature.fill('235'); await temperature.press('Enter');
     await expect.poll(commands).toHaveLength(1);
     expect((await commands())[0]).toMatchObject({ target: { printerId: 'bambu:a' }, command: { type: 'thermal.setTarget', params: { heaterId: 'nozzle:0', targetC: 235 } } });

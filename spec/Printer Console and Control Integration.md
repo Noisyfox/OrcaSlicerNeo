@@ -119,7 +119,10 @@ Shared print-status, temperature, actuator, motion, material and operation-feedb
 cards are selected by advertised capabilities and populated from reported topology.
 Hardware IDs are opaque; tool/nozzle labels use descriptor names. For a reported
 Bambu dual 0/1 pair, the provider follows Orca's main-extruder convention: 0 is
-Right nozzle/Right extruder and 1 is Left nozzle/Left extruder. Temperature,
+Right nozzle/Right extruder and 1 is Left nozzle/Left extruder. The provider
+orders this pair left first, right second, independently of report order; the
+vertical temperature and tool lists show left above right, and hardware details
+list left before right. Temperature,
 tool-selection and material-path controls share those names while retaining
 the original command IDs. Single-tool and unknown layouts keep neutral names.
 Movement choices

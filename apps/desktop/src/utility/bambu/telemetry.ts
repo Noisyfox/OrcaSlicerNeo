@@ -115,7 +115,8 @@ export class BambuTelemetry {
     // Require the reported 0/1 pair; other layouts keep neutral names.
     const dualSides = extruders.length === 2 && ['0', '1'].every(key => extruders.some(item => identifier(item.id) === key));
     const nozzles: D.Nozzle[] = [], tools: D.Tool[] = [];
-    for (const item of extruders) {
+    const displayExtruders = dualSides ? [...extruders].sort((a, b) => Number(identifier(b.id)) - Number(identifier(a.id))) : extruders;
+    for (const item of displayExtruders) {
       const key = identifier(item.id)!;
       const side = dualSides ? key === '0' ? 'Right' : 'Left' : null;
       // High nibble 1 identifies the nozzle rack; installed toolhead nozzles use 0.

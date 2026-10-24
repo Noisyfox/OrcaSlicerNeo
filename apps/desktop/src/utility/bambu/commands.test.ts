@@ -15,7 +15,7 @@ function fixture(patch = {}, model: string | null = 'H2D') {
 }
 it('derives targets from reports and only defaults H2D protocol limits, not attached hardware', () => {
   const f = fixture(); const c = commandCapabilities(f.context());
-  expect(c.commands['thermal.setTarget']).toMatchObject({ kind: 'supported', constraints: [{ heaterId: 'nozzle:0', targetC: { max: 350 } }, { heaterId: 'nozzle:1', targetC: { max: 350 } }, { heaterId: 'bed', targetC: { max: 120 } }] });
+  expect(c.commands['thermal.setTarget']).toMatchObject({ kind: 'supported', constraints: [{ heaterId: 'nozzle:1', targetC: { max: 350 } }, { heaterId: 'nozzle:0', targetC: { max: 350 } }, { heaterId: 'bed', targetC: { max: 120 } }] });
   expect(c.commands['motion.jog']).toMatchObject({ kind: 'supported', constraints: [{ kind: 'step', axis: 'x' }, { kind: 'step', axis: 'y' }, { kind: 'step', axis: 'z' }] });
   expect(c.commands['materials.load']).toMatchObject({ kind: 'supported', constraints: { pathIds: ['path:0:0:0'] } });
   f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, nozzle_temp_range: [0, 300], support_refresh_nozzle: false } }));
