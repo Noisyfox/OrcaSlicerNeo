@@ -695,6 +695,41 @@ account invalidation between live instances, and the six-target release matrix
 remain unrun. No C++ slicing/WASM bridge changed, so no new dual-WASM build or
 real Web release run was required.
 
+### Independent LAN read-only acceptance
+
+On 2026-10-24, the production desktop build (`pnpm --filter @orca/desktop build`)
+was exercised with the real native networking plugin in a separate normal
+Electron user-data directory. No E2E overrides, mocked printer handlers or Cloud
+account state were supplied. The original application profile and Cloud login
+were preserved. SSDP discovered the H2D (`O1D`), and the user entered its access
+code through the normal Discover LAN printers dialog. The saved catalogue then
+contained one device with only a LAN authorization record; account state remained
+`signed-out`. The system socket table confirmed an established connection from
+the Bambu utility to that printer's LAN address on TCP 8883.
+
+The unified Monitor became Live and continued receiving newer fresh status
+readings beyond the 15-second freshness boundary, including while hidden by Home.
+Read-only reports showed idle/ready, nozzle temperatures approximately 26/27 C,
+bed 25 C and chamber 26 C; two 0.4 mm hardened-steel standard-flow HS01 nozzles;
+four-slot AMS 0 routed to Tool 1; four-slot AMS 2 Pro 1 routed to Tool 0 and
+reporting its dryer; and external holders 255/254 routed to Tool 0/1. Unknown
+external-spool material stayed unknown. These are reported observations, not a
+fixed hardware configuration requirement.
+
+A normal close and restart using the same independent profile restored the saved
+LAN record and selected printer without entering the access code again. Returning
+to Device restored Live with a newer received timestamp and an established TCP
+8883 connection; the account was still signed out. The host credential file had
+mode 0600. Screenshots and timestamped snapshots are local ignored evidence under
+`.vitest/lan-acceptance/`; credentials are not included in that evidence.
+
+This completes independent LAN discovery, authorization, sustained monitoring,
+dynamic-hardware presentation and same-profile restart acceptance. The saved LAN
+authorization belongs to this separate acceptance profile. Heating, motion,
+extrusion, material operations, wrong-code handling, forced network loss/recovery
+and cross-instance invalidation were not exercised. Each physical control action
+still requires individual user confirmation.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
