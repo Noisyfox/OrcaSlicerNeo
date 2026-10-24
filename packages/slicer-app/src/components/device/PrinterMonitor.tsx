@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { usePrinterCommands, useCurrentPrintPreview } from './usePrinterControl';
 import { usePrinterObservation } from './usePrinterObservation';
 import { ActuatorCard, ControlCard, display, MotionCard, ThermalCard, valueOf } from './PrinterControlCards';
+import { CameraCard } from './media/CameraCard';
 import { MaterialControlCard } from './MaterialControlCard';
 
 const monitoringTopics = ['status', 'thermal', 'motion', 'actuators', 'materials', 'sensors'] as const;
@@ -43,6 +44,12 @@ export function PrinterMonitor({ printer, route, visible = true }: { printer: D.
     toolbar={canRefresh && <Button size="sm" variant="secondary" disabled={pending || refreshing} onClick={() => void refresh()}>Refresh</Button>}
     status={live && <span className="text-xs" role="status">{error ? 'Disconnected or stale' : liveStatus ? fresh ? 'Live' : snapshot ? 'Disconnected or stale' : 'Connecting…' : snapshot ? 'Live observations' : 'Connecting…'}</span>}
     preview={preview}
+    camera={capabilities.cameras.length ? capabilities.cameras.map(camera => <CameraCard
+      key={`${target.printerId}:${target.routeId}:${route.configurationRevision}:${camera.cameraId}`}
+      media={service.media} target={target} capability={camera} visible={visible}
+      name={topology?.cameras.find(item => item.id === camera.cameraId)?.name ?? 'Camera'}
+      disabled={valueOf(snapshot?.values.cameras)?.some(item => item.cameraId === camera.cameraId && valueOf(item.enabled) === false) ?? false}
+    />) : capabilities.observations.cameras.kind === 'supported' && <ControlCard title="Camera"><p className="text-sm text-muted-foreground">Camera information has not been reported.</p></ControlCard>}
     notices={<>
     {canRefresh && !snapshot && <p className="text-sm text-muted-foreground">No readings requested. Use Refresh to read the printer.</p>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

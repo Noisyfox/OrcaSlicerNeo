@@ -5,15 +5,16 @@ import { ControlCard, display, valueOf } from './PrinterControlCards';
 import './PrinterMonitor.css';
 
 /** Shared presentation only; providers retain their own reads, previews and command lifetimes. */
-export function PrinterMonitorLayout({ title, subtitle, status, toolbar, notices, preview, progress, controls, materials, hardware, testId }: {
+export function PrinterMonitorLayout({ title, subtitle, status, toolbar, notices, preview, camera, progress, controls, materials, hardware, testId }: {
   title: string; subtitle: string; status?: ReactNode; toolbar?: ReactNode; notices?: ReactNode;
-  preview?: string | null; progress: ReactNode; controls: ReactNode; materials?: ReactNode; hardware?: ReactNode; testId: string;
+  preview?: string | null; camera?: ReactNode; progress: ReactNode; controls: ReactNode; materials?: ReactNode; hardware?: ReactNode; testId: string;
 }) {
   return <div className="printer-monitor h-full overflow-y-auto" data-testid={testId}>
     <header className="flex items-center justify-between gap-3"><div><h2 className="font-semibold">{title}</h2><p className="text-xs text-muted-foreground">{subtitle}</p></div><div className="flex items-center gap-3">{status}{toolbar}</div></header>
     {notices}
     <div className="printer-monitor-layout">
       <div className="printer-print-column">
+        {camera}
         <ControlCard title="Print preview"><div className="printer-print-preview">{preview ? <img src={preview} alt="Current print preview" /> : <div className="printer-preview-empty"><Box size={52} strokeWidth={1} /><span>No preview available</span></div>}</div></ControlCard>
         {progress}
       </div>

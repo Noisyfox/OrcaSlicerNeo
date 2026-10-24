@@ -69,11 +69,17 @@ export function startMediaPlayback(options: PlaybackOptions) {
   let source: MediaSource | undefined, buffer: SourceBuffer | undefined;
   let expiry: ReturnType<typeof setTimeout> | undefined;
   let frameCallback: number | undefined, videoEpoch = 0;
+  let lastFrameAt = Date.now(), autoplayBlocked = false;
   let rejectFailure: (error: Error) => void = () => {};
   const failure = new Promise<never>((_, reject) => { rejectFailure = reject; });
   // Capture immediate media errors even while waiting for an IPC packet.
   const failed = () => rejectFailure(new PlaybackError('Media playback failed'));
-  const playing = () => onState?.('playing');
+  const playing = () => { lastFrameAt = Date.now(); onState?.('playing'); };
+  const watchdog = setInterval(() => {
+    if (presentation.kind === 'video' && presentation.live && 'streamId' in presentation.delivery && !autoplayBlocked && Date.now() - lastFrameAt > 15000) {
+      rejectFailure(new PlaybackError('Camera stopped displaying frames'));
+    }
+  }, 1000);
   const waiting = () => onState?.('connecting');
   video.addEventListener('error', failed); image.addEventListener('error', failed);
   video.addEventListener('waiting', waiting);
@@ -81,13 +87,13 @@ export function startMediaPlayback(options: PlaybackOptions) {
   onState?.('connecting');
   const revoke = () => { if (blobUrl) URL.revokeObjectURL(blobUrl); blobUrl = undefined; };
   const resetVideo = () => {
-    videoEpoch++; video.pause(); video.removeAttribute('src'); video.load(); revoke(); source = undefined; buffer = undefined;
+    videoEpoch++; lastFrameAt = Date.now(); video.pause(); video.removeAttribute('src'); video.load(); revoke(); source = undefined; buffer = undefined;
   };
   const play = async () => {
     const epoch = videoEpoch;
-    try { await video.play(); } catch (error) {
+    try { await video.play(); autoplayBlocked = false; lastFrameAt = Date.now(); } catch (error) {
       if (!signal.aborted && epoch === videoEpoch) {
-        if (error instanceof DOMException && error.name === 'NotAllowedError') onState?.('paused');
+        if (error instanceof DOMException && error.name === 'NotAllowedError') { autoplayBlocked = true; onState?.('paused'); }
         else failed();
       }
     }
@@ -97,10 +103,12 @@ export function startMediaPlayback(options: PlaybackOptions) {
     playing(); frameCallback = video.requestVideoFrameCallback(observeFrame);
   };
   frameCallback = video.requestVideoFrameCallback(observeFrame);
-  if (descriptor.expiresAtMs !== null) {
-    expiry = setTimeout(() => rejectFailure(new PlaybackError('Camera access expired')),
-      Math.max(0, Math.min(2 ** 31 - 1, descriptor.expiresAtMs - Date.now())));
-  }
+  const setExpiresAt = (at: number | null) => {
+    clearTimeout(expiry);
+    if (at !== null && !signal.aborted) expiry = setTimeout(() => rejectFailure(new PlaybackError('Camera access expired')),
+      Math.max(0, Math.min(2 ** 31 - 1, at - Date.now())));
+  };
+  setExpiresAt(descriptor.expiresAtMs);
 
   async function append(bytes: Uint8Array) {
     const update = () => event(buffer!, 'updateend', signal, () => buffer!.appendBuffer(Uint8Array.from(bytes)));
@@ -205,10 +213,10 @@ export function startMediaPlayback(options: PlaybackOptions) {
   }
 
   const done = Promise.race([run(), failure]).finally(() => {
-    controller.abort(aborted()); clearTimeout(expiry); hls?.destroy();
+    controller.abort(aborted()); clearTimeout(expiry); clearInterval(watchdog); hls?.destroy();
     if (frameCallback !== undefined) video.cancelVideoFrameCallback(frameCallback);
     video.removeEventListener('error', failed); image.removeEventListener('error', failed); video.removeEventListener('waiting', waiting);
     resetVideo(); image.removeAttribute('src'); image.removeAttribute('crossorigin'); video.removeAttribute('crossorigin');
   }).catch(error => { if (!options.signal?.aborted && !(error instanceof DOMException && error.name === 'AbortError')) throw new PlaybackError(error instanceof PlaybackError ? error.message : 'Camera playback failed'); });
-  return { done, play, stop: () => controller.abort(aborted()) };
+  return { done, play, setExpiresAt, stop: () => controller.abort(aborted()) };
 }

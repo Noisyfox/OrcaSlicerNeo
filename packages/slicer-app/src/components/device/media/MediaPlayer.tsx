@@ -12,14 +12,18 @@ export function MediaPlayer({ descriptor, media, onError }: {
   const player = useRef<ReturnType<typeof startMediaPlayback> | null>(null);
   const [state, setState] = useState<PlaybackState>('connecting');
   const onErrorRef = useRef(onError); onErrorRef.current = onError;
+  // Lease revisions do not replace a live stream; changed URL/delivery does.
+  const identity = JSON.stringify([descriptor.ref, descriptor.presentation]);
+  const latest = useRef(descriptor); latest.current = descriptor;
   useEffect(() => {
     const controller = new AbortController();
-    const active = startMediaPlayback({ descriptor, media, video: video.current!, image: image.current!,
+    const active = startMediaPlayback({ descriptor: latest.current, media, video: video.current!, image: image.current!,
       signal: controller.signal, onState: setState });
     player.current = active;
     void active.done.catch(error => { if (!controller.signal.aborted) onErrorRef.current(error.message); });
     return () => { controller.abort(); active.stop(); player.current = null; };
-  }, [descriptor, media]);
+  }, [identity, media]);
+  useEffect(() => { player.current?.setExpiresAt(descriptor.expiresAtMs); }, [descriptor.expiresAtMs]);
   return <div className="relative min-h-24 overflow-hidden rounded bg-black" data-testid="camera-player">
     <video ref={video} className="max-h-96 w-full object-contain" muted playsInline aria-label="Live camera" />
     <img ref={image} className="max-h-96 w-full object-contain" alt="Live camera" hidden />

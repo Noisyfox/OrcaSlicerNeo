@@ -117,7 +117,20 @@ try {
       await page.evaluate(async () => { window.abortPlayer(); await window.player.done; });
       assert.equal(await page.evaluate(() => window.activeUrls.size), 0, 'Leaked JPEG URL');
       results.push({ browser, transport: 'jpeg-frames', passed: true });
-      files.set('/camera.mjpeg', { mime: 'multipart/x-mixed-replace; boundary=frame', bytes: Buffer.from(await page.evaluate(() => window.jpeg)) });
+      await page.evaluate(() => {
+        window.launch({ transport: 'jpeg-frames', streamId: 'renewed', mimeType: 'image/jpeg' }, {
+          live: true, hold: true, expiresAtMs: Date.now() + 100,
+          packets: [{ generation: 0, sequence: 0, kind: 'jpeg', bytes: window.jpeg }],
+        });
+        window.player.setExpiresAt(Date.now() + 10000);
+      });
+      await page.waitForFunction(() => window.states.includes('playing'));
+      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 200)));
+      assert.equal(await page.evaluate(() => window.error), null, 'Old lease timer survived renewal');
+      assert.equal(await page.evaluate(() => window.streamClosed), false, 'Renewal detached the stream');
+      await page.evaluate(async () => { window.abortPlayer(); await window.player.done; });
+      results.push({ browser, scenario: 'lease-renewal', passed: true });
+      files.set('/camera.mjpeg' , { mime: 'multipart/x-mixed-replace; boundary=frame', bytes: Buffer.from(await page.evaluate(() => window.jpeg)) });
       await page.evaluate(() => window.launch({ transport: 'mjpeg', url: `${window.remoteUrl}/camera.mjpeg`, mimeType: 'multipart/x-mixed-replace', credentials: 'same-origin' }, { live: true }));
       await page.waitForFunction(() => window.error || (document.querySelector('img').naturalWidth === 16 && window.states.includes('playing')));
       assert.equal(await page.evaluate(() => window.error), null);

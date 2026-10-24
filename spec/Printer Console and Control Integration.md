@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-10-23
+**Updated:** 2026-10-24
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
@@ -101,7 +101,8 @@ target is **H2D + AMS**. Implementation is authorized in independently verified 
 physical acceptance follows software verification. This UI choice is
 separate from the earlier domain-architecture option B.
 
-The delivered control increment excludes video, remote-file browsing and an HMS tab.
+The initial control increment excludes remote-file browsing and an HMS tab.
+LAN live video is delivered by the separately verified Camera increment below.
 The accepted [camera follow-up](#camera-live-view) is a separate increment. Current
 task/material errors and supported contextual recovery actions remain available
 inside the relevant cards. The additional feature boundaries below are accepted.
@@ -235,8 +236,9 @@ feature: the device keeps its current configuration.
 #### Camera live view
 
 **Status:** Implementation is authorized in separately verified increments.
-Shared delivery playback, binary contracts and native media integration are
-delivered; Camera UI remains pending.
+Shared delivery playback, binary contracts, native media integration and the
+capability-driven Camera card are delivered within development-host fixture
+acceptance. Physical-printer and six-platform packaged playback remain open.
 The [printer-domain camera design](Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback)
 owns contracts, host execution, implementation order and qualification gates.
 Keep the pinned Bambu v2.2.0; this is LAN video, including LAN-reachable
@@ -267,6 +269,24 @@ Late open results must be closed and old callbacks/frames ignored. Bounded
 transport retries are allowed while viewing is requested; authentication,
 disabled-camera and unsupported-format failures require user action. Do not
 change device recording, timelapse or print state when viewing starts/stops.
+
+The implemented [viewing owner](../packages/slicer-app/src/components/device/media/useCameraView.ts)
+serializes release/reopen, closes late opens, renews resource leases, watches
+metadata errors and stops on component, route or document visibility changes.
+Errors require explicit Retry; no automatic authentication or decoder retry is
+performed. The [Camera card](../packages/slicer-app/src/components/device/media/CameraCard.tsx)
+uses reported camera names and retains the independent current-task preview.
+Unknown camera fields show an explanation, not hardware absence; reported LAN
+protocols select JPEG or fMP4 capabilities. Disabled live view stops viewing and
+requires Play again once enabled. Recording/timelapse state remains unknown
+unless reported, and viewing never writes those settings.
+
+Development acceptance includes lifecycle/renewal tests, Chrome/Electron real
+MSE/JPEG/direct URL/HLS playback, and the full shared Monitor in Electron with a
+generated JPEG frame through the production renderer adapter and MessagePorts.
+The UI fixture verifies first decoded frame, control submission during viewing,
+hide/resume, explicit Stop and device switching. It does not establish physical
+printer control responsiveness, LAN authentication or hardware stop latency.
 
 The first delivery has one Bambu view per application instance. Remote-URL
 player verification may use a fixture agent; it does not deliver a remote-agent

@@ -1740,7 +1740,7 @@ recording.
 feasibility is demonstrated with generated fixtures on macOS ARM64 in Chrome
 and Electron. Production implementation is authorized in independently verified
 and committed increments. Shared media contracts, the delivery player and native reader/remux are
-delivered, including document-owned resource/transport integration. Camera UI remains pending. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
+delivered, including document-owned resource/transport integration and the shared Camera card. Hardware and six-platform packaged playback remain qualification gates. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
 owns presentation and viewing intent.
 
 Keep the existing `open-bamboo-networking` **v2.2.0** artifact pins and all six
@@ -1851,14 +1851,18 @@ is advertised. Arrival-time fixture tests do not qualify real-printer timing.
 
 The plugin's ready queue can discard old access units without exposing a loss
 sequence. Keep reading promptly; do not propagate a stalled UI into an
-indefinitely blocked native read. Own-channel overflow/gaps trigger generation
-reset and IDR resynchronization; plugin-internal loss is a separate limitation
+indefinitely blocked native read. Own-channel overflow/gaps terminate the invalid stream; explicit Retry opens a
+new resource and waits for an IDR. Timestamp discontinuities within the muxer
+reset its generation and wait for an IDR; plugin-internal loss is a separate limitation
 requiring decoder-error/stall recovery and hardware qualification. Never drop
 arbitrary interdependent H.264 packets and call the remaining stream complete.
 
 The MSE consumer checks the actual MIME/profile, serializes append/remove,
 limits pending bytes and buffered duration, evicts old media and follows the
-live edge. Failed append, codec change or generation change rebuilds playback
+live edge. A 15-second frame watchdog detects continued delivery without
+displayed frames; explicit Retry is required after decoder/transport failure.
+Autoplay denial presents Play without reconnecting. Lease renewal updates the
+expiry timer without reattaching the binary consumer. Failed append, codec change or generation change rebuilds playback
 from initialization plus an IDR. JPEG delivery instead replaces stale pending
 frames, displays only a successfully decoded image and revokes displaced Blob
 URLs. Neither path buffers an entire live session.
@@ -1883,7 +1887,7 @@ must remain touch-usable and hidden views must release buffers and connections.
 | 2 — shared contract/player (delivered) | Binary media contract, URL/HLS/JPEG/MSE adapters | Compile fixtures and dispatch coverage; cancel/switch/expiry/cleanup; real HTTP URL/HLS and MSE playback in affected hosts. |
 | 3a — native reader/remux (delivered) | Public BambuSource loader, independent reader and continuous AVC fragments | Real library open/read/close, buffer ownership, bounded queues, failure/cancellation and short/long GOP MSE playback. |
 | 3b — native media owner/transport (delivered) | Resource lifetime, credentials and document-owned binary delivery | Request idempotency, route/account lifecycle, cancellation, channel bounds and control responsiveness during viewing. |
-| 4 — camera integration | Capability/observation mapping and shared Camera card | LAN-only and cloud-associated LAN cases, absent/disabled/unknown camera states, first frame, user stop and hidden-page cleanup. |
+| 4 — camera integration (delivered within fixture scope) | Capability/observation mapping and shared Camera card | LAN-only and cloud-associated LAN cases, absent/disabled/unknown camera states, first frame, user stop and hidden-page cleanup. |
 | 5 — qualification | Six-platform packaged playback plus hardware acceptance | At least one JPEG and one H.264 printer; sustained playback, reconnect, bad credentials, stop latency and concurrent control responsiveness. |
 
 Each production increment remains separately reviewable and verified under the

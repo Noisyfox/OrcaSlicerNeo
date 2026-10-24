@@ -37,3 +37,36 @@ test('camera metadata and binary stream cross real isolated preload/utility port
     expect(oldResource).toMatchObject({ ok: false, error: { code: 'invalid-target' } });
   } finally { await app.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+import { _electron as desktopElectron, desktopLaunchOptions } from './electron-fixture';
+import { installControlFixture } from './bambu-control-fixture';
+import { installCameraFixture } from './bambu-camera-fixture';
+test('shared Monitor displays actual JPEG frames, retains controls and releases hidden/stopped views', async () => {
+  const app = await desktopElectron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30000 });
+    await installCameraFixture(app, page); await installControlFixture(app, true);
+    await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
+    const card = page.getByTestId('camera-card');
+    await expect(card.getByRole('button', { name: 'Play camera' })).toBeVisible();
+    const counts = () => app.evaluate(() => ({ opened: globalThis.cameraFixture.opened, closed: globalThis.cameraFixture.closed.length }));
+    expect(await counts()).toEqual({ opened: 0, closed: 0 });
+    await card.getByRole('button', { name: 'Play camera' }).click();
+    await expect.poll(() => card.getByAltText('Live camera').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(320);
+    await expect(card.getByText('Connecting…')).toHaveCount(0);
+    await page.locator('#device-content').getByRole('button', { name: 'Pause', exact: true }).click();
+    await expect.poll(() => app.evaluate(() => globalThis.bambuControlFixture.commands.length)).toBe(1);
+    await page.locator('#app-tab-home').click(); await expect.poll(counts).toEqual({ opened: 1, closed: 1 });
+    await page.getByTestId('tab-device').click(); await expect.poll(counts).toEqual({ opened: 2, closed: 1 });
+    await expect.poll(() => card.getByAltText('Live camera').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(320);
+    await card.getByRole('button', { name: 'Stop camera' }).click(); await expect.poll(counts).toEqual({ opened: 2, closed: 2 });
+    await page.locator('#app-tab-home').click(); await page.getByTestId('tab-device').click();
+    expect(await counts()).toEqual({ opened: 2, closed: 2 });
+    await card.getByRole('button', { name: 'Play camera' }).click(); await expect.poll(counts).toEqual({ opened: 3, closed: 2 });
+    await page.getByTestId('device-printer-select').click(); await page.getByRole('option', { name: 'Workshop B', exact: true }).click();
+    await expect.poll(counts).toEqual({ opened: 3, closed: 3 });
+    await expect(card.getByRole('button', { name: 'Play camera' })).toBeVisible();
+  } finally { await app.close(); }
+});

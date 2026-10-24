@@ -136,7 +136,6 @@ export class BambuMonitor {
     });
   }
   async read<K extends D.StateTopic>(request: D.ObservationRequest<K> & { source: 'cache' | 'device' }): Promise<D.Result<D.PrinterSnapshot<K>>> {
-    if (request.topics.includes('cameras' as K)) return error('unsupported', 'Camera monitoring is not included.');
     const entry = await this.resolve(request.target);
     if (!entry) return error('invalid-target', 'This Bambu route is no longer available.');
     let snapshot: D.PrinterSnapshot<K> | undefined;

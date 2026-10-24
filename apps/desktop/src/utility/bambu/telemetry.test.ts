@@ -243,3 +243,15 @@ it.each([
   const motion = telemetry.project(target, identity).values.motion[0];
   expect(motion.homedAxes).toMatchObject(axes === null ? { kind: 'unknown' } : { kind: 'known', value: axes });
 });
+
+it('keeps camera hardware, live-view disabled state and unknown recording state separate', () => {
+  const t = model().telemetry;
+  t.accept(push({ msg: 0 })); expect(t.project(target, identity).values.descriptor.topology.cameras).toEqual([]);
+  t.accept(push({ msg: 1, ipcam: { ipcam_dev: '1', liveview: { local: 'disabled' } } }));
+  const disabled = t.project(target, identity).values;
+  expect(disabled.descriptor.topology.cameras).toMatchObject([{ id: 'chamber' }]);
+  expect(disabled.cameras).toMatchObject([{ enabled: { value: false }, health: { value: 'disabled' }, capture: { kind: 'unknown' } }]);
+  t.accept(push({ msg: 1, ipcam: { liveview: { local: 'rtsps' } } }));
+  expect(t.project(target, identity).values.cameras).toMatchObject([{ enabled: { value: true }, health: { kind: 'unknown' } }]);
+  t.accept(push({ msg: 0, ipcam: { ipcam_dev: '0' } })); expect(t.project(target, identity).values.cameras).toEqual([]);
+});

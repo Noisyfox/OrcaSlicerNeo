@@ -9,21 +9,13 @@ import type { BambuMonitor } from './monitor';
 import type { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';
 import { savedBambuPrinter } from '../../shared/bambuPrinters';
-import { record } from './telemetry';
+import { cameraProtocol } from './telemetry';
 import { CameraMuxer } from './cameraMuxer';
 import { CameraChannel, type CameraPort } from './mediaChannel';
 
 const error = (code: D.ErrorCode, message: string): D.PrinterError => ({ code, message });
 const failed = (detail: D.PrinterError) => ({ ok: false as const, error: detail });
 const unavailable = () => error('transport', 'The LAN camera could not be reached.');
-export function cameraProtocol(report: Record<string, unknown>): 'local' | 'rtsps' | 'rtsp' | 'disabled' | 'unavailable' | 'unknown' {
-  const camera = record(report.ipcam), live = record(camera.liveview);
-  if (camera.ipcam_dev === '0' || camera.ipcam_dev === 0) return 'unavailable';
-  if (camera.rtsp_url === 'disable') return 'disabled';
-  if (typeof camera.rtsp_url === 'string' && camera.rtsp_url.startsWith('rtsps://')) return 'rtsps';
-  if (typeof camera.rtsp_url === 'string' && camera.rtsp_url.startsWith('rtsp://')) return 'rtsp';
-  return ['local', 'rtsps', 'rtsp', 'disabled'].includes(String(live.local)) ? live.local as 'local' | 'rtsps' | 'rtsp' | 'disabled' : 'unknown';
-}
 interface Resource {
   owner: string; request: D.OpenMediaRequest; controller: AbortController; channel: CameraChannel;
   descriptor?: D.MediaDescriptor; status: 'ready' | 'interrupted' | 'closed'; error: D.PrinterError | null;
