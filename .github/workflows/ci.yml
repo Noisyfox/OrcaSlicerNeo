@@ -2,7 +2,8 @@
 #
 # Jobs:
 #   wasm_deps  cache compiled dependencies for both wasm64 variants.
-#   wasm_threaded / wasm_serial  compile each core on its own runner;
+#   wasm_threaded / wasm_serial  reuse tested production artifacts on an exact
+#              cache hit; otherwise compile and smoke-test on separate runners;
 #              retain the existing threaded artifact for external consumers.
 #   unit       vitest + typecheck (independent of generated WASM artifacts)
 #   e2e-mock   Playwright full v1 flow against the mock-built app (no emsdk)
@@ -62,6 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       cache_key: ${{ steps.dependency-key.outputs.key }}
+      build_cache_key: ${{ steps.build-key.outputs.key }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -77,6 +79,15 @@ jobs:
         env:
           DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/stubs/freetype-port-probe.c') }}
         run: echo "key=${{ runner.os }}-wasm64-deps-emsdk-6.0.4-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
+      - name: Select tested WASM artifact cache key
+        id: build-key
+        env:
+          # Hash only superproject inputs. The submodule is identified by its
+          # recorded gitlink below, never by walking/hashing its file contents.
+          WASM_INPUT_HASH: ${{ hashFiles('.github/workflows/ci.yml', 'package.json', 'pnpm-lock.yaml', 'scripts/**', 'packages/slicer-wasm/*.sh', 'packages/slicer-wasm/*.txt', 'packages/slicer-wasm/*.cmake', 'packages/slicer-wasm/*.json', 'packages/slicer-wasm/src/**', 'packages/slicer-wasm/shim/**', 'packages/slicer-wasm/stubs/**', 'packages/slicer-wasm/patches/**', 'packages/slicer-wasm/harness/**', 'packages/slicer-wasm/fixtures/**', 'packages/profile-resources/package.json', 'packages/profile-resources/scripts/**', 'packages/profile-resources/src/**') }}
+        run: |
+          orca_pin=$(git rev-parse HEAD:packages/slicer-wasm/cpp)
+          echo "key=${{ runner.os }}-${{ runner.arch }}-wasm64-tested-v1-emsdk-6.0.4-node-${NODE_VERSION}-${orca_pin}-${WASM_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Restore compiled WASM dependencies
         id: dependency-cache
         uses: actions/cache/restore@v6
@@ -131,39 +142,69 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0 # version header reads `git describe` on the submodule
+      - name: Restore tested threaded WASM artifacts
+        id: wasm-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: packages/slicer-wasm/out/threaded
+          key: ${{ needs.wasm_deps.outputs.build_cache_key }}-threaded
       - uses: actions/setup-node@v7
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: actions/download-artifact@v8
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         with:
           name: profile-packages
           path: packages/profile-resources/dist
       - uses: emscripten-core/setup-emsdk@v15
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         with:
           version: "6.0.4"
       - name: Restore compiled WASM dependencies
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         id: dependency-cache
         uses: actions/cache/restore@v6
         with:
           path: packages/slicer-wasm/.work/deps
           key: ${{ needs.wasm_deps.outputs.cache_key }}
       - name: Require the compiled dependency cache
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: test "${{ steps.dependency-cache.outputs.cache-hit }}" = "true"
       - name: Refresh generated dependency headers
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: bash packages/slicer-wasm/fetch-deps.sh
       - name: Configure + build threaded module (preload-file bundle included)
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: bash packages/slicer-wasm/build.sh
       - name: Verify arrangement with cached threaded NLopt
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: |
           cmake --build packages/slicer-wasm/.work/threaded/build --target arrangement_core_test headless_arrangement_test --parallel 2
           node packages/slicer-wasm/.work/threaded/build/arrangement_core_test.cjs
           node packages/slicer-wasm/.work/threaded/build/headless_arrangement_test.cjs
       - name: Smoke — slice cube.stl end to end
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
       - name: Bridge smoke — binary-buffer contract (M2 deferred verification)
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/orca_slice.js packages/slicer-wasm/fixtures/cube.stl
       - name: Arrangement — atomic history, cancellation, concurrent slicing
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/orca_slice.js
+      - name: Verify production artifacts and stage the legacy threaded copy
+        run: |
+          for extension in js wasm data; do
+            artifact="packages/slicer-wasm/out/threaded/orca_slice.$extension"
+            test -s "$artifact"
+            cp "$artifact" "packages/slicer-wasm/out/orca_slice.$extension"
+          done
+      - name: Save tested threaded WASM artifacts
+        if: success() && steps.wasm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: packages/slicer-wasm/out/threaded
+          key: ${{ steps.wasm-cache.outputs.cache-primary-key }}
       - name: Upload the legacy threaded WASM artifact
         uses: actions/upload-artifact@v7
         with:
@@ -190,49 +231,80 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0 # version header reads `git describe` on the submodule
+      - name: Restore tested serial WASM artifacts
+        id: wasm-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: packages/slicer-wasm/out/serial
+          key: ${{ needs.wasm_deps.outputs.build_cache_key }}-serial
       - uses: actions/setup-node@v7
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: actions/download-artifact@v8
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         with:
           name: profile-packages
           path: packages/profile-resources/dist
       - uses: emscripten-core/setup-emsdk@v15
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         with:
           version: "6.0.4"
       - name: Restore compiled WASM dependencies
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         id: dependency-cache
         uses: actions/cache/restore@v6
         with:
           path: packages/slicer-wasm/.work/deps
           key: ${{ needs.wasm_deps.outputs.cache_key }}
       - name: Require the compiled dependency cache
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: test "${{ steps.dependency-cache.outputs.cache-hit }}" = "true"
       - name: Refresh generated dependency headers
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: bash packages/slicer-wasm/fetch-deps.sh
       - name: Build serial WASM for the Web fallback
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build.sh
       - name: Verify arrangement with cached serial NLopt
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: |
           cmake --build packages/slicer-wasm/.work/serial/build --target arrangement_core_test headless_arrangement_test --parallel 2
           node packages/slicer-wasm/.work/serial/build/arrangement_core_test.cjs
           node packages/slicer-wasm/.work/serial/build/headless_arrangement_test.cjs
       - name: Arrangement — serial atomic history and partial success
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
       - name: Smoke — serial fallback slices cube.stl
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
       - uses: pnpm/action-setup@v6
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
       - name: Install native profile-fixture packaging dependencies
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: pnpm install --frozen-lockfile --filter @orca/profile-resources
       - name: Printer picker — exact toolhead combinations and indexed fallback
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/printer-picker-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
       - name: Arrangement — explicit test build verifies publication rollback
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: |
           cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_ARRANGEMENT_TEST=ON
           cmake --build packages/slicer-wasm/.work/serial/build --target orca_slice --parallel 2
           node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/.work/serial/build/orca_slice.js --test-injection
           # Keep the enabled test artifact in the build tree. Upload only the
           # production out/serial artifact already checked by its smoke above.
+      - name: Verify production serial artifacts
+        run: |
+          for extension in js wasm data; do
+            test -s "packages/slicer-wasm/out/serial/orca_slice.$extension"
+          done
+      - name: Save tested serial WASM artifacts
+        if: success() && steps.wasm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: packages/slicer-wasm/out/serial
+          key: ${{ steps.wasm-cache.outputs.cache-primary-key }}
       - name: Upload serial Web WASM artifact
         uses: actions/upload-artifact@v7
         with:
