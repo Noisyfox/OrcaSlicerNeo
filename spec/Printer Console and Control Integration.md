@@ -998,6 +998,25 @@ records physically confirmed positive and retried negative large-step movement,
 not consistent delivery or exact travel distance. Automatic completion remains
 unqualified. No other axis, extrusion or material operation was exercised.
 
+### Independent LAN Y-axis large-step acceptance
+
+On 2026-10-24, the user confirmed motion clearance and authorized one positive
+Y Large step followed by one negative Y Large step after stopping, with the step
+selector restored afterward. Fresh idle status and Y homed were checked before
+each dispatch. Both commands were dispatched once through their visible direction
+sectors and acknowledged by the printer. For each direction the user confirmed
+normal movement, visibly greater travel than Small step and stopping. The second
+command waited until the preceding operation's completion-confirmation timeout
+released the controls. No command retry or additional Home action was performed.
+
+The selector was restored to Small step. Final fresh state was idle with no
+alerts, all heater targets zero and all four reported fan setpoints zero. Local
+timestamped evidence is in `.vitest/lan-acceptance/y-large-step.json`. This qualifies
+physical positive/negative Y Large step direction, stopping and visibly greater
+travel on this H2D over LAN. Exact travel distance and automatic completion remain
+unqualified. No other axis, extrusion or material operation was exercised in this
+stage; the earlier X-axis anomaly remains unresolved.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
