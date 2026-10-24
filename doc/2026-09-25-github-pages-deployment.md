@@ -1,6 +1,6 @@
 # CI Assets, Packaging and GitHub Pages
 
-**Updated:** 2026-10-23
+**Updated:** 2026-10-24
 **Status:** Current deployment reference
 
 ## Pages pipeline
@@ -30,7 +30,22 @@ Its key includes the SDK version, dependency scripts, OCCT patches and FreeType
 probe. Core source or core-driver changes alone do not invalidate dependency
 compilation. A miss builds/verifies the required variants and saves the cache
 before core jobs run; core jobs restore it and refresh generated headers through
-the idempotent fetch script. Dependent host jobs await both core artifacts.
+the idempotent fetch script when their production-artifact cache misses.
+
+Each WASM variant caches its production output only after all of that job's
+native tests and smokes pass, including serial publication-rollback injection.
+The artifact key includes the superproject's pinned Orca submodule commit (no
+submodule file-content hashing), Emscripten version and native build inputs.
+Standalone test sources, harnesses, fixtures, JS dependencies, profile-packaging
+code and workflow test steps do not participate in the artifact key. Changes
+only to those inputs reuse an available exact cache and skip native tests;
+a miss still runs every native test before saving. Native build scripts and
+CMake configuration remain inputs even when an edit concerns their test logic.
+Only an exact hit skips that variant's
+toolchain/dependency setup, compilation and native tests/smokes. Test-enabled
+build trees are never cached. Both hits and misses upload the production
+artifacts for the current run, including the legacy threaded copy. Dependent
+host jobs await both core artifacts and still run their own checks.
 
 Invoke shell helpers through `bash` in Linux CI rather than depending on
 executable Git file modes. Verify Boost archives using the platform's staged
