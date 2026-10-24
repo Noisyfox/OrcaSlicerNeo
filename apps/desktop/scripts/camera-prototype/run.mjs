@@ -8,6 +8,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { createServer as createViteServer } from 'vite';
 import { chromium, _electron } from '@playwright/test';
 import { acquire, manifest, checksum } from '../../../../packages/bambu-native/scripts/acquire.mjs';
 import { avcConfiguration, createRemuxer, normalizeTimes } from './remux.mjs';
@@ -16,18 +17,21 @@ const directory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(directory, '../../../..');
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
-  console.log('pnpm --filter @orca/desktop camera:prototype [--browser chrome|electron|both] [--scenario short-gop|long-gop|arrival-jitter]\n'
+  console.log('pnpm --filter @orca/desktop camera:prototype [--browser chrome|electron|both] [--scenario short-gop|long-gop|arrival-jitter] [--production]\n'
     + 'Requires a C++17 compiler (macOS/Linux), OpenSSL, installed Chrome, and the pinned plugin archive.\n'
     + 'Generates baseline H.264 locally; uses loopback RTSPS and a generated fixture certificate, no printer/account.\n'
     + 'Writes evidence to apps/desktop/out/camera-prototype. ORCA_CHROME_EXECUTABLE overrides Chrome.');
   process.exit(0);
 }
-const { values } = parseArgs({ args, options: { browser: { type: 'string', default: 'both' }, scenario: { type: 'string' } } });
+const { values } = parseArgs({ args, options: { browser: { type: 'string', default: 'both' }, scenario: { type: 'string' }, production: { type: 'boolean', default: false } } });
 const selected = values.browser;
+const production = values.production;
+const moduleHost = production ? await createViteServer({ configFile: false, server: { middlewareMode: true } }) : null;
+const CameraMuxer = production ? (await moduleHost.ssrLoadModule(join(directory, '../../src/utility/bambu/cameraMuxer.ts'))).CameraMuxer : null;
 assert(['chrome', 'electron', 'both'].includes(selected), 'Unknown --browser');
 assert(['darwin', 'linux'].includes(process.platform), 'Native prototype driver currently requires macOS/Linux; Windows qualification is pending');
 assert.equal(manifest.release, 'v2.2.0', 'Do not silently upgrade the prototype plugin');
-const outputDirectory = resolve(directory, '../../out/camera-prototype');
+const outputDirectory = resolve(directory, production ? '../../out/camera-prototype/production' : '../../out/camera-prototype');
 await mkdir(outputDirectory, { recursive: true });
 const networkLibrary = await acquire(); // Check the pinned archive checksum and stage its companion library.
 const library = join(dirname(networkLibrary), process.platform === 'darwin' ? 'libBambuSource.dylib' : 'libBambuSource.so');
@@ -44,6 +48,7 @@ await writeFile(certConfig, '[req]\ndistinguished_name=dn\nx509_extensions=ext\n
 const certificate = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
   '-config', certConfig, '-keyout', keyPath, '-out', certPath], { encoding: 'utf8' });
 assert.equal(certificate.status, 0, certificate.error?.message ?? certificate.stderr);
+if (production) Object.assign(process.env, { OBN_LAN_TLS_CA_FILE: certPath, OBN_CONFIG_DIR: outputDirectory, OBN_SKIP_TLS_VERIFY: '0' });
 const tls = { key: await readFile(keyPath), cert: await readFile(certPath) };
 
 const http = createServer(async (request, response) => {
@@ -66,7 +71,7 @@ const scenarios = [
 assert(!values.scenario || scenarios.some(scenario => scenario.name === values.scenario), 'Unknown --scenario');
 const report = { createdAt: new Date().toISOString(), platform: `${process.platform}-${process.arch}`,
   plugin: { release: manifest.release, archiveSha256: manifest.artifacts[`${process.platform}-${process.arch}`].sha256,
-    sourceLibrarySha256: await checksum(library) }, muxer: 'mediabunny@1.62.1',
+    sourceLibrarySha256: await checksum(library) }, muxer: production ? 'mp4box@2.4.1' : 'mediabunny@1.62.1',
   provenance: 'Locally generated baseline AVC, replayed through a loopback RTSPS fixture with its own CA into the real pinned BambuSource. Not printer, printer-certificate, auth, or release qualification.',
   instrumentation: 'Independent Worker paces RTSPS and drains native samples. fMP4 reaches the page through base64 Playwright evaluation, not production IPC. Display latency includes this test-driver overhead.',
   scenarios: [] };
@@ -84,15 +89,25 @@ async function runScenario(page, browser, scenario) {
   await page.evaluate(({ mime, name }) => window.startPlayback(mime, name), { mime, name: `${browser} / ${scenario.name}` });
   const samples = [], segments = [], init = [], muxEvents = [];
   let pendingBytes = 0, maxPendingBytes = 0, appendFailure, appendTail = Promise.resolve(), ingestTail = Promise.resolve(), ingestFailure;
-  const muxer = await createRemuxer(config, (bytes, meta) => {
+  const emitSegment = (bytes, meta) => {
     segments.push(bytes); muxEvents.push(meta); if (meta.kind === 'init') init.push(meta);
     pendingBytes += bytes.length; maxPendingBytes = Math.max(maxPendingBytes, pendingBytes);
     if (pendingBytes > 8 * 1024 * 1024) throw new Error('Prototype append queue exceeded 8 MiB');
     appendTail = appendTail.then(async () => { if (!appendFailure) await page.evaluate(data => window.appendSegment(data), bytes.toString('base64')); })
       .catch(error => { appendFailure ??= error; }).finally(() => { pendingBytes -= bytes.length; });
-  });
+  };
+  let muxer;
+  if (production) {
+    const fragments = [];
+    const instance = new CameraMuxer(320, 180, packet => {
+      const meta = { kind: packet.kind === 'init' ? 'init' : 'media', atMs: Date.now(), inputIndex: samples.length - 1 };
+      if (meta.kind === 'media') fragments.push(meta);
+      emitSegment(Buffer.from(packet.bytes), meta);
+    });
+    muxer = { fragments, add: async sample => instance.push({ ...sample, time100ns: BigInt(sample.time100ns) }), finish: async () => instance.finish(), cancel: async () => {} };
+  } else muxer = await createRemuxer(config, emitSegment);
   const capture = new Worker(new URL('./capture-worker.mjs', import.meta.url), {
-    workerData: { frames: fixture.frames, scenario, tls, executable, library, certPath, outputDirectory },
+    workerData: { frames: fixture.frames, scenario, tls, executable, library, certPath, outputDirectory, ...(production ? { addonPath: join(root, 'packages/bambu-native/build/Release/bambu.node') } : {}) },
   });
   let captureResult;
   const captured = new Promise((resolve, reject) => {
@@ -104,7 +119,8 @@ async function runScenario(page, browser, scenario) {
       ingestTail = ingestTail.then(async () => {
         if (ingestFailure) return;
         samples.push(sample); const times = normalizeTimes(samples);
-        if (samples.length > 1) {
+        if (production) await muxer.add(sample);
+        else if (samples.length > 1) {
           const i = samples.length - 2;
           await muxer.add(samples[i], times[i], times[i + 1] - times[i], i);
         }
@@ -120,7 +136,7 @@ async function runScenario(page, browser, scenario) {
     assert.deepEqual(samples.flatMap((sample, i) => sample.flags & 1 ? [i] : []), keys, 'Plugin changed keyframe boundaries');
     const times = normalizeTimes(samples), last = samples.length - 1;
     const lastDuration = times[last] - times[last - 1];
-    await muxer.add(samples[last], times[last], lastDuration, last);
+    if (!production) await muxer.add(samples[last], times[last], lastDuration, last);
     await muxer.finish(); completedMux = true;
     await appendTail; if (appendFailure) throw appendFailure;
     const playback = await page.evaluate(end => window.finishPlayback(end), times[last] + lastDuration);
@@ -187,4 +203,4 @@ try {
     } finally { await session?.close(); }
   }
   console.log(`Evidence: ${join(outputDirectory, 'report.json')}`);
-} finally { await new Promise(resolve => http.close(resolve)); }
+} finally { await new Promise(resolve => http.close(resolve)); await moduleHost?.close(); }

@@ -123,3 +123,17 @@ export function loadBambuNative(addonPath: string, pluginPath: string, listener:
     },
   };
 }
+
+
+export interface NativeCameraSample { bytes: Uint8Array; time100ns: bigint; flags: number }
+export interface NativeCamera {
+  poll(): { ready: boolean; format: 'h264' | 'jpeg' | ''; width: number; height: number; samples: NativeCameraSample[] };
+  /** Cancels and joins on a worker; resolves after tunnel close/destroy and library unload. */
+  close(): Promise<void>;
+}
+/** Host-private LAN URL only. The independent reader never enters the account call queue. */
+export function loadBambuCamera(addonPath: string, sourcePath: string, url: string): NativeCamera {
+  if (!isAbsolute(addonPath) || !isAbsolute(sourcePath)) throw new Error('Native library paths must be absolute');
+  const addon = createRequire(addonPath)(addonPath) as { Camera: new (path: string, url: string) => NativeCamera };
+  return new addon.Camera(sourcePath, url);
+}

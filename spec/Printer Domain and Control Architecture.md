@@ -1739,8 +1739,8 @@ recording.
 **Decision status:** Accepted design; isolated H.264 timing, fMP4 and MSE
 feasibility is demonstrated with generated fixtures on macOS ARM64 in Chrome
 and Electron. Production implementation is authorized in independently verified
-and committed increments. Shared media contracts and the delivery player are
-delivered; native streaming integration and Camera UI remain pending. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
+and committed increments. Shared media contracts, the delivery player and native reader/remux are
+delivered; resource/transport integration and Camera UI remain pending. The [console specification](Printer%20Console%20and%20Control%20Integration.md#camera-live-view)
 owns presentation and viewing intent.
 
 Keep the existing `open-bamboo-networking` **v2.2.0** artifact pins and all six
@@ -1862,7 +1862,8 @@ must remain touch-usable and hidden views must release buffers and connections.
 | --- | --- | --- |
 | 1 — feasibility (delivered within fixture scope) | Isolated probe for pinned-plugin H.264 samples, timestamp normalization, fMP4 emission and real MSE playback | Record source provenance, timestamp/fragment timings and actual decoded frames; short/long GOP and arrival-jitter playback, plus unit rejection of discontinuous timelines. Separate fixtures from physical-printer evidence. Keep the probe out of production entrypoints. |
 | 2 — shared contract/player (delivered) | Binary media contract, URL/HLS/JPEG/MSE adapters | Compile fixtures and dispatch coverage; cancel/switch/expiry/cleanup; real HTTP URL/HLS and MSE playback in affected hosts. |
-| 3 — native media owner | Public BambuSource loader, reader, lifetime and binary transport | Real library open/read/close, buffer ownership, bounded queues and control responsiveness during viewing; ordinary connection failures. |
+| 3a — native reader/remux (delivered) | Public BambuSource loader, independent reader and continuous AVC fragments | Real library open/read/close, buffer ownership, bounded queues, failure/cancellation and short/long GOP MSE playback. |
+| 3b — native media owner/transport | Resource lifetime, credentials and document-owned binary delivery | Request idempotency, route/account lifecycle, cancellation, channel bounds and control responsiveness during viewing. |
 | 4 — camera integration | Capability/observation mapping and shared Camera card | LAN-only and cloud-associated LAN cases, absent/disabled/unknown camera states, first frame, user stop and hidden-page cleanup. |
 | 5 — qualification | Six-platform packaged playback plus hardware acceptance | At least one JPEG and one H.264 printer; sustained playback, reconnect, bad credentials, stop latency and concurrent control responsiveness. |
 
@@ -1899,22 +1900,40 @@ configuration. They do not establish reconnect or decoder-error recovery.
 The muxer emits fragments at keyframe boundaries: `minimumFragmentDuration`
 is a minimum, not a latency bound. With a 200ms setting and one-sample duration
 lookahead, measured first-fragment delay was about 0.53–0.54 seconds for the
-15-frame GOP and 3.04 seconds for the 90-frame GOP. First presented frame was
+15-frame GOP and 3.04 seconds for the 90-frame GOP. First presented frame with the comparison muxer was
 about 0.56–0.86 seconds and 3.06–3.10 seconds respectively across the two hosts.
 These are short fixture runs, include browser-driver transport overhead, and
 do not establish an SLA or production live-edge behavior. The probe's finite
 buffers and end-of-stream drain do not qualify a sustained live player.
 
-**Product selection remains open:** MSE/fMP4 is feasible, but this muxer is not
-yet selected for production. Before claiming a bound shorter than the camera
-GOP, evaluate a muxer that can flush continuous fragments between keyframes
-while retaining decoder dependencies; generation startup must still wait for
-an IDR. Alternatively, explicitly accept and qualify GOP-dependent latency.
-Do not silently add transcoding or change the pinned plugin to meet that gate.
+**Muxer selection:** The Mediabunny feasibility candidate remains confined to
+the comparison probe. Production uses pinned `mp4box@2.4.1` through the narrow
+[host muxer](../apps/desktop/src/utility/bambu/cameraMuxer.ts). It emits continuous
+fragments on a roughly 200ms sample window with one-sample duration lookahead;
+fragments between keyframes depend on the earlier IDR in the same generation.
+Startup still waits for an IDR. A fresh bounded builder per chunk prevents
+MP4Box sample/box metadata from growing over a live session. No transcoding or
+plugin change is introduced. Slice admission rejects B slices and unsupported
+partition/extension slices rather than assuming their PTS equals arrival DTS.
 Real-printer timestamp/profile behavior, hidden plugin-queue loss, printer
 certificate/authentication handling, sustained cleanup/recovery and packaged
 six-target playback remain unqualified. JPEG and remote URL/HLS delivery are exercised separately by the shared-player
 check described below; they are not exercised by this H.264 probe.
+
+The native reader uses its own thread and the common Orca tunnel header. It
+copies borrowed samples before the next plugin call, caps each sample at 4 MiB
+and the ready queue at 64 samples / 8 MiB, and reports overflow explicitly.
+Cancellation joins the reader asynchronously before closing/destroying the
+tunnel and unloading the companion library. An in-progress plugin open must
+return before its thread can exit; its timeout remains part of real-device
+stop-latency qualification. The reader and remux tests cover owned bytes,
+100ns timestamps, bounded queues, connection errors, cancellation, clock-reset
+IDR resynchronization and unsupported B slices. Neither reader nor remux runs
+on the serialized networking-agent call queue. The production-reader/remux
+comparison passes all six short-GOP, long-GOP and arrival-jitter cases in Chrome
+and Electron on macOS ARM64. The 3-second GOP emits its first fragment after
+about 202–232ms and first displayed frame after 242–256ms in these fixtures;
+this is not a printer/network latency guarantee.
 
 The shared [delivery player](../packages/slicer-app/src/components/device/media/playback.ts)
 consumes descriptors and `readStream` without printer-state subscriptions.
