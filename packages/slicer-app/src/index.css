@@ -107,7 +107,9 @@
 
 /* Top-level tabs join the bottom edge of the titlebar, like the reference UI. */
 .titlebar-window-inset {
-  padding-right: max(138px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
+  /* Native controls can occupy either edge, with sizes set by the host. */
+  padding-left: env(titlebar-area-x, 0px);
+  padding-right: max(0px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
 }
 .titlebar .titlebar-action {
   width: 28px;

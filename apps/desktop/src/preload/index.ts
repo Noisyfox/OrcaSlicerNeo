@@ -148,8 +148,8 @@ const bridge: ElectronBridge = {
   },
 
   // Used by the renderer to clear the macOS traffic-light zone in the
-  // custom title bar (Windows/Linux WCO buttons are top-right, no CSS
-  // impact on the left-aligned brand label).
+  // custom title bar. Windows/Linux use the WCO safe-area geometry to
+  // clear native controls on either side.
   platform: process.platform,
 };
 
