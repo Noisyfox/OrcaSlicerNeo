@@ -188,7 +188,8 @@ The separate `camera:player:check` exercises the shared production player with
 local MP4/HLS/JPEG/MSE fixtures in Chrome and Electron, including error cleanup.
 The `--production` comparison uses the production native reader and MP4Box
 remuxer, writing separate evidence under `out/camera-prototype/production/`.
-No production entrypoint imports the harness. This is fixture feasibility,
+No production entrypoint imports the harness, and desktop packaging excludes
+its generated output directory. This is fixture feasibility,
 not real-printer, printer-certificate/authentication, or six-platform
 qualification; see the [camera acceptance boundary](spec/Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback).
 
