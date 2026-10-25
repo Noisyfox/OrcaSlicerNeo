@@ -7,10 +7,12 @@
 #include "bridge_state.hpp"
 #include "bridge_history.hpp"
 #include "bridge_scoped_config.hpp"
+#include "libslic3r/Print.hpp"
 
 #include <algorithm>
 #include <charconv>
 #include <limits>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <string_view>
@@ -80,6 +82,62 @@ std::vector<int> decode_capacities(const DynamicPrintConfig& config, std::size_t
         result[i] = std::max(1, total);
     }
     return result;
+}
+
+DynamicPrintConfig full_config(const std::string& plate_id, bool apply_extruder)
+{
+    const auto* plate = PlateSession::find_plate(plate_id);
+    if (!plate) throw std::invalid_argument("Plate no longer exists");
+    const auto& project = state().presets.project_config;
+    const auto count = Filament::State::material_slot_count(project);
+    auto config = PresetDrafts::effective_full_config(apply_extruder,
+        effective_map(plate->settings, project, "filament_map", count, 1),
+        effective_map(plate->settings, project, "filament_volume_map", count, 0));
+    config.apply(plate->settings, true);
+    config.set_key_value("filament_map", new ConfigOptionInts(effective_map(plate->settings, project, "filament_map", count, 1)));
+    config.set_key_value("filament_volume_map", new ConfigOptionInts(effective_map(plate->settings, project, "filament_volume_map", count, 0)));
+    config.set_key_value("filament_nozzle_map", new ConfigOptionInts(
+        effective_map(plate->settings, project, "filament_nozzle_map", count, 0)));
+    const auto mode = saved_mode(plate->settings);
+    const auto project_mode = saved_mode(project);
+    const int effective_mode = mode.is_null() || mode == int(fmmDefault)
+        ? (project_mode.is_null() || project_mode == int(fmmDefault) ? int(fmmAutoForFlush) : project_mode.get<int>())
+        : mode.get<int>();
+    config.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode(effective_mode)));
+    // Orca supplies this session-only inventory through its GUI/device layer.
+    // For ordinary one-nozzle-per-head printers the effective topology already
+    // defines it completely. Supply it only to the temporary Print config;
+    // preserve a supplied inventory and do not invent multi-nozzle hardware.
+    const auto* stats = config.opt<ConfigOptionStrings>("extruder_nozzle_stats");
+    const auto* maxima = config.opt<ConfigOptionInts>("extruder_max_nozzle_count");
+    if (effective_mode == fmmNozzleManual && (!stats || stats->empty()) &&
+        (!maxima || std::none_of(maxima->values.begin(), maxima->values.end(), [](int count) { return count > 1; }))) {
+        const auto* flows = config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
+        std::vector<std::map<NozzleVolumeType, int>> inventory;
+        for (std::size_t i = 0; i < config.opt<ConfigOptionFloats>("nozzle_diameter")->size(); ++i) {
+            const auto flow = flows && i < flows->size() ? NozzleVolumeType(flows->get_at(i)) : nvtStandard;
+            inventory.push_back({{flow == nvtHybrid ? nvtStandard : flow, 1}});
+        }
+        config.set_key_value("extruder_nozzle_stats", new ConfigOptionStrings(save_extruder_nozzle_stats_to_string(inventory)));
+    }
+    std::vector<std::string> capacities;
+    for (int capacity : decode_capacities(project, config.opt<ConfigOptionFloats>("nozzle_diameter")->size()))
+        capacities.push_back("1#" + std::to_string(capacity));
+    config.set_key_value("extruder_ams_count", new ConfigOptionStrings(std::move(capacities)));
+    return config;
+}
+
+void validate_slice(const std::string& plate_id)
+{
+    const auto printer = PresetDrafts::effective_printer_config();
+    if (printer.opt<ConfigOptionFloats>("nozzle_diameter")->size() <= 1 || !printer.opt_bool("single_extruder_multi_material")) return;
+    const auto input = projection(plate_id);
+    if (!input.value("ok", false)) throw std::invalid_argument(input.value("error", "Invalid mapping inputs"));
+    const int mode = input["effective"]["mode"].get<int>();
+    if (mode < 0 || mode > 3 || !input["modes"][mode]["available"].get<bool>())
+        throw std::invalid_argument(mode >= 0 && mode <= 3 ? input["modes"][mode]["reason"].get<std::string>() : "Unknown mapping mode");
+    for (const auto& diagnostic : input["diagnostics"])
+        if (diagnostic["severity"] == "error") throw std::invalid_argument(diagnostic["message"].get<std::string>());
 }
 
 void initialize_plate(DynamicPrintConfig& settings)
@@ -300,4 +358,17 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_mutate_nozzle_mapping(const char
     try { return Profiles::duplicate_json(NozzleMapping::mutate(nlohmann::json::parse(request ? request : "")).dump()); }
     catch (const std::exception& error) { return Profiles::duplicate_json(nlohmann::json{{"ok", false}, {"errorCode", "invalid_request"}, {"error", error.what()}}.dump()); }
     catch (...) { return Profiles::duplicate_json(nlohmann::json{{"ok", false}, {"errorCode", "native_exception"}, {"error", "Unknown mapping mutation failure"}}.dump()); }
+}
+
+// Harness-only inspection of derived Print state, never an editable input API.
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_test_nozzle_mapping_slice(const char* plate_id)
+{
+    using namespace Slic3r::Neo::Bridge;
+    const auto* entry = state().plate_runtime_registry.find(plate_id ? plate_id : "");
+    if (!entry || !entry->print) return Profiles::duplicate_json("{\"ok\":false}");
+    const auto& print = *entry->print;
+    const auto& config = print.config();
+    return Profiles::duplicate_json(nlohmann::json{{"ok", true}, {"filamentMap", print.get_filament_maps()},
+        {"volumeMap", print.get_filament_volume_maps()}, {"nozzleMap", print.get_filament_nozzle_maps()},
+        {"capacity", config.extruder_ams_count.values}, {"nozzle_temperature", config.nozzle_temperature.values}}.dump());
 }

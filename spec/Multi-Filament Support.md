@@ -10,7 +10,7 @@ closes it.
 
 **Status:** Delivered native rack, assignments, flushing editor, Prime Tower and history behavior.
 Section 14 records the accepted nozzle-mapping design. Its native read-only
-projection and atomic edit commands are delivered; slice integration, persistence extensions and UI remain pending.
+projection, atomic edits and Plate-aware slicing are delivered; persistence extensions and UI remain pending.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -956,9 +956,9 @@ configuration. Prepare dimensions remain estimates; Preview renders toolpaths.
 **Status:** Implementation in progress, 2026-10-25. Section 14.1
 records accepted product decisions; section 14.3 describes the implementation
 direction and section 14.4 preserves existing integration contracts.
-Section 14.6 defines independently verifiable implementation steps. Steps 1–2's
-native projection, atomic edit commands and typed runtime boundary are
-delivered; steps 3–7 remain planned. This does not claim editor, slicing or
+Section 14.6 defines independently verifiable implementation steps. Steps 1–3's
+native projection, atomic edit commands, typed runtime boundary and Plate-aware
+slicing are delivered; steps 4–7 remain planned. This does not claim editor, archive or
 release qualification for the extension.
 Existing delivered behavior elsewhere in this specification remains
 authoritative until the extension is implemented and verified.
@@ -1394,13 +1394,13 @@ instruction to expose unfinished controls. Steps 1–4 are independently testabl
 through the native bridge/runtime without a mapping UI. Steps 5–6 expose the
 accepted interactions only after their backend dependencies pass. Completing a
 step does not claim delivery of the whole feature; section 14.5 remains the
-overall acceptance boundary. Steps 1–2 are accepted; steps 3–7 remain planned.
+overall acceptance boundary. Steps 1–3 are accepted; steps 4–7 remain planned.
 
 | Step | Deliverable | Depends on | Acceptance evidence |
 | --- | --- | --- | --- |
 | 1 — accepted | Native capability and read-only mapping projection | Existing project/Plate contracts | Native projection fixtures and typed client/runtime checks |
 | 2 — accepted | Atomic mapping/capacity edits, history and lifecycle transitions | 1 | Real-WASM mutation, rejection and Undo/Redo harness |
-| 3 | Effective Plate configuration in real slicing | 2 | Native slice/G-code assignments and input/result isolation |
+| 3 — accepted | Effective Plate configuration in real slicing | 2 | Native slice/G-code assignments and input/result isolation |
 | 4 | Standard 3MF persistence and per-preset capacity memory | 2; uses 3 for reopen-and-slice acceptance | Archive/native round-trip, preference precedence and history checks |
 | 5 | Shared mapping component and Sidebar surfaces | 3, 4 | Component tests and focused Sidebar journey using the runtime |
 | 6 | Editable confirmation on every manual slice request | 5 | Dialog transaction and Slice/Preview lifecycle tests |
@@ -1474,7 +1474,7 @@ rollback, Nozzle Manual conversion, local/global invalidation, retained manual
 maps, material merge and removed-head repair with Undo/Redo. User-facing repair
 and merge-impact messages are delivered with the consuming UI in step 5.
 The serial projection harness, 710 client/runtime tests (four existing skips),
-and repository typechecks passed. Real slicing and archive qualification remain
+and repository typechecks passed. Real slicing and archive qualification belong to
 steps 3–4; no UI or dual-variant qualification is claimed here.
 
 #### Step 3 — Plate-aware slicing and result isolation
@@ -1498,6 +1498,30 @@ remain unchanged, and switching back to Manual restores the original intent.
 **Gate:** An affected-variant quick build and focused real slicing harness;
 affected client/runtime tests and typechecks. Capture source/artifact identity
 with evidence so a stale WASM build cannot count as acceptance.
+
+**Delivered boundary:** Plate mapping is resolved before full-config assembly;
+the eligible slicing path retains all material variants until native Print
+resolves the mapping, matching Orca's `full_config(false, ...)` path. Native
+capacity is read from project inputs. Mode availability is checked before
+processing, while out-of-scope printers retain their slicing path. The same
+Plate-aware composition feeds Prepare usage queries without mapping writeback.
+For Nozzle Manual on one-nozzle-per-head printers, a missing session-only native
+nozzle inventory is derived from the effective topology/flows in the temporary
+Print config. Explicit inventory is preserved; multi-nozzle clusters are not
+invented and require their native inventory.
+
+Serial native acceptance covers two Plates using the same material on different
+nozzles, deposited G-code tool use, different Standard/High Flow temperatures,
+Nozzle Manual, automatic/manual input isolation, unavailable modes, ordinary
+single/fixed extruders and a synthetic generic three-head SEMM printer. The
+Klipper fixture explicitly defines physical-tool G-code using native placeholders
+and manual material loading; generic UI eligibility does not supply a firmware's
+feeder/tool-change protocol. Direct preset-switch head removal is also repaired
+inside its existing transaction and verified through Undo/Redo. Projection and
+mutation harnesses, affected package tests and repository typechecks pass.
+The serial artifact used for this gate has SHA-256
+`0123986b466e672a0c90cdead958b14dcd0774ef68c00e9de44e9548a65542ef`.
+
 
 #### Step 4 — 3MF persistence and remembered capacities
 

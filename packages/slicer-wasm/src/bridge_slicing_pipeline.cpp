@@ -1,3 +1,4 @@
+#include "bridge_nozzle_mapping.hpp"
 // ----------------------------------------------------------------
 // Slicing, progress, preview, G-code, and threading bridge pipeline.
 //
@@ -761,7 +762,14 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // same discipline expects (optptr() returns nullptr for missing keys
         // and Print::apply's normalize paths dereference that). The JSON
         // keys are applied on top, then normalized like slice_main.cpp:30.
-        DynamicPrintConfig config = PresetDrafts::effective_full_config();
+        NozzleMapping::validate_slice(plate_id);
+        const auto printer = PresetDrafts::effective_printer_config();
+        const bool nozzle_mapping = printer.opt_bool("single_extruder_multi_material") &&
+            printer.opt<ConfigOptionFloats>("nozzle_diameter")->size() > 1;
+        // Like Orca's Plater, preserve filament variants until native Print
+        // resolves the Plate's manual/automatic mapping.
+        const DynamicPrintConfig plate_config = NozzleMapping::full_config(plate_id, !nozzle_mapping);
+        DynamicPrintConfig config = plate_config;
         const json cfg = json::parse(config_json ? config_json : "");
         // Fix round 2: thread ONE substitution context through every key so
         // keys that are unknown at the pinned SHA are surfaced instead of
@@ -811,7 +819,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             // substitutions.unrecogized_keys, which we surface below.
             config.set_deserialize(key, value, substitutions);
         }
-        const DynamicPrintConfig native_full_config = PresetDrafts::effective_full_config(false);
+        const DynamicPrintConfig native_full_config = NozzleMapping::full_config(plate_id, false);
         // Plater's full_config() is assembled from every active filament
         // preset. The renderer settings projection uses scalars for compact
         // values, so restore native multi-slot vectors before plate-local
@@ -834,6 +842,10 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // 2 and 1) which are not part of the global PresetBundle config.
         if (const auto* plate = find_plate(plate_id))
             config.apply(plate->settings, true);
+        // These are native scene inputs; a stale renderer settings projection
+        // cannot override the targeted Plate or the project-owned capacity.
+        for (const auto* key : {"filament_map_mode", "filament_map", "filament_volume_map", "filament_nozzle_map", "extruder_ams_count"})
+            config.set_key_value(key, plate_config.option(key)->clone());
         config.normalize_fdm();
         // Fix round 3: validate() invariant guarantee. A Marlin flavor with
         // use_relative_e_distances=1 requires "G92 E0" in the layer-change

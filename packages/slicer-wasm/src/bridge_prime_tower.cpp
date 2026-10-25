@@ -1,3 +1,4 @@
+#include "bridge_nozzle_mapping.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_painting.hpp"
 #include "bridge_preset_drafts.hpp"
@@ -200,11 +201,7 @@ std::string adjusted_colour(const std::string& value)
 
 DynamicPrintConfig effective_config(const BridgeState::PlateSessionPlate& plate)
 {
-    DynamicPrintConfig config = PresetDrafts::effective_full_config();
-    // Match Orca's BackgroundSlicingProcess::apply: a plate config is layered
-    // over the global/project config, so plate-local values are effective for
-    // this plate's Prepare projection and subsequent Slice.
-    config.apply(plate.settings, true);
+    DynamicPrintConfig config = NozzleMapping::full_config(plate.id);
     config.normalize_fdm();
     return config;
 }
@@ -1006,7 +1003,7 @@ std::vector<int> used_filament_slots_for_plate(const std::string& plate_id)
     const auto model = make_current_plate_model(*plate, error);
     // Empty plates still have editable mapping settings, but use no materials.
     if (!model) return {};
-    const auto config = effective_config(*plate);
+    const auto config = NozzleMapping::full_config(plate_id, false);
     return used_slots(*model, config,
         Filament::State::material_slot_count(state().presets.project_config),
         static_cast<int>(plate->display_index));

@@ -88,3 +88,11 @@ ok(call('orc_history_undo')); assert.deepEqual(inputs(), beforeRemoval);
 ok(call('orc_history_redo'));
 assert.deepEqual(ok(projection(plateId)).effective.filamentMap, [1, 2]);
 console.log('PASS native topology repair preserves valid targets and repairs removed heads in one Undo operation');
+const beforeSwitch = inputs();
+ok(command('orc_select_printer_with_remembered_rack', { printer: 'MyKlipper 0.4 nozzle',
+  remembered_rack: null, remembered_bed_type: null, history_context: context }));
+assert.deepEqual(ok(projection(plateId)).effective.filamentMap, [1, 1], 'explicit preset switch repairs removed targets too');
+ok(call('orc_history_undo')); assert.deepEqual(inputs(), beforeSwitch);
+ok(call('orc_history_redo'));
+assert.deepEqual(ok(projection(plateId)).effective.filamentMap, [1, 1]);
+console.log('PASS direct printer preset switch repairs and restores per-Plate mappings atomically');
