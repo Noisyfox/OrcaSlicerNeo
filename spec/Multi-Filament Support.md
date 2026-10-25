@@ -956,10 +956,10 @@ configuration. Prepare dimensions remain estimates; Preview renders toolpaths.
 **Status:** Implementation in progress, 2026-10-25. Section 14.1
 records accepted product decisions; section 14.3 describes the implementation
 direction and section 14.4 preserves existing integration contracts.
-Section 14.6 defines independently verifiable implementation steps. Steps 1–3's
-native projection, atomic edit commands, typed runtime boundary and Plate-aware
-slicing are delivered; steps 4–7 remain planned. This does not claim editor, archive or
-release qualification for the extension.
+Section 14.6 defines independently verifiable implementation steps. Steps 1–4's
+native projection, atomic edit commands, typed runtime boundary, Plate-aware
+slicing, 3MF persistence and remembered capacities are delivered; steps 5–7
+remain planned. This does not claim editor or release qualification for the extension.
 Existing delivered behavior elsewhere in this specification remains
 authoritative until the extension is implemented and verified.
 
@@ -1323,6 +1323,15 @@ Plate metadata. Preserve project fallback fields without a global editor, and
 apply the existing post-load length/default normalization from section 11.1.
 The mode-specific normalization in section 14.1.4 remains distinct from those
 mapping-vector repairs. Derived automatic results never replace editable inputs.
+
+The native BBS archive reader/writer additionally retains Plate nozzle-tip
+assignments as optional `filament_nozzle_maps` metadata alongside the existing
+`filament_maps` and `filament_volume_maps`. Archives without this field retain
+native fallback behavior. Older Orca readers ignore this additive field and
+therefore cannot guarantee round-trip retention of Plate nozzle-tip assignments.
+This does not add a Neo-private ZIP member. Ordinary project ownership includes
+`extruder_ams_count`; published imports keep their existing restricted allowlist.
+
 
 The [3MF import policy](3MF%20Project%20Persistence.md) remains authoritative:
 geometry-only import retains the current project's configuration, and published

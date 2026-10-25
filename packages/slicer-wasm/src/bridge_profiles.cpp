@@ -2,6 +2,7 @@
 // Native profile/config domain for the Neo bridge.
 // ----------------------------------------------------------------
 #include "bridge_profiles.hpp"
+#include "bridge_nozzle_mapping.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -902,6 +903,7 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
     // target preset's own draft cardinality. Repair that path as well, within
     // this same preset-switch transaction and before reference validation.
     Filament::Commands::repair_nozzle_mapping_targets(effective);
+    if (printer_changed) NozzleMapping::restore_remembered_capacities();
     validate_profile_transition(before_profiles.project_config, before_profiles.filament_presets.size());
     repair_project_flows(base_printer_name(bundle.printers.get_selected_preset()) !=
         before_profiles.base_printer);

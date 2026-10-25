@@ -2961,6 +2961,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (presetKind === 'printer') repairMockProjectFlows(previous.printer !== name);
       return snapshot();
     },
+    orc_configure_nozzle_capacity_memory(requestJson: string) {
+      const request = JSON.parse(requestJson);
+      if (!request.memory || typeof request.memory !== 'object' || Array.isArray(request.memory) ||
+          typeof request.initializeNewProject !== 'boolean' ||
+          Object.entries(request.memory).some(([name, values]) => !name || name.length > 4096 || !Array.isArray(values) ||
+            values.length < 1 || values.length > 64 || values.some(v => !Number.isInteger(v) || v < 1 || v > 2147483647)))
+        return { ok: false, error: 'Invalid capacity memory' };
+      return { ok: true };
+    },
     orc_configure_project_flow_memory(requestJson: string) {
       const request = JSON.parse(requestJson);
       if (!request || !request.memory || typeof request.memory !== 'object' || Array.isArray(request.memory) ||
@@ -3950,6 +3959,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_reset: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_select_printer_with_remembered_rack: { ret: 'number', args: ['string'] },
+    orc_configure_nozzle_capacity_memory: { ret: 'number', args: ['string'] },
     orc_configure_project_flow_memory: { ret: 'number', args: ['string'] },
     orc_set_project_flow: { ret: 'number', args: ['string'] },
     orc_set_toolhead_diameter: { ret: 'number', args: ['string'] },

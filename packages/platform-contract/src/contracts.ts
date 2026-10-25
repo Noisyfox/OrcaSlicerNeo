@@ -166,6 +166,8 @@ export interface UserPreferences {
   rememberedBedTypes: Record<string, string>;
   /** Concrete native flow enums, keyed by native base Printer preset name. */
   rememberedProjectFlows?: Record<string, number[]>;
+  /** Total material slots per physical nozzle, keyed by canonical Printer preset. */
+  rememberedNozzleCapacities?: Record<string, number[]>;
   ui: {
     sidebarWidth?: number;
     rightSidebarWidth?: number;
@@ -325,7 +327,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
     return { ...DEFAULT_USER_PREFERENCES, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
-  const v = value as { autoFlushPolicy?: unknown; profileActivation?: unknown; colorPicker?: { favorites?: unknown; ui?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown; rememberedProjectFlows?: unknown };
+  const v = value as { autoFlushPolicy?: unknown; profileActivation?: unknown; colorPicker?: { favorites?: unknown; ui?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown; rememberedProjectFlows?: unknown; rememberedNozzleCapacities?: unknown };
   const profileActivation = normalizeProfileActivation(v.profileActivation);
   const selectedProfiles = v.selectedProfiles ?? {};
   const ui = v.ui ?? {};
@@ -359,6 +361,13 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
         Object.defineProperty(rememberedBedTypes, printer, { value: bed, enumerable: true, configurable: true, writable: true });
     }
   }
+  const rememberedNozzleCapacities: Record<string, number[]> = {};
+  if (v.rememberedNozzleCapacities && typeof v.rememberedNozzleCapacities === 'object' && !Array.isArray(v.rememberedNozzleCapacities))
+    for (const [printer, capacities] of Object.entries(v.rememberedNozzleCapacities)) {
+      if (printer && printer.length <= 4096 && Array.isArray(capacities) && capacities.length > 0 && capacities.length <= 64 &&
+          capacities.every(n => Number.isSafeInteger(n) && n >= 1 && n <= 2147483647))
+        Object.defineProperty(rememberedNozzleCapacities, printer, { value: [...capacities], enumerable: true, configurable: true, writable: true });
+    }
   const rememberedProjectFlows: Record<string, number[]> = {};
   if (v.rememberedProjectFlows && typeof v.rememberedProjectFlows === 'object' && !Array.isArray(v.rememberedProjectFlows))
     for (const [base, flows] of Object.entries(v.rememberedProjectFlows)) {
@@ -369,6 +378,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   return {
     version: 1,
     rememberedBedTypes,
+    ...(Object.keys(rememberedNozzleCapacities).length ? { rememberedNozzleCapacities } : {}),
     ...(Object.keys(rememberedProjectFlows).length ? { rememberedProjectFlows } : {}),
     ...(profileActivation ? { profileActivation } : {}),
     ...(v.colorPicker && typeof v.colorPicker === 'object' ? { colorPicker: { favorites: normalizeColorFavorites(v.colorPicker.favorites),

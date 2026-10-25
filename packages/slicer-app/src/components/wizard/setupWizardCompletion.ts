@@ -5,7 +5,7 @@ import { updateUserPreferences } from '@orca/platform-contract';
 
 const completions = new WeakSet<object>();
 
-type SetupRuntime = Pick<SlicerClient, 'prepareProfileActivation' | 'applyProfileActivation' | 'configureProjectFlowMemory'>;
+type SetupRuntime = Pick<SlicerClient, 'prepareProfileActivation' | 'applyProfileActivation' | 'configureProjectFlowMemory' | 'configureNozzleCapacityMemory'>;
 export type SetupCompletionResult = Extract<ProfileActivationApplicationResult, { ok: true }> | {
   ok: false; error: string; phase: 'prepare' | 'save' | 'apply';
 };
@@ -21,6 +21,8 @@ export async function completeSetupWizard(
     let prepared;
     try {
       const preferences = await loadSetupTransitionPreferences(repository);
+      const capacities = await runtime.configureNozzleCapacityMemory(preferences.rememberedNozzleCapacities ?? {}, false);
+      if (!capacities.ok) return failure('prepare', new Error(capacities.error));
       const configured = await runtime.configureProjectFlowMemory(preferences.rememberedProjectFlows ?? {}, false);
       if (!configured.ok) return failure('prepare', new Error(configured.error));
       prepared = await runtime.prepareProfileActivation({ activation: selection,

@@ -80,7 +80,6 @@ bool is_bridge_owned_project_routing_key(const std::string& key)
     // Project/Scoped preset overrides and must be changed only by the typed
     // filament-routing commands (never via different_settings_to_system).
     static const std::set<std::string> keys = {
-        "extruder_ams_count",
         "wipe_tower_filament",
         "support_filament",
         "support_interface_filament",

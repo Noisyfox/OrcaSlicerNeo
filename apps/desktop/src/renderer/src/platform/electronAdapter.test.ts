@@ -356,7 +356,8 @@ it('propagates host preferences save rejection and setup cannot apply an unsaved
  const prefs = await adapter.preferences.load();
  await expect(adapter.preferences.save(prefs)).rejects.toThrow('disk full');
  const activation = { models: [{ vendor: 'BBL', model: 'P', nozzle_diameter: ['0.4'] }], filaments: ['PLA'] };
- const runtime = { configureProjectFlowMemory: vi.fn(async () => ({ ok: true as const })), prepareProfileActivation: vi.fn(async () => ({ ok: true as const, activation })), applyProfileActivation: vi.fn() };
+ const runtime = { configureNozzleCapacityMemory: vi.fn(async () => ({ ok: true as const })),
+   configureProjectFlowMemory: vi.fn(async () => ({ ok: true as const })), prepareProfileActivation: vi.fn(async () => ({ ok: true as const, activation })), applyProfileActivation: vi.fn() };
  expect(await completeSetupWizard(runtime, adapter.preferences, activation)).toEqual({ ok: false, phase: 'save', error: 'disk full' });
  expect(runtime.applyProfileActivation).not.toHaveBeenCalled();
  expect((await adapter.preferences.load()).profileActivation).toBeUndefined();

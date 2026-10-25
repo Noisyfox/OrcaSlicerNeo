@@ -84,6 +84,53 @@ std::vector<int> decode_capacities(const DynamicPrintConfig& config, std::size_t
     return result;
 }
 
+void normalize_capacities(DynamicPrintConfig& project, const std::size_t nozzles)
+{
+    std::vector<std::string> encoded;
+    for (int capacity : decode_capacities(project, nozzles)) encoded.push_back("1#" + std::to_string(capacity));
+    project.set_key_value("extruder_ams_count", new ConfigOptionStrings(std::move(encoded)));
+}
+
+void restore_remembered_capacities()
+{
+    const auto printer = PresetDrafts::effective_printer_config();
+    const auto count = printer.opt<ConfigOptionFloats>("nozzle_diameter")->size();
+    const auto memory = json::parse(state().profile_config.get("nozzle_capacity_memory"), nullptr, false);
+    const auto name = state().presets.printers.get_selected_preset_name();
+    const auto values = memory.is_object() && memory.contains(name) ? memory[name] : json::array();
+    std::vector<std::string> encoded;
+    for (std::size_t i = 0; i < count; ++i)
+        encoded.push_back("1#" + std::to_string(i < values.size() ? values[i].get<int>() : 1));
+    state().presets.project_config.set_key_value("extruder_ams_count", new ConfigOptionStrings(std::move(encoded)));
+}
+
+json configure_memory(const json& request)
+{
+    if (!request.is_object() || !request.contains("memory") || !request["memory"].is_object() ||
+        !request.contains("initializeNewProject") || !request["initializeNewProject"].is_boolean())
+        throw std::invalid_argument("Capacity memory and fresh-project intent are required");
+    for (const auto& [name, values] : request["memory"].items()) {
+        if (name.empty() || name.size() > 4096 || !values.is_array() || values.empty() || values.size() > MAXIMUM_EXTRUDER_NUMBER)
+            throw std::invalid_argument("Invalid printer capacity memory");
+        for (const auto& value : values)
+            if (!value.is_number_unsigned() || value.get<std::uint64_t>() < 1 || value.get<std::uint64_t>() > std::numeric_limits<int>::max())
+                throw std::invalid_argument("Capacity memory requires positive native integers");
+    }
+    if (request["initializeNewProject"].get<bool>() && !state().model.objects.empty())
+        throw std::invalid_argument("Only a fresh empty project may seed capacities");
+    const auto previous_memory = state().profile_config.get("nozzle_capacity_memory");
+    const auto previous_project = state().presets.project_config;
+    try {
+        state().profile_config.set("nozzle_capacity_memory", request["memory"].dump());
+        if (request["initializeNewProject"].get<bool>()) restore_remembered_capacities();
+        return {{"ok", true}};
+    } catch (...) {
+        state().profile_config.set("nozzle_capacity_memory", previous_memory);
+        state().presets.project_config = previous_project;
+        throw;
+    }
+}
+
 DynamicPrintConfig full_config(const std::string& plate_id, bool apply_extruder)
 {
     const auto* plate = PlateSession::find_plate(plate_id);
@@ -371,4 +418,30 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_test_nozzle_mapping_slice(const 
     return Profiles::duplicate_json(nlohmann::json{{"ok", true}, {"filamentMap", print.get_filament_maps()},
         {"volumeMap", print.get_filament_volume_maps()}, {"nozzleMap", print.get_filament_nozzle_maps()},
         {"capacity", config.extruder_ams_count.values}, {"nozzle_temperature", config.nozzle_temperature.values}}.dump());
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_configure_nozzle_capacity_memory(const char* request)
+{
+    using namespace Slic3r::Neo::Bridge;
+    try { return Profiles::duplicate_json(NozzleMapping::configure_memory(nlohmann::json::parse(request ? request : "")).dump()); }
+    catch (const std::exception& error) { return Profiles::duplicate_json(nlohmann::json{{"ok", false}, {"error", error.what()}}.dump()); }
+}
+
+// Native published-import policy fixture; does not publish into the live session.
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_test_nozzle_mapping_published()
+{
+    using namespace Slic3r;
+    using namespace Slic3r::Neo::Bridge;
+    try {
+        auto candidate = state().presets;
+        auto imported = PresetDrafts::effective_full_config_secure();
+        imported.set_key_value("extruder_ams_count", new ConfigOptionStrings({"1#99", "1#99"}));
+        PublishedConfig published;
+        published.published = true;
+        candidate.load_config_model("published-capacity-fixture", imported, Semver(), &published);
+        return Profiles::duplicate_json(nlohmann::json{{"ok", true},
+            {"capacity", NozzleMapping::decode_capacities(candidate.project_config, 2)}}.dump());
+    } catch (const std::exception& error) {
+        return Profiles::duplicate_json(nlohmann::json{{"ok", false}, {"error", error.what()}}.dump());
+    }
 }

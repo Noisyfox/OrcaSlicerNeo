@@ -2667,6 +2667,14 @@ export function createClient(
       );
     },
 
+    async configureNozzleCapacityMemory(memory: Record<string, number[]>, initializeNewProject: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
+      const m = await module();
+      const raw = callJson(m, 'orc_configure_nozzle_capacity_memory', ['string'],
+        [JSON.stringify({ memory, initializeNewProject })]);
+      if (isRecord(raw) && raw.ok === true) return { ok: true };
+      return { ok: false, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid native capacity preference response' };
+    },
+
     async configureProjectFlowMemory(memory: Record<string, number[]>, initializeNewProject: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
       const m = await module();
       const raw = callJson(m, 'orc_configure_project_flow_memory', ['string'],

@@ -1,7 +1,7 @@
 import { useCommittedCallback, samePresetItems, PresetCombobox, type PresetComboItem } from '../PresetCombobox';
 import {
   commitProjectFlow,
-  configureProjectFlowPreferences,
+  configurePrinterProjectPreferences,
   loadRememberedFilamentRackFromRepository,
   publishRememberedFilamentRack,
   loadRememberedBedTypeFromRepository,
@@ -106,7 +106,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
     setPresetTransitionPending(true);
     try {
       await runProjectMutationOperation(async () => {
-        await configureProjectFlowPreferences(platform.preferences, platform.runtime, false);
+        await configurePrinterProjectPreferences(platform.preferences, platform.runtime, false);
         const transition = await platform.runtime.setToolheadDiameter(activeToolhead, Number(value), history.revision,
           historyContextForStructure(sceneInteraction));
         if (!transition.ok) throw new Error(transition.error);
@@ -227,7 +227,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             platform.preferences, name,
           );
           const rememberedBed = await loadRememberedBedTypeFromRepository(platform.preferences, name);
-          await configureProjectFlowPreferences(platform.preferences, platform.runtime, false);
+          await configurePrinterProjectPreferences(platform.preferences, platform.runtime, false);
           const transition = await platform.runtime.selectPrinterWithRememberedRack(name, rememberedRack, rememberedBed,
             historyContextForStructure(sceneInteraction));
           if (!transition.ok) throw new Error(transition.error ?? 'Printer transition failed');

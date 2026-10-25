@@ -1,3 +1,4 @@
+#include "bridge_nozzle_mapping.hpp"
 // ----------------------------------------------------------------
 // Project archive persistence for the Neo WASM bridge.
 // ----------------------------------------------------------------
@@ -570,7 +571,7 @@ bool is_native_plate_metadata_key(const std::string& key)
         "plater_id", "plater_name", "lock", "curr_bed_type", "print_sequence", "index",
         "first_layer_print_sequence", "other_layers_print_sequence",
         "other_layers_print_sequence_nums", "spiral_mode", "filament_map_mode",
-        "filament_maps", "filament_volume_maps", "limit_filament_maps", "gcode_file", "thumbnail_file",
+        "filament_maps", "filament_volume_maps", "filament_nozzle_maps", "limit_filament_maps", "gcode_file", "thumbnail_file",
         "thumbnail_no_light_file", "top_file", "pick_file", "pattern_file", "pattern_bbox_file",
         "prediction", "weight", "first_layer_time", "timelapse_type", "outside", "support_used", "label_object_enabled",
         "enable_filament_dynamic_map", "has_filament_switcher", "printer_model_id",
@@ -785,10 +786,11 @@ std::vector<BridgeState::PlateSessionPlate> build_plate_session_from_records(
         if (native) plate.settings = native->config;
         if (raw && raw->filament_volume_maps)
             plate.settings.set_key_value("filament_volume_map", new ConfigOptionInts(*raw->filament_volume_maps));
-        // Default is the native archive sentinel for inherited map mode.
-        // Keep that inheritance implicit in the live Plate configuration.
-        if (const auto* mode = plate.settings.option("filament_map_mode"); mode && mode->getInt() == int(FilamentMapMode::fmmDefault))
-            plate.settings.erase("filament_map_mode");
+        // Import policy is distinct from new-Plate defaults. Do not expand
+        // project fallback maps into this Plate while normalizing its mode.
+        const auto* mode = plate.settings.option("filament_map_mode");
+        if (!mode || mode->getInt() == int(FilamentMapMode::fmmDefault))
+            plate.settings.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode::fmmAutoForFlush));
         plate.settings_metadata = config_metadata_json(plate.settings);
         if (raw) plate.opaque_metadata = raw->opaque_metadata;
         result.push_back(std::move(plate));
@@ -1128,6 +1130,9 @@ static const char* orc_load_project_impl(const char* data, int len,
             Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(staged_plates);
             extend_imported_plate_filament_maps(staged_plates,
                                                 requested_filament_slots.size(), candidate);
+            const auto printer = PresetDrafts::effective_preset_config(candidate, staged_preset_drafts, Preset::TYPE_PRINTER,
+                candidate.printers.get_selected_preset_name());
+            NozzleMapping::normalize_capacities(candidate.project_config, printer.opt<ConfigOptionFloats>("nozzle_diameter")->size());
             Neo::Bridge::PlateSession::normalize_coordinate_arrays(candidate.project_config, staged_plates.size());
         }
 
@@ -1471,7 +1476,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project(const char* request_json) {
             // Its Default sentinel retains global mode inheritance without
             // materializing a local mode override in the live project.
             if (!plate->config.has("filament_map_mode") &&
-                (plate->config.has("filament_map") || plate->config.has("filament_volume_map")))
+                (plate->config.has("filament_map") || plate->config.has("filament_volume_map") || plate->config.has("filament_nozzle_map")))
                 plate->config.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode::fmmDefault));
             if (auto image = thumbnails.find(runtime.id); image != thumbnails.end())
                 plate->plate_thumbnail = std::move(image->second);

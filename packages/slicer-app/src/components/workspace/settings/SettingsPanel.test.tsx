@@ -167,6 +167,7 @@ function makePlatform(
         }),
         selectProfile: vi.fn(selectProfile),
         selectPrinterWithRememberedRack: vi.fn(selectPrinterWithRememberedRack),
+        configureNozzleCapacityMemory: vi.fn(async () => ({ ok: true as const })),
         configureProjectFlowMemory: vi.fn(async () => ({ ok: true })),
         setToolheadDiameter: vi.fn(async () => printerTransition()),
         setProjectFlow: vi.fn(async (_index: number, _flow: number, _revision: number, _context: unknown): Promise<PrinterTransitionResult> => printerTransition()),

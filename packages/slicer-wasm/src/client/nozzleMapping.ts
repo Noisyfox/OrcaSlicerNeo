@@ -54,6 +54,7 @@ export type NozzleMappingMutationResult = Exclude<NozzleMappingResult, NozzleMap
   readonly nativeScopedConfig?: NativeScopedConfigTransport;
 };
 export interface NozzleMappingMethods {
+  configureNozzleCapacityMemory(memory: Record<string, number[]>, initializeNewProject: boolean): Promise<{ ok: true } | { ok: false; error: string }>;
   mutateNozzleMapping(request: NozzleMappingRequest, context: HistoryContext): Promise<NozzleMappingMutationResult>;
   getNozzleMapping(plateId: string): Promise<NozzleMappingResult>;
 }
