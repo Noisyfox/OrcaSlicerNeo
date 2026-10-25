@@ -1,18 +1,19 @@
 import { extrudingTools } from '../../../packages/slicer-wasm/harness/nozzle-mapping-gcode.mjs';
 import { _electron } from './electron-fixture';
 import { test, expect } from '@playwright/test';
-import { existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { openProjectMenu, waitForProjectLoad } from './project-menu';
 import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receipts';
 
 test('real nozzle mapping edits, confirms, cancels and slices with native Plate ownership', async () => {
-  test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires real mapping 3MF and current WASM');
+  test.skip(process.env.ORCA_E2E_REAL !== '1' || !process.env.ORCA_E2E_MAPPING_PROJECT,
+    'requires the native nozzle-mapping persistence fixture and current WASM');
   const root = resolve(__dirname, '../../..');
   const variant = process.env.ORCA_E2E_MAPPING_VARIANT ?? 'serial';
-  const source = process.env.ORCA_E2E_MAPPING_PROJECT ?? '/tmp/neo-nozzle-mapping.3mf';
+  const source = process.env.ORCA_E2E_MAPPING_PROJECT!;
   const hash = (file: string) => createHash('sha256').update(readFileSync(file)).digest('hex');
   for (const file of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data'])
     expect(hash(join(root, 'apps/desktop/out/renderer/wasm', variant, file))).toBe(hash(join(root, 'packages/slicer-wasm/out', variant, file)));
@@ -29,8 +30,13 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300000 });
     await page.locator('#app-tab-prepare').click();
+    expect(await page.evaluate(async () => (await (window as any).__orcaScopedConfigurationGate.execution()).threaded))
+      .toBe(variant === 'threaded');
     await installSliceReceiptObserver(page, ['getNozzleMapping', 'mutateNozzleMapping', 'slicePlate', 'exportGcodePlate']);
     await openProjectMenu(page, app); await waitForProjectLoad(page);
+    await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e.projectLoadEvidence().receipt))
+      .toMatchObject({ sourceDisplayName: basename(source), sourceByteLength: statSync(source).size,
+        nativeResult: { ok: true, mode: 'project' } });
     if (await page.getByTestId('project-notice-dialog-close').isVisible()) await page.getByTestId('project-notice-dialog-close').click();
     await expect.poll(async () => (await readSliceReceipts(page) as any[]).some(r => r.op === 'getNozzleMapping' && r.result?.eligible)).toBe(true);
     await page.getByTestId('config-mode-plates').click();

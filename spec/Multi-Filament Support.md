@@ -953,16 +953,13 @@ configuration. Prepare dimensions remain estimates; Preview renders toolpaths.
 
 ## 14. Nozzle filament mapping design
 
-**Status:** Implementation in progress, 2026-10-25. Section 14.1
-records accepted product decisions; section 14.3 describes the implementation
-direction and section 14.4 preserves existing integration contracts.
-Section 14.6 defines independently verifiable implementation steps. Steps 1–6's
-native projection, atomic edit commands, typed runtime boundary, Plate-aware
-slicing, 3MF persistence, remembered capacities, Sidebar editors and mandatory
-manual-slice confirmation are delivered. Step 7's integrated qualification
-remains required before this extension is complete.
-Existing delivered behavior elsewhere in this specification remains
-authoritative until the extension is implemented and verified.
+**Status:** Delivered with Level 3 implementation qualification, 2026-10-25.
+Section 14.1 records accepted product decisions; section 14.3 describes the
+native/runtime implementation and section 14.4 preserves existing integration
+contracts. All seven independently verifiable steps in section 14.6 are accepted,
+including real Electron integration and Web threaded/serial import, confirmation,
+download, reopen and slicing. This does not claim Level 4 release qualification,
+physical printer validation or send-time AMS mapping.
 
 ### 14.1 Accepted scope and entry points
 
@@ -1394,8 +1391,9 @@ should be bounded to small topology/material projections and existing native
 slice work, without renderer-side grouping or continuous device polling.
 
 Select build, host and WASM checks using the existing
-[testing guidelines](../doc/testing_guidelines.md). This design-only extension
-does not claim any of those product checks have passed.
+[testing guidelines](../doc/testing_guidelines.md). The implementation has passed
+the Level 3 boundary. Full release/milestone qualification remains governed by
+Level 4; no roadmap milestone is advanced solely by this extension.
 
 ### 14.6 Implementation and acceptance steps
 
@@ -1404,17 +1402,18 @@ instruction to expose unfinished controls. Steps 1–4 are independently testabl
 through the native bridge/runtime without a mapping UI. Steps 5–6 expose the
 accepted interactions only after their backend dependencies pass. Completing a
 step does not claim delivery of the whole feature; section 14.5 remains the
-overall acceptance boundary. Steps 1–3 are accepted; steps 4–7 remain planned.
+overall acceptance boundary. All seven steps are accepted at the implementation
+handoff boundary; full release qualification remains separate.
 
 | Step | Deliverable | Depends on | Acceptance evidence |
 | --- | --- | --- | --- |
 | 1 — accepted | Native capability and read-only mapping projection | Existing project/Plate contracts | Native projection fixtures and typed client/runtime checks |
 | 2 — accepted | Atomic mapping/capacity edits, history and lifecycle transitions | 1 | Real-WASM mutation, rejection and Undo/Redo harness |
 | 3 — accepted | Effective Plate configuration in real slicing | 2 | Native slice/G-code assignments and input/result isolation |
-| 4 | Standard 3MF persistence and per-preset capacity memory | 2; uses 3 for reopen-and-slice acceptance | Archive/native round-trip, preference precedence and history checks |
-| 5 | Shared mapping component and Sidebar surfaces | 3, 4 | Component tests and focused Sidebar journey using the runtime |
-| 6 | Editable confirmation on every manual slice request | 5 | Dialog transaction and Slice/Preview lifecycle tests |
-| 7 | Integrated feature qualification and delivery documentation | 1–6 | Cross-layer acceptance matrix in section 14.5 |
+| 4 — accepted | Standard 3MF persistence and per-preset capacity memory | 2; uses 3 for reopen-and-slice acceptance | Archive/native round-trip, preference precedence and history checks |
+| 5 — accepted | Shared mapping component and Sidebar surfaces | 3, 4 | Component tests and focused Sidebar journey using the runtime |
+| 6 — accepted | Editable confirmation on every manual slice request | 5 | Dialog transaction and Slice/Preview lifecycle tests |
+| 7 — accepted | Integrated feature qualification and delivery documentation | 1–6 | Cross-layer acceptance matrix in section 14.5, Level 3 |
 
 Steps 3 and 4 can be developed separately after step 2; step 4's final gate
 uses the verified slicing path from step 3. Keep each step in a separate
@@ -1483,9 +1482,8 @@ scoped history. The serial mutation harness verifies rejection and late-failure
 rollback, Nozzle Manual conversion, local/global invalidation, retained manual
 maps, material merge and removed-head repair with Undo/Redo. User-facing repair
 and merge-impact messages are delivered with the consuming UI in step 5.
-The serial projection harness, 710 client/runtime tests (four existing skips),
-and repository typechecks passed. Real slicing and archive qualification belong to
-steps 3–4; no UI or dual-variant qualification is claimed here.
+Real slicing and archive ownership are covered by steps 3–4, with UI and
+dual-variant integration qualified by the later steps.
 
 #### Step 3 — Plate-aware slicing and result isolation
 
@@ -1528,9 +1526,7 @@ Klipper fixture explicitly defines physical-tool G-code using native placeholder
 and manual material loading; generic UI eligibility does not supply a firmware's
 feeder/tool-change protocol. Direct preset-switch head removal is also repaired
 inside its existing transaction and verified through Undo/Redo. Projection and
-mutation harnesses, affected package tests and repository typechecks pass.
-The serial artifact used for this gate has SHA-256
-`0123986b466e672a0c90cdead958b14dcd0774ef68c00e9de44e9548a65542ef`.
+mutation harnesses preserve their role as lower-layer regression gates.
 
 
 #### Step 4 — 3MF persistence and remembered capacities
@@ -1631,3 +1627,23 @@ feature crosses real WASM composition, include real Web integration coverage.
 Use Level 4 for release/milestone acceptance rather than repeating the complete
 release matrix at every step. Record exact commands, source/artifact identity,
 results and intentionally unrun checks in the implementation handoff.
+
+**Delivered qualification boundary:** The
+[native fixture suite](../packages/slicer-wasm/harness/nozzle-mapping-fixtures.mjs)
+supports the projection, mutation, slicing and persistence harnesses. The
+[persistence harness](../packages/slicer-wasm/harness/nozzle-mapping-persistence-smoke.mjs)
+also produces `/tmp/neo-nozzle-mapping.3mf` and accepts a native Orca executable
+as its optional second argument for an independent capacity read/save comparison.
+That comparison qualifies effective capacities; the older-reader limitation for
+optional Plate nozzle-tip metadata in section 14.4 still applies.
+
+The [Electron journey](../apps/desktop/e2e/nozzle-mapping.e2e.ts) owns shared
+Sidebar editing, Undo/Redo, cancellation, Preview behavior and native receipt
+binding. The [Web journey](../apps/web/e2e/nozzle-mapping.e2e.ts) owns browser
+file selection/download, storage, two-Plate save/reopen, actual extruding tool
+assignments and threaded/serial fallback selection. Both require an explicit
+`ORCA_E2E_MAPPING_PROJECT` pointing to the generated fixture. They verify current
+artifact identity and exact project-load receipts; mock-only UI state cannot
+qualify these journeys. Neither gate contacts a printer or account. Complete
+host suites, packaged builds and physical-device tests remain outside this
+Level 3 implementation handoff.
