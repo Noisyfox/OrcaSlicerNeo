@@ -382,6 +382,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_performance.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_filament.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_nozzle_mapping.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_prime_tower.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_model_operations.cpp"

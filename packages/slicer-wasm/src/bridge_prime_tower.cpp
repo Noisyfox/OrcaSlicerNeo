@@ -998,6 +998,20 @@ bool normalize_coordinate_positions()
     return changed;
 }
 
+std::vector<int> used_filament_slots_for_plate(const std::string& plate_id)
+{
+    const auto* plate = PlateSession::find_plate(plate_id);
+    if (!plate) throw std::invalid_argument("Plate no longer exists");
+    std::string error;
+    const auto model = make_current_plate_model(*plate, error);
+    // Empty plates still have editable mapping settings, but use no materials.
+    if (!model) return {};
+    const auto config = effective_config(*plate);
+    return used_slots(*model, config,
+        Filament::State::material_slot_count(state().presets.project_config),
+        static_cast<int>(plate->display_index));
+}
+
 json slice_warnings_for_plate(const std::string& plate_id)
 {
     using namespace Neo::Bridge::PlateSession;

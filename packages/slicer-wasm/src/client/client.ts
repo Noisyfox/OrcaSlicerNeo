@@ -5,6 +5,7 @@ import type { UserPresetStorage, UserPresetKind, UserPresetRequest, UserPresetMu
 import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationPreparationRequest, ProfileActivationApplicationResult } from './setupWizard';
 import { createPaintingApi } from './paintingClient';
 import { decodeModelGeometry } from './modelGeometry';
+import { decodeNozzleMapping } from './nozzleMapping';
 // packages/slicer-wasm/src/client/client.ts
 // ----------------------------------------------------------------
 // The typed promise-based bridge client — the ONLY JS that talks to
@@ -2260,6 +2261,11 @@ export function createClient(
     async getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult> {
       const m = await module();
       return normalizeFilamentSessionResult(callJson(m, 'orc_get_filament_session_snapshot', [], []));
+    },
+
+    async getNozzleMapping(plateId: string) {
+      const m = await module();
+      return decodeNozzleMapping(callJson(m, 'orc_get_nozzle_mapping', ['string'], [plateId]), plateId);
     },
 
     async getUserPresetInfo(kind: UserPresetKind, canonicalName: string) {

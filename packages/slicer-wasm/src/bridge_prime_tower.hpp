@@ -58,6 +58,10 @@ void restore_coordinate_settings(DynamicPrintConfig& settings,
 
 json projection_json();
 
+// Shared native usage discovery, including painting, supports and custom tools.
+// Does not change project inputs, history or slice validity.
+std::vector<int> used_filament_slots_for_plate(const std::string& plate_id);
+
 void invalidate_projection_cache();
 void invalidate_projection_cache(const std::set<std::string>& plate_ids) noexcept;
 void invalidate_projection_cache_and_usage_summaries(const std::set<std::string>& plate_ids) noexcept;

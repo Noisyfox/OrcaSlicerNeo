@@ -9,8 +9,8 @@ closes it.
 **Date:** 2026-09-08
 
 **Status:** Delivered native rack, assignments, flushing editor, Prime Tower and history behavior.
-Section 14 records the accepted nozzle-mapping design, pending implementation;
-its accepted requirements are not an implementation or validation claim.
+Section 14 records the accepted nozzle-mapping design. Its native read-only
+projection is delivered; editing, persistence extensions and UI remain pending.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -953,12 +953,13 @@ configuration. Prepare dimensions remain estimates; Preview renders toolpaths.
 
 ## 14. Nozzle filament mapping design
 
-**Status:** Design clarified; implementation pending, 2026-10-25. Section 14.1
+**Status:** Implementation in progress, 2026-10-25. Section 14.1
 records accepted product decisions; section 14.3 describes the implementation
 direction and section 14.4 preserves existing integration contracts.
-Section 14.6 defines independently verifiable implementation steps; all remain
-planned until their acceptance evidence is recorded.
-No implementation or new release qualification is claimed.
+Section 14.6 defines independently verifiable implementation steps. Step 1's
+native capability/usage/capacity projection and typed runtime boundary are
+delivered; steps 2–7 remain planned. This does not claim editor, slicing or
+release qualification for the extension.
 Existing delivered behavior elsewhere in this specification remains
 authoritative until the extension is implemented and verified.
 
@@ -1393,11 +1394,11 @@ instruction to expose unfinished controls. Steps 1–4 are independently testabl
 through the native bridge/runtime without a mapping UI. Steps 5–6 expose the
 accepted interactions only after their backend dependencies pass. Completing a
 step does not claim delivery of the whole feature; section 14.5 remains the
-overall acceptance boundary. All steps below are planned, not delivered.
+overall acceptance boundary. Step 1 is accepted; steps 2–7 remain planned.
 
 | Step | Deliverable | Depends on | Acceptance evidence |
 | --- | --- | --- | --- |
-| 1 | Native capability and read-only mapping projection | Existing project/Plate contracts | Native projection fixtures and typed client/runtime checks |
+| 1 — accepted | Native capability and read-only mapping projection | Existing project/Plate contracts | Native projection fixtures and typed client/runtime checks |
 | 2 | Atomic mapping/capacity edits, history and lifecycle transitions | 1 | Real-WASM mutation, rejection and Undo/Redo harness |
 | 3 | Effective Plate configuration in real slicing | 2 | Native slice/G-code assignments and input/result isolation |
 | 4 | Standard 3MF persistence and per-preset capacity memory | 2; uses 3 for reopen-and-slice acceptance | Archive/native round-trip, preference precedence and history checks |

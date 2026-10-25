@@ -117,6 +117,7 @@ export interface MockModuleOptions {
   embeddedPresetWarnings?: Partial<NonNullable<ProjectLoadResult['embeddedPresetWarnings']>>;
   /** Optional wire snapshot override for malformed/unsupported-version tests. */
   filamentSession?: unknown;
+  nozzleMapping?: unknown;
   /** Optional raw mutation response override for client normalization tests. */
   filamentMutation?: unknown;
   /** Optional raw project-configuration response override for normalization tests. */
@@ -2502,6 +2503,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_filament_session_snapshot() {
       return filamentSessionSnapshot();
     },
+    orc_get_nozzle_mapping(_plateId: string) {
+      return opts.nozzleMapping ?? { ok: false, errorCode: 'plate_not_found', error: 'No mapping fixture supplied' };
+    },
     orc_select_filament_slot_preset(requestJson: string) {
       return filamentMutation(requestJson, 'select-preset');
     },
@@ -3965,6 +3969,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_take_performance_profile: { ret: 'number', args: [] },
     orc_move_prime_tower: { ret: 'number', args: ['string'] },
     orc_get_filament_session_snapshot: { ret: 'number', args: [] },
+    orc_get_nozzle_mapping: { ret: 'number', args: ['string'] },
     orc_select_filament_slot_preset: { ret: 'number', args: ['string'] },
     orc_set_filament_slot_colour: { ret: 'number', args: ['string'] },
     orc_add_filament_slot: { ret: 'number', args: ['string'] },

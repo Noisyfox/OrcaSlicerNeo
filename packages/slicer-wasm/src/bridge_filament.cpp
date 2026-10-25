@@ -2440,6 +2440,32 @@ EMSCRIPTEN_KEEPALIVE const char* orc_test_set_filament_reference_fixture(const c
     try {
         const json request = request_cstr && *request_cstr ? json::parse(request_cstr) : json::object();
         ensure_plate_session_state();
+        // Native-only fixture construction; not exposed by the application client.
+        // Allows the projection harness to cover configurations the preset editor
+        // intentionally cannot create, and malformed imported capacity strings.
+        if (request.contains("printer_settings")) {
+            auto& preset = state().presets.printers.get_edited_preset();
+            const auto& settings = request["printer_settings"];
+            if (settings.contains("nozzle_count")) {
+                const int count = settings["nozzle_count"].get<int>();
+                if (count < 1 || count > MAXIMUM_EXTRUDER_NUMBER) return error_json("invalid fixture nozzle count");
+                preset.set_num_extruders(count);
+                json diameters = json::array();
+                for (int i = 0; i < count; ++i) diameters.push_back(json{{"value", 0.4}});
+                state().preset_drafts.set(Preset::TYPE_PRINTER, preset.name, "nozzle_diameter", diameters);
+            }
+            if (settings.contains("semm")) {
+                preset.config.option<ConfigOptionBool>("single_extruder_multi_material", true)->value = settings["semm"].get<bool>();
+                state().preset_drafts.set(Preset::TYPE_PRINTER, preset.name, "single_extruder_multi_material",
+                    settings["semm"].get<bool>() ? "1" : "0");
+            }
+        }
+        if (request.contains("mapping_project_settings")) {
+            for (auto it = request["mapping_project_settings"].begin(); it != request["mapping_project_settings"].end(); ++it) {
+                if (it.value().is_null()) state().presets.project_config.erase(it.key());
+                else state().presets.project_config.set_deserialize_strict(it.key(), it.value().get<std::string>());
+            }
+        }
         if (request.contains("plate_settings")) {
             if (!request["plate_settings"].is_object()) return error_json("invalid test plate settings");
             for (auto& plate : state().plate_session_plates) {
@@ -2481,7 +2507,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_test_set_filament_reference_fixture(const c
         for (const auto& [plate, info] : state().model.plates_custom_gcodes)
             for (const auto& item : info.gcodes)
                 custom.push_back({{"plate", plate}, {"extruder", item.extruder}, {"print_z", item.print_z}});
-        return duplicate_json(json{{"ok", true}, {"plate_session", plate_session_snapshot_json()}, {"custom_gcodes", custom}}.dump());
+        json result = {{"ok", true}, {"plate_session", plate_session_snapshot_json()}, {"custom_gcodes", custom}};
+        if (request.value("read_mapping_inputs", false))
+            result["mapping_inputs"] = {{"project", State::config_metadata_json(state().presets.project_config)},
+                {"printer", State::config_metadata_json(PresetDrafts::effective_printer_config())}};
+        return duplicate_json(result.dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown test fixture failure"); }
 }
