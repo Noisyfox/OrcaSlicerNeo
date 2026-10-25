@@ -9,6 +9,8 @@ closes it.
 **Date:** 2026-09-08
 
 **Status:** Delivered native rack, assignments, flushing editor, Prime Tower and history behavior.
+Section 14 records the accepted nozzle-mapping design, pending implementation;
+its accepted requirements are not an implementation or validation claim.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -56,10 +58,11 @@ Selecting a profile closes the menu and returns focus to its slot trigger.
 Current imported or incompatible slot profiles remain available in their own
 vendor group.
 
-The first release does not expose an advanced manual filament-to-physical-
-extruder mapping editor. It uses the selected printer preset and OrcaSlicer's
-native configuration rules to map material slots to physical extruders,
-nozzles, and variants.
+The delivered application does not yet expose an advanced manual
+filament-to-physical-extruder mapping editor. It uses the selected printer
+preset and OrcaSlicer's native configuration rules. The accepted entry points
+and behavior of the planned editor are owned by
+[section 14](#14-nozzle-filament-mapping-design).
 
 The slot list has an ordered, one-based material identity matching the native
 model `extruder` configuration convention. Removing a slot may therefore
@@ -85,8 +88,9 @@ resulting compatibility replacement, is one native project-history transaction
 and one slice invalidation. Undo/Redo restores the complete transition state;
 the independent remembered-rack preference update is not undoable.
 
-The advanced mapping UI is deferred, but the typed contract must preserve the
-native mapping result so it can be displayed or edited by a later milestone.
+The typed contract preserves the native mapping result for the planned
+[mapping editor](#14-nozzle-filament-mapping-design); that editor is not yet
+delivered.
 
 ## 4. Project and Preference Ownership
 
@@ -946,3 +950,436 @@ Prime Tower move-then-slice consumes current native coordinates, never cached
 polygon-aware automatic placement is not delivered. Regressions compare actual
 extruding G-code XY endpoints, including brim margin, rather than only exported
 configuration. Prepare dimensions remain estimates; Preview renders toolpaths.
+
+## 14. Nozzle filament mapping design
+
+**Status:** Design clarified; implementation pending, 2026-10-25. Section 14.1
+records accepted product decisions; section 14.3 describes the implementation
+direction and section 14.4 preserves existing integration contracts.
+No implementation or new release qualification is claimed.
+Existing delivered behavior elsewhere in this specification remains
+authoritative until the extension is implemented and verified.
+
+### 14.1 Accepted scope and entry points
+
+- Provide manual project-filament-to-nozzle mapping for printers that combine
+  SEMM (`single_extruder_multi_material`) with multiple physical extruders,
+  including Bambu H2D. Model the capability generically, without Bambu checks
+  in the shared mapping UI. Preserve the current preset/editor restrictions
+  that presently limit creation of this combination to Bambu printers.
+  When this capability is absent, hide the Filament Mapping tab, slicing-mode
+  menu items and new slot-capacity input. Keep existing Settings and Multi.
+  functionality available under their current rules.
+- Configure the total available filament-slot capacity of each nozzle directly.
+  Do not expose or store a user-edited decomposition into feeder types, feeder
+  counts or slots per feeder. Capacity is project-global and shared by all
+  Plates. Edit capacity in the upper Sidebar's existing Multi. tab, reusing
+  its nozzle selector to identify the nozzle whose capacity is being edited.
+  Mode and mapping are edited per Plate.
+- Use the existing Sidebar Plates scope as the mapping editor's entry point.
+  Convert its lower Properties editor into two tabs, in this order: Settings
+  and Filament Mapping. Settings contains the existing Plate settings editor;
+  Filament Mapping edits the selected Plate's mode and material mapping.
+- Do not provide a global mapping editor, a mapping tab in the Filament
+  section, or mapping editing in the Printer Device/Multi. section. The Plate
+  Properties tabs replace the proposed Plate-list mapping button and floating
+  editor. A separate, editable confirmation dialog is shown before manual
+  slicing as specified in section 14.1.5, not opened from a Plate-list button.
+- Add slicing-mode selection to the slice-button dropdown, using Orca's
+  behavior as a reference. Do not add a mapping-editor entry to that dropdown;
+  mapping is edited in Plates > Filament Mapping.
+- Exclude send/print-time assignment to the printer's actual AMS slots.
+  Live device synchronization and account/provider integration are not required
+  for this manual configuration feature.
+
+#### 14.1.1 Plate ownership, mode selection and editing
+
+Each Plate has its own editable slicing mode and mapping. The slice-button
+dropdown selects the current Plate's mode; the Filament Mapping tab selects
+the same Plate's mode. Both surfaces consume and mutate the same native state.
+There is no global mapping-mode selector or Follow global interaction.
+Underlying project mapping fields and native fallback rules remain a project
+import/composition concern, not an independently editable UI scope. Their
+mode normalization follows section 14.1.4 and persistence follows section 14.4.
+
+Users explicitly select the mode before editing a manual mapping. Only manual
+mode displays the mapping-editing interface; automatic modes hide that
+interface rather than display disabled mapping controls. Editing must not
+implicitly switch an automatic mode to Manual.
+
+Both `fmmManual` and imported `fmmNozzleManual` use the same manual editing
+interface. Viewing the latter does not mutate its saved mode or mappings.
+The first mapping edit converts it to `fmmManual` in the same atomic operation
+as the edit; there is no separate read-only or physical-sub-nozzle editor.
+
+The manual editor lists only filaments used by the selected Plate, using
+native usage discovery including painted assignments and support-related
+uses. Each filament occupies one row with its own target-nozzle dropdown.
+Do not require a separate selected-nozzle context for mapping, and do not
+present unused project filaments as editable rows. The upper Multi. tab's
+nozzle selection remains the context for capacity editing, not for these
+per-filament assignments. Mapping controls do not edit nozzle diameter, flow
+settings or global capacity.
+
+Completed Sidebar edits take effect immediately through atomic native commands,
+with Undo available. The Sidebar has no Apply/Cancel controls or retained
+multi-edit drafts. Temporary text/number input before a completed edit does
+not become a second project state owner. Switching tabs does not discard
+already committed edits. The pre-slice confirmation dialog is the explicit
+exception in section 14.1.5. Mode transitions follow section 14.1.3.
+
+Selecting a Plate through the existing Plates UI changes the Properties
+target. An in-flight edit remains bound to the Plate identity and revision
+captured when it was dispatched; it must never be redirected to the newly
+selected Plate. Retain the active Properties tab when selecting another Plate
+while that tab remains available; use Settings when mapping is hidden. With
+no valid target, use the existing empty Properties state and reject stale
+commands. These are local UI states, not Plate settings persisted in 3MF.
+
+The accepted current-Plate dropdown behavior does not introduce a slice-all
+action or a bulk overwrite of independently configured Plates.
+
+#### 14.1.2 Hardware coverage and slot capacity
+
+Manual mapping supports the physical-extruder counts allowed by the native
+printer configuration, without a fixed two-head assumption in the shared
+model or UI. Automatic filament-saving mode is offered only where the existing
+native implementation supports the topology. Availability is projected as a
+capability; React must not reproduce native vendor checks. Generalizing the
+automatic grouping algorithm to additional vendors or head counts is outside
+this extension.
+
+For an eligible printer, if import or a printer transition leaves a Plate in
+Auto For Flush but the native algorithm is unavailable, retain the mode and
+show why it is unavailable. Require the user to select Manual before slicing;
+do not silently convert it or invoke an unsupported algorithm. Outside the
+SEMM-plus-multiple-extruders feature scope, existing native normalization and
+slicing behavior remain authoritative; hidden mapping controls must not create
+a new blocker for ordinary single-extruder or fixed multi-extruder printing.
+
+The new editor assigns project filaments to physical extruders and cooperates
+with existing flow-type configuration. It does not add a physical sub-nozzle
+inventory editor or expose fully manual assignment to individual sub-nozzles.
+Imported Nozzle Manual configurations use the manual interface and transition
+rule in section 14.1.1; this does not add physical-sub-nozzle editing capability.
+
+For each nozzle, users edit one total slot-capacity value. All Plates consume
+the same project-global capacity vector, including Plates with their own
+mapping or mode. There is no Plate-local capacity override and no AMS-specific
+equipment model in the UI. Conversion to Orca's native configuration format
+belongs below the shared UI and must not invent actual device identities.
+
+Total slot capacity is a positive integer with a minimum of one. A single
+external spool counts as one available slot; zero is not a nozzle-disable
+control. Initial defaults and remembered settings follow section 14.1.4.
+Do not impose a fixed product or feeder-count upper limit; accept positive
+integers within the native representation's safe range. Assigning more
+Plate-used filaments to a nozzle than its capacity shows
+a warning but does not block slicing. Capacity is not a new hard slicing limit
+or a guarantee of physical print feasibility.
+
+#### 14.1.3 Mode transitions and topology repair
+
+Automatic mode retains the Plate's manual mapping inputs but ignores them for
+automatic assignment. Its computed mapping remains derived slice-result state
+and must not overwrite the editable Plate or project mapping. Switching back
+to manual mode uses the retained manual inputs; there is no separately saved
+last-manual backup. If no prior manual mapping exists, initialize it through
+the native default-mapping rules, never from a previous automatic slice result.
+Imported mode initialization follows section 14.1.4; mapping compatibility and
+normalization follow section 14.4.
+
+When a topology change removes a target nozzle, preserve assignments that
+remain valid and repair only invalid targets to nozzle 1, including the linked
+flow selection. Notify the user of the repair. The repair belongs to the same
+atomic operation and Undo entry as the topology change, rather than a later
+React-side adjustment. Existing single-extruder normalization remains part of
+the native topology transition when the printer leaves this feature's scope.
+
+New project filaments default to nozzle 1 with its corresponding native flow
+selection; existing filament mappings remain unchanged. Deletion continues
+the existing atomic reference-remapping contract in section 8.3 and removes
+the deleted filament's map entries while preserving surviving assignments.
+Merging adopts the destination filament's existing mapping independently on
+each Plate. If source and destination use different nozzles, include that
+change in the existing merge-impact confirmation; do not require the user to
+align mappings before merging. These changes share the material operation's
+Undo entry and native normalization.
+
+#### 14.1.4 Initialization and remembered capacities
+
+Remember total slot capacities by printer preset for new-project initialization,
+not by connected physical device. A value saved in an existing project takes
+precedence over the remembered value. When neither is available, each nozzle
+starts with one slot; do not introduce preset-authored capacity defaults.
+Remembered values seed project inputs rather than acting as live overrides.
+
+An explicit printer-preset switch also restores the target preset's remembered
+capacities, falling back to one per nozzle when no remembered value exists.
+Capacity restoration belongs to the same atomic operation and Undo entry as
+the preset switch. This rule does not override capacities saved in a project
+when opening it.
+
+A newly created Plate defaults to Auto For Flush when the existing native
+capability supports it. Otherwise it starts in Manual with the native default
+mapping. This new-Plate policy is distinct from importing saved Plate modes.
+
+On ordinary project import, a missing Plate mode or an explicit Default mode
+is normalized to `fmmAutoForFlush`. Preserve other saved modes and existing
+mapping fields. Do not resolve the project mode and expand project fallback
+maps into explicit Plate values as an import normalization step. An unavailable
+Auto For Flush mode follows section 14.1.2; Auto For Match follows the rule below.
+
+Preserve an imported `fmmAutoForMatch` mode and its mapping data. Device-material
+synchronization is outside this feature, so present the mode as unavailable
+and require an explicit user choice of Manual or supported Auto For Flush
+before slicing. Do not silently replace it with Auto For Flush.
+
+#### 14.1.5 Confirmation before manual slicing
+
+Every slice request in Manual or Nozzle Manual opens an editable mapping
+confirmation dialog for the target Plate. Reuse the manual mapping component
+from the Properties tab, with the same Plate-used material rows and choices.
+Automatic modes do not acquire this manual confirmation step.
+
+Unlike Sidebar edits, dialog edits remain temporary until the user chooses
+Confirm and Slice. Confirm commits the edits atomically with Undo support,
+then starts slicing with the committed configuration. Cancel discards dialog
+edits and does not start slicing. For imported Nozzle Manual, an actual mapping
+edit converts the mode to Manual only when committed; viewing or canceling
+must not trigger that conversion.
+
+The dialog retains its captured Plate identity and revision. Validation and
+commit must succeed before slicing starts; a changed or deleted target must
+not cause edits or slicing to be redirected to another Plate. The draft is
+temporary UI interaction state, not a second authoritative project owner.
+Capacity excess remains a warning and does not prevent confirmation or slicing.
+
+### 14.2 Existing native behavior and limits
+
+The reference is the Orca submodule at
+`c936ee9a5ce2979b96a80b47783ab4c29d369227`, not an assertion about every public
+Orca release. Recheck the relevant implementation when implementing the design
+or changing the pin.
+
+- [PrintConfig](../packages/slicer-wasm/cpp/src/libslic3r/PrintConfig.hpp)
+  distinguishes `Manual` (filament to extruder, with volume selection) from
+  `Nozzle Manual` (assignment to a physical sub-nozzle). H2D's ordinary
+  one-nozzle-per-extruder mapping does not require implementing the complete
+  sub-nozzle inventory editor.
+- [FilamentGroupPopup](../packages/slicer-wasm/cpp/src/slic3r/GUI/FilamentGroupPopup.cpp)
+  exposes Filament-Saving, Convenience and Custom modes. Convenience uses
+  actual printer material information. The popup edits the current Plate's
+  mode, or sets each Plate's mode for its slice-all path. When opened without
+  a connected printer, it replaces Auto For Match with Auto For Flush; Neo's
+  accepted import behavior instead retains the mode pending user selection.
+- [PartPlate](../packages/slicer-wasm/cpp/src/slic3r/GUI/PartPlate.cpp)
+  contains separate native fallback rules: Default mode uses the project mode,
+  and an absent/empty Plate map uses the project map. New Plates initialize
+  their mode to Auto For Flush. These fields and fallbacks do not establish
+  a user-facing global mapping editor or active inheritance control.
+- [Plater](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp)
+  reads the current Plate's effective maps into its mapping dialog, writes
+  confirmed manual choices back to that Plate and composes Plate mappings
+  into the actual slice configuration. This is an editable native behavior,
+  not merely an unused serialization field. Both current
+  [mapping-dialog](../packages/slicer-wasm/cpp/src/slic3r/GUI/FilamentMapDialog.cpp)
+  call sites disable the Same as Global control. The pre-slice dialog fixes
+  `sync_plate` to true, and FilamentGroupPopup sets `m_sync_plate` to true when
+  opened. Their global setter branches are therefore not evidence of an
+  enabled global editing workflow. The mapping dialog displays both Manual
+  and Nozzle Manual on its Custom page, then returns Manual on confirmation.
+  Neo adapts that confirmation boundary to the first committed mapping edit,
+  immediate in the Sidebar or deferred until pre-slice confirmation.
+- [BackgroundSlicingProcess](../packages/slicer-wasm/cpp/src/slic3r/GUI/BackgroundSlicingProcess.cpp)
+  copies the assembled full configuration and overlays the current Plate's
+  configuration before applying it to Print. Automatic grouping results are
+  explicitly written back to that Plate by the Orca GUI. This composition does
+  not overwrite the saved project configuration merely to run a slice.
+  Neo's [slicing pipeline](../packages/slicer-wasm/src/bridge_slicing_pipeline.cpp)
+  instead applies a composed configuration to Print and materializes derived
+  results without copying computed maps back into Plate inputs. Section 14.1.3
+  preserves that separation; the Orca GUI writeback is not adopted.
+- [PresetBundle](../packages/slicer-wasm/cpp/src/libslic3r/PresetBundle.cpp)
+  and the [3MF reader/writer](../packages/slicer-wasm/cpp/src/libslic3r/Format/bbs_3mf.cpp)
+  retain project-global mapping in `Metadata/project_settings.config` and
+  Plate-local mapping in Plate metadata. Ordinary project loading restores
+  global mapping options. Published-project loading has a separate restricted
+  import policy; it must not be assumed to restore the same author settings.
+- Orca stores feeder counts in `PresetBundle::extruder_ams_counts` and injects
+  them into its ordinary full configuration. Neo's
+  [effective configuration assembler](../packages/slicer-wasm/src/bridge_preset_drafts.cpp)
+  calls the static constructor without that independent member. A new editor
+  must establish an explicit path from its authoritative capacity state to
+  slicing, persistence and history.
+- [ToolOrdering](../packages/slicer-wasm/cpp/src/libslic3r/GCode/ToolOrdering.cpp)
+  includes a non-Bambu fixed-mapping branch in automatic grouping.
+  [FilamentGroupUtils](../packages/slicer-wasm/cpp/src/libslic3r/FilamentGroupUtils.cpp)
+  and the grouping implementation also contain two-extruder assumptions.
+  Removing a UI brand check alone does not establish generic automatic
+  grouping for arbitrary extruder counts.
+- Orca sums slots-per-unit times unit-count into each extruder's capacity,
+  with an external-single-filament fallback when that sum is zero. Automatic
+  grouping uses that capacity, but some paths prefer capacity-respecting
+  solutions and others relax the limit when total capacity is insufficient.
+  Ordinary single-nozzle-per-extruder Manual mode constructs the result from
+  the user's map directly. Capacity is therefore not universally a hard limit
+  on successful slicing, nor an assignment to actual feeder slots.
+
+### 14.3 Proposed implementation direction
+
+The existing native mapping fields, grouping entry point and Plate settings
+make this extension feasible without introducing a second slicing engine or
+printer-provider dependency. The missing work is the shared editing contract,
+capacity state ownership and end-to-end configuration composition. Generic
+automatic grouping remains outside scope; manual higher-head-count behavior
+must still be proven by the fixtures in section 14.5.
+
+Keep authoritative inputs in the C++/WASM session. The shared component consumes
+typed native projections and dispatches commands through the runtime/client
+boundary. Use the effective printer configuration for eligibility and target
+enumeration. Do not conflate the existing flexible-rack capability with SEMM
+plus multiple physical extruders, and do not hard-code a left/right pair in
+the public model.
+
+The recommended editor contract identifies a stable Plate target, its effective
+values, available choices and native diagnostics. The shared React editor
+belongs in the existing Plate Properties area and uses the current selection
+without coupling mapping to object selection. Render the accepted material-row
+layout with one target-nozzle dropdown per used filament. Reuse the existing
+upper Multi. nozzle selector for global capacity editing. Immediate commands
+retain their captured target, and React must not
+become a second authoritative project configuration.
+The pre-slice dialog reuses this component with temporary editing and one
+atomic confirmation command, rather than dispatching its edits immediately.
+
+The native projection needs feature eligibility, physical nozzle identities,
+available modes and their reasons, the target Plate's saved/effective mode and
+maps, native-used filament IDs, project-global capacities, diagnostics and the
+revision required for mutation. Keep eligibility for SEMM plus multiple
+extruders separate from eligibility for automatic grouping. Application code
+uses typed runtime/client operations for Plate mode, Plate mapping and global
+capacity changes. A dialog confirmation sends one completed change set for
+native validation and commit, followed by slicing the committed revision.
+
+Use project-owned native capacity state with preference seeding from section
+14.1.4, including it in the existing history root. The proposed representation
+uses the standard `extruder_ams_count` field as its only mutable project owner.
+Decode imported feeder entries to total slots; expose only those totals to the
+UI. A canonical entry such as `1#N` represents capacity N to the native sum,
+not N discovered physical devices. Empty/zero supply has the one-slot external
+fallback. This preserves the standard format without a Neo-private 3MF member
+or a second editable feeder inventory.
+
+Extend ordinary project restoration and secure save composition to carry that
+field, without widening the published-project allowlist. Inject the same
+project value into Neo's static full-config assembly; do not rely on the
+desktop GUI's separate PresetBundle member. Validate numeric conversion and
+arithmetic before publication. Round-trip tests must demonstrate equal effective
+capacities in Neo and native Orca rather than preservation of feeder decomposition.
+
+Plate map/mode inputs remain in Plate settings and standard Plate metadata.
+Resolve a Plate's effective mapping before material/flow expansion and apply
+its mode and maps to the temporary slicing config consistently. A missing local
+map may still resolve through the preserved native project fields; the first
+edit writes a complete valid Plate mapping, preserving entries not shown by
+the used-filament filter. Do not copy auto-generated Print mappings back into
+either input owner or serialize them in place of retained manual intent.
+
+Mapping mutations must follow the existing transaction, revision, history and
+result-invalidation contracts. Resolve the effective target mapping before
+dependent extruder/variant configuration expansion. Slot addition, deletion,
+merge, printer changes and flow changes need a consistent mapping transition
+policy. Apply section 14.1.3 through native transitions, reusing existing
+diameter/flow compatibility and normalization rather than adding renderer-side
+replacement rules. Update native producers, the typed client/runtime contract,
+consumer projections and fixtures together. Implement and verify state/history
+and configuration composition before wiring the shared editor and pre-slice
+dialog; qualify the complete flow with actual native slicing and 3MF round trips.
+
+### 14.4 Existing integration contracts retained
+
+The [shared Prepare/Preview workspace](Workspace%20Prepare%20and%20Preview%20Modes.md)
+keeps the sidebar mounted and editable in both modes. The mapping editor follows
+that rule. Invalidating the visible result clears its preview without navigating
+away; changing a mapping does not add eager auto-slicing. Manual confirmation
+applies to an actual slice request, including the existing Preview-entry request
+when no valid result exists, not to viewing an already valid result. Cancel
+must not be bypassed by an automatic retry of the pending request.
+
+Follow the lifecycle and history contracts in sections 10.6 and 11.2. A real
+Plate map/mode edit invalidates that Plate's result; a global capacity edit
+invalidates all Plate results. Shared material and printer operations retain
+their existing invalidation scope. Invalidating an affected in-flight job
+cancels it. A failed or stale command publishes no partial edit or history
+entry, and a no-op confirmation can slice without creating a spurious edit.
+
+Ordinary project save/load must round-trip retained mapping inputs, Plate modes
+and effective total capacities using the standard native project fields and
+Plate metadata. Preserve project fallback fields without a global editor, and
+apply the existing post-load length/default normalization from section 11.1.
+The mode-specific normalization in section 14.1.4 remains distinct from those
+mapping-vector repairs. Derived automatic results never replace editable inputs.
+
+The [3MF import policy](3MF%20Project%20Persistence.md) remains authoritative:
+geometry-only import retains the current project's configuration, and published
+imports retain their native restricted option policy. Do not apply ordinary
+project restoration indiscriminately to either path or introduce a new import
+choice. Existing native printer, diameter and flow validation remains in effect;
+warning-only slot capacity does not weaken unrelated slicing errors.
+
+### 14.5 Verification boundary
+
+Implementation acceptance must prove behavior with native inputs and actual
+slicing, not only component state. Required risk coverage includes H2D,
+single-extruder SEMM, fixed multi-extruder printers and a synthetic non-Bambu
+SEMM multi-extruder fixture to detect brand coupling. Include a higher-count
+manual fixture and prove unavailable automatic modes cannot be invoked.
+Verify that unsupported Auto For Flush modes remain visible with a reason
+within the eligible feature scope until explicitly changed, and that printers
+outside that scope hide only the new controls without gaining a slicing blocker.
+Imported Nozzle Manual fixtures must prove that viewing preserves data and
+the first mapping edit converts to Manual atomically, with Undo restoring the
+original state. They do not imply a new sub-nozzle editor. Imported Auto For
+Match must remain intact until explicit user selection and cannot be sliced
+while unavailable.
+
+Cover native project/Plate fallback compatibility and Plate ownership, isolation between Plates,
+invalid/stale commands, slot/topology changes, feeder capacity semantics,
+Undo/Redo, 3MF round-trip and the resulting native extruder/variant assignments.
+Exercise both Properties tabs, synchronization with the slice-mode dropdown,
+and captured-target behavior when changing the selected Plate. Prove that
+paint/support usage is included in the material rows, unused project materials
+are omitted, and row-level nozzle choices are independent of the upper Multi.
+selection. Capacity edits must target the selected physical nozzle and retain
+their project-global ownership when switching Plates.
+Verify automatic-to-manual transitions preserve manual intent without copying
+automatic results into editable inputs or introducing a second backup. Cover
+first manual initialization with no prior mapping, warning-only capacity excess,
+the minimum capacity of one and topology repair that preserves valid targets.
+Undo must restore the topology and repaired mappings together.
+Cover default mappings on material addition, preservation of surviving maps on
+deletion, per-Plate destination mappings on merge and nozzle-change impact
+notices. Preset-switch Undo must restore capacities together with the printer
+and affected mappings; project loading must retain saved capacity precedence.
+Cover project capacity precedence over remembered values, the one-slot fallback,
+new-Plate mode capability selection and import normalization of missing/Default
+modes without rewriting other saved modes or existing mapping fields.
+Exercise both immediate Sidebar edits and temporary pre-slice dialog edits.
+Prove cancel leaves inputs unchanged and does not slice, confirmation commits
+atomically before slicing, stale targets cannot be redirected, and capacity
+warnings do not block. Cover safe numeric boundaries without hardware-specific
+capacity caps.
+Include Preview-triggered manual slicing and verify cancel does not immediately
+reopen the dialog. Prove the standard 3MF capacity encoding round-trips its
+effective totals, imported fallback mappings retain their meaning, and geometry
+or published imports preserve their existing configuration boundaries.
+The shared Electron/Web boundary remains unchanged; no printer connection is
+needed. Mobile product support remains deferred under the shared architecture;
+the editor must remain scrollable and keyboard-operable. Performance impact
+should be bounded to small topology/material projections and existing native
+slice work, without renderer-side grouping or continuous device polling.
+
+Select build, host and WASM checks using the existing
+[testing guidelines](../doc/testing_guidelines.md). This design-only extension
+does not claim any of those product checks have passed.
