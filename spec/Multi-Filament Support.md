@@ -956,6 +956,8 @@ configuration. Prepare dimensions remain estimates; Preview renders toolpaths.
 **Status:** Design clarified; implementation pending, 2026-10-25. Section 14.1
 records accepted product decisions; section 14.3 describes the implementation
 direction and section 14.4 preserves existing integration contracts.
+Section 14.6 defines independently verifiable implementation steps; all remain
+planned until their acceptance evidence is recorded.
 No implementation or new release qualification is claimed.
 Existing delivered behavior elsewhere in this specification remains
 authoritative until the extension is implemented and verified.
@@ -1383,3 +1385,202 @@ slice work, without renderer-side grouping or continuous device polling.
 Select build, host and WASM checks using the existing
 [testing guidelines](../doc/testing_guidelines.md). This design-only extension
 does not claim any of those product checks have passed.
+
+### 14.6 Implementation and acceptance steps
+
+Each step is a complete reviewable change with its own acceptance gate, not an
+instruction to expose unfinished controls. Steps 1–4 are independently testable
+through the native bridge/runtime without a mapping UI. Steps 5–6 expose the
+accepted interactions only after their backend dependencies pass. Completing a
+step does not claim delivery of the whole feature; section 14.5 remains the
+overall acceptance boundary. All steps below are planned, not delivered.
+
+| Step | Deliverable | Depends on | Acceptance evidence |
+| --- | --- | --- | --- |
+| 1 | Native capability and read-only mapping projection | Existing project/Plate contracts | Native projection fixtures and typed client/runtime checks |
+| 2 | Atomic mapping/capacity edits, history and lifecycle transitions | 1 | Real-WASM mutation, rejection and Undo/Redo harness |
+| 3 | Effective Plate configuration in real slicing | 2 | Native slice/G-code assignments and input/result isolation |
+| 4 | Standard 3MF persistence and per-preset capacity memory | 2; uses 3 for reopen-and-slice acceptance | Archive/native round-trip, preference precedence and history checks |
+| 5 | Shared mapping component and Sidebar surfaces | 3, 4 | Component tests and focused Sidebar journey using the runtime |
+| 6 | Editable confirmation on every manual slice request | 5 | Dialog transaction and Slice/Preview lifecycle tests |
+| 7 | Integrated feature qualification and delivery documentation | 1–6 | Cross-layer acceptance matrix in section 14.5 |
+
+Steps 3 and 4 can be developed separately after step 2; step 4's final gate
+uses the verified slicing path from step 3. Keep each step in a separate
+reviewable commit or small cohesive commit series. If a step changes the Orca
+submodule, validate and commit that source change on `dev/orcaslicerneo-wasm`
+before deliberately updating the superproject pin. Update producers, consumers,
+mocks and type fixtures together rather than staging incompatible API versions.
+Every implementation gate also includes the applicable Level 2 checks from
+[testing guidelines](../doc/testing_guidelines.md), including an affected-variant
+quick build when bridge/native code changes. The gates below name the additional
+behavior each step must prove, not exemptions from those baseline checks.
+
+#### Step 1 — Native capability and read-only projection
+
+**Deliverable:** Define the projection and codec boundary in the native bridge,
+typed client and runtime. Report feature eligibility separately from automatic
+mode availability; expose physical nozzle identities, Plate identity/revision,
+saved and effective mode/maps, native-used material IDs, capacity totals and
+diagnostics. Decode the existing native capacity format safely without adding
+a mutable renderer owner or exposing feeder decomposition. Establish reusable
+fixture builders for subsequent steps.
+
+**Acceptance:** Real native queries distinguish H2D, single-extruder SEMM,
+fixed multi-extruder, synthetic non-Bambu SEMM multi-extruder and higher-head-count
+fixtures. The synthetic configurations are test fixtures, not an expansion of
+the preset editor's supported combinations. Paint/support usage is included;
+unused materials are omitted only from the editor projection, not deleted from
+the underlying maps. Queries preserve project state, history and result validity.
+Unsupported automatic modes have native reasons, and projection/serialization
+does not assume exactly two nozzles. Reading another Plate cannot reuse stale
+selected-Plate data.
+
+**Gate:** Focused native projection harness plus affected client/runtime tests
+and typechecks. No mapping controls or edit commands are delivered by this step.
+
+#### Step 2 — Atomic edits, history and lifecycle transitions
+
+**Deliverable:** Establish the project-owned capacity input and native commands
+for Plate mode, a complete Plate mapping change set and selected-nozzle capacity.
+Route them through the current client/runtime contract. Implement validation,
+revision guards, dirty state, result invalidation and atomic Undo/Redo. A mapping
+change set is the same mutation boundary used later by immediate Sidebar edits
+and deferred dialog confirmation. Add mode-retention, Nozzle Manual conversion,
+new-Plate defaults, material addition/deletion/merge, removed-target repair and
+printer/flow transition handling. Preference restoration itself is step 4.
+
+**Acceptance:** A real edit creates one history entry; a no-op or rejected edit
+creates none. Stale/deleted Plate targets, invalid nozzle IDs, malformed map
+lengths and unsafe capacity values leave inputs unchanged. Capacity excess
+warns without rejecting valid edits. Unshown material entries and other Plates'
+maps survive a local edit. Automatic mode retains manual intent; the first
+actual Nozzle Manual mapping edit converts atomically and Undo restores it.
+Add/delete/merge and nozzle removal follow section 14.1.3, including linked flow
+repair and impact notices. Local edits invalidate only their Plate; global
+capacity edits invalidate all Plates and cancel only affected running jobs.
+
+**Gate:** Real-WASM command/history harness plus affected package tests and
+typechecks. Compare complete before/after input snapshots on rejection and
+Undo/Redo; projection assertions alone do not prove atomic restoration.
+
+#### Step 3 — Plate-aware slicing and result isolation
+
+**Deliverable:** Feed the same authoritative capacity state into full-config
+composition and resolve effective Plate mapping before material/flow expansion.
+Apply the target Plate's mode/maps to the temporary Print configuration. Reject
+unavailable automatic modes for eligible printers before processing; retain
+existing behavior outside feature scope. Preserve the separation between
+editable inputs and automatic slice results.
+
+**Acceptance:** A two-Plate fixture assigns the same used materials to different
+nozzles and produces the expected extruder/variant assignments for each Plate.
+Check native results and actual extruding G-code tool usage, not only the config
+sent to Print. Prove generic manual slicing on the synthetic non-Bambu and
+higher-head-count fixtures, along with the unchanged single-extruder/fixed-tool
+paths. Prove capacity reaches automatic grouping without treating it as a hard
+manual slicing limit. After automatic slicing, input snapshots and manual maps
+remain unchanged, and switching back to Manual restores the original intent.
+
+**Gate:** An affected-variant quick build and focused real slicing harness;
+affected client/runtime tests and typechecks. Capture source/artifact identity
+with evidence so a stale WASM build cannot count as acceptance.
+
+#### Step 4 — 3MF persistence and remembered capacities
+
+**Deliverable:** Extend ordinary project save/load to retain Plate mode/maps and
+the standard capacity field, including existing native fallback inputs and
+post-load normalization. Implement per-printer-preset capacity memory, the
+one-slot default, project-value precedence and explicit preset-switch restoration.
+Keep capacity restoration inside the existing preset-switch transaction and
+history. Retain the native published/geometry-only import boundaries.
+
+**Acceptance:** Save a project with different Plate mappings, reopen it and use
+step 3 to reproduce the expected tool assignments. Check standard archive fields
+and a native Orca read/save comparison for effective capacities, without requiring
+feeder-decomposition preservation. Imported missing/Default modes normalize to
+Auto For Flush; other modes and mapping data follow section 14.1.4. Switching
+presets restores the target's memory/default; opening a saved project overrides
+memory; Undo restores the prior project capacities with the preset transition.
+No Neo-private 3MF mapping member is introduced. Automatic slicing followed by
+save/reopen retains manual input intent. Geometry-only and published import
+fixtures prove their existing configuration exclusions remain effective.
+
+**Gate:** Focused real-WASM persistence/preference/history harness, native archive
+comparison and affected package tests/typechecks. Report any unavailable native
+comparison as unverified; a JS mock round-trip is not a replacement.
+
+#### Step 5 — Shared component and Sidebar editing
+
+**Deliverable:** Implement the shared mode/mapping component and mount it in
+Plates Properties: Settings first, Filament Mapping second. Add the current-Plate
+mode selection to the slice dropdown. Add capacity editing to upper Multi.,
+reusing its nozzle selector. Sidebar changes commit immediately through step 2.
+Use only native capabilities and diagnostics; preserve current Prepare/Preview
+sidebar lifetime and target selection. The same component must support temporary
+controlled values for step 6 without introducing an authoritative project store.
+
+**Acceptance:** Mode selectors stay synchronized; only Manual/Nozzle Manual
+shows the material editor. Each native-used filament has an independent target
+dropdown, unrelated to the upper nozzle selection. Capacity edits affect the
+selected physical nozzle globally. Outside feature scope, only the new controls
+hide. Imported unavailable modes remain identifiable with a corrective mode
+choice. Plate/tab changes preserve committed edits and reject stale commands.
+Preview edits clear invalid results without navigation or eager slicing. Undo
+restores visible values, and rendered choices cannot be supplied by mock-only
+state absent from the native projection.
+
+**Gate:** Shared component tests, affected package tests/typechecks and one
+focused primary-host Sidebar journey. Add a real-runtime check for projection
+and mutation wiring; component mocks alone do not qualify the backend. The
+feature is not complete until step 6 adds mandatory manual-slice confirmation.
+
+#### Step 6 — Editable confirmation and slice orchestration
+
+**Deliverable:** Reuse the component in a temporary editing dialog before every
+eligible Manual/Nozzle Manual slice request. Route explicit Slice and existing
+Preview-entry slicing through the same confirmation flow. Confirm validates and
+commits one change set, then slices that exact committed Plate revision. Cancel
+discards temporary edits. Prevent duplicate requests and prevent an automatic
+retry from bypassing cancellation. The dialog does not create a second mapping
+command format or a separate backend state owner.
+
+**Acceptance:** Opening, changing temporary values and canceling leave native
+inputs/history untouched and start no slice. Confirm produces one atomic edit
+and one slice using the chosen mapping; unchanged confirmation adds no spurious
+history entry. An unchanged Nozzle Manual mode stays intact. Capacity warnings
+allow confirmation. Validation failure, a changed/deleted target, or a mutation
+between commit and slice cannot start a job using stale or another Plate's
+configuration. Preview-triggered cancellation does not immediately reopen the
+dialog; viewing an existing valid preview does not prompt. Automatic modes do
+not enter the manual dialog, and unavailable modes cannot bypass their guard.
+
+**Gate:** Component/orchestrator tests and focused Slice/Preview E2E, with native
+job/result evidence for confirm/cancel and revision binding. Reuse step 3's
+output checks to prove the confirmed map reaches actual slicing.
+
+#### Step 7 — Integrated qualification and delivery status
+
+**Deliverable:** Complete the section 14.5 acceptance matrix against current
+artifacts and remove any temporary integration scaffolding. Exercise the full
+journey: select printer, set capacity, configure two Plates, confirm manual
+slicing, inspect tools, Undo/Redo, save/reopen and reslice. Include automatic-to-
+manual transitions and imported special modes. Update delivered-status language
+only after evidence supports it; update Grand Plan only if milestone status
+actually changes.
+
+**Acceptance:** All earlier gates have concrete results, and the cross-layer
+journey covers both normal behavior and the failure cases that cannot be proven
+within a single step. Report Electron/Web and threaded/serial evidence separately;
+do not equate a mock UI journey with native slicing or a primary-host pass with
+all-host qualification. No printer account, live device or send-time AMS mapping
+is required for this feature's acceptance.
+
+**Gate:** Apply [testing guidelines](../doc/testing_guidelines.md) Level 3 for
+implementation handoff: repository tests/typechecks, both WASM quick builds,
+comprehensive bridge coverage on one variant and variant-specific smoke on the
+other, the primary shared UI journey and affected host seams. Because this
+feature crosses real WASM composition, include real Web integration coverage.
+Use Level 4 for release/milestone acceptance rather than repeating the complete
+release matrix at every step. Record exact commands, source/artifact identity,
+results and intentionally unrun checks in the implementation handoff.
