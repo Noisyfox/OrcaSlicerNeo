@@ -1,3 +1,6 @@
+import { useNozzleMapping } from './nozzleMapping/useNozzleMapping';
+import { useMappingCommit } from './nozzleMapping/NozzleMappingControls';
+import { mappingModeLabel } from './nozzleMapping/NozzleMappingEditor';
 // packages/slicer-app/src/components/workspace/SliceButton.tsx
 import { useEffect, useState } from 'react';
 import { Download, Send as SendIcon, Printer, LoaderCircle, X } from 'lucide-react';
@@ -27,6 +30,8 @@ export function SliceButton({ activeTab = 'home', onNavigateToDevice, onSlice }:
   onSlice?: () => Promise<void>;
 } = {}) {
   const platform = usePlatform();
+  const mapping = useNozzleMapping(isWorkspaceTab(activeTab));
+  const mappingEdit = useMappingCommit(mapping.snapshot, mapping.revision);
   const status = useSlicerStore((s) => s.status);
   const progress = useSlicerStore((s) => s.progress);
   const percent = Math.round(Math.max(0, Math.min(100, Number.isFinite(progress) ? progress : 0)));
@@ -37,6 +42,7 @@ export function SliceButton({ activeTab = 'home', onNavigateToDevice, onSlice }:
   const [cancelling, setCancelling] = useState(false);
   useEffect(() => { if (!busy) setCancelling(false); }, [busy]);
   const [exporting, setExporting] = useState(false);
+  const [outputMenuOpen, setOutputMenuOpen] = useState(false);
   const [outputMode, setOutputMode] = useState<OutputMode>('export');
   const [sendAction, setSendAction] = useState<SendGcodeAction | null>(null);
   const showActions = isWorkspaceTab(activeTab);
@@ -75,8 +81,11 @@ export function SliceButton({ activeTab = 'home', onNavigateToDevice, onSlice }:
           <LoaderCircle className="size-3.5 animate-spin group-hover:hidden group-focus-visible:hidden" />
           <X className="hidden size-4 group-hover:block group-focus-visible:block" />
         </Button>
-      </ButtonGroup> : <Select value={outputMode} onValueChange={(value) => {
+      </ButtonGroup> : <Select open={outputMenuOpen} onOpenChange={setOutputMenuOpen} value={String(outputMode)} onValueChange={(value) => {
+          setOutputMenuOpen(false);
           if (value === 'export' || value === 'send' || value === 'send-and-print') setOutputMode(value);
+          if (value === 'mapping:0' || value === 'mapping:2')
+            void mappingEdit.commit({ kind: 'mode', mode: value === 'mapping:0' ? 0 : 2 });
         }} disabled={busy || restoring || exporting}>
           <ButtonGroup aria-label="Slice and G-code output" className="gap-0.5 [&>[data-slot]]:rounded-md!">
             <Button variant="default" className="w-[150px] justify-start" disabled={actionDisabled} onClick={executeOutput} title={actionDescription} aria-label={actionDescription} data-testid={hasCompletedResult ? `btn-${outputMode}` : 'btn-slice'}>
@@ -85,6 +94,14 @@ export function SliceButton({ activeTab = 'home', onNavigateToDevice, onSlice }:
             <SelectTrigger variant="action" className="size-7! shrink-0" aria-label="Choose G-code output mode" data-testid="output-mode-select" />
           </ButtonGroup>
           <SelectContent side="bottom" align="end" className="min-w-44">
+            {mapping.snapshot?.eligible && <SelectGroup>
+              <div className="px-2 py-1 text-xs text-muted-foreground">Slicing mode</div>
+              {mapping.snapshot.modes.filter(m => m.mode === 0 || m.mode === 2 || m.mode === 1 && mapping.snapshot?.effective.mode === 1).map(m =>
+                <SelectItem key={m.mode} value={`mapping:${m.mode}`} disabled={mappingEdit.disabled || !m.available} title={m.reason || undefined}>
+                  {mappingModeLabel(m.mode)}{(mapping.snapshot!.effective.mode === m.mode || m.mode === 2 && mapping.snapshot!.effective.mode === 3) ? ' ✓' : ''}
+                  {!m.available ? ' (unavailable)' : ''}
+                </SelectItem>)}
+            </SelectGroup>}
             <SelectGroup>
               {(Object.keys(outputModes) as OutputMode[]).map((mode) => {
                 const Icon = outputModes[mode].icon;

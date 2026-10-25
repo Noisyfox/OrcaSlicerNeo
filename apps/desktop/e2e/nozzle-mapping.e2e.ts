@@ -1,0 +1,78 @@
+import { _electron } from './electron-fixture';
+import { test, expect } from '@playwright/test';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { openProjectMenu, waitForProjectLoad } from './project-menu';
+import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receipts';
+
+test('real nozzle mapping Sidebar keeps Plate ownership and global capacity edits undoable', async () => {
+  test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires real mapping 3MF and current WASM');
+  const root = resolve(__dirname, '../../..');
+  const variant = process.env.ORCA_E2E_MAPPING_VARIANT ?? 'serial';
+  const source = process.env.ORCA_E2E_MAPPING_PROJECT ?? '/tmp/neo-nozzle-mapping.3mf';
+  const hash = (file: string) => createHash('sha256').update(readFileSync(file)).digest('hex');
+  for (const file of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data'])
+    expect(hash(join(root, 'apps/desktop/out/renderer/wasm', variant, file))).toBe(hash(join(root, 'packages/slicer-wasm/out', variant, file)));
+  const directory = mkdtempSync(join(tmpdir(), 'neo-mapping-ui-'));
+  const preferences = join(directory, 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: { printer: 'Bambu Lab H2D 0.4 nozzle' },
+    projectLoadBehaviour: 'load_all', ui: { sidebarWidth: 340 } }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_MODEL: source,
+    ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300000 });
+    await page.locator('#app-tab-prepare').click();
+    await installSliceReceiptObserver(page, ['getNozzleMapping', 'mutateNozzleMapping', 'slicePlate']);
+    await openProjectMenu(page, app); await waitForProjectLoad(page);
+    if (await page.getByTestId('project-notice-dialog-close').isVisible()) await page.getByTestId('project-notice-dialog-close').click();
+    await expect.poll(async () => (await readSliceReceipts(page) as any[]).some(r => r.op === 'getNozzleMapping' && r.result?.eligible)).toBe(true);
+    await page.getByTestId('config-mode-plates').click();
+    await page.getByTestId('plate-properties-mapping').click();
+    await expect(page.getByTestId('mapping-mode')).toContainText('Manual');
+    await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 1');
+    await expect(page.getByTestId('mapping-filament-2')).toHaveCount(0);
+    await page.getByTestId('mapping-filament-1').click();
+    await page.getByRole('option', { name: 'Nozzle 2', exact: true }).click();
+    await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 2');
+    await expect(page.getByTestId('mapping-filament-1')).toBeEnabled();
+    await page.getByTestId('history-undo').click();
+    await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 1');
+    await page.getByTestId('history-redo').click();
+    await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 2');
+    await page.getByTestId('printer-tab-multi').click();
+    await page.getByTestId('toolhead-2').click();
+    const capacity = page.getByTestId('nozzle-capacity');
+    await expect(capacity).toHaveValue('4');
+    await capacity.fill('6'); await capacity.press('Enter');
+    await expect(capacity).toBeEnabled();
+    await expect.poll(() => Object.values(JSON.parse(readFileSync(preferences, 'utf8')).rememberedNozzleCapacities ?? {})).toEqual([[9, 6]]);
+    await page.getByTestId('output-mode-select').click();
+    await page.getByRole('option', { name: 'Auto For Flush', exact: true }).click();
+    await expect(page.getByTestId('mapping-mode')).toContainText('Auto For Flush');
+    await expect(page.getByTestId('mapping-materials')).toHaveCount(0);
+    await expect(page.getByTestId('output-mode-select')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('mapping-mode')).toBeEnabled();
+    await page.getByTestId('mapping-mode').click();
+    await page.getByTestId('mapping-mode-options').getByRole('option', { name: 'Manual', exact: true }).click();
+    await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 2');
+    await page.getByTestId('preview-plate-list').getByRole('option', { name: /^Plate 2,/ }).click();
+    await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 2');
+    await expect(page.getByTestId('mapping-filament-1')).toBeEnabled();
+    const receipts = await readSliceReceipts(page) as any[];
+    const edits = receipts.filter(r => r.op === 'mutateNozzleMapping' && r.direction === 'response');
+    expect(edits).toHaveLength(4);
+    expect(edits.every(r => r.result?.ok && r.result?.changed)).toBe(true);
+    expect(edits[0].result.plateSession.affectedPlateIds).toHaveLength(1);
+    expect(edits[1].result.plateSession.affectedPlateIds).toHaveLength(2);
+    expect(receipts.some(r => r.op === 'slicePlate')).toBe(false);
+    await page.screenshot({ path: join(directory, 'sidebar.png') });
+    console.log('native Sidebar mapping evidence', JSON.stringify({ variant, wasm: hash(join(root, 'packages/slicer-wasm/out', variant, 'orca_slice.wasm')), directory }));
+  } finally {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy()); await app.close();
+  }
+});

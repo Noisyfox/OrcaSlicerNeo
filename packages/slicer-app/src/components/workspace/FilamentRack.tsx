@@ -57,6 +57,7 @@ function ImpactDialog({ impact, onCancel, onConfirm }: {
         <p className="mt-2 text-xs text-muted-foreground" data-testid="filament-impact-summary">
           Slot {summary.slot} is referenced by {summary.assignmentCount} assignment{summary.assignmentCount === 1 ? '' : 's'} and {summary.mappingCount} native mapping{summary.mappingCount === 1 ? '' : 's'}.
           {summary.remapped ? ` References will be remapped to slot ${summary.destination}.` : ' References without a merge destination will fall back to Default.'}
+          {impact.kind === 'merge' && ' Each plate keeps the destination filament’s nozzle mapping.'}
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="outline" size="sm" data-testid="filament-impact-cancel" onClick={onCancel}>Cancel</Button>
@@ -204,7 +205,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
   function askOrRun(kind: 'delete' | 'merge', slot: number, destination: number | null) {
     if (!snapshot || !paintingCommandAllowed()) return;
     const summary = filamentImpactSummary(snapshot, slot, destination);
-    if (summary.assignmentCount > 0 || summary.mappingCount > 0) setImpact({ kind, summary });
+    if (kind === 'merge' || summary.assignmentCount > 0 || summary.mappingCount > 0) setImpact({ kind, summary });
     else void confirmMutation(kind, slot, destination);
   }
 

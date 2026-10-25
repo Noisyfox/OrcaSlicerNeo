@@ -1,3 +1,5 @@
+import { PlateNozzleMapping } from '../nozzleMapping/NozzleMappingControls';
+import { useNozzleMapping } from '../nozzleMapping/useNozzleMapping';
 import { editorSettingContext, printerNozzleCount, updateOptionStates } from './settingConditions';
 import { useOptionState, useOptionStateScope, useVisibleOptionCount, type OptionStateScope } from './optionStateRegistry';
 import {
@@ -292,6 +294,10 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
 }) {
   const platform = usePlatform();
   const mode = useSettingsStore((state) => state.configurationMode);
+  const mapping = useNozzleMapping(mode === 'plates');
+  const [plateTab, setPlateTab] = useState<'settings' | 'mapping'>('settings');
+  const showMapping = mapping.snapshot?.eligible === true;
+
   const printEditor=usePrintConfigEditor(platform,mode==='project');
   const printSelection=useConfigEditorSelection(printEditor.snapshot?.editorSelection??null,printEditor.entry);
   const selection = sceneInteraction?.selection;
@@ -665,8 +671,15 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       {mode === 'plates' ? <div data-testid="plate-options-section"
         className="flex min-h-0 shrink-0 flex-col gap-1 overflow-hidden"
         style={{ height: PLATE_OPTIONS_SECTION_HEIGHT, maxHeight: plateOptionsMaxHeight }}>
-        {optionsHeader}
-        {optionsBody}
+        {showMapping && <div role="tablist" aria-label="Plate properties" className="flex border-b px-2">
+          {(['settings', 'mapping'] as const).map(tab => <Button key={tab} variant="ghost" size="xs" role="tab"
+            aria-selected={plateTab === tab} data-testid={`plate-properties-${tab}`}
+            className={cn('min-w-0 flex-1 rounded-none border-b-2 border-transparent', plateTab === tab && 'border-primary')}
+            onClick={() => setPlateTab(tab)}>{tab === 'settings' ? 'Settings' : 'Filament Mapping'}</Button>)}
+        </div>}
+        {showMapping && plateTab === 'mapping' && mapping.snapshot
+          ? <div className="min-h-0 overflow-y-auto"><PlateNozzleMapping snapshot={mapping.snapshot} revision={mapping.revision} /></div>
+          : <>{optionsHeader}{optionsBody}</>}
       </div> : optionsBody}
     </section>
   );

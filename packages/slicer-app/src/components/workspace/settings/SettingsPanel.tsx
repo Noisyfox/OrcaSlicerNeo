@@ -1,3 +1,5 @@
+import { publishNozzleRepairNotice } from '../nozzleMapping/nozzleMappingNotices';
+import { NozzleCapacityInput } from '../nozzleMapping/NozzleMappingControls';
 import { useCommittedCallback, samePresetItems, PresetCombobox, type PresetComboItem } from '../PresetCombobox';
 import {
   commitProjectFlow,
@@ -164,6 +166,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
     unstable_batchedUpdates(() => {
       const status = projectHistoryStatus(transition.historyStatus);
       if (status.revision === transition.historyStatus.revision) {
+        const previousScoped = useSettingsStore.getState().nativeScopedConfig;
         const configurationMode = useSettingsStore.getState().configurationMode;
         useSettingsStore.getState().hydrateProfileSnapshot(transition.profileSnapshot);
         if (transition.mutation.kind === 'set-toolhead-diameter' || transition.mutation.kind === 'set-project-flow')
@@ -173,6 +176,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
         );
         if (scoped === 'refresh-required')
           throw new Error('Printer transition scoped configuration receipt was not accepted');
+        publishNozzleRepairNotice(previousScoped, useSettingsStore.getState().nativeScopedConfig,
+          (useSettingsStore.getState().values.nozzle_diameter?.split(',').length ?? 0));
         useFilamentSessionStore.getState().publish(transition.filamentSession);
         applyPlateSessionTransforms(transition.plateSession, glVolumeCollection.volumes);
         usePlateSessionStore.getState().setSnapshot(transition.plateSession);
@@ -389,6 +394,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             </Select>
             {flowSelect(activeToolhead, 'toolhead-flow-select', 'Toolhead flow type')}
           </div>
+          <NozzleCapacityInput key={activeToolhead} nozzle={activeToolhead + 1} disabled={controlsDisabled} />
         </div>}
       </div>
     </section>

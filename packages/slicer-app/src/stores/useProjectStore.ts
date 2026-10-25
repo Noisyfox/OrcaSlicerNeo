@@ -21,7 +21,7 @@ export interface ProjectPresetSelections {
 }
 
 export interface ProjectNotice {
-  kind: 'compatibility-fallback' | 'multi-plate' | 'embedded-presets' | 'bed-type-normalization';
+  kind: 'compatibility-fallback' | 'multi-plate' | 'embedded-presets' | 'bed-type-normalization' | 'nozzle-mapping-repair';
   message: string;
   details?: unknown;
 }
