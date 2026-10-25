@@ -956,11 +956,11 @@ configuration. Prepare dimensions remain estimates; Preview renders toolpaths.
 **Status:** Implementation in progress, 2026-10-25. Section 14.1
 records accepted product decisions; section 14.3 describes the implementation
 direction and section 14.4 preserves existing integration contracts.
-Section 14.6 defines independently verifiable implementation steps. Steps 1–5's
+Section 14.6 defines independently verifiable implementation steps. Steps 1–6's
 native projection, atomic edit commands, typed runtime boundary, Plate-aware
-slicing, 3MF persistence, remembered capacities and Sidebar editors are delivered.
-Steps 6–7 remain planned: mandatory manual-slice confirmation and integrated
-qualification are still required before this extension is complete.
+slicing, 3MF persistence, remembered capacities, Sidebar editors and mandatory
+manual-slice confirmation are delivered. Step 7's integrated qualification
+remains required before this extension is complete.
 Existing delivered behavior elsewhere in this specification remains
 authoritative until the extension is implemented and verified.
 

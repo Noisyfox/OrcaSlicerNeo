@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { NozzleMappingConfirmation } from './NozzleMappingConfirmation';
+import { mappingConfirmation } from './mappingConfirmation';
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -67,4 +69,22 @@ it('reports only native-confirmed removed-nozzle repairs across Plates', () => {
   const base = { project: {}, objects: {}, parts: {}, plates: { A: { filament_map: '3,2' }, B: { filament_map: '2,1' } } };
   publishNozzleRepairNotice(base, { ...base, plates: { A: { filament_map: '1,2' }, B: { filament_map: '2,1' } } }, 2);
   expect(useProjectStore.getState().notices[0].message).toContain('1 filament mapping entries');
+});
+
+
+it('confirmation discards its temporary edits on cancel and permits a warning-only no-op confirmation', async () => {
+  await render(<NozzleMappingConfirmation />);
+  const native = snapshot(); let answer!: Promise<readonly number[] | null>;
+  await act(async () => { answer = mappingConfirmation.request(native, 42); });
+  await choose('mapping-filament-3', 'Nozzle 3');
+  expect(native.effective.filamentMap).toEqual([1, 2, 1]);
+  await act(async () => (document.querySelector('[data-testid="mapping-cancel"]') as HTMLElement).click());
+  expect(await answer).toBeNull();
+  await act(async () => { answer = mappingConfirmation.request(native, 42); });
+  expect(document.body.textContent).toContain('You can still slice');
+  const confirm = document.querySelector('[data-testid="mapping-confirm"]') as HTMLButtonElement;
+  expect(confirm.disabled).toBe(false);
+  await act(async () => confirm.click());
+  expect(await answer).toEqual([1, 2, 1]);
+  expect(native.saved.mode).toBe(3);
 });

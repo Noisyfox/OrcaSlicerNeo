@@ -2507,8 +2507,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_mutate_nozzle_mapping(_request: string) {
       return opts.nozzleMappingMutation ?? { ok: false, errorCode: 'plate_not_found', error: 'No mapping fixture supplied' };
     },
-    orc_get_nozzle_mapping(_plateId: string) {
-      return opts.nozzleMapping ?? { ok: false, errorCode: 'plate_not_found', error: 'No mapping fixture supplied' };
+    orc_get_nozzle_mapping(plateId: string) {
+      if (opts.nozzleMapping) return opts.nozzleMapping;
+      if (!plateIds.includes(plateId)) return { ok: false, errorCode: 'plate_not_found', error: 'Plate no longer exists' };
+      return { ok: true, plateId, revision: plateInputRevisions[plateId] ?? 0, eligible: false,
+        nozzles: [{ id: 1, diameter: 0.4, capacity: 1 }], usedFilaments: [],
+        modes: [0, 1, 2, 3].map(mode => ({ mode, available: false, reason: 'Outside mapping feature scope' })),
+        saved: { mode: null, filamentMap: null, volumeMap: null, nozzleMap: null },
+        effective: { mode: 0, filamentMap: [1], volumeMap: [0], nozzleMap: [0] }, diagnostics: [] };
     },
     orc_select_filament_slot_preset(requestJson: string) {
       return filamentMutation(requestJson, 'select-preset');

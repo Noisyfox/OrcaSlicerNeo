@@ -14,7 +14,7 @@ describe('slice result publication', () => {
     useSlicerStore.getState().setPlateResult({ plateId: 'a', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' }, [], {});
     useSlicerStore.getState().activatePlateResult('a', 1);
     const receipt = { plateId: 'b', inputStamp: 2, resultGeneration: '1', sliceTaskId: '2' };
-    const runtime = { getPlateSessionSnapshot: vi.fn(async () => session),
+    const runtime = { getNozzleMapping: vi.fn(async (plateId: string) => ({ ok: true, eligible: false, revision: session.inputRevisions[plateId as 'a' | 'b'] })), getPlateSessionSnapshot: vi.fn(async () => session),
       slicePlate: vi.fn(async () => ({ ok: true, unrecognized_keys: [], receipt, summary: { estimatedTimeSeconds: 12 } })) };
     await Promise.all([sliceModel({ runtime } as never, 'b'), sliceModel({ runtime } as never, 'b')]);
     expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'b', inputRevision: 2 }, {}, expect.any(Function));
@@ -36,6 +36,7 @@ describe('slice result publication', () => {
       values: { wipe_tower_x: x, wipe_tower_y: '220', prime_tower_width: '25', modelPath: 'cube.stl' },
     });
     const runtime = {
+      getNozzleMapping: vi.fn(async () => ({ ok: true, eligible: false, revision: 7 })),
       getPlateSessionSnapshot: vi.fn(async () => ({
         instances: [], ok: true, currentPlateId: 'plate-1',
         plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], instanceIds: [1] }],
@@ -58,6 +59,7 @@ describe('slice result publication', () => {
       resolveSlice = resolve;
     });
     const runtime = {
+      getNozzleMapping: vi.fn(async () => ({ ok: true, eligible: false, revision: 7 })),
       getPlateSessionSnapshot: vi.fn(async () => ({
         instances: [],
         ok: true, currentPlateId: 'plate-1',
@@ -81,6 +83,7 @@ describe('slice result publication', () => {
     let resolveSlice!: (result: { ok: false; error: string }) => void;
     const terminal = new Promise<{ ok: false; error: string }>(resolve => { resolveSlice = resolve; });
     const runtime = {
+      getNozzleMapping: vi.fn(async () => ({ ok: true, eligible: false, revision: 7 })),
       getPlateSessionSnapshot: vi.fn(async () => ({
         instances: [], ok: true, currentPlateId: 'plate-1',
         plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], instanceIds: [1] }],
