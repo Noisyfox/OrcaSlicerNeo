@@ -10,7 +10,7 @@ closes it.
 
 **Status:** Delivered native rack, assignments, flushing editor, Prime Tower and history behavior.
 Section 14 records the accepted nozzle-mapping design. Its native read-only
-projection is delivered; editing, persistence extensions and UI remain pending.
+projection and atomic edit commands are delivered; slice integration, persistence extensions and UI remain pending.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -956,9 +956,9 @@ configuration. Prepare dimensions remain estimates; Preview renders toolpaths.
 **Status:** Implementation in progress, 2026-10-25. Section 14.1
 records accepted product decisions; section 14.3 describes the implementation
 direction and section 14.4 preserves existing integration contracts.
-Section 14.6 defines independently verifiable implementation steps. Step 1's
-native capability/usage/capacity projection and typed runtime boundary are
-delivered; steps 2–7 remain planned. This does not claim editor, slicing or
+Section 14.6 defines independently verifiable implementation steps. Steps 1–2's
+native projection, atomic edit commands and typed runtime boundary are
+delivered; steps 3–7 remain planned. This does not claim editor, slicing or
 release qualification for the extension.
 Existing delivered behavior elsewhere in this specification remains
 authoritative until the extension is implemented and verified.
@@ -1394,12 +1394,12 @@ instruction to expose unfinished controls. Steps 1–4 are independently testabl
 through the native bridge/runtime without a mapping UI. Steps 5–6 expose the
 accepted interactions only after their backend dependencies pass. Completing a
 step does not claim delivery of the whole feature; section 14.5 remains the
-overall acceptance boundary. Step 1 is accepted; steps 2–7 remain planned.
+overall acceptance boundary. Steps 1–2 are accepted; steps 3–7 remain planned.
 
 | Step | Deliverable | Depends on | Acceptance evidence |
 | --- | --- | --- | --- |
 | 1 — accepted | Native capability and read-only mapping projection | Existing project/Plate contracts | Native projection fixtures and typed client/runtime checks |
-| 2 | Atomic mapping/capacity edits, history and lifecycle transitions | 1 | Real-WASM mutation, rejection and Undo/Redo harness |
+| 2 — accepted | Atomic mapping/capacity edits, history and lifecycle transitions | 1 | Real-WASM mutation, rejection and Undo/Redo harness |
 | 3 | Effective Plate configuration in real slicing | 2 | Native slice/G-code assignments and input/result isolation |
 | 4 | Standard 3MF persistence and per-preset capacity memory | 2; uses 3 for reopen-and-slice acceptance | Archive/native round-trip, preference precedence and history checks |
 | 5 | Shared mapping component and Sidebar surfaces | 3, 4 | Component tests and focused Sidebar journey using the runtime |
@@ -1464,6 +1464,18 @@ capacity edits invalidate all Plates and cancel only affected running jobs.
 **Gate:** Real-WASM command/history harness plus affected package tests and
 typechecks. Compare complete before/after input snapshots on rejection and
 Undo/Redo; projection assertions alone do not prove atomic restoration.
+
+**Delivered boundary:** `mutateNozzleMapping` accepts a target Plate, project and
+Plate revisions, editing context and one mode/mapping/capacity change. Successful
+receipts publish the committed projection, history and affected Plate lifecycle;
+no-ops preserve history. Capacity is a native project-owned input, included in
+scoped history. The serial mutation harness verifies rejection and late-failure
+rollback, Nozzle Manual conversion, local/global invalidation, retained manual
+maps, material merge and removed-head repair with Undo/Redo. User-facing repair
+and merge-impact messages are delivered with the consuming UI in step 5.
+The serial projection harness, 710 client/runtime tests (four existing skips),
+and repository typechecks passed. Real slicing and archive qualification remain
+steps 3–4; no UI or dual-variant qualification is claimed here.
 
 #### Step 3 — Plate-aware slicing and result isolation
 

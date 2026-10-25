@@ -44,3 +44,31 @@ describe('nozzle mapping projection boundary', () => {
     expect(await client(value).getNozzleMapping('plate-a')).toEqual(value);
   });
 });
+
+describe('nozzle mapping mutation receipts', () => {
+  const context = { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] },
+    activePlateId: 'plate-a', gizmo: null, nativeScopedConfig: {} };
+  const request = { plateId: 'plate-a', revision: 0, plateRevision: 17,
+    change: { kind: 'mapping' as const, filamentMap: [2, 1, 3] } };
+  it('preserves a Nozzle Manual no-op without fabricating an invalidation', async () => {
+    const history = await client(fixture()).getHistoryStatus();
+    const c = createClient(async () => createMockModule({ nozzleMappingMutation: {
+      ok: true, changed: false, snapshot: fixture(), history_status: history,
+    } }));
+    expect(await c.mutateNozzleMapping(request, context)).toMatchObject({ ok: true, changed: false,
+      snapshot: { saved: { mode: 3 } }, historyStatus: { revision: 0 } });
+  });
+  it('rejects mismatched revision or incomplete publication and preserves native rejection', async () => {
+    const history = await client(fixture()).getHistoryStatus();
+    for (const receipt of [
+      { ok: true, changed: false, snapshot: fixture(), history_status: { ...history, revision: 2 } },
+      { ok: true, changed: true, snapshot: fixture(), history_status: { ...history, revision: 1 } },
+    ]) {
+      const c = createClient(async () => createMockModule({ nozzleMappingMutation: receipt }));
+      expect(await c.mutateNozzleMapping(request, context)).toMatchObject({ ok: false, errorCode: 'invalid_response' });
+    }
+    const failure = { ok: false, errorCode: 'stale_revision', error: 'Refresh inputs' };
+    const c = createClient(async () => createMockModule({ nozzleMappingMutation: failure }));
+    expect(await c.mutateNozzleMapping(request, context)).toEqual(failure);
+  });
+});

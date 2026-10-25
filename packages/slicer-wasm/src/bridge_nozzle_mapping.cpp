@@ -5,6 +5,8 @@
 #include "bridge_profiles.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_state.hpp"
+#include "bridge_history.hpp"
+#include "bridge_scoped_config.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -80,6 +82,15 @@ std::vector<int> decode_capacities(const DynamicPrintConfig& config, std::size_t
     return result;
 }
 
+void initialize_plate(DynamicPrintConfig& settings)
+{
+    const auto printer = PresetDrafts::effective_printer_config();
+    const auto* diameters = printer.opt<ConfigOptionFloats>("nozzle_diameter");
+    if (!diameters || diameters->size() < 2 || !printer.opt_bool("single_extruder_multi_material")) return;
+    const bool automatic = diameters->size() == 2 && state().presets.is_bbl_vendor();
+    settings.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(automatic ? fmmAutoForFlush : fmmManual));
+}
+
 json projection(const std::string& plate_id)
 {
     const auto* plate = PlateSession::find_plate(plate_id);
@@ -137,6 +148,136 @@ json projection(const std::string& plate_id)
         {"effective", {{"mode", effective_mode}, {"filamentMap", maps}, {"volumeMap", volumes}, {"nozzleMap", tips}}},
         {"diagnostics", diagnostics}};
 }
+namespace {
+json failure(const char* code, const std::string& message)
+{
+    return {{"ok", false}, {"errorCode", code}, {"error", message}};
+}
+int concrete_flow(std::size_t nozzle)
+{
+    const auto* flows = state().presets.project_config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
+    const int flow = flows && nozzle < flows->size() ? flows->get_at(nozzle) : int(nvtStandard);
+    return flow == nvtHybrid ? int(nvtStandard) : flow;
+}
+}
+
+json mutate(const json& request)
+{
+    auto& bridge = state();
+    if (!request.is_object() || !request.contains("plateId") || !request["plateId"].is_string() ||
+        !request.contains("revision") || !request["revision"].is_number_unsigned() ||
+        !request.contains("plateRevision") || !request["plateRevision"].is_number_unsigned() ||
+        !request.contains("history_context") || !request.contains("change") || !request["change"].is_object())
+        return failure("invalid_request", "Mapping target, revisions, change and history context are required");
+    const auto id = request["plateId"].get<std::string>();
+    const auto before = projection(id);
+    if (!before.value("ok", false)) return before;
+    if (request["revision"] != bridge.history_revision || request["plateRevision"] != before["revision"])
+        return failure("stale_revision", "Nozzle mapping inputs changed; refresh before editing");
+    if (!before["eligible"].get<bool>()) return failure("unavailable", "Requires SEMM and multiple extruders");
+    if (bridge.active_history_transaction || bridge.history_disabled)
+        return failure("history_unavailable", "Nozzle mapping requires an independent history transaction");
+    const auto context = HistoryMetadata::parse_history_context(request["history_context"].dump().c_str());
+    const auto& change = request["change"];
+    const auto kind = change.value("kind", "");
+    const auto count = before["effective"]["filamentMap"].size();
+    const auto nozzles = before["nozzles"].size();
+    auto* plate = PlateSession::find_plate_mutable(id);
+    auto candidate = plate->settings;
+    auto project = bridge.presets.project_config;
+    bool changed = false;
+    if (kind == "capacity") {
+        if (!change.contains("nozzle") || !change["nozzle"].is_number_unsigned() ||
+            change["nozzle"].get<std::uint64_t>() < 1 || change["nozzle"].get<std::uint64_t>() > nozzles ||
+            !change.contains("capacity") || !change["capacity"].is_number_unsigned() ||
+            change["capacity"].get<std::uint64_t>() < 1 || change["capacity"].get<std::uint64_t>() > std::numeric_limits<int>::max())
+            return failure("invalid_request", "Capacity requires a live nozzle and a positive native integer");
+        auto capacities = decode_capacities(project, nozzles);
+        const auto nozzle = change["nozzle"].get<std::size_t>() - 1;
+        changed = capacities[nozzle] != change["capacity"].get<int>();
+        capacities[nozzle] = change["capacity"].get<int>();
+        if (changed) {
+            std::vector<std::string> encoded;
+            for (int capacity : capacities) encoded.push_back("1#" + std::to_string(capacity));
+            project.set_key_value("extruder_ams_count", new ConfigOptionStrings(std::move(encoded)));
+        }
+    } else if (kind == "mode") {
+        if (!change.contains("mode") || !change["mode"].is_number_unsigned() || change["mode"].get<unsigned>() > 3)
+            return failure("invalid_request", "Unknown mapping mode");
+        const int mode = change["mode"].get<int>();
+        if (!before["modes"][mode]["available"].get<bool>()) return failure("unavailable", before["modes"][mode]["reason"]);
+        changed = before["effective"]["mode"] != mode;
+        if (changed) candidate.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode(mode)));
+    } else if (kind == "mapping") {
+        const int mode = before["effective"]["mode"].get<int>();
+        if (mode != fmmManual && mode != fmmNozzleManual) return failure("unavailable", "Choose Manual before editing assignments");
+        if (!change.contains("filamentMap") || !change["filamentMap"].is_array() || change["filamentMap"].size() != count)
+            return failure("invalid_request", "Mapping must contain every project filament");
+        for (const auto& target : change["filamentMap"])
+            if (!target.is_number_unsigned() || target.get<std::uint64_t>() < 1 || target.get<std::uint64_t>() > nozzles)
+                return failure("invalid_request", "Mapping targets an unavailable nozzle");
+        changed = change["filamentMap"] != before["effective"]["filamentMap"];
+        if (changed) {
+            auto maps = change["filamentMap"].get<std::vector<int>>();
+            auto volumes = before["effective"]["volumeMap"].get<std::vector<int>>();
+            auto tips = before["effective"]["nozzleMap"].get<std::vector<int>>();
+            for (std::size_t i = 0; i < count; ++i) if (maps[i] != before["effective"]["filamentMap"][i]) {
+                volumes[i] = concrete_flow(maps[i] - 1); tips[i] = 0;
+            }
+            candidate.set_key_value("filament_map", new ConfigOptionInts(std::move(maps)));
+            candidate.set_key_value("filament_volume_map", new ConfigOptionInts(std::move(volumes)));
+            candidate.set_key_value("filament_nozzle_map", new ConfigOptionInts(std::move(tips)));
+            candidate.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(fmmManual));
+        }
+    } else return failure("invalid_request", "Unknown mapping operation");
+    if (!changed) return {{"ok", true}, {"changed", false}, {"snapshot", before},
+        {"history_status", HistoryMetadata::history_status_json(bridge)}};
+
+    const auto before_project = bridge.presets.project_config;
+    const auto before_settings = plate->settings;
+    const auto before_metadata = plate->settings_metadata;
+    const auto before_revisions = bridge.plate_input_revisions;
+    const auto before_pending = bridge.pending_membership_instance_ids;
+    const auto before_lifecycle = bridge.plate_runtime_registry.capture_lifecycle();
+    const auto before_context = bridge.history_live_context;
+    const auto before_stamp = bridge.next_plate_input_stamp;
+    const auto predecessor = HistoryMetadata::canonical_history_context(bridge, context,
+        PlateSession::plate_session_snapshot_json(), Filament::State::history_state_json(bridge.presets));
+    if (!HistoryMetadata::begin_timestamped_operation(bridge, kind == "capacity" ? "Set Nozzle Capacity" : "Set Plate Filament Mapping", predecessor))
+        return failure("history_unavailable", "Could not capture mapping predecessor");
+    bool committed = false;
+    try {
+        bridge.presets.project_config = std::move(project);
+        plate->settings = std::move(candidate);
+        plate->settings_metadata = Filament::State::config_metadata_json(plate->settings);
+        const auto affected = kind == "capacity" ? PlateSession::all_plate_ids() : std::set<std::string>{id};
+        auto plates = PlateSession::configuration_mutation_snapshot(affected, {"nozzle-mapping"});
+        auto snapshot = projection(id);
+        if (!snapshot.value("ok", false)) throw std::runtime_error(snapshot.value("error", "Invalid mapping projection"));
+        auto scoped = ScopedConfig::native_scoped_config_full_transport(bridge.history_revision + 1);
+        const auto successor = HistoryMetadata::canonical_history_context(bridge, context, plates,
+            Filament::State::history_state_json(bridge.presets));
+        if (request.value("inject_failure_stage", "") == "before-publication") throw std::runtime_error("injected mapping publication failure");
+        if (!HistoryMetadata::commit_timestamped_operation(bridge, successor)) throw std::runtime_error("History rejected mapping mutation");
+        committed = true;
+        return {{"ok", true}, {"changed", true}, {"snapshot", std::move(snapshot)},
+            {"plate_session", std::move(plates)}, {"native_scoped_config", std::move(scoped)},
+            {"history_status", HistoryMetadata::history_status_json(bridge)}};
+    } catch (...) {
+        if (!committed) {
+            HistoryMetadata::abort_timestamped_operation(bridge);
+            bridge.presets.project_config = before_project;
+            plate->settings = before_settings; plate->settings_metadata = before_metadata;
+            bridge.plate_input_revisions = before_revisions;
+            bridge.pending_membership_instance_ids = before_pending;
+            bridge.next_plate_input_stamp = before_stamp;
+            bridge.plate_runtime_registry.restore_lifecycle(before_lifecycle);
+            bridge.history_live_context = before_context;
+            PrimeTower::invalidate_projection_cache();
+        }
+        throw;
+    }
+}
 } // namespace Slic3r::Neo::Bridge::NozzleMapping
 
 extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_nozzle_mapping(const char* plate_id)
@@ -151,4 +292,12 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_nozzle_mapping(const char* p
         return duplicate_json(nlohmann::json{{"ok", false}, {"errorCode", "native_exception"},
             {"error", "Unknown nozzle mapping projection failure"}}.dump());
     }
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_mutate_nozzle_mapping(const char* request)
+{
+    using namespace Slic3r::Neo::Bridge;
+    try { return Profiles::duplicate_json(NozzleMapping::mutate(nlohmann::json::parse(request ? request : "")).dump()); }
+    catch (const std::exception& error) { return Profiles::duplicate_json(nlohmann::json{{"ok", false}, {"errorCode", "invalid_request"}, {"error", error.what()}}.dump()); }
+    catch (...) { return Profiles::duplicate_json(nlohmann::json{{"ok", false}, {"errorCode", "native_exception"}, {"error", "Unknown mapping mutation failure"}}.dump()); }
 }

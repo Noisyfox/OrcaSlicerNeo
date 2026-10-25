@@ -1968,8 +1968,8 @@ void transition_printer_topology(const DynamicPrintConfig& printer,
         // Physical head IDs and material slot IDs have different dimensions.
         // Keep valid mappings; discard removed heads on every plate.
         const auto* actual_flow = bundle.project_config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
-        const int first_flow = actual_flow && !actual_flow->empty() && actual_flow->get_at(0) == int(nvtHighFlow)
-            ? int(nvtHighFlow) : int(nvtStandard);
+        const int first_flow = actual_flow && !actual_flow->empty() && actual_flow->get_at(0) != int(nvtHybrid)
+            ? actual_flow->get_at(0) : int(nvtStandard);
         auto repair_maps = [nozzles, count, first_flow](DynamicPrintConfig& config, const bool project) {
             for (const auto* key : {"filament_map", "filament_map_2"})
                 if (auto* map = config.option<ConfigOptionInts>(key))

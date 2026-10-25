@@ -1,3 +1,4 @@
+#include "bridge_nozzle_mapping.hpp"
 // ----------------------------------------------------------------
 // Runtime multi-plate/session implementation for the Neo bridge.
 // ----------------------------------------------------------------
@@ -176,6 +177,8 @@ void reset_plate_session_state()
     s.plate_input_revisions.clear();
     const auto plate_id = "plate-session-" + std::to_string(sequence) + "-plate-1";
     s.plate_session_plates.push_back({plate_id, "Plate 1", 0, Vec3d::Zero()});
+    NozzleMapping::initialize_plate(s.plate_session_plates.back().settings);
+    s.plate_session_plates.back().settings_metadata = Filament::State::config_metadata_json(s.plate_session_plates.back().settings);
     s.plate_input_revisions[plate_id] = 0;
     s.current_plate_id = plate_id;
     normalize_coordinate_arrays(s.presets.project_config, s.plate_session_plates.size());
@@ -927,6 +930,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
         const std::string id = "plate-session-plate-" + std::to_string(sequence);
         state().plate_session_plates.push_back({id, "Plate " + std::to_string(new_count), new_count - 1,
                                                 plate_origin_for_index(new_count - 1, new_count, bounds)});
+        Neo::Bridge::NozzleMapping::initialize_plate(state().plate_session_plates.back().settings);
+        state().plate_session_plates.back().settings_metadata = Neo::Bridge::Filament::State::config_metadata_json(state().plate_session_plates.back().settings);
         state().plate_input_revisions[id] = 0;
         adjust_plate_coordinate_arrays(0, false);
         for (size_t index = 0; index < state().plate_session_plates.size(); ++index) {

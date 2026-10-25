@@ -1,3 +1,6 @@
+import type { HistoryContext, HistoryStatus } from './history';
+import type { PlateSessionMutationResult, NativeScopedConfigTransport } from './types';
+
 /** Native enum values are part of the standard Orca 3MF contract. */
 export type NozzleMappingMode = 0 | 1 | 2 | 3;
 export interface NozzleMappingValues {
@@ -32,7 +35,26 @@ export interface NozzleMappingSnapshot {
 export type NozzleMappingResult = NozzleMappingSnapshot | {
   readonly ok: false; readonly errorCode: string; readonly error: string;
 };
+export type NozzleMappingChange =
+  | { readonly kind: 'mode'; readonly mode: NozzleMappingMode }
+  | { readonly kind: 'mapping'; readonly filamentMap: readonly number[] }
+  | { readonly kind: 'capacity'; readonly nozzle: number; readonly capacity: number };
+export interface NozzleMappingRequest {
+  readonly plateId: string;
+  readonly revision: number;
+  readonly plateRevision: number;
+  readonly change: NozzleMappingChange;
+}
+export type NozzleMappingMutationResult = Exclude<NozzleMappingResult, NozzleMappingSnapshot> | {
+  readonly ok: true;
+  readonly changed: boolean;
+  readonly snapshot: NozzleMappingSnapshot;
+  readonly historyStatus: HistoryStatus;
+  readonly plateSession?: Extract<PlateSessionMutationResult, { ok: true }>;
+  readonly nativeScopedConfig?: NativeScopedConfigTransport;
+};
 export interface NozzleMappingMethods {
+  mutateNozzleMapping(request: NozzleMappingRequest, context: HistoryContext): Promise<NozzleMappingMutationResult>;
   getNozzleMapping(plateId: string): Promise<NozzleMappingResult>;
 }
 
