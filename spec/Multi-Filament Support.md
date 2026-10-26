@@ -1041,6 +1041,10 @@ target. An in-flight edit remains bound to the Plate identity and revision
 captured when it was dispatched; it must never be redirected to the newly
 selected Plate. Retain the active Properties tab when selecting another Plate
 while that tab remains available; use Settings when mapping is hidden. With
+an eligible mapping already displayed, retain its layout as a disabled,
+read-only presentation while the newly selected Plate's projection loads;
+replace it when the response is current. Never temporarily switch to Settings
+or remove the project slot-capacity row just because that read is pending. With
 no valid target, use the existing empty Properties state and reject stale
 commands. These are local UI states, not Plate settings persisted in 3MF.
 

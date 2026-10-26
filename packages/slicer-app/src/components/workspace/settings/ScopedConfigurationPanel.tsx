@@ -678,7 +678,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
             onClick={() => setPlateTab(tab)}>{tab === 'settings' ? 'Settings' : 'Filament Mapping'}</Button>)}
         </div>}
         {showMapping && plateTab === 'mapping' && mapping.snapshot
-          ? <div className="min-h-0 overflow-y-auto"><PlateNozzleMapping snapshot={mapping.snapshot} revision={mapping.revision} /></div>
+          ? <div className="min-h-0 overflow-y-auto" aria-busy={mapping.revision === undefined}><PlateNozzleMapping snapshot={mapping.snapshot} revision={mapping.revision} /></div>
           : <>{optionsHeader}{optionsBody}</>}
       </div> : optionsBody}
     </section>

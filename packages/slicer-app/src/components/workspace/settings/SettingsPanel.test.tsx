@@ -363,6 +363,67 @@ describe('SettingsPanel preset transitions', () => {
     } finally { await act(async () => finish(mapping)); }
   });
 
+  it('keeps mapping and capacity mounted but read-only while another Plate loads', async () => {
+    resetStores();
+    useSettingsStore.setState({ configurationMode: 'plates', values: { nozzle_diameter: '0.4,0.4' } });
+    const transition = printerTransition() as Extract<PrinterTransitionResult, { ok: true }>;
+    const plates = { ...transition.plateSession, inputRevisions: { 'plate-1': 1, 'plate-2': 1 },
+      plates: [...transition.plateSession.plates, { ...transition.plateSession.plates[0], plateId: 'plate-2', displayIndex: 1 }] };
+    usePlateSessionStore.getState().setSnapshot(plates);
+    useHistoryNavigationStore.getState().setStatus(transition.historyStatus);
+    const mapping: NozzleMappingSnapshot = {
+      ok: true, plateId: 'plate-1', revision: 1, eligible: true,
+      nozzles: [{ id: 1, diameter: 0.4, capacity: 4 }, { id: 2, diameter: 0.4, capacity: 8 }],
+      usedFilaments: [1], modes: [{ mode: 0, available: true, reason: '' }, { mode: 2, available: true, reason: '' }], diagnostics: [],
+      saved: { mode: 2, filamentMap: [1], volumeMap: null, nozzleMap: null },
+      effective: { mode: 2, filamentMap: [1], volumeMap: [0], nozzleMap: [0] },
+    };
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    const getMapping = vi.fn(async (_plateId: string) => mapping);
+    const mutate = vi.fn();
+    Object.assign(runtime, { getNozzleMapping: getMapping, mutateNozzleMapping: mutate });
+    const { container, root } = await render(platform); roots.push(root);
+    await act(async () => (container.querySelector('[data-testid="printer-tab-multi"]') as HTMLElement).click());
+    await act(async () => (container.querySelector('[data-testid="plate-properties-mapping"]') as HTMLElement).click());
+    const editor = container.querySelector('[data-testid="nozzle-mapping-editor"]');
+    const input = container.querySelector<HTMLInputElement>('[data-testid="nozzle-capacity"]')!;
+    const row = container.querySelector<HTMLButtonElement>('[data-testid="mapping-filament-1"]')!;
+    let finish!: (value: NozzleMappingSnapshot) => void;
+    const pending = new Promise<NozzleMappingSnapshot>(resolve => { finish = resolve; });
+    getMapping.mockImplementation(() => pending);
+    try {
+      await act(async () => usePlateSessionStore.getState().setSnapshot({ ...plates, currentPlateId: 'plate-2' }));
+      expect(container.querySelector('[data-testid="nozzle-mapping-editor"]')).toBe(editor);
+      expect(container.querySelector('[data-testid="nozzle-capacity"]')).toBe(input);
+      expect(input.disabled).toBe(true);
+      expect(row.disabled).toBe(true);
+      const mode = container.querySelector<HTMLButtonElement>('[data-testid="mapping-mode-0"]')!;
+      expect(mode.disabled).toBe(true);
+      await act(async () => mode.click());
+      expect(mutate).not.toHaveBeenCalled();
+      const second = { ...mapping, plateId: 'plate-2', effective: { ...mapping.effective, filamentMap: [2] } };
+      await act(async () => finish(second));
+      expect(container.querySelector('[data-testid="nozzle-mapping-editor"]')).toBe(editor);
+      expect(input.disabled).toBe(false);
+      expect(row.disabled).toBe(false);
+      expect(row.textContent).toContain('Nozzle 2');
+      // A slow response from a Plate we have already left must not replace the
+      // current presentation, even if that response would hide the editor.
+      const late = new Promise<NozzleMappingSnapshot>(resolve => { finish = resolve; });
+      getMapping.mockImplementation(plateId => plateId === 'plate-1' ? late : Promise.resolve(second));
+      await act(async () => usePlateSessionStore.getState().setSnapshot(plates));
+      expect(row.disabled).toBe(true);
+      await act(async () => usePlateSessionStore.getState().setSnapshot({ ...plates, currentPlateId: 'plate-2' }));
+      await act(async () => finish({ ...mapping, eligible: false }));
+      expect(container.querySelector('[data-testid="nozzle-mapping-editor"]')).toBe(editor);
+      expect(row.textContent).toContain('Nozzle 2');
+      expect(row.disabled).toBe(false);
+      await act(async () => usePlateSessionStore.getState().reset());
+      expect(container.querySelector('[data-testid="nozzle-mapping-editor"]')).toBeNull();
+      expect(container.querySelector('[data-testid="nozzle-capacity"]')).toBeNull();
+    } finally { await act(async () => finish(mapping)); }
+  });
+
   it('applies a diameter selected in Multi to the selected U1 toolhead', async () => {
     resetStores();
     const snapshot: ProfileSnapshot = { ...initialSnapshot,

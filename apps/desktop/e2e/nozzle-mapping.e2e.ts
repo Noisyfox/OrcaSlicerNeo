@@ -87,9 +87,28 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
     await expect(page.getByTestId('mapping-mode-2')).toBeEnabled();
     await page.getByTestId('mapping-mode-2').click();
     await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 2');
-    await page.getByTestId('preview-plate-list').getByRole('option', { name: /^Plate 2,/ }).click();
-    await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 2');
-    await expect(page.getByTestId('mapping-filament-1')).toBeEnabled();
+    await page.evaluate(() => {
+      const editor = document.querySelector('[data-testid="nozzle-mapping-editor"]')!;
+      const capacity = document.querySelector('[data-testid="nozzle-capacity"]')!;
+      const multi = document.querySelector('#printer-multi-content')!;
+      const height = multi.getBoundingClientRect().height;
+      const gaps: string[] = [];
+      const observer = new MutationObserver(() => {
+        if (document.querySelector('[data-testid="nozzle-mapping-editor"]') !== editor) gaps.push('mapping replaced');
+        if (document.querySelector('[data-testid="nozzle-capacity"]') !== capacity) gaps.push('capacity replaced');
+        if (multi.getBoundingClientRect().height !== height) gaps.push('Multi height changed');
+        if (document.querySelector('[data-testid="plate-properties-mapping"]')?.getAttribute('aria-selected') !== 'true') gaps.push('mapping tab lost');
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      (window as any).__orcaPlateMappingLayout = () => { observer.disconnect(); return gaps; };
+    });
+    for (const plate of [2, 1, 2]) {
+      await page.getByTestId('preview-plate-list').getByRole('option', { name: new RegExp(`^Plate ${plate},`) }).click();
+      await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 2');
+      await expect(page.getByTestId('mapping-filament-1')).toBeEnabled();
+      await expect(capacity).toBeEnabled();
+    }
+    expect(await page.evaluate(() => (window as any).__orcaPlateMappingLayout())).toEqual([]);
     const receipts = await readSliceReceipts(page) as any[];
     const edits = receipts.filter(r => r.op === 'mutateNozzleMapping' && r.direction === 'response');
     expect(edits).toHaveLength(4);

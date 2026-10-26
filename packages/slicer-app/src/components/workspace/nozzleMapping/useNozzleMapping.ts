@@ -26,6 +26,10 @@ export function useNozzleMapping(enabled = true) {
     return () => { active = false; };
   }, [enabled, runtime, plateId, plateRevision, revision]);
   const current = enabled && loaded?.plateId === plateId && loaded?.plateRevision === plateRevision && loaded?.revision === revision;
-  return { snapshot: enabled && loaded && loaded.plateId === plateId ? loaded.snapshot : null,
+  // Keep the last presentation mounted while the next Plate is read. Only a
+  // matching Plate and both matching revisions grant an editable revision;
+  // the retained snapshot is display-only and cannot submit an old-Plate edit.
+  // An absent target still clears the projection immediately.
+  return { snapshot: enabled && plateId && loaded ? loaded.snapshot : null,
     error: current ? loaded?.error ?? null : null, revision: current ? revision : undefined };
 }
