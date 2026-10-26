@@ -4,7 +4,7 @@ import { unstable_batchedUpdates } from 'react-dom';
 import { publishRememberedNozzleCapacities } from '@/preferences';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
-import { projectFilamentPlateInputRevisions, useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { projectFilamentPlateInputRevisions } from '@/stores/useFilamentSessionStore';
 import { historyContextForStructure, projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
 import { enqueueConfigurationMutation, invalidateAfterSharedConfigurationMutation } from '../settings/configurationActions';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
@@ -32,14 +32,11 @@ export function commitNozzleMapping(
         projectFilamentPlateInputRevisions(result.historyStatus.revision, result.plateSession.inputRevisions);
       }
     });
-    if (result.changed) {
-      // The rack's mapping-impact projection is consumed by Delete/Merge too.
-      const rack = await platform.runtime.getFilamentSessionSnapshot();
-      if (!rack.ok) throw new Error('Mapping was committed, but its material projection could not be refreshed: ' + rack.error);
-      useFilamentSessionStore.getState().publish(rack);
-      if (change.kind === 'capacity')
-        await publishRememberedNozzleCapacities(platform.preferences, printer, result.snapshot);
-    }
+    // These commands change Plate maps/mode or feeder capacity, never rack
+    // contents, assignments, routing or flushing values. History publication
+    // advances the retained rack's command token without changing its identity.
+    if (result.changed && change.kind === 'capacity')
+      await publishRememberedNozzleCapacities(platform.preferences, printer, result.snapshot);
     return result;
   }));
 }

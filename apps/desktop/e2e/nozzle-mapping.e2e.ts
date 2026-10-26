@@ -32,7 +32,7 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
     await page.locator('#app-tab-prepare').click();
     expect(await page.evaluate(async () => (await (window as any).__orcaScopedConfigurationGate.execution()).threaded))
       .toBe(variant === 'threaded');
-    await installSliceReceiptObserver(page, ['getNozzleMapping', 'mutateNozzleMapping', 'slicePlate', 'exportGcodePlate']);
+    await installSliceReceiptObserver(page, ['getNozzleMapping', 'mutateNozzleMapping', 'getFilamentSessionSnapshot', 'getFlushingVolumes', 'slicePlate', 'exportGcodePlate']);
     await openProjectMenu(page, app); await waitForProjectLoad(page);
     await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e.projectLoadEvidence().receipt))
       .toMatchObject({ sourceDisplayName: basename(source), sourceByteLength: statSync(source).size,
@@ -44,10 +44,14 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
     await expect(page.getByTestId('mapping-mode-2')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 1');
     await expect(page.getByTestId('mapping-filament-2')).toHaveCount(0);
+    const beforeMapEdit = (await readSliceReceipts(page)).length;
     await page.getByTestId('mapping-filament-1').click();
     await page.getByRole('option', { name: 'Nozzle 2', exact: true }).click();
     await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 2');
     await expect(page.getByTestId('mapping-filament-1')).toBeEnabled();
+    const mapReads = (await readSliceReceipts(page) as any[]).slice(beforeMapEdit)
+      .filter(r => r.direction === 'request');
+    expect(mapReads.some(r => ['getFilamentSessionSnapshot', 'getFlushingVolumes'].includes(r.op))).toBe(false);
     await page.getByTestId('history-undo').click();
     await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 1');
     await page.getByTestId('history-redo').click();

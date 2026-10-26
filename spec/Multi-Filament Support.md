@@ -1325,6 +1325,12 @@ consumer projections and fixtures together. Implement and verify state/history
 and configuration composition before wiring the shared editor and pre-slice
 dialog; qualify the complete flow with actual native slicing and 3MF round trips.
 
+Mapping, mode and capacity edits preserve rack contents, assignments,
+routing and flushing values. Advance the retained filament projection's command
+and Plate revision tokens from the native receipt without rereading/publishing
+an unchanged complete rack. Actual rack/assignment changes retain their normal
+native projection publication paths.
+
 ### 14.4 Existing integration contracts retained
 
 The [shared Prepare/Preview workspace](Workspace%20Prepare%20and%20Preview%20Modes.md)

@@ -11,10 +11,19 @@ const inputs = () => {
   return { mappingInputs: s.mappingInputs, config: s.config.native_scoped_config.snapshot, model: s.model,
     maps: [ok(projection(plateId)).saved, ok(projection(other)).saved] };
 };
-const mutate = (change, extra = {}, id = plateId) => command('orc_mutate_nozzle_mapping', {
-  plateId: id, revision: call('orc_history_status').revision, plateRevision: ok(projection(id)).revision,
-  change, history_context: context, ...extra,
-});
+const rackValues = () => {
+  const { revisions, ...values } = ok(call('orc_get_filament_session_snapshot'));
+  return values;
+};
+const mutate = (change, extra = {}, id = plateId) => {
+  const rackBefore = rackValues();
+  const result = command('orc_mutate_nozzle_mapping', {
+    plateId: id, revision: call('orc_history_status').revision, plateRevision: ok(projection(id)).revision,
+    change, history_context: context, ...extra,
+  });
+  assert.deepEqual(rackValues(), rackBefore, 'mapping/mode/capacity changes retain all non-revision rack values');
+  return result;
+};
 const unchanged = inputs();
 const initial = call('orc_history_status');
 assert.equal(ok(mutate({ kind: 'mapping', mode: 3, filamentMap: [1, 2] })).changed, false);
