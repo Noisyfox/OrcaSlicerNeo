@@ -3,6 +3,11 @@ import type { FilamentSessionSlot } from '@slicer/client';
 
 type Display = FilamentSessionSlot['colour']['display'];
 
+export function filamentNumberColour(effective: string): string {
+  const [red, green, blue] = [1, 3, 5].map(offset => parseInt(effective.slice(offset, offset + 2), 16));
+  return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#171717' : '#ffffff';
+}
+
 /** Native display semantics are already normalized at the Worker boundary. */
 export function filamentSwatchStyle(display: Display): CSSProperties {
   const colors = display.colors;

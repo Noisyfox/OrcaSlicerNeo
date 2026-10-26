@@ -5,7 +5,7 @@ import { MAX_GRADIENT_COLORS, colorValueKey, normalizeHexColor, usePlatform, typ
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore, readFlushingVolumes } from '@/stores/useFilamentSessionStore';
 import { type FilamentMutationResultOrError, type FilamentSessionSlot } from '@slicer/client';
-import { filamentSwatchStyle, filamentSwatchTitle } from './FilamentSwatch';
+import { filamentNumberColour, filamentSwatchStyle, filamentSwatchTitle } from './FilamentSwatch';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
@@ -90,9 +90,7 @@ function SlotCard({ slot, presetItems, mergeDestinations, canDelete, canMerge, p
   }, [colourSignature]);
   const draft = editorValue(slot);
   const displayedColour = (draft.kind === 'solid' ? draft.color : draft.colors[0]).toLowerCase();
-  const representative = slot.colour.effective.slice(0, 7);
-  const [red, green, blue] = [1, 3, 5].map((offset) => parseInt(representative.slice(offset, offset + 2), 16));
-  const numberColour = red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#171717' : '#ffffff';
+  const numberColour = filamentNumberColour(slot.colour.effective);
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<article />}

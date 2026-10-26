@@ -4,7 +4,7 @@ import { mappingConfirmation } from './mappingConfirmation';
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { NozzleMappingSnapshot } from '@slicer/client';
+import type { FilamentSessionSlot, NozzleMappingSnapshot } from '@slicer/client';
 import { NozzleMappingEditor } from './NozzleMappingEditor';
 import { publishNozzleRepairNotice } from './nozzleMappingNotices';
 import { useProjectStore } from '@/stores/useProjectStore';
@@ -33,7 +33,8 @@ afterEach(() => { act(() => root?.unmount()); document.body.innerHTML = ''; useP
 it('edits only native-used rows, preserves hidden mappings and presents Nozzle Manual as Manual', async () => {
   const onMapping = vi.fn(); const onMode = vi.fn();
   await render(<NozzleMappingEditor snapshot={snapshot()} onMode={onMode} onMapping={onMapping} />);
-  expect(document.querySelector('[data-testid="mapping-mode"]')?.textContent).toContain('Manual');
+  expect(document.querySelector('[data-testid="mapping-mode-2"]')?.getAttribute('aria-pressed')).toBe('true');
+  await act(async () => (document.querySelector('[data-testid="mapping-mode-2"]') as HTMLElement).click());
   expect(document.querySelector('[data-testid="mapping-filament-2"]')).toBeNull();
   expect(document.body.textContent).toContain('You can still slice');
   await choose('mapping-filament-3', 'Nozzle 3');
@@ -50,9 +51,9 @@ it('supports a temporary controlled draft and mode-first rendering', async () =>
   await render(<Draft />);
   await choose('mapping-filament-1', 'Nozzle 2');
   expect(document.querySelector('[data-testid="mapping-filament-1"]')?.textContent).toContain('Nozzle 2');
-  await choose('mapping-mode', 'Auto For Flush');
+  await act(async () => (document.querySelector('[data-testid="mapping-mode-0"]') as HTMLElement).click());
   expect(document.querySelector('[data-testid="mapping-materials"]')).toBeNull();
-  await choose('mapping-mode', 'Manual');
+  await act(async () => (document.querySelector('[data-testid="mapping-mode-2"]') as HTMLElement).click());
   expect(document.querySelector('[data-testid="mapping-filament-1"]')?.textContent).toContain('Nozzle 2');
 });
 
@@ -60,9 +61,32 @@ it('shows an imported unavailable mode and hides the entire editor outside nativ
   const base = snapshot(); const value = { ...base, effective: { ...base.effective, mode: 1 as const } };
   await render(<NozzleMappingEditor snapshot={value} onMode={vi.fn()} onMapping={vi.fn()} />);
   expect(document.body.textContent).toContain('Synchronization unavailable');
+  expect((document.querySelector('[data-testid="mapping-mode-1"]') as HTMLButtonElement).disabled).toBe(true);
   expect(document.querySelector('[data-testid="mapping-materials"]')).toBeNull();
   await act(async () => root.render(<NozzleMappingEditor snapshot={{ ...value, eligible: false }} onMapping={vi.fn()} />));
   expect(document.body.textContent).toBe('');
+});
+
+it('shows numbered rack colours and aliases with canonical preset names in tooltips', async () => {
+  const slots: FilamentSessionSlot[] = [1, 3].map(slot => ({
+    logicalId: `filament-${slot}`, slot,
+    preset: { isProjectEmbedded: false, isUser: false, id: `pla-${slot}`, name: `PLA @ printer ${slot}`, label: 'PLA', vendor: '' },
+    colour: { effective: slot === 1 ? '#112233' : '#ffffff', provenance: 'preset',
+      native: { representative: '#112233', multiColour: '#112233', type: '1' },
+      display: slot === 1 ? { mode: 'solid', colors: ['#112233'] } : { mode: 'gradient', colors: ['#ffffff', '#112233'] } },
+  }));
+  await render(<NozzleMappingEditor snapshot={snapshot()} slots={slots} onMapping={vi.fn()} />);
+  for (const slot of slots) {
+    const row = document.querySelector(`[data-testid="mapping-material-${slot.slot}"]`) as HTMLElement;
+    expect(row.title).toBe(slot.preset.name);
+    expect(row.textContent).toBe(`${slot.slot}PLA`);
+    expect((row.firstElementChild as HTMLElement).style.color).toBe(slot.slot === 1 ? 'rgb(255, 255, 255)' : 'rgb(23, 23, 23)');
+  }
+  const first = document.querySelector('[data-testid="mapping-material-1"] > span') as HTMLElement;
+  const third = document.querySelector('[data-testid="mapping-material-3"] > span') as HTMLElement;
+  expect(first.style.backgroundColor).toBe('rgb(17, 34, 51)');
+  expect(third.style.backgroundImage).toContain('linear-gradient');
+  expect(document.body.textContent).not.toContain('@ printer');
 });
 
 it('reports only native-confirmed removed-nozzle repairs across Plates', () => {

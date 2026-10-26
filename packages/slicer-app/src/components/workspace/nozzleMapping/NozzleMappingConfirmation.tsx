@@ -17,7 +17,7 @@ function ConfirmationDraft({ request }: { request: MappingConfirmationRequest })
       <DialogDescription>{name ?? 'Plate'} — review the nozzle assignments before slicing.</DialogDescription>
       <div className="max-h-[55vh] overflow-y-auto">
         <NozzleMappingEditor snapshot={request.snapshot} filamentMap={filamentMap} onMapping={setFilamentMap}
-          labels={Object.fromEntries(rack?.slots.map(s => [s.slot, s.preset.name]) ?? [])} />
+          slots={rack?.slots} />
       </div>
       {!valid && <p role="alert" className="text-xs text-destructive">Each filament must reference an available nozzle.</p>}
       <DialogFooter>

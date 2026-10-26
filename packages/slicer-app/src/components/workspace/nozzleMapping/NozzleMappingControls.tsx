@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import type { NozzleMappingChange, NozzleMappingSnapshot } from '@slicer/client';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Minus, Plus } from 'lucide-react';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
@@ -30,7 +32,7 @@ export function PlateNozzleMapping({ snapshot, revision }: { snapshot: NozzleMap
   const rack = useFilamentSessionStore(s => s.snapshot);
   const { disabled, commit } = useMappingCommit(snapshot, revision);
   return <NozzleMappingEditor snapshot={snapshot} disabled={disabled}
-    labels={Object.fromEntries(rack?.slots.map(s => [s.slot, s.preset.name]) ?? [])}
+    slots={rack?.slots}
     onMode={mode => void commit({ kind: 'mode', mode })}
     onMapping={filamentMap => void commit({ kind: 'mapping', filamentMap })} />;
 }
@@ -56,9 +58,9 @@ function NozzleCapacityField({ nozzle, capacity, snapshot, revision, disabled: p
   const [text, setText] = useState(String(capacity));
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setText(String(capacity)); setError(null); }, [capacity]);
-  const save = () => {
-    const value = Number(text);
-    if (!/^\d+$/.test(text) || !Number.isSafeInteger(value) || value < 1 || value > 2147483647) {
+  const save = (draft = text) => {
+    const value = Number(draft);
+    if (!/^\d+$/.test(draft) || !Number.isSafeInteger(value) || value < 1 || value > 2147483647) {
       setError('Enter a whole number from 1 to 2147483647.'); return;
     }
     setError(null);
@@ -66,17 +68,35 @@ function NozzleCapacityField({ nozzle, capacity, snapshot, revision, disabled: p
       if (!accepted) setText(String(capacity));
     });
   };
+  const controlDisabled = disabled || parentDisabled;
+  const numericDraft = /^\d+$/.test(text) ? Number(text) : NaN;
+  const canStep = Number.isSafeInteger(numericDraft) && numericDraft >= 1 && numericDraft <= 2147483647;
+  const adjust = (direction: number) => {
+    const next = String(numericDraft + direction);
+    setText(next); save(next);
+  };
   return <div className="space-y-1">
-    <label className="flex items-center gap-2 text-xs">Total filament slots
-      <Input className="h-6 min-w-0 flex-1" inputMode="numeric" data-testid="nozzle-capacity"
-        aria-label={`Total filament slots for nozzle ${nozzle}`} value={text}
-        disabled={disabled || parentDisabled} aria-invalid={!!error}
-        onChange={e => setText(e.target.value)} onBlur={save}
-        onKeyDown={e => {
-          if (e.key === 'Enter') e.currentTarget.blur();
-          if (e.key === 'Escape') { setText(String(capacity)); setError(null); }
-        }} />
-    </label>
+    <div className="grid min-h-7 grid-cols-[minmax(0,1fr)_minmax(0,40%)] items-center gap-2 px-1 py-0.5">
+      <label htmlFor="nozzle-capacity" className="min-w-0 truncate text-[13px] font-normal text-muted-foreground">Total filament slots</label>
+      <div className="flex h-6 min-w-0 items-center rounded-sm bg-control-background focus-within:ring-1 focus-within:ring-ring">
+        <Input id="nozzle-capacity" className="h-6 min-w-0 flex-1 rounded-sm border-0 bg-transparent dark:bg-transparent px-1.5 text-[13px] focus-visible:ring-0 md:text-[13px]" inputMode="numeric" data-testid="nozzle-capacity"
+          aria-label={`Total filament slots for nozzle ${nozzle}`} value={text}
+          disabled={controlDisabled} aria-invalid={!!error}
+          onChange={e => setText(e.target.value)} onBlur={() => save()}
+          onKeyDown={e => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+            if (e.key === 'Escape') { setText(String(capacity)); setError(null); }
+          }} />
+        <div className="flex shrink-0 gap-px pr-0.5">
+          <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-[2px] rounded-r-none [&>svg]:size-3"
+            aria-label="Decrease total filament slots" disabled={controlDisabled || !canStep || numericDraft <= 1}
+            onPointerDown={event => event.preventDefault()} onClick={() => adjust(-1)}><Minus /></Button>
+          <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-none rounded-r-[2px] [&>svg]:size-3"
+            aria-label="Increase total filament slots" disabled={controlDisabled || !canStep || numericDraft >= 2147483647}
+            onPointerDown={event => event.preventDefault()} onClick={() => adjust(1)}><Plus /></Button>
+        </div>
+      </div>
+    </div>
     {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
   </div>;
 }

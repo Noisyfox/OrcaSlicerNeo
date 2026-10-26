@@ -998,6 +998,8 @@ physical printer validation or send-time AMS mapping.
 Each Plate has its own editable slicing mode and mapping. The slice-button
 dropdown selects the current Plate's mode; the Filament Mapping tab selects
 the same Plate's mode. Both surfaces consume and mutate the same native state.
+Inside the mapping editor, modes use a horizontal segmented control with the
+active mode highlighted. The slice-button menu retains its dropdown design.
 There is no global mapping-mode selector or Follow global interaction.
 Underlying project mapping fields and native fallback rules remain a project
 import/composition concern, not an independently editable UI scope. Their
@@ -1016,6 +1018,11 @@ as the edit; there is no separate read-only or physical-sub-nozzle editor.
 The manual editor lists only filaments used by the selected Plate, using
 native usage discovery including painted assignments and support-related
 uses. Each filament occupies one row with its own target-nozzle dropdown.
+Rows match the filament rack: a colour preview containing the slot number,
+followed by the preset alias (or full name when no alias exists), with the full
+canonical preset name in the tooltip. Colour previews preserve the rack's
+solid, multicolour, gradient and transparency semantics. The Sidebar and
+pre-slice confirmation use this same presentation.
 Do not require a separate selected-nozzle context for mapping, and do not
 present unused project filaments as editable rows. The upper Multi. tab's
 nozzle selection remains the context for capacity editing, not for these
@@ -1069,6 +1076,8 @@ the same project-global capacity vector, including Plates with their own
 mapping or mode. There is no Plate-local capacity override and no AMS-specific
 equipment model in the UI. Conversion to Orca's native configuration format
 belongs below the shared UI and must not invent actual device identities.
+The upper Multi. tab uses the same numeric-field layout and input styling as
+option fields, including decrement/increment buttons and native-range bounds.
 
 Total slot capacity is a positive integer with a minimum of one. A single
 external spool counts as one available slot; zero is not a nozzle-disable

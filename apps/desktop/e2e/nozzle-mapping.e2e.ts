@@ -41,7 +41,7 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
     await expect.poll(async () => (await readSliceReceipts(page) as any[]).some(r => r.op === 'getNozzleMapping' && r.result?.eligible)).toBe(true);
     await page.getByTestId('config-mode-plates').click();
     await page.getByTestId('plate-properties-mapping').click();
-    await expect(page.getByTestId('mapping-mode')).toContainText('Manual');
+    await expect(page.getByTestId('mapping-mode-2')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 1');
     await expect(page.getByTestId('mapping-filament-2')).toHaveCount(0);
     await page.getByTestId('mapping-filament-1').click();
@@ -73,17 +73,19 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
       await expect(capacity).toHaveValue(value);
     }
     expect(await page.evaluate(() => (window as any).__orcaCapacityLayout())).toEqual([]);
-    await capacity.fill('6'); await capacity.press('Enter');
+    // Step from the current draft without first committing the intermediate 5.
+    await capacity.fill('5');
+    await page.getByRole('button', { name: 'Increase total filament slots', exact: true }).click();
+    await expect(capacity).toHaveValue('6');
     await expect(capacity).toBeEnabled();
     await expect.poll(() => Object.values(JSON.parse(readFileSync(preferences, 'utf8')).rememberedNozzleCapacities ?? {})).toEqual([[9, 6]]);
     await page.getByTestId('output-mode-select').click();
     await page.getByRole('option', { name: 'Auto For Flush', exact: true }).click();
-    await expect(page.getByTestId('mapping-mode')).toContainText('Auto For Flush');
+    await expect(page.getByTestId('mapping-mode-0')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('mapping-materials')).toHaveCount(0);
     await expect(page.getByTestId('output-mode-select')).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.getByTestId('mapping-mode')).toBeEnabled();
-    await page.getByTestId('mapping-mode').click();
-    await page.getByTestId('mapping-mode-options').getByRole('option', { name: 'Manual', exact: true }).click();
+    await expect(page.getByTestId('mapping-mode-2')).toBeEnabled();
+    await page.getByTestId('mapping-mode-2').click();
     await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 2');
     await page.getByTestId('preview-plate-list').getByRole('option', { name: /^Plate 2,/ }).click();
     await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 2');
