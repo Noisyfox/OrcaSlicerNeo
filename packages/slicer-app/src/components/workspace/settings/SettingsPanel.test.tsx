@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities, type RememberedFilamentRack, type UserPreferences } from '@orca/platform-contract';
-import type { FilamentSessionSnapshot, PresetInfo, ProfileSnapshot, ProfileSnapshotResult, PrinterTransitionResult } from '@slicer/client';
+import type { FilamentSessionSnapshot, NozzleMappingSnapshot, PresetInfo, ProfileSnapshot, ProfileSnapshotResult, PrinterTransitionResult } from '@slicer/client';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useProjectStore } from '@/stores/useProjectStore';
@@ -325,6 +325,42 @@ describe('SettingsPanel preset transitions', () => {
       .toBe(`Extruder ${head}: ${diameters[head - 1]} mm, Standard`);
     expect(container.querySelector('[data-testid="toolhead-diameter-select"]')?.textContent).toContain(diameters[head - 1]);
     expect(runtime.setToolheadDiameter).not.toHaveBeenCalled();
+  });
+
+  it('keeps capacity visible when switching toolheads without another native read', async () => {
+    resetStores();
+    useSettingsStore.setState({ values: { nozzle_diameter: '0.4,0.4', nozzle_volume_type: 'Standard' } });
+    const transition = printerTransition() as Extract<PrinterTransitionResult, { ok: true }>;
+    usePlateSessionStore.getState().setSnapshot(transition.plateSession);
+    useHistoryNavigationStore.getState().setStatus(transition.historyStatus);
+    const mapping: NozzleMappingSnapshot = {
+      ok: true, plateId: 'plate-1', revision: 1, eligible: true,
+      nozzles: [{ id: 1, diameter: 0.4, capacity: 4 }, { id: 2, diameter: 0.4, capacity: 8 }],
+      usedFilaments: [], modes: [], diagnostics: [],
+      saved: { mode: 2, filamentMap: null, volumeMap: null, nozzleMap: null },
+      effective: { mode: 2, filamentMap: [1], volumeMap: [0], nozzleMap: [0] },
+    };
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    const getMapping = vi.fn(async () => mapping);
+    Object.assign(runtime, { getNozzleMapping: getMapping });
+    const { container, root } = await render(platform); roots.push(root);
+    await act(async () => (container.querySelector('[data-testid="printer-tab-multi"]') as HTMLElement).click());
+    const input = () => container.querySelector<HTMLInputElement>('[data-testid="nozzle-capacity"]');
+    expect(input()?.value).toBe('4');
+    const reads = getMapping.mock.calls.length;
+    // A delayed Worker must not make a view-only toolhead switch hide the row.
+    let finish!: (snapshot: NozzleMappingSnapshot) => void;
+    const pending = new Promise<NozzleMappingSnapshot>(resolve => { finish = resolve; });
+    getMapping.mockImplementation(() => pending);
+    try {
+      for (const [head, capacity] of [[2, '8'], [1, '4'], [2, '8']] as const) {
+        await act(async () => (container.querySelector(`[data-testid="toolhead-${head}"]`) as HTMLElement).click());
+        expect(input()).not.toBeNull();
+        expect(input()?.value).toBe(capacity);
+        expect(input()?.disabled).toBe(false);
+        expect(getMapping).toHaveBeenCalledTimes(reads);
+      }
+    } finally { await act(async () => finish(mapping)); }
   });
 
   it('applies a diameter selected in Multi to the selected U1 toolhead', async () => {

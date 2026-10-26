@@ -53,9 +53,26 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
     await page.getByTestId('history-redo').click();
     await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 2');
     await page.getByTestId('printer-tab-multi').click();
-    await page.getByTestId('toolhead-2').click();
     const capacity = page.getByTestId('nozzle-capacity');
-    await expect(capacity).toHaveValue('4');
+    await expect(capacity).toHaveValue('9');
+    // Capture intermediate DOM gaps, not only the settled state after a read.
+    await page.evaluate(() => {
+      const multi = document.querySelector('#printer-multi-content')!;
+      const height = multi.getBoundingClientRect().height;
+      const gaps: number[] = [];
+      const observer = new MutationObserver(() => {
+        const current = multi.querySelector('[data-testid="nozzle-capacity"]')
+          ? multi.getBoundingClientRect().height : 0;
+        if (current !== height) gaps.push(current);
+      });
+      observer.observe(multi, { childList: true, subtree: true });
+      (window as any).__orcaCapacityLayout = () => { observer.disconnect(); return gaps; };
+    });
+    for (const [head, value] of [[2, '4'], [1, '9'], [2, '4']] as const) {
+      await page.getByTestId(`toolhead-${head}`).click();
+      await expect(capacity).toHaveValue(value);
+    }
+    expect(await page.evaluate(() => (window as any).__orcaCapacityLayout())).toEqual([]);
     await capacity.fill('6'); await capacity.press('Enter');
     await expect(capacity).toBeEnabled();
     await expect.poll(() => Object.values(JSON.parse(readFileSync(preferences, 'utf8')).rememberedNozzleCapacities ?? {})).toEqual([[9, 6]]);

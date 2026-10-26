@@ -39,12 +39,23 @@ export function PlateNozzleMapping({ snapshot, revision }: { snapshot: NozzleMap
  * physical nozzle. It does not constrain the independent Plate mapping rows. */
 export function NozzleCapacityInput({ nozzle, disabled: parentDisabled }: { nozzle: number; disabled?: boolean }) {
   const { snapshot, revision } = useNozzleMapping();
-  const { disabled, commit } = useMappingCommit(snapshot, revision);
   const capacity = snapshot?.nozzles.find(n => n.id === nozzle)?.capacity;
-  const [text, setText] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => { setText(capacity === undefined ? '' : String(capacity)); setError(null); }, [capacity, nozzle]);
   if (!snapshot?.eligible || capacity === undefined) return null;
+  // The projection contains every nozzle. Keep its subscription mounted when
+  // selecting a head; reset only the local input draft, without another read
+  // or a loading gap that removes the row and shifts the Sidebar.
+  return <NozzleCapacityField key={nozzle} nozzle={nozzle} capacity={capacity}
+    snapshot={snapshot} revision={revision} disabled={parentDisabled} />;
+}
+
+function NozzleCapacityField({ nozzle, capacity, snapshot, revision, disabled: parentDisabled }: {
+  nozzle: number; capacity: number; snapshot: NozzleMappingSnapshot;
+  revision: number | undefined; disabled?: boolean;
+}) {
+  const { disabled, commit } = useMappingCommit(snapshot, revision);
+  const [text, setText] = useState(String(capacity));
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { setText(String(capacity)); setError(null); }, [capacity]);
   const save = () => {
     const value = Number(text);
     if (!/^\d+$/.test(text) || !Number.isSafeInteger(value) || value < 1 || value > 2147483647) {

@@ -394,7 +394,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             </Select>
             {flowSelect(activeToolhead, 'toolhead-flow-select', 'Toolhead flow type')}
           </div>
-          <NozzleCapacityInput key={activeToolhead} nozzle={activeToolhead + 1} disabled={controlsDisabled} />
+          <NozzleCapacityInput nozzle={activeToolhead + 1} disabled={controlsDisabled} />
         </div>}
       </div>
     </section>
