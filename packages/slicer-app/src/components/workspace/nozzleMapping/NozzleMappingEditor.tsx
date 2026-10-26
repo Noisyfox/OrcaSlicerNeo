@@ -44,8 +44,8 @@ export function NozzleMappingEditor({ snapshot, filamentMap = snapshot.effective
       {snapshot.usedFilaments.length === 0 && <p className="text-xs text-muted-foreground">This plate uses no filaments.</p>}
       {snapshot.usedFilaments.map(id => {
         const slot = slots.find(s => s.slot === id);
-        return <div key={id} className="flex items-center gap-2">
-          <div className="flex h-6 min-w-0 flex-1 items-center overflow-hidden rounded-sm bg-control-background"
+        return <div key={id} className="flex items-center">
+          <div className="flex h-6 min-w-0 flex-1 items-center overflow-hidden rounded-l-sm bg-control-background"
             title={slot?.preset.name} data-testid={`mapping-material-${id}`}>
             <span className="flex h-full w-6 shrink-0 items-center justify-center text-xs"
               style={slot ? { ...filamentSwatchStyle(slot.colour.display), color: filamentNumberColour(slot.colour.effective) } : undefined}>
@@ -57,7 +57,7 @@ export function NozzleMappingEditor({ snapshot, filamentMap = snapshot.effective
             if (value === null) return;
             const next = [...filamentMap]; next[id - 1] = Number(value); onMapping(next);
           }}>
-            <SelectTrigger variant="sidebar" className="w-28 shrink-0" aria-label={`Nozzle for filament ${id}`} data-testid={`mapping-filament-${id}`}>
+            <SelectTrigger variant="sidebar" className="w-28 shrink-0 rounded-l-none!" aria-label={`Nozzle for filament ${id}`} data-testid={`mapping-filament-${id}`}>
               <SelectValue>Nozzle {filamentMap[id - 1]}</SelectValue>
             </SelectTrigger>
             <SelectContent><SelectGroup>{snapshot.nozzles.map(n =>

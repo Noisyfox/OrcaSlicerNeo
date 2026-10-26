@@ -1023,6 +1023,8 @@ followed by the preset alias (or full name when no alias exists), with the full
 canonical preset name in the tooltip. Colour previews preserve the rack's
 solid, multicolour, gradient and transparency semantics. The Sidebar and
 pre-slice confirmation use this same presentation.
+The name background joins the nozzle dropdown without a gap or interior
+rounded corners, forming one continuous row.
 Do not require a separate selected-nozzle context for mapping, and do not
 present unused project filaments as editable rows. The upper Multi. tab's
 nozzle selection remains the context for capacity editing, not for these
@@ -1082,6 +1084,8 @@ equipment model in the UI. Conversion to Orca's native configuration format
 belongs below the shared UI and must not invent actual device identities.
 The upper Multi. tab uses the same numeric-field layout and input styling as
 option fields, including decrement/increment buttons and native-range bounds.
+Its input occupies the right half of the row, aligned with the variant/flow
+dropdown above it.
 
 Total slot capacity is a positive integer with a minimum of one. A single
 external spool counts as one available slot; zero is not a nozzle-disable

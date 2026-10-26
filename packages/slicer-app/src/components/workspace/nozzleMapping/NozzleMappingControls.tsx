@@ -76,7 +76,7 @@ function NozzleCapacityField({ nozzle, capacity, snapshot, revision, disabled: p
     setText(next); save(next);
   };
   return <div className="space-y-1">
-    <div className="grid min-h-7 grid-cols-[minmax(0,1fr)_minmax(0,40%)] items-center gap-2 px-1 py-0.5">
+    <div className="grid min-h-7 grid-cols-2 items-center gap-2 py-0.5">
       <label htmlFor="nozzle-capacity" className="min-w-0 truncate text-[13px] font-normal text-muted-foreground">Total filament slots</label>
       <div className="flex h-6 min-w-0 items-center rounded-sm bg-control-background focus-within:ring-1 focus-within:ring-ring">
         <Input id="nozzle-capacity" className="h-6 min-w-0 flex-1 rounded-sm border-0 bg-transparent dark:bg-transparent px-1.5 text-[13px] focus-visible:ring-0 md:text-[13px]" inputMode="numeric" data-testid="nozzle-capacity"
