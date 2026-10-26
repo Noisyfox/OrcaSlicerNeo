@@ -411,7 +411,8 @@ describe('SettingsPanel preset transitions', () => {
       // current presentation, even if that response would hide the editor.
       const late = new Promise<NozzleMappingSnapshot>(resolve => { finish = resolve; });
       getMapping.mockImplementation(plateId => plateId === 'plate-1' ? late : Promise.resolve(second));
-      await act(async () => usePlateSessionStore.getState().setSnapshot(plates));
+      await act(async () => usePlateSessionStore.getState().setSnapshot({ ...plates,
+        inputRevisions: { ...plates.inputRevisions, 'plate-1': 2 } }));
       expect(row.disabled).toBe(true);
       await act(async () => usePlateSessionStore.getState().setSnapshot({ ...plates, currentPlateId: 'plate-2' }));
       await act(async () => finish({ ...mapping, eligible: false }));

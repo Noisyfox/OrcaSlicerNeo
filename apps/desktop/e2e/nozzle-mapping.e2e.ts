@@ -52,6 +52,7 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
     const mapReads = (await readSliceReceipts(page) as any[]).slice(beforeMapEdit)
       .filter(r => r.direction === 'request');
     expect(mapReads.some(r => ['getFilamentSessionSnapshot', 'getFlushingVolumes'].includes(r.op))).toBe(false);
+    expect(mapReads.filter(r => r.op === 'getNozzleMapping')).toHaveLength(0);
     await page.getByTestId('history-undo').click();
     await expect(page.getByTestId('mapping-filament-1')).toContainText('Nozzle 1');
     await page.getByTestId('history-redo').click();

@@ -1331,6 +1331,13 @@ and Plate revision tokens from the native receipt without rereading/publishing
 an unchanged complete rack. Actual rack/assignment changes retain their normal
 native projection publication paths.
 
+The Slice menu, Plate editor and capacity field share one read-only mapping
+projection per runtime and live Plate, fenced by both Plate and history
+revision. Coalesce reads for the same key. Publish a mutation's returned native
+snapshot with its history/Plate receipt before dependent effects run, avoiding
+post-commit rereads. Discard superseded responses and remove deleted-Plate
+entries; retained loading presentations never grant editing authority.
+
 ### 14.4 Existing integration contracts retained
 
 The [shared Prepare/Preview workspace](Workspace%20Prepare%20and%20Preview%20Modes.md)

@@ -8,6 +8,7 @@ import { projectFilamentPlateInputRevisions } from '@/stores/useFilamentSessionS
 import { historyContextForStructure, projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
 import { enqueueConfigurationMutation, invalidateAfterSharedConfigurationMutation } from '../settings/configurationActions';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
+import { publishNozzleMappingSnapshot } from './useNozzleMapping';
 
 /** Capture both revisions in the editor; queueing never silently retargets an
  * edit to newer inputs or a different selected Plate. */
@@ -31,6 +32,7 @@ export function commitNozzleMapping(
         usePlateSessionStore.getState().setSnapshot(result.plateSession);
         projectFilamentPlateInputRevisions(result.historyStatus.revision, result.plateSession.inputRevisions);
       }
+      publishNozzleMappingSnapshot(platform.runtime, result.snapshot, result.historyStatus.revision);
     });
     // These commands change Plate maps/mode or feeder capacity, never rack
     // contents, assignments, routing or flushing values. History publication
