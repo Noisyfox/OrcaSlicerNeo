@@ -51,6 +51,12 @@
 
 ## Plate list cards
 
+The planned [nozzle-mapping extension](Multi-Filament%20Support.md#14-nozzle-filament-mapping-design)
+replaces the lower Plates Properties editor with Settings and Filament Mapping
+tabs, in that order, targeting the selected Plate. It adds no separate mapping
+button or popup to the cards. This accepted design is not yet delivered; the
+current layout described below remains the implementation baseline.
+
 - The existing Plates list uses square model thumbnails beside each plate's
   name, state, valid slice totals, and plate actions. Its surrounding sidebar
   layout, configuration editor, and viewport remain unchanged. Within Plates,

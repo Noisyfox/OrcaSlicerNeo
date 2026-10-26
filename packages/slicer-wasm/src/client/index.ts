@@ -84,6 +84,7 @@ export type * from './painting';
 
 export * from './setupWizard';
 export * from './userPresets';
+export type * from './nozzleMapping';
 export { installProfileArchive, linkProfileVendors, safeProfilePath } from './profileFilesystem';
 
 export { configVectorElementAt } from './configElements';

@@ -1,4 +1,4 @@
-import { configureProjectFlowPreferences } from './preferences';
+import { configurePrinterProjectPreferences } from './preferences';
 import { captureProjectThumbnails } from './components/workspace/projectThumbnails';
 import { paintingCommandAllowed, closePaintingForCommand, resetPaintingProjectPalette, paintingSessionActive } from './components/workspace/viewport/gizmo/painting/projectCommands';
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
@@ -57,7 +57,7 @@ export interface ProjectActionResult {
   load?: ProjectLoadResult;
   loadReceipt?: ProjectLoadReceipt;
 }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'closeProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getModelScenePatch' | 'mutateNativeScopedConfig' | 'getNativeScopedConfig' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction' | 'configureProjectFlowMemory'> &
+type Runtime = Pick<SlicerClient, 'loadProject' | 'closeProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getModelScenePatch' | 'mutateNativeScopedConfig' | 'getNativeScopedConfig' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction' | 'configureProjectFlowMemory' | 'configureNozzleCapacityMemory'> &
   Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'resetHistory'>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
@@ -220,7 +220,7 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
       const rememberedBed = await loadRememberedBedTypeFromRepository(platform.preferences, currentPresets().printer);
       const seeded = await seedRememberedBedType(runtime, rememberedBed);
       if (seeded?.plateSession) usePlateSessionStore.getState().setSnapshot(seeded.plateSession);
-      await configureProjectFlowPreferences(platform.preferences, runtime, true);
+      await configurePrinterProjectPreferences(platform.preferences, runtime, true);
       // Preset selection may have exposed old project overrides in the
       // effective base. Refresh it after resetting their native authority.
       const profiles = await runtime.getProfileSnapshot();

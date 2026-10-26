@@ -1,3 +1,5 @@
+import { PlateNozzleMapping } from '../nozzleMapping/NozzleMappingControls';
+import { useNozzleMapping } from '../nozzleMapping/useNozzleMapping';
 import { editorSettingContext, printerNozzleCount, updateOptionStates } from './settingConditions';
 import { useOptionState, useOptionStateScope, useVisibleOptionCount, type OptionStateScope } from './optionStateRegistry';
 import {
@@ -281,6 +283,7 @@ function OptionSection({ scope, keys, title }: { scope: OptionStateScope<ScopedO
 // Fixed options budget includes expanded search even when filtering hides rows.
 // Catalogue content that exceeds the budget scrolls independently.
 const PLATE_OPTIONS_SECTION_HEIGHT = 170;
+const OPTION_TAB_CLASS_NAME = 'h-7 min-w-max flex-1 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-1 text-module font-normal';
 
 export function ScopedConfigurationPanel({ sceneInteraction, projectContent, scopedContent, platesContent, platesToolbar, bedTypeDisabled = false }: {
   sceneInteraction: SceneInteractionController | null;
@@ -292,6 +295,10 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
 }) {
   const platform = usePlatform();
   const mode = useSettingsStore((state) => state.configurationMode);
+  const mapping = useNozzleMapping(mode === 'plates');
+  const [plateTab, setPlateTab] = useState<'settings' | 'mapping'>('settings');
+  const showMapping = mapping.snapshot?.eligible === true;
+
   const printEditor=usePrintConfigEditor(platform,mode==='project');
   const printSelection=useConfigEditorSelection(printEditor.snapshot?.editorSelection??null,printEditor.entry);
   const selection = sceneInteraction?.selection;
@@ -572,7 +579,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         {!search.trim() && availablePages.length > 1 && <div role="tablist" aria-label="Settings category" className="flex overflow-x-auto overflow-y-hidden border-b border-border">
           {availablePages.map((page) => <Button key={page.title} role="tab" type="button" variant="ghost" size="xs"
             aria-selected={selectedPage === page.title} data-testid={`config-page-${page.title}`}
-            className={cn('h-7 min-w-max flex-1 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-1 text-module font-normal',
+            className={cn(OPTION_TAB_CLASS_NAME,
               allFields.some((field) => field.local && field.resettable && page.groups.some((group) => group.keys.includes(field.key))) && 'config-override-label',
               selectedPage === page.title && 'border-primary')}
             onClick={() => setActivePage(page.title)} onKeyDown={(event) => {
@@ -665,8 +672,15 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       {mode === 'plates' ? <div data-testid="plate-options-section"
         className="flex min-h-0 shrink-0 flex-col gap-1 overflow-hidden"
         style={{ height: PLATE_OPTIONS_SECTION_HEIGHT, maxHeight: plateOptionsMaxHeight }}>
-        {optionsHeader}
-        {optionsBody}
+        {showMapping && <div role="tablist" aria-label="Plate properties" className="flex overflow-x-auto overflow-y-hidden border-b border-border px-2">
+          {(['settings', 'mapping'] as const).map(tab => <Button key={tab} variant="ghost" size="xs" role="tab"
+            aria-selected={plateTab === tab} data-testid={`plate-properties-${tab}`}
+            className={cn(OPTION_TAB_CLASS_NAME, plateTab === tab && 'border-primary')}
+            onClick={() => setPlateTab(tab)}>{tab === 'settings' ? 'Settings' : 'Filament Mapping'}</Button>)}
+        </div>}
+        {showMapping && plateTab === 'mapping' && mapping.snapshot
+          ? <div className="min-h-0 overflow-y-auto" aria-busy={mapping.revision === undefined}><PlateNozzleMapping snapshot={mapping.snapshot} revision={mapping.revision} /></div>
+          : <>{optionsHeader}{optionsBody}</>}
       </div> : optionsBody}
     </section>
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { applyRememberedFilamentRackFromRepository, rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreBootstrapSession, restoreSelections, publishRememberedBedType, loadRememberedBedTypeFromRepository, seedRememberedBedType, configureProjectFlowPreferences, commitProjectFlow } from './preferences';
+import { applyRememberedFilamentRackFromRepository, rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreBootstrapSession, restoreSelections, publishRememberedBedType, loadRememberedBedTypeFromRepository, seedRememberedBedType, configurePrinterProjectPreferences, commitProjectFlow, publishRememberedNozzleCapacities } from './preferences';
 import type { UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
 import type { ProfileSnapshot } from '@slicer/client';
 import { createClient, createMockModule, MOCK_PROFILE_ACTIVATION } from '@slicer/client';
@@ -244,6 +244,7 @@ describe('selection restoration', () => {
     const getRack = vi.fn(async () => { calls.push('get-rack'); return getRack.mock.calls.length === 1 ? current : finalRack; });
     const result = await restoreBootstrapSession({
       setAutoFlushPolicy: vi.fn(async () => ({ ok: true })),
+      configureNozzleCapacityMemory: vi.fn(async () => ({ ok: true as const })),
       configureProjectFlowMemory: vi.fn(async () => { calls.push('seed-flow'); return { ok: true as const }; }),
       mutateNativeScopedConfig: vi.fn(async () => { calls.push('seed-bed'); return { ok: true, nativeScopedConfig: { kind: 'full' } } as never; }),
       getProfileSnapshot: vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(resolved),
@@ -311,7 +312,7 @@ describe('base Printer project-flow preferences', () => {
     const f = await fixture(); const base = f.profile.printerPicker.basePrinter;
     await f.repository.save({ ...prefs, rememberedProjectFlows: { [base]: [1] } });
     const history = await f.runtime.getHistoryStatus();
-    await configureProjectFlowPreferences(f.repository, f.runtime, true);
+    await configurePrinterProjectPreferences(f.repository, f.runtime, true);
     expect(await f.runtime.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
     expect(await f.runtime.getHistoryStatus()).toEqual(history);
     const publish = vi.fn(async () => { expect(f.stored().rememberedProjectFlows![base]).toEqual([1]); });
@@ -320,7 +321,7 @@ describe('base Printer project-flow preferences', () => {
     expect(changed).toMatchObject({ ok: true, profileSnapshot: { printerPicker: { flows: [{ actual: 2 }] } } });
     expect(publish).toHaveBeenCalledTimes(1);
     expect(f.stored().rememberedProjectFlows![base]).toEqual([0]);
-    await configureProjectFlowPreferences(f.repository, f.runtime, false);
+    await configurePrinterProjectPreferences(f.repository, f.runtime, false);
     const same = await f.runtime.selectPrinterWithRememberedRack(f.profile.printer.name, null, null, context);
     expect(same).toMatchObject({ ok: true, profileSnapshot: { printerPicker: { flows: [{ actual: 2 }] } } });
     const saves = f.repository.save.mock.calls.length;
@@ -369,7 +370,24 @@ describe('base Printer project-flow preferences', () => {
     expect(Object.keys(a.stored().rememberedProjectFlows!)).toHaveLength(2);
     expect(a.stored().rememberedBedTypes.Other).toBe('High Temp Plate');
     expect(a.stored().selectedProfiles).toEqual(prefs.selectedProfiles);
-    await configureProjectFlowPreferences(a.repository, a.runtime, true);
+    await configurePrinterProjectPreferences(a.repository, a.runtime, true);
     expect(await a.runtime.getProfileSnapshot()).toMatchObject({ printerPicker: { flows: [{ actual: 1 }] } });
   });
+});
+
+
+it('loads capacity memory with explicit seed intent and keeps committed capacities when preference IO fails', async () => {
+  let stored: UserPreferences = { ...prefs, rememberedNozzleCapacities: { H2D: [4, 1] } };
+  const repository = { load: vi.fn(async () => stored), save: vi.fn(async (value: UserPreferences) => { stored = value; }) };
+  const runtime = { configureProjectFlowMemory: vi.fn(async () => ({ ok: true as const })),
+    configureNozzleCapacityMemory: vi.fn(async () => ({ ok: true as const })) };
+  await configurePrinterProjectPreferences(repository, runtime, false);
+  expect(runtime.configureNozzleCapacityMemory).toHaveBeenLastCalledWith({ H2D: [4, 1] }, false);
+  await configurePrinterProjectPreferences(repository, runtime, true);
+  expect(runtime.configureNozzleCapacityMemory).toHaveBeenLastCalledWith({ H2D: [4, 1] }, true);
+  const snapshot = { nozzles: [{ id: 1, diameter: 0.4, capacity: 8 }, { id: 2, diameter: 0.4, capacity: 2 }] };
+  await publishRememberedNozzleCapacities(repository, 'H2D', snapshot);
+  expect(stored.rememberedNozzleCapacities).toEqual({ H2D: [8, 2] });
+  repository.save.mockRejectedValueOnce(new Error('disk full'));
+  await expect(publishRememberedNozzleCapacities(repository, 'H2D', snapshot)).resolves.toBeUndefined();
 });

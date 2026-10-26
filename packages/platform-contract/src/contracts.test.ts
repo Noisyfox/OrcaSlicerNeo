@@ -176,3 +176,13 @@ it('persists only a bounded physical Device selection, independently of send pre
     .toMatchObject({ lastDevicePrinterId: 'moonraker:workshop', switchToDeviceAfterSend: false });
   for (const value of ['', 1, null, 'a'.repeat(513)]) expect(normalizeUserPreferences({ version: 1, ui: { lastDevicePrinterId: value } }).ui.lastDevicePrinterId).toBeUndefined();
 });
+
+it('normalizes per-preset nozzle capacities without unsafe or shared arrays', () => {
+  const capacities = [1, 2147483647];
+  const value = normalizeUserPreferences({ version: 1, rememberedNozzleCapacities: {
+    H2D: capacities, zero: [0], fractional: [1.5], overflow: [2147483648], absent: [],
+  } });
+  expect(value.rememberedNozzleCapacities).toEqual({ H2D: [1, 2147483647] });
+  capacities[0] = 9;
+  expect(value.rememberedNozzleCapacities?.H2D[0]).toBe(1);
+});

@@ -1,6 +1,7 @@
 import type { ProfileActivation, SetupWizardMethods } from './setupWizard';
 import type { PaintingApi } from './painting';
 import type { UserPresetMethods } from './userPresets';
+import type { NozzleMappingMethods } from './nozzleMapping';
 // packages/slicer-wasm/src/client/types.ts
 // ----------------------------------------------------------------
 // Shared types: the OrcaModule shape (structural Emscripten factory
@@ -1582,7 +1583,7 @@ export interface FilesystemEntry {
   readonly sizeBytes: number | null;
 }
 
-export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPresetMethods {
+export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPresetMethods, NozzleMappingMethods {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(activation: ProfileActivation | null): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */

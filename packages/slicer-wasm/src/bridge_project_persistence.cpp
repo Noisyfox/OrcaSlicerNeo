@@ -1,3 +1,4 @@
+#include "bridge_nozzle_mapping.hpp"
 // ----------------------------------------------------------------
 // Project archive persistence for the Neo WASM bridge.
 // ----------------------------------------------------------------
@@ -785,10 +786,11 @@ std::vector<BridgeState::PlateSessionPlate> build_plate_session_from_records(
         if (native) plate.settings = native->config;
         if (raw && raw->filament_volume_maps)
             plate.settings.set_key_value("filament_volume_map", new ConfigOptionInts(*raw->filament_volume_maps));
-        // Default is the native archive sentinel for inherited map mode.
-        // Keep that inheritance implicit in the live Plate configuration.
-        if (const auto* mode = plate.settings.option("filament_map_mode"); mode && mode->getInt() == int(FilamentMapMode::fmmDefault))
-            plate.settings.erase("filament_map_mode");
+        // Import policy is distinct from new-Plate defaults. Do not expand
+        // project fallback maps into this Plate while normalizing its mode.
+        const auto* mode = plate.settings.option("filament_map_mode");
+        if (!mode || mode->getInt() == int(FilamentMapMode::fmmDefault))
+            plate.settings.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode::fmmAutoForFlush));
         plate.settings_metadata = config_metadata_json(plate.settings);
         if (raw) plate.opaque_metadata = raw->opaque_metadata;
         result.push_back(std::move(plate));
@@ -1083,9 +1085,11 @@ static const char* orc_load_project_impl(const char* data, int len,
             // candidate preserves the transaction while also handling a
             // parentless project preset (such as Lily.3mf) exactly as Orca.
             candidate.load_config_model(project_name, imported_config, file_version);
-            // The native loader restores Print-owned routing into the edited
-            // preset. Neo's typed routing commands own these same values in
-            // project_config, which must also be restored before validation.
+            // Native routing belongs to the edited Print preset; native feeder
+            // capacities are consumed into the bundle's desktop member. Neo's
+            // dedicated commands own these existing fields in project_config.
+            // Restore from the unchanged import input before validation, without
+            // changing Orca's loader or its project-option catalogue.
             for (const std::string& key : imported_config.keys())
                 if (Neo::Bridge::ScopedConfig::is_bridge_owned_project_routing_key(key))
                     candidate.project_config.set_key_value(key, imported_config.option(key)->clone());
@@ -1128,6 +1132,9 @@ static const char* orc_load_project_impl(const char* data, int len,
             Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(staged_plates);
             extend_imported_plate_filament_maps(staged_plates,
                                                 requested_filament_slots.size(), candidate);
+            const auto printer = PresetDrafts::effective_preset_config(candidate, staged_preset_drafts, Preset::TYPE_PRINTER,
+                candidate.printers.get_selected_preset_name());
+            NozzleMapping::normalize_capacities(candidate.project_config, printer.opt<ConfigOptionFloats>("nozzle_diameter")->size());
             Neo::Bridge::PlateSession::normalize_coordinate_arrays(candidate.project_config, staged_plates.size());
         }
 

@@ -117,6 +117,8 @@ export interface MockModuleOptions {
   embeddedPresetWarnings?: Partial<NonNullable<ProjectLoadResult['embeddedPresetWarnings']>>;
   /** Optional wire snapshot override for malformed/unsupported-version tests. */
   filamentSession?: unknown;
+  nozzleMapping?: unknown;
+  nozzleMappingMutation?: unknown;
   /** Optional raw mutation response override for client normalization tests. */
   filamentMutation?: unknown;
   /** Optional raw project-configuration response override for normalization tests. */
@@ -2502,6 +2504,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_filament_session_snapshot() {
       return filamentSessionSnapshot();
     },
+    orc_mutate_nozzle_mapping(_request: string) {
+      return opts.nozzleMappingMutation ?? { ok: false, errorCode: 'plate_not_found', error: 'No mapping fixture supplied' };
+    },
+    orc_get_nozzle_mapping(plateId: string) {
+      if (opts.nozzleMapping) return opts.nozzleMapping;
+      if (!plateIds.includes(plateId)) return { ok: false, errorCode: 'plate_not_found', error: 'Plate no longer exists' };
+      return { ok: true, plateId, revision: plateInputRevisions[plateId] ?? 0, eligible: false,
+        nozzles: [{ id: 1, diameter: 0.4, capacity: 1 }], usedFilaments: [],
+        modes: [0, 1, 2, 3].map(mode => ({ mode, available: false, reason: 'Outside mapping feature scope' })),
+        saved: { mode: null, filamentMap: null, volumeMap: null, nozzleMap: null },
+        effective: { mode: 0, filamentMap: [1], volumeMap: [0], nozzleMap: [0] }, diagnostics: [] };
+    },
     orc_select_filament_slot_preset(requestJson: string) {
       return filamentMutation(requestJson, 'select-preset');
     },
@@ -2952,6 +2966,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       if (presetKind === 'printer') repairMockProjectFlows(previous.printer !== name);
       return snapshot();
+    },
+    orc_configure_nozzle_capacity_memory(requestJson: string) {
+      const request = JSON.parse(requestJson);
+      if (!request.memory || typeof request.memory !== 'object' || Array.isArray(request.memory) ||
+          typeof request.initializeNewProject !== 'boolean' ||
+          Object.entries(request.memory).some(([name, values]) => !name || name.length > 4096 || !Array.isArray(values) ||
+            values.length < 1 || values.length > 64 || values.some(v => !Number.isInteger(v) || v < 1 || v > 2147483647)))
+        return { ok: false, error: 'Invalid capacity memory' };
+      return { ok: true };
     },
     orc_configure_project_flow_memory(requestJson: string) {
       const request = JSON.parse(requestJson);
@@ -3942,6 +3965,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_reset: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_select_printer_with_remembered_rack: { ret: 'number', args: ['string'] },
+    orc_configure_nozzle_capacity_memory: { ret: 'number', args: ['string'] },
     orc_configure_project_flow_memory: { ret: 'number', args: ['string'] },
     orc_set_project_flow: { ret: 'number', args: ['string'] },
     orc_set_toolhead_diameter: { ret: 'number', args: ['string'] },
@@ -3965,6 +3989,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_take_performance_profile: { ret: 'number', args: [] },
     orc_move_prime_tower: { ret: 'number', args: ['string'] },
     orc_get_filament_session_snapshot: { ret: 'number', args: [] },
+    orc_mutate_nozzle_mapping: { ret: 'number', args: ['string'] },
+    orc_get_nozzle_mapping: { ret: 'number', args: ['string'] },
     orc_select_filament_slot_preset: { ret: 'number', args: ['string'] },
     orc_set_filament_slot_colour: { ret: 'number', args: ['string'] },
     orc_add_filament_slot: { ret: 'number', args: ['string'] },

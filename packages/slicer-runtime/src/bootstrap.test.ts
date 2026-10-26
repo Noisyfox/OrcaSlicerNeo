@@ -193,6 +193,26 @@ describe('portable runtime bootstrap', () => {
     });
   });
 
+  it('binds nozzle mapping queries to the explicit Plate across the runtime boundary', async () => {
+    let receive!: (message: import('../../slicer-wasm/src/client').WorkerMessage) => void;
+    const requested: unknown[][] = [];
+    const transport: WorkerTransport = {
+      post(message) {
+        if (message.type !== 'request' || message.op !== 'getNozzleMapping') return;
+        requested.push(message.args);
+        receive({ type: 'response', id: message.id, ok: true,
+          result: { ok: false, errorCode: 'plate_not_found', error: `Missing ${message.args[0]}` } });
+      },
+      onMessage(listener) { receive = listener; },
+    };
+    const runtime = createRuntimeBootstrap({ transport,
+      capabilities: { webgl2: true, wasm64: true, threadedWasm: false } });
+    await expect(runtime.getNozzleMapping('plate-b')).resolves.toEqual({
+      ok: false, errorCode: 'plate_not_found', error: 'Missing plate-b',
+    });
+    expect(requested).toEqual([['plate-b']]);
+  });
+
   it('keeps the filament-session wire contract identical for serial and threaded hosts', async () => {
     const wireSnapshot = {
       ok: true, version: 1,

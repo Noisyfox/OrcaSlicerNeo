@@ -1,3 +1,4 @@
+import { publishNozzleRepairNotice } from '../nozzleMapping/nozzleMappingNotices';
 import { publishRememberedBedType } from '@/preferences';
 import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
@@ -66,6 +67,13 @@ type ConfigurationMutationResult = PlateSessionMutationResult | {
   unchanged: true;
   nativeScopedConfig: NativeScopedConfigTransport;
 };
+
+/** Share the editor FIFO with typed configuration commands. */
+export function enqueueConfigurationMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const task = configurationMutationQueue.then(operation);
+  configurationMutationQueue = task.then(() => undefined, () => undefined);
+  return task;
+}
 
 /** Let actions that consume settings wait for a pending blur/selection commit. */
 export function waitForConfigurationMutations(): Promise<void> {
@@ -300,6 +308,8 @@ async function commitPresetDraftMutationNow(
         const scoped = settings.applyNativeScopedConfigTransport(result.nativeScopedConfig);
         if (scoped !== 'applied' && useSettingsStore.getState().nativeScopedConfigRevision !== result.revisionAfter)
           throw new Error('native scoped configuration refresh was not accepted');
+        publishNozzleRepairNotice(settingsBase.nativeScopedConfig, useSettingsStore.getState().nativeScopedConfig,
+          (useSettingsStore.getState().values.nozzle_diameter?.split(',').length ?? 0));
       });
     } catch (error) {
       publicationError = new CommittedPresetDraftProjectionError(result, error);

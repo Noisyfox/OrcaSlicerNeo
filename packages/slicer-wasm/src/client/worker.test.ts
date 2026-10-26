@@ -228,6 +228,8 @@ describe('worker protocol', () => {
     await expect(client.arrange(arrangement)).rejects.toThrow('slice_busy');
     await expect(client.setProjectFlow(0, 1, 0, presetContext)).resolves.toMatchObject({ ok: false, errorCode: 'slice_busy' });
     await expect(client.configureProjectFlowMemory({}, true)).resolves.toMatchObject({ ok: false, errorCode: 'slice_busy' });
+    await expect(client.configureNozzleCapacityMemory({}, true)).resolves.toMatchObject({ ok: false, errorCode: 'slice_busy' });
+    await expect(client.mutateNozzleMapping({ plateId: 'A', revision: 0, plateRevision: 0, change: { kind: 'mode', mode: 2 } }, {} as never)).resolves.toMatchObject({ ok: false, errorCode: 'slice_busy' });
     await expect(client.openSetupWizardCatalogue()).rejects.toThrow('slice_busy');
     await expect(client.closeSetupWizardCatalogue()).rejects.toThrow('slice_busy');
     await expect(client.prepareProfileActivation({ activation: { models: [], filaments: [] }, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).rejects.toThrow('slice_busy');

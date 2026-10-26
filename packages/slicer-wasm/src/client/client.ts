@@ -5,6 +5,8 @@ import type { UserPresetStorage, UserPresetKind, UserPresetRequest, UserPresetMu
 import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationPreparationRequest, ProfileActivationApplicationResult } from './setupWizard';
 import { createPaintingApi } from './paintingClient';
 import { decodeModelGeometry } from './modelGeometry';
+import type { NozzleMappingMutationResult, NozzleMappingRequest } from './nozzleMapping';
+import { decodeNozzleMapping } from './nozzleMapping';
 // packages/slicer-wasm/src/client/client.ts
 // ----------------------------------------------------------------
 // The typed promise-based bridge client — the ONLY JS that talks to
@@ -2262,6 +2264,33 @@ export function createClient(
       return normalizeFilamentSessionResult(callJson(m, 'orc_get_filament_session_snapshot', [], []));
     },
 
+    async getNozzleMapping(plateId: string) {
+      const m = await module();
+      return decodeNozzleMapping(callJson(m, 'orc_get_nozzle_mapping', ['string'], [plateId]), plateId);
+    },
+
+    async mutateNozzleMapping(request: NozzleMappingRequest, context: HistoryContext): Promise<NozzleMappingMutationResult> {
+      const m = await module();
+      const raw = callJson(m, 'orc_mutate_nozzle_mapping', ['string'], [JSON.stringify({ ...request, history_context: context })]);
+      const invalid = (): NozzleMappingMutationResult => ({ ok: false, errorCode: 'invalid_response', error: 'Invalid mapping mutation receipt' });
+      if (!isRecord(raw)) return invalid();
+      if (raw.ok === false) return decodeNozzleMapping(raw, request.plateId) as Exclude<NozzleMappingMutationResult, { ok: true }>;
+      if (raw.ok !== true || typeof raw.changed !== 'boolean') return invalid();
+      const snapshot = decodeNozzleMapping(raw.snapshot, request.plateId);
+      if (!snapshot.ok) return snapshot;
+      let historyStatus: HistoryStatus;
+      try { historyStatus = normalizeHistoryStatus(raw.history_status); } catch { return invalid(); }
+      if (historyStatus.revision !== request.revision + (raw.changed ? 1 : 0)) return invalid();
+      if (!raw.changed) return { ok: true, changed: false, snapshot, historyStatus };
+      const plateSession = normalizePlateMutationResult(raw.plate_session);
+      const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
+      if (!plateSession.ok || !nativeScopedConfig || nativeScopedConfig.revision !== historyStatus.revision ||
+          plateSession.inputRevisions?.[request.plateId] !== snapshot.revision ||
+          !plateSession.affectedPlateIds?.includes(request.plateId) || snapshot.revision <= request.plateRevision ||
+          (request.change.kind !== 'capacity' && plateSession.affectedPlateIds.length !== 1)) return invalid();
+      return { ok: true, changed: true, snapshot, historyStatus, plateSession, nativeScopedConfig };
+    },
+
     async getUserPresetInfo(kind: UserPresetKind, canonicalName: string) {
       const m = await module();
       const raw = callJson(m, 'orc_user_preset_info', ['string', 'string'], [kind, canonicalName]);
@@ -2636,6 +2665,14 @@ export function createClient(
         callJson(m, 'orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify(request)]),
         'select-printer-with-remembered-rack',
       );
+    },
+
+    async configureNozzleCapacityMemory(memory: Record<string, number[]>, initializeNewProject: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
+      const m = await module();
+      const raw = callJson(m, 'orc_configure_nozzle_capacity_memory', ['string'],
+        [JSON.stringify({ memory, initializeNewProject })]);
+      if (isRecord(raw) && raw.ok === true) return { ok: true };
+      return { ok: false, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid native capacity preference response' };
     },
 
     async configureProjectFlowMemory(memory: Record<string, number[]>, initializeNewProject: boolean): Promise<{ ok: true } | { ok: false; error: string }> {

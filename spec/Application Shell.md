@@ -531,6 +531,22 @@ independent of any selected objects, parts, or tower. Selecting a plate updates
 the configuration target through the existing plate-selection command. Preview
 retains its plate-result activation and camera framing behavior.
 
+The planned nozzle-mapping extension changes the lower Plates Properties
+editor to two tabs: Settings first, retaining the existing Plate settings,
+then Filament Mapping, editing the selected Plate's mode and mapping. The
+slice dropdown edits the current Plate's mode and has no mapping-editor entry.
+Users explicitly select manual mode before the mapping-editing interface is
+shown. It lists only the selected Plate's native-used filaments, one row per
+filament with a target-nozzle dropdown. Completed Sidebar edits apply immediately
+and support Undo. Before each manual slice, an editable confirmation dialog
+reuses the mapping component; Confirm and Slice saves its edits atomically
+before slicing, while Cancel discards them. There is no global mapping editor,
+Follow global control or separate Plate-list mapping popup. When SEMM plus
+multiple physical extruders is unavailable, hide the mapping tab, mode-menu
+items and new capacity input while preserving existing controls. These
+requirements are accepted but not delivered; their detailed contract is owned by
+[Multi-Filament Support](Multi-Filament%20Support.md#14-nozzle-filament-mapping-design).
+
 Objects filters options by the selected object's native scope (or part scope
 for a selected model volume). It never falls back to plate settings: an empty
 selection prompts the user to select an object or volume. Plate-only options
@@ -628,6 +644,11 @@ specified in [Extruder Switch and Variant Editing section 3.4](Extruder%20Switch
   printers keep their existing Printer section. Both tab contents stay mounted.
   Multi. presents selectable numbered toolhead cards with effective diameter
   and native flow type, followed by the selected head's diameter selector.
+  The planned [nozzle-mapping extension](Multi-Filament%20Support.md#1412-hardware-coverage-and-slot-capacity)
+  also edits that selected nozzle's total filament-slot capacity here. Capacity
+  is shared by all Plates; this control adds no mapping editor to Multi.
+  Show this input only when SEMM and multiple physical extruders are enabled.
+  Its placement is accepted but not yet delivered.
   Clicking a Device nozzle card opens Multi. and selects that same toolhead.
   Both views use the same tooltip with the extruder number, diameter, and
   native flow type.

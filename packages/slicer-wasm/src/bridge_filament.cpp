@@ -1930,6 +1930,52 @@ json add_filament_command(const json& request, const Runtime& runtime)
         });
 }
 
+void repair_nozzle_mapping_targets(const DynamicPrintConfig& printer)
+{
+    auto& bridge = state();
+    auto& bundle = bridge.presets;
+    const auto nozzles = printer.opt<ConfigOptionFloats>("nozzle_diameter")->size();
+    const auto count = State::material_slot_count(bundle.project_config);
+    // Physical head IDs and material slot IDs have different dimensions.
+    // Keep valid mappings; discard removed heads on every plate.
+    const auto* actual_flow = bundle.project_config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
+    const int first_flow = actual_flow && !actual_flow->empty() && actual_flow->get_at(0) != int(nvtHybrid)
+        ? actual_flow->get_at(0) : int(nvtStandard);
+    auto repair_maps = [nozzles, count, first_flow](DynamicPrintConfig& config, const bool project) {
+        for (const auto* key : {"filament_map", "filament_map_2"})
+            if (auto* map = config.option<ConfigOptionInts>(key))
+                for (size_t i = 0; i < map->size(); ++i)
+                    if (map->values[i] > static_cast<int>(nozzles)) {
+                        map->values[i] = 1;
+                        if (auto* volumes = config.option<ConfigOptionInts>("filament_volume_map"); volumes && i < volumes->size())
+                            volumes->values[i] = first_flow;
+                        if (auto* tips = config.option<ConfigOptionInts>("filament_nozzle_map"); tips && i < tips->size())
+                            tips->values[i] = 0;
+                    }
+        if (nozzles == 1) {
+            if (project) {
+                config.option<ConfigOptionInts>("filament_map", true)->values.assign(count, 1);
+                config.option<ConfigOptionInts>("filament_nozzle_map", true)->values.assign(count, 0);
+                config.option<ConfigOptionInts>("filament_volume_map", true)->values.assign(count, first_flow);
+            } else {
+                config.erase("filament_map");
+                config.erase("filament_nozzle_map");
+                config.erase("filament_volume_map");
+            }
+            config.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode::fmmAutoForFlush));
+        }
+        if (project)
+            for (const auto* key : {"filament_map", "filament_map_2", "filament_nozzle_map", "filament_volume_map"})
+                if (auto* map = config.option<ConfigOptionInts>(key))
+                    map->values.resize(count, std::string(key) == "filament_map" || std::string(key) == "filament_map_2" ? 1 : 0);
+    };
+    repair_maps(bundle.project_config, true);
+    for (auto& plate : bridge.plate_session_plates) {
+        repair_maps(plate.settings, false);
+        plate.settings_metadata = config_metadata_json(plate.settings);
+    }
+}
+
 void transition_printer_topology(const DynamicPrintConfig& printer,
     const DynamicPrintConfig& previous, const std::size_t previous_dimension)
 {
@@ -1965,44 +2011,7 @@ void transition_printer_topology(const DynamicPrintConfig& printer,
         for (const auto& [key, value] : scoped["project"].items())
             if (is_filament_slot_reference_key(key)) current_project[key] = value;
         Neo::Bridge::ScopedConfig::apply_project_scoped_config_snapshot(current_project);
-        // Physical head IDs and material slot IDs have different dimensions.
-        // Keep valid mappings; discard removed heads on every plate.
-        const auto* actual_flow = bundle.project_config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
-        const int first_flow = actual_flow && !actual_flow->empty() && actual_flow->get_at(0) == int(nvtHighFlow)
-            ? int(nvtHighFlow) : int(nvtStandard);
-        auto repair_maps = [nozzles, count, first_flow](DynamicPrintConfig& config, const bool project) {
-            for (const auto* key : {"filament_map", "filament_map_2"})
-                if (auto* map = config.option<ConfigOptionInts>(key))
-                    for (size_t i = 0; i < map->size(); ++i)
-                        if (map->values[i] > static_cast<int>(nozzles)) {
-                            map->values[i] = 1;
-                            if (auto* volumes = config.option<ConfigOptionInts>("filament_volume_map"); volumes && i < volumes->size())
-                                volumes->values[i] = first_flow;
-                            if (auto* tips = config.option<ConfigOptionInts>("filament_nozzle_map"); tips && i < tips->size())
-                                tips->values[i] = 0;
-                        }
-            if (nozzles == 1) {
-                if (project) {
-                    config.option<ConfigOptionInts>("filament_map", true)->values.assign(count, 1);
-                    config.option<ConfigOptionInts>("filament_nozzle_map", true)->values.assign(count, 0);
-                    config.option<ConfigOptionInts>("filament_volume_map", true)->values.assign(count, first_flow);
-                } else {
-                    config.erase("filament_map");
-                    config.erase("filament_nozzle_map");
-                    config.erase("filament_volume_map");
-                }
-                config.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode::fmmAutoForFlush));
-            }
-            if (project)
-                for (const auto* key : {"filament_map", "filament_map_2", "filament_nozzle_map", "filament_volume_map"})
-                    if (auto* map = config.option<ConfigOptionInts>(key))
-                        map->values.resize(count, std::string(key) == "filament_map" || std::string(key) == "filament_map_2" ? 1 : 0);
-        };
-        repair_maps(bundle.project_config, true);
-        for (auto& plate : bridge.plate_session_plates) {
-            repair_maps(plate.settings, false);
-            plate.settings_metadata = config_metadata_json(plate.settings);
-        }
+        repair_nozzle_mapping_targets(printer);
         auto* flow = bundle.project_config.option<ConfigOptionEnumsGeneric>("nozzle_volume_type", true);
         const auto* defaults = printer.opt<ConfigOptionEnumsGeneric>("default_nozzle_volume_type");
         const auto previous_flows = flow->values.size();
@@ -2440,6 +2449,32 @@ EMSCRIPTEN_KEEPALIVE const char* orc_test_set_filament_reference_fixture(const c
     try {
         const json request = request_cstr && *request_cstr ? json::parse(request_cstr) : json::object();
         ensure_plate_session_state();
+        // Native-only fixture construction; not exposed by the application client.
+        // Allows the projection harness to cover configurations the preset editor
+        // intentionally cannot create, and malformed imported capacity strings.
+        if (request.contains("printer_settings")) {
+            auto& preset = state().presets.printers.get_edited_preset();
+            const auto& settings = request["printer_settings"];
+            if (settings.contains("nozzle_count")) {
+                const int count = settings["nozzle_count"].get<int>();
+                if (count < 1 || count > MAXIMUM_EXTRUDER_NUMBER) return error_json("invalid fixture nozzle count");
+                preset.set_num_extruders(count);
+                json diameters = json::array();
+                for (int i = 0; i < count; ++i) diameters.push_back(json{{"value", 0.4}});
+                state().preset_drafts.set(Preset::TYPE_PRINTER, preset.name, "nozzle_diameter", diameters);
+            }
+            if (settings.contains("semm")) {
+                preset.config.option<ConfigOptionBool>("single_extruder_multi_material", true)->value = settings["semm"].get<bool>();
+                state().preset_drafts.set(Preset::TYPE_PRINTER, preset.name, "single_extruder_multi_material",
+                    settings["semm"].get<bool>() ? "1" : "0");
+            }
+        }
+        if (request.contains("mapping_project_settings")) {
+            for (auto it = request["mapping_project_settings"].begin(); it != request["mapping_project_settings"].end(); ++it) {
+                if (it.value().is_null()) state().presets.project_config.erase(it.key());
+                else state().presets.project_config.set_deserialize_strict(it.key(), it.value().get<std::string>());
+            }
+        }
         if (request.contains("plate_settings")) {
             if (!request["plate_settings"].is_object()) return error_json("invalid test plate settings");
             for (auto& plate : state().plate_session_plates) {
@@ -2481,7 +2516,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_test_set_filament_reference_fixture(const c
         for (const auto& [plate, info] : state().model.plates_custom_gcodes)
             for (const auto& item : info.gcodes)
                 custom.push_back({{"plate", plate}, {"extruder", item.extruder}, {"print_z", item.print_z}});
-        return duplicate_json(json{{"ok", true}, {"plate_session", plate_session_snapshot_json()}, {"custom_gcodes", custom}}.dump());
+        json result = {{"ok", true}, {"plate_session", plate_session_snapshot_json()}, {"custom_gcodes", custom}};
+        if (request.value("read_mapping_inputs", false))
+            result["mapping_inputs"] = {{"project", State::config_metadata_json(state().presets.project_config)},
+                {"printer", State::config_metadata_json(PresetDrafts::effective_printer_config())}};
+        return duplicate_json(result.dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown test fixture failure"); }
 }

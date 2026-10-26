@@ -191,7 +191,7 @@ export async function restoreSelections(
  * compatibility, then history is reset so boot exposes one clean baseline. */
 export async function restoreBootstrapSession(
   runtime: Pick<SlicerClient, 'getProfileSnapshot' | 'selectProfile' |
-    'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack' | 'resetHistory' | 'mutateNativeScopedConfig' | 'setAutoFlushPolicy' | 'configureProjectFlowMemory'>,
+    'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack' | 'resetHistory' | 'mutateNativeScopedConfig' | 'setAutoFlushPolicy' | 'configureProjectFlowMemory' | 'configureNozzleCapacityMemory'>,
   preferences: UserPreferences,
   context: HistoryContext,
 ): Promise<RestoredBootstrapSession> {
@@ -206,6 +206,8 @@ export async function restoreBootstrapSession(
     restored.snapshot = snapshot;
     restored.preferences = resolvedPreferences(preferences, snapshot);
   }
+  const capacities = await runtime.configureNozzleCapacityMemory(preferences.rememberedNozzleCapacities ?? {}, true);
+  if (!capacities.ok) throw new Error(capacities.error);
   const flows = await runtime.configureProjectFlowMemory(preferences.rememberedProjectFlows ?? {}, true);
   if (!flows.ok) throw new Error(flows.error ?? 'fresh project flow seed failed');
   const seededFlows = await runtime.getProfileSnapshot();
@@ -266,14 +268,21 @@ export async function seedRememberedBedType(
 
 /** Configure the native cache without restoring an open project's live flow.
  * Only bootstrap/New Project request the explicit fresh-project seed. */
-export async function configureProjectFlowPreferences(
+export async function configurePrinterProjectPreferences(
   repository: UserPreferencesRepository,
-  runtime: Pick<SlicerClient, 'configureProjectFlowMemory'>,
+  runtime: Pick<SlicerClient, 'configureProjectFlowMemory' | 'configureNozzleCapacityMemory'>,
   initializeNewProject: boolean,
 ): Promise<void> {
   let memory: Record<string, number[]> = {};
-  try { memory = (await loadUserPreferences(repository)).rememberedProjectFlows ?? {}; }
+  let capacities: Record<string, number[]> = {};
+  try {
+    const preferences = await loadUserPreferences(repository);
+    memory = preferences.rememberedProjectFlows ?? {};
+    capacities = preferences.rememberedNozzleCapacities ?? {};
+  }
   catch (error) { console.warn('flow preferences unavailable; using native defaults', error); }
+  const capacityResult = await runtime.configureNozzleCapacityMemory(capacities, initializeNewProject);
+  if (!capacityResult.ok) throw new Error(capacityResult.error);
   const snapshot = await runtime.configureProjectFlowMemory(memory, initializeNewProject);
   if (!snapshot.ok) throw new Error(snapshot.error ?? 'flow preferences could not be configured');
 }
@@ -305,4 +314,18 @@ export async function commitProjectFlow(
     }));
   } catch (error) { console.error('flow preference save failed; keeping committed project state', error); }
   return result;
+}
+
+/** Persist only a committed manual capacity edit. Project loads and history
+ * restoration deliberately do not overwrite the user's per-preset memory. */
+export async function publishRememberedNozzleCapacities(
+  repository: UserPreferencesRepository, printer: string,
+  snapshot: Pick<import('@slicer/client').NozzleMappingSnapshot, 'nozzles'>,
+): Promise<void> {
+  try {
+    await updateUserPreferences(repository, current => ({ ...current,
+      rememberedNozzleCapacities: { ...current.rememberedNozzleCapacities,
+        [printer]: snapshot.nozzles.map(nozzle => nozzle.capacity) },
+    }));
+  } catch (error) { console.error('capacity preference save failed; keeping committed project state', error); }
 }

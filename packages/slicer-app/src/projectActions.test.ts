@@ -71,6 +71,7 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
         ...(load.nativeScopedConfig === undefined ? { nativeScopedConfig: scopedConfigTransport } : {}),
         ...(load.historyStatus === undefined ? { historyStatus: loadedHistoryStatus } : {}) };
     }),
+    configureNozzleCapacityMemory: vi.fn(async () => ({ ok: true as const })),
     configureProjectFlowMemory: vi.fn(async () => ({ ok: true })),
     closeProject: vi.fn(async () => ({ ok: true, plateSession: freshPlateSession })),
     importProjectGeometry: vi.fn(async () => ({ bedTypeNormalization: null, ok: true, objects: 2, instances: 2, mode: 'geometry-only' as const, compatibility: 'generic' as const, projectSettingsAvailable: false })),

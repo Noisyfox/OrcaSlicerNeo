@@ -1,3 +1,4 @@
+import { NozzleMappingConfirmation } from './nozzleMapping/NozzleMappingConfirmation';
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 // The sidebar/scene split: owns the resizable divider between the settings
 // sidebar and the 3D scene, and the scene interaction controller the two
@@ -774,6 +775,7 @@ export function Workspace({
       </aside>
       </>
     </div>
+    <NozzleMappingConfirmation />
     {presetEditorTarget && <PresetEditorDialog
       initialTarget={presetEditorTarget}
       sceneInteraction={sceneInteraction}

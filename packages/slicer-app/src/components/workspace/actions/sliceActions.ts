@@ -1,5 +1,7 @@
+import { mappingConfirmation } from '../nozzleMapping/mappingConfirmation';
+import { commitNozzleMapping } from '../nozzleMapping/nozzleMappingActions';
 import { paintingCommandAllowed, closePaintingForCommand, paintingSessionActive } from '../viewport/gizmo/painting/projectCommands';
-import { runProjectMutationOperation } from './historyMutation';
+import { readProjectHistoryStatus, runProjectMutationOperation } from './historyMutation';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
 import type { PlateOperationTarget } from '@slicer/client';
@@ -18,6 +20,24 @@ const SLICE_CONFIG_BLACKLIST: ReadonlySet<string> = new Set([
   'wipe_tower_x',
   'wipe_tower_y',
 ]);
+
+function sliceSettings(): Record<string, string> {
+  const { values, metadata } = useSettingsStore.getState();
+  const meta = metadata ?? {};
+  const declared = Object.fromEntries(Object.entries(values).filter(([key]) =>
+    meta[key] !== undefined && !SLICE_CONFIG_BLACKLIST.has(key)));
+  if (values.layer_height !== undefined && Number.parseFloat(values.layer_height) <= 0)
+    throw new Error('layer_height must be greater than 0');
+  for (const [key, value] of Object.entries(declared)) {
+    const option = meta[key];
+    if (!option || !['float', 'int', 'percent', 'float_or_percent'].includes(option.type)) continue;
+    const numeric = Number.parseFloat(value.replace('%', ''));
+    if (!Number.isFinite(numeric)) throw new Error(`${key} must be a number`);
+    if (option.min !== undefined && numeric < option.min || option.max !== undefined && numeric > option.max)
+      throw new Error(`${key} must be between ${[option.min, option.max].filter(bound => bound !== undefined).join('–')}`);
+  }
+  return declared;
+}
 
 let activeCancellation: { requested: boolean } | null = null;
 let sliceAdmission = false;
@@ -62,15 +82,6 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
   // or starting native slicing.
   await waitForConfigurationMutations();
 
-  // Only send declared settings. Tower coordinates belong to the native scene
-  // move command: the settings projection can still contain the pre-drag
-  // values, which must not override the authoritative position at Slice.
-  const state = useSettingsStore.getState();
-  const meta = state.metadata ?? {};
-  const values = Object.fromEntries(
-    Object.entries(state.values).filter(([key]) =>
-      meta[key] !== undefined && !SLICE_CONFIG_BLACKLIST.has(key)),
-  );
   const setFailure = (message: string) => {
     const target = useSlicerStore.getState().activeSliceTarget ?? failureTarget;
     if (target) useSlicerStore.getState().setPlateFailure(target, message);
@@ -84,31 +95,8 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
     }
   };
 
-  // Older profile bundles may omit layer_height bounds. It is never valid at
-  // zero and libslic3r's downstream layer math aborts before the bridge can
-  // serialize an error.
-  const rawLayerHeight = state.values.layer_height;
-  if (rawLayerHeight !== undefined && Number.parseFloat(rawLayerHeight) <= 0) {
-    setFailure('layer_height must be greater than 0');
-    return;
-  }
-
-  // Reject impossible numeric values before entering libslic3r. Metadata is
-  // authoritative and already carries the same min/max constraints as the UI.
-  for (const [key, value] of Object.entries(values)) {
-    const option = meta[key];
-    if (!option || !['float', 'int', 'percent', 'float_or_percent'].includes(option.type)) continue;
-    const numeric = Number.parseFloat(value.replace('%', ''));
-    if (!Number.isFinite(numeric)) {
-      setFailure(`${key} must be a number`);
-      return;
-    }
-    if ((option.min !== undefined && numeric < option.min) || (option.max !== undefined && numeric > option.max)) {
-      const bounds = [option.min, option.max].filter((bound) => bound !== undefined).join('–');
-      setFailure(`${key} must be between ${bounds}`);
-      return;
-    }
-  }
+  let values: Record<string, string>;
+  try { values = sliceSettings(); } catch (error) { setFailure(errorText(error)); return; }
 
   // Apply renderer-side CompositeIDs to the C++ Model at the slice boundary.
   const synced = await syncModelTransforms(platform.runtime, glVolumeCollection.volumes);
@@ -133,8 +121,33 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
     setFailure(current?.valid === false ? 'target plate contains an out-of-bounds instance' : 'target plate is empty or unavailable');
     return;
   }
-  const target: PlateOperationTarget = { plateId, inputRevision: revision as number };
+  let target: PlateOperationTarget = { plateId, inputRevision: revision as number };
+  try {
+    const mapping = await platform.runtime.getNozzleMapping(plateId);
+    if (!mapping.ok) { setFailure(mapping.error); return; }
+    if (mapping.revision !== target.inputRevision) { setFailure('Plate inputs changed before mapping confirmation'); return; }
+    if (mapping.eligible) {
+      const mode = mapping.modes.find(choice => choice.mode === mapping.effective.mode);
+      if (!mode?.available) { setFailure(mode?.reason ?? 'Mapping mode is unavailable'); return; }
+      if (mapping.effective.mode === 2 || mapping.effective.mode === 3) {
+        const history = await readProjectHistoryStatus(platform.runtime);
+        if (!history) { setFailure('Could not read the current project revision'); return; }
+        const draft = await mappingConfirmation.request(mapping, history.revision);
+        if (draft === null) return;
+        const committed = await commitNozzleMapping(platform, mapping, history.revision, { kind: 'mapping', ...draft });
+        // A later mutation cannot substitute its inputs: native slice admission
+        // checks this exact committed Plate stamp, including for a no-op.
+        target = { plateId, inputRevision: committed.snapshot.revision };
+        failureTarget = target;
+      }
+    }
+  } catch (error) {
+    setFailure(errorText(error)); return;
+  }
 
+  // Confirmation may be open across UI activity. Read only the committed
+  // settings projection immediately before native revision-bound admission.
+  try { values = sliceSettings(); } catch (error) { setFailure(errorText(error)); return; }
   const slicer = useSlicerStore.getState();
   // An explicit Slice withdraws only the renderer-facing receipt/projection.
   // The Worker registry keeps its native Print/result cache for incremental
