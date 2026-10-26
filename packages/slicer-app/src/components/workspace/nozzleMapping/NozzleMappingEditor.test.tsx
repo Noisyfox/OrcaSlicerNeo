@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { NozzleMappingConfirmation } from './NozzleMappingConfirmation';
-import { mappingConfirmation } from './mappingConfirmation';
+import { mappingConfirmation, type MappingConfirmationValues } from './mappingConfirmation';
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -98,10 +98,13 @@ it('reports only native-confirmed removed-nozzle repairs across Plates', () => {
 
 it('confirmation discards its temporary edits on cancel and permits a warning-only no-op confirmation', async () => {
   await render(<NozzleMappingConfirmation />);
-  const native = snapshot(); let answer!: Promise<readonly number[] | null>;
+  const native = snapshot(); let answer!: Promise<MappingConfirmationValues | null>;
   await act(async () => { answer = mappingConfirmation.request(native, 42); });
   await choose('mapping-filament-3', 'Nozzle 3');
+  await act(async () => (document.querySelector('[data-testid="mapping-mode-0"]') as HTMLElement).click());
+  expect(document.querySelector('[data-testid="mapping-materials"]')).toBeNull();
   expect(native.effective.filamentMap).toEqual([1, 2, 1]);
+  expect(native.effective.mode).toBe(3);
   await act(async () => (document.querySelector('[data-testid="mapping-cancel"]') as HTMLElement).click());
   expect(await answer).toBeNull();
   await act(async () => { answer = mappingConfirmation.request(native, 42); });
@@ -109,6 +112,21 @@ it('confirmation discards its temporary edits on cancel and permits a warning-on
   const confirm = document.querySelector('[data-testid="mapping-confirm"]') as HTMLButtonElement;
   expect(confirm.disabled).toBe(false);
   await act(async () => confirm.click());
-  expect(await answer).toEqual([1, 2, 1]);
+  expect(await answer).toEqual({ mode: 3, filamentMap: [1, 2, 1] });
   expect(native.saved.mode).toBe(3);
+});
+
+it('confirms mode and mapping together, preserving the manual draft across mode switches', async () => {
+  await render(<NozzleMappingConfirmation />);
+  const native = snapshot(); let answer!: Promise<MappingConfirmationValues | null>;
+  await act(async () => { answer = mappingConfirmation.request(native, 42); });
+  await choose('mapping-filament-3', 'Nozzle 3');
+  await act(async () => (document.querySelector('[data-testid="mapping-mode-0"]') as HTMLElement).click());
+  expect(document.querySelector('[data-testid="mapping-materials"]')).toBeNull();
+  await act(async () => (document.querySelector('[data-testid="mapping-mode-2"]') as HTMLElement).click());
+  expect(document.querySelector('[data-testid="mapping-filament-3"]')?.textContent).toContain('Nozzle 3');
+  await act(async () => (document.querySelector('[data-testid="mapping-mode-0"]') as HTMLElement).click());
+  await act(async () => (document.querySelector('[data-testid="mapping-confirm"]') as HTMLElement).click());
+  expect(await answer).toEqual({ mode: 0, filamentMap: [1, 2, 3] });
+  expect(native.effective).toMatchObject({ mode: 3, filamentMap: [1, 2, 1] });
 });

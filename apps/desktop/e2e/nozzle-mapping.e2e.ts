@@ -135,6 +135,11 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
     await expect(dialog).toBeVisible();
     await dialog.getByTestId('mapping-filament-1').click();
     await page.getByRole('option', { name: 'Nozzle 1', exact: true }).click();
+    await dialog.getByTestId('mapping-mode-0').click();
+    await expect(dialog.getByTestId('mapping-materials')).toHaveCount(0);
+    await dialog.getByTestId('mapping-mode-2').click();
+    await expect(dialog.getByTestId('mapping-filament-1')).toContainText('Nozzle 1');
+    await dialog.getByTestId('mapping-mode-0').click();
     await dialog.getByTestId('mapping-cancel').click();
     await expect(dialog).toHaveCount(0);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -177,6 +182,25 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
     await expect(dialog).toHaveCount(0);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await expect(dialog).toHaveCount(0); expect(await responses('slicePlate')).toHaveLength(2);
+    // A dialog can choose automatic mode while retaining the edited manual map.
+    const historyBeforeMode = (await responses('mutateNozzleMapping')).at(-1)!.result.historyStatus;
+    const writesBeforeMode = (await responses('mutateNozzleMapping')).length;
+    await page.getByTestId('btn-slice').click(); await expect(dialog).toBeVisible();
+    await dialog.getByTestId('mapping-filament-1').click();
+    await page.getByRole('option', { name: 'Nozzle 1', exact: true }).click();
+    await dialog.getByTestId('mapping-mode-0').click();
+    await expect(dialog.getByTestId('mapping-materials')).toHaveCount(0);
+    await expect(dialog.getByTestId('mapping-mode-0')).toHaveAttribute('aria-pressed', 'true');
+    await page.screenshot({ path: join(directory, 'confirmation-auto.png'), animations: 'disabled' });
+    await confirmSlice();
+    expect(await responses('mutateNozzleMapping')).toHaveLength(writesBeforeMode + 1);
+    expect(await responses('slicePlate')).toHaveLength(3);
+    const modeCommit = (await responses('mutateNozzleMapping')).at(-1)!.result;
+    expect(modeCommit.snapshot.saved).toMatchObject({ mode: 0, filamentMap: [1, 1] });
+    expect(modeCommit.historyStatus.undoEntries).toHaveLength(historyBeforeMode.undoEntries.length + 1);
+    expect((await responses('slicePlate')).at(-1)!.result.receipt.inputStamp).toBe(modeCommit.snapshot.revision);
+    await expect(page.getByTestId('mapping-mode-0')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('mapping-materials')).toHaveCount(0);
     console.log('native nozzle mapping journey', JSON.stringify({ variant, projectSha256: hash(source), wasm: hash(join(root, 'packages/slicer-wasm/out', variant, 'orca_slice.wasm')), directory }));
   } finally {
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy()); await app.close();

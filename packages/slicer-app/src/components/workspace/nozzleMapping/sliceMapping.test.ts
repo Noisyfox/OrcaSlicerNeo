@@ -56,9 +56,9 @@ it('confirms one complete map and slices exactly the committed Plate revision', 
   const mapping = snapshot(); const { platform, runtime } = fixture(mapping);
   vi.mocked(commitNozzleMapping).mockResolvedValueOnce({ ok: true, changed: true, snapshot: { ...mapping, revision: 11 } } as never);
   const task = sliceModel(platform);
-  mappingConfirmation.finish(await dialog(), [2, 1]);
+  mappingConfirmation.finish(await dialog(), { mode: 2, filamentMap: [2, 1] });
   await task;
-  expect(commitNozzleMapping).toHaveBeenCalledExactlyOnceWith(platform, mapping, 42, { kind: 'mapping', filamentMap: [2, 1] });
+  expect(commitNozzleMapping).toHaveBeenCalledExactlyOnceWith(platform, mapping, 42, { kind: 'mapping', mode: 2, filamentMap: [2, 1] });
   expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'A', inputRevision: 11 }, {}, expect.any(Function));
   expect(useSlicerStore.getState().plateResults.A.receipt?.inputStamp).toBe(11);
 });
@@ -66,15 +66,28 @@ it('confirms one complete map and slices exactly the committed Plate revision', 
 it('unchanged Nozzle Manual confirms without changing mode or inventing a new revision', async () => {
   const mapping = snapshot(3); const { platform, runtime } = fixture(mapping);
   vi.mocked(commitNozzleMapping).mockResolvedValueOnce({ ok: true, changed: false, snapshot: mapping } as never);
-  const task = sliceModel(platform); mappingConfirmation.finish(await dialog(), [1, 1]); await task;
-  expect(commitNozzleMapping).toHaveBeenCalledWith(platform, mapping, 42, { kind: 'mapping', filamentMap: [1, 1] });
+  const task = sliceModel(platform); mappingConfirmation.finish(await dialog(), { mode: mapping.effective.mode, filamentMap: [1, 1] }); await task;
+  expect(commitNozzleMapping).toHaveBeenCalledWith(platform, mapping, 42, { kind: 'mapping', mode: 3, filamentMap: [1, 1] });
   expect(runtime.slicePlate.mock.calls[0][0].inputRevision).toBe(10);
+});
+
+it('commits an automatic mode chosen in the dialog with its map before slicing once', async () => {
+  const mapping = snapshot(3); const { platform, runtime } = fixture(mapping);
+  vi.mocked(commitNozzleMapping).mockResolvedValueOnce({ ok: true, changed: true,
+    snapshot: { ...mapping, revision: 11, effective: { ...mapping.effective, mode: 0 } } } as never);
+  const task = sliceModel(platform);
+  mappingConfirmation.finish(await dialog(), { mode: 0, filamentMap: [2, 1] });
+  await task;
+  expect(commitNozzleMapping).toHaveBeenCalledExactlyOnceWith(platform, mapping, 42,
+    { kind: 'mapping', mode: 0, filamentMap: [2, 1] });
+  expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'A', inputRevision: 11 }, {}, expect.any(Function));
+  expect(mappingConfirmation.getSnapshot()).toBeNull();
 });
 
 it('rejected or stale confirmation cannot start a slice', async () => {
   const { platform, runtime } = fixture();
   vi.mocked(commitNozzleMapping).mockRejectedValueOnce(new Error('Plate no longer exists'));
-  const task = sliceModel(platform); mappingConfirmation.finish(await dialog(), [2, 1]); await task;
+  const task = sliceModel(platform); mappingConfirmation.finish(await dialog(), { mode: 2, filamentMap: [2, 1] }); await task;
   expect(runtime.slicePlate).not.toHaveBeenCalled();
   expect(useSlicerStore.getState().error).toContain('Plate no longer exists');
 });
@@ -92,7 +105,7 @@ it('a native rejection after commit never retargets to a newer revision', async 
   const mapping = snapshot(); const { platform, runtime } = fixture(mapping);
   vi.mocked(commitNozzleMapping).mockResolvedValueOnce({ ok: true, changed: false, snapshot: mapping } as never);
   runtime.slicePlate.mockResolvedValueOnce({ ok: false, error: 'stale plate input revision' } as never);
-  const task = sliceModel(platform); mappingConfirmation.finish(await dialog(), [1, 1]); await task;
+  const task = sliceModel(platform); mappingConfirmation.finish(await dialog(), { mode: mapping.effective.mode, filamentMap: [1, 1] }); await task;
   expect(runtime.slicePlate).toHaveBeenCalledTimes(1);
   expect(runtime.slicePlate.mock.calls[0][0]).toEqual({ plateId: 'A', inputRevision: 10 });
   expect(useSlicerStore.getState().plateResults.A?.receipt).toBeUndefined();

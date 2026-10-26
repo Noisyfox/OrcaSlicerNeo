@@ -134,7 +134,7 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
         if (!history) { setFailure('Could not read the current project revision'); return; }
         const draft = await mappingConfirmation.request(mapping, history.revision);
         if (draft === null) return;
-        const committed = await commitNozzleMapping(platform, mapping, history.revision, { kind: 'mapping', filamentMap: draft });
+        const committed = await commitNozzleMapping(platform, mapping, history.revision, { kind: 'mapping', ...draft });
         // A later mutation cannot substitute its inputs: native slice admission
         // checks this exact committed Plate stamp, including for a no-op.
         target = { plateId, inputRevision: committed.snapshot.revision };

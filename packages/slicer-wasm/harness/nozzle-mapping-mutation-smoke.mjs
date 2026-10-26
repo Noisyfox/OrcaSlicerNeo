@@ -17,12 +17,13 @@ const mutate = (change, extra = {}, id = plateId) => command('orc_mutate_nozzle_
 });
 const unchanged = inputs();
 const initial = call('orc_history_status');
-assert.equal(ok(mutate({ kind: 'mapping', filamentMap: [1, 2] })).changed, false);
+assert.equal(ok(mutate({ kind: 'mapping', mode: 3, filamentMap: [1, 2] })).changed, false);
 assert.equal(ok(projection(plateId)).saved.mode, 3);
 assert.equal(call('orc_history_status').revision, initial.revision);
 for (const change of [
-  { kind: 'mapping', filamentMap: [1] }, { kind: 'mapping', filamentMap: [1, 3] },
-  { kind: 'mapping', filamentMap: [0, 1] }, { kind: 'mode', mode: 1 },
+  { kind: 'mapping', filamentMap: [1, 2] }, { kind: 'mapping', mode: 4, filamentMap: [1, 2] },
+  { kind: 'mapping', mode: 3, filamentMap: [1] }, { kind: 'mapping', mode: 3, filamentMap: [1, 3] },
+  { kind: 'mapping', mode: 3, filamentMap: [0, 1] }, { kind: 'mode', mode: 1 },
   ...[0, -1, 1.5, 2147483648, Number.MAX_SAFE_INTEGER + 1].map(capacity => ({ kind: 'capacity', nozzle: 1, capacity })),
   { kind: 'capacity', nozzle: 3, capacity: 2 },
 ]) {
@@ -32,8 +33,12 @@ for (const change of [
 assert.equal(mutate({ kind: 'mode', mode: 2 }, { revision: initial.revision + 1 }).errorCode, 'stale_revision');
 assert.equal(mutate({ kind: 'mode', mode: 2 }, { plateRevision: 9999 }).errorCode, 'stale_revision');
 assert.equal(mutate({ kind: 'mode', mode: 2 }, { plateId: 'deleted-plate' }).errorCode, 'plate_not_found');
+const manualChoice = ok(mutate({ kind: 'mapping', mode: 2, filamentMap: [1, 2] }));
+assert.equal(manualChoice.changed, true);
+assert.equal(manualChoice.snapshot.saved.mode, 2, 'explicit Manual choice converts Nozzle Manual without a map edit');
+ok(call('orc_history_undo')); assert.deepEqual(inputs(), unchanged);
 const otherRevision = ok(projection(other)).revision;
-const edit = ok(mutate({ kind: 'mapping', filamentMap: [2, 2] }));
+const edit = ok(mutate({ kind: 'mapping', mode: 3, filamentMap: [2, 2] }));
 assert.equal(edit.changed, true);
 assert.equal(edit.snapshot.saved.mode, 2);
 assert.equal(edit.history_status.undoEntries.length, initial.undoEntries.length + 1);
@@ -60,9 +65,22 @@ ok(call('orc_history_redo')); assert.deepEqual(inputs(), capacityAfter);
 const saved = ok(projection(plateId)).saved;
 ok(mutate({ kind: 'mode', mode: 0 }));
 assert.deepEqual(ok(projection(plateId)).saved.filamentMap, saved.filamentMap);
-assert.equal(mutate({ kind: 'mapping', filamentMap: [1, 1] }).ok, false);
+assert.equal(mutate({ kind: 'mapping', mode: 1, filamentMap: [1, 1] }).ok, false);
 ok(mutate({ kind: 'mode', mode: 2 }));
 assert.deepEqual(ok(projection(plateId)).saved.filamentMap, saved.filamentMap);
+// Confirmation publishes mode and manual intent in one native history entry.
+const beforeCombined = inputs();
+const combinedHistory = call('orc_history_status');
+const otherBeforeCombined = ok(projection(other)).revision;
+const combined = ok(mutate({ kind: 'mapping', mode: 0, filamentMap: [1, 2] }));
+assert.equal(combined.snapshot.saved.mode, 0);
+assert.deepEqual(combined.snapshot.saved.filamentMap, [1, 2]);
+assert.equal(combined.history_status.undoEntries.length, combinedHistory.undoEntries.length + 1);
+assert.equal(ok(projection(other)).revision, otherBeforeCombined);
+const afterCombined = inputs();
+ok(call('orc_history_undo')); assert.deepEqual(inputs(), beforeCombined, 'one Undo restores mode and map together');
+ok(call('orc_history_redo')); assert.deepEqual(inputs(), afterCombined);
+ok(call('orc_history_undo'));
 // Existing material commands must maintain both independent Plate maps.
 let rack = ok(call('orc_get_filament_session_snapshot'));
 ok(command('orc_add_filament_slot', { version: 1, revision: rack.revisions.session }));
@@ -79,7 +97,7 @@ setCount(3);
 assert.equal(ok(projection(plateId)).modes[0].available, false);
 const added = ok(call('orc_add_plate')).current_plate_id;
 assert.equal(ok(projection(added)).saved.mode, 2, 'unsupported automatic topology starts new Plates in Manual');
-ok(mutate({ kind: 'mapping', filamentMap: [3, 2] }));
+ok(mutate({ kind: 'mapping', mode: 3, filamentMap: [3, 2] }));
 const beforeRemoval = inputs();
 setCount(2);
 assert.deepEqual(ok(projection(plateId)).effective.filamentMap, [1, 2]);

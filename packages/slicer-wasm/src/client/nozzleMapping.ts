@@ -37,7 +37,7 @@ export type NozzleMappingResult = NozzleMappingSnapshot | {
 };
 export type NozzleMappingChange =
   | { readonly kind: 'mode'; readonly mode: NozzleMappingMode }
-  | { readonly kind: 'mapping'; readonly filamentMap: readonly number[] }
+  | { readonly kind: 'mapping'; readonly mode: NozzleMappingMode; readonly filamentMap: readonly number[] }
   | { readonly kind: 'capacity'; readonly nozzle: number; readonly capacity: number };
 export interface NozzleMappingRequest {
   readonly plateId: string;

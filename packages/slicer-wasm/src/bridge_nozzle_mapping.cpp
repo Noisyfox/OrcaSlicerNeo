@@ -314,15 +314,19 @@ json mutate(const json& request)
         changed = before["effective"]["mode"] != mode;
         if (changed) candidate.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode(mode)));
     } else if (kind == "mapping") {
-        const int mode = before["effective"]["mode"].get<int>();
-        if (mode != fmmManual && mode != fmmNozzleManual) return failure("unavailable", "Choose Manual before editing assignments");
+        if (!change.contains("mode") || !change["mode"].is_number_unsigned() || change["mode"].get<unsigned>() > 3)
+            return failure("invalid_request", "Unknown mapping mode");
+        int mode = change["mode"].get<int>();
+        if (!before["modes"][mode]["available"].get<bool>()) return failure("unavailable", before["modes"][mode]["reason"]);
         if (!change.contains("filamentMap") || !change["filamentMap"].is_array() || change["filamentMap"].size() != count)
             return failure("invalid_request", "Mapping must contain every project filament");
         for (const auto& target : change["filamentMap"])
             if (!target.is_number_unsigned() || target.get<std::uint64_t>() < 1 || target.get<std::uint64_t>() > nozzles)
                 return failure("invalid_request", "Mapping targets an unavailable nozzle");
-        changed = change["filamentMap"] != before["effective"]["filamentMap"];
-        if (changed) {
+        const bool mapping_changed = change["filamentMap"] != before["effective"]["filamentMap"];
+        if (mapping_changed && mode == fmmNozzleManual) mode = fmmManual;
+        changed = mapping_changed || before["effective"]["mode"] != mode;
+        if (mapping_changed) {
             auto maps = change["filamentMap"].get<std::vector<int>>();
             auto volumes = before["effective"]["volumeMap"].get<std::vector<int>>();
             auto tips = before["effective"]["nozzleMap"].get<std::vector<int>>();
@@ -332,8 +336,8 @@ json mutate(const json& request)
             candidate.set_key_value("filament_map", new ConfigOptionInts(std::move(maps)));
             candidate.set_key_value("filament_volume_map", new ConfigOptionInts(std::move(volumes)));
             candidate.set_key_value("filament_nozzle_map", new ConfigOptionInts(std::move(tips)));
-            candidate.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(fmmManual));
         }
+        if (changed) candidate.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode(mode)));
     } else return failure("invalid_request", "Unknown mapping operation");
     if (!changed) return {{"ok", true}, {"changed", false}, {"snapshot", before},
         {"history_status", HistoryMetadata::history_status_json(bridge)}};

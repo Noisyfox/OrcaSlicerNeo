@@ -49,7 +49,7 @@ describe('nozzle mapping mutation receipts', () => {
   const context = { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] },
     activePlateId: 'plate-a', gizmo: null, nativeScopedConfig: {} };
   const request = { plateId: 'plate-a', revision: 0, plateRevision: 17,
-    change: { kind: 'mapping' as const, filamentMap: [2, 1, 3] } };
+    change: { kind: 'mapping' as const, mode: 3 as const, filamentMap: [2, 1, 3] } };
   it('preserves a Nozzle Manual no-op without fabricating an invalidation', async () => {
     const history = await client(fixture()).getHistoryStatus();
     const c = createClient(async () => createMockModule({ nozzleMappingMutation: {

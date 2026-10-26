@@ -89,7 +89,7 @@ for (const [key, value] of Object.entries({
   change_filament_gcode: 'ACTIVATE_EXTRUDER EXTRUDER=extruder{next_extruder_id}\n',
 })) ok(command('orc_mutate_preset_draft', { kind: 'printer', canonical_name: 'MyKlipper 0.4 nozzle',
   expected_revision: call('orc_history_status').revision, history_context: context, action: 'set', key, value }));
-mutate(first, { kind: 'mapping', filamentMap: [3, 1, 1] });
+mutate(first, { kind: 'mapping', mode: 3, filamentMap: [3, 1, 1] });
 const generic = await slice(first, 'generic-three');
 assert.equal(generic.native.filamentMap[0], 3);
 assert.deepEqual(extrudingTools(generic.gcode), [2], 'generic manual mapping deposits with nozzle 3');

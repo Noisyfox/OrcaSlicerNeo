@@ -1158,14 +1158,22 @@ before slicing. Do not silently replace it with Auto For Flush.
 Every slice request in Manual or Nozzle Manual opens an editable mapping
 confirmation dialog for the target Plate. Reuse the manual mapping component
 from the Properties tab, with the same Plate-used material rows and choices.
+Include its horizontal mode selector. Choosing an automatic mode hides manual
+rows; switching back retains the uncommitted manual draft. Unavailable modes
+remain unavailable in the dialog.
+
 Automatic modes do not acquire this manual confirmation step.
 
 Unlike Sidebar edits, dialog edits remain temporary until the user chooses
-Confirm and Slice. Confirm commits the edits atomically with Undo support,
-then starts slicing with the committed configuration. Cancel discards dialog
-edits and does not start slicing. For imported Nozzle Manual, an actual mapping
-edit converts the mode to Manual only when committed; viewing or canceling
-must not trigger that conversion.
+Confirm and Slice. Confirm commits the selected mode and mapping together in
+one atomic operation with one Undo entry, then starts slicing with the committed
+configuration. Cancel discards dialog edits and does not start slicing. For
+imported Nozzle Manual, confirming a changed map in that mode converts it to
+Manual; viewing or canceling must not trigger that conversion.
+
+Explicitly choosing Manual after another mode does commit Manual. Choosing
+automatic preserves the draft manual assignments for a later return to Manual;
+computed automatic assignments never replace those editable inputs.
 
 The dialog retains its captured Plate identity and revision. Validation and
 commit must succeed before slicing starts; a changed or deleted target must

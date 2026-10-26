@@ -34,7 +34,7 @@ export function PlateNozzleMapping({ snapshot, revision }: { snapshot: NozzleMap
   return <NozzleMappingEditor snapshot={snapshot} disabled={disabled}
     slots={rack?.slots}
     onMode={mode => void commit({ kind: 'mode', mode })}
-    onMapping={filamentMap => void commit({ kind: 'mapping', filamentMap })} />;
+    onMapping={filamentMap => void commit({ kind: 'mapping', mode: snapshot.effective.mode, filamentMap })} />;
 }
 
 /** Total slots belong to the project; the upper Multi. selector supplies the
