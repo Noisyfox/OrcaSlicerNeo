@@ -21,9 +21,9 @@ ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'first']));
 let second = ok(call('orc_add_plate')).current_plate_id;
 ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'second']));
 configure({ plate_settings: {
-  [first]: { filament_map_mode: 'Manual', filament_map: '1,1', filament_volume_map: '0,0', filament_nozzle_map: '0,0' },
-  [second]: { filament_map_mode: 'Nozzle Manual', filament_map: '2,1', filament_volume_map: '0,0', filament_nozzle_map: '1,0' },
-}, mapping_project_settings: { extruder_ams_count: '4#2|1#1;4#1' } });
+  [first]: { filament_map_mode: 'Manual', filament_map: '1,1', filament_volume_map: '0,0' },
+  [second]: { filament_map_mode: 'Nozzle Manual', filament_map: '2,1', filament_volume_map: '0,0' },
+}, mapping_project_settings: { extruder_ams_count: '4#2|1#1;4#1', filament_nozzle_map: '1,0' } });
 command('orc_history_reset', context);
 const expected = [ok(projection(first)).saved, ok(projection(second)).saved];
 function save() {
@@ -44,9 +44,14 @@ const entries = readZipEntries(archive);
 const text = name => new TextDecoder().decode(entries.find(e => e.name === name).content);
 assert.equal(entries.some(e => /orca_neo_/.test(e.name)), false);
 assert.deepEqual(JSON.parse(text('Metadata/project_settings.config')).extruder_ams_count, ['4#2|1#1', '4#1']);
-assert.match(text('Metadata/model_settings.config'), /key="filament_nozzle_maps" value="1 0"/);
-// Optional independent desktop Orca comparison. Its older reader may omit the
-// additive nozzle-tip metadata; this comparison concerns effective capacities.
+assert.deepEqual(JSON.parse(text('Metadata/project_settings.config')).filament_nozzle_map.map(Number), [1, 0]);
+// Plate-local nozzle assignments may exist in memory, but only Orca's existing
+// Plate fields are serialized. Project fallback retains Nozzle Manual semantics.
+configure({ plate_settings: { [first]: { filament_nozzle_map: '0,1' } } });
+const localTipsArchive = save();
+const withLocalTips = readZipEntries(localTipsArchive);
+assert.doesNotMatch(new TextDecoder().decode(withLocalTips.find(e => e.name === 'Metadata/model_settings.config').content), /filament_nozzle_map/);
+// Optional independent desktop Orca comparison of the existing capacity field.
 if (process.argv[3]) {
   execFileSync(process.argv[3], ['--datadir', '/tmp/neo-nozzle-orca-data', '--allow-newer-file',
     '--export-3mf', '/tmp/neo-nozzle-orca-roundtrip.3mf', '/tmp/neo-nozzle-mapping.3mf'], { timeout: 120000 });
@@ -59,9 +64,11 @@ if (process.argv[3]) {
   console.log('PASS independent native Orca read/save capacity comparison');
 }
 
-load(archive);
+load(localTipsArchive);
 [first, second] = plates();
 assert.deepEqual([ok(projection(first)).saved, ok(projection(second)).saved], expected);
+assert.equal(ok(projection(second)).saved.nozzleMap, null);
+assert.deepEqual(ok(projection(second)).effective.nozzleMap, [1, 0]);
 assert.deepEqual(ok(projection(first)).nozzles.map(n => n.capacity), [9, 4], 'project capacities take precedence over memory');
 assert.deepEqual(ok(call('orc_test_nozzle_mapping_published')).capacity, [9, 4], 'native published policy excludes incoming capacities');
 const sliceSettings = JSON.stringify({ enable_prime_tower: false, layer_height: 0.3, initial_layer_print_height: 0.3, sparse_infill_density: '5%' });
@@ -86,7 +93,7 @@ for (const mode of [null, 4, 0, 1, 2, 3]) {
   const replacement = readZipEntries(archive).map(e => {
     if (e.name !== 'Metadata/model_settings.config') return e;
     let xml = new TextDecoder().decode(e.content).replace(/\s*<metadata key="filament_map_mode" value="[^"]*"\s*\/>/g, mode === null ? '' : '\n    <metadata key="filament_map_mode" value="' + ['Auto For Flush', 'Auto For Match', 'Manual', 'Nozzle Manual', 'Default'][mode] + '"/>')
-      .replace(/\s*<metadata key="filament_(?:maps|volume_maps|nozzle_maps)" value="[^"]*"\s*\/>/g, '');
+      .replace(/\s*<metadata key="filament_(?:maps|volume_maps)" value="[^"]*"\s*\/>/g, '');
     return { ...e, content: new TextEncoder().encode(xml) };
   });
   load(writeStoredZip(replacement));
@@ -94,6 +101,15 @@ for (const mode of [null, 4, 0, 1, 2, 3]) {
   assert.equal(saved.mode, mode === null || mode === 4 ? 0 : mode);
   assert.equal(saved.filamentMap, null, 'import must not expand global fallback into Plate');
 }
+const withoutCapacity = entries.map(entry => {
+  if (entry.name !== 'Metadata/project_settings.config') return entry;
+  const project = JSON.parse(new TextDecoder().decode(entry.content));
+  delete project.extruder_ams_count;
+  return { ...entry, content: new TextEncoder().encode(JSON.stringify(project)) };
+});
+load(writeStoredZip(withoutCapacity));
+assert.deepEqual(ok(projection(plates()[0])).nozzles.map(n => n.capacity), [1, 1],
+  'missing project capacity must not inherit memory or the previous native bundle member');
 load(archive);
 [first, second] = plates();
 configure({ plate_settings: { [second]: { filament_map_mode: 'Auto For Flush' } } });

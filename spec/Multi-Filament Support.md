@@ -953,7 +953,7 @@ configuration. Prepare dimensions remain estimates; Preview renders toolpaths.
 
 ## 14. Nozzle filament mapping design
 
-**Status:** Delivered with Level 3 implementation qualification, 2026-10-25.
+**Status:** Delivered with Level 3 implementation qualification, 2026-10-26.
 Section 14.1 records accepted product decisions; section 14.3 describes the
 native/runtime implementation and section 14.4 preserves existing integration
 contracts. All seven independently verifiable steps in section 14.6 are accepted,
@@ -1279,7 +1279,9 @@ desktop GUI's separate PresetBundle member. Validate numeric conversion and
 arithmetic before publication. Round-trip tests must demonstrate equal effective
 capacities in Neo and native Orca rather than preservation of feeder decomposition.
 
-Plate map/mode inputs remain in Plate settings and standard Plate metadata.
+Plate mode, extruder mapping and flow selection remain in Plate settings and
+Orca's existing Plate metadata; other per-Plate mapping vectors do not gain
+archive persistence.
 Resolve a Plate's effective mapping before material/flow expansion and apply
 its mode and maps to the temporary slicing config consistently. A missing local
 map may still resolve through the preserved native project fields; the first
@@ -1322,13 +1324,14 @@ apply the existing post-load length/default normalization from section 11.1.
 The mode-specific normalization in section 14.1.4 remains distinct from those
 mapping-vector repairs. Derived automatic results never replace editable inputs.
 
-The native BBS archive reader/writer additionally retains Plate nozzle-tip
-assignments as optional `filament_nozzle_maps` metadata alongside the existing
-`filament_maps` and `filament_volume_maps`. Archives without this field retain
-native fallback behavior. Older Orca readers ignore this additive field and
-therefore cannot guarantee round-trip retention of Plate nozzle-tip assignments.
-This does not add a Neo-private ZIP member. Ordinary project ownership includes
-`extruder_ams_count`; published imports keep their existing restricted allowlist.
+Use Orca's existing archive format without extending the native reader/writer:
+Plate metadata persists the mode, `filament_maps` and `filament_volume_maps`.
+Plate-local `filament_nozzle_map` is not persisted; the existing project-level
+field retains its native fallback semantics, including for Nozzle Manual.
+In-memory history retention does not imply an additional archive field.
+The bridge restores the existing `extruder_ams_count` field into its project
+owner and includes it in full-config export; Orca's project-option catalogue
+and published-import allowlist remain unchanged.
 
 
 The [3MF import policy](3MF%20Project%20Persistence.md) remains authoritative:
@@ -1634,8 +1637,8 @@ supports the projection, mutation, slicing and persistence harnesses. The
 [persistence harness](../packages/slicer-wasm/harness/nozzle-mapping-persistence-smoke.mjs)
 also produces `/tmp/neo-nozzle-mapping.3mf` and accepts a native Orca executable
 as its optional second argument for an independent capacity read/save comparison.
-That comparison qualifies effective capacities; the older-reader limitation for
-optional Plate nozzle-tip metadata in section 14.4 still applies.
+That comparison qualifies effective capacities using Orca's existing fields;
+no per-Plate physical-sub-nozzle archive extension is introduced.
 
 The [Electron journey](../apps/desktop/e2e/nozzle-mapping.e2e.ts) owns shared
 Sidebar editing, Undo/Redo, cancellation, Preview behavior and native receipt

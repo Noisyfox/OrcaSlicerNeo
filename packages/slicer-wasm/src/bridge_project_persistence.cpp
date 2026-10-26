@@ -571,7 +571,7 @@ bool is_native_plate_metadata_key(const std::string& key)
         "plater_id", "plater_name", "lock", "curr_bed_type", "print_sequence", "index",
         "first_layer_print_sequence", "other_layers_print_sequence",
         "other_layers_print_sequence_nums", "spiral_mode", "filament_map_mode",
-        "filament_maps", "filament_volume_maps", "filament_nozzle_maps", "limit_filament_maps", "gcode_file", "thumbnail_file",
+        "filament_maps", "filament_volume_maps", "limit_filament_maps", "gcode_file", "thumbnail_file",
         "thumbnail_no_light_file", "top_file", "pick_file", "pattern_file", "pattern_bbox_file",
         "prediction", "weight", "first_layer_time", "timelapse_type", "outside", "support_used", "label_object_enabled",
         "enable_filament_dynamic_map", "has_filament_switcher", "printer_model_id",
@@ -1085,9 +1085,11 @@ static const char* orc_load_project_impl(const char* data, int len,
             // candidate preserves the transaction while also handling a
             // parentless project preset (such as Lily.3mf) exactly as Orca.
             candidate.load_config_model(project_name, imported_config, file_version);
-            // The native loader restores Print-owned routing into the edited
-            // preset. Neo's typed routing commands own these same values in
-            // project_config, which must also be restored before validation.
+            // Native routing belongs to the edited Print preset; native feeder
+            // capacities are consumed into the bundle's desktop member. Neo's
+            // dedicated commands own these existing fields in project_config.
+            // Restore from the unchanged import input before validation, without
+            // changing Orca's loader or its project-option catalogue.
             for (const std::string& key : imported_config.keys())
                 if (Neo::Bridge::ScopedConfig::is_bridge_owned_project_routing_key(key))
                     candidate.project_config.set_key_value(key, imported_config.option(key)->clone());
@@ -1476,7 +1478,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project(const char* request_json) {
             // Its Default sentinel retains global mode inheritance without
             // materializing a local mode override in the live project.
             if (!plate->config.has("filament_map_mode") &&
-                (plate->config.has("filament_map") || plate->config.has("filament_volume_map") || plate->config.has("filament_nozzle_map")))
+                (plate->config.has("filament_map") || plate->config.has("filament_volume_map")))
                 plate->config.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode::fmmDefault));
             if (auto image = thumbnails.find(runtime.id); image != thumbnails.end())
                 plate->plate_thumbnail = std::move(image->second);
