@@ -278,6 +278,7 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     expect(JSON.parse(readFileSync(preferences, 'utf8'))).toMatchObject(expected);
   }).toPass({ timeout: 5_000 });
   const first = await launch(preferences);
+  await first.app.context().tracing.start({ screenshots: true, snapshots: true });
   try {
     const { page } = first;
     const trigger = page.getByTestId('filament-colour-1');
@@ -362,6 +363,7 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await page.getByRole('textbox', { name: 'HEX color', exact: true }).hover();
     await expect(page.getByRole('button', { name: /^Remove favorite/ })).toHaveCount(0);
     await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
+    await expect(favoriteButtons.first()).toHaveAccessibleName('Favorite #2357AB');
     await expectSaved({ colorPicker: { favorites: [{ kind: 'solid', color: '#2357AB' }, { kind: 'solid', color: '#456789' }, ...hidden] } });
     await page.getByRole('button', { name: 'Favorite #456789', exact: true }).click({ button: 'right' });
     await expect(page.getByTestId('filament-edit-1')).toHaveCount(0);
@@ -405,7 +407,12 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await expect(rightSidebarToggle).toHaveAttribute('aria-pressed', 'false');
     await expectSaved({ ui: { rightSidebarCollapsed: true },
       colorPicker: { favorites: [{ kind: 'solid', color: '#2357AB' }, ...hidden] } });
-  } finally { await first.app.close(); }
+  } finally {
+    const trace = test.info().outputPath('electron-favorites-trace.zip');
+    await first.app.context().tracing.stop({ path: trace });
+    await test.info().attach('electron-favorites-trace', { path: trace, contentType: 'application/zip' });
+    await first.app.close();
+  }
 
   const second = await launch(preferences);
   try {
