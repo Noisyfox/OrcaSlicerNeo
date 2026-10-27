@@ -352,7 +352,13 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await editHex(page, '#456789');
     await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
     await expectSaved({ colorPicker: { favorites: [{ kind: 'solid', color: '#456789' }, { kind: 'solid', color: '#2357AB' }, ...hidden] } });
+    // Disk persistence and renderer publication are separate receipts. Wait for
+    // the reordered swatches before selecting one at its new position.
+    const favoriteButtons = page.getByLabel('Favorite colors', { exact: true }).getByRole('button');
+    await expect.poll(() => favoriteButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))))
+      .toEqual(['Favorite #456789', 'Favorite #2357AB', 'Favorite #11223380', 'Favorite #FF000000 to #0000FF']);
     await favorite.click();
+    await expect(hexInput).toHaveValue('2357ABFF');
     await page.getByRole('textbox', { name: 'HEX color', exact: true }).hover();
     await expect(page.getByRole('button', { name: /^Remove favorite/ })).toHaveCount(0);
     await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
@@ -388,8 +394,15 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveCount(0);
     await expect(page.getByTestId('preset-editor-close')).toBeVisible();
     await page.getByTestId('preset-editor-close').click();
-    await page.locator('#app-tab-preview').click();
-    await page.getByTestId('titlebar-toggle-right-sidebar').click();
+    await expect(page.getByTestId('preset-editor-close')).toHaveCount(0);
+    await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
+    const previewTab = page.locator('#app-tab-preview');
+    await previewTab.click();
+    await expect(previewTab).toHaveAttribute('aria-selected', 'true');
+    const rightSidebarToggle = page.getByTestId('titlebar-toggle-right-sidebar');
+    await expect(rightSidebarToggle).toHaveAttribute('aria-pressed', 'true');
+    await rightSidebarToggle.click();
+    await expect(rightSidebarToggle).toHaveAttribute('aria-pressed', 'false');
     await expectSaved({ ui: { rightSidebarCollapsed: true },
       colorPicker: { favorites: [{ kind: 'solid', color: '#2357AB' }, ...hidden] } });
   } finally { await first.app.close(); }
