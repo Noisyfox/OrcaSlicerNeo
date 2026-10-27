@@ -381,7 +381,7 @@ jobs:
         with:
           name: profile-packages
           path: packages/profile-resources/dist
-      - name: Repeat favorite journey with renderer traces
+      - name: Repeat favorite journey with input evidence
         run: pnpm --filter @orca/desktop test:e2e --grep "color drafts commit once" --repeat-each=10
       - name: Upload favorite diagnostic evidence
         if: always()

@@ -22,6 +22,63 @@ async function editHex(page: Page, color: string) {
   await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill(color);
 }
 
+// Record attributes only: continuous renderer snapshots can alter the timing
+// of the intermittent click. Capture a screenshot and DOM only after failure.
+async function recordFavoriteInputs(page: Page) {
+  const errors: string[] = [];
+  const onConsole = (message: { type(): string; text(): string }) => {
+    if (message.type() === 'error') errors.push(message.text());
+  };
+  page.on('console', onConsole);
+  await page.evaluate(() => {
+    const events: unknown[] = [];
+    (window as unknown as { favoriteInputEvidence: unknown[] }).favoriteInputEvidence = events;
+    const identities = new WeakMap<Element, number>();
+    let nextIdentity = 1;
+    const record = (event: Event, phase: string) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const control = target?.closest('button, input') ?? target;
+      if (!control) return;
+      const label = control.getAttribute('aria-label') ?? control.getAttribute('data-testid') ?? control.tagName;
+      if (event.type.startsWith('focus') && !(label.startsWith('Favorite ') || label === 'Add favorite color' || label === 'HEX color')) return;
+      if (!identities.has(control)) identities.set(control, nextIdentity++);
+      const preview = document.querySelector('button[aria-label="Add favorite color"]');
+      events.push({ time: performance.now(), type: event.type, phase, label,
+        targetTag: target?.tagName, slot: target?.getAttribute('data-slot'),
+        button: event instanceof MouseEvent ? event.button : null,
+        identity: identities.get(control), connected: control.isConnected,
+        disabled: (control as HTMLButtonElement).disabled, defaultPrevented: event.defaultPrevented,
+        focused: document.activeElement?.getAttribute('aria-label'),
+        hex: document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')?.value,
+        preview: preview?.querySelector('span[aria-hidden="true"] > span')?.getAttribute('style'),
+        favorites: [...document.querySelectorAll('[aria-label="Favorite colors"] button')].map(button => button.getAttribute('aria-label')),
+      });
+      if (events.length > 250) events.shift();
+    };
+    for (const type of ['pointerdown', 'pointerup', 'click', 'focusin', 'focusout']) {
+      document.addEventListener(type, event => record(event, 'capture'), true);
+    }
+    document.addEventListener('click', event => {
+      record(event, 'bubble');
+      queueMicrotask(() => record(event, 'microtask'));
+    });
+  });
+  return async (failed: boolean) => {
+    const data = await page.evaluate(() => ({ timeOrigin: performance.timeOrigin,
+      events: (window as unknown as { favoriteInputEvidence: unknown[] }).favoriteInputEvidence }));
+    if (failed) {
+      const domPath = test.info().outputPath('favorite-dom.txt');
+      writeFileSync(domPath, await page.locator('body').ariaSnapshot());
+      await test.info().attach('favorite-dom', { path: domPath, contentType: 'text/plain' });
+      await page.screenshot({ path: test.info().outputPath('favorite-failure.png') });
+    }
+    const inputsPath = test.info().outputPath('favorite-inputs.json');
+    writeFileSync(inputsPath, JSON.stringify({ ...data, errors }, null, 2));
+    await test.info().attach('favorite-inputs', { path: inputsPath, contentType: 'application/json' });
+    page.off('console', onConsole);
+  };
+}
+
 async function dragPicker(page: Page, dx: number, dy: number) {
   const header = page.getByTestId('color-picker-titlebar');
   await header.hover();
@@ -278,7 +335,8 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     expect(JSON.parse(readFileSync(preferences, 'utf8'))).toMatchObject(expected);
   }).toPass({ timeout: 5_000 });
   const first = await launch(preferences);
-  await first.app.context().tracing.start({ screenshots: true, snapshots: true });
+  const captureInputs = await recordFavoriteInputs(first.page);
+  let firstStagePassed = false;
   try {
     const { page } = first;
     const trigger = page.getByTestId('filament-colour-1');
@@ -407,11 +465,10 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await expect(rightSidebarToggle).toHaveAttribute('aria-pressed', 'false');
     await expectSaved({ ui: { rightSidebarCollapsed: true },
       colorPicker: { favorites: [{ kind: 'solid', color: '#2357AB' }, ...hidden] } });
+    firstStagePassed = true;
   } finally {
-    const trace = test.info().outputPath('electron-favorites-trace.zip');
-    await first.app.context().tracing.stop({ path: trace });
-    await test.info().attach('electron-favorites-trace', { path: trace, contentType: 'application/zip' });
-    await first.app.close();
+    try { await captureInputs(!firstStagePassed); }
+    finally { await first.app.close(); }
   }
 
   const second = await launch(preferences);
