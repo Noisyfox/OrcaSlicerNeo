@@ -824,8 +824,9 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   // from a multi-layer range, both thumbs collapse to the active layer and
   // either thumb can then move that layer without reversing the range.
   const singleLayerToggle = page.getByTestId('preview-single-layer');
+  // This button represents Multiple layers: single-layer inspection is unpressed.
   await singleLayerToggle.click();
-  await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'false');
   await expect(layerStartInput).toHaveValue(await layerEndInput.inputValue());
   await layerStartInput.focus();
   await page.keyboard.press('Home');
@@ -835,9 +836,9 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   await page.keyboard.press('ArrowUp');
   await expect.poll(() => layerStartInput.inputValue()).toBe('1');
   await expect(layerEndInput).toHaveValue('1');
-  await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
-  await singleLayerToggle.click();
   await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'false');
+  await singleLayerToggle.click();
+  await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => Number(await layerInputs.nth(0).inputValue()) <= Number(await layerInputs.nth(1).inputValue())).toBe(true);
 
   const currentLayer = await layerEndInput.inputValue();

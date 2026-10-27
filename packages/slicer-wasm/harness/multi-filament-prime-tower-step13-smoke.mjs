@@ -185,7 +185,7 @@ const moved = request('orc_move_prime_tower', { version: 1, plate_id: current.cu
   revision: current.input_revisions[current.current_plate_id], x: 105, y: 128 });
 assert.equal(moved.ok, true, JSON.stringify(moved));
 const modelSlice = await sliceCurrentPlate();
-assert.ok(modelSlice.warnings.includes('Prime Tower intersects a model.'), JSON.stringify(modelSlice));
+assert.ok(modelSlice.warnings.some(w => w.message === 'Prime Tower intersects a model.'), JSON.stringify(modelSlice));
 
 const rejectedPrinterOption = setProject('bed_exclude_area', collisionArea);
 assert.equal(rejectedPrinterOption.ok, false, JSON.stringify(rejectedPrinterOption));

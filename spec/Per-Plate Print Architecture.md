@@ -7,6 +7,10 @@ prefix, log diagnostics and associate failures with their plate/input identity.
 A new slice clears the old error; failed/cancelled work never publishes an
 exportable result. Retain the real floating-first-layer regression for message,
 export gating and clear-then-refail behavior; mocks do not cover native errors.
+The [workspace notification design](Application%20Shell.md#persistent-workspace-notifications)
+owns toast presentation, per-source replacement and acknowledgement
+lifecycle. Retaining a stale diagnostic card never retains an exportable result
+or relaxes this document's task/input/result validity rules.
 
 **Date:** 2026-09-15
 
@@ -825,6 +829,18 @@ in both WASM variants. The existing shared mailbox storage becomes the
 threaded implementation's internal wake mechanism, carrying an independent
 sequence which tells the Worker to drain the FIFO. It is no longer interpreted
 as a latest-progress snapshot for task lifecycle purposes.
+
+Slice diagnostics use ordered `slice-diagnostics` records carrying the task,
+plate, entry incarnation and input revision. Validation publishes its complete
+warning/error set before processing admission, including a rejected validation;
+processing start is an explicit phase, and current step diagnostics precede the
+terminal. They retain native diagnostic identity and stable model-object owners,
+independently of progress text. The Worker routes these records to the requesting
+slice callback by request identity. A diagnostic never replaces the authoritative
+task terminal or grants a result receipt. Only a native cancelled terminal marks
+the client result as cancelled; merely requesting Cancel cannot hide a real
+failure. UI acknowledgement and display are owned by the
+[workspace notification design](Application%20Shell.md#persistent-workspace-notifications).
 
 The queue starts with a deliberately large fixed capacity. If it fills,
 producers apply backpressure until the Worker consumes messages; they never

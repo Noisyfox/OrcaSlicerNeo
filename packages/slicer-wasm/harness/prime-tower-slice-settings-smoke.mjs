@@ -143,7 +143,7 @@ const { wipe_tower_x, wipe_tower_y, ...sliceSettings } = staleSettings;
 const firstPreview = tower(id);
 const sliced = must(await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
   [JSON.stringify(sliceSettings), id, session().input_revisions[id]]));
-assert.ok(!(sliced.warnings ?? []).some(warning => /outside the printable area/.test(warning)), JSON.stringify(sliced));
+assert.ok(!(sliced.warnings ?? []).some(warning => /outside the printable area/.test(warning.message)), JSON.stringify(sliced));
 const exported = must(exportGcode(callJson, { receipt: sliced.receipt, filenameBase: '' }));
 const gcode = Module.FS.readFile(exported.path, { encoding: 'utf8' });
 assert.match(gcode, /wipe_tower_x = -60\b/);

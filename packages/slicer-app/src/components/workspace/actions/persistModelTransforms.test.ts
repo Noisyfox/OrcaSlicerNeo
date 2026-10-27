@@ -43,6 +43,8 @@ describe('persistSettledModelTransforms', () => {
     syncModelTransforms.mockResolvedValue({
       ok: true,
       plateSession: {
+        ok: true, version: 1, currentPlateId: 'plate-1', instances: [],
+        plates: ['plate-1', 'plate-2'].map((plateId, displayIndex) => ({ plateId, displayIndex, name: plateId, origin: [0, 0, 0] })),
         inputRevisions: { 'plate-1': 4, 'plate-2': 1 },
         dirtyReasons: ['model-transform'],
         instanceTransforms: [],

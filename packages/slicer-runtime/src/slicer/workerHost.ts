@@ -47,7 +47,7 @@ export function startSlicerHost(host: SlicerWorkerHost): void {
       paintedFacetFixture: mockPaintedFacetFixture,
       sliceWarnings: mockPrimeTowerWarnings ? [
         'Prime Tower intersects an exclusion area.', 'Prime Tower is outside the printable area.',
-      ] : undefined })
+      ].map(message => ({ key: 'prime-tower', severity: 'warning' as const, message, objectIds: [] })) : undefined })
     : async () => {
         const threaded = host.threaded;
         const load = host.load;
