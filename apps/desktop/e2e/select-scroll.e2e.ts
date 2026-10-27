@@ -89,6 +89,9 @@ async function scrollRowToMidlist(page: Page) {
       content.appendChild(mk(600));
     });
   }
+  // Spacer insertion changes overflow and sidebar padding via ResizeObserver.
+  // Position the row only after React has published that new layout.
+  await expect(scroller).toHaveAttribute('data-overflow-y', 'true');
   await scroller.evaluate((el) => {
     const triggers = el.querySelectorAll('[data-slot="select-trigger"]');
     const trigger = triggers.item(triggers.length - 1);
