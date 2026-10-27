@@ -967,6 +967,24 @@ export interface ModelStructureResult {
   error?: string;
 }
 
+/** Durable native diagnostics, independent of coalesced progress samples. */
+export interface SliceDiagnostic {
+  readonly key: string;
+  readonly severity: 'warning' | 'error';
+  readonly message: string;
+  /** Stable model object identities, scoped to the current project session. */
+  readonly objectIds: readonly string[];
+}
+
+export interface SliceDiagnosticEvent {
+  readonly taskId: string;
+  readonly plateId: string;
+  readonly inputRevision: number;
+  /** Validation and slicing replace their source set; processing clears old slicing diagnostics. */
+  readonly phase: 'validation' | 'processing' | 'slicing';
+  readonly diagnostics: readonly SliceDiagnostic[];
+}
+
 interface SliceResultFields {
   unrecognized_keys: string[];
   /** Native slice-time advisory warnings; these never replace hard errors. */

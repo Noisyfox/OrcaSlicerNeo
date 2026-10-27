@@ -53,7 +53,7 @@ export type {
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
   ModelStructureResult, ModelObjectStructure, ModelVolumeStructure,
   AddVolumeRequest, AddVolumeResult, ModelInstanceStructure, VolumeType,
-  SliceResultStatus, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
+  SliceResultStatus, SliceDiagnostic, SliceDiagnosticEvent, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
   ClientSliceResult, ClientToolpath,
   ToolpathFeature, PreviewLayerRange, PreviewPaletteEntry, PreviewMetadata,
   PreviewToolpathMetrics, PreviewMetricKey, PreviewMetricRange,
