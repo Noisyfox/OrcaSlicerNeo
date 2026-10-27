@@ -17,6 +17,7 @@ import type {
   ConfigVectorOverride,
   ProjectLoadResult,
   VolumeType,
+  SliceDiagnostic,
 } from '../types';
 
 export interface MockFeature {
@@ -132,7 +133,8 @@ export interface MockModuleOptions {
   /** Give mock model volumes one paint group for Prepare rendering E2E. */
   paintedFacetFixture?: boolean;
   /** Native-shaped advisory warnings returned by the deterministic slice fixture. */
-  sliceWarnings?: readonly string[];
+  sliceWarnings?: readonly SliceDiagnostic[];
+  sliceValidationDiagnostics?: readonly SliceDiagnostic[];
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
@@ -1940,6 +1942,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (!plateIds.includes(plateId)) return { error: 'plate not found' };
     if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
     const taskId = String(nextAsyncTaskId++);
+    const diagnosticEvent = (phase: string, diagnostics: readonly SliceDiagnostic[] = []) => publishTaskMessage(taskId, {
+      type: 'slice-diagnostics', kind: 'slice', plate_id: plateId, input_revision: revision,
+      entry_incarnation: '1', phase, diagnostics,
+    }, phase !== 'slicing');
+    diagnosticEvent('validation', opts.sliceValidationDiagnostics ?? []);
+    const validationError = opts.sliceValidationDiagnostics?.find(d => d.severity === 'error');
+    if (validationError) {
+      publishTaskMessage(taskId, { type: 'task-terminal', kind: 'slice', plate_id: plateId,
+        entry_incarnation: '1', terminal: 'invalid_input', result: { error: validationError.message } }, true);
+      return { accepted: true, kind: 'slice', task_id: taskId, plate_id: plateId, entry_incarnation: '1' };
+    }
+    diagnosticEvent('processing');
     for (let pct = 0; pct <= 100; pct += 25)
       publishTaskMessage(taskId, { type: 'progress', kind: 'slice', plate_id: plateId,
         entry_incarnation: '1', percent: pct, text: `slice ${pct}%` });
@@ -1964,6 +1978,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       plate_id: plateId, input_stamp: receipt.inputStamp,
       result_generation: receipt.resultGeneration, slice_task_id: receipt.sliceTaskId,
     } };
+    diagnosticEvent('slicing', sliceWarnings);
     publishTaskMessage(taskId, { type: 'task-terminal', kind: 'slice', plate_id: plateId,
       entry_incarnation: '1', terminal: 'completed', result });
     if (!opts.threaded) serialTerminalEpoch++;

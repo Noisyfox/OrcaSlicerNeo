@@ -395,6 +395,7 @@ struct SliceTask {
     PlateRuntimeRegistry::JobLease lease;
     json unrecognized_keys = json::array();
     json warnings = json::array();
+    json errors = json::array();
 };
 
 struct PendingSliceRequest {
@@ -403,6 +404,32 @@ struct PendingSliceRequest {
     std::string plate_id;
     std::uint64_t entry_incarnation = 0;
 };
+
+json slice_diagnostic(const std::string& message, const std::string& key,
+                      const char* severity = "warning", const ModelObject* object = nullptr)
+{
+    json owners = json::array();
+    if (object) owners.push_back(std::to_string(object->id().id));
+    return json{{"key", key}, {"severity", severity}, {"message", message}, {"objectIds", std::move(owners)}};
+}
+
+json validation_diagnostic(const StringObjectException& diagnostic, const char* severity)
+{
+    const ModelObject* object = dynamic_cast<const ModelObject*>(diagnostic.object);
+    if (const auto* print_object = dynamic_cast<const PrintObjectBase*>(diagnostic.object))
+        object = print_object->model_object();
+    if (const auto* instance = dynamic_cast<const ModelInstance*>(diagnostic.object))
+        object = instance->get_object();
+    return slice_diagnostic(diagnostic.string,
+        "validate:" + std::to_string(diagnostic.type) + ":" + diagnostic.opt_key, severity, object);
+}
+
+void enqueue_slice_diagnostics(const SliceTask& task, const char* phase, const json& diagnostics)
+{
+    enqueue_async_task_message(task.task_id, json{{"type", "slice-diagnostics"}, {"kind", "slice"},
+        {"plate_id", task.plate_id}, {"entry_incarnation", std::to_string(task.incarnation_id)},
+        {"input_revision", task.revision}, {"phase", phase}, {"diagnostics", diagnostics}});
+}
 
 std::mutex g_slice_job_mutex;
 std::shared_ptr<SliceTask> g_active_slice_task;
@@ -416,6 +443,29 @@ std::uint64_t g_serial_terminal_epoch = 0;
 // overlap Emscripten/oneTBB thread teardown and corrupt the shared WASM heap.
 std::thread g_slice_worker_thread;
 #endif
+
+void collect_slice_warnings(const std::shared_ptr<SliceTask>& task)
+{
+    // Native warnings are durable slicing results, not progress samples. The
+    // mailbox coalesces progress (especially during a synchronous serial slice),
+    // so projecting callback text alone loses fuzzy/XY-compensation warnings.
+    // Read only current warnings after native processing has completed; cached
+    // Print steps retain their current warnings on a repeated slice.
+    auto& entry = task->lease.entry();
+    const auto append_warnings = [&task](const PrintStateBase::StateWithWarnings& step,
+                                        const std::string& key, const ModelObject* object = nullptr) {
+        for (const auto& warning : step.warnings)
+            if (warning.current && !warning.message.empty())
+                task->warnings.push_back(slice_diagnostic(warning.message,
+                    key + ":" + std::to_string(warning.message_id), "warning", object));
+    };
+    for (int step = 0; step < psCount; ++step)
+        append_warnings(entry.print->step_state_with_warnings(static_cast<PrintStep>(step)), "print:" + std::to_string(step));
+    for (const PrintObject* object : entry.print->objects())
+        for (int step = 0; step < posCount; ++step)
+            append_warnings(object->step_state_with_warnings(static_cast<PrintObjectStep>(step)),
+                            "object:" + std::to_string(step), object->model_object());
+}
 
 void start_pending_slice_if_any();
 
@@ -464,22 +514,6 @@ std::pair<std::string, json> finalize_slice_task(
     }
     try {
         auto& entry = task->lease.entry();
-        // Native warnings are durable slicing results, not progress samples. The
-        // mailbox coalesces progress (especially during a synchronous serial slice),
-        // so projecting callback text alone loses fuzzy/XY-compensation warnings.
-        // Read only current warnings after native processing has completed; cached
-        // Print steps retain their current warnings on a repeated slice.
-        const auto append_warnings = [&task](const PrintStateBase::StateWithWarnings& step) {
-            for (const auto& warning : step.warnings)
-                if (warning.current && !warning.message.empty() &&
-                    std::find(task->warnings.begin(), task->warnings.end(), warning.message) == task->warnings.end())
-                    task->warnings.push_back(warning.message);
-        };
-        for (int step = 0; step < psCount; ++step)
-            append_warnings(entry.print->step_state_with_warnings(static_cast<PrintStep>(step)));
-        for (const PrintObject* object : entry.print->objects())
-            for (int step = 0; step < posCount; ++step)
-                append_warnings(object->step_state_with_warnings(static_cast<PrintObjectStep>(step)));
         materialize_completed_generation(entry);
     } catch (const std::bad_alloc&) {
         registry.mark_process_failed(task->lease);
@@ -530,11 +564,30 @@ std::optional<std::pair<std::string, json>> run_slice_process(
     } catch (const std::exception& e) {
         outcome = "failed";
         error = error_message_from_exception(e);
+        const auto append_error = [&](const SlicingError& native) {
+            const auto* object = print.get_object(ObjectID(native.objectId()));
+            task->errors.push_back(slice_diagnostic(native.what(), "slicing-error", "error", object ? object->model_object() : nullptr));
+        };
+        if (const auto* errors = dynamic_cast<const SlicingErrors*>(&e)) {
+            for (const auto& native : errors->errors_) append_error(native);
+        } else if (const auto* native = dynamic_cast<const SlicingError*>(&e)) append_error(*native);
     } catch (...) {
         outcome = "failed";
         error = "unknown exception";
     }
     print.set_status_default();
+    if (!state().plate_runtime_registry.cancellation_requested(task->lease)) {
+        try {
+            collect_slice_warnings(task);
+            json diagnostics = task->warnings;
+            for (const auto& diagnostic : task->errors) diagnostics.push_back(diagnostic);
+            if (outcome != "completed" && task->errors.empty())
+                diagnostics.push_back(slice_diagnostic(error, "failure", "error"));
+            enqueue_slice_diagnostics(*task, "slicing", diagnostics);
+        } catch (...) {
+            // Diagnostic allocation cannot hide the original processing terminal.
+        }
+    }
 
 #ifdef ORCA_WASM_THREADING
     enqueue_async_task_message(task->task_id,
@@ -919,7 +972,11 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // Drift at the pinned SHA: validate() returns StringObjectException
         // (PrintBase.hpp:30); use its .string member (same adaptation as
         // slice_main.cpp:55).
-        const StringObjectException validation_error = print.validate();
+        std::vector<StringObjectException> validation_warnings;
+        const StringObjectException validation_error = print.validate(&validation_warnings);
+        json validation_diagnostics = json::array();
+        for (const auto& warning : validation_warnings)
+            if (!warning.string.empty()) validation_diagnostics.push_back(validation_diagnostic(warning, "warning"));
         if (!validation_error.string.empty()) {
             const auto has_tower_warning = [&tower_warnings](const char* warning) {
                 return std::find(tower_warnings.begin(), tower_warnings.end(), warning) != tower_warnings.end();
@@ -936,14 +993,18 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
                 has_tower_warning("Prime Tower intersects a wrapping-detection area.") &&
                 is_exact_diagnostic("Prime Tower is too close to clumping detection area, and collisions will be caused.");
             if (!exclusion_advisory && !wrapping_advisory) {
+                validation_diagnostics.push_back(validation_diagnostic(validation_error, "error"));
+                enqueue_slice_diagnostics(*task, "validation", validation_diagnostics);
                 state().plate_runtime_registry.mark_process_failed(task->lease);
                 release_active_slice_task(task);
                 const json result{{"error", validation_error.string}};
                 enqueue_task_terminal(task->task_id, "slice", "invalid_input", result,
                                       task->plate_id, task->incarnation_id);
-                return dup_json(result.dump());
+                return dup_json(slice_task_acceptance(task->task_id, task->plate_id, task->incarnation_id).dump());
             }
         }
+
+        enqueue_slice_diagnostics(*task, "validation", validation_diagnostics);
 
         // Drift at the pinned SHA: SlicingStatus is nested as
         // PrintBase::SlicingStatus (PrintBase.hpp:440), not a Slic3r-top-level
@@ -956,15 +1017,15 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // message becomes the sole lifecycle authority.
         for (const std::string& k : substitutions.unrecogized_keys)
             task->unrecognized_keys.push_back(k);
-        task->warnings = std::move(tower_warnings);
-        try { task->warnings = Neo::Bridge::PrimeTower::slice_warnings_for_plate(plate_id); }
-        catch (...) { /* advisory warnings must never turn a successful slice into a hard error */ }
+        for (const auto& warning : tower_warnings)
+            task->warnings.push_back(slice_diagnostic(warning.get<std::string>(), "prime-tower"));
 #ifdef ORCA_WASM_THREADING
         // The dedicated job pthread shares the module heap and participates in
         // the same oneTBB arena.  The stateful Worker remains available for
         // edits, cancellation, stamps, and mailbox draining.
         if (g_slice_worker_thread.joinable())
             throw std::runtime_error("slice worker terminal was not consumed");
+        enqueue_slice_diagnostics(*task, "processing", json::array());
         g_slice_worker_thread = std::thread([task] { run_slice_process(task); });
         return dup_json(slice_task_acceptance(task->task_id, task->plate_id,
                                               task->incarnation_id).dump());
@@ -974,6 +1035,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // keys the pinned libslic3r dropped (handle_legacy's catch-all).
 #endif
 #ifndef ORCA_WASM_THREADING
+        enqueue_slice_diagnostics(*task, "processing", json::array());
         run_slice_process(task);
         return dup_json(slice_task_acceptance(task->task_id, task->plate_id,
                                               task->incarnation_id).dump());
@@ -985,6 +1047,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             const json result{{"error", e.what()}};
             enqueue_task_terminal(task->task_id, "slice", "failed", result,
                                   task->plate_id, task->incarnation_id);
+            return dup_json(slice_task_acceptance(task->task_id, task->plate_id, task->incarnation_id).dump());
         }
         // process() is where libslic3r throws SlicingErrors (GCode.cpp:2250);
         // the helper surfaces the per-object messages instead of the bare
@@ -1013,6 +1076,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             const json result{{"error", msg}};
             enqueue_task_terminal(task->task_id, "slice", "failed", result,
                                   task->plate_id, task->incarnation_id);
+            return dup_json(slice_task_acceptance(task->task_id, task->plate_id, task->incarnation_id).dump());
         }
         return error_json(msg);
     }

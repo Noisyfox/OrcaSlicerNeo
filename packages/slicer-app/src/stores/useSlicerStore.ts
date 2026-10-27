@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { PlateOperationTarget, SliceResultReceipt, PreviewAnalysisSummary } from '@slicer/client';
+import type { PlateOperationTarget, SliceResultReceipt, PreviewAnalysisSummary, SliceDiagnostic } from '@slicer/client';
 
 export type SliceStatus = 'idle' | 'slicing' | 'done' | 'error';
 export type PreviewColorScheme = 'feature' | 'filament' | 'speed' | 'volumetricFlow' | 'layerTime' | 'temperature' | 'fanSpeed';
@@ -24,7 +24,7 @@ export interface PlateSliceResult {
   /** Lightweight address of the Worker-retained result; never renderer data. */
   receipt: SliceResultReceipt;
   /** Native advisory warnings scoped to this plate result. */
-  warnings: readonly string[];
+  warnings: readonly SliceDiagnostic[];
   summary: PreviewAnalysisSummary;
 }
 
@@ -87,7 +87,7 @@ interface SlicerState {
   setResultExported: (exported: boolean) => void;
   setSliceTarget: (target: PlateOperationTarget | null) => void;
   setActiveSliceTarget: (target: PlateOperationTarget | null) => void;
-  setPlateResult: (receipt: SliceResultReceipt, warnings: readonly string[], summary: PreviewAnalysisSummary) => void;
+  setPlateResult: (receipt: SliceResultReceipt, warnings: readonly SliceDiagnostic[], summary: PreviewAnalysisSummary) => void;
   activatePlateResult: (plateId: string, inputRevision: number) => boolean;
   invalidatePlateResults: (plateIds: readonly string[]) => void;
   discardPlateResult: (plateId: string) => void;
@@ -149,7 +149,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
           sliceTarget: target,
           status: 'done' as const,
           resultExported: false,
-          error: warnings.length ? `[Warning] ${warnings.join('; ')}` : null,
+          error: warnings.length ? `[Warning] ${warnings.map(w => w.message).join('; ')}` : null,
         }
         : {}),
     };
@@ -181,7 +181,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
         layer: 0,
         maxLayer: -1,
         preview: resetPreviewProjection(state.preview),
-        error: cached.warnings.length ? `[Warning] ${cached.warnings.join('; ')}` : null,
+        error: cached.warnings.length ? `[Warning] ${cached.warnings.map(w => w.message).join('; ')}` : null,
         resultExported: false,
       };
     });

@@ -986,9 +986,11 @@ export interface SliceDiagnosticEvent {
 }
 
 interface SliceResultFields {
+  /** Only a native cancelled terminal establishes successful user cancellation. */
+  cancelled?: boolean;
   unrecognized_keys: string[];
   /** Native slice-time advisory warnings; these never replace hard errors. */
-  warnings?: string[];
+  warnings?: SliceDiagnostic[];
   /** Runtime-only identity of the retained core result produced by this Slice. */
   receipt?: SliceResultReceipt;
   error?: string;
@@ -1772,7 +1774,8 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   cancelArrangement(): Promise<{ ok: true } | { ok: false; error: string }>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   /** Slice only the captured current plate; stale/non-current targets reject. */
-  slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
+  slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void,
+    onDiagnostics?: (event: SliceDiagnosticEvent) => void): Promise<SliceResultStatus>;
   /** Materialize a renderer projection for exactly one retained native result. */
   getSliceResult(receipt: SliceResultReceipt): Promise<ClientSliceResult>;
   /** Read a bounded UTF-8 chunk from the current completed slice result. */

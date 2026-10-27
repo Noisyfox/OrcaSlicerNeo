@@ -45,6 +45,25 @@ function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | 
 }
 
 describe('worker protocol', () => {
+  it('routes durable diagnostics to their requesting slice without transferring callbacks', async () => {
+    const diagnostic = { key: 'native', severity: 'warning' as const, message: 'Native warning', objectIds: ['42'] };
+    const module = createMockModule({ sliceValidationDiagnostics: [diagnostic], sliceWarnings: [diagnostic] });
+    const channel = new Channel();
+    const client = createWorkerClient(channel);
+    startWorker(async () => module, msg => channel.post(msg), fn => channel.onMessage(fn));
+    await client.init(MOCK_PROFILE_ACTIVATION); await client.addModel(new Uint8Array(4), 'stl');
+    const snapshot = await client.getPlateSessionSnapshot();
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    const events: import('./types').SliceDiagnosticEvent[] = [];
+    const result = await client.slicePlate({ plateId: snapshot.currentPlateId,
+      inputRevision: snapshot.inputRevisions![snapshot.currentPlateId] }, {}, undefined, e => events.push(e));
+    expect(result.ok).toBe(true);
+    expect(events.map(e => e.phase)).toEqual(['validation', 'processing', 'slicing']);
+    expect(events[2].diagnostics).toEqual([diagnostic]);
+    channel.post({ type: 'slice-diagnostics', id: 999999, event: events[0] });
+    expect(events).toHaveLength(3);
+  });
+
   it('transports the dedicated project flow command and complete commit receipt', async () => {
     const { workerClient: client } = setup();
     await client.init(MOCK_PROFILE_ACTIVATION);
@@ -420,7 +439,7 @@ describe('worker protocol', () => {
     expect(workerClient.getRuntimeExecutionState().sliceActive).toBe(false);
   });
 
-  it('keeps threaded pthread progress on shared-wake delivery without invoking the JS notifier', async () => {
+  it('keeps pthread progress wake-only while main-runtime admission diagnostics notify directly', async () => {
     const module = createMockModule({ threaded: true });
     const originalAddFunction = module.addFunction;
     let directNotifications = 0;
@@ -437,7 +456,7 @@ describe('worker protocol', () => {
     await workerClient.slice({}, (pct) => events.push(pct));
     expect(events).toContain(100);
     expect(module._functionRegistrations).toBe(1);
-    expect(directNotifications).toBe(0);
+    expect(directNotifications).toBe(2); // validation + processing, never pthread progress
   });
 
   it('returns binary slice buffers as transferable-arrayable views', async () => {

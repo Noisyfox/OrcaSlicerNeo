@@ -166,14 +166,14 @@ const mixed=await slice('fuzzy-plus-MMU'); assert.ok(mixed.lines.length>baseline
 const mixedGcode=await import('node:fs/promises').then(fs=>fs.readFile(resolve(output,'fuzzy-plus-MMU.gcode'),'utf8'));
 assert.match(mixedGcode,/^T0$/m);assert.match(mixedGcode,/^T1$/m);
 const xy=ok(command('orc_mutate_native_scoped_config',{version:1,operation:'set',targets:[{scope:'object',id:String(session.objectId)}],values:{xy_contour_compensation:'0.1'}}));refresh();
-const xyEnabled=await slice('xy-fuzzy-enabled');assert.ok(xyEnabled.warnings.some(w=>w.includes('XY Size compensation cannot be combined with fuzzy skin painting')));
-configure('object','disabled_fuzzy');const xyDisabled=await slice('xy-fuzzy-disabled');assert.ok(xyDisabled.warnings.some(w=>w.includes('XY Size compensation cannot be combined with fuzzy skin painting')),'native annotation warning remains even while disabled');
+const xyEnabled=await slice('xy-fuzzy-enabled');assert.ok(xyEnabled.warnings.some(w=>w.message.includes('XY Size compensation cannot be combined with fuzzy skin painting')));
+configure('object','disabled_fuzzy');const xyDisabled=await slice('xy-fuzzy-disabled');assert.ok(xyDisabled.warnings.some(w=>w.message.includes('XY Size compensation cannot be combined with fuzzy skin painting')),'native annotation warning remains even while disabled');
 ok(command('orc_history_session_close',{sessionId:hs}));
-const addedPlate=ok(call('orc_add_plate'));const cleanPlateId=addedPlate.plates.at(-1).plate_id;ok(call('orc_select_plate',['string'],[cleanPlateId]));ok(call('orc_add_shape',['string','string'],['Cube','Unrelated clean object']));const liveClean=await slice('live-unrelated-plate');assert.ok(liveClean.warnings.every(w=>!w.includes('fuzzy skin painting')));
+const addedPlate=ok(call('orc_add_plate'));const cleanPlateId=addedPlate.plates.at(-1).plate_id;ok(call('orc_select_plate',['string'],[cleanPlateId]));ok(call('orc_add_shape',['string','string'],['Cube','Unrelated clean object']));const liveClean=await slice('live-unrelated-plate');assert.ok(liveClean.warnings.every(w=>!w.message.includes('fuzzy skin painting')));
 const warningPlate=xyEnabled.receipt.plate_id;ok(call('orc_select_plate',['string'],[warningPlate]));open();
-stroke('orc_painting_stroke_begin',{tool:'eraseAll',settings:{}});commit();const xyErased=await slice('xy-erased');assert.ok(xyErased.warnings.every(w=>!w.includes('fuzzy skin painting')),'erase removes current native annotation warning');
-const xyRepeated=await slice('xy-erased-cached');assert.ok(xyRepeated.warnings.every(w=>!w.includes('fuzzy skin painting')));
-ok(command('orc_history_session_close',{sessionId:hs}));load(sliceFixture);open();const unrelatedPlate=await slice('unrelated-clean-plate');assert.ok(unrelatedPlate.warnings.every(w=>!w.includes('fuzzy skin painting')),'warnings remain scoped to current native plate/object');
+stroke('orc_painting_stroke_begin',{tool:'eraseAll',settings:{}});commit();const xyErased=await slice('xy-erased');assert.ok(xyErased.warnings.every(w=>!w.message.includes('fuzzy skin painting')),'erase removes current native annotation warning');
+const xyRepeated=await slice('xy-erased-cached');assert.ok(xyRepeated.warnings.every(w=>!w.message.includes('fuzzy skin painting')));
+ok(command('orc_history_session_close',{sessionId:hs}));load(sliceFixture);open();const unrelatedPlate=await slice('unrelated-clean-plate');assert.ok(unrelatedPlate.warnings.every(w=>!w.message.includes('fuzzy skin painting')),'warnings remain scoped to current native plate/object');
 await writeFile(resolve(output,'fuzzy-MMU-XY-evidence.json'),JSON.stringify({fixtureSha256:createHash('sha256').update(mixedFixture).digest('hex'),mixedCount:mixed.lines.length,enabledWarnings:xyEnabled.warnings,disabledWarnings:xyDisabled.warnings,erasedWarnings:xyErased.warnings,cleanPlateWarnings:unrelatedPlate.warnings,liveUnrelatedWarnings:liveClean.warnings},null,2));
 ok(command('orc_history_session_close',{sessionId:hs}));console.log('native Fuzzy+MMU and XY warning retention PASS');
 

@@ -24,6 +24,48 @@ function wireColour(effective: string, provenance: 'preset' | 'user' = 'preset')
 }
 
 describe('SlicerClient bridge contract', () => {
+  it.each([false, true])('delivers durable phase diagnostics before the terminal (threaded=%s)', async threaded => {
+    const diagnostic = { key: 'native:12', severity: 'warning' as const, message: 'Detail '.repeat(1000), objectIds: ['42'] };
+    const module = createMockModule({ threaded, sliceWarnings: [diagnostic], sliceValidationDiagnostics: [diagnostic] });
+    const client = createClient(async () => module);
+    await client.init(MOCK_PROFILE_ACTIVATION);
+    await client.addModel(new Uint8Array(4), 'stl');
+    const snapshot = await client.getPlateSessionSnapshot();
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    const target = { plateId: snapshot.currentPlateId, inputRevision: snapshot.inputRevisions![snapshot.currentPlateId] };
+    const events: import('./types').SliceDiagnosticEvent[] = [];
+    const result = await client.slicePlate(target, {}, undefined, e => events.push(e));
+    expect(result.ok).toBe(true);
+    expect(events.map(e => e.phase)).toEqual(['validation', 'processing', 'slicing']);
+    expect(events[0].diagnostics).toEqual([diagnostic]);
+    expect(result.warnings).toEqual([diagnostic]);
+    expect(events.every(e => e.taskId === result.receipt!.sliceTaskId && e.plateId === target.plateId)).toBe(true);
+    module._publishTaskMessage(result.receipt!.sliceTaskId, { type: 'slice-diagnostics', kind: 'slice',
+      plate_id: target.plateId, entry_incarnation: '1', input_revision: target.inputRevision,
+      phase: 'validation', diagnostics: [diagnostic] });
+    const next: import('./types').SliceDiagnosticEvent[] = [];
+    await client.slicePlate(target, {}, undefined, e => next.push(e));
+    expect(next).toHaveLength(3);
+    expect(next.every(e => e.taskId !== result.receipt!.sliceTaskId)).toBe(true);
+  });
+
+  it('retains validation warnings alongside a blocking error without starting processing', async () => {
+    const diagnostics = [
+      { key: 'speed', severity: 'warning' as const, message: 'Speed capped', objectIds: [] },
+      { key: 'height', severity: 'error' as const, message: 'Layer height invalid', objectIds: ['42'] },
+    ];
+    const client = createClient(async () => createMockModule({ sliceValidationDiagnostics: diagnostics }));
+    await client.init(MOCK_PROFILE_ACTIVATION); await client.addModel(new Uint8Array(4), 'stl');
+    const snapshot = await client.getPlateSessionSnapshot();
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    const events: import('./types').SliceDiagnosticEvent[] = [];
+    const result = await client.slicePlate({ plateId: snapshot.currentPlateId,
+      inputRevision: snapshot.inputRevisions![snapshot.currentPlateId] }, {}, undefined, e => events.push(e));
+    expect(result).toMatchObject({ ok: false, error: 'Layer height invalid' });
+    expect(events.map(e => e.phase)).toEqual(['validation']);
+    expect(events[0].diagnostics).toEqual(diagnostics);
+  });
+
   it('keeps mock Printer topology receipts, Bambu SEMM, resets and history consistent', async () => {
     const client = makeClient(); await client.init(MOCK_PROFILE_ACTIVATION);
     const profiles = await client.getProfileSnapshot();

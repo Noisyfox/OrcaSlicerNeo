@@ -110,8 +110,8 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   fail: (token, message) => set(state => {
     const active = activeAttempt(state, token);
     if (!active || !message) return state;
-    // Validation failures already have their typed native error card.
-    if (!active.processing && state.notifications.some(n => n.attempt.id === token.id && n.severity === 'error')) return state;
+    // The terminal must not add a generic duplicate of typed native errors.
+    if (state.notifications.some(n => n.attempt.id === token.id && n.severity === 'error' && n.key !== 'failure')) return state;
     const phase = active.processing ? 'slicing' : 'validation';
     const diagnostics = state.notifications.filter(n => n.attempt.id === token.id && n.phase === phase);
     return replacePhase(state, token, phase, [...diagnostics,

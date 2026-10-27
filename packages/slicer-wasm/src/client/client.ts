@@ -31,7 +31,7 @@ import type {
   ConfigurationStatus,
   ModelMutationResult, ModelPlateSessionMutation, ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
-  ModelMeshResult, ModelScenePatchResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
+  ModelMeshResult, ModelScenePatchResult, SliceResultStatus, SliceDiagnostic, SliceDiagnosticEvent, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
   ExportGcodeRequest, ExportGcodeResult, ExportProjectRequest, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   AddVolumeRequest, AddVolumeResult, ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
@@ -79,6 +79,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function normalizeSliceDiagnostics(raw: unknown): SliceDiagnostic[] {
+  if (!Array.isArray(raw)) throw new Error('slice bridge returned invalid diagnostics');
+  return raw.map(value => {
+    if (!isRecord(value) || typeof value.key !== 'string' ||
+        (value.severity !== 'warning' && value.severity !== 'error') || typeof value.message !== 'string' ||
+        !Array.isArray(value.objectIds) || !value.objectIds.every(id => typeof id === 'string' && /^[1-9]\d*$/.test(id)))
+      throw new Error('slice bridge returned invalid diagnostic');
+    return { key: value.key, severity: value.severity, message: value.message, objectIds: value.objectIds as string[] };
+  });
+}
+
 function normalizeSliceResultStatus(raw: unknown): SliceResultStatus {
   if (!isRecord(raw)) throw new Error('slice bridge returned an invalid result');
   const receipt = raw.receipt;
@@ -100,7 +111,7 @@ function normalizeSliceResultStatus(raw: unknown): SliceResultStatus {
     unrecognized_keys: Array.isArray(raw.unrecognized_keys)
       ? raw.unrecognized_keys.filter((key): key is string => typeof key === 'string') : [],
     ...(Array.isArray(raw.warnings)
-      ? { warnings: raw.warnings.filter((warning): warning is string => typeof warning === 'string') } : {}),
+      ? { warnings: normalizeSliceDiagnostics(raw.warnings) } : {}),
     ...(normalizedReceipt ? { receipt: normalizedReceipt } : {}),
     ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
   };
@@ -1907,14 +1918,18 @@ export function createClient(
   let beforeInitPromise: Promise<void> | null = null;
   const progressListeners = new Set<(percent: number, text: string) => void>();
   type TaskMessage = {
-    type: 'progress' | 'task-terminal'; sequence: string; task_id: string; kind: string;
+    type: 'progress' | 'task-terminal' | 'slice-diagnostics'; sequence: string; task_id: string; kind: string;
     plate_id?: string; entry_incarnation?: string; percent?: number; text?: string;
     terminal?: string; result?: unknown;
+    input_revision?: number; phase?: SliceDiagnosticEvent['phase']; diagnostics?: unknown;
   };
   const pendingSliceTasks = new Map<string, {
     plateId: string; incarnation: string;
     resolve: (result: SliceResultStatus) => void;
+    onDiagnostics?: (event: SliceDiagnosticEvent) => void;
   }>();
+  const earlySliceDiagnostics = new Map<string, SliceDiagnosticEvent[]>();
+  let sliceDiagnosticAdmission = false;
   const terminalSliceResults = new Map<string, SliceResultStatus>();
   let arrangementTaskId: string | undefined;
   let arrangementAdmission = false;
@@ -1973,11 +1988,24 @@ export function createClient(
     const message = raw as Partial<TaskMessage>;
     if (typeof message.sequence !== 'string' || typeof message.task_id !== 'string' ||
         typeof message.kind !== 'string' ||
-        (message.type !== 'progress' && message.type !== 'task-terminal')) return;
+        (message.type !== 'progress' && message.type !== 'task-terminal' && message.type !== 'slice-diagnostics')) return;
     let sequence: bigint;
     try { sequence = BigInt(message.sequence); } catch { return; }
     if (sequence <= lastTaskMessageSequence) return;
     lastTaskMessageSequence = sequence;
+
+    if (message.type === 'slice-diagnostics') {
+      const pending = pendingSliceTasks.get(message.task_id);
+      if (message.kind !== 'slice' ||
+          (pending ? message.plate_id !== pending.plateId || message.entry_incarnation !== pending.incarnation : !sliceDiagnosticAdmission) ||
+          typeof message.plate_id !== 'string' || !Number.isSafeInteger(message.input_revision) ||
+          !['validation', 'processing', 'slicing'].includes(message.phase ?? '')) return;
+      const event: SliceDiagnosticEvent = { taskId: message.task_id, plateId: message.plate_id,
+        inputRevision: message.input_revision!, phase: message.phase!, diagnostics: normalizeSliceDiagnostics(message.diagnostics) };
+      if (pending) pending.onDiagnostics?.(event);
+      else earlySliceDiagnostics.set(message.task_id, [...(earlySliceDiagnostics.get(message.task_id) ?? []), event]);
+      return;
+    }
 
     if (message.kind === 'arrange') {
       if (message.task_id !== arrangementTaskId && !arrangementAdmission) return;
@@ -2012,7 +2040,7 @@ export function createClient(
       return;
     }
     if (message.kind !== 'slice') return;
-    const result = normalizeSliceResultStatus(message.result);
+    const result = { ...normalizeSliceResultStatus(message.result), cancelled: message.terminal === 'cancelled' };
     if (!runtimeThreaded) {
       serialTerminalEpoch += 1n;
       onRuntimeState?.({ threaded: false, serialTerminalEpoch: serialTerminalEpoch.toString() });
@@ -2052,19 +2080,21 @@ export function createClient(
     }
   }
 
-  function awaitSliceTask(accepted: Record<string, unknown>): Promise<SliceResultStatus> {
+  function awaitSliceTask(accepted: Record<string, unknown>, onDiagnostics?: (event: SliceDiagnosticEvent) => void): Promise<SliceResultStatus> {
     const taskId = typeof accepted.task_id === 'string' ? accepted.task_id : '';
     const plateId = typeof accepted.plate_id === 'string' ? accepted.plate_id : '';
     const incarnation = typeof accepted.entry_incarnation === 'string' ? accepted.entry_incarnation : '';
     if (!taskId || !plateId || !incarnation)
       return Promise.resolve(normalizeSliceResultStatus({ error: 'malformed slice task acceptance' }));
+    for (const event of earlySliceDiagnostics.get(taskId) ?? []) onDiagnostics?.(event);
+    earlySliceDiagnostics.delete(taskId);
     const terminal = terminalSliceResults.get(taskId);
     if (terminal) {
       terminalSliceResults.delete(taskId);
       return Promise.resolve(terminal);
     }
     return new Promise((resolve) => {
-      pendingSliceTasks.set(taskId, { plateId, incarnation, resolve });
+      pendingSliceTasks.set(taskId, { plateId, incarnation, resolve, onDiagnostics });
       drainTaskMessages();
     });
   }
@@ -3122,11 +3152,13 @@ export function createClient(
       }
     },
 
-    async slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus> {
+    async slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void,
+      onDiagnostics?: (event: SliceDiagnosticEvent) => void): Promise<SliceResultStatus> {
       const m = await module();
       if (onProgress) progressListeners.add(onProgress);
       try {
         if (!runtimeThreaded) serialSliceAdmissionInProgress = true;
+        sliceDiagnosticAdmission = true;
         let raw: unknown;
         try {
           raw = callJson(m, 'orc_slice_plate', ['string', 'string', 'number'], [
@@ -3134,11 +3166,13 @@ export function createClient(
           ]);
         } finally {
           serialSliceAdmissionInProgress = false;
+          sliceDiagnosticAdmission = false;
         }
-        if (isRecord(raw) && raw.accepted === true) return await awaitSliceTask(raw);
+        if (isRecord(raw) && raw.accepted === true) return await awaitSliceTask(raw, onDiagnostics);
         drainTaskMessages(m);
         return normalizeSliceResultStatus(raw);
       } finally {
+        earlySliceDiagnostics.clear();
         if (onProgress) progressListeners.delete(onProgress);
       }
     },

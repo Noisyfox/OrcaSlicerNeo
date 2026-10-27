@@ -21,6 +21,7 @@ import type {
 } from './history';
 import { createClient, dispatchClientRequest } from './client';
 import { collectTransferables } from './transfer';
+import type { SliceDiagnosticEvent } from './types';
 
 const REAL_PROJECT_PROFILE_BUILD = import.meta.env.VITE_REAL_PROJECT_PROFILE === '1';
 
@@ -31,6 +32,7 @@ export type WorkerMessage =
   | { type: 'history-diagnostic'; diagnostic: HistoryWorkerDiagnostic }
   | { type: 'project-closed'; plateSession: PlateSessionMutation }
   | { type: 'progress'; percent: number; text: string }
+  | { type: 'slice-diagnostics'; id: number; event: SliceDiagnosticEvent }
   | { type: 'arrangement-progress'; percent: number; text: string }
   | { type: 'startup-progress'; phase: 'startup' | 'catalogue'; text: string }
   | { type: 'runtime-state'; threaded: boolean; serialTerminalEpoch: string };
@@ -213,6 +215,8 @@ export function startWorker(
         ownsArrangement = true;
         callArgs[1] = (percent: number, text: string) => post({ type: 'arrangement-progress', percent, text });
       }
+      if (op === 'slicePlate')
+        callArgs[3] = (event: SliceDiagnosticEvent) => post({ type: 'slice-diagnostics', id, event });
       if ((isHistoryTransition || op === 'beginHistory') && historyTransitionInFlight)
         throw new Error(isRestore ? 'history restore is already in progress' : 'history transition is already in progress');
       if (isHistoryTransition) {
@@ -303,6 +307,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     reject: (e: Error) => void;
     op: string;
     startedAt: number;
+    onDiagnostics?: (event: SliceDiagnosticEvent) => void;
   }>();
   const progressListeners = new Set<(pct: number, text: string) => void>();
   const arrangementListeners = new Set<(pct: number, text: string) => void>();
@@ -349,6 +354,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       recordLayer('worker', msg.diagnostic);
       return;
     }
+    if (msg.type === 'slice-diagnostics') {
+      pending.get(msg.id)?.onDiagnostics?.(msg.event);
+      return;
+    }
     if (msg.type === 'progress') {
       for (const l of progressListeners) l(msg.percent, msg.text);
       return;
@@ -392,7 +401,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     else p.reject(new Error(msg.error ?? 'worker error'));
   });
 
-  function call(op: string, args: unknown[]): Promise<unknown> {
+  function call(op: string, args: unknown[], onDiagnostics?: (event: SliceDiagnosticEvent) => void): Promise<unknown> {
     if (fatalError) return Promise.reject(fatalError);
     if (setupWizardOperations.has(op) && catalogueOpening)
       return Promise.reject(new Error('setup_catalogue_loading'));
@@ -410,7 +419,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     if (op === 'arrange') arrangementActive = true;
     if (op === 'openSetupWizardCatalogue') catalogueOpening = true;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject, op, startedAt: historyNow() });
+      pending.set(id, { resolve, reject, op, startedAt: historyNow(), onDiagnostics });
       try {
         transport.post({ type: 'request', id, op, args, serialTerminalEpoch },
           op === 'exportProject' ? collectTransferables(args) : undefined);
@@ -503,10 +512,11 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       }
       if (prop === 'slice' || prop === 'slicePlate') {
         if (prop === 'slicePlate') {
-          return (target: unknown, config: Record<string, string>, onProgress?: (percent: number, text: string) => void) => {
-            if (!onProgress) return call('slicePlate', [target, config]);
+          return (target: unknown, config: Record<string, string>, onProgress?: (percent: number, text: string) => void,
+            onDiagnostics?: (event: SliceDiagnosticEvent) => void) => {
+            if (!onProgress) return call('slicePlate', [target, config], onDiagnostics);
             progressListeners.add(onProgress);
-            return call('slicePlate', [target, config]).finally(() => {
+            return call('slicePlate', [target, config], onDiagnostics).finally(() => {
               progressListeners.delete(onProgress);
             });
           };
