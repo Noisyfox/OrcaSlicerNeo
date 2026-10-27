@@ -1,8 +1,8 @@
 # Application Shell
 
 **Updated:** 2026-10-27
-**Status:** Delivered behavior except the accepted workspace-notification design,
-whose implementation remains pending.
+**Status:** Delivered shared behavior; notification qualification boundaries are
+recorded in its verification section.
 **Scope:** Shared layout, desktop window chrome, menus and diagnostics.
 
 ## Host and page lifetime
@@ -182,8 +182,8 @@ leave transitions pending. Tailwind attribute-value variants use bracketed
 
 ### Persistent workspace notifications
 
-**Status:** Accepted design, including source coverage, lifecycle and interaction;
-product implementation and qualification remain pending.
+**Status:** Shared notification state, native diagnostic transport and shadcn
+Toast presentation implemented. Qualification is scoped below.
 
 The shared application owns a notification model and its presentation lifecycle;
 shadcn Toast renders that model in both Electron and Web. Use the Base UI Toast
@@ -319,7 +319,9 @@ make a still-current target's diagnostic response obsolete.
 #### Presentation and interaction
 
 The stack is collapsed by default: show the frontmost card in full and expose
-the layered edges of the cards behind it. Expand downward while the pointer is
+the layered edges of the cards behind it. The collapsed card uses a compact body
+preview so long diagnostics do not cover Preview controls; expansion reveals the
+complete message. Expand downward while the pointer is
 over the stack or keyboard focus is within it; collapse only when neither
 condition holds. Closing the frontmost card exposes the next eligible card and
 does not dismiss the rest of the stack.
@@ -349,6 +351,11 @@ stack, but do not dismiss cards. Preserve existing modal and command ownership;
 the notification layer must not bypass modal inertness. Only the notification
 surface intercepts pointer/scroll input; its surrounding empty overlay does not
 block viewport controls or scene interaction.
+
+This is a desktop mouse/keyboard surface. Touch-specific expansion and mobile
+product qualification remain deferred under the shared architecture. Notifications
+retain only message/ownership metadata, not model or toolpath buffers, and do not
+create another native Print or Worker.
 
 #### Existing presentation integration
 
@@ -388,8 +395,12 @@ Preview/export regardless of toast acknowledgement.
 
 Follow [testing guidelines](../doc/testing_guidelines.md) for package checks,
 focused primary-host E2E and affected bridge variants; this design does not impose
-the full release matrix on each edit. No product implementation, real-WASM or
-host qualification is established by acceptance of this specification.
+the full release matrix on each edit. Development-host evidence covers shared
+state/Worker tests, real threaded and serial native diagnostic harnesses, and
+focused Electron notification interaction/error presentation, and the real Chrome
+core flow in both threaded and serial modes. Full multi-platform
+packaging and the complete dual-host/dual-WASM release matrix are separate
+qualification and are not established by this feature's focused checks.
 
 ### Preset labels and sidebar layout
 

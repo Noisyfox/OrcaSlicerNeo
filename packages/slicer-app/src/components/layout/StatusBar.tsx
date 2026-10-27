@@ -10,6 +10,7 @@ export function StatusBar() {
   const progress = useSlicerStore((s) => s.progress);
   const layers = useSlicerStore((s) => Math.max(0, s.maxLayer + 1));
   const error = useSlicerStore((s) => s.error);
+  const errorSource = useSlicerStore((s) => s.errorSource);
   const platform = usePlatform();
 
   return (
@@ -21,7 +22,7 @@ export function StatusBar() {
       {status === 'done' && layers > 0 && (
         <span>{layers} layers</span>
       )}
-      {error && (
+      {error && errorSource !== 'slice' && (
         <TooltipFor content={error}>
           <span className="min-w-0 text-destructive" data-testid="slicer-error" role="alert">
             {error}

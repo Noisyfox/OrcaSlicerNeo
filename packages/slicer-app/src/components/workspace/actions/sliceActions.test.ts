@@ -17,7 +17,7 @@ describe('slice result publication', () => {
     const runtime = { getNozzleMapping: vi.fn(async (plateId: string) => ({ ok: true, eligible: false, revision: session.inputRevisions[plateId as 'a' | 'b'] })), getPlateSessionSnapshot: vi.fn(async () => session),
       slicePlate: vi.fn(async () => ({ ok: true, unrecognized_keys: [], receipt, summary: { estimatedTimeSeconds: 12 } })) };
     await Promise.all([sliceModel({ runtime } as never, 'b'), sliceModel({ runtime } as never, 'b')]);
-    expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'b', inputRevision: 2 }, {}, expect.any(Function));
+    expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'b', inputRevision: 2 }, {}, expect.any(Function), expect.any(Function));
     expect(usePlateSessionStore.getState().snapshot?.currentPlateId).toBe('a');
     expect(useSlicerStore.getState()).toMatchObject({ status: 'done', sliceTarget: { plateId: 'a' },
       plateResults: { b: { receipt, summary: { estimatedTimeSeconds: 12 } } } });
@@ -48,13 +48,13 @@ describe('slice result publication', () => {
     try {
       await sliceModel({ runtime } as never);
       expect(runtime.slicePlate).toHaveBeenCalledWith(
-        { plateId: 'plate-1', inputRevision: 7 }, { prime_tower_width: '25' }, expect.any(Function),
+        { plateId: 'plate-1', inputRevision: 7 }, { prime_tower_width: '25' }, expect.any(Function), expect.any(Function),
       );
     } finally { errorLog.mockRestore(); }
   });
 
   it('suppresses a late cancelled terminal after history withdraws the active target', async () => {
-    let resolveSlice!: (result: { ok: false; error: string }) => void;
+    let resolveSlice!: (result: { ok: false; error: string; cancelled?: boolean }) => void;
     const sliceTerminal = new Promise<{ ok: false; error: string }>((resolve) => {
       resolveSlice = resolve;
     });
@@ -79,8 +79,8 @@ describe('slice result publication', () => {
       status: 'idle', error: null, activeSliceTarget: null, plateResults: {},
     });
   });
-  it.each([true, false])('retains the job until terminal; cancellation accepted=%s', async (accepted) => {
-    let resolveSlice!: (result: { ok: false; error: string }) => void;
+  it.each([{ accepted: true, cancelled: true }, { accepted: false, cancelled: false }, { accepted: true, cancelled: false }])('retains the terminal outcome after Cancel; accepted=$accepted cancelled=$cancelled', async ({ accepted, cancelled }) => {
+    let resolveSlice!: (result: { ok: false; error: string; cancelled?: boolean }) => void;
     const terminal = new Promise<{ ok: false; error: string }>(resolve => { resolveSlice = resolve; });
     const runtime = {
       getNozzleMapping: vi.fn(async () => ({ ok: true, eligible: false, revision: 7 })),
@@ -104,10 +104,10 @@ describe('slice result publication', () => {
       expect(useSlicerStore.getState().error).toBe('Cancellation unsupported');
     }
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    resolveSlice({ ok: false, error: accepted ? 'cancelled' : 'Slice failed' });
+    resolveSlice({ ok: false, cancelled, error: cancelled ? 'cancelled' : 'Slice failed' });
     await task;
     expect(useSlicerStore.getState()).toMatchObject({
-      status: accepted ? 'idle' : 'error', error: accepted ? null : 'Slice failed', activeSliceTarget: null, plateResults: {},
+      status: cancelled ? 'idle' : 'error', error: cancelled ? null : 'Slice failed', activeSliceTarget: null, plateResults: {},
     });
     errorLog.mockRestore();
   });

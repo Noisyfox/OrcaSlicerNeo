@@ -7,8 +7,8 @@ prefix, log diagnostics and associate failures with their plate/input identity.
 A new slice clears the old error; failed/cancelled work never publishes an
 exportable result. Retain the real floating-first-layer regression for message,
 export gating and clear-then-refail behavior; mocks do not cover native errors.
-The accepted [workspace notification design](Application%20Shell.md#persistent-workspace-notifications)
-owns the pending toast presentation, per-source replacement and acknowledgement
+The [workspace notification design](Application%20Shell.md#persistent-workspace-notifications)
+owns toast presentation, per-source replacement and acknowledgement
 lifecycle. Retaining a stale diagnostic card never retains an exportable result
 or relaxes this document's task/input/result validity rules.
 

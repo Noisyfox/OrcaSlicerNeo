@@ -119,6 +119,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   }),
   dismiss: id => set(state => ({ notifications: state.notifications.map(n => n.id === id ? { ...n, dismissed: true } : n) })),
   invalidate: plateIds => set(state => {
+    if (!plateIds.length) return state;
     const affected = new Set(plateIds);
     return { notifications: state.notifications.map(n => affected.has(n.attempt.plateId) ? { ...n, stale: true } : n),
       attempts: Object.fromEntries(Object.entries(state.attempts).map(([id, active]) =>
@@ -132,7 +133,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         if (!plates.has(n.attempt.plateId)) return [];
         if (!n.objectIds.length) return [n];
         const living = n.objectIds.filter(id => objects.has(id));
-        return living.length ? [{ ...n, objectIds: living }] : [];
+        return living.length === n.objectIds.length ? [n] : living.length ? [{ ...n, objectIds: living }] : [];
       }) };
   }),
   reset: () => set(state => ({ session: state.session + 1, notifications: [], attempts: {}, livingObjects: null })),

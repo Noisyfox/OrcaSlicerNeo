@@ -13,6 +13,7 @@ import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 import { syncModelTransforms } from './syncModelTransforms';
 import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
 import { waitForConfigurationMutations } from '../settings/configurationActions';
+import { useNotificationStore, type NotificationAttempt } from '@/stores/useNotificationStore';
 
 // Scene commands own these coordinates; cached Settings values must never
 // override the current native position when composing a slice request.
@@ -53,7 +54,12 @@ export async function cancelSlice(platform: PlatformCapabilities): Promise<boole
     return true;
   } catch (error) {
     cancellation.requested = false;
-    if (activeCancellation === cancellation) useSlicerStore.getState().setError(errorText(error));
+    if (activeCancellation === cancellation) {
+      const slicer = useSlicerStore.getState();
+      slicer.setError(errorText(error), 'slice');
+      const attempt = slicer.activeSliceTarget && useNotificationStore.getState().attempts[slicer.activeSliceTarget.plateId];
+      if (attempt) useNotificationStore.getState().fail(attempt.token, errorText(error));
+    }
     return false;
   }
 }
@@ -71,6 +77,7 @@ export async function sliceModel(platform: PlatformCapabilities, plateId?: strin
 }
 
 async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlateId?: string): Promise<void> {
+  let notificationAttempt: NotificationAttempt | null = null;
   if (!await closePaintingForCommand()) return;
   const initialSession = usePlateSessionStore.getState().snapshot;
   const initialRevision = requestedPlateId ? initialSession?.inputRevisions?.[requestedPlateId] : undefined;
@@ -84,10 +91,14 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
 
   const setFailure = (message: string) => {
     const target = useSlicerStore.getState().activeSliceTarget ?? failureTarget;
-    if (target) useSlicerStore.getState().setPlateFailure(target, message);
+    if (target) {
+      useSlicerStore.getState().setPlateFailure(target, message);
+      notificationAttempt ??= useNotificationStore.getState().begin(target);
+      useNotificationStore.getState().fail(notificationAttempt, message);
+    }
     useSlicerStore.getState().setActiveSliceTarget(null);
     useSlicerStore.getState().setStatus('error');
-    useSlicerStore.getState().setError(message);
+    useSlicerStore.getState().setError(message, 'slice');
     const selected = usePlateSessionStore.getState().snapshot;
     if (target && selected && selected.currentPlateId !== target.plateId) {
       const revision = selected.inputRevisions?.[selected.currentPlateId];
@@ -153,6 +164,7 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
   // The Worker registry keeps its native Print/result cache for incremental
   // processing and publishes a new task-addressed receipt on success.
   slicer.invalidatePlateResults([target.plateId]);
+  notificationAttempt = useNotificationStore.getState().begin(target);
   slicer.setProgress(0);
   slicer.setProgressText('Preparing slice');
   slicer.setStatus('slicing');
@@ -180,12 +192,13 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
         if (live.activeSliceTarget?.plateId !== target.plateId || live.activeSliceTarget.inputRevision !== target.inputRevision) return;
         live.setProgress(pct); live.setProgressText(text);
       },
+      event => useNotificationStore.getState().receive(notificationAttempt!, event),
     );
     const live = useSlicerStore.getState();
     if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
         live.activeSliceTarget.inputRevision !== target.inputRevision) return;
     if (!result.ok) {
-      if (cancellation.requested) { finishCancelled(); return; }
+      if (result.cancelled) { finishCancelled(); return; }
       setFailure(result.error ?? 'slice failed');
       console.error('slice failed:', result.error);
       return;
@@ -213,7 +226,6 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
     const live = useSlicerStore.getState();
     if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
         live.activeSliceTarget.inputRevision !== target.inputRevision) return;
-    if (cancellation.requested) { finishCancelled(); return; }
     setFailure(errorText(err));
     console.error('slice failed:', err);
   } finally {

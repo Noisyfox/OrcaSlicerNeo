@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { PlateOperationTarget, SliceResultReceipt, PreviewAnalysisSummary, SliceDiagnostic } from '@slicer/client';
+import { useNotificationStore } from './useNotificationStore';
 
 export type SliceStatus = 'idle' | 'slicing' | 'done' | 'error';
 export type PreviewColorScheme = 'feature' | 'filament' | 'speed' | 'volumetricFlow' | 'layerTime' | 'temperature' | 'fanSpeed';
@@ -63,6 +64,7 @@ interface SlicerState {
   progressText: string;
   plateFailures: Readonly<Record<string, PlateSliceFailure>>;
   error: string | null;
+  errorSource: 'slice' | 'operation';
   /** A completed slice remains dirty until its G-code is saved by the host. */
   resultExported: boolean;
   /** Identity of the single current-plate result until Step 8's cache. */
@@ -81,7 +83,7 @@ interface SlicerState {
   setProgress: (p: number) => void;
   setProgressText: (text: string) => void;
   setPlateFailure: (target: PlateOperationTarget, error: string) => void;
-  setError: (e: string | null) => void;
+  setError: (e: string | null, source?: 'slice' | 'operation') => void;
   setLayer: (n: number) => void;
   setMaxLayer: (n: number) => void;
   setResultExported: (exported: boolean) => void;
@@ -113,6 +115,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   status: 'idle',
   progress: 0,
   error: null,
+  errorSource: 'operation',
   resultExported: false,
   sliceTarget: null,
   plateResults: {},
@@ -128,7 +131,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   setProgress: (progress) => set({ progress }),
   setProgressText: (progressText) => set({ progressText }),
   setPlateFailure: (target, error) => set(state => ({ plateFailures: { ...state.plateFailures, [target.plateId]: { target, error } } })),
-  setError: (error) => set({ error }),
+  setError: (error, errorSource = 'operation') => set({ error, errorSource }),
   setLayer: (layer) => set((state) => ({
     layer,
     preview: { ...state.preview, visibleLayerEnd: layer },
@@ -149,7 +152,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
           sliceTarget: target,
           status: 'done' as const,
           resultExported: false,
-          error: warnings.length ? `[Warning] ${warnings.map(w => w.message).join('; ')}` : null,
+          error: null,
         }
         : {}),
     };
@@ -157,37 +160,42 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   activatePlateResult: (plateId, inputRevision) => {
     let matched = false;
     set((state) => {
-      const cached = state.plateResults[plateId];
-      if (!cached || cached.target.inputRevision !== inputRevision) {
+        const cached = state.plateResults[plateId];
+        if (!cached || cached.target.inputRevision !== inputRevision) {
+          const failure = state.plateFailures[plateId];
+          const failed = failure?.target.inputRevision === inputRevision;
+          return {
+            sliceTarget: null,
+            status: failed ? 'error' as const : 'idle' as const,
+            progress: 0,
+            error: failed ? failure.error : null,
+            errorSource: 'slice' as const,
+            resultExported: false,
+            layer: 0,
+            maxLayer: -1,
+            preview: resetPreviewProjection(state.preview),
+          };
+        }
+        matched = true;
         return {
-          sliceTarget: null,
-          status: 'idle' as const,
-          progress: 0,
-          error: null,
-          resultExported: false,
+          sliceTarget: cached.target,
+          status: 'done' as const,
+          progress: 100,
+          // The current plate projection materializes asynchronously. Releasing
+          // these bounds here prevents a switched plate from inheriting the prior
+          // projection's scrubber while its payload is in flight.
           layer: 0,
           maxLayer: -1,
           preview: resetPreviewProjection(state.preview),
+          error: null,
+          resultExported: false,
         };
-      }
-      matched = true;
-      return {
-        sliceTarget: cached.target,
-        status: 'done' as const,
-        progress: 100,
-        // The current plate projection materializes asynchronously. Releasing
-        // these bounds here prevents a switched plate from inheriting the prior
-        // projection's scrubber while its payload is in flight.
-        layer: 0,
-        maxLayer: -1,
-        preview: resetPreviewProjection(state.preview),
-        error: cached.warnings.length ? `[Warning] ${cached.warnings.map(w => w.message).join('; ')}` : null,
-        resultExported: false,
-      };
     });
     return matched;
   },
-  invalidatePlateResults: (plateIds) => set((state) => {
+  invalidatePlateResults: (plateIds) => {
+    useNotificationStore.getState().invalidate(plateIds);
+    set((state) => {
     if (plateIds.length === 0) return state;
     const invalidated = new Set(plateIds);
     const plateResults = Object.fromEntries(Object.entries(state.plateResults).filter(([id]) => !invalidated.has(id)));
@@ -214,7 +222,8 @@ export const useSlicerStore = create<SlicerState>((set) => ({
         progress: state.sliceTarget ? 100 : 0,
       } : {}),
     };
-  }),
+    });
+  },
   discardPlateResult: (plateId) => set((state) => {
     const { [plateId]: _discarded, ...plateResults } = state.plateResults;
     const { [plateId]: _failure, ...plateFailures } = state.plateFailures;
@@ -350,18 +359,22 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     maxLayer: -1,
     error: state.error,
   })),
-  invalidateSliceResult: () => set((state) => ({
-    status: 'idle',
-    progress: 0,
-    error: null,
-    resultExported: false,
-    sliceTarget: null,
-    plateResults: {},
-    plateFailures: {},
-    progressText: '',
-    activeSliceTarget: null,
-    layer: 0,
-    maxLayer: -1,
-    preview: resetPreviewProjection(state.preview),
-  })),
+  invalidateSliceResult: () => {
+    const notifications = useNotificationStore.getState();
+    notifications.invalidate(Object.keys(notifications.attempts));
+    set((state) => ({
+      status: 'idle',
+      progress: 0,
+      error: null,
+      resultExported: false,
+      sliceTarget: null,
+      plateResults: {},
+      plateFailures: {},
+      progressText: '',
+      activeSliceTarget: null,
+      layer: 0,
+      maxLayer: -1,
+      preview: resetPreviewProjection(state.preview),
+    }));
+  },
 }));

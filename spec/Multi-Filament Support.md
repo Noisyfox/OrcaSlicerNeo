@@ -699,10 +699,9 @@ temperature restriction:
   by-object printing, participate in the check. Unreferenced rack slots do not
   block slicing.
 
-The native validation message is surfaced through the existing slice error
-status. The accepted [workspace notification design](Application%20Shell.md#persistent-workspace-notifications)
-adds native validation-warning projection and moves slicing diagnostic bodies
-to the Slice-anchored toast surface; its implementation remains pending. Neo
+Native validation errors and non-blocking warnings are projected through
+[workspace notifications](Application%20Shell.md#persistent-workspace-notifications)
+below the Slice action area, with slice state retained in the bottom bar. Neo
 does not parse that text to make a second decision, show a modal,
 or convert the error into a bypassable warning. Slot fallback caused by project
 load or a Printer/Process transition continues to use the rack and project-load

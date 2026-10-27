@@ -118,6 +118,8 @@ describe('deleteSelection', () => {
       objects: 0,
       deleted: 1,
       plateSession: {
+        ok: true, version: 1, currentPlateId: 'plate-1', instances: [],
+        plates: [{ plateId: 'plate-1', name: 'Plate 1', displayIndex: 0, origin: [0, 0, 0] }],
         inputRevisions: { 'plate-1': 5 },
         dirtyReasons: ['model-delete'],
         instanceTransforms: [],

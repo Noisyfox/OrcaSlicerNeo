@@ -59,7 +59,7 @@ it('confirms one complete map and slices exactly the committed Plate revision', 
   mappingConfirmation.finish(await dialog(), { mode: 2, filamentMap: [2, 1] });
   await task;
   expect(commitNozzleMapping).toHaveBeenCalledExactlyOnceWith(platform, mapping, 42, { kind: 'mapping', mode: 2, filamentMap: [2, 1] });
-  expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'A', inputRevision: 11 }, {}, expect.any(Function));
+  expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'A', inputRevision: 11 }, {}, expect.any(Function), expect.any(Function));
   expect(useSlicerStore.getState().plateResults.A.receipt?.inputStamp).toBe(11);
 });
 
@@ -80,7 +80,7 @@ it('commits an automatic mode chosen in the dialog with its map before slicing o
   await task;
   expect(commitNozzleMapping).toHaveBeenCalledExactlyOnceWith(platform, mapping, 42,
     { kind: 'mapping', mode: 0, filamentMap: [2, 1] });
-  expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'A', inputRevision: 11 }, {}, expect.any(Function));
+  expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'A', inputRevision: 11 }, {}, expect.any(Function), expect.any(Function));
   expect(mappingConfirmation.getSnapshot()).toBeNull();
 });
 

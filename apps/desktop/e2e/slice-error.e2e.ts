@@ -1,7 +1,7 @@
 import { _electron } from './electron-fixture';
 // apps/desktop/e2e/slice-error.e2e.ts — the slice-error surfacing contract.
 // Real-module only (skipped in mock builds): slicing a model that libslic3r
-// rejects must surface the REAL message in the status bar, not the bare
+// rejects must surface the REAL message in persistent notifications, not the bare
 // SlicingErrors category ("Errors") that the bridge used to return
 // (bridge.cpp error_json_from_exception + Toolbar errorText — see
 // spec/Per-Plate Print Architecture.md).
@@ -20,7 +20,7 @@ const BAD_MODEL = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cub
 
 test.skip(!REAL, 'real-module only (mock module slices successfully)');
 
-test('a rejecting model surfaces its real error message in the status bar', async () => {
+test('a rejecting model surfaces its real error message in persistent notifications', async () => {
   const exportDir = mkdtempSync(join(tmpdir(), 'orca-err-'));
   const env = {
     ...process.env,
@@ -49,7 +49,7 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
     // Invalid layer height is rejected by the real bridge's config
     // validation. This remains a real-artifact error path without relying on
     // a profile-specific floating-geometry heuristic.
-    const layerHeight = page.locator('#layer_height');
+    const layerHeight = page.getByTestId('config-input-layer_height');
     await expect(layerHeight).toBeVisible();
     await layerHeight.fill('0');
     await page.getByTestId('btn-slice').click();
@@ -59,11 +59,11 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
     }, { timeout: 120000 });
 
     await expect(page.getByTestId('slicer-status')).toHaveText('Error');
-    // The destructive span must carry the REAL per-object message — the
+    // The toast body must carry the REAL per-object message — the
     // regression showed the bare SlicingErrors category ("Error: Errors").
-    await expect(page.locator('.text-destructive')).toHaveText(
+    await expect(page.locator('[data-testid="slice-notification"][data-severity="error"] [data-slot="toast-description"]')).toHaveText(
       /layer|height|invalid|value/i, { timeout: 10_000 });
-    await expect(page.locator('.text-destructive')).not.toHaveText(/^Error: Errors$/);
+    await expect(page.locator('[data-testid="slice-notification"][data-severity="error"] [data-slot="toast-description"]')).not.toHaveText(/^Error: Errors$/);
     // Export stays gated after a failed slice.
     await expect(page.getByTestId('btn-export')).toHaveCount(0);
 
@@ -71,7 +71,7 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
     // it must remain a recoverable, descriptive error and never abort WASM.
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Error');
-    await expect(page.locator('.text-destructive')).toHaveText(/layer|height|invalid|value/i);
+    await expect(page.locator('[data-testid="slice-notification"][data-severity="error"] [data-slot="toast-description"]')).toHaveText(/layer|height|invalid|value/i);
   } finally {
     await app.close();
   }

@@ -15,6 +15,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { SendGcodeDialog, type SendGcodeAction } from '../send/SendGcodeDialog';
 import { isWorkspaceTab, type AppTab } from '../layout/appTabs';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
+import { SliceNotifications } from './SliceNotifications';
 
 type OutputMode = 'export' | 'send' | 'send-and-print';
 const outputModes = {
@@ -68,7 +69,7 @@ export function SliceButton({ activeTab = 'home', onNavigateToDevice, onSlice }:
 
   return (
     <>
-    {showActions && <div data-testid="toolbar-actions">
+    {showActions && <div data-testid="toolbar-actions" className="relative">
       {busy ? <ButtonGroup aria-label="Slicing progress" className="gap-0.5 [&>[data-slot]]:rounded-md!">
         <Progress value={percent} aria-label="Slicing" data-testid="slice-button-progress"
           className="relative h-7 w-[150px] overflow-hidden rounded-md bg-[#285778] text-white [&>[data-slot=progress-track]]:absolute [&>[data-slot=progress-track]]:inset-0 [&>[data-slot=progress-track]]:h-full [&>[data-slot=progress-track]]:rounded-none [&>[data-slot=progress-track]]:bg-transparent [&_[data-slot=progress-indicator]]:bg-[#167ac1]">
@@ -110,6 +111,7 @@ export function SliceButton({ activeTab = 'home', onNavigateToDevice, onSlice }:
             </SelectGroup>
           </SelectContent>
         </Select>}
+      <SliceNotifications />
     </div>}
     {showActions && <SendGcodeDialog
       open={sendAction !== null}

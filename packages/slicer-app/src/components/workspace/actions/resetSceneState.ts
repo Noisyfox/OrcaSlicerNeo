@@ -1,6 +1,7 @@
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { glVolumeCollection } from '../viewport/GLVolume';
+import { useNotificationStore } from '@/stores/useNotificationStore';
 
 /**
  * The small renderer-facing surface needed when the runtime has successfully
@@ -17,6 +18,7 @@ export interface SceneResetTarget {
  * returned `{ ok: true }`; before that point the old scene remains intact.
  */
 export function resetSceneState(target?: SceneResetTarget | null, options?: { clearSettings?: boolean }): void {
+  useNotificationStore.getState().reset();
   glVolumeCollection.clear();
   if (options?.clearSettings) {
     useSettingsStore.getState().resetNativeScopedConfig();

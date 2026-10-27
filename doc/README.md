@@ -19,7 +19,7 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | --- | --- |
 | Shared hosts, runtime and preferences | [Web–Electron architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md) |
 | Common service providers, accounts and capability boundaries | [Shared provider/account design](../spec/Web-Electron%20Shared%20Application%20Architecture.md#42-service-providers-and-accounts) (shared contracts and Electron Bambu account execution delivered; six-target packaging/startup accepted, separate real-account/hardware limits recorded) |
-| Chrome, controls, layout and diagnostics | [Application Shell](../spec/Application%20Shell.md), including the [accepted persistent workspace notification design](../spec/Application%20Shell.md#persistent-workspace-notifications) (implementation and qualification pending) |
+| Chrome, controls, layout and diagnostics | [Application Shell](../spec/Application%20Shell.md), including [persistent workspace notifications](../spec/Application%20Shell.md#persistent-workspace-notifications) (implemented; focused development-host qualification, release matrix remains separate) |
 | Prepare/Preview navigation and lifetime | [Workspace modes](../spec/Workspace%20Prepare%20and%20Preview%20Modes.md) |
 | Picking, transforms, camera and rendering | [Viewport Interaction](../spec/Viewport%20Interaction.md) |
 | Objects, parts, instances and menus | [Object List and Parts](../spec/ObjectList-and-Parts.md) |
