@@ -18,6 +18,7 @@ import { updateUserPreferences, usePlatform } from '@orca/platform-contract';
 import { WorkspaceHistoryProbe, trackPrimeTowerProjectionRead } from '@/e2e/WorkspaceHistoryProbe';
 import { ScopedConfigurationGateProbe } from '@/e2e/ScopedConfigurationGateProbe';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
+import { SliceNotifications } from './SliceNotifications';
 import { PreviewSidebar } from './viewport/PreviewSidebar';
 import { Viewport } from './viewport/Viewport';
 import { SceneInteractionController } from './viewport/SceneInteractionController';
@@ -737,7 +738,10 @@ export function Workspace({
           projectionStatus={sliceResult.projectionStatus}
           previewFrameRequest={previewFrameRequest}
           onModelAdded={onModelAdded}
-          actionControls={actionControls}
+          actionControls={actionControls && <div className="relative">
+            {actionControls}
+            <SliceNotifications />
+          </div>}
           onSceneFrameRendered={handleSceneFrameRendered}
         />
       </main>
