@@ -360,38 +360,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Temporary evidence gathering for PR #105; remove after diagnosing the
-  # intermittent Windows favorite-promotion failure.
-  e2e-color-diagnostic:
-    name: Windows favorite diagnostics (temporary)
-    if: github.head_ref == 'dev/fix-gradient-favorite-ci'
-    needs: [profile-pack]
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v8
-        with:
-          name: profile-packages
-          path: packages/profile-resources/dist
-      - name: Repeat favorite journey with input evidence
-        run: pnpm --filter @orca/desktop test:e2e --grep "color drafts commit once" --repeat-each=10
-      - name: Upload favorite diagnostic evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-favorite-diagnostics
-          path: apps/desktop/test-results
-          if-no-files-found: ignore
-          retention-days: 7
-
   e2e-real:
     name: e2e (real module)
     needs: [wasm_threaded, wasm_serial, profile-pack]
