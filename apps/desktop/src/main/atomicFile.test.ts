@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { basename, dirname, join } from 'node:path';
-import { appendFile, mkdtemp, readFile, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdtemp, readFile, readdir, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { setTimeout as delay } from 'node:timers/promises';
 import { writeFileAtomically, type AtomicFileDependencies } from './atomicFile';
 
 function dependencies(overrides: Partial<AtomicFileDependencies> = {}): any {
@@ -9,6 +10,8 @@ function dependencies(overrides: Partial<AtomicFileDependencies> = {}): any {
     writeFile: vi.fn<AtomicFileDependencies['writeFile']>(async () => undefined),
     rename: vi.fn<AtomicFileDependencies['rename']>(async () => undefined),
     unlink: vi.fn<AtomicFileDependencies['unlink']>(async () => undefined),
+    platform: 'linux',
+    delay: vi.fn(async (_milliseconds: number) => undefined),
     ...overrides,
   };
 }
@@ -39,7 +42,7 @@ describe('atomic file writes', () => {
       writeFile:async(path,bytes,options)=>{
         await writeFile(path,bytes.slice(0,12),options);started();await resume;
         await appendFile(path,bytes.slice(12));
-      },rename,unlink,
+      },rename,unlink,platform:process.platform,delay,
     });
     try {
       await partial;
@@ -63,5 +66,70 @@ describe('atomic file writes', () => {
     const fs = dependencies({ rename: vi.fn(async () => { throw failure; }) });
     await expect(writeFileAtomically('scene.3mf', new Uint8Array([1]), fs)).rejects.toBe(failure);
     expect(fs.unlink).toHaveBeenCalledWith(expect.stringContaining('.scene.3mf.'));
+  });
+
+  it.each(['EPERM', 'EACCES', 'EBUSY'])('retries a Windows %s replacement without rewriting or deleting the target', async code => {
+    const failure = Object.assign(new Error('temporarily occupied'), { code });
+    const fs = dependencies({ platform: 'win32',
+      rename: vi.fn().mockRejectedValueOnce(failure).mockRejectedValueOnce(failure).mockResolvedValue(undefined),
+    });
+    await writeFileAtomically('preferences.json', Buffer.from('{}'), fs);
+    const temporary = fs.writeFile.mock.calls[0][0];
+    expect(fs.writeFile).toHaveBeenCalledTimes(1);
+    expect(fs.rename.mock.calls).toEqual(Array.from({ length: 3 }, () => [temporary, 'preferences.json']));
+    expect(fs.delay).toHaveBeenCalledTimes(2);
+    expect(fs.unlink).not.toHaveBeenCalled();
+  });
+
+  it('bounds Windows replacement retries and propagates a persistent permission failure', async () => {
+    const failure = Object.assign(new Error('access denied'), { code: 'EPERM' });
+    const fs = dependencies({ platform: 'win32', rename: vi.fn().mockRejectedValue(failure) });
+    await expect(writeFileAtomically('preferences.json', Buffer.from('{}'), fs)).rejects.toBe(failure);
+    expect(fs.rename.mock.calls.length).toBeGreaterThan(1);
+    expect(fs.rename.mock.calls.length).toBeLessThanOrEqual(10);
+    expect(fs.delay.mock.calls.reduce((total: number, [delay]: [number]) => total + delay, 0)).toBeLessThanOrEqual(1_000);
+    expect(fs.writeFile).toHaveBeenCalledTimes(1);
+    expect(fs.unlink).toHaveBeenCalledExactlyOnceWith(fs.writeFile.mock.calls[0][0]);
+  });
+
+  it('keeps the old document readable during retries and publishes the complete replacement', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'neo-atomic-retry-'));
+    const target = join(directory, 'preferences.json');
+    const before = '{"version":1,"favorites":[]}', after = '{"version":1,"favorites":["#2357AB"]}';
+    await writeFile(target, before);
+    let attempts = 0;
+    try {
+      await writeFileAtomically(target, Buffer.from(after), {
+        platform: 'win32', writeFile, unlink,
+        rename: async (from, to) => {
+          if (attempts++ < 2) throw Object.assign(new Error('temporarily occupied'), { code: 'EPERM' });
+          await rename(from, to);
+        },
+        delay: async () => { expect(await readFile(target, 'utf8')).toBe(before); },
+      });
+      expect(await readFile(target, 'utf8')).toBe(after);
+      expect(await readdir(directory)).toEqual(['preferences.json']);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it.each(['linux', 'darwin'] as const)('does not retry permission errors on %s', async platform => {
+    const failure = Object.assign(new Error('access denied'), { code: 'EPERM' });
+    const fs = dependencies({ platform, rename: vi.fn().mockRejectedValue(failure) });
+    await expect(writeFileAtomically('preferences.json', Buffer.from('{}'), fs)).rejects.toBe(failure);
+    expect(fs.rename).toHaveBeenCalledTimes(1);
+    expect(fs.delay).not.toHaveBeenCalled();
+  });
+
+  it('does not retry other Windows rename errors or a failed temporary-file write', async () => {
+    const failure = Object.assign(new Error('missing file'), { code: 'ENOENT' });
+    const fs = dependencies({ platform: 'win32', rename: vi.fn().mockRejectedValue(failure) });
+    await expect(writeFileAtomically('preferences.json', Buffer.from('{}'), fs)).rejects.toBe(failure);
+    expect(fs.rename).toHaveBeenCalledTimes(1);
+    expect(fs.delay).not.toHaveBeenCalled();
+    const writeFailure = Object.assign(new Error('write denied'), { code: 'EPERM' });
+    const denied = dependencies({ platform: 'win32', writeFile: vi.fn().mockRejectedValue(writeFailure) });
+    await expect(writeFileAtomically('preferences.json', Buffer.from('{}'), denied)).rejects.toBe(writeFailure);
+    expect(denied.rename).not.toHaveBeenCalled();
+    expect(denied.delay).not.toHaveBeenCalled();
   });
 });

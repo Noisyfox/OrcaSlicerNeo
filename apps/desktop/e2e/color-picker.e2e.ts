@@ -362,6 +362,7 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await page.getByRole('textbox', { name: 'HEX color', exact: true }).hover();
     await expect(page.getByRole('button', { name: /^Remove favorite/ })).toHaveCount(0);
     await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
+    await expect(favoriteButtons.first()).toHaveAccessibleName('Favorite #2357AB');
     await expectSaved({ colorPicker: { favorites: [{ kind: 'solid', color: '#2357AB' }, { kind: 'solid', color: '#456789' }, ...hidden] } });
     await page.getByRole('button', { name: 'Favorite #456789', exact: true }).click({ button: 'right' });
     await expect(page.getByTestId('filament-edit-1')).toHaveCount(0);
