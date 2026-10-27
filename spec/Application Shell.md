@@ -332,11 +332,11 @@ frontmost collapsed card follows this ordering, so a newer ordinary warning
 cannot cover a current blocking error. Notification priority changes presentation
 only; native command availability remains authoritative.
 
-Align the stack's left edge with the complete Slice action button group. In the
-collapsed state, use that group's width, including its dropdown half. Expansion
-widens the cards to approximately 320 CSS pixels toward the right, clamped to the
-available viewport width without crossing its edge. Sizing follows the current
-action group when its Slice label changes to an output action or slicing progress.
+Align the stack's left edge with the complete Slice action button group. Keep
+the list approximately 320 CSS pixels wide toward the right in both collapsed
+and expanded states, clamped to the available viewport width without crossing
+its edge. Hover, focus and changes to the action group's label do not change
+this width; multiple cards still expand and collapse vertically.
 
 Expanded cards show the complete message with wrapping, without a separate
 three-line summary or per-card expand/collapse control. Bound the expanded list
@@ -382,8 +382,9 @@ Shared notification tests cover timeout-free display, explicit dismissal and
 retry reappearance, plate/source/attempt isolation, grouped source-object removal,
 phase replacement, pending revalidation, cancellation and rejection of delayed
 responses. Rendering checks cover severity/recency order, hover/focus expansion,
-compact/expanded width, complete long text, all-card reachability within viewport
-bounds, page visibility and command-state independence after dismissal. Existing
+stable width across collapsed/expanded states, complete long text, all-card
+reachability within viewport bounds, page visibility and command-state independence
+after dismissal. Existing
 non-slicing presentation must remain covered when status-bar routing changes.
 
 The bridge/client contract must prove native validation warnings with and without

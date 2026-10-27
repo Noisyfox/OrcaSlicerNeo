@@ -70,7 +70,7 @@ function NotificationList() {
   }, [frontId, frontMounted]);
   return <ToastViewport ref={viewport} data-testid="slice-notifications" aria-label="Slice notifications"
     style={{ '--notification-width': `${bounds.width}px`, maxHeight: bounds.height } as CSSProperties}
-    className="pointer-events-none absolute top-full left-0 mt-1 grid w-full max-w-[var(--notification-width)] items-start gap-2 overflow-hidden pb-3 data-[expanded]:pointer-events-auto data-[expanded]:w-[min(320px,var(--notification-width))] data-[expanded]:overflow-y-auto"
+    className="pointer-events-none absolute top-full left-0 mt-1 grid w-[min(320px,var(--notification-width))] items-start gap-2 overflow-hidden pb-3 data-[expanded]:pointer-events-auto data-[expanded]:overflow-y-auto"
     hidden={!cards.length}>
     {cards.map((card, index) => {
       const toast = byId.get(card.id);

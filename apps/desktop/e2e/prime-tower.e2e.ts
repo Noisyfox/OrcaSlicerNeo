@@ -553,20 +553,32 @@ test('Prepare prime tower collision and outside warnings do not block slicing or
     await expect(stack).toContainText('Prime Tower intersects an exclusion area.');
     await expect(stack).toContainText('Prime Tower is outside the printable area.');
     await expect(page.getByTestId('slicer-error')).toHaveCount(0);
-    // No pointer/focus in the stack: match the action group's compact width.
+    // The large width stays constant; only the vertical stack expands/collapses.
     await page.getByTestId('slicer-status').hover();
     await expect(stack).not.toHaveAttribute('data-expanded');
     const actionBounds = await page.getByTestId('toolbar-actions').boundingBox();
     const compactBounds = await stack.boundingBox();
     expect(actionBounds && compactBounds).toBeTruthy();
     expect(Math.abs(compactBounds!.x - actionBounds!.x)).toBeLessThan(1);
-    expect(Math.abs(compactBounds!.width - actionBounds!.width)).toBeLessThan(1);
+    expect(compactBounds!.width).toBeCloseTo(320, 0);
     expect(compactBounds!.y).toBeGreaterThanOrEqual(actionBounds!.y + actionBounds!.height);
     await stack.hover();
     await expect(stack).toHaveAttribute('data-expanded');
     const expanded = await stack.boundingBox();
-    expect(expanded!.width).toBeGreaterThan(compactBounds!.width);
-    expect(expanded!.width).toBeLessThanOrEqual(320);
+    expect(Math.abs(expanded!.width - compactBounds!.width)).toBeLessThan(1);
+    const firstExpanded = await cards.first().boundingBox();
+    const secondExpanded = await cards.nth(1).boundingBox();
+    expect(secondExpanded!.y).toBeGreaterThanOrEqual(firstExpanded!.y + firstExpanded!.height);
+    // Focus keeps the list expanded after the pointer leaves, without resizing.
+    await page.keyboard.press('F6');
+    await expect(stack).toBeFocused();
+    await page.getByTestId('slicer-status').hover();
+    await expect(stack).toHaveAttribute('data-expanded');
+    expect(Math.abs((await stack.boundingBox())!.width - compactBounds!.width)).toBeLessThan(1);
+    await page.locator('#app-tab-prepare').focus();
+    await expect(stack).not.toHaveAttribute('data-expanded');
+    expect(Math.abs((await stack.boundingBox())!.width - compactBounds!.width)).toBeLessThan(1);
+    await stack.hover();
     await page.screenshot({ path: '/tmp/neo-notifications-expanded.png' });
     await page.clock.install();
     await page.clock.fastForward(60000);
