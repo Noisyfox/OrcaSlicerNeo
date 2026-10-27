@@ -2,6 +2,7 @@ import { withFileLock } from '../../main/fileLock';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { writeFileAtomically } from '../../main/atomicFile';
 import { BAMBU_REGIONS, type BambuRegion } from '../../shared/bambu';
 
@@ -32,7 +33,7 @@ export class BambuRepository {
   private persist(state: BambuLocalState) {
     return writeFileAtomically(join(this.directory, 'provider.json'), new TextEncoder().encode(JSON.stringify(state)), {
       writeFile: (path, bytes, options) => writeFile(path, bytes, { ...options, mode: 0o600 }),
-      rename, unlink,
+      rename, unlink, platform: process.platform, delay,
     });
   }
   read(): Promise<BambuLocalState> { return this.queue(async () => {
