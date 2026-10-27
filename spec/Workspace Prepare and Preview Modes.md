@@ -149,7 +149,10 @@ slice workflow:
 - Entering Preview during an existing slice changes to Preview and observes the
   same in-flight job; it never starts a second slice.
 - A slice failure leaves the application in Preview and presents the error
-  through the existing status bar.
+  through the existing status bar. The accepted
+  [workspace notification design](Application%20Shell.md#persistent-workspace-notifications)
+  moves slicing diagnostic bodies to the Slice-anchored toast surface while
+  retaining bottom-bar state; its implementation remains pending.
 - If a sidebar edit invalidates a result while Preview is active, old toolpath
   data is cleared immediately. A user may reslice through the Slice command.
   Re-selecting an already active Preview tab does not create a reslice request.

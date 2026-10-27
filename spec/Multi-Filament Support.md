@@ -700,7 +700,10 @@ temperature restriction:
   block slicing.
 
 The native validation message is surfaced through the existing slice error
-status. Neo does not parse that text to make a second decision, show a modal,
+status. The accepted [workspace notification design](Application%20Shell.md#persistent-workspace-notifications)
+adds native validation-warning projection and moves slicing diagnostic bodies
+to the Slice-anchored toast surface; its implementation remains pending. Neo
+does not parse that text to make a second decision, show a modal,
 or convert the error into a bypassable warning. Slot fallback caused by project
 load or a Printer/Process transition continues to use the rack and project-load
 reporting rules defined elsewhere in this specification.
