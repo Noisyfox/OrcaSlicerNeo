@@ -438,6 +438,9 @@ test('edits seven gradient colors with compact controls and persists palette sta
   const normalized = colors.map(hex => hex.endsWith('FF') ? hex.slice(0, 7) : hex);
   const stored = () => JSON.parse(readFileSync(preferences, 'utf8'));
   const first = await launch(preferences);
+  // Electron windows are not Playwright's built-in page fixture: enable the
+  // browser trace explicitly so a failure includes DOM and input events.
+  await first.app.context().tracing.start({ screenshots: true, snapshots: true });
   try {
     const { page } = first;
     await page.getByTestId('filament-colour-1').click();
@@ -493,10 +496,18 @@ test('edits seven gradient colors with compact controls and persists palette sta
     await expect(add).toBeDisabled();
     await hue.hover(); await add.locator('..').hover(); await expect(page.locator('[data-slot="tooltip-content"]')).toHaveText('Up to 7 colors supported.');
     for (let i = 0; i < colors.length; ++i) {
-      await page.getByRole('tab', { name: `Gradient color ${i + 1}`, exact: true }).click();
+      const stop = page.getByRole('tab', { name: `Gradient color ${i + 1}`, exact: true });
+      await stop.click();
+      await expect(stop).toHaveAttribute('aria-selected', 'true');
       await editHex(page, colors[i]);
+      // Complete HEX blur normalization before the next stop or save action.
+      const hexInput = page.getByRole('textbox', { name: 'HEX color', exact: true });
+      await hexInput.blur();
+      await expect(hexInput).toHaveValue(colors[i].slice(1));
     }
+    const savedGradient = page.getByRole('button', { name: 'Favorite ' + normalized.join(' to '), exact: true });
     await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
+    await expect(savedGradient).toBeVisible();
     await expect(() => expect(stored().colorPicker).toMatchObject({ ui: { sidebarOpen: true, paletteId: 'gradient' },
       favorites: [{ kind: 'linear-gradient', colors: normalized }] })).toPass({ timeout: 5_000 });
     await hue.focus(); await hue.hover();
@@ -514,7 +525,12 @@ test('edits seven gradient colors with compact controls and persists palette sta
     })).toPass({ timeout: 5_000 });
     await page.getByTestId('filament-colour-1').click();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  } finally { await first.app.close(); }
+  } finally {
+    const trace = test.info().outputPath('electron-gradient-trace.zip');
+    await first.app.context().tracing.stop({ path: trace });
+    await test.info().attach('electron-gradient-trace', { path: trace, contentType: 'application/zip' });
+    await first.app.close();
+  }
   const second = await launch(preferences);
   try {
     const { page } = second;
