@@ -3,7 +3,7 @@ import type { NativePrintParameters } from '@orca/bambu-native';
 import { printerFilamentId } from './printResources';
 import { bits, record, records, type Report } from './telemetry';
 import { physicalTool } from './printMapping';
-export function printParameters(request: D.PrintSubmissionRequest, prepared: D.PrintPreparation, name: string, report: Report = {}): Partial<NativePrintParameters> {
+export function printParameters(request: D.PrintSubmissionRequest, prepared: D.PrintPreparation, name: { display: string; remote: string }, report: Report = {}): Partial<NativePrintParameters> {
   const r = request.requirements, o = prepared.options;
   const packed: number[] = r.filamentMap.map(() => -1), detailed = r.filamentMap.map(() => ({ ams_id: 255, slot_id: 255 }));
   const info: Record<string, unknown>[] = r.filamentMap.map(() => ({ ams: -1, targetColor: '', filamentId: '', filamentType: '' }));
@@ -25,7 +25,7 @@ export function printParameters(request: D.PrintSubmissionRequest, prepared: D.P
   }
   const flow = (index: number) => ({ Standard: 'standard_flow', 'High Flow': 'high_flow', 'TPU High Flow': 'tpu_high_flow', 'E3D High Flow': 'e3d_high_flow' }[r.nozzleFlowTypes[index]] ?? 'standard_flow');
   const mode = (value: D.PrintCalibrationMode | undefined) => value === 'auto' ? 2 : value === 'on' ? 1 : 0;
-  return { task_name: name, project_name: name, preset_name: r.printerModel, plate_index: 1, ftp_file: `${name}.gcode.3mf`,
+  return { task_name: name.display, project_name: name.display, preset_name: `${name.display}_plate_1`, plate_index: 1, ftp_file: `${name.remote}.gcode.3mf`,
     ams_mapping: JSON.stringify(packed), ams_mapping2: JSON.stringify(detailed), ams_mapping_info: JSON.stringify(info),
     nozzles_info: JSON.stringify(r.nozzleDiameters.length === 2 ? r.nozzleDiameters.map((diameter, index) => ({ id: physicalTool(index, 2), type: null, flowSize: flow(index), diameter })) : []),
     task_use_ams: useAms, task_bed_leveling: o.bedLeveling === 'on', task_flow_cali: o.flowCalibration === 'on',

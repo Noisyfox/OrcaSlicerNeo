@@ -13,7 +13,7 @@ import { prepareBambuPrint } from './printValidation';
 import { printParameters } from './printParameters';
 import { validatePrintArtifacts } from './printArtifacts';
 type File = { descriptor: D.PrintArtifactDescriptor; path: string; handle: FileHandle; offset: number };
-type Job = { request: D.PrintSubmissionRequest; signature: string; state: D.PrintSubmissionState; files: Map<string, File>; directory: string; token: string; name: string; nativeDone: Promise<void> | null; timer: ReturnType<typeof setTimeout> | null; generation: number };
+type Job = { request: D.PrintSubmissionRequest; signature: string; state: D.PrintSubmissionState; files: Map<string, File>; directory: string; token: string; name: { display: string; remote: string }; nativeDone: Promise<void> | null; timer: ReturnType<typeof setTimeout> | null; generation: number };
 const error = (message: string, code: D.ErrorCode = 'precondition-failed') => ({ ok: false as const, error: { code, message } });
 const cancelling = (job: Job) => job.state.phase === 'cancelling';
 const final = (phase: D.PrintSubmissionState['phase']) => ['started', 'failed', 'cancelled'].includes(phase);
@@ -88,7 +88,7 @@ export class BambuPrintSubmissions {
         const id = randomUUID() as D.Id<'print-submission'>;
         const ref = { printerId: r.target.printerId, routeId: r.target.routeId, id };
         const job: Job = { request: structuredClone(r), signature, directory, files, token: token.value, generation: context.value.generation,
-          name: `Neo_${id.replaceAll('-', '')}`, nativeDone: null, timer: null,
+          name: { display: input.artifacts.find(a => a.role === 'print')!.fileName.replace(/(?:\.gcode)?\.3mf$/i, '').trim() || 'Print job', remote: `Neo_${id.replaceAll('-', '')}` }, nativeDone: null, timer: null,
           state: { ref, requestId: r.requestId, phase: 'staging', route: delivery.route, progress: 0, message: 'Preparing print artifacts', canCancel: true } };
         this.jobs.set(id, job); this.active = job;
         this.monitor.protectPrint(r.target);
@@ -211,7 +211,8 @@ export class BambuPrintSubmissions {
     const context = await this.monitor.context(job.state.ref);
     if (!context.ok || !context.value.fresh || context.value.generation <= job.generation || (job.request.target.expectedConfigurationRevision !== undefined && context.value.configurationRevision !== job.request.target.expectedConfigurationRevision)) return;
     const p = context.value.report;
-    const matched = p.subtask_name === job.name || String(p.gcode_file ?? '').split('/').at(-1) === `${job.name}.gcode.3mf`;
+    // Display names can repeat across submissions; only the unique uploaded file identifies this job.
+    const matched = String(p.gcode_file ?? '').split('/').at(-1) === `${job.name.remote}.gcode.3mf`;
     if (matched && ['PREPARE', 'RUNNING'].includes(String(p.gcode_state))) await this.finish(job, 'started', 'Printer started this job.');
   }
   async close() { for (const query of this.queries.values()) query.resolve(null); for (const job of this.jobs.values()) { if (job.timer) clearTimeout(job.timer); await job.nativeDone; await this.release(job); } }

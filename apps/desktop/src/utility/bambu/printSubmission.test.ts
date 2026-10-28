@@ -30,7 +30,7 @@ async function fixture(cloud = false, timelapse = false, recordingSpaceAction?: 
   const input = printRequest(); input.options.timelapse = timelapse;
   const prepared = prepareBambuPrint(input, context, 'lan');
   const request = { ...input, recordingSpaceAction, bindings: prepared.bindings, requestId: id<'request'>('request'), acknowledgedIssues: prepared.issues.filter(i => i.severity === 'warning').map(i => i.id) };
-  const artifacts = (['print', 'configuration'] as const).map(role => ({ role, fileName: `${role}.3mf`, sizeBytes: 1 }));
+  const artifacts = (['print', 'configuration'] as const).map(role => ({ role, fileName: '测试 Cube.gcode.3mf', sizeBytes: 1 }));
   const begin = await service.begin({ request, artifacts }); if (!begin.ok) throw new Error(begin.error.message);
   const ref = begin.value.ref;
   const state = () => { const result = service.get(ref); if (!result.ok) throw new Error(result.error.message); return result.value; };
@@ -55,11 +55,18 @@ it('keeps cancellation pending until the plugin confirms that no start occurred'
 });
 it('native success waits for the matching fresh job; unrelated print activity is not success', async () => {
   const f = await fixture(); await f.send();
+  const params = f.native.startPrint.mock.calls[0][1];
+  expect(params.task_name).toBe('测试 Cube');
+  expect(params.project_name).toBe('测试 Cube');
+  expect(params.preset_name).toBe('测试 Cube_plate_1');
+  expect(params.ftp_file).toMatch(/^Neo_[a-f0-9]+\.gcode\.3mf$/);
   f.complete({ code: 0, mayHaveStarted: true, cancelRequested: false });
   await vi.waitFor(() => expect(f.state().phase).toBe('confirming'));
   const reported = printContext({ gcode_state: 'RUNNING', subtask_name: 'some-other-job' }); reported.generation += 1; f.update(reported);
   await f.service.onEvent({ type: 'local-message', args: ['fixture', '{"print":{}}'] }); expect(f.state().phase).toBe('confirming');
-  reported.report.subtask_name = f.native.startPrint.mock.calls[0][1].task_name;
+  reported.report.subtask_name = params.task_name;
+  await f.service.onEvent({ type: 'local-message', args: ['fixture', '{"print":{}}'] }); expect(f.state().phase).toBe('confirming');
+  reported.report.gcode_file = `/cache/${params.ftp_file}`;
   await f.service.onEvent({ type: 'local-message', args: ['fixture', '{"print":{}}'] }); expect(f.state().phase).toBe('started');
 });
 it('never retries a start whose outcome is unknown, and disallows cancellation after possible start', async () => {

@@ -740,7 +740,12 @@ two columns of segmented print options above the Send action. Narrow windows
 stack nozzle groups and options vertically and scroll the modal body.
 The thumbnail reuses the existing local plate renderer and releases its GPU
 resources and object URL when closed. Missing preview graphics never block a
-valid print. Renaming affects the submitted artifact only, not the project.
+valid print. Renaming affects the submitted artifact and the task name shown by
+the printer, not the project. The Bambu agent derives the display name from the
+print artifact filename (without `.gcode.3mf`/`.3mf`) and passes it as the native
+task/project name. Its unique remote upload filename remains separate and is
+used to correlate observed startup; a matching display name alone cannot confirm
+that this submission started.
 Each material card shows the sliced material colour above the selected device
 source colour. Transparent colours render over an opaque grey/white checkerboard, including
 partially transparent colours; text contrast uses the composited appearance.
