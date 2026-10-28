@@ -1,21 +1,9 @@
 import { expect, it } from 'vitest';
 import { prepareBambuPrint } from './printValidation';
-import { lanPrintFileName, printParameters } from './printParameters';
+import { printParameters } from './printParameters';
 import { printContext, printRequest } from './printFixtures';
 import { id } from './telemetry';
 const blocks = (p: ReturnType<typeof prepareBambuPrint>) => p.issues.filter(i => i.severity === 'block');
-it.each([
-  ['测试 Cube', '测试 Cube.gcode.3mf'],
-  [' . /Cube\\PETG/ . ', 'Cube_PETG_.gcode.3mf'],
-  ['Cube.gcode.3mf', 'Cube.gcode.3mf'],
-  ['Cube.3mf', 'Cube.gcode.3mf'],
-  ['Cube.GCODE.3MF', 'Cube.GCODE.3MF.gcode.3mf'],
-  ['plate_0_plate_0', 'plate_1_plate_0.gcode.3mf'],
-  ['Cube\tPETG', 'Cube_PETG.gcode.3mf'],
-  ['... ', 'print.gcode.3mf'],
-])('tracks the pinned LAN upload filename for %j', (display, expected) => {
-  expect(lanPrintFileName(display)).toBe(expected);
-});
 it('reports only the stale-state prerequisite until current telemetry can validate hardware and materials', () => {
   const request = printRequest(), context = printContext({ gcode_state: 'RUNNING', aux: '0' });
   context.values.descriptor.topology.nozzles = [];

@@ -10,14 +10,13 @@ import type { BambuRepository, BambuLanRecord } from './repository';
 import { record, text, bits } from './telemetry';
 import { sdcardState } from './printOptions';
 import { prepareBambuPrint } from './printValidation';
-import { lanPrintFileName, printParameters } from './printParameters';
+import { printParameters } from './printParameters';
 import { validatePrintArtifacts } from './printArtifacts';
 type File = { descriptor: D.PrintArtifactDescriptor; path: string; handle: FileHandle; offset: number };
-type Job = { request: D.PrintSubmissionRequest; signature: string; state: D.PrintSubmissionState; files: Map<string, File>; directory: string; token: string; name: { display: string; remote: string }; nativeDone: Promise<void> | null; timer: ReturnType<typeof setTimeout> | null;
-  confirmation: { generation: number; file: string; sawFile: boolean; mayHaveStarted: boolean } | null };
+type Job = { request: D.PrintSubmissionRequest; signature: string; state: D.PrintSubmissionState; files: Map<string, File>; directory: string; token: string; name: { display: string; remote: string }; nativeDone: Promise<void> | null; timer: ReturnType<typeof setTimeout> | null };
 const error = (message: string, code: D.ErrorCode = 'precondition-failed') => ({ ok: false as const, error: { code, message } });
 const cancelling = (job: Job) => job.state.phase === 'cancelling';
-const final = (phase: D.PrintSubmissionState['phase']) => ['started', 'failed', 'cancelled'].includes(phase);
+const final = (phase: D.PrintSubmissionState['phase']) => ['sent', 'failed', 'cancelled'].includes(phase);
 export class BambuPrintSubmissions {
   private jobs = new Map<string, Job>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -88,7 +87,7 @@ export class BambuPrintSubmissions {
         }
         const id = randomUUID() as D.Id<'print-submission'>;
         const ref = { printerId: r.target.printerId, routeId: r.target.routeId, id };
-        const job: Job = { request: structuredClone(r), signature, directory, files, token: token.value, confirmation: null,
+        const job: Job = { request: structuredClone(r), signature, directory, files, token: token.value,
           name: { display: r.jobName, remote: `Neo_${id.replaceAll('-', '')}` }, nativeDone: null, timer: null,
           state: { ref, requestId: r.requestId, phase: 'staging', route: delivery.route, progress: 0, message: 'Preparing print artifacts', canCancel: true } };
         this.jobs.set(id, job); this.active = job;
@@ -161,7 +160,6 @@ export class BambuPrintSubmissions {
           if (job.request.recordingSpaceAction === 'disable-timelapse') checked.options.timelapse = false;
           const options = printParameters(job.request, checked, job.name, latest.report);
           // Return the pending native promise as a value; never hold the monitor queue for upload.
-          job.confirmation = { generation: latest.generation, file: route === 'lan' ? lanPrintFileName(job.name.display) : `${job.name.remote}.gcode.3mf`, sawFile: false, mayHaveStarted: false };
           nativeInvoked = true;
           const pending = this.native.startPrint(route, { ...options, dev_id: delivery.device!.deviceId, filename: job.files.get('print')!.path, config_filename: job.files.get('configuration')!.path,
             plate_index: 1, connection_type: route, dev_name: delivery.device!.name, dev_ip: lan?.ip ?? '', username: 'bblp', password: lan?.accessCode ?? '', use_ssl_for_ftp: true, use_ssl_for_mqtt: true });
@@ -171,14 +169,11 @@ export class BambuPrintSubmissions {
         return admitted.value;
       };
       let result = await run(delivery.route!, delivery.lan);
-      if (result.code !== 0 && result.code !== -1 && !result.mayHaveStarted && !result.cancelRequested && !cancelling(job) && delivery.route === 'lan' && delivery.cloud) result = await run('cloud');
-      if (result.mayHaveStarted) {
-        if (job.confirmation) job.confirmation.mayHaveStarted = true;
-        if (job.state.phase === 'started') return;
-        job.state = { ...job.state, phase: result.code === 0 ? 'confirming' : 'unknown', canCancel: false, progress: null, message: result.code === 0 ? 'Sent; waiting for the printer to start this job.' : 'Start outcome is unknown. Check the printer.' }; this.changed();
-        job.timer = setTimeout(() => { if (job.state.phase === 'confirming') { job.state.phase = 'unknown'; job.state.message = 'Start has not been confirmed. Check the printer; do not send a duplicate.'; this.changed(); } }, 30000);
-        // Repeated project names may omit the unchanged filename from deltas; request one full report.
-        if (job.state.route === 'lan') void this.monitor.read({ target: job.state.ref, topics: ['status'], source: 'device' }).catch(() => undefined);
+      if (result.code < 0 && result.code !== -1 && !result.mayHaveStarted && !result.cancelRequested && !cancelling(job) && delivery.route === 'lan' && delivery.cloud) result = await run('cloud');
+      // Like Orca, a successful plugin return completes sending; Device owns physical print progress.
+      if (result.code >= 0) await this.finish(job, 'sent', 'Print job sent.');
+      else if (result.mayHaveStarted) {
+        job.state = { ...job.state, phase: 'unknown', canCancel: false, progress: null, message: 'Start outcome is unknown. Check the printer; do not send a duplicate.' }; this.changed();
       } else await this.finish(job, result.cancelRequested || result.code === -18 ? 'cancelled' : 'failed', result.cancelRequested ? 'Sending cancelled.' : 'Sending failed. You can retry.');
     } catch { if (!nativeInvoked) { await this.finish(job, cancelling(job) ? 'cancelled' : 'failed', 'Sending did not start. You can retry.'); return; } if (!final(job.state.phase)) { job.state = { ...job.state, phase: 'unknown', canCancel: false, message: 'The sending outcome is unknown. Check the printer.' }; this.changed(); } }
   }
@@ -188,12 +183,11 @@ export class BambuPrintSubmissions {
     if (job.state.canCancel) { job.state.phase = 'cancelling'; job.state.message = 'Cancelling sending…'; job.state.canCancel = false; this.native.cancelPrint(); this.changed(); }
     return this.get(ref);
   }
-  private async finish(job: Job, phase: 'failed' | 'cancelled' | 'started', message: string) {
+  private async finish(job: Job, phase: 'failed' | 'cancelled' | 'sent', message: string) {
     if (job.timer) clearTimeout(job.timer);
     job.state = { ...job.state, phase, message, canCancel: false }; this.changed();
-    // Keep files until the plugin has stopped reading them, even if start is observed early.
-    if (phase !== 'started') await this.release(job);
-    else void job.nativeDone?.finally(() => this.release(job));
+    // Sending completes only after the native call has stopped reading these files.
+    await this.release(job);
   }
   private async release(job: Job) {
     await Promise.allSettled([...job.files.values()].map(f => f.handle.close()));
@@ -204,7 +198,7 @@ export class BambuPrintSubmissions {
   async onEvent(event: NativeEvent) {
     const job = this.active;
     if (event.type === 'print-progress' && job && !final(job.state.phase)) {
-      if (event.args[2]) { if (job.confirmation) job.confirmation.mayHaveStarted = true; job.state.canCancel = false; if (cancelling(job)) job.state.phase = 'confirming'; }
+      if (event.args[2]) { job.state.canCancel = false; if (cancelling(job)) { job.state.phase = 'sending'; job.state.message = 'Finishing print submission…'; } }
       if (event.args[0] === 1 && event.args[1] >= 0 && event.args[1] <= 100) job.state.progress = event.args[1] / 100;
       this.changed(); return;
     }
@@ -212,17 +206,6 @@ export class BambuPrintSubmissions {
     let root; try { root = record(JSON.parse(event.args[1])); } catch { return; }
     const camera = record(root.camera), query = this.queries.get(String(camera.sequence_id));
     if (query?.deviceId === event.args[0] && camera.command === 'ipcam_get_media_info' && camera.sub_command === 'is_timelapse_storage_enough') query.resolve(camera);
-    if (!job || !['sending', 'cancelling', 'confirming', 'unknown'].includes(job.state.phase) || job.state.ref.printerId !== `bambu:${encodeURIComponent(event.args[0])}`) return;
-    const confirmation = job.confirmation, update = record(root.print);
-    if (!confirmation?.mayHaveStarted || update.command !== 'push_status' || job.state.route === 'lan' && event.type !== 'local-message') return;
-    const context = await this.monitor.context(job.state.ref);
-    if (this.active !== job || final(job.state.phase) || job.confirmation !== confirmation || !context.ok || !context.value.fresh || context.value.generation <= confirmation.generation || (job.request.target.expectedConfigurationRevision !== undefined && context.value.configurationRevision !== job.request.target.expectedConfigurationRevision)) return;
-    const p = context.value.report;
-    // A filename must be observed after possible dispatch, not inherited from a previous same-name print.
-    if (update.gcode_file !== undefined) confirmation.sawFile = String(update.gcode_file).split('/').at(-1) === confirmation.file;
-    const matched = confirmation.sawFile && String(p.gcode_file ?? '').split('/').at(-1) === confirmation.file
-      && (job.state.route !== 'lan' || p.subtask_name === job.name.display);
-    if (matched && ['PREPARE', 'RUNNING'].includes(String(p.gcode_state))) await this.finish(job, 'started', 'Printer started this job.');
   }
   async close() { for (const query of this.queries.values()) query.resolve(null); for (const job of this.jobs.values()) { if (job.timer) clearTimeout(job.timer); await job.nativeDone; await this.release(job); } }
 }

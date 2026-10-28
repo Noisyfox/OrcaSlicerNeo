@@ -3,12 +3,6 @@ import type { NativePrintParameters } from '@orca/bambu-native';
 import { printerFilamentId } from './printResources';
 import { bits, record, records, type Report } from './telemetry';
 import { physicalTool } from './printMapping';
-/** Pinned v2.2.0 pick_remote_name/to_print_basename: LAN ignores ftp_file. */
-export function lanPrintFileName(display: string): string {
-  const name = display.replace(/^[. /\\]+/, '').replace(/[ .]+$/, '').replace(/[\x00-\x1f/\\]/g, '_')
-    .replace(/(?:\.gcode)?\.3mf$/, '');
-  return `${name || 'print'}.gcode.3mf`.replace('plate_0', 'plate_1');
-}
 export function printParameters(request: D.PrintSubmissionRequest, prepared: D.PrintPreparation, name: { display: string; remote: string }, report: Report = {}): Partial<NativePrintParameters> {
   const r = request.requirements, o = prepared.options;
   const packed: number[] = r.filamentMap.map(() => -1), detailed = r.filamentMap.map(() => ({ ams_id: 255, slot_id: 255 }));

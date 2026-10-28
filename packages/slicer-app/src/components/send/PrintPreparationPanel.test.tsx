@@ -27,7 +27,7 @@ async function setup(allowAbnormalStorage = false, manifestValue = manifest, rea
       nozzleLabels: manifestValue.nozzleDiameters.map((_, index) => manifestValue.nozzleDiameters.length === 2 ? index ? 'Right Nozzle' : 'Left Nozzle' : 'Nozzle 1'), optionDescriptors: [{ key: 'timelapse', label: 'Timelapse', choices: [{ value: true, label: 'On' }, { value: false, label: 'Off' }], enabled: true }], issues,
     } })),
     submit: vi.fn(async () => ({ ok: true as const, value: ref })),
-    watch: async function* (_ref: D.PrintSubmissionRef, options: { signal: AbortSignal }) { while (!options.signal.aborted) { yield { ...current }; if (['failed', 'started', 'cancelled', 'unknown'].includes(current.phase)) return; await new Promise<void>(resolve => { wake = resolve; options.signal.addEventListener('abort', () => resolve(), { once: true }); }); } },
+    watch: async function* (_ref: D.PrintSubmissionRef, options: { signal: AbortSignal }) { while (!options.signal.aborted) { yield { ...current }; if (['failed', 'sent', 'cancelled', 'unknown'].includes(current.phase)) return; await new Promise<void>(resolve => { wake = resolve; options.signal.addEventListener('abort', () => resolve(), { once: true }); }); } },
     cancel: vi.fn(async () => { current = { ...current, phase: 'cancelling', canCancel: false, message: 'Cancelling sending…' }; wake?.(); return { ok: true as const, value: current }; }),
   };
   const configuration = { load: vi.fn(async () => structuredClone(configDocument)), save: vi.fn(async next => { configDocument = next; }) };
@@ -94,13 +94,12 @@ it('retains a removed source and blocks printing on refreshed invalidation', asy
   expect((container.querySelector('[aria-label="Material 1 source"]') as HTMLElement).getAttribute('data-source')).toBe('source-a');
   expect(container.textContent).toContain('Unavailable'); expect((container.querySelector('[data-testid="print-submit"]') as HTMLButtonElement).disabled).toBe(true);
 });
-it('requires per-send warning confirmation, waits for observed start, then selects Device and closes', async () => {
+it('requires per-send warning confirmation, waits for send completion, then selects Device and closes', async () => {
   const f = await setup(); f.issues([{ id: 'warning', severity: 'warning', message: 'Review material' }]);
   await f.click('Send'); expect(f.submissions.submit).not.toHaveBeenCalled();
   await f.click('Confirm and print'); expect(f.submissions.submit).toHaveBeenCalledOnce(); expect(f.close).not.toHaveBeenCalled();
   expect((f.submissions.submit.mock.calls[0] as unknown as [D.PrintSubmissionRequest])[0].acknowledgedIssues).toEqual(['warning']);
-  await act(async () => f.update('confirming')); expect(f.close).not.toHaveBeenCalled();
-  await act(async () => f.update('started')); expect(f.close).toHaveBeenCalledOnce(); expect(useDeviceSelectionStore.getState().requestedPrinterId).toBe('fixture');
+  await act(async () => f.update('sent')); expect(f.close).toHaveBeenCalledOnce(); expect(useDeviceSelectionStore.getState().requestedPrinterId).toBe('fixture');
 });
 it('cancel sending leaves the modal locked until cancellation is confirmed', async () => {
   const f = await setup(); await f.click('Send'); await f.click('Cancel sending');

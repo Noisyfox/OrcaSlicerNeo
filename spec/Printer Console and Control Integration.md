@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-10-28
+**Updated:** 2026-10-29
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
@@ -10,8 +10,8 @@ hardware or six-target control qualification is claimed.
 Local-artifact print preparation/submission is implemented and initially enabled
 only by the Bambu agent. Development-host LAN qualification includes one completed
 H2D print using AMS B1 and the fixed right nozzle; dual-tool and Cloud printing
-remain unqualified. The LAN start-confirmation correction has software regression
-coverage and still requires physical revalidation.
+remain unqualified. Orca-style send completion has software regression coverage;
+the revised modal success transition still requires physical revalidation.
 
 **Scope:** The printer-console and printer-control experience shared by the
 Electron desktop application and the Web application.
@@ -702,22 +702,23 @@ implemented. It copies the current Device selection once, owns its mapping and
 options, saves explicit option changes per physical printer, and locks project
 editing while open. Agent diagnostics control availability and per-send warning
 confirmation. Sending/cancellation remain visible until the agent reports their
-outcomes; confirmed start closes the modal and selects the printer in Device.
+outcomes; successful plugin completion closes the modal and selects the printer
+in Device, where actual print progress is observed separately.
 The former Moonraker upload/start flow remains available through the same entry.
 
 Software validation on macOS ARM64 includes shared component tests, the complete
 shared-app unit suite and workspace typechecks. The Bambu Electron fixture covers
 renderer/preload/main requests, binary chunk delivery, persisted options,
-cancellation and delayed start confirmation; Moonraker send/retry and keyless
+cancellation and successful-send navigation; Moonraker send/retry and keyless
 regressions pass. The fixture caught and fixed an observation target carrying a
 command-only revision field. Physical acceptance is separate: a development-host
 H2D LAN print using one PETG source (AMS 2 Pro B1) and the fixed right nozzle now
 completed. The user confirmed feeding, extrusion and first layer; the device
 reported completion and zero heater targets. Dual-tool and other supply-path
 acceptance remain open; Cloud physical acceptance is deferred as agreed. The
-agent now matches the pinned LAN plugin's actual filename and requires fresh
-post-dispatch task evidence before reporting start. Software regression covers
-this correction; physical revalidation of the modal's success transition remains
+agent now ends submission on successful plugin completion, matching Orca without
+requiring a filename or observed print start. Software regression covers this
+behavior; physical revalidation of the modal's success transition remains
 open under the
 [domain qualification boundary](Printer%20Domain%20and%20Control%20Architecture.md#implementation-progress).
 
@@ -1153,10 +1154,11 @@ not equate a closed window with a stopped printer.
 
 #### Accepted success presentation and retry
 
-A successful plugin return alone shows **Sent; confirming print start**.
-Once observations confirm that this submission has entered the printer's
-preparation or printing state, close the dialog, open Device and select the
-target physical printer. This post-success navigation intentionally selects
+A successful plugin return completes sending, matching Orca: report **Print job
+sent**, close the dialog, open Device and select the target physical printer.
+Do not wait for a matching filename, task identifier or observed preparation/
+printing state. Actual print progress is shown independently in Device; send
+success does not claim physical print start. This post-success navigation selects
 the submitted printer; preparation-time selection remains independent of Device.
 If the outcome is unknown, retain its explanation and let the user close the
 dialog or open Device to inspect the printer instead of navigating as if success
@@ -1178,7 +1180,7 @@ checks and print options, then prepare/send the print. Orca also has
 device-specific multi-plate, external-feed and hotend-rack paths. Review each
 applicable behavior within the accepted envelope rather than claiming universal parity.
 
-Keep preparation/transfer/start/confirmation feedback distinct and report
+Keep preparation, transfer and submission-outcome feedback distinct and report
 unknown outcomes explicitly. A plugin success or transfer completion is not
 proof of physical print start. Reconciliation timing and operation retention
 are implementation validation items under the domain contract; they must not

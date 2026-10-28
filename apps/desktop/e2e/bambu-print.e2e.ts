@@ -9,7 +9,7 @@ import { Ipc } from '../src/shared/ipc';
 import { isBambuControlRequest } from '../src/shared/bambuControl';
 import type * as D from '@orca/printer-control/domain';
 declare global { var printFixture: { requests: unknown[]; submissions: D.PrintSubmissionRequest[]; chunks: number; state: D.PrintSubmissionState | null; holdRead: boolean; releaseRead?: () => void }; }
-test('Bambu Send & Print prepares the current plate, persists options, cancels safely and waits for observed start', async () => {
+test('Bambu Send & Print prepares the current plate, persists options, cancels safely and closes on send completion', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'neo-print-e2e-')), configPath = join(directory, 'printer-config.json');
   writeFileSync(configPath, JSON.stringify({ version: 1, printers: [] }));
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1', ORCA_E2E_MODEL: resolve(__dirname, '../../../packages/slicer-wasm/fixtures/cube.stl'), ORCA_E2E_PRINTER_CONFIG: configPath } });
@@ -118,7 +118,7 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
     const phase = async (value: D.PrintSubmissionState['phase']) => app.evaluate(({ BrowserWindow }, { value, channel }) => { globalThis.printFixture.state = { ...globalThis.printFixture.state!, phase: value, canCancel: false, message: value }; for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, 'control'); }, { value, channel: Ipc.bambuChanged });
     await phase('cancelled'); await expect(dialog.getByTestId('print-submit')).toBeEnabled();
     await dialog.getByTestId('print-submit').click(); await expect(dialog.getByText('Sending print', { exact: true })).toBeVisible();
-    await phase('confirming'); await expect(dialog).toBeVisible(); await phase('started'); await expect(dialog).toHaveCount(0);
+    await phase('sent'); await expect(dialog).toHaveCount(0);
     await expect(page.locator('#device-content')).toBeVisible(); await expect(page.getByTestId('device-printer-select')).toContainText('Workshop A');
     const result = await app.evaluate(() => globalThis.printFixture);
     expect(result.submissions).toHaveLength(2); expect(result.chunks).toBeGreaterThan(0);

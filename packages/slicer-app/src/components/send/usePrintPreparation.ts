@@ -5,7 +5,7 @@ import type { PlatformCapabilities } from '@orca/platform-contract';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 
-export function usePrintPreparation(platform: PlatformCapabilities, printer: D.SavedPrinter, route: D.PrinterRoute, receipt: SliceResultReceipt | undefined, onStarted: () => void) {
+export function usePrintPreparation(platform: PlatformCapabilities, printer: D.SavedPrinter, route: D.PrinterRoute, receipt: SliceResultReceipt | undefined, onSent: () => void) {
   const [requirements, setRequirements] = useState<D.PrintRequirements | null>(null);
   const [jobName, setJobName] = useState(() => projectFilenameBase(useProjectStore.getState()));
   const [prepared, setPrepared] = useState<D.PrintPreparation | null>(null);
@@ -23,11 +23,11 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   const [recordingAction, setRecordingAction] = useState<D.PrintSubmissionRequest['recordingSpaceAction']>();
   const live = useRef(true), initialized = useRef(false), sourceReceipt = useRef(receipt);
   const refreshVersion = useRef(0), saveChain = useRef(Promise.resolve()), saveVersion = useRef(0);
-  const watchAbort = useRef(new AbortController()), started = useRef(onStarted); started.current = onStarted;
+  const watchAbort = useRef(new AbortController()), sent = useRef(onSent); sent.current = onSent;
   const request = useRef<D.PrintPreparationRequest | null>(null);
   const target = { printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision };
   if (requirements) request.current = { target, requirements, bindings, options, allowAbnormalStorage: allowAbnormal, suggest: !initialized.current };
-  const active = exporting || !!operation && !['failed', 'cancelled', 'unknown', 'started'].includes(operation.phase);
+  const active = exporting || !!operation && !['failed', 'cancelled', 'unknown', 'sent'].includes(operation.phase);
   const activeRef = useRef(active); activeRef.current = active;
   const canPrint = !!prepared && !prepared.issues.some(i => i.severity === 'block') && !error && !saveError && !saving && !active && operation?.phase !== 'unknown';
 
@@ -138,7 +138,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
       for await (const state of platform.printers.service.submissions.watch(submitted.value, { signal: watchAbort.current.signal })) {
         if (!live.current) return;
         setOperation(state);
-        if (state.phase === 'started') { started.current(); return; }
+        if (state.phase === 'sent') { sent.current(); return; }
       }
     } catch {
       if (live.current) {

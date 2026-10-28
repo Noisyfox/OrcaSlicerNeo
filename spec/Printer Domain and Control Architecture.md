@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-10-28
+**Updated:** 2026-10-29
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -1213,8 +1213,9 @@ preparation, bounded artifact transfer, idempotent admission, cancellation,
 known-failure retry, qualified LAN preference and safe Cloud fallback. The agent
 owns model-resource rules, physical-tool mapping, material catalog conversion,
 options, storage checks and a second validation immediately before dispatch.
-Only a fresh matching task report confirms start; plugin success alone remains
-`confirming`, and an unknown outcome stays owned by the agent without a retry.
+Following Orca, successful plugin completion ends submission as `sent`; physical
+print progress is observed separately in Device. An unknown outcome stays owned
+by the agent without a retry.
 Native material-ID conversion changes dispatch metadata only, not the project.
 
 Validation includes 13 mapping/lifecycle tests, the desktop and printer-control
@@ -1267,18 +1268,16 @@ make an H2D require a Filament Track Switch. The pinned Orca correction and the
 real-WASM artifact smoke cover this distinction in both local WASM variants.
 The actual LAN submission archive was also checked before the repaired print.
 
-LAN start confirmation follows the pinned plugin's actual project-based upload
-filename, including its sanitization and plate-name normalization; `ftp_file`
-does not determine the LAN filename in this plugin. The user-visible task name
-remains unchanged. Confirmation requires matching task/file data observed after
-possible dispatch, fresh status newer than the dispatch snapshot, and the same
-printer/configuration. Upload activity, acknowledgements, cached same-name files
-and another transport's delayed report do not qualify a LAN start. After possible
-LAN dispatch, request a full report so unchanged filenames omitted from deltas
-can be checked again. Regression tests cover these boundaries and late resolution
-of an unknown outcome. The
-corrected submission-modal confirmation still requires physical revalidation;
-retain the unknown-outcome ownership and duplicate-send guard.
+Submission completion follows Orca's plugin-return semantics. A nonnegative
+native result reports **Print job sent** and closes the modal in favor of the
+target's Device page. It does not assert physical print start. No filename/task
+matching, extra full-status request or print-start confirmation timer is required.
+Actual preparation, feeding and print progress remain Device observations. The
+user-visible task name remains unchanged. A failed call that may already have
+dispatched remains `unknown`, retains ownership and cannot trigger a duplicate
+send or fallback. Regression tests cover success without status reports, native
+reader cleanup and cancellation racing dispatch. The revised modal success
+transition still requires physical revalidation.
 
 The [console specification](Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission)
 owns the interaction, mapping review and feature envelope. This section owns
@@ -1411,8 +1410,8 @@ deferred hardware modes remaining excluded.
 #### Submission lifecycle and host execution
 
 Reuse explicit target/configuration provenance, request identity and operation
-tracking. Keep artifact reception, validation, transfer, start dispatch and
-confirmation distinguishable. Transfer completion, successful native return,
+tracking. Keep artifact reception, validation, transfer and start dispatch
+distinguishable. Transfer completion, successful native return,
 device acceptance and observed print start are different evidence. Unknown
 outcomes must survive observer interruption and must not trigger a blind second
 start or automatic LAN-to-Cloud resend. Agent-side physical transport selection
@@ -1431,8 +1430,9 @@ After possible start dispatch, reconcile the outcome instead; physical print
 cancellation remains a separate action. An explicit unknown outcome permits
 observer closure without ending agent tracking. The accepted
 [success and retry interaction](Printer%20Console%20and%20Control%20Integration.md#accepted-success-presentation-and-retry)
-navigates to the target's Device status only after this submission is observed
-preparing or printing; a plugin success remains pending confirmation. Ordinary
+navigates to the target's Device status after successful plugin completion,
+matching Orca's sending interaction. Physical print start is observed there,
+independently of the terminal `sent` submission phase. Ordinary
 send failures expose a direct retry through the normal sending flow, with no
 additional recovery wizard. Unknown outcomes retain their reconciliation
 boundary. Reconciliation timing and operation retention are implementation

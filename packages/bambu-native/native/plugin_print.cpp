@@ -17,7 +17,7 @@ PrintResult PluginAgent::print(const std::string& route, Slic3r::PrintParams par
         sink({library, "print-progress", {stage, code, state->may_have_started.load()}, {}});
     };
     auto cancelled = [state] { return state->cancel.load(); };
-    // Native success remains unconfirmed; the agent observes the matching device task.
+    // Native success completes sending; physical print progress is observed separately.
     auto wait = [](int, std::string) { return true; };
     int code;
     if (cancelled()) return {-18, false, true};

@@ -112,7 +112,8 @@ export interface PrintSubmissionRef extends PrinterTarget { id: Id<'print-submis
 export interface PrintSubmissionState {
   ref: PrintSubmissionRef;
   requestId: Id<'request'>;
-  phase: 'staging' | 'sending' | 'cancelling' | 'confirming' | 'started' | 'failed' | 'cancelled' | 'unknown';
+  /** sent ends successful submission; physical print progress is observed separately. */
+  phase: 'staging' | 'sending' | 'cancelling' | 'sent' | 'failed' | 'cancelled' | 'unknown';
   route: 'lan' | 'cloud' | null;
   progress: number | null;
   message: string;

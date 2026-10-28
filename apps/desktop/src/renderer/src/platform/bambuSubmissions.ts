@@ -42,7 +42,7 @@ export function bambuSubmissions(bridge: BambuBridge): D.PrinterSubmissions {
           if (options?.signal?.aborted) return;
           if (!result.ok) throw new Error(result.error.message);
           yield result.value;
-          if (['started', 'failed', 'cancelled', 'unknown'].includes(result.value.phase)) return;
+          if (['sent', 'failed', 'cancelled', 'unknown'].includes(result.value.phase)) return;
           if (current === version) await new Promise<void>(resolve => { wake = resolve; if (current !== version || options?.signal?.aborted) resolve(); });
         }
       } finally { stop(); options?.signal?.removeEventListener('abort', abort); }
