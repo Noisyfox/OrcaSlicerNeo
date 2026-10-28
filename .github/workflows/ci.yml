@@ -451,8 +451,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r test
       - run: pnpm -r typecheck
-      - name: Verify wasm32 build scaffold and host artifact boundaries
-        run: node --test scripts/build-wasm32.test.mjs scripts/stage.test.mjs
+      - name: Verify wasm32 build scaffold and host/Pages artifact boundaries
+        run: node --test scripts/build-wasm32.test.mjs scripts/stage.test.mjs scripts/prepare-web-pages.test.mjs
 
   e2e-mock:
     name: e2e (mock module)

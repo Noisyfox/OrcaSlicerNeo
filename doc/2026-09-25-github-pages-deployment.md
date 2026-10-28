@@ -10,17 +10,19 @@ deployment on pull requests. Deployment runs only for pushes to `main`, using
 GitHub Actions as the Pages publishing source. The configured project URL is
 `https://noisyfox.github.io/OrcaSlicerNeo/`.
 
-Both WASM variants and the packaged profiles come from the same workflow run.
+All four WASM variants and the packaged profiles come from the same workflow run.
 The Pages build tests/typechecks Web, builds it, runs
 `node apps/web/scripts/non-root-smoke.mjs`, and prepares `apps/web/dist` with
 `node scripts/prepare-web-pages.mjs`. Preparation verifies HTML, the profile
-manifest and six production JS/WASM/data files, strips other WASM-directory
-content (debug/profiling artifacts and maps), writes `.nojekyll`, and rejects
+manifest and twelve production JS/WASM/data files across wasm64 and wasm32,
+strips other WASM-directory content (debug/profiling artifacts and maps),
+writes `.nojekyll`, and rejects
 artifacts over 1,000,000,000 bytes.
 
-The ordinary Web build retains both variants for isolated hosts. On Pages,
-without COOP/COEP headers, runtime selection uses serial wasm64. Keep the
-Chrome 133+ and WebGL 2 capability gates; HTTPS alone does not enable threads.
+The ordinary Web build retains all four variants for isolated hosts. On Pages,
+without COOP/COEP headers, runtime selection uses serial wasm64 or serial wasm32
+according to Memory64 support. Keep the WebAssembly and WebGL 2 capability
+gates; HTTPS alone does not enable threads.
 Asset URLs must work under the project subpath.
 
 ## Dependency and asset ownership
