@@ -7,6 +7,7 @@ import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 
 export function usePrintPreparation(platform: PlatformCapabilities, printer: D.SavedPrinter, route: D.PrinterRoute, receipt: SliceResultReceipt | undefined, onStarted: () => void) {
   const [requirements, setRequirements] = useState<D.PrintRequirements | null>(null);
+  const [jobName, setJobName] = useState(() => projectFilenameBase(useProjectStore.getState()));
   const [prepared, setPrepared] = useState<D.PrintPreparation | null>(null);
   const [options, setOptions] = useState<D.PrintOptions>({});
   const [bindings, setBindings] = useState<readonly D.PrintMaterialBinding[]>([]);
@@ -109,7 +110,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
       if (warnings.some(i => !acknowledged.includes(i.id)) || checked.value.recordingSpace?.status === 'insufficient' && !recordingAction) {
         setConfirmation(checked.value); return;
       }
-      const exported = await platform.runtime.exportPrintPlate({ receipt: sourceReceipt.current, filenameBase: projectFilenameBase(useProjectStore.getState()), materialCatalogIds: checked.value.materialCatalogIds });
+      const exported = await platform.runtime.exportPrintPlate({ receipt: sourceReceipt.current, filenameBase: jobName.trim() || projectFilenameBase(useProjectStore.getState()), materialCatalogIds: checked.value.materialCatalogIds });
       if (!live.current) return;
       if (!exported.ok) throw new Error(exported.error);
       if (JSON.stringify(exported.manifest) !== JSON.stringify((({ contentId: _id, ...manifest }) => manifest)(request.current.requirements))) throw new Error('Slice changed');
@@ -136,7 +137,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
     const result = await platform.printers.service.submissions.cancel(operation.ref);
     if (live.current) { if (result.ok) setOperation(result.value); else setError(result.error.message); }
   }
-  return { requirements, prepared, bindings, options, error, saveError, active, canPrint, operation, confirmation, recordingAction,
+  return { requirements, prepared, bindings, options, error, saveError, active, canPrint, operation, confirmation, recordingAction, jobName, setJobName, refresh,
     changeOption, changeBinding, send, cancel, setRecordingAction,
     dismissConfirmation: () => { setConfirmation(null); setRecordingAction(undefined); },
   };

@@ -1,4 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Disc3 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
+import { PrintJobSummary } from './PrintJobSummary';
 import type * as D from '@orca/printer-control/domain';
 import type { SliceResultReceipt } from '@slicer/client';
 import type { PlatformCapabilities } from '@orca/platform-contract';
@@ -7,9 +11,9 @@ import { Progress } from '@/components/ui/progress';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { usePrintPreparation } from './usePrintPreparation';
 
-export function PrintPreparationPanel({ platform, printer, route, receipt, onClose, onBusyChange }: {
+export function PrintPreparationPanel({ platform, printer, route, receipt, onClose, onBusyChange, printerControl }: {
   platform: PlatformCapabilities; printer: D.SavedPrinter; route: D.PrinterRoute; receipt?: SliceResultReceipt;
-  onClose(): void; onBusyChange(busy: boolean): void;
+  onClose(): void; onBusyChange(busy: boolean): void; printerControl?: ReactNode;
 }) {
   const state = usePrintPreparation(platform, printer, route, receipt, () => {
     useDeviceSelectionStore.getState().showPrinter(printer.identity.id); onClose();
@@ -19,32 +23,47 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
   return <div className="flex flex-col gap-4" data-testid="print-preparation">
     {!requirements && !state.error && <p role="status">Reading the current slice…</p>}
-    {requirements && <>
-      <p className="text-sm text-muted-foreground">{requirements.printerModel} · {requirements.weightGrams.toFixed(1)} g · {Math.ceil(requirements.durationSeconds / 60)} min</p>
-      <fieldset disabled={state.active || operation?.phase === 'unknown'} className="flex flex-col gap-3">
-        <legend className="mb-2 font-medium">Material mapping</legend>
-        {requirements.materials.map(material => {
-          const value = state.bindings.find(b => b.materialKey === material.key)?.pathId ?? '';
-          const candidates = prepared?.candidates.filter(c => c.materialKey === material.key) ?? [];
-          return <label key={material.key} className="grid grid-cols-2 items-center gap-3 text-sm">
-            <span className="flex items-center gap-2"><span className="h-4 w-4 shrink-0 rounded border" style={{ background: /^#[\da-f]{6}([\da-f]{2})?$/i.test(material.color) ? material.color : 'transparent' }} />{material.index + 1}. {material.type} · Tool {material.toolIndex + 1}</span>
-            <select className="min-w-0 rounded border bg-background p-2" aria-label={`Material ${material.index + 1} source`} value={value} onChange={event => state.changeBinding(material.key, event.target.value)}>
-              <option value="">Select source</option>
-              {value && !candidates.some(c => c.pathId === value) && <option value={value}>Previous source unavailable</option>}
-              {candidates.map(c => <option key={c.pathId} value={c.pathId}>{c.label} · {c.materialType ?? 'Unknown material'}{c.color ? ` · ${c.color}` : ''}</option>)}
-            </select>
-          </label>;
-        })}
-        {prepared?.optionDescriptors.map(option => <label key={option.key} className="flex items-center justify-between gap-3 text-sm">
-          <span>{option.label}</span>
-          <select className="rounded border bg-background p-2" aria-label={option.label} disabled={!option.enabled} value={String(prepared.options[option.key])} onChange={event => {
-            const choice = option.choices.find(c => String(c.value) === event.target.value); if (choice) state.changeOption(option.key, choice.value);
-          }}>{option.choices.map(choice => <option key={String(choice.value)} value={String(choice.value)}>{choice.label}</option>)}</select>
-        </label>)}
-      </fieldset>
-    </>}
-    {prepared && <p className="text-sm text-muted-foreground" data-testid="print-delivery-route">Delivery: {prepared.route?.toUpperCase() ?? 'Unavailable'}</p>}
-    {prepared?.issues.map(issue => <p key={issue.id} role={issue.severity === 'block' ? 'alert' : 'status'} className={`text-sm ${issue.severity === 'block' ? 'text-destructive' : 'text-muted-foreground'}`}>{issue.message}</p>)}
+    <PrintJobSummary requirements={requirements} printer={printer} printerControl={printerControl} name={state.jobName}
+      onNameChange={state.setJobName} disabled={state.active || operation?.phase === 'unknown'} onRefresh={() => void state.refresh()} route={prepared?.route} />
+    {requirements && <fieldset disabled={state.active || operation?.phase === 'unknown'} className="min-w-0 space-y-4">
+      <legend className="mb-3 flex w-full items-center gap-2 text-sm text-muted-foreground">Filament<span className="h-px flex-1 bg-border" /></legend>
+      <div className={`grid gap-4 ${requirements.nozzleDiameters.length > 1 ? 'sm:grid-cols-2' : ''}`} data-testid="print-nozzle-groups">
+        {requirements.nozzleDiameters.map((_, toolIndex) => <section key={toolIndex} className="min-w-0 bg-control-background/50 p-3" aria-label={prepared?.nozzleLabels[toolIndex] ?? `Nozzle ${toolIndex + 1}`}>
+          {requirements.nozzleDiameters.length > 1 && <h3 className="mb-3 text-sm font-semibold">{prepared?.nozzleLabels[toolIndex] ?? `Nozzle ${toolIndex + 1}`}</h3>}
+          <div className="flex flex-wrap gap-3">
+            {requirements.materials.filter(material => material.toolIndex === toolIndex).map(material => {
+              const value = state.bindings.find(b => b.materialKey === material.key)?.pathId ?? '';
+              const candidates = prepared?.candidates.filter(c => c.materialKey === material.key) ?? [];
+              const selected = candidates.find(c => c.pathId === value);
+              const invalid = !!value && !selected;
+              return <div key={material.key} className={`flex w-28 flex-col overflow-hidden rounded border ${invalid ? 'border-destructive' : 'border-border focus-within:border-primary'}`} title={`Material ${material.index + 1}: ${material.type}. Upper: sliced material. Lower: printer source.`}>
+                <span className="truncate px-2 py-1 text-center text-xs font-medium" style={materialColor(material.color)} data-testid={`slice-material-${material.index}`}>{material.type}</span>
+                <Select value={value} disabled={state.active || operation?.phase === 'unknown'} onValueChange={next => { if (next !== null) state.changeBinding(material.key, next); }}>
+                  <SelectTrigger className="h-8! w-full rounded-none border-0 px-1.5" style={materialColor(selected?.color)} aria-label={`Material ${material.index + 1} source`} aria-invalid={invalid || undefined} data-source={value} title={selected ? `${selected.label} · ${selected.materialType ?? 'Unknown material'}` : 'Select source'}>
+                    <Disc3 className="size-4" aria-hidden="true" /><span className="min-w-0 flex-1 truncate">{selected?.label ?? (invalid ? 'Unavailable' : 'Select')}</span>
+                  </SelectTrigger>
+                  <SelectContent align="start" aria-label={`Material ${material.index + 1} sources`}>
+                    <SelectItem value="">Select source</SelectItem>
+                    {invalid && <SelectItem value={value}>Previous source unavailable</SelectItem>}
+                    {candidates.map(c => <SelectItem key={c.pathId} value={c.pathId}><span className="size-4 shrink-0 rounded-sm border" style={materialColor(c.color)} /><span>{c.label} · {c.materialType ?? 'Unknown material'}</span></SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>;
+            })}
+            {!requirements.materials.some(material => material.toolIndex === toolIndex) && <p className="text-xs text-muted-foreground">Not used</p>}
+          </div>
+        </section>)}
+      </div>
+    </fieldset>}
+    {prepared?.issues.map(issue => <p key={issue.id} role={issue.severity === 'block' ? 'alert' : 'status'} className={`text-sm ${issue.severity === 'block' ? 'text-destructive' : issue.severity === 'warning' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>{issue.message}</p>)}
+    {prepared && <fieldset disabled={state.active || operation?.phase === 'unknown'} className="grid min-w-0 grid-cols-1 gap-x-5 gap-y-3 border-t pt-5 sm:grid-cols-2" aria-label="Print options">
+      {[...prepared.optionDescriptors].sort((a, b) => optionOrder.indexOf(a.key) - optionOrder.indexOf(b.key)).map(option => <div key={option.key} className="flex min-w-0 items-center justify-between gap-2">
+        <span className="min-w-0 text-xs" title={option.label}>{option.label}</span>
+        <ToggleGroup aria-label={option.label} value={[String(prepared.options[option.key])]} disabled={!option.enabled || state.active || operation?.phase === 'unknown'} spacing={0} size="sm" className="shrink-0 rounded-sm bg-control-background p-0.5" onValueChange={values => {
+          const choice = option.choices.find(c => String(c.value) === values[0]); if (choice) state.changeOption(option.key, choice.value);
+        }}>{option.choices.map(choice => <ToggleGroupItem key={String(choice.value)} value={String(choice.value)} aria-label={choice.label} className="h-6 min-w-10 rounded-sm! px-2 text-xs transition-none aria-pressed:bg-background aria-pressed:text-primary aria-pressed:shadow-[inset_0_0_0_1px_var(--primary)]">{choice.label}</ToggleGroupItem>)}</ToggleGroup>
+      </div>)}
+    </fieldset>}
     {state.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
     {state.saveError && <p role="alert" className="text-sm text-destructive">Print preferences could not be saved. Adjust the option again to retry.</p>}
     {operation && <div role="status" className="flex flex-col gap-2 text-sm"><p>{operation.message}</p>{state.active && <Progress value={operation.progress === null ? null : operation.progress * 100} aria-label="Sending print" />}</div>}
@@ -63,7 +82,14 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
       <Button variant="ghost" onClick={onClose} disabled={state.active}>Close</Button>
       {operation?.phase === 'unknown' && <Button variant="secondary" onClick={() => { useDeviceSelectionStore.getState().showPrinter(printer.identity.id); onClose(); }}>View printer</Button>}
       {operation?.canCancel && <Button variant="secondary" onClick={() => void state.cancel()}>Cancel sending</Button>}
-      {!confirmation && <Button disabled={!state.canPrint} onClick={() => void state.send()} data-testid="print-submit">{operation?.phase === 'failed' ? 'Retry' : 'Print'}</Button>}
+      {!confirmation && <Button disabled={!state.canPrint} onClick={() => void state.send()} className="min-w-24" data-testid="print-submit">{operation?.phase === 'failed' ? 'Retry' : 'Send'}</Button>}
     </div>
   </div>;
+}
+
+const optionOrder: readonly (keyof D.PrintOptions)[] = ['timelapse', 'bedLeveling', 'flowCalibration', 'nozzleOffsetCalibration', 'sharedPressureAdvance', 'timelapseStorage', 'externalChangeAssist'];
+function materialColor(value: string | null | undefined) {
+  if (!value || !/^#[\da-f]{6}([\da-f]{2})?$/i.test(value)) return undefined;
+  const [r, g, b] = [1, 3, 5].map(index => parseInt(value.slice(index, index + 2), 16));
+  return { backgroundColor: value, color: .299 * r + .587 * g + .114 * b > 150 ? '#111111' : '#ffffff' };
 }

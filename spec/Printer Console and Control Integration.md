@@ -731,6 +731,25 @@ four-slot AMS layouts or fixed left/right array positions. Shared controls use
 capabilities and topology; Bambu-specific compatibility and wire rules remain
 inside its agent.
 
+The preparation modal follows Orca's `SelectMachineDialog` layout: a plate
+thumbnail on the upper left; the editable submission name, estimated time and
+weight, printer selector, refresh action and build-plate information on the
+upper right; filament source cards grouped by slice nozzle in the middle; and
+two columns of segmented print options above the Send action. Narrow windows
+stack nozzle groups and options vertically and scroll the modal body.
+The thumbnail reuses the existing local plate renderer and releases its GPU
+resources and object URL when closed. Missing preview graphics never block a
+valid print. Renaming affects the submitted artifact only, not the project.
+Each material card shows the sliced material colour above the selected device
+source colour. Its picker exposes the full source name and material type;
+unassigned and unavailable selections stay explicit. Nozzle labels arrive in
+slice tool-index order from the agent (`nozzleLabels`); the shared renderer does
+not infer physical left/right positions from device IDs. Bambu reports Left
+Nozzle then Right Nozzle for the supported fixed dual-nozzle slice layout.
+Device warnings sit between materials and print options. Options retain their
+agent-provided visibility, values and enabled state; the application-wide
+abnormal-storage preference remains outside this modal.
+
 Automatic suggestions and manual changes operate on the submission draft.
 They do not recolor the editable project or replace slicing tool assignments.
 An explicit material import is a separate workflow. The accepted mapping rules

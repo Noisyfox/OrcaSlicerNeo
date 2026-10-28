@@ -63,6 +63,8 @@ export interface PrintOptionDescriptor {
   enabled: boolean;
 }
 export interface PrintPreparation {
+  /** Display labels in slice tool-index order; vendor physical ordering stays in the agent. */
+  nozzleLabels: readonly string[];
   recordingSpace?: { status: 'enough' | 'insufficient' | 'unknown'; canClean: boolean };
   materialCatalogIds: readonly { materialKey: string; catalogId: string }[];
   configurationRevision: string;

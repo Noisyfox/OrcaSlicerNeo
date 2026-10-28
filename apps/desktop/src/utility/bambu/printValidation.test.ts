@@ -7,6 +7,7 @@ const blocks = (p: ReturnType<typeof prepareBambuPrint>) => p.issues.filter(i =>
 it('maps sparse materials to H2D physical tools and serializes native protocol arrays without compacting indices', () => {
   const r = printRequest(), p = prepareBambuPrint(r, printContext(), 'lan');
   expect(blocks(p)).toEqual([]);
+  expect(p.nozzleLabels).toEqual(['Left Nozzle', 'Right Nozzle']);
   expect(p.bindings).toEqual([{ materialKey: 'filament-0', pathId: 'path:0:0:0' }, { materialKey: 'filament-2', pathId: 'path:1:0:1' }]);
   const native = printParameters({ ...r, requestId: id('request'), acknowledgedIssues: [] }, p, 'job');
   expect(JSON.parse(native.ams_mapping!)).toEqual([0, -1, 4]);

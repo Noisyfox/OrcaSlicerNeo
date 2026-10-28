@@ -32,7 +32,7 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
         if (method === 'print.prepare') return { ok: true, value: { configurationRevision: data.snapshot.configurationRevision, route: 'lan', materialCatalogIds: [],
           bindings: input.suggest ? input.requirements.materials.map((m: D.PrintMaterialRequirement) => ({ materialKey: m.key, pathId: 'path:0:0:0' })) : input.bindings,
           candidates: input.requirements.materials.map((m: D.PrintMaterialRequirement) => ({ materialKey: m.key, pathId: 'path:0:0:0', label: 'AMS A1', materialType: m.type, color: m.color })),
-          options: { timelapse: input.options.timelapse ?? true }, optionDescriptors: [{ key: 'timelapse', label: 'Timelapse', enabled: true, choices: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] }], issues: [] } };
+          options: { ...input.options, timelapse: input.options.timelapse ?? true, bedLeveling: input.options.bedLeveling ?? 'auto', flowCalibration: input.options.flowCalibration ?? 'auto', nozzleOffsetCalibration: input.options.nozzleOffsetCalibration ?? 'auto' }, nozzleLabels: ['Nozzle 1'], optionDescriptors: [{ key: 'timelapse', label: 'Timelapse', enabled: true, choices: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] }, ...([{ key: 'bedLeveling', label: 'Auto Bed Leveling' }, { key: 'flowCalibration', label: 'Flow Dynamics Calibration' }, { key: 'nozzleOffsetCalibration', label: 'Nozzle Offset Calibration' }] as const).map(option => ({ ...option, enabled: true, choices: [{ value: 'auto', label: 'Auto' }, { value: 'on', label: 'On' }, { value: 'off', label: 'Off' }] }))], issues: [] } };
         if (method === 'print.begin') {
           fixture.submissions.push(input.request);
           const ref = { printerId: input.request.target.printerId, routeId: input.request.target.routeId, id: `print-${fixture.submissions.length}` as D.Id<'print-submission'> };
@@ -64,10 +64,15 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
     const dialog = page.getByTestId('send-gcode-dialog');
     await expect(dialog.getByRole('checkbox', { name: /abnormal storage/i })).toHaveCount(0);
     await expect(dialog.getByTestId('send-printer-select')).toContainText('Workshop A');
-    await expect(dialog.getByLabel('Material 1 source')).toHaveValue('path:0:0:0');
-    await dialog.getByLabel('Timelapse', { exact: true }).selectOption('false');
+    await expect(dialog.getByLabel('Material 1 source')).toHaveAttribute('data-source', 'path:0:0:0');
+    await expect(dialog.getByRole('img', { name: 'Print model preview' })).toBeVisible();
+    await dialog.getByLabel('Material 1 source', { exact: true }).click();
+    await page.getByRole('option', { name: 'AMS A1 · PLA', exact: true }).click();
+    await dialog.getByRole('group', { name: 'Timelapse', exact: true }).getByRole('button', { name: 'Off', exact: true }).click();
     await expect.poll(() => JSON.parse(readFileSync(configPath, 'utf8')).printPreferences?.['bambu:a']?.timelapse).toBe(false);
-    await page.screenshot({ path: '/tmp/neo-print-preparation.png' });
+    await expect(dialog.getByRole('group', { name: 'Timelapse', exact: true }).getByRole('button', { name: 'Off', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(dialog.getByTestId('print-submit')).toBeEnabled();
+    await page.screenshot({ path: '/tmp/neo-print-preparation.png', animations: 'disabled' });
     await dialog.getByTestId('print-submit').click(); await expect(dialog.getByText('Sending print', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeDisabled();
     await page.keyboard.press('Escape'); await expect(dialog).toBeVisible();

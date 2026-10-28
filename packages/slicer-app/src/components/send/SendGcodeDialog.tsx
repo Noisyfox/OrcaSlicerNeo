@@ -356,31 +356,35 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection, platf
     }
   }
 
+  const printerControl = (
+    <div className="flex flex-col gap-2">
+      {!submissionRoute && <label htmlFor="send-printer" className="text-sm font-medium">Printer</label>}
+      <Select value={selectedPrinterId ?? ''} onValueChange={(value) => { if (value) selectPrinter(value); }} disabled={controlsDisabled || printers.length === 0}>
+        <SelectTrigger id="send-printer" className={submissionRoute ? "h-7 w-full border-0 bg-transparent px-0 shadow-none" : "w-full"} data-testid="send-printer-select" aria-label="Printer">
+          <SelectValue placeholder="Select a printer">
+            {(value) => printerLabel(value, printers)}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {printers.map((printer) => (
+            <SelectItem key={printer.identity.id} value={printer.identity.id} data-testid={`send-printer-${printer.identity.id}`}>{printer.identity.displayName}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="send-gcode-title" data-testid="send-gcode-dialog" onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape' && !preparationBusy) close(); }}>
-      <div className="flex w-full max-w-xl max-h-[90vh] overflow-y-auto flex-col gap-4 rounded-lg border bg-card p-5 shadow-lg">
+      <div className={`flex w-full ${submissionRoute ? "max-w-[720px]" : "max-w-xl"} max-h-[90vh] overflow-y-auto flex-col gap-5 rounded-lg border bg-card p-5 shadow-lg`}>
         <div>
-          <h2 id="send-gcode-title" className="font-semibold">{action === 'send' ? 'Send G-code' : 'Send and print'}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Choose a printer for this operation. This choice is not saved.</p>
+          <h2 id="send-gcode-title" className="font-semibold">{action === 'send' ? 'Send G-code' : 'Send print job'}</h2>
+          {!submissionRoute && <p className="mt-1 text-sm text-muted-foreground">Choose a printer for this operation. This choice is not saved.</p>}
         </div>
-        <div className="flex flex-col gap-2">
-          <label htmlFor="send-printer" className="text-sm font-medium">Printer</label>
-          <Select value={selectedPrinterId ?? ''} onValueChange={(value) => { if (value) selectPrinter(value); }} disabled={controlsDisabled || printers.length === 0}>
-            <SelectTrigger id="send-printer" className="w-full" data-testid="send-printer-select" aria-label="Printer">
-              <SelectValue placeholder="Select a printer">
-                {(value) => printerLabel(value, printers)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {printers.map((printer) => (
-                <SelectItem key={printer.identity.id} value={printer.identity.id} data-testid={`send-printer-${printer.identity.id}`}>{printer.identity.displayName}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {!(submissionRoute && sliceReady) && printerControl}
         {reason && <p className="text-sm text-muted-foreground" role="status" data-testid="send-disabled-reason">{reason}</p>}
-        {submissionRoute && selectedPrinter && sliceReady ? <PrintPreparationPanel key={selectedPrinter.identity.id} platform={platform} printer={selectedPrinter} route={submissionRoute} receipt={targetReceipt} onClose={onClose} onBusyChange={setPreparationBusy} /> : <>
+        {submissionRoute && selectedPrinter && sliceReady ? <PrintPreparationPanel printerControl={printerControl} key={selectedPrinter.identity.id} platform={platform} printer={selectedPrinter} route={submissionRoute} receipt={targetReceipt} onClose={onClose} onBusyChange={setPreparationBusy} /> : <>
         {busy && (
           <div className="flex flex-col gap-2" data-testid="send-progress-status" role="status" aria-live="polite">
             <Progress value={progressValue ?? null} aria-label={progressLabel} />

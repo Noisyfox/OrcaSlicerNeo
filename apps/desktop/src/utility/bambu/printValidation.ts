@@ -90,5 +90,6 @@ export function prepareBambuPrint(request: D.PrintPreparationRequest, context: C
   }
   if (records(ams.ams).some(a => bits(a.info, 4, 4) === 2 && used.some(path => path.slotId.startsWith(`slot:${a.id}:`)))) issue('ams-drying', 'An AMS is drying. Check the drying and printing conditions.', 'warning');
   return { materialCatalogIds: r.materials.map(m => ({ materialKey: m.key, catalogId: printerFilamentId(m.presetId) })), configurationRevision: context.configurationRevision, route, bindings: mapping.bindings, candidates: mapping.candidates,
+    nozzleLabels: r.nozzleDiameters.map((_, index) => r.nozzleDiameters.length === 2 ? index === 0 ? 'Left Nozzle' : 'Right Nozzle' : `Nozzle ${index + 1}`),
     options: configured.options, optionDescriptors: configured.descriptors, issues: [...new Map(issues.map(i => [i.id, i])).values()] };
 }
