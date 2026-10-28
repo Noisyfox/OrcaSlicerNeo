@@ -134,8 +134,7 @@ existing close-first policy; failed publication removes the incoming backup
 before restoring the fresh empty session.
 
 Electron threaded mode mounts `/tmp` through NODEFS onto a host-owned temporary
-directory, so extracted attachments live on disk. Web and Electron serial
-fallback use MEMFS. Disk-backed temporary storage does not eliminate transient
+directory, so extracted attachments live on disk. Web uses MEMFS. Disk-backed temporary storage does not eliminate transient
 archive buffers or shrink the WASM linear-memory high-water mark.
 
 The real-WASM regression entry point is

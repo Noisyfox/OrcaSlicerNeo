@@ -8,6 +8,9 @@ import { createFixtureCopy, assertFixtureUnchanged, EXPECTED_FIXTURE_PATH, expec
 
 const root = resolve(import.meta.dirname, '..');
 const desktop = join(root, 'apps/desktop');
+if (process.env.ORCA_SCOPED_GATE_VARIANT && process.env.ORCA_SCOPED_GATE_VARIANT !== 'threaded') {
+  throw new Error('Electron qualification requires threaded WASM; serial is Web-only');
+}
 const output = resolve(process.env.ORCA_SCOPED_GATE_REPORT_DIR || join(tmpdir(), `orca-scoped-gate-${Date.now()}`));
 await mkdir(output, { recursive: true });
 console.log(`Persistent gate reports: ${output}`);
@@ -42,7 +45,7 @@ try {
       ['packages/slicer-wasm/harness/history-smoke.mjs', `packages/slicer-wasm/out/${variant}/orca_slice.js`], root, production);
   }
   await pnpm('stage-release-assets', ['stage:assets'], root, production);
-  for (const variant of (process.env.ORCA_SCOPED_GATE_VARIANT ? [process.env.ORCA_SCOPED_GATE_VARIANT] : ['serial', 'threaded'])) {
+  for (const variant of ['threaded']) {
     const env = { ...production, VITE_E2E: '1', ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_VISIBLE: '1',
       VITE_SCOPED_CONFIGURATION_GATE: '1', VITE_SCOPED_CONFIGURATION_GATE_VARIANT: variant };
     const built = await pnpm(`${variant}-renderer`, ['exec', 'electron-vite', 'build'], desktop, env);
@@ -78,7 +81,7 @@ try {
     await pnpm('repository-typecheck', ['typecheck'], root, production);
     await run('dual-smoke', 'cmd.exe', ['/d', '/c', 'scripts\\build-windows.bat', 'smoke'], root, production);
     // The general UI regression suite explicitly owns .env.e2e's mock
-    // fixtures. Real release coverage is the six cells above plus the
+    // fixtures. Real release coverage is the three threaded cells above plus the
     // fixture-safe, dual-variant focused suite below; never conflate them.
     await pnpm('electron-ui-regressions-mock', ['--filter', '@orca/desktop', 'test:e2e'], root,
       { ...production, VITE_USE_MOCK: '1', ORCA_E2E_REAL: '0' });
@@ -101,7 +104,7 @@ try {
   summary.sourceUnchanged = true;
   summary.finishedAt = new Date().toISOString();
   summary.diagnostic = process.env.ORCA_SCOPED_GATE_DIAGNOSTIC === '1' || Boolean(process.env.ORCA_SCOPED_GATE_PAIRS || process.env.ORCA_SCOPED_GATE_WARMUPS || process.env.ORCA_SCOPED_GATE_PROCESSES || process.env.ORCA_SCOPED_GATE_VARIANT);
-  summary.passed = !summary.diagnostic && summary.commands.every(c => c.exitCode === 0) && summary.cells.length === 6 && summary.cells.every(c => c.passed);
+  summary.passed = !summary.diagnostic && summary.commands.every(c => c.exitCode === 0) && summary.cells.length === 3 && summary.cells.every(c => c.passed);
   await persist();
 }
 process.exitCode = summary.passed ? 0 : 1;

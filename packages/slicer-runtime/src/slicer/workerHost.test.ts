@@ -6,14 +6,14 @@ vi.mock('@slicer/client', () => ({ startWorker: calls.startWorker, mountNativeTe
 vi.mock('@slicer/testing', () => ({ createMockModule: vi.fn() }));
 vi.mock('../profiles', () => ({ createProfileInstaller: () => ({ installStartup: calls.install, installCatalogue: calls.catalogue }) }));
 
-async function start(threaded: boolean, nativeTemporaryDirectory?: string, failThreaded = false) {
+async function start(threaded: boolean, nativeTemporaryDirectory?: string, failThreaded = false, allowSerialFallback = true) {
   const { startSlicerHost } = await import('./workerHost');
   const module = {} as OrcaModule;
   const load = vi.fn(async (variant: string) => {
     if (failThreaded && variant === 'threaded') throw new Error('threaded load failed');
     return module;
   });
-  startSlicerHost({ threaded, nativeTemporaryDirectory, load,
+  startSlicerHost({ threaded, allowSerialFallback, nativeTemporaryDirectory, load,
     profiles: { fetch: vi.fn() }, post: vi.fn(), onMessage: vi.fn() });
   const factory = calls.startWorker.mock.calls[0][0] as OrcaModuleFactory;
   const beforeInit = calls.startWorker.mock.calls[0][3] as (module: OrcaModule, activation: null) => Promise<void>;
@@ -32,7 +32,7 @@ describe('Worker host temporary filesystem selection', () => {
   afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
   it('mounts the native directory before profiles and client initialization', async () => {
-    const { module, factory, beforeInit } = await start(true, 'C:\\Temp\\orca-slicer-abc123');
+    const { module, factory, beforeInit } = await start(true, 'C:\\Temp\\orca-slicer-abc123', false, false);
     await expect(factory()).resolves.toBe(module);
     expect(calls.mount).toHaveBeenCalledWith(module, 'C:\\Temp\\orca-slicer-abc123');
     expect(calls.install).not.toHaveBeenCalled();
@@ -53,16 +53,31 @@ describe('Worker host temporary filesystem selection', () => {
     expect(calls.catalogue).toHaveBeenCalledTimes(1);
   });
 
-  it('retains MEMFS for Electron serial', async () => {
-    const { factory, load } = await start(false, 'C:\\Temp\\orca-slicer-abc123');
-    await factory();
-    expect(load).toHaveBeenCalledWith('serial');
+  it('rejects missing threading support on a host without serial artifacts', async () => {
+    const { factory, load } = await start(false, 'C:\\Temp\\orca-slicer-abc123', false, false);
+    await expect(factory()).rejects.toThrow('threaded WASM support is required');
+    expect(load).not.toHaveBeenCalled();
     expect(calls.mount).not.toHaveBeenCalled();
+  });
+
+  it('preserves the threaded startup error without trying a missing serial artifact', async () => {
+    const { factory, load } = await start(true, 'C:\\Temp\\orca-slicer-abc123', true, false);
+    await expect(factory()).rejects.toThrow('threaded load failed');
+    expect(load.mock.calls).toEqual([['threaded']]);
+    expect(calls.mount).not.toHaveBeenCalled();
+  });
+
+  it('rejects a forced serial gate on a threaded-only host', async () => {
+    vi.stubEnv('VITE_SCOPED_CONFIGURATION_GATE', '1');
+    vi.stubEnv('VITE_SCOPED_CONFIGURATION_GATE_VARIANT', 'serial');
+    const { factory, load } = await start(true, undefined, false, false);
+    await expect(factory()).rejects.toThrow('this host does not ship serial WASM');
+    expect(load).not.toHaveBeenCalled();
   });
 
   it('retains MEMFS when threaded startup falls back to serial', async () => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { factory, load } = await start(true, 'C:\\Temp\\orca-slicer-abc123', true);
+    const { factory, load } = await start(true, undefined, true);
     await factory();
     expect(load.mock.calls).toEqual([['threaded'], ['serial']]);
     expect(warning).toHaveBeenCalledOnce();

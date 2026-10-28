@@ -44,7 +44,8 @@ Only an exact hit skips that variant's
 toolchain/dependency setup, compilation and native tests/smokes. Test-enabled
 build trees are never cached. Both hits and misses upload the production
 artifacts for the current run, including the legacy threaded copy. Dependent
-host jobs await both core artifacts and still run their own checks.
+Web jobs await both core artifacts; Electron jobs require only threaded wasm64.
+All host jobs still run their own checks.
 
 Invoke shell helpers through `bash` in Linux CI rather than depending on
 executable Git file modes. Verify Boost archives using the platform's staged
@@ -63,7 +64,8 @@ the existing wasm64 key expressions, version and hashed files remain unchanged.
 
 Only `pages-build` downloads the wasm32 artifacts. Web staging copies assets
 into `apps/web/.generated/public`, then adds `wasm/wasm32/threaded` and
-`wasm/wasm32/serial`; Electron staging and packaging retain only wasm64.
+`wasm/wasm32/serial`, as well as the wasm64 serial fallback; Electron staging
+and packaging retain only threaded wasm64 and remove stale serial assets.
 The browser validates an actual Memory64 module to choose an address width,
 then chooses threaded or serial according to isolation/thread support.
 

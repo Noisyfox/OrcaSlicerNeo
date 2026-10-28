@@ -23,11 +23,10 @@ Emscripten. It enforces:
    branch, followed by a deliberate superproject pin update. Do not add Orca
    source patches; patches are reserved for external dependencies. All WASM build logic lives in
    the scaffold (`packages/slicer-wasm/`), never in the upstream build system.
-2. **One bridge, many hosts:** the same extern "C" bridge ships as two wasm64
-   variants — `threaded` (upstream oneTBB + pthreads; selected when the host is
-   cross-origin isolated) and `serial` (TBB shim fallback) — on Windows
-   x64/arm64, Linux x64/arm64, macOS x64/arm64, and the static Web host. Only
-   Web additionally ships both wasm32 variants for browsers without Memory64.
+2. **One bridge, many hosts:** the same extern "C" bridge ships as threaded
+   wasm64 (upstream oneTBB + pthreads) on Windows x64/arm64, Linux x64/arm64
+   and macOS x64/arm64. The static Web host ships threaded and serial (TBB
+   shim fallback) wasm64 plus both wasm32 variants for browsers without Memory64.
 3. **A clean C++↔JS seam:** an extern "C", JSON-in/JSON-out bridge is the only
    interface; binary data (meshes, toolpaths) crosses as heap buffers. The JS
    client in `packages/slicer-wasm/src/client/` is the only JS that touches the

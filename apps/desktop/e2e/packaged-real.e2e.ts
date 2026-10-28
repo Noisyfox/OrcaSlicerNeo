@@ -2,7 +2,7 @@ import { _electron } from './electron-fixture';
 // Real packaged Step8 acceptance. This file is intentionally separate from
 // packaged.e2e.ts: the latter uses the tiny JS bridge stub for a fast asset and
 // failure probe, while this spec must be run only after staging the current
-// dual real artifacts with `node scripts/stage.mjs`.
+// threaded real artifact with `node scripts/stage.mjs`.
 import { expect, test } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
@@ -17,12 +17,12 @@ const EXE = process.platform === 'win32' ? resolve(PACKAGED_ROOT, 'OrcaSlicerNeo
   : resolve(PACKAGED_ROOT, 'OrcaSlicerNeo');
 const MODEL = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
-test('real packaged utility runtime loads dual artifacts and completes slice/export', async () => {
+test('real packaged utility runtime ships only threaded wasm64 and completes slice/export', async () => {
   expect(existsSync(EXE), `real packaged app missing — stage real WASM and run package:dir (${EXE})`).toBe(true);
   expect(existsSync(MODEL)).toBe(true);
   const exportDir = mkdtempSync(join(tmpdir(), 'orca-packaged-real-'));
   const exportPath = join(exportDir, 'real.gcode');
-  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_MODEL: MODEL, ORCA_E2E_EXPORT: exportPath } as Record<string, string>;
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_MODEL: MODEL, ORCA_E2E_EXPORT: exportPath } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ executablePath: EXE, env });
   try {
@@ -35,11 +35,12 @@ test('real packaged utility runtime loads dual artifacts and completes slice/exp
     expect(await app.evaluate(({ app }) => app.getAppMetrics()
       .filter((metric) => metric.name === 'Orca Slicer Runtime'))).toHaveLength(1);
     expect(page.workers()).toHaveLength(0);
-    for (const variant of ['threaded', 'serial']) {
-      for (const file of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']) {
-        expect(existsSync(resolve(PACKAGED_ROOT, process.platform === 'darwin' ? 'Contents/Resources/app.asar.unpacked/out/renderer/wasm' : 'resources/app.asar.unpacked/out/renderer/wasm', variant, file))).toBe(true);
-      }
+    const wasmRoot = resolve(PACKAGED_ROOT, process.platform === 'darwin' ? 'Contents/Resources/app.asar.unpacked/out/renderer/wasm' : 'resources/app.asar.unpacked/out/renderer/wasm');
+    for (const file of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']) {
+      expect(existsSync(resolve(wasmRoot, 'threaded', file))).toBe(true);
     }
+    expect(existsSync(resolve(wasmRoot, 'serial'))).toBe(false);
+    expect(existsSync(resolve(wasmRoot, 'wasm32'))).toBe(false);
     await expect(page.getByTestId('btn-add-model')).toBeVisible();
     await page.getByTestId('btn-add-model').click();
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });

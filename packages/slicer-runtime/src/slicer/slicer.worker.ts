@@ -8,6 +8,7 @@ const base = resolveDeploymentBase(import.meta.env.BASE_URL, String(import.meta.
 const architecturePath = import.meta.env.VITE_WASM32_FALLBACK === '1' && !supportsWasm64() ? 'wasm32/' : '';
 startSlicerHost({
   userPresets: createBrowserUserPresetStorage(),
+  allowSerialFallback: true,
   threaded: typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated
     && typeof SharedArrayBuffer === 'function' && typeof Atomics === 'object',
   async load(variant) {
