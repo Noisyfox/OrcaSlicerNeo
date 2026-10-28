@@ -49,8 +49,9 @@ and [3MF Project Persistence](3MF%20Project%20Persistence.md).
 - **Hard browser requirements:** WebGL 2 and WebAssembly. Web validates an
   actual Memory64 module, preferring wasm64 when supported and selecting its
   wasm32 build otherwise. The wasm32 fallback currently caps linear memory at
-  2 GiB; complex models may exceed that capacity. Real macOS/iOS Safari
-  qualification remains separate from development-host browser checks.
+  4 GiB, growing on demand; actual allocation depends on available device and
+  browser memory. Real macOS/iOS Safari qualification remains separate from
+  development-host browser checks.
 - **WASM threading:** prefer the threaded artifact for the selected address
   width. When cross-origin
   isolation/thread support is unavailable, automatically run a separate

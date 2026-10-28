@@ -4,13 +4,13 @@ import { readFile } from 'node:fs/promises';
 import { wasm32Source } from './build-wasm32.mjs';
 
 const native = new URL('../packages/slicer-wasm/', import.meta.url);
-test('wasm32 scaffold targets 32-bit code, separate dependency prefixes and a 2 GiB limit', async () => {
+test('wasm32 scaffold targets 32-bit code, separate dependency prefixes and a 4 GiB limit', async () => {
   for (const name of ['CMakeLists.txt', 'build.sh', 'build.bat', 'build-boost-wasm64.sh', 'build-occt-wasm64.sh', 'build-onetbb.sh']) {
     const source = await readFile(new URL(name, native), 'utf8');
     const output = wasm32Source(source, name);
     assert.doesNotMatch(output, /-m64|stage-wasm64|address-model=64|CMAKE_SIZEOF_VOID_P:INTERNAL=8/);
     if (source.includes('-m64')) assert.match(output, /-m32/);
-    if (name === 'CMakeLists.txt') assert.match(output, /-sMAXIMUM_MEMORY=2GB/);
+    if (name === 'CMakeLists.txt') assert.match(output, /-sMAXIMUM_MEMORY=4GB/);
     if (name === 'build-occt-wasm64.sh') assert.match(output, /CMAKE_SIZEOF_VOID_P:INTERNAL=4/);
     if (name.endsWith('.bat')) assert.doesNotMatch(output, /(?<!\r)\n/);
     assert.equal(await readFile(new URL(name, native), 'utf8'), source, 'authoritative wasm64 input was not changed');

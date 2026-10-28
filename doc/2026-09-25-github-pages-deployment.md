@@ -59,7 +59,7 @@ matrix caches only successfully tested production artifacts under
 tests. Its keys use the same SDK, gitlink and native-input rules as wasm64,
 plus `scripts/build-wasm32.mjs`. That driver generates a separate 32-bit
 scaffold from the authoritative native inputs, with separate dependency
-prefixes, build trees and a 2 GiB maximum heap. It does not edit those inputs:
+prefixes, build trees and a 4 GiB maximum heap. It does not edit those inputs:
 the existing wasm64 key expressions, version and hashed files remain unchanged.
 
 Only `pages-build` downloads the wasm32 artifacts. Web staging copies assets

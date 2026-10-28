@@ -20,7 +20,7 @@ export function wasm32Source(source, name) {
   let result = source.replaceAll('-m64', '-m32').replaceAll('wasm64', 'wasm32')
     .replaceAll('address-model=64', 'address-model=32')
     .replaceAll('CMAKE_SIZEOF_VOID_P:INTERNAL=8', 'CMAKE_SIZEOF_VOID_P:INTERNAL=4');
-  if (name === 'CMakeLists.txt') result = replaceRequired(result, '-sMAXIMUM_MEMORY=16GB', '-sMAXIMUM_MEMORY=2GB');
+  if (name === 'CMakeLists.txt') result = replaceRequired(result, '-sMAXIMUM_MEMORY=16GB', '-sMAXIMUM_MEMORY=4GB');
   // Git's relative submodule .git file cannot be resolved through the scaffold.
   if (name === 'build.sh') result = replaceRequired(result, 'ORCA_SRC="$PKG_DIR/cpp"', `ORCA_SRC="${pkg.replaceAll('\\', '/')}/cpp"`);
   if (name === 'build.bat') {

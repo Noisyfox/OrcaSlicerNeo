@@ -26,9 +26,12 @@ generates its isolated scaffold without compiling, and `verify-deps` checks
 the staged prefixes. On Windows the build invokes the generated copy of
 `scripts\build-windows.bat`; dependency helpers remain cmd-native. The driver
 reuses the authoritative native files without changing wasm64 cache inputs,
-sets 32-bit pointers and a 2 GiB heap limit, and collects artifacts under
-`out/wasm32/<variant>`. `scripts/stage-web.mjs` adds these only to Web's private
-public assets. Electron continues to use `scripts/stage.mjs` and wasm64.
+sets 32-bit pointers and a 4 GiB heap limit with on-demand growth, and collects
+artifacts under `out/wasm32/<variant>`. Emscripten keeps its wasm32 heap-growth
+ceiling one 64 KiB page below 4 GiB to avoid wrapping the heap size to zero.
+The initial heap remains 64 MiB. `scripts/stage-web.mjs` adds these only to
+Web's private public assets. Electron continues to use `scripts/stage.mjs`
+and wasm64.
 
 ## Source and dependency ownership
 
