@@ -452,7 +452,7 @@ jobs:
       - run: pnpm -r test
       - run: pnpm -r typecheck
       - name: Verify wasm32 build scaffold and host artifact boundaries
-        run: node --test scripts/build-wasm32.test.mjs
+        run: node --test scripts/build-wasm32.test.mjs scripts/stage.test.mjs
 
   e2e-mock:
     name: e2e (mock module)
@@ -485,7 +485,7 @@ jobs:
 
   e2e-real:
     name: e2e (real module)
-    needs: [wasm_threaded, wasm_serial, profile-pack]
+    needs: [wasm_threaded, profile-pack]
     runs-on: ubuntu-latest
     env:
       CI: "true"
@@ -504,10 +504,6 @@ jobs:
         with:
           name: orca-slice-threaded
           path: packages/slicer-wasm/out/threaded
-      - uses: actions/download-artifact@v8
-        with:
-          name: orca-slice-serial
-          path: packages/slicer-wasm/out/serial
       - uses: actions/download-artifact@v8
         with:
           name: profile-packages
@@ -594,7 +590,7 @@ jobs:
 
   package:
     name: Package (${{ matrix.id }})
-    needs: [wasm_threaded, wasm_serial, profile-pack]
+    needs: [wasm_threaded, profile-pack]
     env:
       ORCA_E2E_REAL: "1"
     strategy:
@@ -653,10 +649,6 @@ jobs:
         with:
           name: orca-slice-threaded
           path: packages/slicer-wasm/out/threaded
-      - uses: actions/download-artifact@v8
-        with:
-          name: orca-slice-serial
-          path: packages/slicer-wasm/out/serial
       - uses: actions/download-artifact@v8
         with:
           name: profile-packages

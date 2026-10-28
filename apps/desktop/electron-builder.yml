@@ -9,6 +9,9 @@ directories:
 files:
   - out/**
   - "!out/**/*.map"
+  # Web fallbacks must never enter Electron installers, including stale output.
+  - "!out/renderer/wasm/serial/**"
+  - "!out/renderer/wasm/wasm32/**"
   # Local camera probes write fixture media, reports and certificates under out.
   - "!out/camera-prototype/**"
   # JavaScript dependencies are bundled; native binaries are extraResources.

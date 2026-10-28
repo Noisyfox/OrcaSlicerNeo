@@ -1,5 +1,5 @@
-// scripts/stage.mjs — stage every generated renderer asset into the hosts'
-// shared public directory: the built WASM variants, profile packages, and
+// scripts/stage.mjs — stage generated renderer assets into Electron's
+// public directory: threaded wasm64, profile packages, and
 // shared-app handy models. Run after `bash packages/slicer-wasm/build.sh`
 // (or `build-windows.bat build`) and after profile-resource generation.
 //   pnpm --filter @orca/profile-resources build
@@ -32,6 +32,8 @@ await rm(obsoletePreviewDst, { recursive: true, force: true });
 await rm(dedicatedProfileDst, { recursive: true, force: true });
 // Web stages its wasm32 fallback into its own private public directory.
 await rm(join(dstRoot, 'wasm32'), { recursive: true, force: true });
+// Electron ships only threaded wasm64. Remove a previous dual-variant stage.
+await rm(join(dstRoot, 'serial'), { recursive: true, force: true });
 
 if (existsSync(profileSrc)) {
   await cp(profileSrc, profileDst, { recursive: true, force: true });
@@ -54,7 +56,7 @@ if (!existsSync(outRoot)) {
 // Vite copies this boundary with public assets; asarUnpack preserves it too.
 await mkdir(dstRoot, { recursive: true });
 await writeFile(join(dstRoot, 'package.json'), '{"type":"module"}\n');
-for (const variant of ['threaded', 'serial']) {
+for (const variant of ['threaded']) {
   const src = join(outRoot, variant);
   const dst = join(dstRoot, variant);
   if (!existsSync(src)) {

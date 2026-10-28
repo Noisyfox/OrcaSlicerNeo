@@ -1,5 +1,5 @@
-// Build Web's private public directory; wasm32 assets never enter Electron's
-// shared public directory or its packages, even when both hosts build locally.
+// Build Web's private public directory, adding its serial and wasm32 fallbacks
+// without placing them in Electron's public directory or packages.
 import { cp, mkdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -15,16 +15,16 @@ const dst = new URL('apps/web/.generated/public/', root);
 await rm(dst, { recursive: true, force: true });
 await mkdir(dst, { recursive: true });
 await cp(new URL('apps/desktop/src/renderer/public/', root), dst, { recursive: true });
-for (const variant of ['threaded', 'serial']) {
-  const src = new URL(`packages/slicer-wasm/out/wasm32/${variant}/`, root);
+for (const variant of ['serial', 'wasm32/threaded', 'wasm32/serial']) {
+  const src = new URL(`packages/slicer-wasm/out/${variant}/`, root);
   const files = ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data'];
   if (soft && files.some(file => !existsSync(new URL(file, src)))) {
-    console.warn(`[stage-web] missing wasm32/${variant}; run node scripts/build-wasm32.mjs build`);
+    console.warn(`[stage-web] missing ${variant} artifact — skipping`);
     continue;
   }
   await assertValidWasm(new URL('orca_slice.wasm', src));
-  const target = new URL(`wasm/wasm32/${variant}/`, dst);
+  const target = new URL(`wasm/${variant}/`, dst);
   await mkdir(target, { recursive: true });
   for (const file of files) await cp(new URL(file, src), new URL(file, target));
-  console.log(`[stage-web] staged wasm32/${variant}`);
+  console.log(`[stage-web] staged ${variant}`);
 }

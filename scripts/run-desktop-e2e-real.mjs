@@ -12,7 +12,7 @@ const env = {
   ...process.env,
   ORCA_E2E_REAL: '1',
   // apps/desktop/.env enables the mock for ordinary development; override it
-  // explicitly so this runner always exercises the staged threaded/serial WASM
+  // explicitly so this runner always exercises the staged threaded WASM
   // artifact selected by the Worker.
   VITE_USE_MOCK: '0',
   // Keep the stable semantic viewport hooks in the real acceptance bundle;
