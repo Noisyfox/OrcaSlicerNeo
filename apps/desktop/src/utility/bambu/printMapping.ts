@@ -29,17 +29,29 @@ export function mapMaterials(request: D.PrintPreparationRequest, inventory: D.Ma
       const slot = inventory.state.slots.find(s => s.slotId === path.slotId);
       return !!slot && (external(path) || known(slot.presence) === 'present');
     });
-    for (const path of legal) {
-      const state = inventory.state.slots.find(slot => slot.slotId === path.slotId)!;
-      const metadata = known(state.material);
-      if (!external(path) && metadata?.materialType && !sameType(metadata.materialType, material.type)) continue;
+    for (const path of [...paths].sort((a, b) => inventory.toolIds.indexOf(a.toolId) - inventory.toolIds.indexOf(b.toolId))) {
+      const state = inventory.state.slots.find(slot => slot.slotId === path.slotId);
+      const metadata = state && known(state.material);
+      const presence = state && known(state.presence);
+      const disabledReason = !state ? 'Material source state is unavailable.' : path.toolId !== tool ? 'This source cannot feed the required nozzle.'
+        : !external(path) && presence !== 'present' ? presence === 'empty' ? 'No filament loaded in this slot.' : 'Filament presence is unknown.'
+        : !external(path) && metadata?.materialType && !sameType(metadata.materialType, material.type) ? `Contains ${metadata.materialType}; this print requires ${material.type}.` : null;
       const slot = inventory.topology.slots.find(slot => slot.id === path.slotId)!;
       const unit = inventory.topology.units.find(unit => unit.id === slot.unitId)!;
+      const wire = /^path:(\d+):(\d+):/.exec(path.id);
+      const unitNumber = wire ? Number(wire[1]) : NaN, slotNumber = wire ? Number(wire[2]) : NaN;
+      const slotName = external(path) ? inventory.toolIds.length === 2 ? path.toolId === id('tool:1') ? 'Ext-L' : 'Ext-R' : 'Ext'
+        : Number.isFinite(unitNumber) && Number.isFinite(slotNumber) ? unitNumber >= 128 && unitNumber <= 135 ? `HT-${String.fromCharCode(65 + unitNumber - 128 + slotNumber)}`
+          : unitNumber < 26 ? `${String.fromCharCode(65 + unitNumber)}${slotNumber + 1}` : slot.name : slot.name;
       const color = metadata?.color?.kind === 'solid' ? metadata.color.rgba : metadata?.color?.rgba[0] ?? null;
-      candidates.push({ materialKey: material.key, pathId: path.id, label: `${unit.name} · ${slot.name}`, color, materialType: metadata?.materialType ?? null });
+      const remaining = state && known(state.remaining);
+      candidates.push({ materialKey: material.key, pathId: path.id, label: `${unit.name} · ${slotName}`, color, materialType: metadata?.materialType ?? null,
+        unit: { id: unit.id, name: unit.name, kind: unit.kind, categoryLabel: unit.kind === 'manual-holder' ? 'External' : 'AMS' }, slot: { id: slot.id, name: slotName },
+        tool: { id: path.toolId, name: inventory.toolIds.length === 2 ? path.toolId === id('tool:1') ? 'Left Nozzle' : 'Right Nozzle' : 'Nozzle' },
+        presence: presence ?? 'unknown', disabledReason, remainingFraction: remaining?.unit === 'fraction' ? Math.max(0, Math.min(1, remaining.value)) : null });
     }
     if (request.suggest) {
-      const choices = candidates.filter(c => c.materialKey === material.key && sameType(c.materialType, material.type));
+      const choices = candidates.filter(c => c.materialKey === material.key && c.disabledReason === null && sameType(c.materialType, material.type));
       const ams = choices.filter(c => !external(paths.find(p => p.id === c.pathId)!));
       const nearest = (ams.length ? ams : choices).sort((a, b) => distance(material.color, a.color) - distance(material.color, b.color))[0];
       const holders = legal.filter(external);

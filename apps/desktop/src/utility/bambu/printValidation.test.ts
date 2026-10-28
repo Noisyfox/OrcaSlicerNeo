@@ -87,3 +87,30 @@ it('warns when automatic calibration ignores selected manual PA and when support
   expect(p.issues.some(i => i.id === 'manual-pa-not-used')).toBe(true);
   expect(p.issues.some(i => i.id === 'smart-nozzle-blob')).toBe(true);
 });
+
+it('exposes disabled slots and both nozzle groups without suggesting an incompatible path', () => {
+  const request = printRequest(), context = printContext();
+  const slot = context.values.materials.state.slots.find(slot => slot.slotId === 'slot:0:0')!;
+  if (slot.material.kind !== 'known' || !slot.material.value) throw new Error('Fixture material missing');
+  slot.material.value.materialType = 'PETG';
+  const prepared = prepareBambuPrint(request, context, 'lan');
+  const wrongType = prepared.candidates.find(source => source.materialKey === 'filament-0' && source.pathId === 'path:0:0:0')!;
+  expect(wrongType).toMatchObject({ slot: { name: 'A1' }, unit: { kind: 'automatic-feeder', categoryLabel: 'AMS' }, disabledReason: 'Contains PETG; this print requires PLA.' });
+  expect(prepared.bindings).not.toContainEqual({ materialKey: 'filament-0', pathId: wrongType.pathId });
+  const wrongTool = prepared.candidates.find(source => source.materialKey === 'filament-0' && source.pathId === 'path:1:0:1')!;
+  expect(wrongTool.disabledReason).toContain('required nozzle');
+  expect(new Set(prepared.candidates.map(source => source.tool.name))).toEqual(new Set(['Left Nozzle', 'Right Nozzle']));
+});
+it('shows an empty slot as disabled and an occupied unknown material as manually selectable', () => {
+  const request = printRequest(), context = printContext();
+  const slot = context.values.materials.state.slots.find(slot => slot.slotId === 'slot:0:0')!;
+  if (slot.presence.kind !== 'known') throw new Error('Fixture presence missing');
+  slot.presence.value = 'empty';
+  expect(prepareBambuPrint(request, context, 'lan').candidates.find(source => source.materialKey === 'filament-0' && source.pathId === 'path:0:0:0')).toMatchObject({ presence: 'empty', disabledReason: 'No filament loaded in this slot.' });
+  slot.presence.value = 'present';
+  if (slot.material.kind !== 'known') throw new Error('Fixture metadata missing');
+  slot.material.value = null;
+  const prepared = prepareBambuPrint(request, context, 'lan');
+  expect(prepared.candidates.find(source => source.materialKey === 'filament-0' && source.pathId === 'path:0:0:0')).toMatchObject({ presence: 'present', materialType: null, disabledReason: null });
+  expect(prepared.bindings).not.toContainEqual({ materialKey: 'filament-0', pathId: 'path:0:0:0' });
+});

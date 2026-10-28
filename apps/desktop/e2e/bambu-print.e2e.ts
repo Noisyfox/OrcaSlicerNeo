@@ -31,7 +31,16 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
         if (method === 'preview') return { ok: false, error: { code: 'preview-unavailable', message: 'No image' } };
         if (method === 'print.prepare') return { ok: true, value: { configurationRevision: data.snapshot.configurationRevision, route: 'lan', materialCatalogIds: [],
           bindings: input.suggest ? input.requirements.materials.map((m: D.PrintMaterialRequirement) => ({ materialKey: m.key, pathId: 'path:0:0:0' })) : input.bindings,
-          candidates: input.requirements.materials.map((m: D.PrintMaterialRequirement) => ({ materialKey: m.key, pathId: 'path:0:0:0', label: 'AMS A1', materialType: m.type, color: m.color })),
+          candidates: input.requirements.materials.flatMap((m: D.PrintMaterialRequirement) => {
+            const base = { materialKey: m.key, pathId: 'path:0:0:0', label: 'AMS A1', materialType: m.type, color: m.color,
+              unit: { id: 'unit-a', name: 'AMS 2 Pro', kind: 'automatic-feeder', categoryLabel: 'AMS' }, slot: { id: 'slot-a', name: 'A1' },
+              tool: { id: 'tool-a', name: 'Left Nozzle' }, presence: 'present', remainingFraction: .75, disabledReason: null };
+            return [base, ...[1, 2, 3].map(index => ({ ...base, pathId: `path:0:${index}:0`, label: `AMS A${index + 1}`, slot: { id: `slot-a${index}`, name: `A${index + 1}` },
+              color: ['#333333', '#44AACD', '#00AA77'][index - 1], materialType: index === 1 ? 'PETG-CF' : index === 2 ? null : 'PLA', presence: index === 2 ? 'empty' : 'present', remainingFraction: null,
+              disabledReason: index === 1 ? 'Contains PETG-CF; this print requires PLA.' : index === 2 ? 'No filament loaded in this slot.' : null })),
+              { ...base, pathId: 'path:254:0:0', label: 'External spool', unit: { id: 'external', name: 'External spool', kind: 'manual-holder', categoryLabel: 'External' }, slot: { id: 'ext', name: 'Ext-L' }, remainingFraction: null },
+              ...[0, 1, 2, 3].map(index => ({ ...base, pathId: `path:1:${index}:1`, label: `AMS B${index + 1}`, unit: { ...base.unit, id: 'unit-b' }, slot: { id: `slot-b${index}`, name: `B${index + 1}` }, tool: { id: 'tool-b', name: 'Right Nozzle' }, disabledReason: 'This source cannot feed the required nozzle.' }))];
+          }),
           options: { ...input.options, timelapse: input.options.timelapse ?? true, bedLeveling: input.options.bedLeveling ?? 'auto', flowCalibration: input.options.flowCalibration ?? 'auto', nozzleOffsetCalibration: input.options.nozzleOffsetCalibration ?? 'auto' }, nozzleLabels: ['Nozzle 1'], optionDescriptors: [{ key: 'timelapse', label: 'Timelapse', enabled: true, choices: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] }, ...([{ key: 'bedLeveling', label: 'Auto Bed Leveling' }, { key: 'flowCalibration', label: 'Flow Dynamics Calibration' }, { key: 'nozzleOffsetCalibration', label: 'Nozzle Offset Calibration' }] as const).map(option => ({ ...option, enabled: true, choices: [{ value: 'auto', label: 'Auto' }, { value: 'on', label: 'On' }, { value: 'off', label: 'Off' }] }))], issues: [] } };
         if (method === 'print.begin') {
           fixture.submissions.push(input.request);
@@ -67,7 +76,18 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
     await expect(dialog.getByLabel('Material 1 source')).toHaveAttribute('data-source', 'path:0:0:0');
     await expect(dialog.getByRole('img', { name: 'Print model preview' })).toBeVisible();
     await dialog.getByLabel('Material 1 source', { exact: true }).click();
-    await page.getByRole('option', { name: 'AMS A1 · PLA', exact: true }).click();
+    const picker = page.getByRole('dialog', { name: 'AMS Slots', exact: true });
+    await expect(picker.getByRole('button', { name: 'AMS A2 · PETG-CF', exact: true })).toBeDisabled();
+    await expect(picker.getByRole('button', { name: 'AMS A3 · —', exact: true })).toBeDisabled();
+    await page.screenshot({ path: '/tmp/neo-filament-picker.png', animations: 'disabled' });
+    await picker.getByRole('button', { name: 'Reset current filament mapping' }).focus();
+    await page.keyboard.press('Shift+Tab');
+    expect(await picker.evaluate(node => node.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeVisible();
+    await expect(picker).toHaveCount(0);
+    await dialog.getByLabel('Material 1 source', { exact: true }).click();
+    await page.getByRole('button', { name: 'AMS A1 · PLA', exact: true }).click();
     await dialog.getByRole('group', { name: 'Timelapse', exact: true }).getByRole('button', { name: 'Off', exact: true }).click();
     await expect.poll(() => JSON.parse(readFileSync(configPath, 'utf8')).printPreferences?.['bambu:a']?.timelapse).toBe(false);
     await expect(dialog.getByRole('group', { name: 'Timelapse', exact: true }).getByRole('button', { name: 'Off', exact: true })).toHaveAttribute('aria-pressed', 'true');

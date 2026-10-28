@@ -742,7 +742,17 @@ The thumbnail reuses the existing local plate renderer and releases its GPU
 resources and object URL when closed. Missing preview graphics never block a
 valid print. Renaming affects the submitted artifact only, not the project.
 Each material card shows the sliced material colour above the selected device
-source colour. Its picker exposes the full source name and material type;
+source colour. Its picker follows Orca's `AmsMappingPopup`: a slot-card popover,
+grouped by reported tool, feeder unit and external holder, with source colour,
+slot label, material type, selected checkmark and reported remaining fraction.
+It retains empty, incompatible and unreachable slots as disabled cards with
+agent-provided reasons. Unknown occupied materials display `?` and remain
+selectable when the agent permits them. A reset action clears only the current
+material binding; selecting a slot closes the popover, and Escape closes the
+popover without closing print preparation. Unit capacity comes from the reported
+topology, not a hard-coded four-slot AMS layout. The agent supplies unit/category,
+slot and tool labels and selection eligibility together with each source.
+Its picker exposes the full source name and material type;
 unassigned and unavailable selections stay explicit. Nozzle labels arrive in
 slice tool-index order from the agent (`nozzleLabels`); the shared renderer does
 not infer physical left/right positions from device IDs. Bambu reports Left

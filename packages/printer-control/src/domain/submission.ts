@@ -1,6 +1,8 @@
 /** Local artifact delivery and print start, distinct from jobs.start(remote file). */
 import type { Id, PrinterTarget, TargetRequest, Result, ReadOptions } from './common';
 import type { PrintMaterialBinding } from './materials';
+import type { MaterialUnit, MaterialSlot } from './materials';
+import type { Tool } from './printer';
 import type { PrintOptions } from './print-options';
 import type { UploadSource } from './files';
 
@@ -62,6 +64,21 @@ export interface PrintOptionDescriptor {
   choices: readonly { value: string | boolean; label: string }[];
   enabled: boolean;
 }
+/** Includes unavailable paths so the picker can show the physical slot layout. */
+export interface PrintMaterialSource {
+  materialKey: string;
+  pathId: Id<'path'>;
+  label: string;
+  color: string | null;
+  materialType: string | null;
+  unit: Pick<MaterialUnit, 'id' | 'name' | 'kind'> & { categoryLabel: string };
+  slot: Pick<MaterialSlot, 'id' | 'name'>;
+  tool: Pick<Tool, 'id' | 'name'>;
+  presence: 'present' | 'empty' | 'unknown';
+  remainingFraction: number | null;
+  /** null means selectable; all vendor eligibility rules stay in the agent. */
+  disabledReason: string | null;
+}
 export interface PrintPreparation {
   /** Display labels in slice tool-index order; vendor physical ordering stays in the agent. */
   nozzleLabels: readonly string[];
@@ -70,7 +87,7 @@ export interface PrintPreparation {
   configurationRevision: string;
   route: 'lan' | 'cloud' | null;
   bindings: readonly PrintMaterialBinding[];
-  candidates: readonly { materialKey: string; pathId: Id<'path'>; label: string; color: string | null; materialType: string | null }[];
+  candidates: readonly PrintMaterialSource[];
   options: PrintOptions;
   optionDescriptors: readonly PrintOptionDescriptor[];
   issues: readonly PrintIssue[];

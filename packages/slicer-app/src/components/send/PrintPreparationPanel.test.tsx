@@ -16,7 +16,7 @@ afterEach(async () => { await act(async () => root?.unmount()); root = undefined
 async function setup(allowAbnormalStorage = false, manifestValue = manifest) {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   let configDocument = { allowAbnormalStorage, version: 1 as const, printers: [], printPreferences: { fixture: { timelapse: true, timelapseStorage: 'external' as const } } };
-  let issues: D.PrintIssue[] = [], candidates = manifestValue.materials.map((material, index) => ({ materialKey: material.key, pathId: id<'path'>(index ? 'source-b' : 'source-a'), label: index ? 'AMS B1' : 'AMS A1', color: index ? '#00FFFF' : '#FF0000', materialType: material.type }));
+  let issues: D.PrintIssue[] = [], candidates: D.PrintMaterialSource[] = manifestValue.materials.map((material, index) => ({ materialKey: material.key, pathId: id<'path'>(index ? 'source-b' : 'source-a'), label: index ? 'AMS B1' : 'AMS A1', color: index ? '#00FFFF' : '#FF0000', materialType: material.type, unit: { id: id('unit-a'), name: 'AMS', kind: 'automatic-feeder', categoryLabel: 'AMS' }, slot: { id: id(index ? 'slot-b' : 'slot-a'), name: index ? 'B1' : 'A1' }, tool: { id: id('tool-a'), name: 'Nozzle' }, presence: 'present', remainingFraction: null, disabledReason: null }));
   let wake: (() => void) | undefined;
   const ref = { printerId: id<'printer'>('fixture'), routeId: id<'route'>('route'), id: id<'print-submission'>('submission') };
   let current: D.PrintSubmissionState = { ref, requestId: id('request'), phase: 'sending', route: 'lan', progress: .5, message: 'Sending print', canCancel: true };
@@ -38,7 +38,7 @@ async function setup(allowAbnormalStorage = false, manifestValue = manifest) {
   const close = vi.fn(), busy = vi.fn();
   await act(async () => { root!.render(<PrintPreparationPanel platform={platform} printer={printer} route={route} receipt={receipt} onClose={close} onBusyChange={busy} />); });
   const click = async (label: string) => { await act(async () => { const button = [...container.querySelectorAll('button')].find(b => b.textContent === label); if (!button) throw new Error(`No button ${label}`); button.click(); }); };
-  return { close, busy, runtime, submissions, configuration, click, update: (phase: D.PrintSubmissionState['phase']) => { current = { ...current, phase, canCancel: false }; wake?.(); }, issues: (value: D.PrintIssue[]) => { issues = value; }, removeSources: () => { candidates = []; }, document: () => configDocument };
+  return { setSources: (value: D.PrintMaterialSource[]) => { candidates = value; }, close, busy, runtime, submissions, configuration, click, update: (phase: D.PrintSubmissionState['phase']) => { current = { ...current, phase, canCancel: false }; wake?.(); }, issues: (value: D.PrintIssue[]) => { issues = value; }, removeSources: () => { candidates = []; }, document: () => configDocument };
 }
 it('keeps storage fallback out of persistence, but saves explicit changes even when cancelled', async () => {
   const f = await setup();
@@ -116,4 +116,28 @@ it('renames only the submitted artifact and locks segmented options during sendi
   await f.click('Send');
   expect(f.runtime.exportPrintPlate).toHaveBeenCalledWith(expect.objectContaining({ filenameBase: 'My print' }));
   expect((container.querySelector('[aria-label="Timelapse"] [aria-label="Off"]') as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('picks from grouped slots, exposes disabled reasons and resets only the current mapping', async () => {
+  const f = await setup();
+  const result = await f.submissions.prepare.mock.results[0].value;
+  if (!result.ok) throw new Error('Fixture preparation failed');
+  const source = result.value.candidates[0];
+  f.setSources([source,
+    { ...source, pathId: id('empty'), slot: { id: id('empty-slot'), name: 'A2' }, label: 'AMS A2', presence: 'empty', disabledReason: 'No filament loaded in this slot.' },
+    { ...source, pathId: id('external'), unit: { id: id('external-unit'), name: 'External spool', kind: 'manual-holder', categoryLabel: 'External' }, slot: { id: id('external-slot'), name: 'Ext' }, label: 'External spool', materialType: 'PETG' },
+  ]);
+  await act(async () => (container.querySelector('[aria-label="Refresh printer status"]') as HTMLElement).click());
+  await act(async () => (container.querySelector('[aria-label="Material 1 source"]') as HTMLElement).click());
+  const empty = document.querySelector('[aria-label="AMS A2 · —"]') as HTMLButtonElement;
+  expect(empty.disabled).toBe(true);
+  expect(empty.title).toBe('No filament loaded in this slot.');
+  expect(document.querySelector('[role="group"][aria-label="AMS"]')).not.toBeNull();
+  expect(document.querySelector('[role="group"][aria-label="External spool"]')).not.toBeNull();
+  await act(async () => (document.querySelector('[aria-label="External spool · PETG"]') as HTMLElement).click());
+  expect(container.querySelector('[aria-label="Material 1 source"]')?.getAttribute('data-source')).toBe('external');
+  await act(async () => (container.querySelector('[aria-label="Material 1 source"]') as HTMLElement).click());
+  await act(async () => (document.querySelector('[aria-label="Reset current filament mapping"]') as HTMLElement).click());
+  expect(container.querySelector('[aria-label="Material 1 source"]')?.getAttribute('data-source')).toBe('');
+  expect(f.configuration.save).not.toHaveBeenCalled();
 });

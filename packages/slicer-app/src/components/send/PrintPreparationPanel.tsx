@@ -1,7 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { Disc3 } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
+import { MaterialSourcePicker } from './MaterialSourcePicker';
 import { PrintJobSummary } from './PrintJobSummary';
 import type * as D from '@orca/printer-control/domain';
 import type { SliceResultReceipt } from '@slicer/client';
@@ -34,21 +33,8 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
             {requirements.materials.filter(material => material.toolIndex === toolIndex).map(material => {
               const value = state.bindings.find(b => b.materialKey === material.key)?.pathId ?? '';
               const candidates = prepared?.candidates.filter(c => c.materialKey === material.key) ?? [];
-              const selected = candidates.find(c => c.pathId === value);
-              const invalid = !!value && !selected;
-              return <div key={material.key} className={`flex w-28 flex-col overflow-hidden rounded border ${invalid ? 'border-destructive' : 'border-border focus-within:border-primary'}`} title={`Material ${material.index + 1}: ${material.type}. Upper: sliced material. Lower: printer source.`}>
-                <span className="truncate px-2 py-1 text-center text-xs font-medium" style={materialColor(material.color)} data-testid={`slice-material-${material.index}`}>{material.type}</span>
-                <Select value={value} disabled={state.active || operation?.phase === 'unknown'} onValueChange={next => { if (next !== null) state.changeBinding(material.key, next); }}>
-                  <SelectTrigger className="h-8! w-full rounded-none border-0 px-1.5" style={materialColor(selected?.color)} aria-label={`Material ${material.index + 1} source`} aria-invalid={invalid || undefined} data-source={value} title={selected ? `${selected.label} · ${selected.materialType ?? 'Unknown material'}` : 'Select source'}>
-                    <Disc3 className="size-4" aria-hidden="true" /><span className="min-w-0 flex-1 truncate">{selected?.label ?? (invalid ? 'Unavailable' : 'Select')}</span>
-                  </SelectTrigger>
-                  <SelectContent align="start" aria-label={`Material ${material.index + 1} sources`}>
-                    <SelectItem value="">Select source</SelectItem>
-                    {invalid && <SelectItem value={value}>Previous source unavailable</SelectItem>}
-                    {candidates.map(c => <SelectItem key={c.pathId} value={c.pathId}><span className="size-4 shrink-0 rounded-sm border" style={materialColor(c.color)} /><span>{c.label} · {c.materialType ?? 'Unknown material'}</span></SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>;
+              return <MaterialSourcePicker key={material.key} material={material} sources={candidates} value={value}
+                disabled={state.active || operation?.phase === 'unknown'} onChange={pathId => state.changeBinding(material.key, pathId)} />;
             })}
             {!requirements.materials.some(material => material.toolIndex === toolIndex) && <p className="text-xs text-muted-foreground">Not used</p>}
           </div>
@@ -88,8 +74,3 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
 }
 
 const optionOrder: readonly (keyof D.PrintOptions)[] = ['timelapse', 'bedLeveling', 'flowCalibration', 'nozzleOffsetCalibration', 'sharedPressureAdvance', 'timelapseStorage', 'externalChangeAssist'];
-function materialColor(value: string | null | undefined) {
-  if (!value || !/^#[\da-f]{6}([\da-f]{2})?$/i.test(value)) return undefined;
-  const [r, g, b] = [1, 3, 5].map(index => parseInt(value.slice(index, index + 2), 16));
-  return { backgroundColor: value, color: .299 * r + .587 * g + .114 * b > 150 ? '#111111' : '#ffffff' };
-}

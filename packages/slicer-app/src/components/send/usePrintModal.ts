@@ -11,8 +11,8 @@ export function usePrintModal(open: boolean) {
     focusable()[0]?.focus();
     const guard = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
-      const inside = !!target?.closest('[data-testid="send-gcode-dialog"],[data-slot="select-content"]');
-      if (event instanceof KeyboardEvent && event.key === 'Tab' && inside && !target?.closest('[data-slot="select-content"]')) {
+      const inside = !!target?.closest('[data-testid="send-gcode-dialog"],[data-slot="select-content"],[data-print-dialog-popover]');
+      if (event instanceof KeyboardEvent && event.key === 'Tab' && inside && !target?.closest('[data-slot="select-content"],[data-print-dialog-popover]')) {
         const nodes = focusable(), first = nodes[0], last = nodes.at(-1);
         if (event.shiftKey && target === first) { event.preventDefault(); last?.focus(); }
         else if (!event.shiftKey && target === last) { event.preventDefault(); first?.focus(); }
