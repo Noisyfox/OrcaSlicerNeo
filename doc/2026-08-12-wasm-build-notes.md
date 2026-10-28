@@ -1,6 +1,6 @@
 # WASM Build and Runtime Reference
 
-**Updated:** 2026-10-12
+**Updated:** 2026-10-28
 **Status:** Current engineering reference
 **Scope:** Native build ownership, artifacts and runtime constraints.
 
@@ -17,7 +17,21 @@ The scaffold [CMakeLists.txt](../packages/slicer-wasm/CMakeLists.txt) selects
 the native source/dependency closure. Both variants use wasm64 (`-m64`),
 matching every object, static archive and final link. `out/threaded/` and
 `out/serial/` contain separate JS/WASM/data artifacts. `scripts/stage.mjs`
-stages them and profile resources for the hosts; it does not rebuild WASM.
+stages only threaded wasm64 and profile resources for Electron; it does not rebuild WASM.
+
+The Web-only wasm32 fallback is built with
+`node scripts/build-wasm32.mjs build [--variant threaded|serial|both]` (default:
+both). `deps` bootstraps its separate dependencies in Linux CI; `prepare`
+generates its isolated scaffold without compiling, and `verify-deps` checks
+the staged prefixes. On Windows the build invokes the generated copy of
+`scripts\build-windows.bat`; dependency helpers remain cmd-native. The driver
+reuses the authoritative native files without changing wasm64 cache inputs,
+sets 32-bit pointers and a 4 GiB heap limit with on-demand growth, and collects
+artifacts under `out/wasm32/<variant>`. Emscripten keeps its wasm32 heap-growth
+ceiling one 64 KiB page below 4 GiB to avoid wrapping the heap size to zero.
+The initial heap remains 64 MiB. `scripts/stage-web.mjs` adds these only to
+Web's private public assets. Electron continues to use `scripts/stage.mjs`
+and wasm64.
 
 ## Source and dependency ownership
 
@@ -32,9 +46,13 @@ clones and CI can fetch it. External dependency patches remain in
 The WASM scaffold compiles libslic3r and the headless Neo adapters, excluding
 wxWidgets. Its dependency closure includes Boost, oneTBB for threaded builds,
 Draco, OCCT/XCAF for STEP and NLopt for arrangement. Fetch/build scripts and
-CMake own exact versions, library sets and feature exclusions. When symbols
-or upstream signatures change, fix the owning source/scaffold rather than
-adding a renderer compatibility layer.
+CMake own exact versions, library sets and feature exclusions. OCCT builds with
+`USE_FREETYPE=OFF`; its staged manifest records that setting. A normal `build`
+rebuilds older OCCT stages automatically. A `quick` build rejects them with a
+rebuild instruction before linking.
+
+When symbols or upstream signatures change, fix the owning source/scaffold
+rather than adding a renderer compatibility layer.
 
 ## Native compile-time macro policy
 
@@ -99,7 +117,7 @@ Only `packages/slicer-wasm/src/client/` calls Emscripten. Binary marshaling uses
 heap allocations and fresh views; never cache a heap view across memory growth.
 The runtime owns worker/module creation, assets, resources and disposal.
 Electron uses a Node Worker in a utility process; Web uses a browser Worker.
-The Electron threaded temporary-file mount and serial/Web MEMFS boundaries are
+The Electron threaded temporary-file mount and Web MEMFS boundary are
 defined in [Native Python Plugin Architecture](../spec/Native%20Python%20Plugin%20Architecture.md).
 
 Task progress uses the common native FIFO and typed client delivery. Main-runtime

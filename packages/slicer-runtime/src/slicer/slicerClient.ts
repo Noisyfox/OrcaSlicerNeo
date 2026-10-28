@@ -11,4 +11,4 @@ import workerUrl from './slicer.worker.ts?worker&url';
 // imported; the real hosts always provide Worker and get the normal client.
 export const slicerClient = typeof Worker === 'undefined'
   ? ({} as ReturnType<typeof createWorkerRuntime>)
-  : createWorkerRuntime(workerUrl);
+  : createWorkerRuntime(workerUrl, { allowWasm32: import.meta.env.VITE_WASM32_FALLBACK === '1' });

@@ -16,7 +16,7 @@ function webOnlyWasmLoader() {
     name: 'web-only-wasm-loader',
     closeBundle: async () => {
       const wasmRoot = root('../../apps/web/dist/wasm');
-      for (const variant of ['', 'threaded', 'serial']) {
+      for (const variant of ['', 'threaded', 'serial', 'wasm32/threaded', 'wasm32/serial']) {
         const file = `${wasmRoot}/${variant ? `${variant}/` : ''}orca_slice.js`;
         try {
           let source = await readFile(file, 'utf8');
@@ -39,6 +39,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     define: {
+      'import.meta.env.VITE_WASM32_FALLBACK': JSON.stringify('1'),
       __ORCA_E2E__: JSON.stringify(mode === 'e2e' || env.VITE_E2E === '1'),
     },
     // Tailwind must be compiled in every host — without a plugin the shared
@@ -49,7 +50,7 @@ export default defineConfig(({ mode }) => {
     base: './',
     // The checked-in static profile bundle is host-neutral and is reused by
     // both static hosts; WASM artifact packaging remains Step 5.
-    publicDir: root('../../apps/desktop/src/renderer/public'),
+    publicDir: root('.generated/public'),
     // The normal server/preview is isolated. Web E2E deliberately sets
     // ORCA_WEB_NO_ISOLATION=1 to exercise the real serial artifact.
     server: { headers: isolationHeaders(env) },

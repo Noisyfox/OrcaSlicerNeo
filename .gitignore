@@ -34,3 +34,5 @@ opencode.jsonc
 # Added by code-review-graph
 .code-review-graph/
 .zvec-grep/
+# Web-only generated public assets (including wasm32 fallbacks).
+apps/web/.generated/

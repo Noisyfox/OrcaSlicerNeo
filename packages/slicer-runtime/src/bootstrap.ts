@@ -11,9 +11,19 @@ export interface RuntimeEnvironment {
   Atomics?: unknown;
 }
 
+export function supportsWasm32(): boolean {
+  return typeof WebAssembly === 'object' && WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
+}
+
+/** Validate an actual Memory64 module: some engines accept an i64 Memory
+ * descriptor while still rejecting Memory64 instructions/modules. */
+export function supportsWasm64(): boolean {
+  return typeof WebAssembly === 'object' && WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 5, 3, 1, 4, 1]));
+}
+
 export function detectRuntimeCapabilities(env: RuntimeEnvironment = globalThis as unknown as RuntimeEnvironment): RuntimeCapabilities {
   const webgl2 = env.webgl2 ?? (() => { try { return typeof document !== 'undefined' && !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
-  const wasm64 = env.wasm64 ?? (() => { try { new WebAssembly.Memory({ initial: 1n, maximum: 1n, address: 'i64' } as unknown as WebAssembly.MemoryDescriptor & { address: string }); return true; } catch { return false; } })();
+  const wasm64 = env.wasm64 ?? supportsWasm64();
   const sab = env.SharedArrayBuffer ?? globalThis.SharedArrayBuffer;
   const threadedWasm = (env.crossOriginIsolated ?? false) === true
     && typeof sab === 'function' && sab !== ArrayBuffer
@@ -25,14 +35,16 @@ export function resolveRuntimeAsset(relativePath: string, moduleBase: string | U
   return new URL(relativePath, new URL(String(moduleBase))).href;
 }
 
-export function selectRuntimeArtifact(capabilities: RuntimeCapabilities): 'threaded' | 'serial' | 'unsupported' {
-  if (!capabilities.webgl2 || !capabilities.wasm64) return 'unsupported';
+export function selectRuntimeArtifact(capabilities: RuntimeCapabilities, allowWasm32 = false): 'threaded' | 'serial' | 'unsupported' {
+  if (!capabilities.webgl2 || (!capabilities.wasm64 && !(allowWasm32 && supportsWasm32()))) return 'unsupported';
   return capabilities.threadedWasm ? 'threaded' : 'serial';
 }
 
 export interface RuntimeBootstrapOptions {
   transport: WorkerTransport;
   capabilities?: RuntimeCapabilities;
+  /** Only the Web host ships wasm32 artifacts. Electron retains wasm64. */
+  allowWasm32?: boolean;
   /** Host-supplied hook reserved for profile installation (Step 6). */
   installProfiles?: () => Promise<void>;
   initialize?: () => Promise<void>;
@@ -87,8 +99,8 @@ export function createRuntimeBootstrap(options: RuntimeBootstrapOptions): Slicer
   };
   Object.defineProperty(runtime, 'status', { enumerable: true, get: () => status });
   const caps = options.capabilities ?? detectRuntimeCapabilities();
-  if (selectRuntimeArtifact(caps) === 'unsupported') {
-    status = { phase: 'unsupported', message: 'WebGL 2 and wasm64 are required' };
+  if (selectRuntimeArtifact(caps, options.allowWasm32) === 'unsupported') {
+    status = { phase: 'unsupported', message: options.allowWasm32 ? 'WebGL 2 and WebAssembly are required' : 'WebGL 2 and wasm64 are required' };
     rejectReady(new Error(status.message));
   } else {
     void (async () => {

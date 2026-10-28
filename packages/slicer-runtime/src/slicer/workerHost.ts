@@ -27,6 +27,8 @@ if (envLogLevel) {
 export interface SlicerWorkerHost {
   userPresets?: import('@slicer/client').UserPresetStorage;
   threaded: boolean;
+  /** Web ships a serial recovery artifact; Electron ships threaded only. */
+  allowSerialFallback: boolean;
   /** Trusted host setup; never supplied by renderer requests. Serial uses MEMFS. */
   nativeTemporaryDirectory?: string;
   load(variant: WasmArtifactVariant | 'profile-threaded'): Promise<OrcaModule>;
@@ -51,15 +53,17 @@ export function startSlicerHost(host: SlicerWorkerHost): void {
     : async () => {
         const threaded = host.threaded;
         const load = host.load;
+        if (!host.allowSerialFallback && !threaded) throw new Error('threaded WASM support is required');
         if (realProjectProfileBuild) {
           if (!threaded) throw new Error('the real-project profile requires the visible threaded Electron runtime');
           return prepareModule(await load('profile-threaded'), 'profile-threaded');
         }
         const gateVariant = import.meta.env.VITE_SCOPED_CONFIGURATION_GATE === '1'
           ? import.meta.env.VITE_SCOPED_CONFIGURATION_GATE_VARIANT : undefined;
+        if (gateVariant === 'serial' && !host.allowSerialFallback) throw new Error('this host does not ship serial WASM');
         if (gateVariant === 'threaded' && !threaded) throw new Error('threaded release gate requires threading support');
         const loaded = await loadWasmArtifact(gateVariant === 'serial' ? 'serial' : threaded ? 'threaded' : 'serial', load, (error) => {
-          if (gateVariant === 'threaded') throw error;
+          if (!host.allowSerialFallback || gateVariant === 'threaded') throw error;
           console.warn('[slicer] threaded WASM failed to start; falling back to serial', error);
         });
         return prepareModule(loaded.module, loaded.variant);

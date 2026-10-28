@@ -2,7 +2,7 @@ import { MOCK_PROFILE_ACTIVATION } from '@slicer/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { startWorker, type WorkerMessage } from '../../slicer-wasm/src/client';
 import { createMockModule } from '@slicer/testing';
-import { createWorkerTransport, createRuntimeBootstrap, detectRuntimeCapabilities, resolveRuntimeAsset, selectRuntimeArtifact, type WorkerTransport } from './bootstrap';
+import { createWorkerTransport, createRuntimeBootstrap, detectRuntimeCapabilities, resolveRuntimeAsset, selectRuntimeArtifact, supportsWasm64, type WorkerTransport } from './bootstrap';
 
 describe('portable runtime bootstrap', () => {
   it('transfers owned thumbnail buffers into the browser Worker', () => {
@@ -63,6 +63,23 @@ describe('portable runtime bootstrap', () => {
   it('rejects unsupported capabilities before launch', () => {
     expect(selectRuntimeArtifact({ webgl2: false, wasm64: true, threadedWasm: true })).toBe('unsupported');
     expect(selectRuntimeArtifact({ webgl2: true, wasm64: false, threadedWasm: true })).toBe('unsupported');
+  });
+
+  it('requires an actual valid Memory64 module, not a permissive Memory constructor', () => {
+    const Memory = vi.fn();
+    const validate = vi.fn(() => false);
+    vi.stubGlobal('WebAssembly', { Memory, validate });
+    try {
+      expect(supportsWasm64()).toBe(false);
+      expect(Memory).not.toHaveBeenCalled();
+      expect(validate).toHaveBeenCalledWith(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 5, 3, 1, 4, 1]));
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each([true, false])('allows wasm32 only for the Web host (threaded=%s)', threadedWasm => {
+    const caps = { webgl2: true, wasm64: false, threadedWasm };
+    expect(selectRuntimeArtifact(caps)).toBe('unsupported');
+    expect(selectRuntimeArtifact(caps, true)).toBe(threadedWasm ? 'threaded' : 'serial');
   });
 
   it.each([

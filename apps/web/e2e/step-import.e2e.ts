@@ -12,7 +12,7 @@ test('real Web STEP flow: Add Model → renders named solid → slice → downlo
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
   if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
-    await expect(page.getByTestId('serial-fallback-status')).toContainText('serial wasm64 fallback', { timeout: 30_000 });
+    await expect(page.getByTestId('serial-fallback-status')).toContainText('serial WebAssembly fallback', { timeout: 30_000 });
   } else {
     await expect(page.getByTestId('serial-fallback-status')).toHaveCount(0);
   }

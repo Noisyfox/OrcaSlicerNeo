@@ -1,13 +1,15 @@
 // Keep the Pages artifact limited to production assets. Vite copies the
-// desktop host's public directory, which can contain local debug WASM files.
+// Web host's staged public directory, which can contain local debug WASM files.
 import { readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dist = resolve(process.argv[2] ?? fileURLToPath(new URL('../apps/web/dist', import.meta.url)));
 const wasmRoot = join(dist, 'wasm');
-const variants = ['threaded', 'serial'];
+// Pages cannot supply COOP/COEP headers, so neither threaded build is usable.
+const variants = ['serial', 'wasm32/serial'];
 const runtimeFiles = new Set(['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']);
+const productionFiles = new Set(variants.flatMap(variant => [...runtimeFiles].map(file => `${variant}/${file}`)));
 
 for (const variant of variants) {
   const directory = join(wasmRoot, variant);
@@ -21,16 +23,18 @@ for (const variant of variants) {
 await stat(join(dist, 'index.html'));
 await stat(join(dist, 'profiles', 'manifest.json'));
 
-for (const entry of await readdir(wasmRoot, { withFileTypes: true })) {
-  const path = join(wasmRoot, entry.name);
-  if (!variants.includes(entry.name) || !entry.isDirectory()) {
-    await rm(path, { recursive: true, force: true });
-    continue;
-  }
-  for (const file of await readdir(path)) {
-    if (!runtimeFiles.has(file)) await rm(join(path, file), { recursive: true, force: true });
+async function pruneWasm(directory, prefix = '') {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const relative = `${prefix}${entry.name}`;
+    const path = join(directory, entry.name);
+    if (entry.isDirectory() && [...productionFiles].some(file => file.startsWith(`${relative}/`))) {
+      await pruneWasm(path, `${relative}/`);
+    } else if (!entry.isFile() || !productionFiles.has(relative)) {
+      await rm(path, { recursive: true, force: true });
+    }
   }
 }
+await pruneWasm(wasmRoot);
 
 await writeFile(join(dist, '.nojekyll'), '');
 

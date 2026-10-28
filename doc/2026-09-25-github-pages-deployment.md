@@ -1,6 +1,6 @@
 # CI Assets, Packaging and GitHub Pages
 
-**Updated:** 2026-10-24
+**Updated:** 2026-10-28
 **Status:** Current deployment reference
 
 ## Pages pipeline
@@ -10,25 +10,27 @@ deployment on pull requests. Deployment runs only for pushes to `main`, using
 GitHub Actions as the Pages publishing source. The configured project URL is
 `https://noisyfox.github.io/OrcaSlicerNeo/`.
 
-Both WASM variants and the packaged profiles come from the same workflow run.
+All four WASM variants and the packaged profiles come from the same workflow run.
 The Pages build tests/typechecks Web, builds it, runs
 `node apps/web/scripts/non-root-smoke.mjs`, and prepares `apps/web/dist` with
 `node scripts/prepare-web-pages.mjs`. Preparation verifies HTML, the profile
-manifest and six production JS/WASM/data files, strips other WASM-directory
-content (debug/profiling artifacts and maps), writes `.nojekyll`, and rejects
-artifacts over 1,000,000,000 bytes.
+manifest and six production JS/WASM/data files for serial wasm64 and wasm32.
+It removes both threaded variants and other WASM-directory content
+(debug/profiling artifacts and maps), writes `.nojekyll`, and rejects artifacts
+over 1,000,000,000 bytes.
 
-The ordinary Web build retains both variants for isolated hosts. On Pages,
-without COOP/COEP headers, runtime selection uses serial wasm64. Keep the
-Chrome 133+ and WebGL 2 capability gates; HTTPS alone does not enable threads.
+The ordinary Web build retains all four variants for isolated hosts. The Pages
+artifact contains only the two serial variants because Pages cannot supply
+COOP/COEP headers. Runtime selection uses serial wasm64 or serial wasm32
+according to Memory64 support. Keep the WebAssembly and WebGL 2 capability
+gates; HTTPS alone does not enable threads.
 Asset URLs must work under the project subpath.
 
 ## Dependency and asset ownership
 
 The dependency job caches fetched/compiled Boost, oneTBB, Draco, NLopt and OCCT.
-Its key includes the SDK version, dependency scripts, OCCT patches and FreeType
-probe. Core source or core-driver changes alone do not invalidate dependency
-compilation. A miss builds/verifies the required variants and saves the cache
+Its key includes the SDK version, dependency scripts and OCCT patches. Core
+source or core-driver changes alone do not invalidate dependency compilation. A miss builds/verifies the required variants and saves the cache
 before core jobs run; core jobs restore it and refresh generated headers through
 the idempotent fetch script when their production-artifact cache misses.
 
@@ -45,12 +47,30 @@ Only an exact hit skips that variant's
 toolchain/dependency setup, compilation and native tests/smokes. Test-enabled
 build trees are never cached. Both hits and misses upload the production
 artifacts for the current run, including the legacy threaded copy. Dependent
-host jobs await both core artifacts and still run their own checks.
+Web jobs await both core artifacts; Electron jobs require only threaded wasm64.
+All host jobs still run their own checks.
 
 Invoke shell helpers through `bash` in Linux CI rather than depending on
 executable Git file modes. Verify Boost archives using the platform's staged
 name rather than assuming the Windows suffix. Linux CI commands do not change
 the Windows cmd-native development rule.
+
+Web also ships wasm32 threaded and serial fallbacks. `wasm32_deps` caches
+`packages/slicer-wasm/.work/wasm32/deps` before either core build; the `wasm32`
+matrix caches only successfully tested production artifacts under
+`out/wasm32/<variant>`, with exact hits skipping toolchain setup and native
+tests. Its keys use the same SDK, gitlink and native-input rules as wasm64,
+plus `scripts/build-wasm32.mjs`. That driver generates a separate 32-bit
+scaffold from the authoritative native inputs, with separate dependency
+prefixes, build trees and a 4 GiB maximum heap. It does not edit those inputs:
+the existing wasm64 key expressions, version and hashed files remain unchanged.
+
+Only `pages-build` downloads the wasm32 artifacts. Web staging copies assets
+into `apps/web/.generated/public`, then adds `wasm/wasm32/threaded` and
+`wasm/wasm32/serial`, as well as the wasm64 serial fallback; Electron staging
+and packaging retain only threaded wasm64 and remove stale serial assets.
+The browser validates an actual Memory64 module to choose an address width,
+then chooses threaded or serial according to isolation/thread support.
 
 Profile packages build independently of WASM and are uploaded once. Native
 smokes, Pages, real Electron E2E and packaging use the same profile artifact.

@@ -7,9 +7,11 @@ hosts, with the C++ slicing core (`libslic3r`) reused and compiled to
 
 The existing wxWidgets GUI is not ported. Two wasm64 variants — `threaded`
 (oneTBB + pthreads) and `serial` (TBB shim fallback) — built from the same
-bridge serve all six desktop platforms and the Web target. Web selects
+bridge serve the Web target. All six desktop platforms ship only threaded
+wasm64. Web selects
 `threaded` when cross-origin isolation is available and otherwise uses `serial`;
-Electron runs WASM in a utility-process Node Worker, with serial fallback.
+Electron runs threaded WASM in a utility-process Node Worker and reports
+startup failures directly.
 
 ## Status and documentation
 
@@ -43,6 +45,14 @@ Test frequency and focused-versus-release routing are defined by the
 [testing guidelines](doc/testing_guidelines.md).
 
 ## Building
+
+Web additionally requires wasm32 threaded/serial fallback artifacts. After
+preparing the toolchain and dependencies, build them with
+`node scripts/build-wasm32.mjs build` (or select `--variant threaded|serial`).
+Linux CI bootstraps their separate dependency cache with
+`node scripts/build-wasm32.mjs deps`. Web build staging includes all four
+artifacts; Electron packaging includes only threaded wasm64.
+See the [WASM build reference](doc/2026-08-12-wasm-build-notes.md).
 
 ### Prerequisites
 

@@ -131,6 +131,10 @@ matrix earlier for a high-risk task, but the task document must state why.
   security boundaries.
 - Web E2E owns browser file selection/download, browser navigation behaviour,
   COOP/COEP deployment, capability gating, and serial fallback selection.
+  `apps/web/playwright.wasm32.config.ts` qualifies the Web-only wasm32 path
+  using a WebKit build without Memory64. Run with and without
+  `ORCA_WEB_NO_ISOLATION=1`; its request assertions require only the selected
+  address-width/variant assets to download.
 - A second host assertion is justified only when the host boundary can change
   the outcome. Merely rendering the same shared component in another host is
   not sufficient justification.

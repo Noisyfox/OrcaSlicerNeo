@@ -3,7 +3,7 @@ import { isAbsolute, join } from 'node:path';
 import { collectTransferables } from '../../../../packages/slicer-wasm/src/client/transfer';
 
 // Electron ports and Node worker ports are different APIs. Keep this event loop
-// free even when the serial slicer occupies its Node Worker.
+// free even when the slicer occupies its Node Worker.
 process.parentPort.once('message', (event) => {
   const port = event.ports[0];
   if (!port || event.data?.type !== 'connect') process.exit(1);

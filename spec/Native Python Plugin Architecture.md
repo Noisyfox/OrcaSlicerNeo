@@ -263,7 +263,8 @@ falls back to serial, Python capability remains unavailable and CPython is not
 initialized. Unsupported execution requests must fail explicitly; a slice that
 requires a Python plugin must not silently skip it. Ordinary serial slicing
 remains supported. The detailed UI and project reference-preservation rules for
-unsupported execution remain subject to review, including Electron serial mode.
+unsupported execution remain subject to review for Web. Electron ships threaded
+WASM only.
 
 Prioritize sharing the same WASM artifacts across hosts. Node needs resource
 location, profile installation, pthread startup, and capability detection adapted;
@@ -333,7 +334,7 @@ records the authorized utility migration and its measured results.
 
 - Whether to adopt B2, and acceptable renderer-transfer budgets and recovery boundaries.
 - The first required plugin set and the scope/order of non-slicing host services.
-- Unsupported-host UI, explicit disablement, and round-trip preservation rules for Web and Electron serial mode; Python execution in these modes is excluded.
+- Unsupported-host UI, explicit disablement, and round-trip preservation rules for Web; Python execution in these modes is excluded.
 - Native view lifetime guarantees, synchronization, and cache invalidation details.
 
 ## 12. Delivered Utility Host and Temporary-file Boundary
@@ -438,8 +439,9 @@ or `orc_init`. Startup fails if NODEFS is missing or `/tmp` already contains
 files; it never silently mounts over existing data.
 
 The host setup follows the **successfully loaded** variant. Web has no native
-directory option. Electron serial, including threaded-load fallback, retains
-MEMFS. The remaining filesystem, including `/system` profiles, stays in MEMFS.
+directory option and retains MEMFS. Electron ships threaded WASM only and
+reports startup failure without attempting serial fallback. The remaining
+filesystem, including `/system` profiles, stays in MEMFS.
 This uses a selective NODEFS mount, not NODERAWFS.
 
 | Existing workflow | Temporary location | Handling |

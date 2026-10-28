@@ -21,6 +21,7 @@ const assets = (import.meta.env.DEV
 startSlicerHost({
   userPresets: createDesktopUserPresetStorage(workerData.userPresetDirectory),
   threaded: typeof SharedArrayBuffer === 'function' && typeof Atomics === 'object',
+  allowSerialFallback: false,
   nativeTemporaryDirectory: temporaryDirectory,
   async load(variant) {
     const directory = join(assets, 'wasm', variant);

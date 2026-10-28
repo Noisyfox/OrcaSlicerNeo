@@ -1,6 +1,6 @@
 # Model Import
 
-**Updated:** 2026-10-11
+**Updated:** 2026-10-28
 
 **Status:** Full threaded/serial wasm64 host integration delivered
 
@@ -73,7 +73,10 @@ Primitives and bundled handy models follow
 
 ## Native build boundary
 
-The pinned OCCT/XCAF dependency is compiled into both wasm64 variants.
+The pinned OCCT/XCAF dependency is compiled into both wasm64 variants and the
+Web-only wasm32 variants with `USE_FREETYPE=OFF`. STEP retains its required
+OCCT toolkits, including `TKService`, without linking or shipping FreeType.
+OCCT font-to-mesh code is outside the Neo source closure.
 The native STEP reader uses synchronous WASM-only dispatch and inline meshing
 to avoid nested scheduler and serial-shim deadlocks. Native builds keep their
 normal scheduler. Orca adaptations live in the committed core submodule;
@@ -93,13 +96,6 @@ Preserve and update this record when dependency inputs change.
   Its legal sources are the
   [LGPL-2.1 text](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_6_0/LICENSE_LGPL_21.txt)
   and [Open CASCADE exception 1.0](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_6_0/OCCT_LGPL_EXCEPTION.txt).
-- Emscripten 6.0.6 supplies **FreeType 2.13.3**, linked with `-sUSE_FREETYPE=1`
-  in both variants. Its source is the
-  [VER-2-13-3 archive](https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-3.zip)
-  and its dual-license/attribution terms are in
-  [LICENSE.TXT](https://github.com/freetype/freetype/blob/VER-2-13-3/LICENSE.TXT).
-  This AGPL-3.0 product selects the **FreeType License** option, not GPLv2.
-  FreeType is pinned by the Emscripten toolchain, not a separate project checksum.
 - The normalized meshStep `cube.step` comes from commit
   [a1a2841633bdb56a54cb91235800d87124af4091](https://github.com/CNCKitchen/meshStep/blob/a1a2841633bdb56a54cb91235800d87124af4091/cube.step)
   under that repository's AGPL-3.0 terms. Keep its provenance in the
