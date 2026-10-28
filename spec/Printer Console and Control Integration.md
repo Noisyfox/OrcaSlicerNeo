@@ -733,7 +733,8 @@ inside its agent.
 
 The preparation modal follows Orca's `SelectMachineDialog` layout: a plate
 thumbnail on the upper left; the editable submission name, estimated time and
-weight, printer selector, refresh action and build-plate information on the
+weight, printer selector, refresh action and build-plate type as text directly
+below the printer name (without a separate plate icon) on the
 upper right; filament source cards grouped by slice nozzle in the middle; and
 two columns of segmented print options above the Send action. Narrow windows
 stack nozzle groups and options vertically and scroll the modal body.

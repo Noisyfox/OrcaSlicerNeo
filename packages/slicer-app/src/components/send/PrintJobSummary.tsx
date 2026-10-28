@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Box, Clock3, Layers, Pencil, Printer, RefreshCw, Weight } from 'lucide-react';
+import { Box, Clock3, Pencil, Printer, RefreshCw, Weight } from 'lucide-react';
 import type { PrintRequirements, SavedPrinter } from '@orca/printer-control/domain';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -64,12 +64,12 @@ export function PrintJobSummary({ requirements, printer, printerControl, name, o
           <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border p-2">
             <Printer className="hidden size-9 shrink-0 text-muted-foreground sm:block" aria-hidden="true" />
             <div className="min-w-0 flex-1">{printerControl ?? <p className="truncate text-sm font-medium">{printer.identity.displayName}</p>}
+              {requirements && <p className="text-xs text-muted-foreground" data-testid="print-build-plate">{requirements.bedType || 'Build plate not specified'}</p>}
               <p className="truncate text-xs text-muted-foreground" title={printer.identity.model ?? requirements?.printerModel}>{printer.identity.model ?? requirements?.printerModel}{requirements && ` · ${requirements.nozzleDiameters.join('/')} mm`}</p>
               {route && <p className="text-xs text-muted-foreground" data-testid="print-delivery-route">{route.toUpperCase()}</p>}
             </div>
             <Button variant="ghost" size="icon" disabled={disabled} aria-label="Refresh printer status" title="Refresh printer status" onClick={onRefresh}><RefreshCw className="size-4 text-primary" /></Button>
           </div>
-          {requirements && <div className="flex w-14 shrink-0 flex-col items-center justify-center rounded-md border text-muted-foreground" title={requirements.bedType} aria-label={`Build plate: ${requirements.bedType}`}><Layers className="size-7" /><span className="mt-1 text-[10px]">Plate</span></div>}
         </div>
       </div>
     </div>
