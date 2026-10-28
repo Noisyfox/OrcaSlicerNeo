@@ -1223,6 +1223,7 @@ export interface PrintManifest {
     type: string;
     color: string;
     presetId: string;
+    presetName: string;
     brand: string;
     toolIndex: number;
     nozzleDiameter: number;
@@ -1232,11 +1233,13 @@ export interface PrintManifest {
     usedMeters: number;
   }>;
   nozzleDiameters: number[];
+  nozzleFlowTypes: string[];
   /** Native one-based tool assignments, indexed by original filament index. */
   filamentMap: number[];
   requiresDynamicMapping: boolean;
   bedType: string;
   durationSeconds: number;
+  layerCount: number;
   weightGrams: number;
   timelapseWarningCode: number;
   toolpathOutside: boolean;
@@ -1245,6 +1248,9 @@ export interface PrintManifest {
 export type PrintManifestResult =
   | { ok: true; receipt: SliceResultReceipt; manifest: PrintManifest }
   | { ok: false; status: Exclude<ResultReadStatus, 'ok'>; error: string };
+export interface ExportPrintRequest extends ExportGcodeRequest {
+  materialCatalogIds?: readonly { materialKey: string; catalogId: string }[];
+}
 export type ExportPrintResult =
   | { ok: true; receipt: SliceResultReceipt; manifest: PrintManifest; fileName: string;
       bytes: Uint8Array; configBytes: Uint8Array; plateIndex: number; gcodePath: string }
@@ -1824,7 +1830,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   /** Export only the captured current plate's completed result. */
   exportGcodePlate(request: ExportGcodeRequest): Promise<ExportGcodeResult>;
   describePrintPlate(receipt: SliceResultReceipt): Promise<PrintManifestResult>;
-  exportPrintPlate(request: ExportGcodeRequest): Promise<ExportPrintResult>;
+  exportPrintPlate(request: ExportPrintRequest): Promise<ExportPrintResult>;
   /** Export the complete active plate session as a native-compatible BBS 3MF archive. */
   exportProject(request?: ExportProjectRequest): Promise<ExportProjectResult>;
   cancel(): Promise<CancelResult>;

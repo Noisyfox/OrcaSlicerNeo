@@ -1,3 +1,4 @@
+import { unsupportedSubmissions } from './submission';
 /** Moonraker migration: request-only domain service over the existing host HTTP/configuration seams. */
 import { normalizePrinterConfigurationDocument, type PrinterConfiguration, type PrinterConfigurationDocument } from './configuration';
 import type { PrinterTransport } from './transport';
@@ -107,7 +108,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   }
   function capabilities(): D.PrinterCapabilities {
     return {
-      revision: 'moonraker-domain-2',
+      revision: 'moonraker-domain-2', submission: unsupported,
       commands: {
         'jobs.start': supported({ sources: [{ storageId, versionCheck: 'unavailable' }], formats: ['gcode'], materialMapping: 'none', jobTimelapse: [] }),
         'jobs.pause': supported({}), 'jobs.resume': supported({}), 'jobs.cancel': supported({}), 'jobs.setSpeed': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
@@ -338,6 +339,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
     return { driverId: 'moonraker', apiBaseUrl: config.address ?? '', consoleUrl: config.webInterfaceUrl ?? '', apiKey: config.credentialRef === null ? '' : previous!.apiKey };
   }
   const service: D.PrinterService = {
+    submissions: unsupportedSubmissions,
     operations: operations.api, controls, files, observations,
     media: { readStream: unsupportedStream, readCurrentPrintPreview: async () => rejected(), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },
     listProviders: async () => ({ ok: true, value: [{ id: providerId, name: 'Moonraker', hosts: [{ ...options.host, discovery: unsupported }] }] }),

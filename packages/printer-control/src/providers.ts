@@ -90,6 +90,12 @@ export function createPrinterService(providers: readonly D.PrinterProvider[]): D
     authorize: r => providerCall(r.candidate.providerId, s => s.authorize(r)),
     observations: { read: (r, o) => call(r.target, s => s.observations.read(r, o)), watch: (r, o) => stream(r.target, s => s.observations.watch(r, o)) },
     webInterfaces: { describe: (t, o) => call(t, s => s.webInterfaces.describe(t, o)), resolve: (r, o) => call(r.target, s => s.webInterfaces.resolve(r, o)) },
+    submissions: {
+      prepare: (r, o) => call(r.target, s => s.submissions.prepare(r, o)),
+      submit: (r, a) => call(r.target, s => s.submissions.submit(r, a)),
+      get: r => call(r, s => s.submissions.get(r)), cancel: r => call(r, s => s.submissions.cancel(r)),
+      watch: (r, o) => stream(r, s => s.submissions.watch(r, o)),
+    },
     controls: { evaluate: (t, c, o) => call(t, s => s.controls.evaluate(t, c, o)), submit: r => submit(r.target, s => s.controls.submit(r)) },
     operations: { get: (r, o) => call(r, s => s.operations.get(r, o)), find: (r, o) => call(r, s => s.operations.find(r, o)), watch: (r, o) => stream(r, s => s.operations.watch(r, o)), requestUploadCancellation: r => call(r, s => s.operations.requestUploadCancellation(r)) },
     files: {

@@ -73,39 +73,55 @@ json describe(PlateRuntimeRegistry::Entry& entry)
     const auto& config = print.full_print_config();
     PlateData plate;
     populate(plate, entry);
-    json materials = json::array();
+    json materials = json::array(), nozzle_flows = json::array();
     const auto& diameters = print.config().nozzle_diameter.values;
     const auto& group = entry.gcode_result->nozzle_group_result;
+    for (std::size_t i = 0; i < diameters.size(); ++i)
+        nozzle_flows.push_back(get_nozzle_volume_type_string(static_cast<NozzleVolumeType>(print.config().nozzle_volume_type.get_at(i))));
     for (const auto& material : plate.slice_filaments_info) {
         const auto tool = print.get_extruder_id(material.id);
         if (tool >= diameters.size()) throw std::runtime_error("Invalid slice material tool assignment");
         materials.push_back({{"key", "filament-" + std::to_string(material.id)},
             {"index", material.id}, {"type", material.type}, {"color", material.color},
-            {"presetId", material.filament_id}, {"brand", text(config, "filament_vendor", material.id)},
+            {"presetId", material.filament_id}, {"presetName", text(config, "filament_settings_id", material.id)}, {"brand", text(config, "filament_vendor", material.id)},
             {"toolIndex", tool}, {"nozzleDiameter", diameters[tool]},
             {"nozzleFlowType", get_nozzle_volume_type_string(static_cast<NozzleVolumeType>(print.config().nozzle_volume_type.get_at(tool)))},
             {"requiredNozzleHardness", print.config().required_nozzle_HRC.get_at(material.id)},
             {"usedGrams", material.used_g}, {"usedMeters", material.used_m}});
     }
+    std::size_t layer_count = 0;
+    for (const auto* object : print.objects()) layer_count = std::max(layer_count, object->layer_count());
     json warnings = json::array();
     for (const auto& warning : entry.gcode_result->warnings)
         warnings.push_back({{"message", warning.msg}, {"code", warning.error_code}});
     return {{"plateId", entry.plate_id}, {"printerModel", text(config, "printer_model")},
         {"printerModelId", plate.printer_model_id}, {"materials", materials},
-        {"nozzleDiameters", diameters}, {"filamentMap", plate.filament_maps},
+        {"nozzleDiameters", diameters}, {"nozzleFlowTypes", nozzle_flows}, {"filamentMap", plate.filament_maps},
         {"requiresDynamicMapping", group && group->is_support_dynamic_nozzle_map()},
         {"bedType", text(config, "curr_bed_type")},
-        {"durationSeconds", entry.gcode_result->print_statistics.modes[0].time},
+        {"durationSeconds", entry.gcode_result->print_statistics.modes[0].time}, {"layerCount", layer_count},
         {"weightGrams", print.print_statistics().total_weight},
         {"timelapseWarningCode", plate.timelapse_warning_code},
         {"toolpathOutside", plate.toolpath_outside}, {"warnings", warnings}};
 }
 
-json export_package(PlateRuntimeRegistry::Entry& entry, const std::string& filename_base)
+json export_package(PlateRuntimeRegistry::Entry& entry, const std::string& filename_base, const json& material_ids)
 {
     const auto manifest = describe(entry);
     PlateData plate;
     populate(plate, entry);
+    if (!material_ids.is_array()) throw std::runtime_error("Invalid material catalog mapping");
+    std::set<std::string> overridden;
+    for (const auto& item : material_ids) {
+        const auto key = item.at("materialKey").get<std::string>();
+        const auto id = item.at("catalogId").get<std::string>();
+        if (id.size() > 128 || id.find('\0') != std::string::npos || !overridden.insert(key).second)
+            throw std::runtime_error("Invalid material catalog mapping");
+        auto material = std::find_if(plate.slice_filaments_info.begin(), plate.slice_filaments_info.end(),
+            [&](const auto& m) { return key == "filament-" + std::to_string(m.id); });
+        if (material == plate.slice_filaments_info.end()) throw std::runtime_error("Unknown slice material");
+        material->filament_id = id;
+    }
     DynamicPrintConfig config = entry.print->full_print_config();
     // SkipModel is Orca's normal dispatch contract. The writer still reads
     // model metadata; provide the retained native snapshot, not the live scene.

@@ -457,7 +457,7 @@ const unknownCommands = {
   'camera.setEnabled': unknown, 'camera.setDeviceTimelapse': unknown, 'files.delete': unknown,
 } satisfies CommandCapabilities;
 export const moonrakerCapabilities: PrinterCapabilities = {
-  revision: 'type-1', commands: unknownCommands, cameras: [], currentPrintPreview: unknown,
+  submission: unknown, revision: 'type-1', commands: unknownCommands, cameras: [], currentPrintPreview: unknown,
   files: {
     list: { kind: 'unsupported', layer: 'adapter', reason: 'Upload-only type' },
     stat: unknown, download: unknown, preview: unknown, changes: unknown,

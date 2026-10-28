@@ -12,3 +12,4 @@ export type * from './control';
 export type * from './service';
 export type * from './web-interface';
 export * from './print-options';
+export * from './submission';

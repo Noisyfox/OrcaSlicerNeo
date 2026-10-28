@@ -32,7 +32,7 @@ import type {
   ModelMutationResult, ModelPlateSessionMutation, ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, ModelScenePatchResult, SliceResultStatus, SliceDiagnostic, SliceDiagnosticEvent, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
-  ExportGcodeRequest, ExportGcodeResult, PrintManifest, PrintManifestResult, ExportPrintResult,
+  ExportGcodeRequest, ExportGcodeResult, PrintManifest, PrintManifestResult, ExportPrintResult, ExportPrintRequest,
   ExportProjectRequest, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   AddVolumeRequest, AddVolumeResult, ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
@@ -3476,12 +3476,13 @@ export function createClient(
       return { ok: true, receipt: { ...receipt }, manifest: r.manifest };
     },
 
-    async exportPrintPlate({ receipt, filenameBase }: ExportGcodeRequest): Promise<ExportPrintResult> {
+    async exportPrintPlate({ receipt, filenameBase, materialCatalogIds = [] }: ExportPrintRequest): Promise<ExportPrintResult> {
       const m = await module();
       const generation = Number(receipt.resultGeneration);
       if (!Number.isSafeInteger(generation) || generation < 1)
         return { ok: false, status: 'failed', error: 'invalid result generation' };
       const r = callJson(m, 'orc_export_print_plate', ['string'], [JSON.stringify({
+        material_catalog_ids: materialCatalogIds,
         receipt: { plate_id: receipt.plateId, input_stamp: receipt.inputStamp, result_generation: generation },
         filename_base: filenameBase,
       })]) as { ok: boolean; status?: ResultReadStatus; manifest: PrintManifest; path?: string;

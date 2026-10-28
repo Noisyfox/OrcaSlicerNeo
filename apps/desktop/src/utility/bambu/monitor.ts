@@ -16,6 +16,8 @@ export class BambuMonitor {
   private readonly recovery = new BambuRecovery();
   private readonly cache = new Map<string, Entry>();
   private active: Entry | null = null;
+  private printTarget: D.PrinterTarget | null = null;
+  protectPrint(target: D.PrinterTarget | null) { this.printTarget = target; }
   private readonly tokens = new Set<string>();
   private tail: Promise<unknown> = Promise.resolve();
   private sequence = 30000;
@@ -125,6 +127,7 @@ export class BambuMonitor {
       if (this.closed) return error('cancelled', 'The application is closing.');
       const entry = await this.resolve(target);
       if (!entry) return error('invalid-target', 'This Bambu route is no longer available.');
+      if (this.printTarget && (this.printTarget.printerId !== target.printerId || this.printTarget.routeId !== target.routeId)) return error('busy', 'A print submission is still using another printer.');
       if (this.active !== entry) { this.tokens.clear(); try { await this.connect(entry); } catch { return error('transport', 'Printer monitoring could not be started.'); } }
       this.tokens.add(token); return { ok: true, value: null };
     });
@@ -210,6 +213,7 @@ export class BambuMonitor {
     });
   }
   async suspend<T>(work: () => Promise<T>): Promise<T> {
+    if (this.printTarget) throw new Error('A print submission is using this printer.');
     return this.queue(async () => {
       const previous = this.active; await this.disconnect();
       try { return await work(); }

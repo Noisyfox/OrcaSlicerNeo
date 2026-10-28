@@ -1,5 +1,6 @@
 // Inspect real dispatch archives, material identities and retained-result guards.
 import assert from 'node:assert/strict';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fixtureProfileOptions, createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
@@ -44,6 +45,9 @@ const configuration = new Map(readZipEntries(Module.FS.readFile(packaged.config_
 assert.deepEqual(archive.get(packaged.gcode_path), before, 'archive embeds the exact retained G-code');
 assert.ok(archive.has('Metadata/slice_info.config'));
 assert.ok(configuration.has('Metadata/slice_info.config'));
+assert.deepEqual(archive.get('Metadata/slice_info.config'), configuration.get('Metadata/slice_info.config'));
+assert.equal(manifest.nozzleFlowTypes.length, manifest.nozzleDiameters.length);
+assert.ok(manifest.layerCount > 0);
 assert.ok(!configuration.has(packaged.gcode_path), 'Cloud configuration archive does not duplicate G-code');
 assert.deepEqual(Module.FS.readFile(gcode.path), before, 'packing does not regenerate G-code');
 const xml = new TextDecoder().decode(archive.get('Metadata/slice_info.config'));
@@ -72,4 +76,14 @@ const dualXml = new TextDecoder().decode(dualEntries.get('Metadata/slice_info.co
 assert.match(dualXml, /O1D/);
 assert.match(dualXml, /<nozzle /);
 console.log(JSON.stringify({ ok: true, h2d: dualOutput.manifest }));
+if (process.env.NEO_PRINT_FIXTURE_DIR) {
+  await mkdir(process.env.NEO_PRINT_FIXTURE_DIR, { recursive: true });
+  for (const [name, path] of [['print.3mf', dualOutput.path], ['configuration.3mf', dualOutput.config_path]])
+    await writeFile(resolve(process.env.NEO_PRINT_FIXTURE_DIR, name), dual.Module.FS.readFile(path));
+  await writeFile(resolve(process.env.NEO_PRINT_FIXTURE_DIR, 'manifest.json'), JSON.stringify(dualOutput.manifest));
+}
+const converted = dual.ok(dual.command('orc_export_print_plate', { ...JSON.parse(request(dualSlice.receipt)), material_catalog_ids: dualOutput.manifest.materials.map(m => ({materialKey: m.key, catalogId: 'GFA00'})) }));
+const convertedXml = new TextDecoder().decode(new Map(readZipEntries(dual.Module.FS.readFile(converted.path)).map(e => [e.name, e.content])).get('Metadata/slice_info.config'));
+assert.match(convertedXml, /GFA00/);
+assert.deepEqual(converted.manifest, dualOutput.manifest);
 process.exit(0);

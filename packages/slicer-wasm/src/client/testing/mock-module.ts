@@ -3846,9 +3846,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { ok: true, status: 'ok', receipt: { plate_id: plateId, input_stamp: receipt.inputStamp,
         result_generation: receipt.resultGeneration, slice_task_id: receipt.sliceTaskId },
         manifest: { plateId, printerModel: 'Mock printer', printerModelId: '',
-          materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FFFFFF', presetId: '', brand: '',
+          materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FFFFFF', presetId: '', presetName: 'PLA', brand: '',
             toolIndex: 0, nozzleDiameter: 0.4, nozzleFlowType: 'Standard', requiredNozzleHardness: 0, usedGrams: 1, usedMeters: 0.3 }],
-          nozzleDiameters: [0.4], filamentMap: [1], durationSeconds: 60, weightGrams: 1,
+          nozzleDiameters: [0.4], nozzleFlowTypes: ['Standard'], filamentMap: [1], durationSeconds: 60, layerCount: 10, weightGrams: 1,
           timelapseWarningCode: 0, toolpathOutside: false, requiresDynamicMapping: false, bedType: '', warnings: [] } };
     },
     orc_export_print_plate(requestJson: string) {

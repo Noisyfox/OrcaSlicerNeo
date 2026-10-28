@@ -1,3 +1,4 @@
+import { BambuPrintSubmissions } from './printSubmission';
 import { BambuMedia } from './media';
 import type { BambuMediaRequest, BambuMediaAttachment } from '../../shared/bambuMedia';
 import type { CameraPort } from './mediaChannel';
@@ -23,6 +24,7 @@ export class BambuRuntime {
   private monitor: BambuMonitor | null = null;
   private media: BambuMedia | null = null;
   private operations: BambuOperations | null = null;
+  private submissions: BambuPrintSubmissions | null = null;
   private account: BambuAccount | null = null;
   private state: AccountState = { status: 'restoring', error: null };
   private ready: Promise<void>;
@@ -63,6 +65,7 @@ export class BambuRuntime {
       await agent.startDiscovery(true, false);
       this.monitor = new BambuMonitor(agent, this.devices, this.repository, () => this.lan!.release(), () => this.publish('control'));
       this.media = new BambuMedia(this.config, agent, this.monitor, this.devices, this.repository, () => this.publish('media'));
+      this.submissions = new BambuPrintSubmissions(agent, this.monitor, this.devices, this.repository, join(this.config.directory, 'submissions'), () => this.publish('control'));
       this.operations = new BambuOperations(this.monitor, () => this.publish('control'));
       this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
@@ -80,6 +83,7 @@ export class BambuRuntime {
     this.lan?.onEvent(event);
     this.monitor?.onEvent(event);
     void this.operations?.onEvent(event).catch(() => undefined);
+    void this.submissions?.onEvent(event).catch(() => undefined);
   }
   read<K extends BambuRead>(kind: K): Promise<BambuReadResults[K]>;
   async read(kind: BambuRead): Promise<BambuReadResults[BambuRead]> {
@@ -106,6 +110,12 @@ export class BambuRuntime {
     await this.ready;
     if (!this.monitor || !this.operations) return request.method === 'submit' ? { kind: 'rejected' as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } } : { ok: false as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } };
     switch (request.method) {
+      case 'print.prepare': return this.submissions!.prepare(request.input);
+      case 'print.begin': return this.submissions!.begin(request.input);
+      case 'print.chunk': return this.submissions!.chunk(request.input);
+      case 'print.commit': return this.submissions!.commit(request.input);
+      case 'print.get': return this.submissions!.get(request.input);
+      case 'print.cancel': return this.submissions!.cancel(request.input);
       case 'preview': return readCurrentPrintPreview(this.monitor, this.native!, request.input);
       case 'evaluate': return this.operations.evaluate(request.input.target, request.input.command);
       case 'submit': return this.operations.submit(request.input);
@@ -126,5 +136,5 @@ export class BambuRuntime {
     if (this.media) this.media.attach(owner, request, port); else port.close();
   }
   async mediaCloseOwner(owner: string) { await this.ready; await this.media?.closeOwner(owner); }
-  async close() { await this.ready; this.operations?.close(); await this.media?.close(); await this.monitor?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
+  async close() { await this.ready; this.operations?.close(); await this.submissions?.close(); await this.media?.close(); await this.monitor?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
 }

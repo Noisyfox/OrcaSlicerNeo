@@ -1,7 +1,8 @@
+import { isBambuSubmissionRequest, type BambuSubmissionInputs, type BambuSubmissionResults } from './bambuSubmission';
 import { isBambuCommandPayload } from './bambuCommandValidation';
 /** Renderer-safe domain RPC. Native protocol JSON and credentials have no representation here. */
 import type * as D from '@orca/printer-control/domain';
-export interface BambuControlInputs {
+export interface BambuControlInputs extends BambuSubmissionInputs {
   preview: D.TargetRequest;
   evaluate: { target: D.PrinterTarget; command: D.PrinterCommand };
   submit: D.CommandRequest;
@@ -12,7 +13,7 @@ export interface BambuControlInputs {
   observe: { target: D.PrinterTarget; token: string };
   release: { token: string };
 }
-export interface BambuControlResults {
+export interface BambuControlResults extends BambuSubmissionResults {
   preview: D.Result<D.CurrentPrintPreview>;
   evaluate: D.Result<D.CommandEvaluation>;
   submit: D.Submission;
@@ -36,6 +37,7 @@ const topics: readonly D.StateTopic[] = ['descriptor', 'status', 'firmware', 'th
 export function isBambuControlRequest(value: unknown): value is BambuControlRequest {
   if (!object(value) || !exact(value, ['method', 'input']) || !object(value.input)) return false;
   const input = value.input;
+  if (typeof value.method === 'string' && value.method.startsWith('print.')) return isBambuSubmissionRequest(value.method, input);
   if (value.method === 'evaluate') return exact(input, ['target', 'command']) && isBambuTarget(input.target) && isBambuCommandPayload(input.command);
   if (value.method === 'operation' || value.method === 'find') return exact(input, ['printerId', 'routeId', value.method === 'operation' ? 'id' : 'requestId'])
     && string(input.printerId) && string(input.routeId) && string(input[value.method === 'operation' ? 'id' : 'requestId']);

@@ -1531,7 +1531,7 @@ const char* export_gcode_for_target(const std::string& plate_id,
                                     const std::uint64_t revision,
                                     const std::uint64_t result_generation,
                                     const std::string& filename_base,
-                                    PrintResultOutput output) {
+                                    PrintResultOutput output, const json& material_ids) {
     try {
         std::string target_error;
         auto* runtime_entry = runtime_entry_for_plate(plate_id, target_error);
@@ -1553,7 +1553,7 @@ const char* export_gcode_for_target(const std::string& plate_id,
         if (output != PrintResultOutput::Gcode) {
             json payload = output == PrintResultOutput::Manifest
                 ? json{{"manifest", PrintSubmission::describe(*runtime_entry)}}
-                : PrintSubmission::export_package(*runtime_entry, filename_base);
+                : PrintSubmission::export_package(*runtime_entry, filename_base, material_ids);
             payload["ok"] = true;
             payload["status"] = "ok";
             payload["receipt"] = projection_receipt(*runtime_entry);
@@ -1596,7 +1596,7 @@ const char* read_print_result(const char* request_json, PrintResultOutput output
             return error_json("invalid plate operation target");
         return export_gcode_for_target(plate_id,
                                        static_cast<std::uint64_t>(revision_number),
-                                       static_cast<std::uint64_t>(result_generation_number), filename_base, output);
+                                       static_cast<std::uint64_t>(result_generation_number), filename_base, output, request.value("material_catalog_ids", json::array()));
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {

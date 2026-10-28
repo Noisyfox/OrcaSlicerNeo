@@ -1194,8 +1194,8 @@ The real-WASM [artifact smoke](../packages/slicer-wasm/harness/print-submission-
 checks archive entries, exact retained G-code bytes, H2D nozzle metadata and
 stale-result rejection. Serial quick build, this smoke, client tests and
 typecheck pass on the development host. This runtime stage does not enable a
-printer capability or qualify physical printing. Agent execution, artifact
-transport, device validation, shared UI and preferences remain pending.
+printer capability or qualify physical printing. The shared UI integration and
+physical-printer qualification remain separate delivery gates.
 
 The host-only Bambu native wrapper now exposes independent LAN/Cloud print calls
 with numeric progress, out-of-queue cancellation and conservative dispatch
@@ -1207,6 +1207,22 @@ races and release ordering. The real v2.2.0 macOS ARM64 plugin passes
 `node packages/bambu-native/scripts/smoke.mjs --print-abi`, which deliberately
 omits address/credentials and verifies rejection before network I/O. This does
 not constitute LAN or Cloud print acceptance.
+
+The shared `PrinterSubmissions` contract and Bambu agent implementation now cover
+preparation, bounded artifact transfer, idempotent admission, cancellation,
+known-failure retry, qualified LAN preference and safe Cloud fallback. The agent
+owns model-resource rules, physical-tool mapping, material catalog conversion,
+options, storage checks and a second validation immediately before dispatch.
+Only a fresh matching task report confirms start; plugin success alone remains
+`confirming`, and an unknown outcome stays owned by the agent without a retry.
+Native material-ID conversion changes dispatch metadata only, not the project.
+
+Validation includes 13 mapping/lifecycle tests, the desktop and printer-control
+unit suites, typechecks, the serial native quick build and real-WASM archive
+smoke. The real archive inspector also accepts the native H2D print/configuration
+pair and rejects mismatched material identities. Fixture acceptance is not LAN
+or Cloud physical-print qualification. Capability activation accompanies the
+shared preparation UI in the following stage.
 
 The [console specification](Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission)
 owns the interaction, mapping review and feature envelope. This section owns
