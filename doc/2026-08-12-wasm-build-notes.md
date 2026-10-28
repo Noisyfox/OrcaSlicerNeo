@@ -1,6 +1,6 @@
 # WASM Build and Runtime Reference
 
-**Updated:** 2026-10-12
+**Updated:** 2026-10-28
 **Status:** Current engineering reference
 **Scope:** Native build ownership, artifacts and runtime constraints.
 
@@ -32,9 +32,13 @@ clones and CI can fetch it. External dependency patches remain in
 The WASM scaffold compiles libslic3r and the headless Neo adapters, excluding
 wxWidgets. Its dependency closure includes Boost, oneTBB for threaded builds,
 Draco, OCCT/XCAF for STEP and NLopt for arrangement. Fetch/build scripts and
-CMake own exact versions, library sets and feature exclusions. When symbols
-or upstream signatures change, fix the owning source/scaffold rather than
-adding a renderer compatibility layer.
+CMake own exact versions, library sets and feature exclusions. OCCT builds with
+`USE_FREETYPE=OFF`; its staged manifest records that setting. A normal `build`
+rebuilds older OCCT stages automatically. A `quick` build rejects them with a
+rebuild instruction before linking.
+
+When symbols or upstream signatures change, fix the owning source/scaffold
+rather than adding a renderer compatibility layer.
 
 ## Native compile-time macro policy
 

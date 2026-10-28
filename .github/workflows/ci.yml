@@ -78,7 +78,7 @@ jobs:
       - name: Select compiled dependency cache key
         id: dependency-key
         env:
-          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/stubs/freetype-port-probe.c') }}
+          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch') }}
         run: echo "key=${{ runner.os }}-wasm64-deps-emsdk-${EMSDK_VERSION}-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Select tested WASM artifact cache key
         id: build-key
@@ -86,7 +86,7 @@ jobs:
           # Hash native build inputs only; tests, fixtures, JS dependencies and
           # workflow test steps do not invalidate production artifacts. The
           # submodule is identified by its recorded gitlink, never file hashes.
-          WASM_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/stubs/freetype-port-probe.c', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*') }}
+          WASM_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*') }}
         run: |
           orca_pin=$(git rev-parse HEAD:packages/slicer-wasm/cpp)
           echo "key=${{ runner.os }}-${{ runner.arch }}-wasm64-tested-v2-emsdk-${EMSDK_VERSION}-${orca_pin}-${WASM_INPUT_HASH}" >> "$GITHUB_OUTPUT"
@@ -127,6 +127,7 @@ jobs:
             require_file "$deps/draco-1.5.7/stage-wasm64-$variant/lib/libdraco.a"
             require_file "$deps/occt-7.6.0/stage-wasm64-$variant/include/opencascade/Standard.hxx"
             require_file "$deps/occt-7.6.0/stage-wasm64-$variant/lib/libTKXDESTEP.a"
+            grep -qx 'USE_FREETYPE=OFF' "$deps/occt-7.6.0/stage-wasm64-$variant/manifest.txt"
           done
       - name: Save compiled WASM dependencies
         if: steps.dependency-cache.outputs.cache-hit != 'true'
