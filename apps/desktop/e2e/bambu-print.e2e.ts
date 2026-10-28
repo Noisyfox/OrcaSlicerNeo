@@ -30,12 +30,12 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
         if (method === 'observe' || method === 'release') return { ok: true, value: null };
         if (method === 'preview') return { ok: false, error: { code: 'preview-unavailable', message: 'No image' } };
         if (method === 'print.prepare') return { ok: true, value: { configurationRevision: data.snapshot.configurationRevision, route: 'lan', materialCatalogIds: [],
-          bindings: input.suggest ? input.requirements.materials.map(m => ({ materialKey: m.key, pathId: 'path:0:0:0' })) : input.bindings,
-          candidates: input.requirements.materials.map(m => ({ materialKey: m.key, pathId: 'path:0:0:0', label: 'AMS A1', materialType: m.type, color: m.color })),
+          bindings: input.suggest ? input.requirements.materials.map((m: D.PrintMaterialRequirement) => ({ materialKey: m.key, pathId: 'path:0:0:0' })) : input.bindings,
+          candidates: input.requirements.materials.map((m: D.PrintMaterialRequirement) => ({ materialKey: m.key, pathId: 'path:0:0:0', label: 'AMS A1', materialType: m.type, color: m.color })),
           options: { timelapse: input.options.timelapse ?? true }, optionDescriptors: [{ key: 'timelapse', label: 'Timelapse', enabled: true, choices: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] }], issues: [] } };
         if (method === 'print.begin') {
           fixture.submissions.push(input.request);
-          const ref = { printerId: input.request.target.printerId, routeId: input.request.target.routeId, id: `print-${fixture.submissions.length}` };
+          const ref = { printerId: input.request.target.printerId, routeId: input.request.target.routeId, id: `print-${fixture.submissions.length}` as D.Id<'print-submission'> };
           fixture.state = { ref, requestId: input.request.requestId, phase: 'staging', route: 'lan', progress: 0, message: 'Staging', canCancel: true }; changed();
           return { ok: true, value: { ref, created: true } };
         }

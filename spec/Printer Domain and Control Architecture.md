@@ -1225,6 +1225,38 @@ or Cloud physical-print qualification. The following shared-UI stage activates t
 agents retain their existing interfaces. See the console specification for
 software delivery and physical qualification status.
 
+The final integration pass adds Orca's P1 compatibility-confirmation exceptions,
+mixed AMS Lite tray numbering, hidden Shared PA semantics, high-chamber and
+loaded-material softening diagnostics, selected-AMS drying checks, manual-PA
+and smart-nozzle-blob advisories. Print archives are checked against the declared
+model and material metadata before native dispatch. Recording cleanup requires
+an explicit per-submission action and is skipped if cancellation arrives during
+the capacity query. Device monitoring releases its view subscription while the
+modal owns an independent target; a submission keeps its own agent lease.
+
+Validation on 2026-10-28 (development macOS ARM64):
+
+- `pnpm test`: 2,688 passed, five conditional skips at the full-suite checkpoint.
+  Subsequent focused runs pass 330 desktop tests, the shared send/Device tests,
+  six preparation-panel tests and 657 client tests. The opt-in real-archive test
+  was separately enabled with `NEO_PRINT_FIXTURE_DIR` and passed.
+- `pnpm typecheck` and `pnpm --filter @orca/platform-contract test:import-guard`
+  pass. `git diff --check` and the added local documentation links pass.
+- `bash scripts/build.sh quick --variant serial -j 8` and the corresponding
+  `--variant threaded` build pass. The artifact smoke passes against both,
+  including material-ID conversion and Auto For Flush resolved fixed tools.
+  The minimal imported H2D fixture emits existing missing per-extruder preset
+  diagnostics; it proves archive/assignment behavior, not printable settings.
+- Four focused Electron journeys pass: Bambu control, Bambu print submission,
+  Moonraker send/retry, and keyless Moonraker Send & Print. The real-Web
+  multipart send/start journey passes in Chrome. The renderer CSS smoke and
+  `pnpm --filter @orca/desktop build` pass; the preparation screenshot was
+  inspected for layout and readable controls.
+
+No physical print was started for these checks. Initial H2D + AMS LAN print
+qualification is still required; Cloud physical qualification remains deferred.
+Other desktop targets and the complete release matrix were not run here.
+
 The [console specification](Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission)
 owns the interaction, mapping review and feature envelope. This section owns
 artifact provenance, agent responsibilities, submission and outcome semantics.

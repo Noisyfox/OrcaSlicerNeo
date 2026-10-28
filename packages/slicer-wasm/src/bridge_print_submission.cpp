@@ -86,6 +86,8 @@ json describe(PlateRuntimeRegistry::Entry& entry)
             {"presetId", material.filament_id}, {"presetName", text(config, "filament_settings_id", material.id)}, {"brand", text(config, "filament_vendor", material.id)},
             {"toolIndex", tool}, {"nozzleDiameter", diameters[tool]},
             {"nozzleFlowType", get_nozzle_volume_type_string(static_cast<NozzleVolumeType>(print.config().nozzle_volume_type.get_at(tool)))},
+            {"chamberTemperature", config.option<ConfigOptionInts>("chamber_temperature")->get_at(material.id)},
+            {"softeningTemperature", config.option<ConfigOptionInts>("temperature_vitrification")->get_at(material.id)},
             {"requiredNozzleHardness", print.config().required_nozzle_HRC.get_at(material.id)},
             {"usedGrams", material.used_g}, {"usedMeters", material.used_m}});
     }

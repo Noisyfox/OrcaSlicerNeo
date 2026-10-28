@@ -21,9 +21,12 @@ export function printOptions(request: D.PrintPreparationRequest, p: Report, prof
   if (flow && request.requirements.materials.some(m => excluded.includes(printerFilamentId(m.presetId))) && options.flowCalibration !== 'off') {
     issues.push({ id: 'unsupported-flow-calibration', severity: options.flowCalibration === 'auto' ? 'block' : 'warning', message: options.flowCalibration === 'auto' ? 'Auto flow calibration is unavailable for these materials.' : 'The printer will skip flow calibration and use its previous value for these materials.' });
   }
+  if (flow && options.flowCalibration !== 'off' && Array.isArray(profile.auto_on_cali_warning_tpu_filaments) && request.requirements.materials.some(m => (profile.auto_on_cali_warning_tpu_filaments as unknown[]).includes(printerFilamentId(m.presetId))))
+    issues.push({ id: 'flow-calibration-skipped', severity: 'warning', message: 'The printer will skip flow calibration for this material and use a manual or default value.' });
   const booleanOption = (key: 'timelapse' | 'sharedPressureAdvance' | 'externalChangeAssist', label: string, value: boolean, enabled = true) => {
     options[key] = value; descriptors.push({ key, label, choices: [{ value: true, label: 'On' }, { value: false, label: 'Off' }], enabled });
   };
+  if (bits(p.fun2, 3) === 1) options.sharedPressureAdvance = request.options.sharedPressureAdvance ?? true;
   if (bits(p.fun2, 3) === 1 && flow && options.flowCalibration === 'off') booleanOption('sharedPressureAdvance', 'Shared PA profile', request.options.sharedPressureAdvance ?? true);
   const internal = bits(p.fun, 28) === 1;
   const external = sdcardState(p) === 1;

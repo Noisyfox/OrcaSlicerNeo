@@ -5,7 +5,7 @@ export const printTarget: D.PrinterTarget = { printerId: id('bambu:fixture'), ro
 export const printRequirements: D.PrintRequirements = {
   contentId: 'plate-1:revision-1:generation-1', plateId: 'plate-1', printerModel: 'Bambu Lab H2D', printerModelId: 'O1D',
   nozzleDiameters: [.4, .4], nozzleFlowTypes: ['Standard', 'Standard'], filamentMap: [2, 1, 1], requiresDynamicMapping: false, bedType: 'High Temp Plate', durationSeconds: 100, layerCount: 50, weightGrams: 2, timelapseWarningCode: 0, toolpathOutside: false, warnings: [],
-  materials: [0, 2].map((index, i) => ({ key: `filament-${index}`, index, toolIndex: i ? 0 : 1, type: 'PLA', color: i ? '#00FF00' : '#FF0000', presetId: 'OFDSrzZ8', presetName: 'Generic PLA', brand: 'Generic', nozzleDiameter: .4, nozzleFlowType: 'Standard', requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3 })),
+  materials: [0, 2].map((index, i) => ({ key: `filament-${index}`, index, toolIndex: i ? 0 : 1, type: 'PLA', color: i ? '#00FF00' : '#FF0000', presetId: 'OFDSrzZ8', presetName: 'Generic PLA', brand: 'Generic', nozzleDiameter: .4, nozzleFlowType: 'Standard', chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3 })),
 };
 export function printContext(patch: Record<string, unknown> = {}) {
   const telemetry = new BambuTelemetry();

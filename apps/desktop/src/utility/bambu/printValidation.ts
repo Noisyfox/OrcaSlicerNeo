@@ -3,6 +3,7 @@ import type { CommandContext } from './commands';
 import { bits, number, record, records } from './telemetry';
 import { known, mapMaterials, physicalTool } from './printMapping';
 import { filamentCatalog, filamentRules, nozzleHardness, printerFilamentId, printerPrintProfile } from './printResources';
+import { printAdvisories } from './printAdvisories';
 import { printOptions, sdcardState } from './printOptions';
 
 export function prepareBambuPrint(request: D.PrintPreparationRequest, context: CommandContext, route: 'lan' | 'cloud' | null): D.PrintPreparation {
@@ -13,7 +14,7 @@ export function prepareBambuPrint(request: D.PrintPreparationRequest, context: C
   const used = mapping.bindings.map(b => topology.materials.paths.find(p => p.id === b.pathId)).filter((v): v is D.MaterialPath => !!v);
   const multipleExternal = used.some(path => mapping.external(path) && used.filter(other => other.slotId === path.slotId).length > 1);
   const configured = printOptions(request, p, profile, multipleExternal);
-  const issues = [...mapping.issues, ...configured.issues];
+  const issues = [...mapping.issues, ...configured.issues, ...printAdvisories(request, context, configured.options, used, mapping.external)];
   const issue = (id: string, message: string, severity: D.PrintIssue['severity'] = 'block') => issues.push({ id, message, severity });
   if (!context.fresh) issue('offline', 'Printer status is disconnected or stale. Waiting for automatic recovery.');
   if (request.target.expectedConfigurationRevision && request.target.expectedConfigurationRevision !== context.configurationRevision) issue('configuration-changed', 'Printer connection configuration changed. Select the printer again.');
@@ -22,9 +23,11 @@ export function prepareBambuPrint(request: D.PrintPreparationRequest, context: C
   if (!r.materials.length) issue('empty', 'This slice has no used material.');
   if (r.toolpathOutside) issue('outside', 'The sliced toolpath is outside the printable area.');
   const model = String(profile.model_id ?? context.model ?? '');
+  const upgradeKit = (bits(p.fun, 14) ?? bits(p.home_flag, 27)) === 1 && (bits(p.cfg, 25) ?? bits(p.home_flag, 26)) === 1;
+  const quietModelMismatch = ['C11', 'C12'].includes(r.printerModelId) && ['C11', 'C12'].includes(model) || upgradeKit && r.printerModelId === 'C12';
   if (!r.printerModelId || !model) issue('unknown-model', 'The printer model cannot be fully checked.', 'warning');
   else if (r.printerModelId !== model && !(Array.isArray(profile.compatible_machine) && profile.compatible_machine.includes(r.printerModelId))) issue('incompatible-model', `The slice requires ${r.printerModel}; this printer is ${context.model}.`);
-  else if (r.printerModelId !== model) issue('compatible-model', 'The selected printer is a compatible model with potentially different hardware.', 'warning');
+  else if (r.printerModelId !== model && !quietModelMismatch || r.printerModelId === model && upgradeKit) issue('compatible-model', 'The selected printer is a compatible model with potentially different hardware.', 'warning');
   const status = known(context.values.status.operationalState);
   if (status !== 'ready' && !(['FINISH', 'FAILED'].includes(String(p.gcode_state)))) issue('not-ready', 'The printer is busy or not ready.');
   const upgrade = record(p.upgrade_state);
@@ -42,6 +45,8 @@ export function prepareBambuPrint(request: D.PrintPreparationRequest, context: C
   } else if (configured.flags.support_print_without_sd !== true && sd === 0) issue('storage-missing', 'This printer requires storage for printing.');
   if (used.some(mapping.external) && used.some(path => !mapping.external(path)) && configured.flags.support_ams_ext_mix_print !== true) issue('mixed-sources', 'This printer does not support mixing AMS and external sources in one print.');
   const newProtocol = ['cfg', 'fun', 'aux', 'stat'].every(key => p[key] !== undefined);
+  const maxColors = bits(p.flag3, 17) === 1 ? 32 : 16;
+  if (!newProtocol && bits(p.flag3, 9) !== 1 && r.filamentMap.length > maxColors) issue('color-count', `This printer supports at most ${maxColors} filament colors.`);
   const flowSupported = newProtocol || p.flag3 !== undefined && bits(p.flag3, 10, 3) !== undefined;
   for (const m of r.materials) {
     const physical = physicalTool(m.toolIndex, r.nozzleDiameters.length);
@@ -58,7 +63,7 @@ export function prepareBambuPrint(request: D.PrintPreparationRequest, context: C
     const path = used.find(p => mapping.bindings.some(b => b.materialKey === m.key && b.pathId === p.id));
     if (!path) continue;
     const type = m.type.toLowerCase();
-    const name = (filamentCatalog[m.presetId]?.name ?? m.presetName).replace(/^Bambu /, '').toLowerCase();
+    const name = (filamentCatalog[m.presetId]?.name ?? m.presetName).replace(/\s+@.*$/, '').toLowerCase();
     if (configured.flags.support_print_check_firmware_for_tpu_left === true && physical === 1 && type.startsWith('tpu') && bits(p.fun2, 7) !== 1) issue(`tpu-left:${m.key}`, 'Firmware has not reported support for TPU on the left extruder.');
     for (const [index, rule] of filamentRules.entries()) {
       const includes = (key: string, value: unknown) => !Array.isArray(rule[key]) || !(rule[key] as unknown[]).length || (rule[key] as unknown[]).includes(value);
@@ -72,7 +77,18 @@ export function prepareBambuPrint(request: D.PrintPreparationRequest, context: C
       issue(`filament-rule:${index}:${m.key}:${path.id}`, String(rule.description).replace('%s', m.presetName || m.type), rule.action === 'prohibition' ? 'block' : 'warning');
     }
   }
-  if (records(ams.ams).some(a => bits(a.info, 4, 4) === 2)) issue('ams-drying', 'An AMS is drying. Check the drying and printing conditions.', 'warning');
+  const highChamber = Math.max(...r.materials.map(m => m.chamberTemperature));
+  if (highChamber >= 40) issue('high-chamber', 'This material requires a high-temperature environment. Close the printer enclosure when available.', 'warning');
+  for (const tool of context.values.materials.state.tools) {
+    const pathId = known(tool.loadedPathId);
+    if (!pathId) continue;
+    const slotId = topology.materials.paths.find(path => path.id === pathId)?.slotId;
+    const material = context.values.materials.state.slots.find(slot => slot.slotId === slotId);
+    const catalogId = material && known(material.material)?.catalogRef?.value;
+    const requirement = r.materials.find(m => catalogId && printerFilamentId(m.presetId) === catalogId);
+    if ((requirement?.softeningTemperature ?? 43) - highChamber <= 5) issue(`softening:${tool.toolId}:${catalogId ?? 'unknown'}`, requirement ? 'Loaded filament may soften at this chamber temperature. Unload it before printing.' : 'Loaded filament is unknown and may soften at this chamber temperature. Check it before printing.', 'warning');
+  }
+  if (records(ams.ams).some(a => bits(a.info, 4, 4) === 2 && used.some(path => path.slotId.startsWith(`slot:${a.id}:`)))) issue('ams-drying', 'An AMS is drying. Check the drying and printing conditions.', 'warning');
   return { materialCatalogIds: r.materials.map(m => ({ materialKey: m.key, catalogId: printerFilamentId(m.presetId) })), configurationRevision: context.configurationRevision, route, bindings: mapping.bindings, candidates: mapping.candidates,
     options: configured.options, optionDescriptors: configured.descriptors, issues: [...new Map(issues.map(i => [i.id, i])).values()] };
 }

@@ -86,4 +86,10 @@ const converted = dual.ok(dual.command('orc_export_print_plate', { ...JSON.parse
 const convertedXml = new TextDecoder().decode(new Map(readZipEntries(dual.Module.FS.readFile(converted.path)).map(e => [e.name, e.content])).get('Metadata/slice_info.config'));
 assert.match(convertedXml, /GFA00/);
 assert.deepEqual(converted.manifest, dualOutput.manifest);
+dual.configure({ plate_settings: { [dual.plateId]: { filament_map_mode: 'Auto For Flush' } } });
+const automaticSlice = dual.ok(await callAsyncTask(dual.call, 'orc_slice_plate', ['string', 'string', 'number'], ['{}', dual.plateId, dual.call('orc_get_plate_session_snapshot').input_revisions[dual.plateId]]));
+const automatic = dual.ok(dual.command('orc_describe_print_plate', JSON.parse(request(automaticSlice.receipt)))).manifest;
+assert.equal(automatic.requiresDynamicMapping, false);
+for (const material of automatic.materials) assert.equal(material.toolIndex, automatic.filamentMap[material.index] - 1);
+console.log(JSON.stringify({ ok: true, automaticFixedTools: automatic.filamentMap }));
 process.exit(0);

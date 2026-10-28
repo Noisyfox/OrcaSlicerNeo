@@ -3497,8 +3497,8 @@ export function createClient(
           plateIndex: r.plate_index, gcodePath: r.gcode_path };
       } finally {
         // Only temporary archives are consumed. The retained G-code remains available.
-        if (r.path) m.FS.unlink(r.path);
-        if (r.config_path) m.FS.unlink(r.config_path);
+        try { if (r.path) m.FS.unlink(r.path); }
+        finally { if (r.config_path) m.FS.unlink(r.config_path); }
       }
     },
 

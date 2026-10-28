@@ -62,6 +62,7 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
     </div>}
     <div className="flex justify-end gap-2">
       <Button variant="ghost" onClick={onClose} disabled={state.active}>Close</Button>
+      {operation?.phase === 'unknown' && <Button variant="secondary" onClick={() => { useDeviceSelectionStore.getState().showPrinter(printer.identity.id); onClose(); }}>View printer</Button>}
       {operation?.canCancel && <Button variant="secondary" onClick={() => void state.cancel()}>Cancel sending</Button>}
       {!confirmation && <Button disabled={!state.canPrint} onClick={() => void state.send()} data-testid="print-submit">{operation?.phase === 'failed' ? 'Retry' : 'Print'}</Button>}
     </div>

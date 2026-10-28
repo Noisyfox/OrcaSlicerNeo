@@ -1228,6 +1228,8 @@ export interface PrintManifest {
     toolIndex: number;
     nozzleDiameter: number;
     nozzleFlowType: string;
+    chamberTemperature: number;
+    softeningTemperature: number;
     requiredNozzleHardness: number;
     usedGrams: number;
     usedMeters: number;

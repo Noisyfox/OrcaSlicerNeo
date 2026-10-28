@@ -52,3 +52,37 @@ it('storage fallback changes only effective options and abnormal override never 
   expect(blocks(prepareBambuPrint({ ...r, allowAbnormalStorage: true }, printContext({ aux: '3000' }), 'lan')).some(i => i.id === 'storage-unavailable')).toBe(true);
   expect(blocks(prepareBambuPrint({ ...r, allowAbnormalStorage: true }, printContext({ aux: '2000' }), 'lan'))).toEqual([]);
 });
+it('keeps the full catalog filament name for nozzle-specific prohibitions', () => {
+  const r = printRequest(); r.requirements.materials[0].presetId = 'OFlfuj2k'; r.requirements.materials[0].type = 'TPU';
+  const p = prepareBambuPrint(r, printContext({ ams: { ams: [] } }), 'lan');
+  expect(p.issues.find(i => i.id.startsWith('filament-rule:28:'))?.severity).toBe('block');
+});
+it('serializes mixed AMS Lite slots at 24 and preserves hidden shared-PA behavior', () => {
+  const r = printRequest(), c = printContext(), p = prepareBambuPrint(r, c, 'lan');
+  expect(p.optionDescriptors.some(d => d.key === 'sharedPressureAdvance')).toBe(false);
+  expect(p.options.sharedPressureAdvance).toBe(true);
+  const native = printParameters({ ...r, requestId: id('request'), acknowledgedIssues: [] }, p, 'job', { ams: { ams: [{ id: 0, info: '5' }] } });
+  expect(JSON.parse(native.ams_mapping!)[0]).toBe(24); expect(native.extruder_cali_manual_mode).toBe(0); expect(native.task_bed_type).toBe('auto');
+});
+it('applies P1 model-confirmation exceptions without waiving the compatibility gate', () => {
+  const r = printRequest(); r.requirements.printerModelId = 'C12';
+  const c = { ...printContext(), model: 'C11' };
+  const p = prepareBambuPrint(r, c, 'lan');
+  expect(p.issues.some(i => i.id === 'compatible-model')).toBe(false);
+  expect(p.issues.some(i => i.id === 'incompatible-model')).toBe(false);
+  r.requirements.printerModelId = 'O1D'; expect(prepareBambuPrint(r, c, 'lan').issues.some(i => i.id === 'incompatible-model')).toBe(true);
+});
+it('warns for high chamber temperatures and only warns about drying in selected AMS units', () => {
+  const r = printRequest(); r.requirements.materials[0].chamberTemperature = 60;
+  expect(prepareBambuPrint(r, printContext(), 'lan').issues.find(i => i.id === 'high-chamber')?.severity).toBe('warning');
+  const context = printContext(); (context.report.ams as { ams: unknown[] }).ams.push({ id: 4, info: '23' });
+  expect(prepareBambuPrint(r, context, 'lan').issues.some(i => i.id === 'ams-drying')).toBe(false);
+});
+it('warns when automatic calibration ignores selected manual PA and when supported blob detection is not Auto', () => {
+  const r = printRequest(); r.options.flowCalibration = 'auto'; r.requirements.materials[0].presetId = 'GFA11';
+  const c = printContext({ fun2: '8008' });
+  (c.report.ams as { ams: { tray: Record<string, unknown>[] }[] }).ams[0].tray[0].cali_idx = 1;
+  const p = prepareBambuPrint(r, c, 'lan');
+  expect(p.issues.some(i => i.id === 'manual-pa-not-used')).toBe(true);
+  expect(p.issues.some(i => i.id === 'smart-nozzle-blob')).toBe(true);
+});

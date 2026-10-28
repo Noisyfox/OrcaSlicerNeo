@@ -81,6 +81,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
     saveChain.current = saveChain.current.catch(() => undefined).then(async () => {
       const config = await platform.printers.configuration.load();
       await platform.printers.configuration.save(patch ? { ...config, printPreferences: { ...config.printPreferences, [printer.identity.id]: { ...config.printPreferences?.[printer.identity.id], ...patch } } } : { ...config, allowAbnormalStorage: abnormal });
+      if (live.current && version === saveVersion.current) setSaveError(false);
     }).catch(() => { if (live.current) setSaveError(true); }).finally(() => { if (live.current && version === saveVersion.current) setSaving(false); });
   }
   function changeOption(key: keyof D.PrintOptions, value: string | boolean) {
@@ -92,12 +93,14 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
     setConfirmation(null); setRecordingAction(undefined);
   }
   async function send(confirmed = false) {
-    if (!canPrint || !request.current || !sourceReceipt.current) return;
+    if (!canPrint || activeRef.current || !request.current || !sourceReceipt.current) return;
     setExporting(true); activeRef.current = true; setError(null);
     let submission: D.PrintSubmissionRef | null = null;
     try {
       await saveChain.current;
+      if (!live.current) return;
       const checked = await platform.printers.service.submissions.prepare({ ...request.current, suggest: false, checkRecording: true });
+      if (!live.current) return;
       if (!checked.ok) throw new Error(checked.error.message);
       setPrepared(checked.value);
       if (checked.value.issues.some(i => i.severity === 'block')) { setConfirmation(null); return; }
@@ -107,6 +110,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
         setConfirmation(checked.value); return;
       }
       const exported = await platform.runtime.exportPrintPlate({ receipt: sourceReceipt.current, filenameBase: projectFilenameBase(useProjectStore.getState()), materialCatalogIds: checked.value.materialCatalogIds });
+      if (!live.current) return;
       if (!exported.ok) throw new Error(exported.error);
       if (JSON.stringify(exported.manifest) !== JSON.stringify((({ contentId: _id, ...manifest }) => manifest)(request.current.requirements))) throw new Error('Slice changed');
       const { suggest: _suggest, ...input } = request.current;

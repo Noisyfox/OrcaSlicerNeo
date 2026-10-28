@@ -1,5 +1,6 @@
-import { open as openZip, type ZipFile, type Entry } from 'yauzl';
+import { open as openZip, type Entry } from 'yauzl';
 import { SaxesParser } from 'saxes';
+import { printerFilamentId } from './printResources';
 import type * as D from '@orca/printer-control/domain';
 /** Lazy ZIP inspection bounds metadata and never buffers the G-code into the utility. */
 function metadata(path: string, withGcode: boolean): Promise<string> {
@@ -32,7 +33,14 @@ export async function validatePrintArtifacts(print: string, configuration: strin
   const ids: number[] = [];
   const parser = new SaxesParser();
   parser.on('doctype', () => { throw new Error('Unexpected archive document type'); });
-  parser.on('opentag', tag => { if (tag.name === 'filament') ids.push(Number(tag.attributes.id) - 1); });
+  parser.on('opentag', tag => {
+    const a = tag.attributes;
+    if (tag.name === 'metadata' && a.key === 'printer_model_id' && a.value !== requirements.printerModelId) throw new Error('Print model differs from the archive');
+    if (tag.name !== 'filament') return;
+    const index = Number(a.id) - 1; ids.push(index);
+    const material = requirements.materials.find(m => m.index === index);
+    if (!material || a.type !== material.type || a.color !== material.color || a.volume_type !== material.nozzleFlowType || Number(a.nozzle_diameter) !== material.nozzleDiameter || a.tray_info_idx !== printerFilamentId(material.presetId)) throw new Error('Print material identities differ from the archive');
+  });
   parser.write(xml).close();
   if (JSON.stringify(ids.sort((a, b) => a - b)) !== JSON.stringify(requirements.materials.map(m => m.index).sort((a, b) => a - b))) throw new Error('Print material identities differ from the archive');
 }

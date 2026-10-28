@@ -10,7 +10,7 @@ import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 const id = <T extends string>(s: string) => s as D.Id<T>;
 const receipt: SliceResultReceipt = { plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' };
 const manifest: PrintManifest = { plateId: 'plate-1', printerModel: 'Fixture', printerModelId: 'fixture', nozzleDiameters: [.4], nozzleFlowTypes: ['Standard'], filamentMap: [1], requiresDynamicMapping: false, bedType: 'High Temp Plate', durationSeconds: 60, weightGrams: 1, layerCount: 10, toolpathOutside: false, timelapseWarningCode: 0, warnings: [],
-  materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FF0000', presetId: 'fixture', presetName: 'PLA', brand: 'Generic', toolIndex: 0, nozzleDiameter: .4, nozzleFlowType: 'Standard', requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3 }] };
+  materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FF0000', presetId: 'fixture', presetName: 'PLA', brand: 'Generic', toolIndex: 0, nozzleDiameter: .4, nozzleFlowType: 'Standard', chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3 }] };
 let root: Root | undefined, container: HTMLDivElement;
 afterEach(async () => { await act(async () => root?.unmount()); root = undefined; container?.remove(); vi.useRealTimers(); useDeviceSelectionStore.setState({ currentPrinterId: null, requestedPrinterId: null, requestVersion: 0 }); });
 async function setup() {
@@ -73,4 +73,11 @@ it('unknown outcomes allow closing but never offer retry', async () => {
   const f = await setup(); await f.click('Print'); await act(async () => f.update('unknown'));
   expect((container.querySelector('[data-testid="print-submit"]') as HTMLButtonElement).disabled).toBe(true);
   await f.click('Close'); expect(f.close).toHaveBeenCalledOnce();
+});
+it('does not admit a job if the dialog disappears while native packaging is pending', async () => {
+  const f = await setup(); let release!: () => void;
+  f.runtime.exportPrintPlate.mockImplementationOnce(async () => { await new Promise<void>(resolve => { release = resolve; }); return { ok: true, receipt, manifest, fileName: 'fixture.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]) }; });
+  await f.click('Print'); expect(f.runtime.exportPrintPlate).toHaveBeenCalledOnce();
+  await act(async () => root!.unmount()); root = undefined;
+  await act(async () => release()); expect(f.submissions.submit).not.toHaveBeenCalled();
 });

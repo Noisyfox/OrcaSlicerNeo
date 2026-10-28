@@ -29,7 +29,7 @@ function preparation(v: unknown, submit = false): boolean {
   if (v.checkRecording !== undefined && typeof v.checkRecording !== 'boolean') return false;
   const r = v.requirements;
   if (!['contentId', 'plateId', 'printerModel', 'printerModelId', 'bedType'].every(k => string(r[k])) || !r.contentId || !Array.isArray(r.materials) || !r.materials.length || r.materials.length > 64) return false;
-  if (!r.materials.every(m => object(m) && ['key', 'type', 'color', 'presetId', 'presetName', 'brand', 'nozzleFlowType'].every(k => string(m[k])) && ['index', 'toolIndex'].every(k => integer(m[k])) && Number(m.index) < 64 && Number(m.toolIndex) < 64 && ['nozzleDiameter', 'requiredNozzleHardness', 'usedGrams', 'usedMeters'].every(k => finite(m[k])))) return false;
+  if (!r.materials.every(m => object(m) && ['key', 'type', 'color', 'presetId', 'presetName', 'brand', 'nozzleFlowType'].every(k => string(m[k])) && ['index', 'toolIndex'].every(k => integer(m[k])) && Number(m.index) < 64 && Number(m.toolIndex) < 64 && ['nozzleDiameter', 'chamberTemperature', 'softeningTemperature', 'requiredNozzleHardness', 'usedGrams', 'usedMeters'].every(k => finite(m[k])))) return false;
   if (new Set(r.materials.map(m => m.key)).size !== r.materials.length || new Set(r.materials.map(m => m.index)).size !== r.materials.length) return false;
   if (!Array.isArray(r.nozzleDiameters) || !r.nozzleDiameters.length || r.nozzleDiameters.length > 64 || !r.nozzleDiameters.every(finite) || !Array.isArray(r.filamentMap) || r.filamentMap.length > 64 || !r.filamentMap.every(integer)) return false;
   if (!Array.isArray(r.nozzleFlowTypes) || r.nozzleFlowTypes.length !== r.nozzleDiameters.length || !r.nozzleFlowTypes.every(string)) return false;

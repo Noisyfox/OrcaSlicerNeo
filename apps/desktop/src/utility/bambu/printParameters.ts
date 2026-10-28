@@ -1,8 +1,9 @@
 import type * as D from '@orca/printer-control/domain';
 import type { NativePrintParameters } from '@orca/bambu-native';
 import { printerFilamentId } from './printResources';
+import { bits, record, records, type Report } from './telemetry';
 import { physicalTool } from './printMapping';
-export function printParameters(request: D.PrintSubmissionRequest, prepared: D.PrintPreparation, name: string): Partial<NativePrintParameters> {
+export function printParameters(request: D.PrintSubmissionRequest, prepared: D.PrintPreparation, name: string, report: Report = {}): Partial<NativePrintParameters> {
   const r = request.requirements, o = prepared.options;
   const packed: number[] = r.filamentMap.map(() => -1), detailed = r.filamentMap.map(() => ({ ams_id: 255, slot_id: 255 }));
   const info: Record<string, unknown>[] = r.filamentMap.map(() => ({ ams: -1, targetColor: '', filamentId: '', filamentType: '' }));
@@ -14,7 +15,8 @@ export function printParameters(request: D.PrintSubmissionRequest, prepared: D.P
     if (!match) throw new Error('Invalid material path');
     const unit = Number(match[1]), slot = Number(match[2]);
     const external = unit === 254 || unit === 255;
-    const tray = external ? unit : unit >= 128 ? unit + slot : unit * 4 + slot;
+    const unitType = bits(records(record(report.ams).ams).find(a => String(a.id) === String(unit))?.info, 0, 4);
+    const tray = external ? unit : unitType === 5 ? 24 + slot : unit >= 128 ? unit + slot : unit * 4 + slot;
     packed[m.index] = external ? -1 : tray;
     detailed[m.index] = { ams_id: unit, slot_id: slot };
     const target = prepared.candidates.find(c => c.materialKey === m.key && c.pathId === path);
@@ -31,5 +33,5 @@ export function printParameters(request: D.PrintSubmissionRequest, prepared: D.P
     auto_bed_leveling: mode(o.bedLeveling), auto_flow_cali: mode(o.flowCalibration), auto_offset_cali: mode(o.nozzleOffsetCalibration),
     extruder_cali_manual_mode: o.sharedPressureAdvance === undefined ? -1 : o.sharedPressureAdvance ? 0 : 1,
     task_ext_change_assist: o.externalChangeAssist ?? false, try_emmc_print: false, print_type: 'from_normal',
-    task_bed_type: ({ 'Cool Plate': 'cool_plate', 'Engineering Plate': 'eng_plate', 'High Temp Plate': 'hot_plate', 'Textured PEI Plate': 'textured_plate', 'Textured Cool Plate': 'textured_cool_plate' } as Record<string, string>)[r.bedType] ?? 'auto' };
+    task_bed_type: 'auto' };
 }

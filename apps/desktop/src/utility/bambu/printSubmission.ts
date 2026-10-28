@@ -137,6 +137,8 @@ export class BambuPrintSubmissions {
       if (prepared.options.timelapse && bits(context.value.report.fun, 28) === 1) {
         const storage = prepared.options.timelapseStorage ?? 'internal';
         const capacity = await this.recording(job.state.ref, storage, job.request.requirements.layerCount);
+        if (cancelling(job)) { await this.finish(job, 'cancelled', 'Sending cancelled.'); return; }
+        if (capacity.status === 'unknown') { job.state.message = 'Recording space could not be verified; the timelapse might not be saved. Sending print…'; this.changed(); }
         if (capacity.status === 'insufficient') {
           if (job.request.recordingSpaceAction !== 'clean-oldest' || !capacity.canClean) { await this.finish(job, 'failed', 'Recording space is insufficient. Choose a recording-space action and retry.'); return; }
           const cleanup = await this.monitor.dispatch(job.state.ref, async (_c, send) => await send('camera', { command: 'ipcam_delete_oldest_timelapse', sequence_id: String(++this.sequence), storage, total_layer: job.request.requirements.layerCount }, 1) === 0 ? { ok: true, value: null } : error('Recording cleanup failed.'));
@@ -156,7 +158,7 @@ export class BambuPrintSubmissions {
           const blocking = checked.issues.find(i => i.severity === 'block' || i.severity === 'warning' && !job.request.acknowledgedIssues.includes(i.id));
           if (blocking) return error(blocking.message);
           if (job.request.recordingSpaceAction === 'disable-timelapse') checked.options.timelapse = false;
-          const options = printParameters(job.request, checked, job.name);
+          const options = printParameters(job.request, checked, job.name, latest.report);
           // Return the pending native promise as a value; never hold the monitor queue for upload.
           nativeInvoked = true;
           const pending = this.native.startPrint(route, { ...options, dev_id: delivery.device!.deviceId, filename: job.files.get('print')!.path, config_filename: job.files.get('configuration')!.path,
