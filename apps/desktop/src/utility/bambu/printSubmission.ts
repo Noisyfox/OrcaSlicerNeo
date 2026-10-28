@@ -88,7 +88,7 @@ export class BambuPrintSubmissions {
         const id = randomUUID() as D.Id<'print-submission'>;
         const ref = { printerId: r.target.printerId, routeId: r.target.routeId, id };
         const job: Job = { request: structuredClone(r), signature, directory, files, token: token.value, generation: context.value.generation,
-          name: { display: input.artifacts.find(a => a.role === 'print')!.fileName.replace(/(?:\.gcode)?\.3mf$/i, '').trim() || 'Print job', remote: `Neo_${id.replaceAll('-', '')}` }, nativeDone: null, timer: null,
+          name: { display: r.jobName, remote: `Neo_${id.replaceAll('-', '')}` }, nativeDone: null, timer: null,
           state: { ref, requestId: r.requestId, phase: 'staging', route: delivery.route, progress: 0, message: 'Preparing print artifacts', canCancel: true } };
         this.jobs.set(id, job); this.active = job;
         this.monitor.protectPrint(r.target);

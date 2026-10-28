@@ -21,7 +21,7 @@ it('maps sparse materials to H2D physical tools and serializes native protocol a
   expect(blocks(p)).toEqual([]);
   expect(p.nozzleLabels).toEqual(['Left Nozzle', 'Right Nozzle']);
   expect(p.bindings).toEqual([{ materialKey: 'filament-0', pathId: 'path:0:0:0' }, { materialKey: 'filament-2', pathId: 'path:1:0:1' }]);
-  const native = printParameters({ ...r, requestId: id('request'), acknowledgedIssues: [] }, p, { display: 'job', remote: 'unique-job' });
+  const native = printParameters({ ...r, requestId: id('request'), jobName: '测试 Cube', acknowledgedIssues: [] }, p, { display: 'job', remote: 'unique-job' });
   expect(JSON.parse(native.ams_mapping!)).toEqual([0, -1, 4]);
   expect(JSON.parse(native.ams_mapping_info!)[2].nozzleId).toBe(1);
   expect(JSON.parse(native.nozzles_info!)).toEqual([{ id: 1, type: null, diameter: .4, flowSize: 'standard_flow' }, { id: 0, type: null, diameter: .4, flowSize: 'standard_flow' }]);
@@ -74,7 +74,7 @@ it('serializes mixed AMS Lite slots at 24 and preserves hidden shared-PA behavio
   const r = printRequest(), c = printContext(), p = prepareBambuPrint(r, c, 'lan');
   expect(p.optionDescriptors.some(d => d.key === 'sharedPressureAdvance')).toBe(false);
   expect(p.options.sharedPressureAdvance).toBe(true);
-  const native = printParameters({ ...r, requestId: id('request'), acknowledgedIssues: [] }, p, { display: 'job', remote: 'unique-job' }, { ams: { ams: [{ id: 0, info: '5' }] } });
+  const native = printParameters({ ...r, requestId: id('request'), jobName: '测试 Cube', acknowledgedIssues: [] }, p, { display: 'job', remote: 'unique-job' }, { ams: { ams: [{ id: 0, info: '5' }] } });
   expect(JSON.parse(native.ams_mapping!)[0]).toBe(24); expect(native.extruder_cali_manual_mode).toBe(0); expect(native.task_bed_type).toBe('auto');
 });
 it('applies P1 model-confirmation exceptions without waiving the compatibility gate', () => {

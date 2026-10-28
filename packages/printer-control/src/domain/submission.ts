@@ -96,6 +96,8 @@ export interface PrintPreparation {
 }
 export interface PrintSubmissionRequest extends Omit<PrintPreparationRequest, 'suggest'> {
   requestId: Id<'request'>;
+  /** User-visible task name; independent of formatted export/upload filenames. */
+  jobName: string;
   /** Current submission only; the agent revalidates exact issue identities. */
   acknowledgedIssues: readonly string[];
   recordingSpaceAction?: 'disable-timelapse' | 'clean-oldest';

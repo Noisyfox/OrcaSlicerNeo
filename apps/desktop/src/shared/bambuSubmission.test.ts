@@ -16,7 +16,10 @@ it('bounds binary chunks and does not accept paths, arrays or credentials as chu
 });
 it('requires exactly one print and one configuration artifact with bounded size and no path', () => {
   const { suggest: _suggest, ...r } = printRequest();
-  const input = { request: { ...r, requestId: 'request', acknowledgedIssues: [] }, artifacts: [{ role: 'print', fileName: 'file.3mf', sizeBytes: 10 }, { role: 'configuration', fileName: 'config.3mf', sizeBytes: 10 }] };
+  const input = { request: { ...r, requestId: 'request', jobName: '测试 Cube', acknowledgedIssues: [] }, artifacts: [{ role: 'print', fileName: 'file.3mf', sizeBytes: 10 }, { role: 'configuration', fileName: 'config.3mf', sizeBytes: 10 }] };
   expect(isBambuControlRequest({ method: 'print.begin', input })).toBe(true);
+  for (const jobName of [undefined, '', '   ', 'Cube\0', 'x'.repeat(2049)]) {
+    expect(isBambuControlRequest({ method: 'print.begin', input: { ...input, request: { ...input.request, jobName } } })).toBe(false);
+  }
   input.artifacts[1].fileName = '../host-path.3mf'; expect(isBambuControlRequest({ method: 'print.begin', input })).toBe(false);
 });

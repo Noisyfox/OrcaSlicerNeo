@@ -36,7 +36,7 @@ function preparation(v: unknown, submit = false): boolean {
   const filamentMap = r.filamentMap, nozzleDiameters = r.nozzleDiameters;
   if (!r.materials.every(m => m.index < filamentMap.length && m.toolIndex < nozzleDiameters.length && filamentMap[m.index] === m.toolIndex + 1)) return false;
   if (!['durationSeconds', 'weightGrams', 'layerCount', 'timelapseWarningCode'].every(k => finite(r[k])) || typeof r.requiresDynamicMapping !== 'boolean' || typeof r.toolpathOutside !== 'boolean' || !Array.isArray(r.warnings) || r.warnings.length > 128 || !r.warnings.every(w => object(w) && string(w.message) && string(w.code))) return false;
-  return submit ? string(v.requestId) && !!v.requestId && Array.isArray(v.acknowledgedIssues) && v.acknowledgedIssues.length <= 256 && v.acknowledgedIssues.every(string) && (v.recordingSpaceAction === undefined || ['disable-timelapse', 'clean-oldest'].includes(String(v.recordingSpaceAction))) : typeof v.suggest === 'boolean';
+  return submit ? string(v.jobName) && !!v.jobName.trim() && string(v.requestId) && !!v.requestId && Array.isArray(v.acknowledgedIssues) && v.acknowledgedIssues.length <= 256 && v.acknowledgedIssues.every(string) && (v.recordingSpaceAction === undefined || ['disable-timelapse', 'clean-oldest'].includes(String(v.recordingSpaceAction))) : typeof v.suggest === 'boolean';
 }
 export function isBambuSubmissionRequest(method: unknown, input: unknown): boolean {
   if (method === 'print.prepare') return preparation(input);

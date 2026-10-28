@@ -124,12 +124,13 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
       if (warnings.some(i => !acknowledged.includes(i.id)) || checked.value.recordingSpace?.status === 'insufficient' && !recordingAction) {
         setConfirmation(checked.value); return;
       }
-      const exported = await platform.runtime.exportPrintPlate({ receipt: sourceReceipt.current, filenameBase: jobName.trim() || projectFilenameBase(useProjectStore.getState()), materialCatalogIds: checked.value.materialCatalogIds });
+      const submittedName = jobName.trim() || projectFilenameBase(useProjectStore.getState()) || 'Print job';
+      const exported = await platform.runtime.exportPrintPlate({ receipt: sourceReceipt.current, filenameBase: submittedName, materialCatalogIds: checked.value.materialCatalogIds });
       if (!live.current) return;
       if (!exported.ok) throw new Error(exported.error);
       if (JSON.stringify(exported.manifest) !== JSON.stringify((({ contentId: _id, ...manifest }) => manifest)(request.current.requirements))) throw new Error('Slice changed');
       const { suggest: _suggest, ...input } = request.current;
-      const submitted = await platform.printers.service.submissions.submit({ ...input, requestId: crypto.randomUUID() as D.Id<'request'>, acknowledgedIssues: acknowledged, recordingSpaceAction: recordingAction },
+      const submitted = await platform.printers.service.submissions.submit({ ...input, requestId: crypto.randomUUID() as D.Id<'request'>, jobName: submittedName, acknowledgedIssues: acknowledged, recordingSpaceAction: recordingAction },
         ([['print', exported.bytes], ['configuration', exported.configBytes]] as const).map(([role, bytes]) => ({ role, fileName: exported.fileName, sizeBytes: bytes.byteLength, chunks: (async function* () { yield bytes; })() })));
       if (!submitted.ok) throw new Error(submitted.error.message);
       submission = submitted.value;

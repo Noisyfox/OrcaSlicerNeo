@@ -107,6 +107,9 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
     await expect.poll(() => JSON.parse(readFileSync(configPath, 'utf8')).printPreferences?.['bambu:a']?.timelapse).toBe(false);
     await expect(dialog.getByRole('group', { name: 'Timelapse', exact: true }).getByRole('button', { name: 'Off', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(dialog.getByTestId('print-submit')).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Rename print job' }).click();
+    await dialog.getByRole('textbox', { name: 'Print job name' }).fill('Cube');
+    await dialog.getByRole('textbox', { name: 'Print job name' }).press('Enter');
     await page.screenshot({ path: '/tmp/neo-print-preparation.png', animations: 'disabled' });
     await dialog.getByTestId('print-submit').click(); await expect(dialog.getByText('Sending print', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeDisabled();
@@ -119,7 +122,7 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
     await expect(page.locator('#device-content')).toBeVisible(); await expect(page.getByTestId('device-printer-select')).toContainText('Workshop A');
     const result = await app.evaluate(() => globalThis.printFixture);
     expect(result.submissions).toHaveLength(2); expect(result.chunks).toBeGreaterThan(0);
-    for (const submission of result.submissions) expect(submission.allowAbnormalStorage).toBe(true);
+    for (const submission of result.submissions) { expect(submission.allowAbnormalStorage).toBe(true); expect(submission.jobName).toBe('Cube'); }
     for (const request of result.requests) expect(isBambuControlRequest(request), JSON.stringify(request)).toBe(true);
     await page.screenshot({ path: '/tmp/neo-print-e2e-device.png' });
   } finally { await app.close(); }

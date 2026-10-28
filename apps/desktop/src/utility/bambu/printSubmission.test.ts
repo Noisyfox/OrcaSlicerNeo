@@ -29,8 +29,8 @@ async function fixture(cloud = false, timelapse = false, recordingSpaceAction?: 
   cleanups.push(async () => { complete?.({ code: -18, mayHaveStarted: false, cancelRequested: true }); await service.close(); await rm(directory, { recursive: true, force: true }); });
   const input = printRequest(); input.options.timelapse = timelapse;
   const prepared = prepareBambuPrint(input, context, 'lan');
-  const request = { ...input, recordingSpaceAction, bindings: prepared.bindings, requestId: id<'request'>('request'), acknowledgedIssues: prepared.issues.filter(i => i.severity === 'warning').map(i => i.id) };
-  const artifacts = (['print', 'configuration'] as const).map(role => ({ role, fileName: '测试 Cube.gcode.3mf', sizeBytes: 1 }));
+  const request = { ...input, recordingSpaceAction, bindings: prepared.bindings, requestId: id<'request'>('request'), jobName: '测试 Cube', acknowledgedIssues: prepared.issues.filter(i => i.severity === 'warning').map(i => i.id) };
+  const artifacts = (['print', 'configuration'] as const).map(role => ({ role, fileName: 'Cube_PETG_1h35m.gcode.3mf', sizeBytes: 1 }));
   const begin = await service.begin({ request, artifacts }); if (!begin.ok) throw new Error(begin.error.message);
   const ref = begin.value.ref;
   const state = () => { const result = service.get(ref); if (!result.ok) throw new Error(result.error.message); return result.value; };

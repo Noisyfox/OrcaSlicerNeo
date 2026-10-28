@@ -153,8 +153,10 @@ it('renames only the submitted artifact and locks segmented options during sendi
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  f.runtime.exportPrintPlate.mockResolvedValueOnce({ ok: true, receipt, manifest, fileName: 'My print_PETG_1h35m.gcode.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]) });
   await f.click('Send');
   expect(f.runtime.exportPrintPlate).toHaveBeenCalledWith(expect.objectContaining({ filenameBase: 'My print' }));
+  expect(f.submissions.submit).toHaveBeenCalledWith(expect.objectContaining({ jobName: 'My print' }), expect.arrayContaining([expect.objectContaining({ fileName: 'My print_PETG_1h35m.gcode.3mf' })]));
   expect((container.querySelector('[aria-label="Timelapse"] [aria-label="Off"]') as HTMLButtonElement).disabled).toBe(true);
 });
 
