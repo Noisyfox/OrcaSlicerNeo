@@ -3837,6 +3837,29 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const path = `/tmp/plate-result-${plateId}-${receipt.resultGeneration}.gcode`;
       return { ok: true, path, file_name: `${request.filename_base || 'output'}.gcode` };
     },
+    orc_describe_print_plate(requestJson: string) {
+      const request = JSON.parse(requestJson);
+      const r = bridge.orc_export_gcode_plate(requestJson) as { ok?: boolean; error?: string };
+      if (!r.ok) return { ok: false, status: 'stale', error: r.error };
+      const plateId = request.receipt.plate_id;
+      const receipt = sliceReceipts.get(plateId)!;
+      return { ok: true, status: 'ok', receipt: { plate_id: plateId, input_stamp: receipt.inputStamp,
+        result_generation: receipt.resultGeneration, slice_task_id: receipt.sliceTaskId },
+        manifest: { plateId, printerModel: 'Mock printer', printerModelId: '',
+          materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FFFFFF', presetId: '', brand: '',
+            toolIndex: 0, nozzleDiameter: 0.4, nozzleFlowType: 'Standard', requiredNozzleHardness: 0, usedGrams: 1, usedMeters: 0.3 }],
+          nozzleDiameters: [0.4], filamentMap: [1], durationSeconds: 60, weightGrams: 1,
+          timelapseWarningCode: 0, toolpathOutside: false, requiresDynamicMapping: false, bedType: '', warnings: [] } };
+    },
+    orc_export_print_plate(requestJson: string) {
+      const r = bridge.orc_describe_print_plate(requestJson) as { ok: boolean };
+      if (!r.ok) return r;
+      const path = '/tmp/mock-print.3mf';
+      const config_path = '/tmp/mock-print-config.3mf';
+      files.set(path, new TextEncoder().encode('mock print archive'));
+      files.set(config_path, new TextEncoder().encode('mock config archive'));
+      return { ...r, path, config_path, file_name: 'output.gcode.3mf', plate_index: 1, gcode_path: 'Metadata/plate_1.gcode' };
+    },
     orc_export_project(_requestJson: string) {
       exportedNativeScopedConfig = clone(nativeScopedConfig);
       const archive = new TextEncoder().encode(JSON.stringify({
@@ -4062,6 +4085,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number'] },
     orc_get_slice_result: { ret: 'number', args: ['string', 'number', 'number'] },
     orc_export_gcode_plate: { ret: 'number', args: ['string'] },
+    orc_describe_print_plate: { ret: 'number', args: ['string'] },
+    orc_export_print_plate: { ret: 'number', args: ['string'] },
     orc_export_project: { ret: 'number', args: ['string'] },
     orc_read_gcode_chunk: { ret: 'number', args: ['string', 'number', 'number', 'number', 'number', 'number'] },
     orc_read_gcode_lines: { ret: 'number', args: ['string', 'number', 'number', 'number', 'number', 'number'] },

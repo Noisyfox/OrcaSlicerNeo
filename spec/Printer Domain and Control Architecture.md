@@ -1176,9 +1176,26 @@ print-preparation experience and vendor-independent print-submission contract,
 with agent-owned upload/start orchestration. Initially only the Bambu agent
 enables this new capability. This is distinct from the earlier domain-wide
 option B in section 1. Existing Moonraker upload/start behavior remains current.
-This section records design work, not delivered functionality or authorization
-to implement it. Accepted product decisions, implementation validation gates
-and explicitly deferred behavior are recorded below.
+Implementation is authorized in independently verified stages. Accepted product
+decisions, implementation validation gates and explicitly deferred behavior are
+recorded below. Delivery status is tracked separately from those decisions.
+
+#### Implementation progress
+
+The runtime now exposes receipt-bound `describePrintPlate` and `exportPrintPlate`.
+Both read the retained native slice result and reject stale generations. Native
+`store_bbs_3mf` creates a single-plate print archive and a configuration archive
+from that result; the typed client consumes their temporary MEMFS paths and
+returns bytes. Material requirements preserve original filament indices and fixed
+tool assignments, including H2D dual tools. Dynamic mapping is identified for
+the future agent's eligibility check, rather than silently flattened.
+
+The real-WASM [artifact smoke](../packages/slicer-wasm/harness/print-submission-smoke.mjs)
+checks archive entries, exact retained G-code bytes, H2D nozzle metadata and
+stale-result rejection. Serial quick build, this smoke, client tests and
+typecheck pass on the development host. This runtime stage does not enable a
+printer capability or qualify physical printing. Agent execution, artifact
+transport, device validation, shared UI and preferences remain pending.
 
 The [console specification](Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission)
 owns the interaction, mapping review and feature envelope. This section owns

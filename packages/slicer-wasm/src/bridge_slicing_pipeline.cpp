@@ -38,6 +38,7 @@
 #include "bridge_plate.hpp"
 #include "bridge_preset_drafts.hpp"
 #include "bridge_prime_tower.hpp"
+#include "bridge_print_submission.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_arrangement.hpp"
 #include "bridge_state.hpp"
@@ -1524,10 +1525,13 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(const char* pla
     }
 }
 
+enum class PrintResultOutput { Gcode, Manifest, Package };
+
 const char* export_gcode_for_target(const std::string& plate_id,
                                     const std::uint64_t revision,
                                     const std::uint64_t result_generation,
-                                    const std::string& filename_base) {
+                                    const std::string& filename_base,
+                                    PrintResultOutput output) {
     try {
         std::string target_error;
         auto* runtime_entry = runtime_entry_for_plate(plate_id, target_error);
@@ -1546,6 +1550,15 @@ const char* export_gcode_for_target(const std::string& plate_id,
         // of this generation. Only a new slice applies another input to it,
         // and that first makes the retained generation unpublishable. Do not
         // use the live project configuration or export the G-code again here.
+        if (output != PrintResultOutput::Gcode) {
+            json payload = output == PrintResultOutput::Manifest
+                ? json{{"manifest", PrintSubmission::describe(*runtime_entry)}}
+                : PrintSubmission::export_package(*runtime_entry, filename_base);
+            payload["ok"] = true;
+            payload["status"] = "ok";
+            payload["receipt"] = projection_receipt(*runtime_entry);
+            return dup_json(payload.dump());
+        }
         const std::string file_name = fold_utf8_to_ascii(
             runtime_entry->print->output_filename(filename_base), false);
         return dup_json(json{{"ok", true}, {"status", "ok"},
@@ -1562,7 +1575,7 @@ const char* export_gcode_for_target(const std::string& plate_id,
     }
 }
 
-extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* request_json) {
+const char* read_print_result(const char* request_json, PrintResultOutput output) {
     try {
         std::lock_guard<std::mutex> job_lock(g_slice_job_mutex);
         if (g_active_slice_task)
@@ -1583,12 +1596,24 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* r
             return error_json("invalid plate operation target");
         return export_gcode_for_target(plate_id,
                                        static_cast<std::uint64_t>(revision_number),
-                                       static_cast<std::uint64_t>(result_generation_number), filename_base);
+                                       static_cast<std::uint64_t>(result_generation_number), filename_base, output);
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
         return error_json("unknown C++ exception");
     }
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* request_json) {
+    return read_print_result(request_json, PrintResultOutput::Gcode);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_describe_print_plate(const char* request_json) {
+    return read_print_result(request_json, PrintResultOutput::Manifest);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_export_print_plate(const char* request_json) {
+    return read_print_result(request_json, PrintResultOutput::Package);
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {

@@ -389,6 +389,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_profiles.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_plate.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_slicing_pipeline.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_print_submission.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_project_persistence.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_scoped_config.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp"
