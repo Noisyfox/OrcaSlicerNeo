@@ -1197,6 +1197,17 @@ typecheck pass on the development host. This runtime stage does not enable a
 printer capability or qualify physical printing. Agent execution, artifact
 transport, device validation, shared UI and preferences remain pending.
 
+The host-only Bambu native wrapper now exposes independent LAN/Cloud print calls
+with numeric progress, out-of-queue cancellation and conservative dispatch
+evidence. Ordinary status requests remain available during upload; teardown waits
+for the active call before clearing callbacks or unloading. The by-value
+`PrintParams` layout is checked against the pinned source, and calls reject other
+ABI series. Native fixtures cover cancellation, concurrent admission, dispatch
+races and release ordering. The real v2.2.0 macOS ARM64 plugin passes
+`node packages/bambu-native/scripts/smoke.mjs --print-abi`, which deliberately
+omits address/credentials and verifies rejection before network I/O. This does
+not constitute LAN or Cloud print acceptance.
+
 The [console specification](Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission)
 owns the interaction, mapping review and feature envelope. This section owns
 artifact provenance, agent responsibilities, submission and outcome semantics.

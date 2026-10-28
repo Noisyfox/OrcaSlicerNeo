@@ -6,8 +6,15 @@
 #include <functional>
 #include <map>
 #include <vector>
+#include "print_params.hpp"
 
 namespace Slic3r {
+typedef std::function<void(int status, int code, std::string msg)> OnUpdateStatusFn;
+typedef std::function<bool()>                       WasCancelledFn;
+typedef std::function<bool(int status, std::string job_info)> OnWaitFn;
+typedef int (*func_start_print)(void *agent, PrintParams params, OnUpdateStatusFn update_fn, WasCancelledFn cancel_fn, OnWaitFn wait_fn);
+typedef int (*func_start_local_print_with_record)(void *agent, PrintParams params, OnUpdateStatusFn update_fn, WasCancelledFn cancel_fn, OnWaitFn wait_fn);
+typedef int (*func_start_local_print)(void *agent, PrintParams params, OnUpdateStatusFn update_fn, WasCancelledFn cancel_fn);
 typedef std::function<void(std::string topic_str)>  OnPrinterConnectedFn;
 typedef std::function<void(int status, std::string dev_id, std::string msg)> OnLocalConnectedFn;
 typedef std::function<void(int return_code, int reason_code)>                OnServerConnectedFn;
@@ -78,6 +85,9 @@ typedef void (*func_install_device_cert)(void* agent, std::string dev_id, bool l
     X(check_debug_consistent) \
     X(get_camera_url) \
     X(get_version) \
+    X(start_print) \
+    X(start_local_print) \
+    X(start_local_print_with_record) \
     X(create_agent) \
     X(destroy_agent) \
     X(init_log) \

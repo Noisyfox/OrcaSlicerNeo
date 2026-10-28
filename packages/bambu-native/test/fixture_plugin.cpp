@@ -27,7 +27,7 @@ struct Fixture {
 };
 static Fixture& fixture(void* handle) { return *static_cast<Fixture*>(handle); }
 EXPORT bool bambu_network_check_debug_consistent(bool debug) { return !debug; }
-EXPORT std::string bambu_network_get_version() { return "fixture-1"; }
+EXPORT std::string bambu_network_get_version() { return "02.08.01.fixture"; }
 EXPORT void* bambu_network_create_agent(std::string path) { auto f = new Fixture; f->trace = path; f->record("create"); return f; }
 EXPORT int bambu_network_destroy_agent(void* handle) { fixture(handle).record("destroy"); delete static_cast<Fixture*>(handle); return 0; }
 EXPORT int bambu_network_init_log(void* handle) { fixture(handle).record("init-log"); return 0; }
@@ -106,6 +106,27 @@ EXPORT void bambu_network_install_device_cert(void* handle, std::string id, bool
 EXPORT int bambu_network_get_subtask_info(void*, std::string id, std::string* task, unsigned* code, std::string* body) { *task = id; *code = 200; *body = "private-http-body"; return 0; }
 
 EXPORT int bambu_network_get_camera_url(void*, std::string, std::function<void(std::string)> callback) { callback("bambu:///local/fixture?port=6000&user=bblp&passwd=fixture"); return 0; }
+// Deliberately blocking ABI fixture: upload cancellation must remain responsive.
+static int run_print(void* handle, PrintParams p, OnUpdateStatusFn update, WasCancelledFn cancel, bool cloud) {
+    auto& f = fixture(handle);
+    f.record("print:" + p.dev_id + ":" + p.filename + ":" + std::to_string(p.plate_index) + ":" + p.ams_mapping + ":" + p.slicer_uid);
+    update(1, 10, "private://upload-token");
+    for (int i = 0; i < 50; ++i) {
+        if (cancel()) { f.record("print-cancelled"); return -18; }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    if (p.task_name == "fail") return -4010;
+    update(cloud ? 3 : 2, 0, "private-start");
+    // Pause after dispatch to exercise cancellation refusal and destruction ordering.
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    f.record("print-published");
+    if (p.task_name == "unknown") return -4020;
+    update(6, 100, "");
+    return 0;
+}
+EXPORT int bambu_network_start_local_print(void* h, PrintParams p, OnUpdateStatusFn u, WasCancelledFn c) { return run_print(h, p, u, c, false); }
+EXPORT int bambu_network_start_print(void* h, PrintParams p, OnUpdateStatusFn u, WasCancelledFn c, OnWaitFn) { return run_print(h, p, u, c, true); }
+EXPORT int bambu_network_start_local_print_with_record(void* h, PrintParams p, OnUpdateStatusFn u, WasCancelledFn c, OnWaitFn) { return run_print(h, p, u, c, true); }
 #define CHECK(name) static_assert(std::is_same_v<decltype(&bambu_network_##name), Slic3r::func_##name>);
 NEO_BAMBU_EXPORTS(CHECK)
 #undef CHECK

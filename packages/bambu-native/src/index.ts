@@ -2,9 +2,12 @@
 import { createRequire } from 'node:module';
 import { isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import type { NativePrintParameters, NativePrintResult } from './print.js';
+export type { NativePrintParameters, NativePrintResult } from './print.js';
 
 export interface NativeHttpResult { result: number; httpCode: number; body: string }
 export type NativeEvent =
+  | { type: 'print-progress'; args: [number, number, boolean] }
   | { type: 'ssdp' | 'printer-connected' | 'subscribe-failure'; args: [string] }
   | { type: 'message' | 'user-message' | 'local-message'; args: [string, string] }
   | { type: 'server-connected'; args: [number, number] }
@@ -12,12 +15,17 @@ export type NativeEvent =
   | { type: 'local-connect'; args: [number, string, string] }
   | { type: 'server-error'; args: [string, number] };
 interface Binding {
+  startPrint(route: 'lan' | 'cloud', params: NativePrintParameters): Promise<NativePrintResult>;
+  cancelPrint(): boolean;
   invoke(method: string, args: readonly unknown[]): Promise<unknown>;
   drain(): Promise<void>;
   dispose(): void;
 }
 
 export interface BambuNative {
+  startPrint(route: 'lan' | 'cloud', params: NativePrintParameters): Promise<NativePrintResult>;
+  /** Requests cancellation without waiting behind upload. Completion establishes the outcome. */
+  cancelPrint(): boolean;
   getVersion(): Promise<string>;
   getCameraUrl(deviceId: string): Promise<string>;
   createAgent(logDirectory: string): Promise<number>;
@@ -72,6 +80,9 @@ export function loadBambuNative(addonPath: string, pluginPath: string, listener:
   let tail: Promise<unknown> = Promise.resolve();
   let closing: Promise<void> | null = null;
   let created = false;
+  let print: Promise<NativePrintResult> | null = null;
+  let cancelPending = false;
+  let printLaunched = false;
   // Preserve Orca call ordering while the Node event loop delivers callbacks.
   const call = <T>(method: string, ...args: unknown[]): Promise<T> => {
     if (closing) return Promise.reject(new Error('Bambu native agent closed'));
@@ -80,6 +91,23 @@ export function loadBambuNative(addonPath: string, pluginPath: string, listener:
     return result;
   };
   return {
+    startPrint(route, params) {
+      if (closing || print) return Promise.reject(new Error('Native print closed or busy'));
+      cancelPending = false;
+      const pending = tail.then(() => {
+        if (cancelPending) return { code: -18, mayHaveStarted: false, cancelRequested: true };
+        const result = binding.startPrint(route, params);
+        printLaunched = true;
+        return result;
+      });
+      print = pending.finally(() => { print = null; printLaunched = false; });
+      return print;
+    },
+    cancelPrint() {
+      if (!print) return false;
+      if (printLaunched) return binding.cancelPrint();
+      cancelPending = true; return true;
+    },
     getVersion: () => call('get_version'), getCameraUrl: id => call('get_camera_url', id),
     createAgent: async path => { const result = await call<number>('create_agent', path); created = result === 0; return result; },
     setConfigDirectory: path => call('set_config_dir', path), initLog: () => call('init_log'),
@@ -101,7 +129,7 @@ export function loadBambuNative(addonPath: string, pluginPath: string, listener:
     installDeviceCertificate: async (id, lanOnly) => { await call('install_device_cert', id, lanOnly); },
     disconnectPrinter: () => call('disconnect_printer'), getSelectedMachine: () => call('get_user_selected_machine'), setSelectedMachine: id => call('set_user_selected_machine', id),
     close() {
-      if (!closing) closing = tail.then(async () => {
+      if (!closing) closing = Promise.allSettled([tail, ...(print ? [print] : [])]).then(async () => {
         try {
           await binding.invoke('clear_callbacks', []);
           await binding.drain();

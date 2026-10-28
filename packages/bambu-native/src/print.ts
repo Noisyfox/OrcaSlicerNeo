@@ -1,0 +1,49 @@
+/** Host-private pinned plugin parameters. Never expose this ABI in shared UI/IPC. */
+export interface NativePrintParameters {
+  dev_id: string;
+  task_name?: string;
+  project_name?: string;
+  preset_name?: string;
+  filename: string;
+  config_filename?: string;
+  plate_index: number;
+  ftp_folder?: string;
+  ftp_file?: string;
+  ftp_file_md5?: string;
+  nozzle_mapping?: string;
+  ams_mapping?: string;
+  ams_mapping2?: string;
+  ams_mapping_info?: string;
+  nozzles_info?: string;
+  connection_type?: string;
+  comments?: string;
+  origin_profile_id?: number;
+  stl_design_id?: number;
+  origin_model_id?: string;
+  print_type?: string;
+  dst_file?: string;
+  dev_name?: string;
+  dev_ip?: string;
+  use_ssl_for_ftp?: boolean;
+  use_ssl_for_mqtt?: boolean;
+  username?: string;
+  password?: string;
+  task_bed_leveling?: boolean;
+  task_flow_cali?: boolean;
+  task_vibration_cali?: boolean;
+  task_layer_inspect?: boolean;
+  task_record_timelapse?: boolean;
+  task_timelapse_use_internal?: boolean;
+  task_use_ams?: boolean;
+  task_bed_type?: string;
+  extra_options?: string;
+  auto_bed_leveling?: number;
+  auto_flow_cali?: number;
+  auto_offset_cali?: number;
+  extruder_cali_manual_mode?: number;
+  task_ext_change_assist?: boolean;
+  try_emmc_print?: boolean;
+  svc_context?: string;
+  slicer_uid?: string;
+}
+export interface NativePrintResult { code: number; mayHaveStarted: boolean; cancelRequested: boolean }

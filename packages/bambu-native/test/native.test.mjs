@@ -18,7 +18,7 @@ async function session(work) {
 
 test('copies strings and HTTP output parameters, and serializes submitted calls', async () => {
   await session(async (agent, trace) => {
-    assert.equal(await agent.getVersion(), 'fixture-1');
+    assert.equal(await agent.getVersion(), '02.08.01.fixture');
     await agent.createAgent(trace);
     await Promise.all([agent.setConfigDirectory('/configuration/路径'), agent.initLog(), agent.setCertificate('/cert', 'root.cer')]);
     const payload = '登录\u0000opaque-payload';

@@ -3,11 +3,17 @@
 #include "plugin_api.hpp"
 #include <mutex>
 #include <variant>
+#include <atomic>
 
 using Input = std::variant<std::string, bool, int, std::map<std::string, std::string>>;
 using EventArgument = std::variant<std::string, bool, int>;
 struct HttpResult { int result; unsigned http_code; std::string body; };
-using Output = std::variant<int, bool, std::string, HttpResult>;
+struct PrintResult { int code; bool may_have_started; bool cancel_requested; };
+struct PrintState {
+    std::atomic<bool> cancel{false};
+    std::atomic<bool> may_have_started{false};
+};
+using Output = std::variant<int, bool, std::string, HttpResult, PrintResult>;
 struct PluginEvent {
     // Keep the library loaded until captured plugin functions have been destroyed.
     std::shared_ptr<Library> library;
@@ -26,6 +32,8 @@ public:
     void install_discovery_callbacks(EventSink sink);
     void clear_callbacks();
     void destroy();
+    PrintResult print(const std::string& route, Slic3r::PrintParams params,
+        const std::shared_ptr<PrintState>& state, EventSink sink);
     bool has_agent() const { return agent_ != nullptr; }
     std::shared_ptr<Library> library() const { return library_; }
 private:
