@@ -1253,9 +1253,25 @@ Validation on 2026-10-28 (development macOS ARM64):
   `pnpm --filter @orca/desktop build` pass; the preparation screenshot was
   inspected for layout and readable controls.
 
-No physical print was started for these checks. Initial H2D + AMS LAN print
-qualification is still required; Cloud physical qualification remains deferred.
-Other desktop targets and the complete release matrix were not run here.
+Development-host LAN qualification now includes a completed H2D print without a
+Filament Track Switch: one 10 mm PETG cube on Textured PEI, with AMS 2 Pro B1
+feeding the fixed right nozzle. The user confirmed normal feeding, extrusion
+and first layer; the device reported completion, readiness and zero heater
+targets. This qualifies that single-source, fixed-tool path only. Simultaneous
+dual-tool printing, other supply paths and Cloud physical printing remain
+unqualified; this is not complete host or release-matrix qualification.
+
+Fixed Bambu nozzle assignments must preserve Orca's inactive hotend placeholder
+(`H-1`), rather than requesting an explicit hotend through `H0`/`H1`, which can
+make an H2D require a Filament Track Switch. The pinned Orca correction and the
+real-WASM artifact smoke cover this distinction in both local WASM variants.
+The actual LAN submission archive was also checked before the repaired print.
+
+One separate outcome limitation remains: the pinned LAN plugin can start the
+correctly named task while the agent's filename-based start correlation stays
+unknown. Device monitoring confirmed the completed task in this round, but the
+submission modal did not confirm start. Preserve the unknown-outcome ownership
+and duplicate-send guard until correlation is corrected.
 
 The [console specification](Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission)
 owns the interaction, mapping review and feature envelope. This section owns

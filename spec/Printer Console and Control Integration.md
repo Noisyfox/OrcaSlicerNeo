@@ -7,9 +7,10 @@ implementation are delivered. Bambu protocol fixtures and desktop interaction
 regression cover software behavior; physical H2D + AMS acceptance remains last,
 Account-backed automatic networking followed by LAN-only access. No complete
 hardware or six-target control qualification is claimed.
-Local-artifact print preparation/submission is a selected design direction,
-initially enabled only by the Bambu agent. Its accepted behavior and explicitly
-deferred boundaries are recorded below; this document update does not implement it.
+Local-artifact print preparation/submission is implemented and initially enabled
+only by the Bambu agent. Development-host LAN qualification includes one completed
+H2D print using AMS B1 and the fixed right nozzle; dual-tool and Cloud printing
+remain unqualified, and LAN start confirmation has an unresolved correlation gap.
 
 **Scope:** The printer-console and printer-control experience shared by the
 Electron desktop application and the Web application.
@@ -708,16 +709,21 @@ shared-app unit suite and workspace typechecks. The Bambu Electron fixture cover
 renderer/preload/main requests, binary chunk delivery, persisted options,
 cancellation and delayed start confirmation; Moonraker send/retry and keyless
 regressions pass. The fixture caught and fixed an observation target carrying a
-command-only revision field. These results do not qualify a physical print.
-Initial H2D + AMS LAN print acceptance remains outstanding; Cloud physical
-acceptance is deferred as agreed.
+command-only revision field. Physical acceptance is separate: a development-host
+H2D LAN print using one PETG source (AMS 2 Pro B1) and the fixed right nozzle now
+completed. The user confirmed feeding, extrusion and first layer; the device
+reported completion and zero heater targets. Dual-tool and other supply-path
+acceptance remain open; Cloud physical acceptance is deferred as agreed. The
+modal still reports an unknown start outcome for this real LAN task because of
+the agent/plugin correlation gap described in the
+[domain qualification boundary](Printer%20Domain%20and%20Control%20Architecture.md#implementation-progress).
 
 
 **Decision status:** Adopt a shared, capability-driven preparation UI and a
 generic local-artifact submission contract (option B), initially enabled only
 by the Bambu agent. The sections below record the accepted product decisions
-and explicitly deferred scope. Implementation feasibility and physical validation
-remain required; none of this follow-up is delivered behavior. The
+and explicitly deferred scope. Delivery and physical qualification are limited
+to the implementation and acceptance described above. The
 [domain design](Printer%20Domain%20and%20Control%20Architecture.md#24-local-artifact-print-submission)
 owns artifact provenance, agent execution, outcome semantics and implementation
 validation boundaries. Preserve the existing Moonraker workflow.
