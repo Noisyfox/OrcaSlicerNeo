@@ -76,8 +76,7 @@ function run(file, args = [], env = {}) {
 
 function linuxHelper(name, env) { run('bash', [join(generatedPackage, name)], env); }
 
-export async function verifyDependencies() {
-  const deps = join(work, 'deps');
+export async function verifyDependencies(deps = join(work, 'deps')) {
   const requireFile = async path => { if (!(await stat(path)).isFile()) throw new Error(`Missing compiled wasm32 dependency: ${path}`); };
   const boost = join(deps, 'boost-1.84.0/stage-wasm32/lib');
   const archives = await readdir(boost);
@@ -91,6 +90,11 @@ export async function verifyDependencies() {
       `nlopt-2.5.0/stage-wasm32-${variant}/lib/libnlopt.a`, `draco-1.5.7/stage-wasm32-${variant}/lib/libdraco.a`,
       `occt-7.6.0/stage-wasm32-${variant}/include/opencascade/Standard.hxx`, `occt-7.6.0/stage-wasm32-${variant}/lib/libTKXDESTEP.a`]) {
       await requireFile(join(deps, suffix));
+    }
+    const manifest = join(deps, `occt-7.6.0/stage-wasm32-${variant}/manifest.txt`);
+    const settings = await readFile(manifest, 'utf8');
+    if (!settings.split(/\r?\n/).includes('USE_FREETYPE=OFF')) {
+      throw new Error(`OCCT wasm32 ${variant} stage must be rebuilt with USE_FREETYPE=OFF: ${manifest}`);
     }
   }
 }
