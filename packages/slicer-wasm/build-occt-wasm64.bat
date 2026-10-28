@@ -27,10 +27,10 @@ set "OCCT_SOURCE=%DEPS%\occt-%OCCT_VER%"
 set "OCCT_BUILD=%WORK_DIR%\occt-build-%ARTIFACT_VARIANT%"
 set "OCCT_STAGE=%OCCT_SOURCE%\stage-wasm64-%ARTIFACT_VARIANT%"
 set "OCCT_PATCH_DIR=%PKG_DIR%\patches\occt"
-set "OCCT_FLAGS=-m64 -sUSE_FREETYPE=1"
-if not "%WASM_THREADING%"=="0" set "OCCT_FLAGS=-m64 -sUSE_FREETYPE=1 -pthread"
-if "%WASM_THREADING%"=="0" if not "%OCCT_FLAGS%"=="-m64 -sUSE_FREETYPE=1" (echo [occt] ERROR: serial flags unexpectedly enable pthread.& exit /b 1)
-if "%WASM_THREADING%"=="1" if not "%OCCT_FLAGS%"=="-m64 -sUSE_FREETYPE=1 -pthread" (echo [occt] ERROR: threaded flags do not enable pthread.& exit /b 1)
+set "OCCT_FLAGS=-m64"
+if not "%WASM_THREADING%"=="0" set "OCCT_FLAGS=-m64 -pthread"
+if "%WASM_THREADING%"=="0" if not "%OCCT_FLAGS%"=="-m64" (echo [occt] ERROR: serial flags unexpectedly enable pthread.& exit /b 1)
+if "%WASM_THREADING%"=="1" if not "%OCCT_FLAGS%"=="-m64 -pthread" (echo [occt] ERROR: threaded flags do not enable pthread.& exit /b 1)
 
 where emcmake >nul 2>nul
 if errorlevel 1 (echo [occt] ERROR: activate emsdk first.& exit /b 1)
@@ -40,8 +40,6 @@ where cmake >nul 2>nul
 if errorlevel 1 (echo [occt] ERROR: cmake not found.& exit /b 1)
 where ninja >nul 2>nul
 if errorlevel 1 (echo [occt] ERROR: ninja not found.& exit /b 1)
-if not defined EMSCRIPTEN if defined EMSDK set "EMSCRIPTEN=%EMSDK%\upstream\emscripten"
-if not defined EMSCRIPTEN (echo [occt] ERROR: EMSCRIPTEN must name the Emscripten directory.& exit /b 1)
 if not exist "%OCCT_SOURCE%\CMakeLists.txt" call "%PKG_DIR%\fetch-deps.bat"
 if errorlevel 1 exit /b 1
 if not exist "%OCCT_SOURCE%\CMakeLists.txt" (echo [occt] ERROR: OCCT source unavailable.& exit /b 1)
@@ -57,18 +55,6 @@ for %%P in ("%OCCT_PATCH_DIR%\*.patch") do (
     if errorlevel 1 (echo [occt] ERROR: OCCT patch %%~nxP neither applies nor is already applied.& exit /b 1)
   )
 )
-set "FREETYPE_SYSROOT=%EMSCRIPTEN%\cache\sysroot"
-@REM  if not exist "%FREETYPE_SYSROOT%\include\freetype2\ft2build.h" (echo [occt] ERROR: Emscripten FreeType headers missing.& exit /b 1)
-set "FREETYPE_ARCHIVE=%EMSCRIPTEN%\cache\sysroot\lib\wasm64-emscripten\libfreetype.a"
-if not exist "%FREETYPE_ARCHIVE%" if exist "%EMSCRIPTEN%\cache\sysroot\lib\wasm64-emscripten\pic\libfreetype.a" set "FREETYPE_ARCHIVE=%EMSCRIPTEN%\cache\sysroot\lib\wasm64-emscripten\pic\libfreetype.a"
-if not exist "%FREETYPE_ARCHIVE%" (
-  echo [occt] Materializing the wasm64 FreeType port
-  mkdir "%OCCT_BUILD%" 2>nul
-  emcc "%PKG_DIR%\stubs\freetype-port-probe.c" %OCCT_FLAGS% -sERROR_ON_UNDEFINED_SYMBOLS=1 -sSTANDALONE_WASM=1 -o "%OCCT_BUILD%\freetype-port-probe.wasm"
-  if errorlevel 1 exit /b 1
-)
-if not exist "%FREETYPE_ARCHIVE%" (echo [occt] ERROR: wasm64 FreeType port archive missing.& exit /b 1)
-
 echo [occt] Configuring OCCT %OCCT_VER% ^(%ARTIFACT_VARIANT% wasm64^)
 emcmake cmake -S "%OCCT_SOURCE%" -B "%OCCT_BUILD%" -G Ninja ^
   -DCMAKE_BUILD_TYPE=Release ^
@@ -88,12 +74,7 @@ emcmake cmake -S "%OCCT_SOURCE%" -B "%OCCT_BUILD%" -G Ninja ^
   -DBUILD_MODULE_Visualization=OFF ^
   -DBUILD_DOC_Overview=OFF ^
   -DUSE_TK=OFF -DUSE_TBB=OFF -DUSE_FFMPEG=OFF -DUSE_VTK=OFF ^
-  -DUSE_OPENGL=OFF -DUSE_GLES2=OFF -DUSE_FREETYPE=ON ^
-  -D3RDPARTY_FREETYPE_DIR= ^
-  -D3RDPARTY_FREETYPE_INCLUDE_DIR_freetype2="%FREETYPE_SYSROOT%\include\freetype2" ^
-  -D3RDPARTY_FREETYPE_INCLUDE_DIR_ft2build="%FREETYPE_SYSROOT%\include\freetype2" ^
-  -DFREETYPE_LIBRARY_RELEASE="%FREETYPE_ARCHIVE%" ^
-  -DFREETYPE_LIBRARY_DEBUG="%FREETYPE_ARCHIVE%"
+  -DUSE_OPENGL=OFF -DUSE_GLES2=OFF -DUSE_FREETYPE=OFF
 if errorlevel 1 exit /b 1
 cmake --build "%OCCT_BUILD%" --target TKBO TKBRep TKCAF TKCDF TKernel TKG2d TKG3d TKGeomAlgo TKGeomBase TKHLR TKLCAF TKMath TKMesh TKPrim TKService TKShHealing TKSTEP TKSTEP209 TKSTEPAttr TKSTEPBase TKTopAlgo TKV3d TKVCAF TKXCAF TKXDESTEP TKXSBase --parallel %BUILD_JOBS%
 if errorlevel 1 exit /b 1
@@ -106,16 +87,13 @@ if not exist "%OCCT_BUILD%\include\opencascade\Standard.hxx" (echo [occt] ERROR:
 
 if exist "%OCCT_STAGE%" rmdir /s /q "%OCCT_STAGE%"
 mkdir "%OCCT_STAGE%\include\opencascade" 2>nul
-mkdir "%OCCT_STAGE%\include\freetype2" 2>nul
 mkdir "%OCCT_STAGE%\lib" 2>nul
 xcopy "%OCCT_BUILD%\include\opencascade\*" "%OCCT_STAGE%\include\opencascade\" /e /i /y >nul
 if errorlevel 1 exit /b 1
 for %%T in (TKBO TKBRep TKCAF TKCDF TKernel TKG2d TKG3d TKGeomAlgo TKGeomBase TKHLR TKLCAF TKMath TKMesh TKPrim TKService TKShHealing TKSTEP TKSTEP209 TKSTEPAttr TKSTEPBase TKTopAlgo TKV3d TKVCAF TKXCAF TKXDESTEP TKXSBase) do copy /y "%LIB_DIR%\lib%%T.a" "%OCCT_STAGE%\lib\" >nul
 
-copy /y "%FREETYPE_ARCHIVE%" "%OCCT_STAGE%\lib\libfreetype.a" >nul
-xcopy "%FREETYPE_SYSROOT%\include\freetype2\*" "%OCCT_STAGE%\include\freetype2\" /e /i /y >nul
 > "%OCCT_STAGE%\manifest.txt" echo OCCT=%OCCT_VER%
 >> "%OCCT_STAGE%\manifest.txt" echo variant=%ARTIFACT_VARIANT%
 >> "%OCCT_STAGE%\manifest.txt" echo flags=%OCCT_FLAGS%
->> "%OCCT_STAGE%\manifest.txt" echo freetype=Emscripten port
-echo [occt] Staged OCCT archives and FreeType at %OCCT_STAGE%
+>> "%OCCT_STAGE%\manifest.txt" echo USE_FREETYPE=OFF
+echo [occt] Staged OCCT archives at %OCCT_STAGE%

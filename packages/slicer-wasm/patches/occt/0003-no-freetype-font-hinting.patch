@@ -1,0 +1,39 @@
+From 4a837ecec21bfe24d9c224c4b59aa9779156f297 Mon Sep 17 00:00:00 2001
+From: Dzmitry Razmyslovich <dzmitry.razmyslovich@hexagon.com>
+Date: Thu, 25 Nov 2021 17:46:56 +0100
+Subject: [PATCH] 0031087: Configuration - make FreeType dependency optional
+ [part 2]
+
+Upstream: https://github.com/Open-Cascade-SAS/OCCT/commit/4a837ecec21bfe24d9c224c4b59aa9779156f297
+
+---
+ src/Font/Font_FTFont.cxx | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/Font/Font_FTFont.cxx b/src/Font/Font_FTFont.cxx
+index bdd4f572f76..aeecf5c74ab 100755
+--- a/src/Font/Font_FTFont.cxx
++++ b/src/Font/Font_FTFont.cxx
+@@ -103,9 +103,11 @@ bool Font_FTFont::Init (const Handle(NCollection_Buffer)& theData,
+   {
+     throw Standard_ProgramError ("Font_FTFont, Light and Normal hinting styles are mutually exclusive");
+   }
++#ifdef HAVE_FREETYPE
+   setLoadFlag (FT_LOAD_TARGET_LIGHT,   (theParams.FontHinting & Font_Hinting_Light) != 0);
+   setLoadFlag (FT_LOAD_NO_HINTING,     (theParams.FontHinting & Font_Hinting_Normal) == 0
+                                     && (theParams.FontHinting & Font_Hinting_Light)  == 0);
++#endif
+
+   // manage native / autohinting
+   if ((theParams.FontHinting & Font_Hinting_ForceAutohint) != 0
+@@ -113,8 +115,10 @@ bool Font_FTFont::Init (const Handle(NCollection_Buffer)& theData,
+   {
+     throw Standard_ProgramError ("Font_FTFont, ForceAutohint and NoAutohint are mutually exclusive");
+   }
++#ifdef HAVE_FREETYPE
+   setLoadFlag (FT_LOAD_FORCE_AUTOHINT, (theParams.FontHinting & Font_Hinting_ForceAutohint) != 0);
+   setLoadFlag (FT_LOAD_NO_AUTOHINT,    (theParams.FontHinting & Font_Hinting_NoAutohint) != 0);
++#endif
+
+   if (!myFTLib->IsValid())
+   {

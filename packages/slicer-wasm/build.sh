@@ -183,7 +183,8 @@ if [[ ! -f "$DRACO_ARCHIVE" ]]; then
   WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
     bash "$PKG_DIR/build-draco-wasm64.sh"
 fi
-if [[ ! -f "$OCCT_ROOT/include/opencascade/Standard.hxx" || ! -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]]; then
+if [[ ! -f "$OCCT_ROOT/include/opencascade/Standard.hxx" || ! -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]] \
+    || ! grep -qx 'USE_FREETYPE=OFF' "$OCCT_ROOT/manifest.txt" 2>/dev/null; then
   log "Building OCCT 7.6.0 XCAF/STEP closure ($ARTIFACT_VARIANT wasm64)"
   WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
     WORK_DIR="$WORK_DIR" bash "$PKG_DIR/build-occt-wasm64.sh" \
