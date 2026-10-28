@@ -72,6 +72,10 @@ for (const material of dualOutput.manifest.materials)
   assert.equal(material.toolIndex, dualOutput.manifest.filamentMap[material.index] - 1);
 assert.deepEqual(new Set(dualOutput.manifest.materials.map(m => m.toolIndex)), new Set([0, 1]));
 const dualEntries = new Map(readZipEntries(dual.Module.FS.readFile(dualOutput.path)).map(e => [e.name, e.content]));
+const dualGcode = new TextDecoder().decode(dualEntries.get(dualOutput.gcode_path));
+// Fixed H2D nozzle assignments must not request a Filament Track Switch.
+assert.match(dualGcode, /^M620 S\d+A H-1(?:[ ;]|$)/m);
+assert.doesNotMatch(dualGcode, /^(?:M620 S\d+A|T\d+) H\d+(?:[ ;]|$)/m);
 const dualXml = new TextDecoder().decode(dualEntries.get('Metadata/slice_info.config'));
 assert.match(dualXml, /O1D/);
 assert.match(dualXml, /<nozzle /);
