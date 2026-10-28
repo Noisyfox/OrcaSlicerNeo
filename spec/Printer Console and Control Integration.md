@@ -755,6 +755,10 @@ material binding; selecting a slot closes the popover, and Escape closes the
 popover without closing print preparation. Unit capacity comes from the reported
 topology, not a hard-coded four-slot AMS layout. The agent supplies unit/category,
 slot and tool labels and selection eligibility together with each source.
+Supply-device names (`unit.name`) and category labels (`unit.categoryLabel`) are
+displayed as provided by the agent. The picker title and category headings must
+not translate `automatic-feeder` into a vendor name: Bambu supplies `AMS`, while
+another agent can supply `MMU` or its own product name without shared UI changes.
 Its picker exposes the full source name and material type;
 unassigned and unavailable selections stay explicit. Nozzle labels arrive in
 slice tool-index order from the agent (`nozzleLabels`); the shared renderer does

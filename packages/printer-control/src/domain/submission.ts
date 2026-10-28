@@ -71,6 +71,8 @@ export interface PrintMaterialSource {
   label: string;
   color: string | null;
   materialType: string | null;
+  /** Agent-provided supply-device name and category label, displayed verbatim.
+   * `kind` controls grouping/behavior only; the shared UI must not infer vendor names from it. */
   unit: Pick<MaterialUnit, 'id' | 'name' | 'kind'> & { categoryLabel: string };
   slot: Pick<MaterialSlot, 'id' | 'name'>;
   tool: Pick<Tool, 'id' | 'name'>;

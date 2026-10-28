@@ -158,6 +158,32 @@ it('renames only the submitted artifact and locks segmented options during sendi
   expect((container.querySelector('[aria-label="Timelapse"] [aria-label="Off"]') as HTMLButtonElement).disabled).toBe(true);
 });
 
+it('uses agent-provided supply names throughout the picker for a non-Bambu feeder', async () => {
+  const f = await setup();
+  const result = await f.submissions.prepare.mock.results[0].value;
+  if (!result.ok) throw new Error('Fixture preparation failed');
+  const source = result.value.candidates[0];
+  f.setSources([
+    { ...source, label: 'Workshop MMU · Feed 5', unit: { ...source.unit, name: 'Workshop MMU', categoryLabel: 'MMU' }, slot: { ...source.slot, name: 'Feed 5' } },
+    { ...source, pathId: id('reel'), label: 'Side reel stand · Reel 1', unit: { id: id('reel-unit'), name: 'Side reel stand', kind: 'manual-holder', categoryLabel: 'Reel holders' }, slot: { id: id('reel-slot'), name: 'Reel 1' } },
+  ]);
+  await act(async () => (container.querySelector('[aria-label="Refresh printer status"]') as HTMLElement).click());
+  const trigger = () => container.querySelector('[aria-label="Material 1 source"]') as HTMLElement;
+  expect(trigger().textContent).toContain('Feed 5');
+  expect(trigger().title).toBe('Workshop MMU · Feed 5 · PLA');
+  await act(async () => trigger().click());
+  const popup = document.querySelector('[data-print-dialog-popover]')!;
+  expect(popup.textContent).toContain('MMU Slots');
+  expect(popup.textContent).toContain('Reel holders');
+  expect(popup.querySelector('[role="group"][aria-label="Workshop MMU"]')).not.toBeNull();
+  expect(popup.querySelector('[role="group"][aria-label="Side reel stand"]')).not.toBeNull();
+  expect(popup.textContent).not.toMatch(/AMS|External/);
+  await act(async () => (popup.querySelector('[aria-label="Side reel stand · Reel 1 · PLA"]') as HTMLElement).click());
+  expect(trigger().textContent).toContain('Reel 1');
+  expect(trigger().title).toBe('Side reel stand · Reel 1 · PLA');
+  expect(trigger().getAttribute('data-source')).toBe('reel');
+});
+
 it('picks from grouped slots, exposes disabled reasons and resets only the current mapping', async () => {
   const f = await setup();
   const result = await f.submissions.prepare.mock.results[0].value;
