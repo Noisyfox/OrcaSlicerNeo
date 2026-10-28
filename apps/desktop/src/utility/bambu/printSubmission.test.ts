@@ -21,7 +21,7 @@ async function fixture(cloud = false, timelapse = false, recordingSpaceAction?: 
   const native = { installDeviceCertificate: vi.fn(async () => undefined), connectPrinter: vi.fn(async () => 0),
     startPrint: vi.fn((_route: string, _params: NativePrintParameters) => new Promise<NativePrintResult>(resolve => { complete = resolve; })), cancelPrint: vi.fn(() => true) };
   const commands = vi.fn(async (_section: string, _fields: Record<string, unknown>, _qos: number) => 0);
-  const monitor = { context: vi.fn(async () => ({ ok: true as const, value: context })), acquire: vi.fn(async () => ({ ok: true as const, value: 'lease' })), stop: vi.fn(async () => undefined), protectPrint: vi.fn(),
+  const monitor = { context: vi.fn(async () => ({ ok: true as const, value: context })), read: vi.fn(async () => ({ ok: false as const, error: { code: 'offline', message: 'No fixture response' } })), acquire: vi.fn(async () => ({ ok: true as const, value: 'lease' })), stop: vi.fn(async () => undefined), protectPrint: vi.fn(),
     dispatch: vi.fn(async (_target, fn) => fn(context, commands)) };
   const devices = { list: vi.fn(async () => [{ deviceId: 'fixture', name: 'H2D', routes: [{ channel: 'lan', revision: 'r1' }, ...(cloud ? [{ channel: 'cloud', revision: 'c1' }] : [])] }]) };
   const repository = { read: vi.fn(async () => ({ lan: [{ deviceId: 'fixture', revision: 'r1', ip: '127.0.0.1', accessCode: 'fixture-only' }] })) };
@@ -35,7 +35,12 @@ async function fixture(cloud = false, timelapse = false, recordingSpaceAction?: 
   const ref = begin.value.ref;
   const state = () => { const result = service.get(ref); if (!result.ok) throw new Error(result.error.message); return result.value; };
   const send = async () => { for (const artifact of artifacts) expect(await service.chunk({ ref, role: artifact.role, offset: 0, bytes: new Uint8Array([1]) })).toEqual({ ok: true, value: null }); await service.commit(ref); await vi.waitFor(() => expect(native.startPrint).toHaveBeenCalled()); };
-  return { service, native, monitor, commands, request, artifacts, ref, state, send, directory, update: (next: typeof context) => { context = next; }, complete: (result: NativePrintResult) => complete(result) };
+  const push = async (patch: Record<string, unknown>, channel: 'local-message' | 'message' = 'local-message', deviceId = 'fixture') => {
+    const generation = context.generation + 1;
+    context = printContext({ ...context.report, ...patch }); context.generation = generation;
+    await service.onEvent({ type: channel, args: [deviceId, JSON.stringify({ print: { command: 'push_status', ...patch } })] });
+  };
+  return { service, native, monitor, commands, request, artifacts, ref, state, send, push, directory, update: (next: typeof context) => { context = next; }, complete: (result: NativePrintResult) => complete(result) };
 }
 it('deduplicates admission, rejects conflicting request identities and out-of-order chunks, and cancels before dispatch', async () => {
   const f = await fixture();
@@ -53,7 +58,7 @@ it('keeps cancellation pending until the plugin confirms that no start occurred'
   f.complete({ code: -18, mayHaveStarted: false, cancelRequested: true });
   await vi.waitFor(() => expect(f.state().phase).toBe('cancelled'));
 });
-it('native success waits for the matching fresh job; unrelated print activity is not success', async () => {
+it('confirms the pinned LAN plugin project filename while preserving the displayed job name', async () => {
   const f = await fixture(); await f.send();
   const params = f.native.startPrint.mock.calls[0][1];
   expect(params.task_name).toBe('测试 Cube');
@@ -62,12 +67,69 @@ it('native success waits for the matching fresh job; unrelated print activity is
   expect(params.ftp_file).toMatch(/^Neo_[a-f0-9]+\.gcode\.3mf$/);
   f.complete({ code: 0, mayHaveStarted: true, cancelRequested: false });
   await vi.waitFor(() => expect(f.state().phase).toBe('confirming'));
-  const reported = printContext({ gcode_state: 'RUNNING', subtask_name: 'some-other-job' }); reported.generation += 1; f.update(reported);
-  await f.service.onEvent({ type: 'local-message', args: ['fixture', '{"print":{}}'] }); expect(f.state().phase).toBe('confirming');
-  reported.report.subtask_name = params.task_name;
-  await f.service.onEvent({ type: 'local-message', args: ['fixture', '{"print":{}}'] }); expect(f.state().phase).toBe('confirming');
-  reported.report.gcode_file = `/cache/${params.ftp_file}`;
-  await f.service.onEvent({ type: 'local-message', args: ['fixture', '{"print":{}}'] }); expect(f.state().phase).toBe('started');
+  expect(f.monitor.read).toHaveBeenCalledExactlyOnceWith({ target: f.ref, topics: ['status'], source: 'device' });
+  await f.push({ gcode_state: 'RUNNING', subtask_name: 'some-other-job' }); expect(f.state().phase).toBe('confirming');
+  await f.push({ subtask_name: params.task_name }); expect(f.state().phase).toBe('confirming');
+  await f.push({ gcode_file: `/cache/${params.ftp_file}` }); expect(f.state().phase).toBe('confirming');
+  // v2.2.0 ignores ftp_file on LAN and uploads by project_name instead.
+  await f.push({ gcode_file: `/测试 Cube.gcode.3mf` }); expect(f.state().phase).toBe('started');
+  await vi.waitFor(() => expect(f.monitor.stop).toHaveBeenCalledWith('lease'));
+  expect(await readdir(f.directory)).toEqual([]);
+});
+it('requires filename evidence after possible dispatch, including when the previous print has the same name', async () => {
+  const f = await fixture(), file = '/测试 Cube.gcode.3mf';
+  await f.push({ gcode_state: 'FINISH', subtask_name: f.request.jobName, gcode_file: file });
+  await f.send();
+  await f.push({ gcode_state: 'RUNNING', gcode_file: file });
+  expect(f.state().phase).toBe('sending'); // Still uploading: this is not start evidence.
+  await f.push({ gcode_state: 'FINISH' });
+  await f.service.onEvent({ type: 'print-progress', args: [2, 0, true] });
+  await f.push({ gcode_state: 'PREPARE' });
+  expect(f.state().phase).toBe('sending'); // The cached same-name file is insufficient.
+  await f.push({ gcode_file: file });
+  expect(f.state().phase).toBe('started');
+  expect(await readdir(f.directory)).not.toEqual([]); // Native code may still be reading.
+  f.complete({ code: 0, mayHaveStarted: true, cancelRequested: false });
+  await vi.waitFor(async () => expect(await readdir(f.directory)).toEqual([]));
+  expect(f.state().phase).toBe('started');
+});
+it.each(['stale', 'old-generation', 'configuration-changed', 'wrong-printer', 'cloud-report', 'ack-only', 'different-task-name', 'different-file'])(
+  'does not confirm LAN start from %s evidence', async kind => {
+    const f = await fixture();
+    if (kind === 'old-generation') await f.push({ gcode_state: 'FINISH' });
+    await f.send();
+    f.complete({ code: 0, mayHaveStarted: true, cancelRequested: false });
+    await vi.waitFor(() => expect(f.state().phase).toBe('confirming'));
+    const report = { gcode_state: 'RUNNING', subtask_name: f.request.jobName, gcode_file: '/测试 Cube.gcode.3mf' };
+    if (kind === 'different-task-name') report.subtask_name = 'another task';
+    if (kind === 'different-file') report.gcode_file = '/other.gcode.3mf';
+    const context = printContext(report); context.generation += 1;
+    if (kind === 'stale') context.fresh = false;
+    if (kind === 'configuration-changed') context.configurationRevision = 'r2';
+    f.update(context);
+    await f.service.onEvent({ type: kind === 'cloud-report' ? 'message' : 'local-message', args: [kind === 'wrong-printer' ? 'other' : 'fixture', JSON.stringify({ print: { ...report, command: kind === 'ack-only' ? 'project_file' : 'push_status' } })] });
+    expect(f.state().phase).toBe('confirming');
+  },
+);
+it('can resolve a timed-out unknown start with late matching LAN evidence without another send', async () => {
+  const f = await fixture(); await f.send();
+  vi.useFakeTimers();
+  try {
+    f.complete({ code: 0, mayHaveStarted: true, cancelRequested: false });
+    await vi.waitFor(() => expect(f.state().phase).toBe('confirming'));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(f.state().phase).toBe('unknown');
+    await f.push({ gcode_state: 'PREPARE', subtask_name: f.request.jobName, gcode_file: '/测试 Cube.gcode.3mf' });
+    expect(f.state().phase).toBe('started'); expect(f.native.startPrint).toHaveBeenCalledOnce();
+  } finally { vi.useRealTimers(); }
+});
+it('retains the Cloud file correlation when a known LAN failure falls back before printing', async () => {
+  const f = await fixture(true); f.native.connectPrinter.mockResolvedValue(-1); await f.send();
+  f.complete({ code: 0, mayHaveStarted: true, cancelRequested: false });
+  await vi.waitFor(() => expect(f.state().phase).toBe('confirming'));
+  const params = f.native.startPrint.mock.calls[0][1];
+  await f.push({ gcode_state: 'PREPARE', gcode_file: `/cache/${params.ftp_file}` }, 'message');
+  expect(f.state()).toMatchObject({ route: 'cloud', phase: 'started' });
 });
 it('never retries a start whose outcome is unknown, and disallows cancellation after possible start', async () => {
   const f = await fixture(true); await f.send();

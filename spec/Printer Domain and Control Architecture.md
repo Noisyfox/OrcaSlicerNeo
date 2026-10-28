@@ -1267,11 +1267,18 @@ make an H2D require a Filament Track Switch. The pinned Orca correction and the
 real-WASM artifact smoke cover this distinction in both local WASM variants.
 The actual LAN submission archive was also checked before the repaired print.
 
-One separate outcome limitation remains: the pinned LAN plugin can start the
-correctly named task while the agent's filename-based start correlation stays
-unknown. Device monitoring confirmed the completed task in this round, but the
-submission modal did not confirm start. Preserve the unknown-outcome ownership
-and duplicate-send guard until correlation is corrected.
+LAN start confirmation follows the pinned plugin's actual project-based upload
+filename, including its sanitization and plate-name normalization; `ftp_file`
+does not determine the LAN filename in this plugin. The user-visible task name
+remains unchanged. Confirmation requires matching task/file data observed after
+possible dispatch, fresh status newer than the dispatch snapshot, and the same
+printer/configuration. Upload activity, acknowledgements, cached same-name files
+and another transport's delayed report do not qualify a LAN start. After possible
+LAN dispatch, request a full report so unchanged filenames omitted from deltas
+can be checked again. Regression tests cover these boundaries and late resolution
+of an unknown outcome. The
+corrected submission-modal confirmation still requires physical revalidation;
+retain the unknown-outcome ownership and duplicate-send guard.
 
 The [console specification](Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission)
 owns the interaction, mapping review and feature envelope. This section owns

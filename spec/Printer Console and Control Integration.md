@@ -10,7 +10,8 @@ hardware or six-target control qualification is claimed.
 Local-artifact print preparation/submission is implemented and initially enabled
 only by the Bambu agent. Development-host LAN qualification includes one completed
 H2D print using AMS B1 and the fixed right nozzle; dual-tool and Cloud printing
-remain unqualified, and LAN start confirmation has an unresolved correlation gap.
+remain unqualified. The LAN start-confirmation correction has software regression
+coverage and still requires physical revalidation.
 
 **Scope:** The printer-console and printer-control experience shared by the
 Electron desktop application and the Web application.
@@ -714,8 +715,10 @@ H2D LAN print using one PETG source (AMS 2 Pro B1) and the fixed right nozzle no
 completed. The user confirmed feeding, extrusion and first layer; the device
 reported completion and zero heater targets. Dual-tool and other supply-path
 acceptance remain open; Cloud physical acceptance is deferred as agreed. The
-modal still reports an unknown start outcome for this real LAN task because of
-the agent/plugin correlation gap described in the
+agent now matches the pinned LAN plugin's actual filename and requires fresh
+post-dispatch task evidence before reporting start. Software regression covers
+this correction; physical revalidation of the modal's success transition remains
+open under the
 [domain qualification boundary](Printer%20Domain%20and%20Control%20Architecture.md#implementation-progress).
 
 
