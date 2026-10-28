@@ -4,6 +4,18 @@ import { printParameters } from './printParameters';
 import { printContext, printRequest } from './printFixtures';
 import { id } from './telemetry';
 const blocks = (p: ReturnType<typeof prepareBambuPrint>) => p.issues.filter(i => i.severity === 'block');
+it('reports only the stale-state prerequisite until current telemetry can validate hardware and materials', () => {
+  const request = printRequest(), context = printContext({ gcode_state: 'RUNNING', aux: '0' });
+  context.values.descriptor.topology.nozzles = [];
+  context.values.materials.topology.paths = [];
+  const stale = prepareBambuPrint(request, { ...context, fresh: false }, 'lan');
+  expect(stale.issues.map(i => i.id)).toEqual(['offline']);
+  expect(blocks(stale)).toHaveLength(1);
+  const fresh = prepareBambuPrint(request, context, 'lan');
+  expect(fresh.issues.some(i => i.id === 'offline')).toBe(false);
+  expect(fresh.issues.some(i => i.id.startsWith('nozzle:'))).toBe(true);
+  expect(fresh.issues.some(i => i.id === 'not-ready')).toBe(true);
+});
 it('maps sparse materials to H2D physical tools and serializes native protocol arrays without compacting indices', () => {
   const r = printRequest(), p = prepareBambuPrint(r, printContext(), 'lan');
   expect(blocks(p)).toEqual([]);

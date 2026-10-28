@@ -890,6 +890,14 @@ Orca's [picker projection](../packages/slicer-wasm/cpp/src/slic3r/GUI/AmsMapping
 shows an occupied unidentified slot as `?` and permits picking it without the
 normal identified-material type comparison.
 
+On opening the modal, wait for a device observation read to complete before
+running preparation validation or accepting initial mapping suggestions. Initial
+loading and explicit device refresh show a loading status; display diagnostics
+only once that refresh completes. A failed read shows its connection/read error;
+stale Bambu telemetry reports one blocking status issue rather than cascading
+missing-material, nozzle and storage diagnostics. Automatic observation updates
+continue to revalidate cached state without initiating a device read each time.
+
 Keep device observations updating while the modal is open. A normal refresh in
 progress does not disable printing when the retained relevant state remains
 valid. If the device disconnects or critical observations become stale, retain

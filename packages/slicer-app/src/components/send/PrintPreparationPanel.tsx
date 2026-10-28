@@ -41,7 +41,8 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
         </section>)}
       </div>
     </fieldset>}
-    {prepared?.issues.map(issue => <p key={issue.id} role={issue.severity === 'block' ? 'alert' : 'status'} className={`text-sm ${issue.severity === 'block' ? 'text-destructive' : issue.severity === 'warning' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>{issue.message}</p>)}
+    {requirements && state.refreshing && <p role="status" className="text-sm text-muted-foreground">Loading printer information…</p>}
+    {!state.refreshing && !state.error && prepared?.issues.map(issue => <p key={issue.id} role={issue.severity === 'block' ? 'alert' : 'status'} className={`text-sm ${issue.severity === 'block' ? 'text-destructive' : issue.severity === 'warning' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>{issue.message}</p>)}
     {prepared && <fieldset disabled={state.active || operation?.phase === 'unknown'} className="grid min-w-0 grid-cols-1 gap-x-5 gap-y-3 border-t pt-5 sm:grid-cols-2" aria-label="Print options">
       {[...prepared.optionDescriptors].sort((a, b) => optionOrder.indexOf(a.key) - optionOrder.indexOf(b.key)).map(option => <div key={option.key} className="flex min-w-0 items-center justify-between gap-2">
         <span className="min-w-0 text-xs" title={option.label}>{option.label}</span>
@@ -50,7 +51,7 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
         }}>{option.choices.map(choice => <ToggleGroupItem key={String(choice.value)} value={String(choice.value)} aria-label={choice.label} className="h-6 min-w-10 rounded-sm! px-2 text-xs transition-none aria-pressed:bg-background aria-pressed:text-primary aria-pressed:shadow-[inset_0_0_0_1px_var(--primary)]">{choice.label}</ToggleGroupItem>)}</ToggleGroup>
       </div>)}
     </fieldset>}
-    {state.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
+    {state.error && (!requirements || !state.refreshing) && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
     {state.saveError && <p role="alert" className="text-sm text-destructive">Print preferences could not be saved. Adjust the option again to retry.</p>}
     {operation && <div role="status" className="flex flex-col gap-2 text-sm"><p>{operation.message}</p>{state.active && <Progress value={operation.progress === null ? null : operation.progress * 100} aria-label="Sending print" />}</div>}
     {confirmation && <div className="flex flex-col gap-3 rounded border p-3" role="group" aria-label="Confirm print warnings">

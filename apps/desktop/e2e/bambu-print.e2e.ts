@@ -8,7 +8,7 @@ import { installControlFixture } from './bambu-control-fixture';
 import { Ipc } from '../src/shared/ipc';
 import { isBambuControlRequest } from '../src/shared/bambuControl';
 import type * as D from '@orca/printer-control/domain';
-declare global { var printFixture: { requests: unknown[]; submissions: D.PrintSubmissionRequest[]; chunks: number; state: D.PrintSubmissionState | null }; }
+declare global { var printFixture: { requests: unknown[]; submissions: D.PrintSubmissionRequest[]; chunks: number; state: D.PrintSubmissionState | null; holdRead: boolean; releaseRead?: () => void }; }
 test('Bambu Send & Print prepares the current plate, persists options, cancels safely and waits for observed start', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'neo-print-e2e-')), configPath = join(directory, 'printer-config.json');
   writeFileSync(configPath, JSON.stringify({ version: 1, printers: [] }));
@@ -18,7 +18,7 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await installControlFixture(app);
     await app.evaluate(({ ipcMain, BrowserWindow }, channels) => {
-      globalThis.printFixture = { requests: [], submissions: [], chunks: 0, state: null };
+      globalThis.printFixture = { requests: [], submissions: [], chunks: 0, state: null, holdRead: false };
       const changed = () => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channels.bambuChanged, 'control'); };
       ipcMain.removeHandler(channels.bambuControl);
       ipcMain.handle(channels.bambuControl, (_event, request) => {
@@ -26,7 +26,10 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
         const target = input.target ?? input.ref ?? input;
         const data = globalThis.bambuControlFixture.data[target.printerId];
         if (method === 'describe') return { ok: true, value: data.description };
-        if (method === 'read') return { ok: true, value: data.snapshot };
+        if (method === 'read') {
+          if (input.source === 'device' && fixture.holdRead) return new Promise(resolve => { fixture.releaseRead = () => { fixture.holdRead = false; delete fixture.releaseRead; resolve({ ok: true, value: data.snapshot }); }; });
+          return { ok: true, value: data.snapshot };
+        }
         if (method === 'observe' || method === 'release') return { ok: true, value: null };
         if (method === 'preview') return { ok: false, error: { code: 'preview-unavailable', message: 'No image' } };
         if (method === 'print.prepare') return { ok: true, value: { configurationRevision: data.snapshot.configurationRevision, route: 'lan', materialCatalogIds: [],
@@ -69,8 +72,16 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click(); await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
     await page.locator('#app-tab-prepare').click(); await page.getByTestId('btn-add-model').click(); await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 30_000 });
+    await app.evaluate(() => { globalThis.printFixture.holdRead = true; });
     await page.getByTestId('output-mode-select').click(); await page.getByRole('option', { name: 'Send & Print', exact: true }).click(); await page.getByTestId('btn-send-and-print').click();
     const dialog = page.getByTestId('send-gcode-dialog');
+    await expect(dialog.getByText('Loading printer information…', { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
+    await expect(dialog.getByTestId('print-submit')).toBeDisabled();
+    expect(await app.evaluate(() => globalThis.printFixture.requests.some(request => (request as { method: string }).method === 'print.prepare'))).toBe(false);
+    await expect.poll(() => app.evaluate(() => !!globalThis.printFixture.releaseRead)).toBe(true);
+    await app.evaluate(() => globalThis.printFixture.releaseRead!());
+    await expect(dialog.getByText('Loading printer information…', { exact: true })).toHaveCount(0);
     await expect(dialog.getByRole('checkbox', { name: /abnormal storage/i })).toHaveCount(0);
     await expect(dialog.getByTestId('send-printer-select')).toContainText('Workshop A');
     await expect(dialog.getByLabel('Material 1 source')).toHaveAttribute('data-source', 'path:0:0:0');

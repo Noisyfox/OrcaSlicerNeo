@@ -13,7 +13,7 @@ const manifest: PrintManifest = { plateId: 'plate-1', printerModel: 'Fixture', p
   materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FF0000', presetId: 'fixture', presetName: 'PLA', brand: 'Generic', toolIndex: 0, nozzleDiameter: .4, nozzleFlowType: 'Standard', chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3 }] };
 let root: Root | undefined, container: HTMLDivElement;
 afterEach(async () => { await act(async () => root?.unmount()); root = undefined; container?.remove(); vi.useRealTimers(); useDeviceSelectionStore.setState({ currentPrinterId: null, requestedPrinterId: null, requestVersion: 0 }); });
-async function setup(allowAbnormalStorage = false, manifestValue = manifest) {
+async function setup(allowAbnormalStorage = false, manifestValue = manifest, readStatus = async (): Promise<D.Result<null>> => ({ ok: true, value: null })) {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   let configDocument = { allowAbnormalStorage, version: 1 as const, printers: [], printPreferences: { fixture: { timelapse: true, timelapseStorage: 'external' as const } } };
   let issues: D.PrintIssue[] = [], candidates: D.PrintMaterialSource[] = manifestValue.materials.map((material, index) => ({ materialKey: material.key, pathId: id<'path'>(index ? 'source-b' : 'source-a'), label: index ? 'AMS B1' : 'AMS A1', color: index ? '#00FFFF' : '#FF0000', materialType: material.type, unit: { id: id('unit-a'), name: 'AMS', kind: 'automatic-feeder', categoryLabel: 'AMS' }, slot: { id: id(index ? 'slot-b' : 'slot-a'), name: index ? 'B1' : 'A1' }, tool: { id: id('tool-a'), name: 'Nozzle' }, presence: 'present', remainingFraction: null, disabledReason: null }));
@@ -32,14 +32,54 @@ async function setup(allowAbnormalStorage = false, manifestValue = manifest) {
   };
   const configuration = { load: vi.fn(async () => structuredClone(configDocument)), save: vi.fn(async next => { configDocument = next; }) };
   const runtime = { describePrintPlate: vi.fn(async () => ({ ok: true, receipt, manifest: manifestValue })), exportPrintPlate: vi.fn(async () => ({ ok: true, receipt, manifest: manifestValue, fileName: 'fixture.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]) })) };
-  const platform = { runtime, printers: { configuration, service: { submissions, observations: { watch: async function* (_request: unknown, options: { signal: AbortSignal }) { await new Promise<void>(resolve => options.signal.addEventListener('abort', () => resolve(), { once: true })); } } } } } as unknown as PlatformCapabilities;
+  const read = vi.fn(readStatus);
+  const platform = { runtime, printers: { configuration, service: { submissions, observations: { read, watch: async function* (_request: unknown, options: { signal: AbortSignal }) { await new Promise<void>(resolve => options.signal.addEventListener('abort', () => resolve(), { once: true })); } } } } } as unknown as PlatformCapabilities;
   const printer = { identity: { id: id('fixture'), displayName: 'Fixture' } } as D.SavedPrinter;
   const route = { id: id('route'), configurationRevision: 'r1' } as D.PrinterRoute;
   const close = vi.fn(), busy = vi.fn();
   await act(async () => { root!.render(<PrintPreparationPanel platform={platform} printer={printer} route={route} receipt={receipt} onClose={close} onBusyChange={busy} />); });
   const click = async (label: string) => { await act(async () => { const button = [...container.querySelectorAll('button')].find(b => b.textContent === label); if (!button) throw new Error(`No button ${label}`); button.click(); }); };
-  return { setSources: (value: D.PrintMaterialSource[]) => { candidates = value; }, close, busy, runtime, submissions, configuration, click, update: (phase: D.PrintSubmissionState['phase']) => { current = { ...current, phase, canCancel: false }; wake?.(); }, issues: (value: D.PrintIssue[]) => { issues = value; }, removeSources: () => { candidates = []; }, document: () => configDocument };
+  return { read, setSources: (value: D.PrintMaterialSource[]) => { candidates = value; }, close, busy, runtime, submissions, configuration, click, update: (phase: D.PrintSubmissionState['phase']) => { current = { ...current, phase, canCancel: false }; wake?.(); }, issues: (value: D.PrintIssue[]) => { issues = value; }, removeSources: () => { candidates = []; }, document: () => configDocument };
 }
+it('waits for printer information before validating or displaying initial diagnostics', async () => {
+  vi.useFakeTimers(); let release!: () => void;
+  const f = await setup(false, manifest, async () => { await new Promise<void>(resolve => { release = resolve; }); return { ok: true, value: null }; });
+  f.issues([{ id: 'storage', severity: 'block', message: 'Storage unavailable' }]);
+  await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+  expect(container.textContent).toContain('Loading printer information');
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(f.submissions.prepare).not.toHaveBeenCalled();
+  expect((container.querySelector('[data-testid="print-submit"]') as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => release());
+  expect(container.textContent).not.toContain('Loading printer information');
+  expect(container.textContent).toContain('Storage unavailable');
+  expect(f.read).toHaveBeenCalledOnce();
+});
+it('hides intermediate diagnostics during explicit refresh without losing mappings or disabling a valid print', async () => {
+  vi.useFakeTimers(); const f = await setup(); let release!: () => void;
+  f.read.mockImplementationOnce(async () => { await new Promise<void>(resolve => { release = resolve; }); return { ok: true, value: null }; });
+  await act(async () => (container.querySelector('[aria-label="Refresh printer status"]') as HTMLElement).click());
+  expect(container.textContent).toContain('Loading printer information');
+  expect((container.querySelector('[data-testid="print-submit"]') as HTMLButtonElement).disabled).toBe(false);
+  f.issues([{ id: 'mapping', severity: 'block', message: 'Source unavailable' }]);
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect((container.querySelector('[data-testid="print-submit"]') as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => release());
+  expect(container.textContent).toContain('Source unavailable');
+  expect(container.querySelector('[aria-label="Material 1 source"]')?.getAttribute('data-source')).toBe('source-a');
+});
+it('shows a completed read failure and recovers through cached monitoring without another device read', async () => {
+  vi.useFakeTimers();
+  const f = await setup(false, manifest, async () => ({ ok: false, error: { code: 'offline', message: 'The printer did not return current status.' } }));
+  expect(container.textContent).not.toContain('Loading printer information');
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain('did not return current status');
+  expect((container.querySelector('[data-testid="print-submit"]') as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect((container.querySelector('[data-testid="print-submit"]') as HTMLButtonElement).disabled).toBe(false);
+  expect(f.read).toHaveBeenCalledOnce();
+});
 it('keeps storage fallback out of persistence, but saves explicit changes even when cancelled', async () => {
   const f = await setup();
   expect((container.querySelector('[aria-label="Material 1 source"]') as HTMLElement).getAttribute('data-source')).toBe('source-a');

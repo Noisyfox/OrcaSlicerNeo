@@ -15,6 +15,8 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(true);
+  const reading = useRef(false), loaded = useRef(false);
   const [exporting, setExporting] = useState(false);
   const [operation, setOperation] = useState<D.PrintSubmissionState | null>(null);
   const [confirmation, setConfirmation] = useState<D.PrintPreparation | null>(null);
@@ -49,8 +51,8 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
     return () => { live.current = false; watchAbort.current.abort(); refreshVersion.current++; };
   }, [platform, printer.identity.id]);
 
-  async function refresh() {
-    if (!request.current || activeRef.current) return;
+  async function validate() {
+    if (!request.current || activeRef.current || !loaded.current) return;
     const version = ++refreshVersion.current;
     try {
       const next = await platform.printers.service.submissions.prepare(request.current);
@@ -62,18 +64,30 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
       }
     } catch { if (live.current && version === refreshVersion.current) setError('Printer status is unavailable. Waiting for automatic recovery.'); }
   }
-  const refreshRef = useRef(refresh); refreshRef.current = refresh;
-  useEffect(() => { void refresh(); }, [requirements, options, bindings, allowAbnormal, route.configurationRevision, active]);
+  async function refresh() {
+    if (!request.current || activeRef.current || reading.current) return;
+    reading.current = true; setRefreshing(true);
+    try {
+      const result = await platform.printers.service.observations.read({ target: { printerId: target.printerId, routeId: target.routeId }, topics: ['status', 'materials', 'descriptor', 'firmware'], source: 'device' });
+      if (!live.current) return;
+      loaded.current = true;
+      if (!result.ok) { setError(result.error.message); return; }
+      await validate();
+    } catch { if (live.current) { loaded.current = true; setError('Printer status is unavailable. Waiting for automatic recovery.'); } }
+    finally { reading.current = false; if (live.current) setRefreshing(false); }
+  }
+  const validateRef = useRef(validate); validateRef.current = validate;
+  useEffect(() => { void (loaded.current ? validate() : refresh()); }, [requirements, options, bindings, allowAbnormal, route.configurationRevision, active]);
   useEffect(() => {
     const abort = new AbortController();
     void (async () => {
       for await (const _event of platform.printers.service.observations.watch({ target: { printerId: target.printerId, routeId: target.routeId }, topics: ['status', 'materials', 'descriptor', 'firmware'] }, { signal: abort.signal })) {
         if (abort.signal.aborted) return;
-        void refreshRef.current();
+        void validateRef.current();
       }
     })().catch(() => { if (!abort.signal.aborted) setError('Printer monitoring is unavailable. Waiting for automatic recovery.'); });
     // Validation reads cached agent state; it does not poll or reconnect the printer.
-    const timer = setInterval(() => { void refreshRef.current(); }, 2000);
+    const timer = setInterval(() => { void validateRef.current(); }, 2000);
     return () => { abort.abort(); clearInterval(timer); };
   }, [platform, target.printerId, target.routeId, route.configurationRevision]);
 
@@ -137,7 +151,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
     const result = await platform.printers.service.submissions.cancel(operation.ref);
     if (live.current) { if (result.ok) setOperation(result.value); else setError(result.error.message); }
   }
-  return { requirements, prepared, bindings, options, error, saveError, active, canPrint, operation, confirmation, recordingAction, jobName, setJobName, refresh,
+  return { requirements, prepared, bindings, options, error, saveError, refreshing, active, canPrint, operation, confirmation, recordingAction, jobName, setJobName, refresh,
     changeOption, changeBinding, send, cancel, setRecordingAction,
     dismissConfirmation: () => { setConfirmation(null); setRecordingAction(undefined); },
   };
