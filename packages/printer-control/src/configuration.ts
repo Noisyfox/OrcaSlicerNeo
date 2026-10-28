@@ -1,3 +1,5 @@
+import type { PrintPreferences } from './domain/print-options';
+import { normalizePrintPreferences } from './print-preferences';
 export const PRINTER_CONFIGURATION_VERSION = 1 as const;
 export const BUILT_IN_PRINTER_DRIVER_IDS = ['moonraker'] as const;
 export type BuiltInPrinterDriverId = typeof BUILT_IN_PRINTER_DRIVER_IDS[number];
@@ -16,6 +18,10 @@ export interface PrinterConfiguration {
 export interface PrinterConfigurationDocument {
   version: typeof PRINTER_CONFIGURATION_VERSION;
   printers: PrinterConfiguration[];
+  /** Stable physical printer IDs, including providers without manual connection entries. */
+  printPreferences?: Record<string, PrintPreferences>;
+  /** Explicit global opt-in matching Orca's abnormal-storage override. */
+  allowAbnormalStorage?: boolean;
 }
 
 export class PrinterConfigurationValidationError extends Error {
@@ -117,8 +123,26 @@ export function normalizePrinterConfigurationDocument(value: unknown): PrinterCo
     }
   }
 
+  let printPreferences: Record<string, PrintPreferences> | undefined;
+  if (isRecord(value) && value.printPreferences !== undefined) {
+    if (!isRecord(value.printPreferences) || Array.isArray(value.printPreferences)) issues.push('printPreferences must be an object');
+    else {
+      const entries: Array<[string, PrintPreferences]> = [];
+      for (const [id, preferences] of Object.entries(value.printPreferences)) {
+        if (!id.trim() || id.length > 512) { issues.push('printPreferences requires stable printer ids'); continue; }
+        try { entries.push([id, normalizePrintPreferences(preferences)]); }
+        catch { issues.push('invalid printPreferences'); }
+      }
+      printPreferences = Object.fromEntries(entries);
+    }
+  }
+  const allowAbnormalStorage = isRecord(value) ? value.allowAbnormalStorage : undefined;
+  if (allowAbnormalStorage !== undefined && typeof allowAbnormalStorage !== 'boolean') issues.push('allowAbnormalStorage must be boolean');
   if (issues.length > 0) throw new PrinterConfigurationValidationError(issues);
-  return { version: PRINTER_CONFIGURATION_VERSION, printers };
+  return { version: PRINTER_CONFIGURATION_VERSION, printers,
+    ...(printPreferences === undefined ? {} : { printPreferences }),
+    ...(typeof allowAbnormalStorage === 'boolean' ? { allowAbnormalStorage } : {}) };
+
 }
 
 /** Alias emphasizing that this function performs validation as well as normalization. */

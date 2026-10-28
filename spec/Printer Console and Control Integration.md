@@ -905,13 +905,17 @@ provider credentials and native account state under their existing ownership.
 Shared application code accesses the host-injected persistence boundary rather
 than reading the file directly; preserve the shared Web/Electron architecture.
 
-Implementation must extend the
+Persistence now extends the
 [configuration schema and normalization](../packages/printer-control/src/configuration.ts)
 and the host persistence/merge paths together so preferences survive ordinary
 configuration edits and independent application instances do not overwrite
 unrelated changes. Preference edits must not change connection configuration
-revisions or trigger reconnection. This is a planned extension: the current
-configuration document only retains connection records.
+revisions or trigger reconnection. The optional `printPreferences` section is
+keyed by physical printer ID; `allowAbnormalStorage` stores the global opt-in.
+Electron merges preference edits per printer and option, rejecting conflicting
+edits to the same option. Web normalization also preserves the fields. The
+preparation UI's immediate writes and effective-option fallback remain to be
+wired in the following implementation stages.
 
 Orca's [option handling](../packages/slicer-wasm/cpp/src/slic3r/GUI/SelectMachine.cpp)
 stores these switches by printer type in application configuration when the
