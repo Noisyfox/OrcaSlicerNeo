@@ -46,11 +46,23 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
         throw new Error('Unexpected fixture call');
       });
     }, Ipc);
+    await app.evaluate(({ BrowserWindow }, channel) => BrowserWindow.getAllWindows()[0].webContents.send(channel, 'preferences'), Ipc.nativeMenuCommand);
+    const preferences = page.getByTestId('project-preferences-dialog');
+    const storage = preferences.getByRole('checkbox', { name: 'Allow Abnormal Storage' });
+    await expect(preferences).toBeVisible();
+    await expect(storage).toBeEnabled();
+    await expect(storage).not.toBeChecked();
+    await storage.check();
+    await expect.poll(() => JSON.parse(readFileSync(configPath, 'utf8')).allowAbnormalStorage).toBe(true);
+    await page.screenshot({ path: '/tmp/neo-storage-preferences.png' });
+    await preferences.getByTestId('project-preferences-cancel').click();
+    await expect(preferences).toHaveCount(0);
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click(); await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
     await page.locator('#app-tab-prepare').click(); await page.getByTestId('btn-add-model').click(); await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 30_000 });
     await page.getByTestId('output-mode-select').click(); await page.getByRole('option', { name: 'Send & Print', exact: true }).click(); await page.getByTestId('btn-send-and-print').click();
     const dialog = page.getByTestId('send-gcode-dialog');
+    await expect(dialog.getByRole('checkbox', { name: /abnormal storage/i })).toHaveCount(0);
     await expect(dialog.getByTestId('send-printer-select')).toContainText('Workshop A');
     await expect(dialog.getByLabel('Material 1 source')).toHaveValue('path:0:0:0');
     await dialog.getByLabel('Timelapse', { exact: true }).selectOption('false');
@@ -67,6 +79,7 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
     await expect(page.locator('#device-content')).toBeVisible(); await expect(page.getByTestId('device-printer-select')).toContainText('Workshop A');
     const result = await app.evaluate(() => globalThis.printFixture);
     expect(result.submissions).toHaveLength(2); expect(result.chunks).toBeGreaterThan(0);
+    for (const submission of result.submissions) expect(submission.allowAbnormalStorage).toBe(true);
     for (const request of result.requests) expect(isBambuControlRequest(request), JSON.stringify(request)).toBe(true);
     await page.screenshot({ path: '/tmp/neo-print-e2e-device.png' });
   } finally { await app.close(); }

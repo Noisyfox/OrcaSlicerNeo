@@ -76,11 +76,11 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
     return () => { abort.abort(); clearInterval(timer); };
   }, [platform, target.printerId, target.routeId, route.configurationRevision]);
 
-  function persist(patch: Partial<D.PrintPreferences> | null, abnormal?: boolean) {
+  function persist(patch: Partial<D.PrintPreferences>) {
     const version = ++saveVersion.current; setSaving(true); setSaveError(false);
     saveChain.current = saveChain.current.catch(() => undefined).then(async () => {
       const config = await platform.printers.configuration.load();
-      await platform.printers.configuration.save(patch ? { ...config, printPreferences: { ...config.printPreferences, [printer.identity.id]: { ...config.printPreferences?.[printer.identity.id], ...patch } } } : { ...config, allowAbnormalStorage: abnormal });
+      await platform.printers.configuration.save({ ...config, printPreferences: { ...config.printPreferences, [printer.identity.id]: { ...config.printPreferences?.[printer.identity.id], ...patch } } });
       if (live.current && version === saveVersion.current) setSaveError(false);
     }).catch(() => { if (live.current) setSaveError(true); }).finally(() => { if (live.current && version === saveVersion.current) setSaving(false); });
   }
@@ -136,9 +136,8 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
     const result = await platform.printers.service.submissions.cancel(operation.ref);
     if (live.current) { if (result.ok) setOperation(result.value); else setError(result.error.message); }
   }
-  return { requirements, prepared, bindings, options, error, saveError, allowAbnormal, active, canPrint, operation, confirmation, recordingAction,
+  return { requirements, prepared, bindings, options, error, saveError, active, canPrint, operation, confirmation, recordingAction,
     changeOption, changeBinding, send, cancel, setRecordingAction,
-    changeAbnormal: (value: boolean) => { setAllowAbnormal(value); persist(null, value); setConfirmation(null); },
     dismissConfirmation: () => { setConfirmation(null); setRecordingAction(undefined); },
   };
 }

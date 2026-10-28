@@ -1033,7 +1033,11 @@ when the printer becomes available.
 
 Follow Orca's model- and transport-dependent print-file storage checks, including
 the supported internal-storage exceptions. Add a persistent application-wide
-**Allow Abnormal Storage** option, default off, matching Orca's preference.
+**Allow Abnormal Storage** option, default off, under **Preferences → Developer
+→ Storage**, matching Orca's placement. It is not shown in the print-preparation
+modal. Changes save immediately to the existing global `printer-config.json`
+field, including when Preferences is subsequently closed with Cancel. Printing
+reads the saved value without offering a per-submission override.
 When enabled, apply Orca's abnormal-storage override conditions; it does not
 waive separate missing-card, read-only or unrelated readiness checks. This is
 a global preference, distinct from the per-physical-printer print options.

@@ -41,7 +41,6 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
             const choice = option.choices.find(c => String(c.value) === event.target.value); if (choice) state.changeOption(option.key, choice.value);
           }}>{option.choices.map(choice => <option key={String(choice.value)} value={String(choice.value)}>{choice.label}</option>)}</select>
         </label>)}
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={state.allowAbnormal} onChange={event => state.changeAbnormal(event.target.checked)} />Allow printing with abnormal storage</label>
       </fieldset>
     </>}
     {prepared && <p className="text-sm text-muted-foreground" data-testid="print-delivery-route">Delivery: {prepared.route?.toUpperCase() ?? 'Unavailable'}</p>}

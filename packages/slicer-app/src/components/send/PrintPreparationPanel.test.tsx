@@ -13,9 +13,9 @@ const manifest: PrintManifest = { plateId: 'plate-1', printerModel: 'Fixture', p
   materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FF0000', presetId: 'fixture', presetName: 'PLA', brand: 'Generic', toolIndex: 0, nozzleDiameter: .4, nozzleFlowType: 'Standard', chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3 }] };
 let root: Root | undefined, container: HTMLDivElement;
 afterEach(async () => { await act(async () => root?.unmount()); root = undefined; container?.remove(); vi.useRealTimers(); useDeviceSelectionStore.setState({ currentPrinterId: null, requestedPrinterId: null, requestVersion: 0 }); });
-async function setup() {
+async function setup(allowAbnormalStorage = false) {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-  let configDocument = { version: 1 as const, printers: [], printPreferences: { fixture: { timelapse: true, timelapseStorage: 'external' as const } } };
+  let configDocument = { allowAbnormalStorage, version: 1 as const, printers: [], printPreferences: { fixture: { timelapse: true, timelapseStorage: 'external' as const } } };
   let issues: D.PrintIssue[] = [], candidates = [{ materialKey: 'filament-0', pathId: id<'path'>('source-a'), label: 'AMS A1', color: '#FF0000', materialType: 'PLA' }];
   let wake: (() => void) | undefined;
   const ref = { printerId: id<'printer'>('fixture'), routeId: id<'route'>('route'), id: id<'print-submission'>('submission') };
@@ -80,4 +80,12 @@ it('does not admit a job if the dialog disappears while native packaging is pend
   await f.click('Print'); expect(f.runtime.exportPrintPlate).toHaveBeenCalledOnce();
   await act(async () => root!.unmount()); root = undefined;
   await act(async () => release()); expect(f.submissions.submit).not.toHaveBeenCalled();
+});
+
+it('reads the saved global storage policy without exposing an override in print preparation', async () => {
+  const f = await setup(true);
+  expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+  expect(container.textContent).not.toMatch(/abnormal storage/i);
+  expect(f.submissions.prepare.mock.calls.at(-1)?.[0].allowAbnormalStorage).toBe(true);
+  expect(f.configuration.save).not.toHaveBeenCalled();
 });

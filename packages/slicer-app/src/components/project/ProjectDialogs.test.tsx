@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
+import type { PrinterConfigurationDocument } from '@orca/printer-control';
 import { act, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -10,17 +11,17 @@ if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value:
 describe('project dialogs', () => {
   let root: Root | undefined;
 
-  afterEach(() => {
-    root?.unmount();
+  afterEach(async () => {
+    await act(async () => root?.unmount());
     root = undefined;
     document.body.innerHTML = '';
   });
 
-  async function renderDialog(element: ReactElement) {
+  async function renderDialog(element: ReactElement, configuration = { load: vi.fn(async (): Promise<PrinterConfigurationDocument> => ({ version: 1, printers: [] })), save: vi.fn(async (_document: PrinterConfigurationDocument): Promise<void> => undefined) }) {
     const container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    await act(async () => { root?.render(<PlatformProvider value={{ accounts: [] } as unknown as PlatformCapabilities}>{element}</PlatformProvider>); });
+    await act(async () => { root?.render(<PlatformProvider value={{ accounts: [], printers: { configuration } } as unknown as PlatformCapabilities}>{element}</PlatformProvider>); });
     return container;
   }
 
@@ -79,6 +80,34 @@ describe('project dialogs', () => {
     expect(document.body.textContent).toContain('Always Ask');
     expect(document.body.textContent).toContain('Load Geometry Only');
     expect(document.querySelectorAll('[role="option"]')).toHaveLength(4);
+  });
+
+  it('saves the global storage preference immediately while preserving printer preferences and Cancel', async () => {
+    let saved: PrinterConfigurationDocument = { version: 1, printers: [], printPreferences: { printer: { timelapse: true } }, allowAbnormalStorage: true };
+    const configuration = { load: vi.fn(async () => structuredClone(saved)), save: vi.fn(async (next: PrinterConfigurationDocument) => { saved = next; }) };
+    const onSave = vi.fn(), onClose = vi.fn();
+    await renderDialog(<ProjectPreferencesDialog open preferences={null} onSave={onSave} onClose={onClose} />, configuration);
+    const checkbox = document.querySelector('section[aria-label="Developer"] [data-slot="checkbox"]') as HTMLElement;
+    expect(checkbox.hasAttribute('data-checked')).toBe(true);
+    expect(checkbox.closest('section')?.getAttribute('aria-label')).toBe('Developer');
+    expect(checkbox.closest('fieldset')?.querySelector('legend')?.textContent).toBe('Storage');
+    // A concurrent unrelated change must survive the targeted save.
+    saved.printPreferences!.printer.bedLeveling = 'off';
+    await act(async () => checkbox.click());
+    await act(async () => (document.querySelector('[data-testid="project-preferences-cancel"]') as HTMLElement).click());
+    expect(saved).toEqual({ version: 1, printers: [], printPreferences: { printer: { timelapse: true, bedLeveling: 'off' } }, allowAbnormalStorage: false });
+    expect(onSave).not.toHaveBeenCalled(); expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the default off and reports a failed storage-preference save without claiming success', async () => {
+    const configuration = { load: vi.fn(async (): Promise<PrinterConfigurationDocument> => ({ version: 1, printers: [] })), save: vi.fn(async (_next: PrinterConfigurationDocument) => { throw new Error('private storage details'); }) };
+    await renderDialog(<ProjectPreferencesDialog open preferences={null} onSave={vi.fn()} onClose={vi.fn()} />, configuration);
+    const checkbox = document.querySelector('section[aria-label="Developer"] [data-slot="checkbox"]') as HTMLElement;
+    expect(checkbox.hasAttribute('data-checked')).toBe(false);
+    await act(async () => checkbox.click());
+    expect(checkbox.hasAttribute('data-checked')).toBe(false);
+    expect(document.body.textContent).toContain('Could not save the storage preference');
+    expect(document.body.textContent).not.toContain('private storage details');
   });
 
   it('renders cancellable progress through the shadcn progress primitive', async () => {
