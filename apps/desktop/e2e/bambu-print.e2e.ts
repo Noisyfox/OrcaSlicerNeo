@@ -38,7 +38,7 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
             return [base, ...[1, 2, 3].map(index => ({ ...base, pathId: `path:0:${index}:0`, label: `AMS A${index + 1}`, slot: { id: `slot-a${index}`, name: `A${index + 1}` },
               color: ['#333333', '#44AACD', '#00AA77'][index - 1], materialType: index === 1 ? 'PETG-CF' : index === 2 ? null : 'PLA', presence: index === 2 ? 'empty' : 'present', remainingFraction: null,
               disabledReason: index === 1 ? 'Contains PETG-CF; this print requires PLA.' : index === 2 ? 'No filament loaded in this slot.' : null })),
-              { ...base, pathId: 'path:254:0:0', label: 'External spool', unit: { id: 'external', name: 'External spool', kind: 'manual-holder', categoryLabel: 'External' }, slot: { id: 'ext', name: 'Ext-L' }, remainingFraction: null },
+              { ...base, pathId: 'path:254:0:0', label: 'External spool', color: '#FFFFFF00', materialType: null, unit: { id: 'external', name: 'External spool', kind: 'manual-holder', categoryLabel: 'External' }, slot: { id: 'ext', name: 'Ext-L' }, remainingFraction: null },
               ...[0, 1, 2, 3].map(index => ({ ...base, pathId: `path:1:${index}:1`, label: `AMS B${index + 1}`, unit: { ...base.unit, id: 'unit-b' }, slot: { id: `slot-b${index}`, name: `B${index + 1}` }, tool: { id: 'tool-b', name: 'Right Nozzle' }, disabledReason: 'This source cannot feed the required nozzle.' }))];
           }),
           options: { ...input.options, timelapse: input.options.timelapse ?? true, bedLeveling: input.options.bedLeveling ?? 'auto', flowCalibration: input.options.flowCalibration ?? 'auto', nozzleOffsetCalibration: input.options.nozzleOffsetCalibration ?? 'auto' }, nozzleLabels: ['Nozzle 1'], optionDescriptors: [{ key: 'timelapse', label: 'Timelapse', enabled: true, choices: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] }, ...([{ key: 'bedLeveling', label: 'Auto Bed Leveling' }, { key: 'flowCalibration', label: 'Flow Dynamics Calibration' }, { key: 'nozzleOffsetCalibration', label: 'Nozzle Offset Calibration' }] as const).map(option => ({ ...option, enabled: true, choices: [{ value: 'auto', label: 'Auto' }, { value: 'on', label: 'On' }, { value: 'off', label: 'Off' }] }))], issues: [] } };
@@ -79,6 +79,10 @@ test('Bambu Send & Print prepares the current plate, persists options, cancels s
     const picker = page.getByRole('dialog', { name: 'AMS Slots', exact: true });
     await expect(picker.getByRole('button', { name: 'AMS A2 · PETG-CF', exact: true })).toBeDisabled();
     await expect(picker.getByRole('button', { name: 'AMS A3 · —', exact: true })).toBeDisabled();
+    const transparentSource = picker.getByRole('button', { name: 'External spool · ?', exact: true });
+    await expect(transparentSource).toBeEnabled();
+    await expect(transparentSource).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    await expect(transparentSource).toHaveCSS('color', 'rgb(17, 17, 17)');
     await page.screenshot({ path: '/tmp/neo-filament-picker.png', animations: 'disabled' });
     await picker.getByRole('button', { name: 'Reset current filament mapping' }).focus();
     await page.keyboard.press('Shift+Tab');

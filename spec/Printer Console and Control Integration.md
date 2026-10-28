@@ -742,8 +742,11 @@ The thumbnail reuses the existing local plate renderer and releases its GPU
 resources and object URL when closed. Missing preview graphics never block a
 valid print. Renaming affects the submitted artifact only, not the project.
 Each material card shows the sliced material colour above the selected device
-source colour. Its picker follows Orca's `AmsMappingPopup`: a slot-card popover,
-grouped by reported tool, feeder unit and external holder, with source colour,
+source colour. Transparent colours render over an opaque grey/white checkerboard, including
+partially transparent colours; text contrast uses the composited appearance.
+Missing colours use the current theme's surface and foreground colours.
+Its picker follows Orca's `AmsMappingPopup`: a slot-card popover grouped by
+reported tool, feeder unit and external holder, with source colour,
 slot label, material type, selected checkmark and reported remaining fraction.
 It retains empty, incompatible and unreachable slots as disabled cards with
 agent-provided reasons. Unknown occupied materials display `?` and remain

@@ -19,7 +19,7 @@ export function MaterialSourcePicker({ material, sources, value, disabled, onCha
   return <Popover modal open={open && !disabled} onOpenChange={setOpen}>
     <PopoverTrigger disabled={disabled} aria-label={`Material ${material.index + 1} source`} aria-invalid={invalid || undefined} data-source={value}
       title={selected ? `${selected.label} · ${selected.materialType ?? 'Unknown material'}${selected.disabledReason ? ` · ${selected.disabledReason}` : ''}` : 'Select filament source'}
-      className={`flex w-28 flex-col overflow-hidden rounded border bg-control-background text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 ${invalid ? 'border-destructive' : 'border-border'}`} style={materialColor(selected?.color)}>
+      className={`flex w-28 flex-col overflow-hidden rounded border bg-control-background text-foreground text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 ${invalid ? 'border-destructive' : 'border-border'}`} style={materialColor(selected?.color)}>
       <span className="w-full truncate px-2 py-1 text-center font-medium" style={materialColor(material.color)} data-testid={`slice-material-${material.index}`}>{material.type}</span>
       <span className="flex h-8 w-full items-center gap-1.5 px-1.5"><Disc3 className="size-4 shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1 truncate">{invalid ? 'Unavailable' : selected?.slot.name ?? 'Select'}</span><ChevronDown className="size-3 shrink-0" /></span>
     </PopoverTrigger>
@@ -64,7 +64,7 @@ function SourceSlot({ source, selected, onSelect }: { source: PrintMaterialSourc
   const material = source.presence === 'empty' && source.unit.kind !== 'manual-holder' ? '—' : source.materialType ?? '?';
   return <button type="button" aria-label={`${source.label} · ${material}`} aria-pressed={selected} disabled={unavailable} aria-description={source.disabledReason ?? undefined}
     title={source.disabledReason ?? `${source.label} · ${source.materialType ?? 'Unknown material; type cannot be checked'}`}
-    onClick={onSelect} className={`relative flex h-16 w-12 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded border text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary ${selected ? 'border-primary ring-1 ring-primary' : 'border-border'} ${unavailable ? 'cursor-not-allowed bg-muted/20 text-muted-foreground opacity-45' : 'hover:ring-1 hover:ring-primary'}`}
+    onClick={onSelect} className={`relative flex h-16 w-12 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded border text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary ${selected ? 'border-primary ring-1 ring-primary' : 'border-border'} ${unavailable ? 'cursor-not-allowed bg-muted/20 text-muted-foreground opacity-45' : 'bg-control-background text-foreground hover:ring-1 hover:ring-primary'}`}
     style={unavailable ? undefined : materialColor(source.color)}>
     {source.remainingFraction !== null && <span className="absolute inset-x-1 top-1 h-1 overflow-hidden rounded bg-black/15" title={`${Math.round(source.remainingFraction * 100)}% remaining`}><span className="block h-full bg-current" style={{ width: `${source.remainingFraction * 100}%` }} /></span>}
     {selected && <Check className="absolute right-0.5 top-1.5 size-3.5" aria-hidden="true" />}
@@ -76,5 +76,16 @@ function SourceSlot({ source, selected, onSelect }: { source: PrintMaterialSourc
 function materialColor(value: string | null | undefined) {
   if (!value || !/^#[\da-f]{6}([\da-f]{2})?$/i.test(value)) return undefined;
   const [r, g, b] = [1, 3, 5].map(index => parseInt(value.slice(index, index + 2), 16));
-  return { backgroundColor: value, color: .299 * r + .587 * g + .114 * b > 150 ? '#111111' : '#ffffff' };
+  const alpha = value.length === 9 ? parseInt(value.slice(7), 16) / 255 : 1;
+  // Transparent filament swatches need an opaque backing: contrast against the
+  // checkerboard's average shade, not RGB hidden behind a zero alpha channel.
+  const brightness = alpha * (.299 * r + .587 * g + .114 * b) + (1 - alpha) * 238;
+  return {
+    backgroundColor: alpha < 1 ? '#ffffff' : value,
+    ...(alpha < 1 ? {
+      backgroundImage: `linear-gradient(${value}, ${value}), conic-gradient(#dddddd 25%, #ffffff 0 50%, #dddddd 0 75%, #ffffff 0)`,
+      backgroundSize: '100% 100%, 8px 8px',
+    } : {}),
+    color: brightness > 150 ? '#111111' : '#ffffff',
+  };
 }
