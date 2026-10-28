@@ -695,6 +695,24 @@ cancellation, and a failed print start never navigate to Device.
 
 ## Print preparation and submission
 
+The shared preparation modal and initial Bambu-only submission capability are
+implemented. It copies the current Device selection once, owns its mapping and
+options, saves explicit option changes per physical printer, and locks project
+editing while open. Agent diagnostics control availability and per-send warning
+confirmation. Sending/cancellation remain visible until the agent reports their
+outcomes; confirmed start closes the modal and selects the printer in Device.
+The former Moonraker upload/start flow remains available through the same entry.
+
+Software validation on macOS ARM64 includes shared component tests, the complete
+shared-app unit suite and workspace typechecks. The Bambu Electron fixture covers
+renderer/preload/main requests, binary chunk delivery, persisted options,
+cancellation and delayed start confirmation; Moonraker send/retry and keyless
+regressions pass. The fixture caught and fixed an observation target carrying a
+command-only revision field. These results do not qualify a physical print.
+Initial H2D + AMS LAN print acceptance remains outstanding; Cloud physical
+acceptance is deferred as agreed.
+
+
 **Decision status:** Adopt a shared, capability-driven preparation UI and a
 generic local-artifact submission contract (option B), initially enabled only
 by the Bambu agent. The sections below record the accepted product decisions

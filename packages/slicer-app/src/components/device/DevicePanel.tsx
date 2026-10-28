@@ -1,3 +1,4 @@
+import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { PrinterDiscovery } from './PrinterDiscovery';
 import {
   useEffect,
@@ -248,6 +249,15 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   useEffect(() => {
     if (configurationLoaded && !loadFailed && selectedPrinterId && !selectedPrinter) setSelectedPrinterId(null);
   }, [configurationLoaded, loadFailed, selectedPrinter, selectedPrinterId]);
+
+  const requestedSelection = useDeviceSelectionStore(s => s.requestVersion);
+  useEffect(() => { useDeviceSelectionStore.getState().setCurrent(selectedPrinterId); }, [selectedPrinterId]);
+  useEffect(() => {
+    if (requestedSelection) {
+      selectPrinter(useDeviceSelectionStore.getState().requestedPrinterId);
+      setSelectedPage('monitor');
+    }
+  }, [requestedSelection]);
 
   const consoleRoute = selectedPrinter?.routes.find(route => route.capabilities.webInterface.kind === 'supported');
 

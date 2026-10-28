@@ -1,3 +1,5 @@
+import { usePrintDialogStore } from './stores/usePrintDialogStore';
+import { useDeviceSelectionStore } from './stores/useDeviceSelectionStore';
 import { paintingCommandAllowed, closePaintingForCommand, paintingSessionActive } from './components/workspace/viewport/gizmo/painting/projectCommands';
 // packages/slicer-app/src/App.tsx (boot effect: app config load → worker
 // client init → atomic preset snapshot → option metadata → settings store)
@@ -196,6 +198,8 @@ function AppContent() {
       void closePaintingForCommand().then((closed) => { if (closed) navigate(); });
     } else navigate();
   }, []);
+  const deviceNavigation = useDeviceSelectionStore(s => s.requestVersion);
+  useEffect(() => { if (deviceNavigation) handleTabChange('device'); }, [deviceNavigation, handleTabChange]);
   const navigateToPreview = useCallback(() => {
     handleTabChange('preview');
   }, [handleTabChange]);
@@ -322,7 +326,9 @@ function AppContent() {
     }
   }, [platform.preferences, platform.runtime, preferences]);
 
-  const menuState = useMemo(() => buildMenuStateSnapshot({
+  const printDialogOpen = usePrintDialogStore(s => s.open);
+  const menuState = useMemo(() => {
+    const snapshot = buildMenuStateSnapshot({
     version: 1,
     activeTab,
     boot: { phase: setup ? 'setup' : boot, error: bootError },
@@ -346,7 +352,12 @@ function AppContent() {
       isElectron: platform.chrome.kind === 'desktop',
       menuMode: resolveMenuMode(platform.chrome),
     },
-  }, platform.chrome, recentHistory.projects), [
+  }, platform.chrome, recentHistory.projects);
+    if (printDialogOpen) for (const [command, item] of Object.entries(snapshot.items)) {
+      if (item && !['quit', 'open-source', 'open-configuration-folder'].includes(command)) item.enabled = false;
+    }
+    return snapshot;
+  }, [printDialogOpen,
     boot,
     setup,
     activeTab,

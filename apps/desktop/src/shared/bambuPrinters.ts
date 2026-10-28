@@ -6,7 +6,7 @@ const typeId = 'bambu-network' as D.Id<'printer-type'>;
 const unsupported = { kind: 'unsupported', layer: 'adapter', reason: 'This operation is not supported by the Bambu adapter.' } as const;
 export function bambuCapabilities(): D.PrinterCapabilities {
   return {
-    revision: 'bambu-observation-1', submission: unsupported,
+    revision: 'bambu-submission-1', submission: { kind: 'supported', constraints: { formats: ['print-3mf'] } },
     commands: {
       'jobs.start': unsupported, 'jobs.pause': unsupported, 'jobs.resume': unsupported, 'jobs.cancel': unsupported, 'jobs.setSpeed': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
       'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported, 'motion.home': unsupported,

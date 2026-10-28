@@ -1221,8 +1221,9 @@ Validation includes 13 mapping/lifecycle tests, the desktop and printer-control
 unit suites, typechecks, the serial native quick build and real-WASM archive
 smoke. The real archive inspector also accepts the native H2D print/configuration
 pair and rejects mismatched material identities. Fixture acceptance is not LAN
-or Cloud physical-print qualification. Capability activation accompanies the
-shared preparation UI in the following stage.
+or Cloud physical-print qualification. The following shared-UI stage activates this capability only for Bambu; other
+agents retain their existing interfaces. See the console specification for
+software delivery and physical qualification status.
 
 The [console specification](Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission)
 owns the interaction, mapping review and feature envelope. This section owns
