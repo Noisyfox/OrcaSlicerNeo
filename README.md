@@ -44,6 +44,14 @@ Test frequency and focused-versus-release routing are defined by the
 
 ## Building
 
+Web additionally requires wasm32 threaded/serial fallback artifacts. After
+preparing the toolchain and dependencies, build them with
+`node scripts/build-wasm32.mjs build` (or select `--variant threaded|serial`).
+Linux CI bootstraps their separate dependency cache with
+`node scripts/build-wasm32.mjs deps`. Web build staging includes all four
+artifacts; Electron packaging continues to include only the two wasm64 builds.
+See the [WASM build reference](doc/2026-08-12-wasm-build-notes.md).
+
 ### Prerequisites
 
 - **Node.js ≥ 24** and **pnpm** (pinned via Volta: node 24.19.0 / pnpm 10.34.5;

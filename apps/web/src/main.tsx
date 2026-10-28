@@ -18,7 +18,7 @@ function SerialFallbackNotice() {
   return (
     <aside className="web-serial-status" data-testid="serial-fallback-status" role="status">
       <span className="web-serial-status-message">
-        Threaded WebAssembly is unavailable in this page, so OrcaSlicerNeo is running the serial wasm64 fallback.
+        Threaded WebAssembly is unavailable in this page, so OrcaSlicerNeo is running the serial WebAssembly fallback.
       </span>
       <button
         type="button"

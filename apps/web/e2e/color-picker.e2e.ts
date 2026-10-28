@@ -80,7 +80,7 @@ test('Web converts imported multicolour to edited gradient across local storage 
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(false);
-    await expect(page.getByTestId('serial-fallback-status')).toContainText('serial wasm64 fallback');
+    await expect(page.getByTestId('serial-fallback-status')).toContainText('serial WebAssembly fallback');
   } else {
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
     await expect(page.getByTestId('serial-fallback-status')).toHaveCount(0);

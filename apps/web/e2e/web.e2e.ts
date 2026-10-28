@@ -658,7 +658,7 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   await page.locator('#app-tab-prepare').click();
   if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
     await expect(page.getByTestId('serial-fallback-status')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('serial-fallback-status')).toContainText('serial wasm64 fallback');
+    await expect(page.getByTestId('serial-fallback-status')).toContainText('serial WebAssembly fallback');
   } else {
     await expect(page.getByTestId('serial-fallback-status')).toHaveCount(0);
   }

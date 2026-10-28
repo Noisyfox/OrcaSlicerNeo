@@ -52,6 +52,22 @@ executable Git file modes. Verify Boost archives using the platform's staged
 name rather than assuming the Windows suffix. Linux CI commands do not change
 the Windows cmd-native development rule.
 
+Web also ships wasm32 threaded and serial fallbacks. `wasm32_deps` caches
+`packages/slicer-wasm/.work/wasm32/deps` before either core build; the `wasm32`
+matrix caches only successfully tested production artifacts under
+`out/wasm32/<variant>`, with exact hits skipping toolchain setup and native
+tests. Its keys use the same SDK, gitlink and native-input rules as wasm64,
+plus `scripts/build-wasm32.mjs`. That driver generates a separate 32-bit
+scaffold from the authoritative native inputs, with separate dependency
+prefixes, build trees and a 2 GiB maximum heap. It does not edit those inputs:
+the existing wasm64 key expressions, version and hashed files remain unchanged.
+
+Only `pages-build` downloads the wasm32 artifacts. Web staging copies assets
+into `apps/web/.generated/public`, then adds `wasm/wasm32/threaded` and
+`wasm/wasm32/serial`; Electron staging and packaging retain only wasm64.
+The browser validates an actual Memory64 module to choose an address width,
+then chooses threaded or serial according to isolation/thread support.
+
 Profile packages build independently of WASM and are uploaded once. Native
 smokes, Pages, real Electron E2E and packaging use the same profile artifact.
 Mock E2E also needs profiles and pinned native resources; soft staging copies

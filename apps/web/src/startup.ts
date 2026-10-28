@@ -15,8 +15,8 @@ export interface WebStartupDeps {
  * without starting a Worker or importing the runtime module. */
 export async function startWebApp(deps: WebStartupDeps): Promise<void> {
   const capabilities = deps.detect();
-  if (!capabilities.webgl2 || !capabilities.wasm64) {
-    deps.unsupported('OrcaSlicerNeo Web requires WebGL 2 and wasm64 (Chrome 133 or later).');
+  if (!capabilities.webgl2 || !capabilities.wasm) {
+    deps.unsupported('OrcaSlicerNeo Web requires WebGL 2 and WebAssembly.');
     return;
   }
   try {

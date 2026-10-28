@@ -46,16 +46,22 @@ and [3MF Project Persistence](3MF%20Project%20Persistence.md).
 - **Primary target:** desktop Chrome 133 or later on Windows, macOS, and
   Linux. Chrome 133 is the first supported baseline because it ships the
   required Wasm Memory64 support.
-- **Hard browser requirements:** WebGL 2 and wasm64. If either is absent, the
-  web application shows an unsupported-environment screen and does not start.
-- **WASM threading:** prefer the threaded wasm64 artifact. When cross-origin
+- **Hard browser requirements:** WebGL 2 and WebAssembly. Web validates an
+  actual Memory64 module, preferring wasm64 when supported and selecting its
+  wasm32 build otherwise. The wasm32 fallback currently caps linear memory at
+  2 GiB; complex models may exceed that capacity. Real macOS/iOS Safari
+  qualification remains separate from development-host browser checks.
+- **WASM threading:** prefer the threaded artifact for the selected address
+  width. When cross-origin
   isolation/thread support is unavailable, automatically run a separate
-  single-thread wasm64 artifact. No manual mode picker is needed. The Web host
+  single-thread artifact of the same address width. No manual mode picker is needed. The Web host
   shows the active single-thread fallback as a non-blocking upper-right status
   notice with a circular close control. Dismissing it hides the notice for the
   current page session and does not change runtime selection.
 - **WASM artifacts:** both threaded and single-thread wasm64 builds ship with
-  Electron and Web. They expose the same typed client contract.
+  Electron and Web. Only Web includes additional wasm32 threaded/single-thread
+  artifacts, in its private generated public directory. Electron packages
+  remain wasm64-only. All artifacts expose the same typed client contract.
 - **Thread pool:** the threaded artifact uses all logical cores reported by
   `navigator.hardwareConcurrency`; the first release imposes no extra cap.
 - **Deployment:** all first-party application resources are served from one
