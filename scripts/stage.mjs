@@ -30,6 +30,8 @@ await rm(obsoletePreviewDst, { recursive: true, force: true });
 // staging pass. The profile runner adds this directory back explicitly only
 // for its compile-time-enabled Electron build.
 await rm(dedicatedProfileDst, { recursive: true, force: true });
+// Web stages its wasm32 fallback into its own private public directory.
+await rm(join(dstRoot, 'wasm32'), { recursive: true, force: true });
 
 if (existsSync(profileSrc)) {
   await cp(profileSrc, profileDst, { recursive: true, force: true });

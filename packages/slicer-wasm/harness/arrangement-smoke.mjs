@@ -41,8 +41,8 @@ function history() { return call('orc_history_status'); }
 function observe() {
   const mesh = call('orc_get_model_mesh');
   for (const geometry of [...mesh.geometries, ...(mesh.paint_geometries ?? [])]) {
-    module._free(BigInt(geometry.vertex_ptr));
-    module._free(BigInt(geometry.index_ptr));
+    module._free(Number(geometry.vertex_ptr));
+    module._free(Number(geometry.index_ptr));
   }
   return { model: mesh.renderables, plates: call('orc_get_plate_session_snapshot') };
 }

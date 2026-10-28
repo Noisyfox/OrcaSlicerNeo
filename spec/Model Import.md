@@ -73,10 +73,10 @@ Primitives and bundled handy models follow
 
 ## Native build boundary
 
-The pinned OCCT/XCAF dependency is compiled into both wasm64 variants with
-`USE_FREETYPE=OFF`. STEP retains its required OCCT toolkits, including
-`TKService`, without linking or shipping FreeType. OCCT font-to-mesh code
-is outside the Neo source closure.
+The pinned OCCT/XCAF dependency is compiled into both wasm64 variants and the
+Web-only wasm32 variants with `USE_FREETYPE=OFF`. STEP retains its required
+OCCT toolkits, including `TKService`, without linking or shipping FreeType.
+OCCT font-to-mesh code is outside the Neo source closure.
 The native STEP reader uses synchronous WASM-only dispatch and inline meshing
 to avoid nested scheduler and serial-shim deadlocks. Native builds keep their
 normal scheduler. Orca adaptations live in the committed core submodule;

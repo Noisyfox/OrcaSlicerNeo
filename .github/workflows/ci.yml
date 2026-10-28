@@ -316,6 +316,126 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Keep wasm64's key expressions and native inputs above unchanged: existing
+  # dependency and tested-artifact caches remain exact hits after this addition.
+  wasm32_deps:
+    name: WASM32 dependencies
+    runs-on: ubuntu-latest
+    outputs:
+      cache_key: ${{ steps.dependency-key.outputs.key }}
+      build_cache_key: ${{ steps.build-key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+      - name: Select compiled wasm32 dependency cache key
+        id: dependency-key
+        env:
+          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'scripts/build-wasm32.mjs') }}
+        run: echo "key=${{ runner.os }}-wasm32-deps-emsdk-${EMSDK_VERSION}-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
+      - name: Select tested wasm32 artifact cache key
+        id: build-key
+        env:
+          WASM_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', 'scripts/build-wasm32.mjs') }}
+        run: |
+          orca_pin=$(git rev-parse HEAD:packages/slicer-wasm/cpp)
+          echo "key=${{ runner.os }}-${{ runner.arch }}-wasm32-tested-v1-emsdk-${EMSDK_VERSION}-${orca_pin}-${WASM_INPUT_HASH}" >> "$GITHUB_OUTPUT"
+      - name: Restore compiled wasm32 dependencies
+        id: dependency-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: packages/slicer-wasm/.work/wasm32/deps
+          key: ${{ steps.dependency-key.outputs.key }}
+      - name: Compile dependencies for both wasm32 variants
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        run: node scripts/build-wasm32.mjs deps
+      - name: Verify staged wasm32 dependencies
+        run: node scripts/build-wasm32.mjs verify-deps
+      - name: Save compiled wasm32 dependencies before core compilation
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: packages/slicer-wasm/.work/wasm32/deps
+          key: ${{ steps.dependency-key.outputs.key }}
+
+  wasm32:
+    name: WASM32 ${{ matrix.variant }} build + smoke
+    needs: [wasm32_deps, profile-pack]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [threaded, serial]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Restore tested wasm32 artifacts
+        id: wasm-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: packages/slicer-wasm/out/wasm32/${{ matrix.variant }}
+          key: ${{ needs.wasm32_deps.outputs.build_cache_key }}-${{ matrix.variant }}
+      - uses: actions/setup-node@v7
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/download-artifact@v8
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        with:
+          name: profile-packages
+          path: packages/profile-resources/dist
+      - uses: emscripten-core/setup-emsdk@v15
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+      - name: Restore compiled wasm32 dependencies
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        id: dependency-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: packages/slicer-wasm/.work/wasm32/deps
+          key: ${{ needs.wasm32_deps.outputs.cache_key }}
+      - name: Require the compiled dependency cache
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: test "${{ steps.dependency-cache.outputs.cache-hit }}" = "true"
+      - name: Build wasm32 module
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: node scripts/build-wasm32.mjs build --variant ${{ matrix.variant }}
+      - name: Native regression and variant-specific smoke
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: |
+          module=packages/slicer-wasm/out/wasm32/${{ matrix.variant }}/orca_slice.js
+          node packages/slicer-wasm/harness/run-slice.mjs --module "$module" --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
+          node packages/slicer-wasm/harness/bridge-smoke.mjs "$module" packages/slicer-wasm/fixtures/cube.stl
+          node packages/slicer-wasm/harness/arrangement-smoke.mjs "$module"
+          node packages/slicer-wasm/harness/step-import-smoke.mjs "$module" packages/slicer-wasm/fixtures/step
+      - name: Verify production artifacts
+        run: |
+          for extension in js wasm data; do
+            test -s "packages/slicer-wasm/out/wasm32/${{ matrix.variant }}/orca_slice.$extension"
+          done
+      - name: Save tested wasm32 artifacts
+        if: success() && steps.wasm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: packages/slicer-wasm/out/wasm32/${{ matrix.variant }}
+          key: ${{ steps.wasm-cache.outputs.cache-primary-key }}
+      - name: Upload Web-only wasm32 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: orca-slice-wasm32-${{ matrix.variant }}
+          path: packages/slicer-wasm/out/wasm32/${{ matrix.variant }}
+          if-no-files-found: error
+          retention-days: 7
+
   unit:
     name: Unit + typecheck
     runs-on: ubuntu-latest
@@ -331,6 +451,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r test
       - run: pnpm -r typecheck
+      - name: Verify wasm32 build scaffold and host artifact boundaries
+        run: node --test scripts/build-wasm32.test.mjs
 
   e2e-mock:
     name: e2e (mock module)
@@ -404,7 +526,7 @@ jobs:
 
   pages-build:
     name: Build Web Pages
-    needs: [wasm_threaded, wasm_serial]
+    needs: [wasm_threaded, wasm_serial, wasm32]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -432,6 +554,14 @@ jobs:
           name: profile-packages
           path: packages/profile-resources/dist
       - uses: actions/configure-pages@v5
+      - uses: actions/download-artifact@v8
+        with:
+          name: orca-slice-wasm32-threaded
+          path: packages/slicer-wasm/out/wasm32/threaded
+      - uses: actions/download-artifact@v8
+        with:
+          name: orca-slice-wasm32-serial
+          path: packages/slicer-wasm/out/wasm32/serial
       - name: Verify Web host
         run: |
           pnpm --filter @orca/web test

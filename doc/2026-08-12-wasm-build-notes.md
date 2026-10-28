@@ -19,6 +19,20 @@ matching every object, static archive and final link. `out/threaded/` and
 `out/serial/` contain separate JS/WASM/data artifacts. `scripts/stage.mjs`
 stages them and profile resources for the hosts; it does not rebuild WASM.
 
+The Web-only wasm32 fallback is built with
+`node scripts/build-wasm32.mjs build [--variant threaded|serial|both]` (default:
+both). `deps` bootstraps its separate dependencies in Linux CI; `prepare`
+generates its isolated scaffold without compiling, and `verify-deps` checks
+the staged prefixes. On Windows the build invokes the generated copy of
+`scripts\build-windows.bat`; dependency helpers remain cmd-native. The driver
+reuses the authoritative native files without changing wasm64 cache inputs,
+sets 32-bit pointers and a 4 GiB heap limit with on-demand growth, and collects
+artifacts under `out/wasm32/<variant>`. Emscripten keeps its wasm32 heap-growth
+ceiling one 64 KiB page below 4 GiB to avoid wrapping the heap size to zero.
+The initial heap remains 64 MiB. `scripts/stage-web.mjs` adds these only to
+Web's private public assets. Electron continues to use `scripts/stage.mjs`
+and wasm64.
+
 ## Source and dependency ownership
 
 The superproject gitlink is the exact Orca revision. Make native adaptations
