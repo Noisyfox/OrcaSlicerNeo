@@ -1,6 +1,6 @@
 # CI Assets, Packaging and GitHub Pages
 
-**Updated:** 2026-10-24
+**Updated:** 2026-10-28
 **Status:** Current deployment reference
 
 ## Pages pipeline
@@ -26,9 +26,8 @@ Asset URLs must work under the project subpath.
 ## Dependency and asset ownership
 
 The dependency job caches fetched/compiled Boost, oneTBB, Draco, NLopt and OCCT.
-Its key includes the SDK version, dependency scripts, OCCT patches and FreeType
-probe. Core source or core-driver changes alone do not invalidate dependency
-compilation. A miss builds/verifies the required variants and saves the cache
+Its key includes the SDK version, dependency scripts and OCCT patches. Core
+source or core-driver changes alone do not invalidate dependency compilation. A miss builds/verifies the required variants and saves the cache
 before core jobs run; core jobs restore it and refresh generated headers through
 the idempotent fetch script when their production-artifact cache misses.
 

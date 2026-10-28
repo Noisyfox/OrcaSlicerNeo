@@ -190,10 +190,17 @@ target_compile_definitions(slic3r_core PUBLIC
 if(NOT OCCT_ROOT OR NOT EXISTS "${OCCT_ROOT}/include/opencascade/Standard.hxx")
   message(FATAL_ERROR "OCCT_ROOT must name the staged OCCT wasm64 prefix (include/opencascade/Standard.hxx missing).")
 endif()
+# Reject pre-removal OCCT stages even during a quick build: their archives
+# still reference FreeType and must be rebuilt with the current dependency flags.
+if(EXISTS "${OCCT_ROOT}/manifest.txt")
+  file(STRINGS "${OCCT_ROOT}/manifest.txt" OCCT_FREETYPE_DISABLED REGEX "^USE_FREETYPE=OFF$")
+endif()
+if(NOT OCCT_FREETYPE_DISABLED)
+  message(FATAL_ERROR "OCCT_ROOT must be rebuilt with USE_FREETYPE=OFF. Run build-occt-wasm64 for this variant, then reconfigure.")
+endif()
 target_include_directories(slic3r_core SYSTEM PUBLIC
   "${OCCT_ROOT}/include"
   "${OCCT_ROOT}/include/opencascade"
-  "${OCCT_ROOT}/include/freetype2"
 )
 # Boost.Log ABI tag: Boost.Log 2.x is a compiled library (no header-only
 # mode). The Boost archives were built with -pthread (build-boost-wasm64.sh),
@@ -425,7 +432,7 @@ if(NEO_PROJECT_HISTORY_TEST)
   add_executable(preset_runtime_erase_test "${CMAKE_CURRENT_SOURCE_DIR}/src/PresetRuntimeErase.test.cpp")
   target_compile_options(preset_runtime_erase_test PRIVATE -fexceptions)
   target_link_options(preset_runtime_erase_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
-    -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+    -sEXIT_RUNTIME=1 -sASSERTIONS=1)
   target_link_libraries(preset_runtime_erase_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
   set_target_properties(preset_runtime_erase_test PROPERTIES SUFFIX ".cjs")
   add_executable(plate_runtime_registry_test
@@ -434,7 +441,7 @@ if(NEO_PROJECT_HISTORY_TEST)
   target_compile_definitions(plate_runtime_registry_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
   target_compile_options(plate_runtime_registry_test PRIVATE -fexceptions)
   target_link_options(plate_runtime_registry_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
-    -sUSE_FREETYPE=1 -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+    -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
   target_link_libraries(plate_runtime_registry_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
 
   add_executable(timestamped_history_core_test
@@ -453,7 +460,7 @@ if(NEO_PROJECT_HISTORY_TEST)
   target_compile_definitions(history_mesh_capture_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
   target_compile_options(history_mesh_capture_test PRIVATE -fexceptions)
   target_link_options(history_mesh_capture_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
-    -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+    -sEXIT_RUNTIME=1 -sASSERTIONS=1)
   target_link_libraries(history_mesh_capture_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
   set_target_properties(history_mesh_capture_test PROPERTIES SUFFIX ".cjs")
 
@@ -463,7 +470,7 @@ if(NEO_PROJECT_HISTORY_TEST)
   target_compile_definitions(history_instance_identity_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
   target_compile_options(history_instance_identity_test PRIVATE -fexceptions)
   target_link_options(history_instance_identity_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
-    -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+    -sEXIT_RUNTIME=1 -sASSERTIONS=1)
   target_link_libraries(history_instance_identity_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
   set_target_properties(history_instance_identity_test PROPERTIES SUFFIX ".cjs")
   add_executable(painting_session_test
@@ -472,7 +479,7 @@ if(NEO_PROJECT_HISTORY_TEST)
   target_compile_definitions(painting_session_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
   target_compile_options(painting_session_test PRIVATE -fexceptions)
   target_link_options(painting_session_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
-    -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+    -sEXIT_RUNTIME=1 -sASSERTIONS=1)
   target_link_libraries(painting_session_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
   set_target_properties(painting_session_test PROPERTIES SUFFIX ".cjs")
 endif()
@@ -504,31 +511,23 @@ foreach(toolkit IN LISTS OCCT_TOOLKITS)
   endif()
   list(APPEND OCCT_ARCHIVES "${toolkit_archive}")
 endforeach()
-if(NOT EXISTS "${OCCT_ROOT}/lib/libfreetype.a")
-  message(FATAL_ERROR "OCCT_ROOT is missing staged FreeType archive")
-endif()
 target_link_libraries(orca_slice PRIVATE
   -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
-  "${OCCT_ROOT}/lib/libfreetype.a"
 )
 if(NEO_PROJECT_HISTORY_TEST)
   target_link_libraries(preset_runtime_erase_test PRIVATE
-    -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group "${OCCT_ROOT}/lib/libfreetype.a")
+    -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group)
   target_link_libraries(history_mesh_capture_test PRIVATE
     -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
-    "${OCCT_ROOT}/lib/libfreetype.a"
   )
   target_link_libraries(history_instance_identity_test PRIVATE
     -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
-    "${OCCT_ROOT}/lib/libfreetype.a"
   )
   target_link_libraries(painting_session_test PRIVATE
     -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
-    "${OCCT_ROOT}/lib/libfreetype.a"
   )
   target_link_libraries(plate_runtime_registry_test PRIVATE
     -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
-    "${OCCT_ROOT}/lib/libfreetype.a"
   )
 endif()
 if(WASM_THREADING)
@@ -568,7 +567,6 @@ target_link_options(orca_slice PRIVATE
   ${ORCA_LINK_OPTIMIZE}
   -fexceptions
   -m64
-  -sUSE_FREETYPE=1
   -sMODULARIZE=1
   -sEXPORT_ES6=1
   -sENVIRONMENT=web,worker,node
@@ -644,7 +642,7 @@ foreach(_arrange_test arrangement_core_test headless_arrangement_test)
 target_compile_options(${_arrange_test} PRIVATE -fexceptions)
 target_link_libraries(${_arrange_test} PRIVATE ${_arrange_test_libraries})
 target_link_options(${_arrange_test} PRIVATE -m64 -O2 -fexceptions
-  -sDISABLE_EXCEPTION_CATCHING=0 -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1
+  -sDISABLE_EXCEPTION_CATCHING=0 -sEXIT_RUNTIME=1
   -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608)
 set_target_properties(${_arrange_test} PROPERTIES SUFFIX ".cjs")
 if(WASM_THREADING)

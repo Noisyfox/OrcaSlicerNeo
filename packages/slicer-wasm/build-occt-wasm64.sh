@@ -12,7 +12,7 @@ OCCT_SOURCE="$DEPS/occt-$OCCT_VER"
 OCCT_BUILD="$WORK_DIR/occt-build-$ARTIFACT_VARIANT"
 OCCT_STAGE="$OCCT_SOURCE/stage-wasm64-$ARTIFACT_VARIANT"
 OCCT_PATCH_DIR="$PKG_DIR/patches/occt"
-OCCT_FLAGS="-m64 -sUSE_FREETYPE=1"
+OCCT_FLAGS="-m64"
 [[ "$WASM_THREADING" == "0" ]] || OCCT_FLAGS+=" -pthread"
 EXPECTED=(TKBO TKBRep TKCAF TKCDF TKernel TKG2d TKG3d TKGeomAlgo TKGeomBase TKHLR TKLCAF TKMath TKMesh TKPrim TKService TKShHealing TKSTEP TKSTEP209 TKSTEPAttr TKSTEPBase TKTopAlgo TKV3d TKVCAF TKXCAF TKXDESTEP TKXSBase)
 
@@ -21,22 +21,6 @@ command -v emcmake >/dev/null 2>&1 || die "activate emsdk first"
 command -v emcc >/dev/null 2>&1 || die "emcc not found"
 command -v cmake >/dev/null 2>&1 || die "cmake not found"
 command -v ninja >/dev/null 2>&1 || die "ninja not found"
-if [[ -z "${EMSCRIPTEN:-}" ]]; then
-  if [[ -n "${EMSDK:-}" && -d "$EMSDK/upstream/emscripten" ]]; then
-    EMSCRIPTEN="$EMSDK/upstream/emscripten"
-  elif command -v em-config >/dev/null 2>&1; then
-    # PATH-only installs (such as Homebrew) do not set EMSDK, but em-config
-    # knows the actual Emscripten root even when its commands are symlinked.
-    EMSCRIPTEN="$(em-config EMSCRIPTEN_ROOT 2>/dev/null || true)"
-  fi
-fi
-if [[ -z "${EMSCRIPTEN:-}" ]]; then
-  die "EMSCRIPTEN must name the Emscripten directory (set EMSCRIPTEN or EMSDK, or add em-config to PATH)"
-fi
-if [[ ! -d "$EMSCRIPTEN" || ! -f "$EMSCRIPTEN/emcc" ]]; then
-  die "EMSCRIPTEN does not contain emcc: $EMSCRIPTEN"
-fi
-export EMSCRIPTEN
 [[ -f "$OCCT_SOURCE/CMakeLists.txt" ]] || bash "$PKG_DIR/fetch-deps.sh"
 [[ -f "$OCCT_SOURCE/CMakeLists.txt" ]] || die "OCCT source is unavailable"
 
@@ -53,23 +37,6 @@ for patch in "$OCCT_PATCH_DIR"/*.patch; do
     die "OCCT patch $(basename "$patch") neither applies nor is already applied"
   fi
 done
-
-FREETYPE_SYSROOT="$(cd "$EMSCRIPTEN/../" 2>/dev/null && pwd -P)/emscripten/cache/sysroot"
-if [[ ! -d "$FREETYPE_SYSROOT" ]]; then
-  FREETYPE_SYSROOT="$EMSCRIPTEN/cache/sysroot"
-fi
-FREETYPE_INCLUDE="$FREETYPE_SYSROOT/include/freetype2"
-# [[ -f "$FREETYPE_INCLUDE/ft2build.h" ]] || die "Emscripten FreeType headers are missing"
-FREETYPE_ARCHIVE="$EMSCRIPTEN/cache/sysroot/lib/wasm64-emscripten/libfreetype.a"
-if [[ ! -f "$FREETYPE_ARCHIVE" && -f "$EMSCRIPTEN/cache/sysroot/lib/wasm64-emscripten/pic/libfreetype.a" ]]; then
-  FREETYPE_ARCHIVE="$EMSCRIPTEN/cache/sysroot/lib/wasm64-emscripten/pic/libfreetype.a"
-fi
-if [[ ! -f "$FREETYPE_ARCHIVE" ]]; then
-  echo "[occt] Materializing the wasm64 FreeType port"
-  mkdir -p "$OCCT_BUILD"
-  emcc "$PKG_DIR/stubs/freetype-port-probe.c" $OCCT_FLAGS -sERROR_ON_UNDEFINED_SYMBOLS=1 -sSTANDALONE_WASM=1 -o "$OCCT_BUILD/freetype-port-probe.wasm"
-fi
-[[ -f "$FREETYPE_ARCHIVE" ]] || die "wasm64 FreeType port archive was not materialized"
 
 echo "[occt] Configuring OCCT $OCCT_VER ($ARTIFACT_VARIANT wasm64)"
 emcmake cmake -S "$OCCT_SOURCE" -B "$OCCT_BUILD" -G Ninja \
@@ -90,12 +57,7 @@ emcmake cmake -S "$OCCT_SOURCE" -B "$OCCT_BUILD" -G Ninja \
   -DBUILD_MODULE_Visualization=OFF \
   -DBUILD_DOC_Overview=OFF \
   -DUSE_TK=OFF -DUSE_TBB=OFF -DUSE_FFMPEG=OFF -DUSE_VTK=OFF \
-  -DUSE_OPENGL=OFF -DUSE_GLES2=OFF -DUSE_FREETYPE=ON \
-  -D3RDPARTY_FREETYPE_DIR= \
-  -D3RDPARTY_FREETYPE_INCLUDE_DIR_freetype2="$FREETYPE_INCLUDE" \
-  -D3RDPARTY_FREETYPE_INCLUDE_DIR_ft2build="$FREETYPE_INCLUDE" \
-  -DFREETYPE_LIBRARY_RELEASE="$FREETYPE_ARCHIVE" \
-  -DFREETYPE_LIBRARY_DEBUG="$FREETYPE_ARCHIVE"
+  -DUSE_OPENGL=OFF -DUSE_GLES2=OFF -DUSE_FREETYPE=OFF
 cmake --build "$OCCT_BUILD" --target "${EXPECTED[@]}" --parallel "${WASM_BUILD_JOBS:-4}"
 LIB_DIR="$(find "$OCCT_BUILD" -type d -path '*/lib' | head -n 1)"
 [[ -n "$LIB_DIR" ]] || die "OCCT library output directory not found"
@@ -105,12 +67,9 @@ done
 [[ -f "$OCCT_BUILD/include/opencascade/Standard.hxx" ]] || die "missing generated OCCT headers"
 
 rm -rf "$OCCT_STAGE"
-mkdir -p "$OCCT_STAGE/include/opencascade" "$OCCT_STAGE/include/freetype2" "$OCCT_STAGE/lib"
+mkdir -p "$OCCT_STAGE/include/opencascade" "$OCCT_STAGE/lib"
 cp -R "$OCCT_BUILD/include/opencascade/." "$OCCT_STAGE/include/opencascade/"
 for toolkit in "${EXPECTED[@]}"; do cp -f "$LIB_DIR/lib$toolkit.a" "$OCCT_STAGE/lib/"; done
 
-# Stage the Emscripten wasm64 FreeType port archive alongside OCCT.
-cp -f "$FREETYPE_ARCHIVE" "$OCCT_STAGE/lib/libfreetype.a"
-cp -R "$FREETYPE_SYSROOT/include/freetype2/." "$OCCT_STAGE/include/freetype2/"
-printf '%s\n' "OCCT=$OCCT_VER" "variant=$ARTIFACT_VARIANT" "flags=$OCCT_FLAGS" "freetype=Emscripten port" > "$OCCT_STAGE/manifest.txt"
-echo "[occt] Staged ${#EXPECTED[@]} OCCT archives + FreeType at $OCCT_STAGE"
+printf '%s\n' "OCCT=$OCCT_VER" "variant=$ARTIFACT_VARIANT" "flags=$OCCT_FLAGS" "USE_FREETYPE=OFF" > "$OCCT_STAGE/manifest.txt"
+echo "[occt] Staged ${#EXPECTED[@]} OCCT archives at $OCCT_STAGE"
