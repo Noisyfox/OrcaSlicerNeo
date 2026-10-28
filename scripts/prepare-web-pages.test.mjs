@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const variants = ['threaded', 'serial', 'wasm32/threaded', 'wasm32/serial'];
+const variants = ['serial', 'wasm32/serial'];
 const runtimeFiles = variants.flatMap(variant => ['js', 'wasm', 'data'].map(ext => `${variant}/orca_slice.${ext}`));
 const script = fileURLToPath(new URL('./prepare-web-pages.mjs', import.meta.url));
 
@@ -23,22 +23,25 @@ async function fixture(t) {
   return { root, put, run: () => spawnSync(process.execPath, [script, root], { encoding: 'utf8' }) };
 }
 
-test('Pages preserves all four runtime variants and removes debug assets at every depth', async t => {
+test('Pages preserves both serial runtimes and removes threaded and debug assets at every depth', async t => {
   const { root, put, run } = await fixture(t);
   const extras = ['package.json', 'orca_slice.js', 'profile-threaded/debug.wasm',
     'wasm32/debug.wasm', 'wasm32/profile-serial/orca_slice.wasm',
+    ...['threaded', 'wasm32/threaded'].flatMap(variant => ['js', 'wasm', 'data'].map(ext => `${variant}/orca_slice.${ext}`)),
     ...variants.flatMap(variant => [`${variant}/orca_slice.wasm.map`, `${variant}/debug/trace.json`])];
   for (const file of extras) await put(`wasm/${file}`);
   await put('profiles/vendor.zip', 'profile bytes');
   const result = run();
   assert.equal(result.status, 0, result.stderr + result.stdout);
   assert.deepEqual((await readdir(join(root, 'wasm'), { recursive: true })).sort(),
-    [...runtimeFiles, 'threaded', 'serial', 'wasm32', 'wasm32/threaded', 'wasm32/serial'].sort());
+    [...runtimeFiles, 'serial', 'wasm32', 'wasm32/serial'].sort());
   for (const file of runtimeFiles) {
     assert.equal(await readFile(join(root, 'wasm', file), 'utf8'), file.endsWith('.data') ? '' : file);
   }
   assert.equal(await readFile(join(root, 'profiles/vendor.zip'), 'utf8'), 'profile bytes');
   assert.equal(await readFile(join(root, '.nojekyll'), 'utf8'), '');
+  const serialOnly = run();
+  assert.equal(serialOnly.status, 0, serialOnly.stderr + serialOnly.stdout);
 });
 
 test('Pages rejects an incomplete runtime set before pruning assets', async t => {

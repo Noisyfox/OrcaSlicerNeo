@@ -14,13 +14,14 @@ All four WASM variants and the packaged profiles come from the same workflow run
 The Pages build tests/typechecks Web, builds it, runs
 `node apps/web/scripts/non-root-smoke.mjs`, and prepares `apps/web/dist` with
 `node scripts/prepare-web-pages.mjs`. Preparation verifies HTML, the profile
-manifest and twelve production JS/WASM/data files across wasm64 and wasm32,
-strips other WASM-directory content (debug/profiling artifacts and maps),
-writes `.nojekyll`, and rejects
-artifacts over 1,000,000,000 bytes.
+manifest and six production JS/WASM/data files for serial wasm64 and wasm32.
+It removes both threaded variants and other WASM-directory content
+(debug/profiling artifacts and maps), writes `.nojekyll`, and rejects artifacts
+over 1,000,000,000 bytes.
 
-The ordinary Web build retains all four variants for isolated hosts. On Pages,
-without COOP/COEP headers, runtime selection uses serial wasm64 or serial wasm32
+The ordinary Web build retains all four variants for isolated hosts. The Pages
+artifact contains only the two serial variants because Pages cannot supply
+COOP/COEP headers. Runtime selection uses serial wasm64 or serial wasm32
 according to Memory64 support. Keep the WebAssembly and WebGL 2 capability
 gates; HTTPS alone does not enable threads.
 Asset URLs must work under the project subpath.
