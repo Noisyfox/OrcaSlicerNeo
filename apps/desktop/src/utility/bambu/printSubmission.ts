@@ -7,11 +7,13 @@ import type { BambuSubmissionInputs } from '../../shared/bambuSubmission';
 import type { BambuMonitor } from './monitor';
 import type { BambuDevices } from './devices';
 import type { BambuRepository, BambuLanRecord } from './repository';
+import type { CommandContext } from './commands';
 import { record, text, bits } from './telemetry';
 import { sdcardState } from './printOptions';
 import { prepareBambuPrint } from './printValidation';
 import { printParameters } from './printParameters';
 import { validatePrintArtifacts } from './printArtifacts';
+import { printerPrintProfile } from './printResources';
 type File = { descriptor: D.PrintArtifactDescriptor; path: string; handle: FileHandle; offset: number };
 type Job = { request: D.PrintSubmissionRequest; signature: string; state: D.PrintSubmissionState; files: Map<string, File>; directory: string; token: string; name: { display: string; remote: string }; nativeDone: Promise<void> | null; timer: ReturnType<typeof setTimeout> | null };
 const error = (message: string, code: D.ErrorCode = 'precondition-failed') => ({ ok: false as const, error: { code, message } });
@@ -27,17 +29,21 @@ export class BambuPrintSubmissions {
     private readonly devices: Pick<BambuDevices, 'list'>, private readonly repository: Pick<BambuRepository, 'read'>,
     private readonly directory: string, private readonly changed: () => void) {}
   private serialize<T>(fn: () => Promise<T>): Promise<T> { const next = this.queue.then(fn); this.queue = next.catch(() => undefined); return next; }
-  private async delivery(target: D.PrinterTarget, storage?: number, allowAbnormal = false) {
+  private async delivery(target: D.PrinterTarget, context: CommandContext, allowAbnormal = false) {
     const device = (await this.devices.list()).find(d => `bambu:${encodeURIComponent(d.deviceId)}` === target.printerId);
     const lan = device && (await this.repository.read()).lan.find(l => l.deviceId === device.deviceId && device.routes.some(r => r.channel === 'lan' && r.revision === l.revision));
     const cloud = !!device?.routes.some(r => r.channel === 'cloud');
-    const qualifiedLan = lan && (storage === 1 || storage === 2 && allowAbnormal);
+    const storage = sdcardState(context.report);
+    const defaults = record(printerPrintProfile(context.model, context.values.firmware.find(f => f.name === 'ota')?.version).print);
+    const reported = context.report.support_cloud_print_only, capability = record(record(context.report.capabilities).flags).support_cloud_print_only;
+    const cloudOnly = typeof capability === 'boolean' ? capability : typeof reported === 'boolean' ? reported : defaults.support_cloud_print_only === true;
+    const qualifiedLan = lan && !cloudOnly && (storage === 1 || storage === 2 && allowAbnormal);
     return { device, lan, cloud, route: qualifiedLan || lan && !cloud ? 'lan' as const : cloud ? 'cloud' as const : null };
   }
   async prepare(request: D.PrintPreparationRequest): Promise<D.Result<D.PrintPreparation>> {
     const context = await this.monitor.context(request.target);
     if (!context.ok) return context;
-    const delivery = await this.delivery(request.target, sdcardState(context.value.report), request.allowAbnormalStorage);
+    const delivery = await this.delivery(request.target, context.value, request.allowAbnormalStorage);
     const value = prepareBambuPrint(request, context.value, delivery.route);
     if (this.active && !final(this.active.state.phase)) value.issues = [...value.issues, { id: 'submission-busy', severity: 'block', message: 'Another print submission is still active.' }];
     if (request.checkRecording && value.options.timelapse && bits(context.value.report.fun, 28) === 1 && !value.issues.some(i => i.severity === 'block')) {
@@ -75,7 +81,7 @@ export class BambuPrintSubmissions {
       const files = new Map<string, File>();
       try {
         const context = await this.monitor.context(r.target); if (!context.ok) return context;
-        const delivery = await this.delivery(r.target, sdcardState(context.value.report), r.allowAbnormalStorage);
+        const delivery = await this.delivery(r.target, context.value, r.allowAbnormalStorage);
         const prepared = prepareBambuPrint({ ...r, suggest: false }, context.value, delivery.route);
         const issue = prepared.issues.find(i => i.severity === 'block' || i.severity === 'warning' && !r.acknowledgedIssues.includes(i.id));
         if (issue) return error(issue.message);
@@ -128,7 +134,7 @@ export class BambuPrintSubmissions {
     let nativeInvoked = false;
     try {
       const context = await this.monitor.context(job.state.ref); if (!context.ok) throw new Error('Printer unavailable');
-      const delivery = await this.delivery(job.state.ref, sdcardState(context.value.report), job.request.allowAbnormalStorage);
+      const delivery = await this.delivery(job.state.ref, context.value, job.request.allowAbnormalStorage);
       const prepared = prepareBambuPrint({ ...job.request, suggest: false }, context.value, delivery.route);
       const issue = prepared.issues.find(i => i.severity === 'block' || i.severity === 'warning' && !job.request.acknowledgedIssues.includes(i.id));
       if (issue) { await this.finish(job, 'failed', issue.message); return; }
@@ -154,22 +160,25 @@ export class BambuPrintSubmissions {
         }
         const admitted = await this.monitor.dispatch(job.state.ref, async latest => {
           if (cancelling(job)) return error('Sending was cancelled.', 'cancelled');
-          const checked = prepareBambuPrint({ ...job.request, suggest: false }, latest, route);
+          const current = await this.delivery(job.state.ref, latest, job.request.allowAbnormalStorage);
+          const selectedRoute = route === 'lan' && current.route === 'cloud' ? 'cloud' : route;
+          const checked = prepareBambuPrint({ ...job.request, suggest: false }, latest, current.route === null ? null : selectedRoute);
           const blocking = checked.issues.find(i => i.severity === 'block' || i.severity === 'warning' && !job.request.acknowledgedIssues.includes(i.id));
           if (blocking) return error(blocking.message);
           if (job.request.recordingSpaceAction === 'disable-timelapse') checked.options.timelapse = false;
           const options = printParameters(job.request, checked, job.name, latest.report);
           // Return the pending native promise as a value; never hold the monitor queue for upload.
+          job.state.route = selectedRoute; this.changed();
           nativeInvoked = true;
-          const pending = this.native.startPrint(route, { ...options, dev_id: delivery.device!.deviceId, filename: job.files.get('print')!.path, config_filename: job.files.get('configuration')!.path,
-            plate_index: 1, connection_type: route, dev_name: delivery.device!.name, dev_ip: lan?.ip ?? '', username: 'bblp', password: lan?.accessCode ?? '', use_ssl_for_ftp: true, use_ssl_for_mqtt: true });
+          const pending = this.native.startPrint(selectedRoute, { ...options, dev_id: delivery.device!.deviceId, filename: job.files.get('print')!.path, config_filename: job.files.get('configuration')!.path,
+            plate_index: 1, connection_type: selectedRoute, dev_name: delivery.device!.name, dev_ip: selectedRoute === 'lan' ? lan?.ip ?? '' : '', username: 'bblp', password: selectedRoute === 'lan' ? lan?.accessCode ?? '' : '', use_ssl_for_ftp: true, use_ssl_for_mqtt: true });
           return { ok: true as const, value: pending };
         });
         if (!admitted.ok) return { code: admitted.error.code === 'cancelled' ? -18 : -1, mayHaveStarted: false, cancelRequested: admitted.error.code === 'cancelled' };
         return admitted.value;
       };
       let result = await run(delivery.route!, delivery.lan);
-      if (result.code < 0 && result.code !== -1 && !result.mayHaveStarted && !result.cancelRequested && !cancelling(job) && delivery.route === 'lan' && delivery.cloud) result = await run('cloud');
+      if (result.code < 0 && result.code !== -1 && !result.mayHaveStarted && !result.cancelRequested && !cancelling(job) && job.state.route === 'lan' && delivery.cloud) result = await run('cloud');
       // Like Orca, a successful plugin return completes sending; Device owns physical print progress.
       if (result.code >= 0) await this.finish(job, 'sent', 'Print job sent.');
       else if (result.mayHaveStarted) {
