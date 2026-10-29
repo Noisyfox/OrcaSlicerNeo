@@ -708,6 +708,29 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     })).toBe(true);
 
     // Slice → status flips to Sliced, preview + scrubber appear, export unlocks.
+    if (!REAL) {
+      await page.getByTestId('arrange-menu').click();
+      await page.getByTestId('arrange-all').click();
+      const stack = page.getByTestId('workspace-notifications');
+      const arrangement = stack.getByTestId('arrangement-status');
+      await expect(arrangement).toContainText('Arrangement complete');
+      await expect(arrangement).toContainText('parked outside plates');
+      await expect(arrangement).toHaveCount(1);
+      await expect(arrangement.locator('[role="progressbar"]')).toHaveCount(0);
+      const notificationBox = await stack.boundingBox();
+      const sliceBox = await page.getByTestId('btn-slice').boundingBox();
+      expect(notificationBox!.x).toBeCloseTo(sliceBox!.x, 0);
+      expect(notificationBox!.y).toBeCloseTo(sliceBox!.y + sliceBox!.height + 4, 0);
+      expect(notificationBox!.width).toBeCloseTo(320, 0);
+      expect(await arrangement.evaluate(el => !!el.closest('fieldset[disabled]'))).toBe(false);
+      await page.locator('#app-tab-home').click();
+      await expect(stack).toBeHidden();
+      await page.locator('#app-tab-prepare').click();
+      await expect(arrangement).toBeVisible();
+      await stack.hover();
+      await arrangement.getByRole('button', { name: 'Dismiss notification' }).click();
+      await expect(arrangement).toHaveCount(0);
+    }
     await page.getByTestId('btn-slice').click();
     if (REAL) {
       // The threaded progress mailbox is polled by the renderer while the

@@ -51,7 +51,7 @@ import { useSetupWizardStore } from './stores/useSetupWizardStore';
 import { SetupWizard } from './components/wizard/SetupWizard';
 import { publishSetupWizardApplication } from './components/wizard/setupWizardPublication';
 import type { SetupCompletionResult } from './components/wizard/setupWizardCompletion';
-import { ArrangementStatus } from './components/workspace/arrangement/ArrangementControls';
+import { WorkspaceNotifications } from './components/workspace/WorkspaceNotifications';
 import { useRecentProjects } from './recentProjects';
 
 declare const __ORCA_E2E__: boolean;
@@ -748,7 +748,7 @@ function AppContent() {
       />
       </ArrangementEditBoundary>
       {fileManagerWindow}
-      <ArrangementStatus />
+      <WorkspaceNotifications visible={isWorkspaceTab(activeTab)} />
       {setupWizard}
     </>
   );

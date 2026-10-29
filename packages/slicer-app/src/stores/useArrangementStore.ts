@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { normalizeArrangementPreferences, updateUserPreferences, type ArrangementPreferences, type UserPreferencesRepository } from '@orca/platform-contract';
-import type { ArrangementResult } from '@slicer/client';
 
 export type ArrangementMode = 'byLayer' | 'byObject';
 interface ArrangementState {
@@ -13,14 +12,11 @@ interface ArrangementState {
   active: boolean;
   cancellable: boolean;
   cancelling: boolean;
-  progress: number;
-  message: string;
-  result: ArrangementResult | null;
 }
 export const useArrangementStore = create<ArrangementState>(() => ({
   preferences: normalizeArrangementPreferences(null), ready: false, alignY: false,
   mode: 'byLayer', printer: null, printerStructure: '',
-  active: false, cancellable: false, cancelling: false, progress: 0, message: '', result: null,
+  active: false, cancellable: false, cancelling: false,
 }));
 
 const loads = new WeakMap<UserPreferencesRepository, Promise<void>>();

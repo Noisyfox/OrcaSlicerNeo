@@ -7,6 +7,8 @@ export interface NotificationAttempt extends PlateOperationTarget {
 }
 
 export interface SliceNotification extends SliceDiagnostic {
+  readonly source: 'slice';
+  readonly plateId: string;
   readonly id: string;
   readonly attempt: NotificationAttempt;
   readonly phase: 'validation' | 'slicing';
@@ -14,6 +16,23 @@ export interface SliceNotification extends SliceDiagnostic {
   readonly dismissed: boolean;
   readonly order: number;
 }
+
+export interface ArrangementNotification {
+  readonly source: 'arrangement';
+  readonly id: string;
+  readonly session: number;
+  readonly plateId: string;
+  readonly title: string;
+  readonly message: string;
+  readonly severity: 'info' | 'warning' | 'error';
+  readonly progress: number | null;
+  readonly stale: false;
+  readonly dismissed: boolean;
+  readonly order: number;
+}
+export type WorkspaceNotification = SliceNotification | ArrangementNotification;
+export type ArrangementNotificationUpdate = Pick<ArrangementNotification, 'title' | 'message' | 'severity' | 'progress'>;
+const isSlice = (n: WorkspaceNotification): n is SliceNotification => n.source === 'slice';
 
 interface ActiveAttempt {
   token: NotificationAttempt;
@@ -26,12 +45,14 @@ interface NotificationState {
   session: number;
   nextAttempt: number;
   nextOrder: number;
-  notifications: readonly SliceNotification[];
+  notifications: readonly WorkspaceNotification[];
   attempts: Readonly<Record<string, ActiveAttempt>>;
   livingObjects: ReadonlySet<string> | null;
   begin: (target: PlateOperationTarget) => NotificationAttempt;
   receive: (attempt: NotificationAttempt, event: SliceDiagnosticEvent) => void;
   fail: (attempt: NotificationAttempt, message: string) => void;
+  beginArrangement: (plateId: string) => ArrangementNotification;
+  updateArrangement: (token: ArrangementNotification, update: Partial<ArrangementNotificationUpdate>) => void;
   dismiss: (id: string) => void;
   invalidate: (plateIds: readonly string[]) => void;
   reconcileOwners: (plateIds: readonly string[], objectIds: readonly string[]) => void;
@@ -64,18 +85,18 @@ function replacePhase(state: NotificationState, token: NotificationAttempt,
       ...(previous?.objectIds ?? []), ...diagnostic.objectIds,
     ])] });
   }
-  const old = state.notifications.filter(n => n.attempt.plateId === token.plateId && n.phase === phase);
+  const old = state.notifications.filter(isSlice).filter(n => n.plateId === token.plateId && n.phase === phase);
   let nextOrder = state.nextOrder;
   const replacement = [...grouped.entries()].map(([key, diagnostic]): SliceNotification => {
     const previous = old.find(n => n.attempt.id === token.id && diagnosticKey(n) === key);
     return {
-      ...diagnostic, id: JSON.stringify([token.session, token.id, phase, key]),
+      ...diagnostic, source: 'slice', plateId: token.plateId, id: JSON.stringify([token.session, token.id, phase, key]),
       attempt: token, phase, stale: false, dismissed: previous?.dismissed ?? false,
       order: previous?.order ?? nextOrder++,
     };
   });
   return { nextOrder, notifications: [
-    ...state.notifications.filter(n => n.attempt.plateId !== token.plateId || n.phase !== phase),
+    ...state.notifications.filter(n => !isSlice(n) || n.plateId !== token.plateId || n.phase !== phase),
     ...replacement,
   ] };
 }
@@ -101,7 +122,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       if (active.processing) return state;
       next.processing = true;
       return { attempts: { ...state.attempts, [token.plateId]: next },
-        notifications: state.notifications.filter(n => n.attempt.plateId !== token.plateId || n.phase !== 'slicing') };
+        notifications: state.notifications.filter(n => !isSlice(n) || n.plateId !== token.plateId || n.phase !== 'slicing') };
     }
     if (event.phase === 'slicing' && !active.processing) return state;
     return { ...replacePhase(state, token, event.phase, event.diagnostics),
@@ -111,17 +132,31 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     const active = activeAttempt(state, token);
     if (!active || !message) return state;
     // The terminal must not add a generic duplicate of typed native errors.
-    if (state.notifications.some(n => n.attempt.id === token.id && n.severity === 'error' && n.key !== 'failure')) return state;
+    if (state.notifications.some(n => isSlice(n) && n.attempt.id === token.id && n.severity === 'error' && n.key !== 'failure')) return state;
     const phase = active.processing ? 'slicing' : 'validation';
-    const diagnostics = state.notifications.filter(n => n.attempt.id === token.id && n.phase === phase);
+    const diagnostics = state.notifications.filter(isSlice).filter(n => n.attempt.id === token.id && n.phase === phase);
     return replacePhase(state, token, phase, [...diagnostics,
       { key: 'failure', severity: 'error', message, objectIds: [] }]);
   }),
-  dismiss: id => set(state => ({ notifications: state.notifications.map(n => n.id === id ? { ...n, dismissed: true } : n) })),
+  beginArrangement: plateId => {
+    const state = get();
+    const token: ArrangementNotification = { source: 'arrangement', id: `arrangement:${state.session}:${state.nextOrder}`,
+      session: state.session, plateId, title: 'Arranging models', message: 'Preparing arrangement…',
+      severity: 'info', progress: 0, stale: false, dismissed: false, order: state.nextOrder };
+    set({ nextOrder: state.nextOrder + 1,
+      notifications: [...state.notifications.filter(n => n.source !== 'arrangement'), token] });
+    return token;
+  },
+  updateArrangement: (token, update) => set(state => state.session !== token.session ? state : ({
+    notifications: state.notifications.map(n => n.source === 'arrangement' && n.id === token.id &&
+      !(n.progress === null && update.progress !== undefined && update.progress !== null) ? { ...n, ...update } : n),
+  })),
+  dismiss: id => set(state => ({ notifications: state.notifications.map(n => n.id === id &&
+    !(n.source === 'arrangement' && n.progress !== null) ? { ...n, dismissed: true } : n) })),
   invalidate: plateIds => set(state => {
     if (!plateIds.length) return state;
     const affected = new Set(plateIds);
-    return { notifications: state.notifications.map(n => affected.has(n.attempt.plateId) ? { ...n, stale: true } : n),
+    return { notifications: state.notifications.map(n => isSlice(n) && affected.has(n.plateId) ? { ...n, stale: true } : n),
       attempts: Object.fromEntries(Object.entries(state.attempts).map(([id, active]) =>
         [id, affected.has(id) ? { ...active, invalidated: true } : active])) };
   }),
@@ -129,8 +164,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     const plates = new Set(plateIds), objects = new Set(objectIds);
     return { livingObjects: objects,
       attempts: Object.fromEntries(Object.entries(state.attempts).filter(([id]) => plates.has(id))),
-      notifications: state.notifications.flatMap(n => {
-        if (!plates.has(n.attempt.plateId)) return [];
+      notifications: state.notifications.flatMap<WorkspaceNotification>(n => {
+        if (!plates.has(n.plateId)) return [];
+        if (!isSlice(n)) return [n];
         if (!n.objectIds.length) return [n];
         const living = n.objectIds.filter(id => objects.has(id));
         return living.length === n.objectIds.length ? [n] : living.length ? [{ ...n, objectIds: living }] : [];
@@ -139,8 +175,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   reset: () => set(state => ({ session: state.session + 1, notifications: [], attempts: {}, livingObjects: null })),
 }));
 
-export function visibleNotifications(notifications: readonly SliceNotification[], plateId: string): SliceNotification[] {
-  const priority = (n: SliceNotification) => n.stale ? 2 : n.severity === 'error' ? 0 : 1;
-  return notifications.filter(n => n.attempt.plateId === plateId && !n.dismissed)
+export function visibleNotifications(notifications: readonly WorkspaceNotification[], plateId: string): WorkspaceNotification[] {
+  const priority = (n: WorkspaceNotification) => n.source === 'arrangement' && n.progress !== null ? -1
+    : n.stale ? 3 : n.severity === 'error' ? 0 : n.severity === 'warning' ? 1 : 2;
+  return notifications.filter(n => n.plateId === plateId && !n.dismissed)
     .sort((a, b) => priority(a) - priority(b) || b.order - a.order);
 }

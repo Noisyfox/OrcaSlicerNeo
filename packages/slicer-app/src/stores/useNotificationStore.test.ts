@@ -7,7 +7,7 @@ const warning = (message = 'Native warning', objectIds: string[] = []): SliceDia
 const begin = (plateId = 'a', inputRevision = 1) => store.getState().begin({ plateId, inputRevision });
 const event = (phase: SliceDiagnosticEvent['phase'], diagnostics: SliceDiagnostic[] = [], plateId = 'a'):
   SliceDiagnosticEvent => ({ taskId: '10', plateId, inputRevision: 1, phase, diagnostics });
-const cards = (plateId = 'a') => visibleNotifications(store.getState().notifications, plateId);
+const cards = (plateId = 'a') => visibleNotifications(store.getState().notifications, plateId).filter(n => n.source === 'slice');
 
 describe('slice notification lifecycle', () => {
   beforeEach(() => store.getState().reset());
@@ -98,5 +98,44 @@ describe('slice notification lifecycle', () => {
     expect(cards().map(n => n.message)).toEqual(['Native process failed', 'Later warning', 'Fresh']);
     store.getState().receive(retry, event('processing'));
     expect(cards()).toHaveLength(3);
+  });
+});
+
+describe('arrangement notification lifecycle', () => {
+  beforeEach(() => store.getState().reset());
+
+  it('updates one running card, keeps cancellation reachable, and replaces the previous operation', () => {
+    const token = store.getState().beginArrangement('a');
+    store.getState().updateArrangement(token, { progress: 42, message: 'Packing' });
+    store.getState().dismiss(token.id);
+    expect(visibleNotifications(store.getState().notifications, 'a')).toMatchObject([{ progress: 42, dismissed: false }]);
+    store.getState().updateArrangement(token, { progress: null, title: 'Arrangement complete' });
+    store.getState().invalidate(['a']);
+    expect(visibleNotifications(store.getState().notifications, 'a')).toMatchObject([{ stale: false }]);
+    store.getState().dismiss(token.id);
+    expect(visibleNotifications(store.getState().notifications, 'a')).toEqual([]);
+    const next = store.getState().beginArrangement('a');
+    store.getState().updateArrangement(token, { message: 'Late result' });
+    expect(store.getState().notifications).toMatchObject([{ id: next.id, progress: 0 }]);
+  });
+
+  it('isolates slicing phases, plate ownership and project sessions from operation updates', () => {
+    const slice = begin();
+    store.getState().receive(slice, event('validation', [warning()]));
+    const token = store.getState().beginArrangement('a');
+    store.getState().receive(slice, event('processing'));
+    store.getState().receive(slice, event('slicing'));
+    expect(visibleNotifications(store.getState().notifications, 'a')[0].id).toBe(token.id);
+    expect(visibleNotifications(store.getState().notifications, 'b')).toEqual([]);
+    store.getState().updateArrangement(token, { progress: null });
+    store.getState().updateArrangement(token, { progress: 99, message: 'Late progress' });
+    expect(store.getState().notifications.find(n => n.id === token.id)).toMatchObject({ progress: null });
+    store.getState().reconcileOwners(['b'], []);
+    store.getState().updateArrangement(token, { message: 'Deleted plate' });
+    expect(store.getState().notifications).toEqual([]);
+    const oldProject = store.getState().beginArrangement('b');
+    store.getState().reset();
+    store.getState().updateArrangement(oldProject, { message: 'Old project' });
+    expect(store.getState().notifications).toEqual([]);
   });
 });
