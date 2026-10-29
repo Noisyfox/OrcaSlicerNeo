@@ -16,6 +16,7 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+import { useArrangementStore } from '@/stores/useArrangementStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { Selection } from '../viewport/Selection';
 import { glVolumeCollection } from '../viewport/GLVolume';
@@ -44,7 +45,7 @@ import {
 let root:Root|undefined;
 let container:HTMLDivElement;
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
-afterEach(async()=>{await act(async()=>root?.unmount());container?.remove();await waitForConfigurationMutations();vi.unstubAllGlobals();vi.restoreAllMocks();});
+afterEach(async()=>{await act(async()=>root?.unmount());useArrangementStore.setState({active:false});container?.remove();await waitForConfigurationMutations();vi.unstubAllGlobals();vi.restoreAllMocks();});
 const context={selection:{mode:'object' as const,objectIds:[],partIds:[],instanceIds:[]},activePlateId:null,gizmo:null,nativeScopedConfig:{}};
 
 async function click(id:string){await act(async()=>{(document.querySelector(`[data-testid="${id}"]`) as HTMLElement).click();});}
@@ -125,6 +126,26 @@ async function setup(scopedFixture=false,presentationFixture=false){
     selectParts:async(indices:number[])=>act(async()=>{selectedParts=indices;selectionKind='part';controller!.selection.replaceIds(indices.map(index=>String(objects[0].volumes[index].id)));}),
     scoped:(next:typeof scopedProject)=>{scopedProject=next;},mutate,project:(next:typeof project)=>{project=next;},refresh:async()=>act(async()=>{useHistoryRestoreStore.getState().advanceRevision();})};
 }
+
+it.each(['project', 'object', 'part'] as const)('pauses %s editor refresh during arrangement and resumes without a busy error', async scope => {
+  const h = await setup(scope !== 'project');
+  if (scope !== 'project') await click('config-mode-scoped');
+  if (scope === 'part') await h.selectParts([1]);
+  await click('config-page-Speed');
+  h.read.mockClear(); h.scopedRead.mockClear();
+  const reads = scope === 'project' ? h.read : h.scopedRead;
+  const input = () => container.querySelector<HTMLInputElement>('[data-testid="config-input-outer_wall_speed"]')!;
+  expect(input().matches(':disabled')).toBe(false);
+  await act(async () => useArrangementStore.setState({ active: true }));
+  await h.refresh();
+  expect(reads).not.toHaveBeenCalled();
+  expect(container.textContent).not.toContain('arrangement_busy');
+  expect(input().matches(':disabled')).toBe(true);
+  await act(async () => useArrangementStore.setState({ active: false }));
+  expect(reads).toHaveBeenCalledOnce();
+  expect(container.textContent).not.toContain('arrangement_busy');
+  expect(input().matches(':disabled')).toBe(false);
+});
 
 it('uses loaded Hybrid choices, one captured typed mutation/history operation, mapped ownership, reset and scoped boundaries',async()=>{
   const h=await setup();

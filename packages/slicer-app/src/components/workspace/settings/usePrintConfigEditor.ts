@@ -3,6 +3,7 @@ import type { ConfigEditorSnapshot, NativeScopedConfigMutationRequest, ScopedCon
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
+import { useArrangementStore } from '@/stores/useArrangementStore';
 import { CommittedEditorRefreshError, commitPrintConfigurationMutation, readConfigurationEditor, commitScopedEditorMutation } from './configurationActions';
 
 function editorContext(runtime: PlatformCapabilities['runtime'], targets: readonly ScopedConfigEditorTarget[] | null, enabled: boolean) {
@@ -11,7 +12,7 @@ function editorContext(runtime: PlatformCapabilities['runtime'], targets: readon
   return { runtime, targets, enabled, identity: targets === null ? 'project' : JSON.stringify(targets),
     base: settings.baseValues, refreshRequired: settings.nativeScopedConfigRefreshRequired, revision: settings.nativeScopedConfigRevision, entry: settings.printEditorEntry,
     metadata: settings.metadata, printer: settings.selectedPrinter, print: settings.selectedPrint,
-    historyRevision: history.revision, historyPhase: history.phase };
+    historyRevision: history.revision, historyPhase: history.phase, arranging: useArrangementStore.getState().active };
 }
 type EditorContext = ReturnType<typeof editorContext>;
 const contextKeys = ['runtime', 'identity', 'base', 'revision', 'entry', 'metadata', 'printer', 'print', 'historyRevision', 'refreshRequired'] as const;
@@ -19,8 +20,10 @@ const sameContext = (left: EditorContext, right: EditorContext) => contextKeys.e
 const sameOwner = (left: EditorContext, right: EditorContext) =>
   left.runtime === right.runtime && left.identity === right.identity && left.entry === right.entry &&
   left.metadata === right.metadata && left.printer === right.printer && left.historyRevision === right.historyRevision;
+// Arrangement publishes its final revisions before releasing the editing fence.
+// Pause reservations through that interval; the active-state subscription retries on exit.
 const readable = (context: EditorContext) => context.enabled && !context.refreshRequired && context.metadata !== null && context.revision !== null &&
-  context.historyPhase === 'idle' && (context.targets === null || context.targets.length > 0);
+  !context.arranging && context.historyPhase === 'idle' && (context.targets === null || context.targets.length > 0);
 
 function useEditorSession<Snapshot extends { ok: true; revision: number }>(platform: PlatformCapabilities,
   targets: readonly ScopedConfigEditorTarget[] | null, enabled: boolean,
@@ -34,6 +37,7 @@ function useEditorSession<Snapshot extends { ok: true; revision: number }>(platf
   const print = useSettingsStore(state => state.selectedPrint);
   const historyRevision = useHistoryRestoreStore(state => state.revision);
   const historyPhase = useHistoryRestoreStore(state => state.phase);
+  const arranging = useArrangementStore(state => state.active);
   const identity = targets === null ? 'project' : JSON.stringify(targets);
   const committed = useRef({ targets, enabled });
   const controller = useMemo(() => new EditorSnapshotController<EditorContext, Snapshot>({
@@ -45,7 +49,7 @@ function useEditorSession<Snapshot extends { ok: true; revision: number }>(platf
   useLayoutEffect(() => {
     committed.current = { targets, enabled };
     void controller.refresh();
-  }, [controller, identity, enabled, base, revision, entry, metadata, printer, print, historyRevision, historyPhase, refreshRequired]);
+  }, [controller, identity, enabled, base, revision, entry, metadata, printer, print, historyRevision, historyPhase, refreshRequired, arranging]);
   useEffect(() => { controller.start(); return () => controller.stop(); }, [controller]);
   const context = editorContext(platform.runtime, targets, enabled);
   const current = readable(context) && state.loaded !== null && sameContext(state.loaded.context, context);
