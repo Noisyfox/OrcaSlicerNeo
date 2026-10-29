@@ -45,6 +45,18 @@ it('sole external candidate is suggested despite type mismatch and mismatch is o
   expect(p.bindings[0].pathId).toBe('path:255:0:0');
   expect(blocks(p)).toEqual([]); expect(p.issues.find(i => i.id.startsWith('material-type:'))?.severity).toBe('warning');
 });
+it('does not fall back to external when an occupied unknown AMS source is also available', () => {
+  const r = printRequest(), context = printContext();
+  context.values.materials.state.slots[0].material = { kind: 'unknown', reason: 'not-reported' };
+  const p = prepareBambuPrint(r, context, 'lan');
+  const selectable = p.candidates.filter(c => c.materialKey === 'filament-0' && c.disabledReason === null);
+  expect(selectable.map(c => c.pathId)).toEqual(['path:0:0:0', 'path:255:0:0']);
+  expect(p.bindings.some(b => b.materialKey === 'filament-0')).toBe(false);
+  expect(blocks(p).some(i => i.id === 'mapping:filament-0')).toBe(true);
+  const manual = prepareBambuPrint({ ...r, suggest: false, bindings: [{ materialKey: 'filament-0', pathId: id('path:0:0:0') }, { materialKey: 'filament-2', pathId: id('path:1:0:1') }] }, context, 'lan');
+  expect(blocks(manual)).toEqual([]);
+  expect(manual.issues.some(i => i.id.startsWith('unknown-material:'))).toBe(true);
+});
 it('stale state, busy printer, required upgrade, racks and invalid flow block independently', () => {
   const r = printRequest();
   for (const context of [ { ...printContext(), fresh: false }, printContext({ gcode_state: 'RUNNING' }), printContext({ cfg: '4' }), printContext({ fun: (1n << 60n).toString(16) }) ]) expect(blocks(prepareBambuPrint(r, context, 'lan')).length).toBeGreaterThan(0);

@@ -54,8 +54,8 @@ export function mapMaterials(request: D.PrintPreparationRequest, inventory: D.Ma
       const choices = candidates.filter(c => c.materialKey === material.key && c.disabledReason === null && sameType(c.materialType, material.type));
       const ams = choices.filter(c => !external(paths.find(p => p.id === c.pathId)!));
       const nearest = (ams.length ? ams : choices).sort((a, b) => distance(material.color, a.color) - distance(material.color, b.color))[0];
-      const holders = legal.filter(external);
-      const pathId = nearest?.pathId ?? (holders.length === 1 ? holders[0].id : undefined);
+      // Orca's external fallback applies only when the complete candidate set is that one slot.
+      const pathId = nearest?.pathId ?? (legal.length === 1 && external(legal[0]) ? legal[0].id : undefined);
       if (pathId) bindings.push({ materialKey: material.key, pathId });
     }
     const selection = bindings.find(b => b.materialKey === material.key);
