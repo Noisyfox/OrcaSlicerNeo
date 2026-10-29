@@ -39,7 +39,7 @@ async function fixture(cloud = false, timelapse = false, recordingSpaceAction?: 
     context = printContext({ ...context.report, ...patch }); context.generation = generation;
     await service.onEvent({ type: channel, args: [deviceId, JSON.stringify({ print: { command: 'push_status', ...patch } })] });
   };
-  return { service, native, monitor, devices, commands, request, artifacts, ref, state, send, push, directory, update: (next: typeof context) => { context = next; }, complete: (result: NativePrintResult) => complete(result) };
+  return { service, native, monitor, devices, repository, commands, request, artifacts, ref, state, send, push, directory, update: (next: typeof context) => { context = next; }, complete: (result: NativePrintResult) => complete(result) };
 }
 function singleTool(model: string, patch: Record<string, unknown> = {}) {
   const context = printContext({ device: {}, cfg: undefined, nozzle_temper: 25, nozzle_target_temper: 0, nozzle_type: 'hardened_steel', nozzle_diameter: .4, ...patch });
@@ -80,13 +80,31 @@ it('keeps a LAN-only device local even when its model defaults to Cloud-only', a
   expect(await f.service.prepare(initial.input)).toMatchObject({ ok: true, value: { route: 'lan' } });
   await f.send(); expect(f.native.startPrint.mock.calls[0][0]).toBe('lan');
 });
-it('rechecks a Cloud-only flag arriving during LAN connection before native admission without retrying Cloud', async () => {
+it('retains the sending snapshot when device state and connection data change during LAN connection, like Orca', async () => {
   const f = await fixture(true);
-  f.native.connectPrinter.mockImplementation(async () => { f.update(printContext({ support_cloud_print_only: true })); return 0; });
-  await f.send(); expect(f.native.startPrint.mock.calls[0][0]).toBe('cloud');
-  f.complete({ code: -6010, mayHaveStarted: false, cancelRequested: false });
-  await vi.waitFor(() => expect(f.state()).toMatchObject({ phase: 'failed', route: 'cloud' }));
-  expect(f.native.startPrint).toHaveBeenCalledOnce();
+  f.devices.list.mockClear(); f.repository.read.mockClear(); f.monitor.context.mockClear();
+  f.native.connectPrinter.mockImplementation(async () => {
+    const context = printContext({ support_cloud_print_only: true, gcode_state: 'RUNNING' });
+    context.configurationRevision = 'r2'; context.fresh = false; f.update(context);
+    f.repository.read.mockResolvedValue({ lan: [{ deviceId: 'fixture', revision: 'r2', ip: '192.0.2.2', accessCode: 'replacement-fixture' }] });
+    return 0;
+  });
+  await f.send();
+  expect(f.native.startPrint.mock.calls[0][0]).toBe('lan');
+  expect(f.native.startPrint.mock.calls[0][1]).toMatchObject({ dev_ip: '127.0.0.1', password: 'fixture-only' });
+  expect(f.devices.list).toHaveBeenCalledOnce(); expect(f.repository.read).toHaveBeenCalledOnce();
+  expect(f.monitor.context).toHaveBeenCalledOnce(); expect(f.monitor.dispatch).not.toHaveBeenCalled();
+  f.complete({ code: 0, mayHaveStarted: true, cancelRequested: false });
+  await vi.waitFor(() => expect(f.state()).toMatchObject({ phase: 'sent', route: 'lan' }));
+});
+it.each([0, -1])('cancels during LAN connection (result %i) without starting or falling back to Cloud', async code => {
+  const f = await fixture(true);
+  f.native.connectPrinter.mockImplementation(async () => { await f.service.cancel(f.ref); return code; });
+  for (const artifact of f.artifacts) await f.service.chunk({ ref: f.ref, role: artifact.role, offset: 0, bytes: new Uint8Array([1]) });
+  await f.service.commit(f.ref);
+  await vi.waitFor(() => expect(f.state().phase).toBe('cancelled'));
+  expect(f.native.startPrint).not.toHaveBeenCalled();
+  expect(f.monitor.stop).toHaveBeenCalledWith('lease'); expect(await readdir(f.directory)).toEqual([]);
 });
 it('deduplicates admission, rejects conflicting request identities and out-of-order chunks, and cancels before dispatch', async () => {
   const f = await fixture();
@@ -171,7 +189,19 @@ it('known LAN connection failure may fall back to Cloud before invoking print', 
   f.complete({ code: -6010, mayHaveStarted: false, cancelRequested: false });
   await vi.waitFor(() => expect(f.state().phase).toBe('failed'));
 });
-it('revalidates changed readiness before dispatch without falling back or starting a job', async () => {
+it('reuses prepared print parameters for a known non-start LAN failure followed by Cloud', async () => {
+  const f = await fixture(true);
+  f.native.startPrint.mockResolvedValueOnce({ code: -6010, mayHaveStarted: false, cancelRequested: false });
+  f.monitor.context.mockClear(); f.devices.list.mockClear(); f.repository.read.mockClear();
+  await f.send(); await vi.waitFor(() => expect(f.native.startPrint).toHaveBeenCalledTimes(2));
+  const [local, cloud] = f.native.startPrint.mock.calls;
+  expect([local[0], cloud[0]]).toEqual(['lan', 'cloud']);
+  expect(cloud[1]).toEqual({ ...local[1], connection_type: 'cloud', dev_ip: '', password: '' });
+  expect(f.monitor.context).toHaveBeenCalledOnce(); expect(f.devices.list).toHaveBeenCalledOnce(); expect(f.repository.read).toHaveBeenCalledOnce();
+  f.complete({ code: 0, mayHaveStarted: true, cancelRequested: false });
+  await vi.waitFor(() => expect(f.state()).toMatchObject({ phase: 'sent', route: 'cloud' }));
+});
+it('validates changed readiness when sending begins without falling back or starting a job', async () => {
   const f = await fixture(true); f.update(printContext({ gcode_state: 'RUNNING' }));
   for (const artifact of f.artifacts) await f.service.chunk({ ref: f.ref, role: artifact.role, offset: 0, bytes: new Uint8Array([1]) });
   await f.service.commit(f.ref); await vi.waitFor(() => expect(f.state().phase).toBe('failed'));

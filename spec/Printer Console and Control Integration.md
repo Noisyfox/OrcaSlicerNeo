@@ -1129,8 +1129,10 @@ and storage meet the required conditions; otherwise it uses Cloud when available
 Resolve `support_cloud_print_only` from the pinned model/firmware resources,
 with explicit device/capability booleans overriding those defaults, including
 `false`. For a device with both routes, this flag excludes LAN; a LAN-only
-device remains local, following Orca's separate LAN path. Revalidate the same
-conditions immediately before native admission.
+device remains local, following Orca's separate LAN path. Evaluate these
+conditions once when sending begins and retain the prepared state and connection
+data through the send, as Orca's `PrintJob` does. Device updates during connection
+setup or upload do not trigger another route selection or full validation.
 Show the actual selected path and any path change in submission progress.
 Automatic fallback is permitted only when the agent can
 establish that printing has not been initiated. If a start may have been sent

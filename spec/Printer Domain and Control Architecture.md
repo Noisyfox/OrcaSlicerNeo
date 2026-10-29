@@ -1222,7 +1222,12 @@ The shared `PrinterSubmissions` contract and Bambu agent implementation now cove
 preparation, bounded artifact transfer, idempotent admission, cancellation,
 known-failure retry, qualified LAN preference and safe Cloud fallback. The agent
 owns model-resource rules, physical-tool mapping, material catalog conversion,
-options, storage checks and a second validation immediately before dispatch.
+options and storage checks. At the start of sending, it reads connection data,
+selects a route and validates the request once. Following Orca's `PrintJob`,
+this prepared state is retained through connection setup and native sending;
+intervening device updates do not trigger another route selection or full
+validation. Cancellation and the qualified LAN-to-Cloud failure fallback
+remain active.
 Following Orca, successful plugin completion ends submission as `sent`; physical
 print progress is observed separately in Device. An unknown outcome is retained
 as a record without an automatic retry; it releases submission resources and
@@ -1326,8 +1331,10 @@ Public assessment and submission requests remain independently addressed.
 An assessment supplies useful candidates, constraints and diagnostics, but
 submission cannot require a previous assessment call, connection call or UI
 session. The agent validates the complete request and current relevant device
-conditions again before irreversible dispatch. Capability support and current
-availability remain separate.
+conditions when sending begins. Bambu retains that prepared state during the
+send, following Orca; it does not promise an atomic snapshot spanning asynchronous
+connection and upload work. Capability support and current availability remain
+separate.
 
 #### Artifact and material provenance
 

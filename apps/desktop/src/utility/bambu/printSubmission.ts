@@ -6,7 +6,7 @@ import type * as D from '@orca/printer-control/domain';
 import type { BambuSubmissionInputs } from '../../shared/bambuSubmission';
 import type { BambuMonitor } from './monitor';
 import type { BambuDevices } from './devices';
-import type { BambuRepository, BambuLanRecord } from './repository';
+import type { BambuRepository } from './repository';
 import type { CommandContext } from './commands';
 import { record, text } from './telemetry';
 import { prepareBambuPrint } from './printValidation';
@@ -148,32 +148,23 @@ export class BambuPrintSubmissions {
         }
       }
       if (cancelling(job)) { await this.finish(job, 'cancelled', 'Sending cancelled.'); return; }
-      const run = async (route: 'lan' | 'cloud', lan?: BambuLanRecord) => {
+      // Like Orca's PrintJob, retain this send's prepared state and connection data.
+      const options = printParameters(job.request, prepared, job.name, context.value.machine);
+      const run = async (route: 'lan' | 'cloud') => {
         job.state.route = route; this.changed();
+        const lan = delivery.lan;
+        let connected = true;
         if (route === 'lan' && lan) {
           await this.native.installDeviceCertificate(delivery.device!.deviceId, !delivery.cloud);
-          if (await this.native.connectPrinter(lan.deviceId, lan.ip, 'bblp', lan.accessCode, true) !== 0) return { code: -6010, mayHaveStarted: false, cancelRequested: false };
+          connected = await this.native.connectPrinter(lan.deviceId, lan.ip, 'bblp', lan.accessCode, true) === 0;
         }
-        const admitted = await this.monitor.dispatch(job.state.ref, async latest => {
-          if (cancelling(job)) return error('Sending was cancelled.', 'cancelled');
-          const current = await this.delivery(job.state.ref, latest, job.request.allowAbnormalStorage);
-          const selectedRoute = route === 'lan' && current.route === 'cloud' ? 'cloud' : route;
-          const checked = prepareBambuPrint({ ...job.request, suggest: false }, latest, current.route === null ? null : selectedRoute);
-          const blocking = checked.issues.find(i => i.severity === 'block' || i.severity === 'warning' && !job.request.acknowledgedIssues.includes(i.id));
-          if (blocking) return error(blocking.message);
-          if (job.request.recordingSpaceAction === 'disable-timelapse') checked.options.timelapse = false;
-          const options = printParameters(job.request, checked, job.name, latest.machine);
-          // Return the pending native promise as a value; never hold the monitor queue for upload.
-          job.state.route = selectedRoute; this.changed();
-          nativeInvoked = true;
-          const pending = this.native.startPrint(selectedRoute, { ...options, dev_id: delivery.device!.deviceId, filename: job.files.get('print')!.path, config_filename: job.files.get('configuration')!.path,
-            plate_index: 1, connection_type: selectedRoute, dev_name: delivery.device!.name, dev_ip: selectedRoute === 'lan' ? lan?.ip ?? '' : '', username: 'bblp', password: selectedRoute === 'lan' ? lan?.accessCode ?? '' : '', use_ssl_for_ftp: true, use_ssl_for_mqtt: true });
-          return { ok: true as const, value: pending };
-        });
-        if (!admitted.ok) return { code: admitted.error.code === 'cancelled' ? -18 : -1, mayHaveStarted: false, cancelRequested: admitted.error.code === 'cancelled' };
-        return admitted.value;
+        if (cancelling(job)) return { code: -18, mayHaveStarted: false, cancelRequested: true };
+        if (!connected) return { code: -6010, mayHaveStarted: false, cancelRequested: false };
+        nativeInvoked = true;
+        return this.native.startPrint(route, { ...options, dev_id: delivery.device!.deviceId, filename: job.files.get('print')!.path, config_filename: job.files.get('configuration')!.path,
+          plate_index: 1, connection_type: route, dev_name: delivery.device!.name, dev_ip: route === 'lan' ? lan?.ip ?? '' : '', username: 'bblp', password: route === 'lan' ? lan?.accessCode ?? '' : '', use_ssl_for_ftp: true, use_ssl_for_mqtt: true });
       };
-      let result = await run(delivery.route!, delivery.lan);
+      let result = await run(delivery.route!);
       if (result.code < 0 && result.code !== -1 && !result.mayHaveStarted && !result.cancelRequested && !cancelling(job) && job.state.route === 'lan' && delivery.cloud) result = await run('cloud');
       // Like Orca, a successful plugin return completes sending; Device owns physical print progress.
       if (result.code >= 0) await this.finish(job, 'sent', 'Print job sent.');
