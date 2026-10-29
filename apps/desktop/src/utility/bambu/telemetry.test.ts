@@ -321,3 +321,55 @@ it('refreshes projected capabilities on info updates without advancing print gen
   expect(stale.values.status.operationalState).toMatchObject({ kind: 'known', freshness: 'stale' });
   expect(first.values.status.operationalState).toMatchObject({ kind: 'known', freshness: 'fresh' });
 });
+it.each([
+  ['DOWNLOADING', true], ['FLASHING', true], ['UPGRADE_REQUEST', true], ['PRE_FLASH_START', true], ['PRE_FLASH_SUCCESS', true],
+  ['UPGRADE_SUCCESS', false], ['DOWNLOAD_FAIL', false], ['FLASH_FAIL', false], ['PRE_FLASH_FAIL', false], ['UPGRADE_FAIL', false],
+])('decodes legacy upgrade status %s like Orca', (status, firmwareUpdating) => {
+  expect(parsedMachine({ upgrade_state: { status } }).firmwareUpdating).toBe(firmwareUpdating);
+});
+it.each([0, 1, 2, 3])('prefers upgrade display state %i over the legacy status', dis_state => {
+  expect(parsedMachine({ upgrade_state: { dis_state, status: dis_state === 2 ? 'UPGRADE_SUCCESS' : 'FLASHING' } }).firmwareUpdating).toBe(dis_state === 2);
+});
+it('retains legacy upgrade state across deltas and clears it when upgrading finishes', () => {
+  const telemetry = new BambuTelemetry();
+  telemetry.accept(push({ msg: 0, upgrade_state: { status: 'FLASHING' } }));
+  telemetry.accept(push({ msg: 1, upgrade_state: { progress: '50' } }));
+  expect(telemetry.project(target, identity).machine.firmwareUpdating).toBe(true);
+  telemetry.accept(push({ msg: 1, upgrade_state: { status: 'UPGRADE_SUCCESS' } }));
+  expect(telemetry.project(target, identity).machine.firmwareUpdating).toBe(false);
+});
+it('lets cfg clear legacy forced upgrading without clearing an independent consistency request', () => {
+  const telemetry = new BambuTelemetry();
+  const required = () => telemetry.project(target, identity).machine.firmwareUpdateRequired;
+  telemetry.accept(push({ msg: 0, upgrade_state: { force_upgrade: true } })); expect(required()).toBe(true);
+  telemetry.accept(push({ msg: 1, cfg: '0' })); expect(required()).toBe(false);
+  telemetry.accept(push({ msg: 1, upgrade_state: { consistency_request: true } })); expect(required()).toBe(true);
+  telemetry.accept(push({ msg: 1, upgrade_state: { consistency_request: false } })); expect(required()).toBe(false);
+  telemetry.accept(push({ msg: 1, cfg: '4' })); expect(required()).toBe(true);
+  telemetry.accept(push({ msg: 1, mc_percent: 10 })); expect(required()).toBe(true);
+  telemetry.accept(push({ msg: 1, cfg: '0' })); expect(required()).toBe(false);
+});
+it('projects cfg speed changes over retained spd_lvl, including zero and high-bit reports', () => {
+  const telemetry = new BambuTelemetry();
+  const speed = () => telemetry.project(target, identity).values.status.printStatus.speedModeId;
+  expect(speed().kind).toBe('unknown');
+  telemetry.accept(push({ msg: 0, spd_lvl: 2 })); expect(speed()).toMatchObject({ value: '2' });
+  telemetry.accept(push({ msg: 1, cfg: ((1n << 60n) | (3n << 8n)).toString(16) })); expect(speed()).toMatchObject({ value: '3' });
+  telemetry.accept(push({ msg: 1, spd_lvl: 1 })); expect(speed()).toMatchObject({ value: '3' });
+  telemetry.accept(push({ msg: 1, cfg: '0' })); expect(speed()).toMatchObject({ value: '0' });
+  telemetry.accept(push({ msg: 0, spd_lvl: 1 })); expect(speed()).toMatchObject({ value: '1' });
+});
+it('uses a no-msg LAN report as a fresh full baseline after reconnecting', () => {
+  const telemetry = new BambuTelemetry();
+  telemetry.accept(push({ msg: 0, home_flag: '100', cfg: '200', upgrade_state: { force_upgrade: true }, ams: { ams: [{ id: 0 }] } }));
+  telemetry.invalidate();
+  expect(telemetry.accept(push({ msg: 1, sdcard: false }))).toBe('resync');
+  expect(telemetry.accept(push({ sdcard: false, gcode_state: 'IDLE' }))).toBe('updated');
+  const current = telemetry.project(target, identity);
+  expect(current.fresh).toBe(true);
+  expect(current.machine).toMatchObject({ storage: 'missing', firmwareUpdateRequired: false, amsUnits: [] });
+  expect(current.report).not.toHaveProperty('home_flag'); expect(current.report).not.toHaveProperty('cfg');
+  expect(current.values.status.printStatus.speedModeId.kind).toBe('unknown');
+  expect(telemetry.accept(push({ msg: 1, sdcard: true }))).toBe('updated');
+  expect(telemetry.project(target, identity).machine.storage).toBe('normal');
+});

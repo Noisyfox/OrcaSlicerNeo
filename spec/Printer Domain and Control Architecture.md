@@ -963,6 +963,11 @@ Consumers share that state through the host-private command context; reading a
 context does not repeat protocol decoding. Freshness is evaluated separately.
 Missing report values retain their unknown state and legacy-field precedence;
 protocol details do not enter shared domain interfaces.
+Following Orca, only `msg: 1` merges into the existing report baseline; `msg: 0`
+and reports without `msg` replace it. Explicit `cfg` values override legacy
+force-upgrade and speed fields, including zero. Upgrade display state takes
+precedence over legacy upgrade status strings; the five legacy in-progress
+statuses remain recognized when display state is absent.
 
 Keep ordinary monitoring focused on the selected printer. On selection change,
 release the old printer's ordinary monitoring connection/selection/subscription

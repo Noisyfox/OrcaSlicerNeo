@@ -28,6 +28,7 @@ function decodeMachineState(p: Report) {
   const storage = bits(p.aux, 12, 2) ?? bits(p.home_flag, 8, 2) ?? (typeof p.sdcard === 'boolean' ? p.sdcard ? 1 : 0 : undefined);
   const blobMode = bits(p.cfg, 43, 2);
   const upgrade = record(p.upgrade_state), device = record(p.device);
+  const forceUpgrade = bits(p.cfg, 2);
   const flowCalibration = bits(p.fun, 7) ?? bits(p.home_flag, 16);
   const amsUnits = records(record(p.ams).ams).map(unit => Object.freeze({
     id: String(unit.id), ...amsUnitInfo(unit.info),
@@ -47,8 +48,11 @@ function decodeMachineState(p: Report) {
     smartNozzleBlob: Object.freeze({ supported: bits(p.fun2, 15) === 1, mode: blobMode === undefined ? undefined : (['off', 'on', 'auto'] as const)[blobMode] }),
     hotendRack: bits(p.fun, 60) === 1,
     upgradeKit: (bits(p.fun, 14) ?? bits(p.home_flag, 27)) === 1 && (bits(p.cfg, 25) ?? bits(p.home_flag, 26)) === 1,
-    firmwareUpdateRequired: upgrade.force_upgrade === true || upgrade.consistency_request === true || bits(p.cfg, 2) === 1,
-    firmwareUpdating: upgrade.dis_state === 2 || upgrade.status === 'UPGRADING',
+    firmwareUpdateRequired: (forceUpgrade === undefined ? upgrade.force_upgrade === true : forceUpgrade === 1) || upgrade.consistency_request === true,
+    firmwareUpdating: upgrade.dis_state === undefined
+      ? ['DOWNLOADING', 'FLASHING', 'UPGRADE_REQUEST', 'PRE_FLASH_START', 'PRE_FLASH_SUCCESS'].includes(String(upgrade.status))
+      : upgrade.dis_state === 2,
+    speedModeId: identifier(bits(p.cfg, 8, 3) ?? p.spd_lvl),
     finishedTask: ['FINISH', 'FAILED'].includes(String(p.gcode_state)),
     fdmMode: device.type === undefined ? undefined : device.type === 1,
     amsSetup: [1, 2, 3, 4].includes(bits(record(p.ams).cali_stat, 0, 8) ?? -1),
@@ -164,7 +168,7 @@ export class BambuTelemetry {
     if (update.subtask_id !== undefined && update.subtask_id !== this.print.subtask_id || update.gcode_state === 'IDLE' || update.gcode_state === 'READY') {
       for (const key of ['mc_percent', 'mc_remaining_time', 'layer_num', 'total_layer_num', 'stg_cur', 'subtask_name', 'gcode_file', 'thumbnail_url']) delete this.print[key];
     }
-    this.print = update.msg === 0 ? merge({}, update) : merge(this.print, update);
+    this.print = update.msg === 1 ? merge(this.print, update) : merge({}, update);
     this.machine = decodeMachineState(this.print);
     ++this.revision;
     ++this.generation;
@@ -270,7 +274,7 @@ export class BambuTelemetry {
       printStatus: { phase: read(phase), taskId: read(phase === 'idle' ? null : task && task !== '0' ? id<'device-task'>(task) : undefined), name: read(phase === 'idle' ? null : name),
         progressFraction: read(phase === 'idle' ? undefined : fraction(p.mc_percent, 100)), remainingSeconds: read(phase === 'idle' ? undefined : nonNegative(p.mc_remaining_time) === undefined ? undefined : number(p.mc_remaining_time)! * 60),
         stage: read(stage === undefined ? undefined : stage === -1 || stage === 255 ? null : { code: String(stage), label: stageLabel(stage) }),
-        currentLayer: read(nonNegative(p.layer_num)), totalLayers: read(nonNegative(p.total_layer_num)), speedModeId: read(identifier(p.spd_lvl)) } };
+        currentLayer: read(nonNegative(p.layer_num)), totalLayers: read(nonNegative(p.total_layer_num)), speedModeId: read(this.machine.speedModeId) } };
     // Orca DevAxis::IsAxisAtHome*: explicit zero permits all axes; absence stays unknown.
     const home = number(p.home_flag);
     const motion: D.PrinterState['motion'] = tools.length ? [{ motionGroupId: id('gantry'), positionMm: unknown,

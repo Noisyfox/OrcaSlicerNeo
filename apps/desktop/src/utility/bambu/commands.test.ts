@@ -127,3 +127,12 @@ it('advertises camera delivery only from reported protocols and includes it in c
   expect(avc.cameras[0].liveView).toMatchObject({ kind: 'supported', constraints: { transports: ['mse-fmp4'] } });
   expect(avc.revision).not.toBe(jpeg.revision); expect(JSON.stringify(avc)).not.toContain('private');
 });
+it('confirms a speed command from a cfg delta overriding the old spd_lvl', () => {
+  const f = fixture({ gcode_state: 'RUNNING', subtask_id: 'task-1', spd_lvl: 2 });
+  const result = prepareCommand(f.context(), { type: 'jobs.setSpeed', params: { modeId: '3' } });
+  expect(result.ok).toBe(true);
+  if (!result.ok) throw new Error(result.error.message);
+  expect(result.value.confirmed!(f.context())).toBe(false);
+  f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, cfg: '300' } }));
+  expect(result.value.confirmed!(f.context())).toBe(true);
+});

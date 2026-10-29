@@ -138,3 +138,14 @@ it('shows an empty slot as disabled and an occupied unknown material as manually
   expect(prepared.candidates.find(source => source.materialKey === 'filament-0' && source.pathId === 'path:0:0:0')).toMatchObject({ presence: 'present', materialType: null, disabledReason: null });
   expect(prepared.bindings).not.toContainEqual({ materialKey: 'filament-0', pathId: 'path:0:0:0' });
 });
+it.each(['DOWNLOADING', 'FLASHING', 'UPGRADE_REQUEST', 'PRE_FLASH_START', 'PRE_FLASH_SUCCESS'])('blocks printing during legacy firmware upgrade status %s', status => {
+  const prepared = prepareBambuPrint(printRequest(), printContext({ upgrade_state: { status } }), 'lan');
+  expect(blocks(prepared)).toContainEqual(expect.objectContaining({ id: 'upgrading' }));
+});
+it('does not keep the legacy forced-upgrade print block when cfg explicitly clears it', () => {
+  const request = printRequest();
+  const cleared = prepareBambuPrint(request, printContext({ cfg: '0', upgrade_state: { force_upgrade: true } }), 'lan');
+  expect(blocks(cleared)).not.toContainEqual(expect.objectContaining({ id: 'upgrade-required' }));
+  const consistency = prepareBambuPrint(request, printContext({ cfg: '0', upgrade_state: { force_upgrade: true, consistency_request: true } }), 'lan');
+  expect(blocks(consistency)).toContainEqual(expect.objectContaining({ id: 'upgrade-required' }));
+});
