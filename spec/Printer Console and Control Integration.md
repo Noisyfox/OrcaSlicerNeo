@@ -1151,8 +1151,9 @@ Cancel sending and reconcile the start outcome. Stopping a physical print uses
 the separate Device cancel-print action; it is never an implicit consequence of
 closing this dialog or cancelling transfer. Disable direct window closure and
 Escape while sending or cancellation is pending. Allow closure after success,
-failure, or an explicit unknown-outcome state; the agent continues tracking an
-unknown outcome after the observer closes.
+failure, or an explicit unknown-outcome state. Once the native call settles,
+an unknown outcome releases the submission's connection lease and temporary
+files; retain its outcome record without holding the printer selection.
 
 Orca's window-close handler requests worker cancellation and immediately closes
 the dialog; its progress Cancel action requests cancellation and returns to
@@ -1170,7 +1171,9 @@ success does not claim physical print start. This post-success navigation select
 the submitted printer; preparation-time selection remains independent of Device.
 If the outcome is unknown, retain its explanation and let the user close the
 dialog or open Device to inspect the printer instead of navigating as if success
-were established.
+were established. The user can select another printer; the uncertain submission
+does not keep a monitoring connection or block subsequent submissions. Reusing
+its original request identity returns the recorded outcome without sending again.
 
 For a failed send, provide a direct **Retry** action that re-enters the normal
 sending flow with the current preparation choices. Follow Orca's simple retry

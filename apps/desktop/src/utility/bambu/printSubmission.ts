@@ -18,7 +18,7 @@ type File = { descriptor: D.PrintArtifactDescriptor; path: string; handle: FileH
 type Job = { request: D.PrintSubmissionRequest; signature: string; state: D.PrintSubmissionState; files: Map<string, File>; directory: string; token: string; name: { display: string; remote: string }; nativeDone: Promise<void> | null; timer: ReturnType<typeof setTimeout> | null };
 const error = (message: string, code: D.ErrorCode = 'precondition-failed') => ({ ok: false as const, error: { code, message } });
 const cancelling = (job: Job) => job.state.phase === 'cancelling';
-const final = (phase: D.PrintSubmissionState['phase']) => ['sent', 'failed', 'cancelled'].includes(phase);
+const final = (phase: D.PrintSubmissionState['phase']) => ['sent', 'failed', 'cancelled', 'unknown'].includes(phase);
 export class BambuPrintSubmissions {
   private jobs = new Map<string, Job>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -97,7 +97,6 @@ export class BambuPrintSubmissions {
           name: { display: r.jobName, remote: `Neo_${id.replaceAll('-', '')}` }, nativeDone: null, timer: null,
           state: { ref, requestId: r.requestId, phase: 'staging', route: delivery.route, progress: 0, message: 'Preparing print artifacts', canCancel: true } };
         this.jobs.set(id, job); this.active = job;
-        this.monitor.protectPrint(r.target);
         job.timer = setTimeout(() => { void this.serialize(async () => { if (job.state.phase === 'staging') await this.finish(job, 'cancelled', 'Artifact transfer expired before sending.'); }); }, 120000);
         this.changed();
         return { ok: true, value: { ref, created: true } };
@@ -181,10 +180,9 @@ export class BambuPrintSubmissions {
       if (result.code < 0 && result.code !== -1 && !result.mayHaveStarted && !result.cancelRequested && !cancelling(job) && job.state.route === 'lan' && delivery.cloud) result = await run('cloud');
       // Like Orca, a successful plugin return completes sending; Device owns physical print progress.
       if (result.code >= 0) await this.finish(job, 'sent', 'Print job sent.');
-      else if (result.mayHaveStarted) {
-        job.state = { ...job.state, phase: 'unknown', canCancel: false, progress: null, message: 'Start outcome is unknown. Check the printer; do not send a duplicate.' }; this.changed();
-      } else await this.finish(job, result.cancelRequested || result.code === -18 ? 'cancelled' : 'failed', result.cancelRequested ? 'Sending cancelled.' : 'Sending failed. You can retry.');
-    } catch { if (!nativeInvoked) { await this.finish(job, cancelling(job) ? 'cancelled' : 'failed', 'Sending did not start. You can retry.'); return; } if (!final(job.state.phase)) { job.state = { ...job.state, phase: 'unknown', canCancel: false, message: 'The sending outcome is unknown. Check the printer.' }; this.changed(); } }
+      else if (result.mayHaveStarted) await this.finish(job, 'unknown', 'Start outcome is unknown. Check the printer; do not send a duplicate.');
+      else await this.finish(job, result.cancelRequested || result.code === -18 ? 'cancelled' : 'failed', result.cancelRequested ? 'Sending cancelled.' : 'Sending failed. You can retry.');
+    } catch { if (!nativeInvoked) { await this.finish(job, cancelling(job) ? 'cancelled' : 'failed', 'Sending did not start. You can retry.'); return; } if (!final(job.state.phase)) await this.finish(job, 'unknown', 'The sending outcome is unknown. Check the printer.'); }
   }
   async cancel(ref: D.PrintSubmissionRef): Promise<D.Result<D.PrintSubmissionState>> {
     const job = this.job(ref); if (!job) return error('Unknown submission.', 'invalid-target');
@@ -192,16 +190,17 @@ export class BambuPrintSubmissions {
     if (job.state.canCancel) { job.state.phase = 'cancelling'; job.state.message = 'Cancelling sending…'; job.state.canCancel = false; this.native.cancelPrint(); this.changed(); }
     return this.get(ref);
   }
-  private async finish(job: Job, phase: 'failed' | 'cancelled' | 'sent', message: string) {
+  private async finish(job: Job, phase: 'failed' | 'cancelled' | 'sent' | 'unknown', message: string) {
     if (job.timer) clearTimeout(job.timer);
-    job.state = { ...job.state, phase, message, canCancel: false }; this.changed();
+    job.state.canCancel = false;
     // Sending completes only after the native call has stopped reading these files.
     await this.release(job);
+    job.state = { ...job.state, phase, message, canCancel: false, progress: phase === 'unknown' ? null : job.state.progress }; this.changed();
   }
   private async release(job: Job) {
     await Promise.allSettled([...job.files.values()].map(f => f.handle.close()));
     await rm(job.directory, { recursive: true, force: true });
-    if (this.active === job) { this.active = null; this.monitor.protectPrint(null); }
+    if (this.active === job) this.active = null;
     await this.monitor.stop(job.token).catch(() => undefined);
   }
   async onEvent(event: NativeEvent) {

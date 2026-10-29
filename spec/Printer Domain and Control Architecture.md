@@ -1214,8 +1214,9 @@ known-failure retry, qualified LAN preference and safe Cloud fallback. The agent
 owns model-resource rules, physical-tool mapping, material catalog conversion,
 options, storage checks and a second validation immediately before dispatch.
 Following Orca, successful plugin completion ends submission as `sent`; physical
-print progress is observed separately in Device. An unknown outcome stays owned
-by the agent without a retry.
+print progress is observed separately in Device. An unknown outcome is retained
+as a record without an automatic retry; it releases submission resources and
+allows printer selection changes.
 Native material-ID conversion changes dispatch metadata only, not the project.
 
 Validation includes 13 mapping/lifecycle tests, the desktop and printer-control
@@ -1274,9 +1275,12 @@ target's Device page. It does not assert physical print start. No filename/task
 matching, extra full-status request or print-start confirmation timer is required.
 Actual preparation, feeding and print progress remain Device observations. The
 user-visible task name remains unchanged. A failed call that may already have
-dispatched remains `unknown`, retains ownership and cannot trigger a duplicate
-send or fallback. Regression tests cover success without status reports, native
-reader cleanup and cancellation racing dispatch. The revised modal success
+dispatched remains `unknown` without automatic resend or fallback. Once the
+native call settles, release its temporary files and monitoring lease before
+publishing that outcome. Printer selection is not locked by print submissions;
+changing selection does not cancel the physical print. Regression tests cover
+success without status reports, native reader cleanup and cancellation racing
+dispatch. The revised modal success
 transition still requires physical revalidation.
 
 The [console specification](Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission)
@@ -1428,7 +1432,8 @@ allow preparation/upload cancellation but require authoritative termination and
 non-start evidence before reporting cancelled and returning to preparation.
 After possible start dispatch, reconcile the outcome instead; physical print
 cancellation remains a separate action. An explicit unknown outcome permits
-observer closure without ending agent tracking. The accepted
+observer closure and printer selection changes without retaining a connection
+lease; its recorded outcome remains available. The accepted
 [success and retry interaction](Printer%20Console%20and%20Control%20Integration.md#accepted-success-presentation-and-retry)
 navigates to the target's Device status after successful plugin completion,
 matching Orca's sending interaction. Physical print start is observed there,

@@ -21,7 +21,7 @@ async function fixture(cloud = false, timelapse = false, recordingSpaceAction?: 
   const native = { installDeviceCertificate: vi.fn(async () => undefined), connectPrinter: vi.fn(async () => 0),
     startPrint: vi.fn((_route: string, _params: NativePrintParameters) => new Promise<NativePrintResult>(resolve => { complete = resolve; })), cancelPrint: vi.fn(() => true) };
   const commands = vi.fn(async (_section: string, _fields: Record<string, unknown>, _qos: number) => 0);
-  const monitor = { context: vi.fn(async () => ({ ok: true as const, value: context })), read: vi.fn(async () => ({ ok: false as const, error: { code: 'offline', message: 'No fixture response' } })), acquire: vi.fn(async () => ({ ok: true as const, value: 'lease' })), stop: vi.fn(async () => undefined), protectPrint: vi.fn(),
+  const monitor = { context: vi.fn(async () => ({ ok: true as const, value: context })), read: vi.fn(async () => ({ ok: false as const, error: { code: 'offline', message: 'No fixture response' } })), acquire: vi.fn(async () => ({ ok: true as const, value: 'lease' })), stop: vi.fn(async () => undefined),
     dispatch: vi.fn(async (_target, fn) => fn(context, commands)) };
   const devices = { list: vi.fn(async () => [{ deviceId: 'fixture', name: 'H2D', routes: [{ channel: 'lan', revision: 'r1' }, ...(cloud ? [{ channel: 'cloud', revision: 'c1' }] : [])] }]) };
   const repository = { read: vi.fn(async () => ({ lan: [{ deviceId: 'fixture', revision: 'r1', ip: '127.0.0.1', accessCode: 'fixture-only' }] })) };
@@ -40,7 +40,7 @@ async function fixture(cloud = false, timelapse = false, recordingSpaceAction?: 
     context = printContext({ ...context.report, ...patch }); context.generation = generation;
     await service.onEvent({ type: channel, args: [deviceId, JSON.stringify({ print: { command: 'push_status', ...patch } })] });
   };
-  return { service, native, monitor, commands, request, artifacts, ref, state, send, push, directory, update: (next: typeof context) => { context = next; }, complete: (result: NativePrintResult) => complete(result) };
+  return { service, native, monitor, devices, commands, request, artifacts, ref, state, send, push, directory, update: (next: typeof context) => { context = next; }, complete: (result: NativePrintResult) => complete(result) };
 }
 function singleTool(model: string, patch: Record<string, unknown> = {}) {
   const context = printContext({ device: {}, cfg: undefined, nozzle_temper: 25, nozzle_target_temper: 0, nozzle_type: 'hardened_steel', nozzle_diameter: .4, ...patch });
@@ -138,7 +138,7 @@ it.each([{ code: 0, phase: 'sent' }, { code: -18, phase: 'unknown' }] as const)(
     expect(f.native.startPrint).toHaveBeenCalledOnce();
   },
 );
-it('never retries a start whose outcome is unknown, and disallows cancellation after possible start', async () => {
+it('releases an unknown send without retrying or cancelling a possible physical print', async () => {
   const f = await fixture(true); await f.send();
   await f.service.onEvent({ type: 'print-progress', args: [3, 0, true] });
   await f.service.cancel(f.ref); expect(f.native.cancelPrint).not.toHaveBeenCalled();
@@ -147,7 +147,24 @@ it('never retries a start whose outcome is unknown, and disallows cancellation a
   await f.push({ gcode_state: 'RUNNING', subtask_name: f.request.jobName, gcode_file: '/测试 Cube.gcode.3mf' });
   expect(f.state().phase).toBe('unknown');
   expect(f.native.startPrint).toHaveBeenCalledOnce();
-  expect((await f.service.begin({ request: { ...f.request, requestId: id('another') }, artifacts: f.artifacts })).ok).toBe(false);
+  expect(await readdir(f.directory)).toEqual([]);
+  expect(f.monitor.stop).toHaveBeenCalledWith('lease');
+  expect(await f.service.begin({ request: f.request, artifacts: f.artifacts })).toEqual({ ok: true, value: { ref: f.ref, created: false } });
+  f.update(printContext());
+  expect(await f.service.prepare(printRequest())).toMatchObject({ ok: true, value: { issues: expect.not.arrayContaining([expect.objectContaining({ id: 'submission-busy' })]) } });
+  f.devices.list.mockResolvedValueOnce([{ deviceId: 'another', name: 'Another', routes: [{ channel: 'cloud', revision: 'c1' }] }]);
+  const another = await f.service.begin({ request: { ...f.request, target: { printerId: id('bambu:another'), routeId: id('bambu:another:agent') }, requestId: id('another') }, artifacts: f.artifacts });
+  expect(another, JSON.stringify(another)).toMatchObject({ ok: true, value: { created: true } });
+  expect(f.state().phase).toBe('unknown');
+});
+it('also releases the connection and artifacts when the native send rejects', async () => {
+  const f = await fixture();
+  f.native.startPrint.mockRejectedValueOnce(new Error('Connection interrupted'));
+  await f.send();
+  await vi.waitFor(() => expect(f.state()).toMatchObject({ phase: 'unknown', canCancel: false, progress: null }));
+  expect(await readdir(f.directory)).toEqual([]);
+  expect(f.monitor.stop).toHaveBeenCalledWith('lease');
+  expect(f.native.startPrint).toHaveBeenCalledOnce();
 });
 it('known LAN connection failure may fall back to Cloud before invoking print', async () => {
   const f = await fixture(true); f.native.connectPrinter.mockResolvedValue(-1); await f.send();
