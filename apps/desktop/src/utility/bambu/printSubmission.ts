@@ -8,8 +8,7 @@ import type { BambuMonitor } from './monitor';
 import type { BambuDevices } from './devices';
 import type { BambuRepository, BambuLanRecord } from './repository';
 import type { CommandContext } from './commands';
-import { record, text, bits } from './telemetry';
-import { sdcardState } from './printOptions';
+import { record, text } from './telemetry';
 import { prepareBambuPrint } from './printValidation';
 import { printParameters } from './printParameters';
 import { printerPrintProfile } from './printResources';
@@ -32,11 +31,11 @@ export class BambuPrintSubmissions {
     const device = (await this.devices.list()).find(d => `bambu:${encodeURIComponent(d.deviceId)}` === target.printerId);
     const lan = device && (await this.repository.read()).lan.find(l => l.deviceId === device.deviceId && device.routes.some(r => r.channel === 'lan' && r.revision === l.revision));
     const cloud = !!device?.routes.some(r => r.channel === 'cloud');
-    const storage = sdcardState(context.report);
+    const storage = context.machine.storage;
     const defaults = record(printerPrintProfile(context.model, context.values.firmware.find(f => f.name === 'ota')?.version).print);
     const reported = context.report.support_cloud_print_only, capability = record(record(context.report.capabilities).flags).support_cloud_print_only;
     const cloudOnly = typeof capability === 'boolean' ? capability : typeof reported === 'boolean' ? reported : defaults.support_cloud_print_only === true;
-    const qualifiedLan = lan && !cloudOnly && (storage === 1 || storage === 2 && allowAbnormal);
+    const qualifiedLan = lan && !cloudOnly && (storage === 'normal' || storage === 'abnormal' && allowAbnormal);
     return { device, lan, cloud, route: qualifiedLan || lan && !cloud ? 'lan' as const : cloud ? 'cloud' as const : null };
   }
   async prepare(request: D.PrintPreparationRequest): Promise<D.Result<D.PrintPreparation>> {
@@ -45,7 +44,7 @@ export class BambuPrintSubmissions {
     const delivery = await this.delivery(request.target, context.value, request.allowAbnormalStorage);
     const value = prepareBambuPrint(request, context.value, delivery.route);
     if (this.active && !final(this.active.state.phase)) value.issues = [...value.issues, { id: 'submission-busy', severity: 'block', message: 'Another print submission is still active.' }];
-    if (request.checkRecording && value.options.timelapse && bits(context.value.report.fun, 28) === 1 && !value.issues.some(i => i.severity === 'block')) {
+    if (request.checkRecording && value.options.timelapse && context.value.machine.internalRecording && !value.issues.some(i => i.severity === 'block')) {
       const token = await this.monitor.acquire(request.target);
       if (!token.ok) return token;
       try { value.recordingSpace = await this.recording(request.target, value.options.timelapseStorage ?? 'internal', request.requirements.layerCount); }
@@ -137,7 +136,7 @@ export class BambuPrintSubmissions {
       if (issue) { await this.finish(job, 'failed', issue.message); return; }
       if (cancelling(job)) { await this.finish(job, 'cancelled', 'Sending cancelled.'); return; }
       if (job.request.recordingSpaceAction === 'disable-timelapse') prepared.options.timelapse = false;
-      if (prepared.options.timelapse && bits(context.value.report.fun, 28) === 1) {
+      if (prepared.options.timelapse && context.value.machine.internalRecording) {
         const storage = prepared.options.timelapseStorage ?? 'internal';
         const capacity = await this.recording(job.state.ref, storage, job.request.requirements.layerCount);
         if (cancelling(job)) { await this.finish(job, 'cancelled', 'Sending cancelled.'); return; }
@@ -163,7 +162,7 @@ export class BambuPrintSubmissions {
           const blocking = checked.issues.find(i => i.severity === 'block' || i.severity === 'warning' && !job.request.acknowledgedIssues.includes(i.id));
           if (blocking) return error(blocking.message);
           if (job.request.recordingSpaceAction === 'disable-timelapse') checked.options.timelapse = false;
-          const options = printParameters(job.request, checked, job.name, latest.report);
+          const options = printParameters(job.request, checked, job.name, latest.machine);
           // Return the pending native promise as a value; never hold the monitor queue for upload.
           job.state.route = selectedRoute; this.changed();
           nativeInvoked = true;

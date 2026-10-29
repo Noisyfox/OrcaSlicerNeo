@@ -1,13 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type * as D from '@orca/printer-control/domain';
 import type { CommandContext } from './commands';
-import { bits, record } from './telemetry';
 /** Recovery references are scoped to an observed error episode, never caller-authored protocol actions. */
 export class BambuRecovery {
   private readonly episodes = new Map<string, { key: string; retry: string; abort: string }>();
   decorate(context: CommandContext): CommandContext {
     const p = context.report;
-    const failed = bits(record(record(p.device).extruder).state, 12, 3) === 3;
+    const failed = context.machine.toolChangeFailed;
     const task = context.values.status.printStatus.taskId;
     const phase = context.values.status.printStatus.phase;
     const route = context.target.routeId;

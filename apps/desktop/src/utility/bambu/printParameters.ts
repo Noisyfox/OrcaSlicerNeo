@@ -1,9 +1,9 @@
 import type * as D from '@orca/printer-control/domain';
 import type { NativePrintParameters } from '@orca/bambu-native';
 import { printerFilamentId } from './printResources';
-import { bits, record, records, type Report } from './telemetry';
+import type { BambuMachineState } from './telemetry';
 import { physicalTool } from './printMapping';
-export function printParameters(request: D.PrintSubmissionRequest, prepared: D.PrintPreparation, name: { display: string; remote: string }, report: Report = {}): Partial<NativePrintParameters> {
+export function printParameters(request: D.PrintSubmissionRequest, prepared: D.PrintPreparation, name: { display: string; remote: string }, machine: BambuMachineState): Partial<NativePrintParameters> {
   const r = request.requirements, o = prepared.options;
   const packed: number[] = r.filamentMap.map(() => -1), detailed = r.filamentMap.map(() => ({ ams_id: 255, slot_id: 255 }));
   const info: Record<string, unknown>[] = r.filamentMap.map(() => ({ ams: -1, targetColor: '', filamentId: '', filamentType: '' }));
@@ -15,8 +15,8 @@ export function printParameters(request: D.PrintSubmissionRequest, prepared: D.P
     if (!match) throw new Error('Invalid material path');
     const unit = Number(match[1]), slot = Number(match[2]);
     const external = unit === 254 || unit === 255;
-    const unitType = bits(records(record(report.ams).ams).find(a => String(a.id) === String(unit))?.info, 0, 4);
-    const tray = external ? unit : unitType === 5 ? 24 + slot : unit >= 128 ? unit + slot : unit * 4 + slot;
+    const unitInfo = machine.amsUnits.find(a => a.id === String(unit));
+    const tray = external ? unit : unitInfo?.lite ? 24 + slot : unit >= 128 ? unit + slot : unit * 4 + slot;
     packed[m.index] = external ? -1 : tray;
     detailed[m.index] = { ams_id: unit, slot_id: slot };
     const target = prepared.candidates.find(c => c.materialKey === m.key && c.pathId === path);

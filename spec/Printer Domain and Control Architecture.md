@@ -954,6 +954,16 @@ selection, window contention or connection-takeover protocol between independent
 instances. Within an instance, native target changes must still preserve the
 target and outcome of pending operations and reject obsolete callbacks.
 
+Packed Bambu report fields are decoded in the host-private
+[telemetry parser](../apps/desktop/src/utility/bambu/telemetry.ts). Control,
+recovery and print rules consume named protocol state instead of interpreting
+bit positions themselves. After each accepted complete/incremental report is
+merged, the telemetry owner replaces its immutable parsed machine state.
+Consumers share that state through the host-private command context; reading a
+context does not repeat protocol decoding. Freshness is evaluated separately.
+Missing report values retain their unknown state and legacy-field precedence;
+protocol details do not enter shared domain interfaces.
+
 Keep ordinary monitoring focused on the selected printer. On selection change,
 release the old printer's ordinary monitoring connection/selection/subscription
 as applicable, retain its cached data with actual freshness, and acquire the new

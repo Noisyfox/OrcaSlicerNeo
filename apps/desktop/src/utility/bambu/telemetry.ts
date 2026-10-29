@@ -14,12 +14,64 @@ export const identifier = (value: unknown): string | undefined => typeof value =
   : typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? String(value) : undefined;
 export const id = <K extends string>(value: string) => value as D.Id<K>;
 export const unknown = { kind: 'unknown', reason: 'not-reported' } as const;
-export function bits(value: unknown, offset: number, width = 1): number | undefined {
+function bits(value: unknown, offset: number, width = 1): number | undefined {
   try {
     const raw = typeof value === 'string' && /^[a-fA-F0-9]+$/.test(value) ? BigInt(`0x${value}`)
       : typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? BigInt(value) : undefined;
     return raw === undefined ? undefined : Number((raw >> BigInt(offset)) & ((1n << BigInt(width)) - 1n));
   } catch { return undefined; }
+}
+/** Named protocol state shared by control and print rules. Missing bits stay unknown. */
+function decodeMachineState(p: Report) {
+  const newNozzleProtocol = ['cfg', 'fun', 'aux', 'stat'].every(key => p[key] !== undefined);
+  const legacyFlow = bits(p.flag3, 10, 3);
+  const storage = bits(p.aux, 12, 2) ?? bits(p.home_flag, 8, 2) ?? (typeof p.sdcard === 'boolean' ? p.sdcard ? 1 : 0 : undefined);
+  const blobMode = bits(p.cfg, 43, 2);
+  const upgrade = record(p.upgrade_state), device = record(p.device);
+  const flowCalibration = bits(p.fun, 7) ?? bits(p.home_flag, 16);
+  const amsUnits = records(record(p.ams).ams).map(unit => Object.freeze({
+    id: String(unit.id), ...amsUnitInfo(unit.info),
+    trays: Object.freeze(records(unit.tray).map(tray => Object.freeze({ id: String(tray.id), manualPressureAdvance: typeof tray.cali_idx === 'number' && tray.cali_idx >= 0 }))),
+  }));
+  const fans = records(record(record(p.device).airduct).parts).filter(part => bits(part.id, 0, 4) === 0).map(part => Object.freeze({
+    id: `fan:${bits(part.id, 4, 8)}`, min: bits(part.range, 0, 16), max: bits(part.range, 16, 16),
+  }));
+  return Object.freeze({
+    amsUnits: Object.freeze(amsUnits), fans: Object.freeze(fans),
+    externalSpools: Object.freeze(records(p.vir_slot).map(tray => Object.freeze({ id: String(tray.id), manualPressureAdvance: typeof tray.cali_idx === 'number' && tray.cali_idx >= 0 }))),
+    storage: storage === undefined ? undefined : (['missing', 'normal', 'abnormal', 'read-only'] as const)[storage],
+    flowCalibration: flowCalibration === undefined ? undefined : flowCalibration === 1,
+    sharedPressureAdvance: bits(p.fun2, 3) === 1,
+    internalRecording: bits(p.fun, 28) === 1,
+    externalChangeAssist: bits(p.fun, 48) === 1 || bits(p.flag3, 16) === 1,
+    smartNozzleBlob: Object.freeze({ supported: bits(p.fun2, 15) === 1, mode: blobMode === undefined ? undefined : (['off', 'on', 'auto'] as const)[blobMode] }),
+    hotendRack: bits(p.fun, 60) === 1,
+    upgradeKit: (bits(p.fun, 14) ?? bits(p.home_flag, 27)) === 1 && (bits(p.cfg, 25) ?? bits(p.home_flag, 26)) === 1,
+    firmwareUpdateRequired: upgrade.force_upgrade === true || upgrade.consistency_request === true || bits(p.cfg, 2) === 1,
+    firmwareUpdating: upgrade.dis_state === 2 || upgrade.status === 'UPGRADING',
+    finishedTask: ['FINISH', 'FAILED'].includes(String(p.gcode_state)),
+    fdmMode: device.type === undefined ? undefined : device.type === 1,
+    amsSetup: [1, 2, 3, 4].includes(bits(record(p.ams).cali_stat, 0, 8) ?? -1),
+    filamentChanging: number(p.ams_status) !== undefined && (number(p.ams_status)! >> 8) === 1,
+    newNozzleProtocol,
+    maxColors: !newNozzleProtocol && bits(p.flag3, 9) !== 1 ? bits(p.flag3, 17) === 1 ? 32 : 16 : undefined,
+    nozzleFlowSupported: newNozzleProtocol || p.flag3 !== undefined && legacyFlow !== undefined,
+    legacyNozzleFlow: !newNozzleProtocol && p.flag3 !== undefined ? legacyFlow === 1 ? 'High Flow' : 'Standard' : undefined,
+    legacyHighFlow: !newNozzleProtocol && legacyFlow === 1,
+    tpuLeft: bits(p.fun2, 7) === 1,
+    filamentSwitch: bits(p.aux, 29) === 1,
+    toolChangeFailed: bits(record(record(p.device).extruder).state, 12, 3) === 3,
+    home: bits(p.fun, 32) === 1,
+    jog: bits(p.fun, 38) === 1,
+    bedTemperatureCommand: bits(p.fun, 39) === 1,
+    localControlOnly: (bits(p.job_attr, 4, 4) ?? 0) > 1,
+  });
+}
+export function nozzleFlowType(value: string | null): string | undefined {
+  return ({ 'standard flow': 'Standard', 'high flow': 'High Flow', 'TPU high flow': 'TPU High Flow', 'E3D high flow': 'E3D High Flow' } as Record<string, string>)[value ?? ''];
+}
+function amsUnitInfo(info: unknown) {
+  return { lite: bits(info, 0, 4) === 5, type: bits(info, 0, 4), drying: bits(info, 4, 4) === 2 };
 }
 export function cameraProtocol(report: Record<string, unknown>): 'local' | 'rtsps' | 'rtsp' | 'disabled' | 'unavailable' | 'unknown' {
   const camera = record(report.ipcam), live = record(camera.liveview);
@@ -64,16 +116,30 @@ function airductFanName(model: string | null, index: number, airduct: Report): s
   return names[index] ?? `Unknown fan (ID ${index})`;
 }
 
+export type BambuMachineState = ReturnType<typeof decodeMachineState>;
+
 export interface TelemetryProjection {
+  machine: BambuMachineState;
   values: D.PrinterObservationMap;
   /** Private normalized source needed by the command adapter; never sent over IPC. */
   report: Report;
   fresh: boolean;
   generation: number;
 }
+/** Rebind observation metadata without decoding the report or mutating earlier snapshots. */
+function observationFreshness<T>(value: T, fresh: boolean): T {
+  if (Array.isArray(value)) return value.map(item => observationFreshness(item, fresh)) as T;
+  if (!value || typeof value !== 'object') return value;
+  const fields = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, observationFreshness(item, fresh)]));
+  if (fields.kind === 'known' && 'freshness' in fields) fields.freshness = fresh ? 'fresh' : 'stale';
+  return fields as T;
+}
 export class BambuTelemetry {
   private print: Report = {};
+  private machine = decodeMachineState(this.print);
   generation = 0;
+  private revision = 0;
+  private projection: { key: string; value: TelemetryProjection } | null = null;
   private info: Report = {};
   private baseline = false;
   private receivedAt: number | null = null;
@@ -89,7 +155,7 @@ export class BambuTelemetry {
     let root: Report;
     try { root = record(JSON.parse(payload)); } catch { return 'ignored'; }
     const info = record(root.info);
-    if (info.command === 'get_version' || info.command === 'get_capabilities') this.info = merge(this.info, info);
+    if (info.command === 'get_version' || info.command === 'get_capabilities') { this.info = merge(this.info, info); ++this.revision; }
     const update = record(root.print);
     if (update.command !== 'push_status') return Object.keys(info).length ? 'updated' : 'ignored';
     if (update.msg !== undefined && update.msg !== 0 && update.msg !== 1) return 'resync';
@@ -99,11 +165,20 @@ export class BambuTelemetry {
       for (const key of ['mc_percent', 'mc_remaining_time', 'layer_num', 'total_layer_num', 'stg_cur', 'subtask_name', 'gcode_file', 'thumbnail_url']) delete this.print[key];
     }
     this.print = update.msg === 0 ? merge({}, update) : merge(this.print, update);
+    this.machine = decodeMachineState(this.print);
+    ++this.revision;
     ++this.generation;
     this.baseline = true; this.disconnected = false; this.receivedAt = this.now();
     return 'updated';
   }
   project(target: D.PrinterTarget, identity: D.PrinterIdentity): TelemetryProjection {
+    const key = JSON.stringify([this.revision, target, identity]);
+    if (this.projection?.key !== key) this.projection = { key, value: this.buildProjection(target, identity) };
+    const fresh = !this.disconnected && this.receivedAt !== null && this.now() - this.receivedAt < this.staleAfterMs;
+    const value = this.projection.value;
+    return { ...value, fresh, values: observationFreshness(value.values, fresh), report: merge({}, value.report) };
+  }
+  private buildProjection(target: D.PrinterTarget, identity: D.PrinterIdentity): TelemetryProjection {
     const p = this.print, device = record(p.device), ext = record(device.extruder);
     const fresh = !this.disconnected && this.receivedAt !== null && this.now() - this.receivedAt < this.staleAfterMs;
     const read: ReadValue = value => value === undefined || this.receivedAt === null ? unknown : {
@@ -203,7 +278,7 @@ export class BambuTelemetry {
     const alerts: D.PrinterObservationMap['alerts'] = error ? [{ id: id(`print:${error}`), code: error.toString(16).toUpperCase(),
       severity: error === taskCancelledError ? 'info' : 'error',
       message: error === taskCancelledError ? 'The task was canceled.' : `Printer error ${error.toString(16).toUpperCase()}`, actions: [] }] : [];
-    return { fresh, generation: this.generation, report: merge(p, { capabilities: record(this.info.capabilities) }), values: {
+    return { machine: this.machine, fresh, generation: this.generation, report: merge(p, { capabilities: record(this.info.capabilities) }), values: {
       descriptor: { revision: topology.revision, identity, technology: 'fdm', buildVolume: null, firmware: firmware.length ? read(firmware) : unknown, topology },
       status: state, thermal, motion, actuators: { fans: fanState, lights: lightState }, sensors: { definitionRevision: topology.revision, definitions, readings },
       materials: material, firmware, cameras, alerts,

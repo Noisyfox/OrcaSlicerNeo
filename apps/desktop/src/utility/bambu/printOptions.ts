@@ -1,10 +1,7 @@
 import type * as D from '@orca/printer-control/domain';
-import { bits, number, record, type Report } from './telemetry';
+import { number, record, type BambuMachineState, type Report } from './telemetry';
 import { printerFilamentId } from './printResources';
-export function sdcardState(p: Report): number | undefined {
-  return bits(p.aux, 12, 2) ?? bits(p.home_flag, 8, 2) ?? (typeof p.sdcard === 'boolean' ? p.sdcard ? 1 : 0 : undefined);
-}
-export function printOptions(request: D.PrintPreparationRequest, p: Report, profile: Report, multipleExternal: boolean) {
+export function printOptions(request: D.PrintPreparationRequest, p: Report, profile: Report, multipleExternal: boolean, device: BambuMachineState) {
   const options: D.PrintOptions = {}, descriptors: D.PrintOptionDescriptor[] = [], issues: D.PrintIssue[] = [];
   const flags = { ...record(profile.print), ...p, ...record(record(p.capabilities).flags) };
   const mode = (key: 'bedLeveling' | 'flowCalibration' | 'nozzleOffsetCalibration', label: string, supported: boolean, auto: boolean) => {
@@ -13,7 +10,7 @@ export function printOptions(request: D.PrintPreparationRequest, p: Report, prof
     const saved = request.options[key]; options[key] = saved && choices.some(v => v === saved) ? saved : choices[0];
     descriptors.push({ key, label, choices: choices.map(value => ({ value, label: value === 'auto' ? 'Auto' : value === 'on' ? 'On' : 'Off' })), enabled: true });
   };
-  const flow = profile.printer_series !== 'series_p' && (bits(p.fun, 7) ?? bits(p.home_flag, 16) ?? (flags.support_flow_calibration === true ? 1 : 0)) === 1;
+  const flow = profile.printer_series !== 'series_p' && (device.flowCalibration ?? flags.support_flow_calibration === true);
   mode('bedLeveling', 'Bed leveling', Number(flags.support_bed_leveling) > 0, flags.support_bed_leveling === 2);
   mode('flowCalibration', 'Flow dynamics calibration', flow, flags.support_auto_flow_calibration === true);
   mode('nozzleOffsetCalibration', 'Nozzle offset calibration', flags.support_nozzle_offset_calibration === true, true);
@@ -26,10 +23,10 @@ export function printOptions(request: D.PrintPreparationRequest, p: Report, prof
   const booleanOption = (key: 'timelapse' | 'sharedPressureAdvance' | 'externalChangeAssist', label: string, value: boolean, enabled = true) => {
     options[key] = value; descriptors.push({ key, label, choices: [{ value: true, label: 'On' }, { value: false, label: 'Off' }], enabled });
   };
-  if (bits(p.fun2, 3) === 1) options.sharedPressureAdvance = request.options.sharedPressureAdvance ?? true;
-  if (bits(p.fun2, 3) === 1 && flow && options.flowCalibration === 'off') booleanOption('sharedPressureAdvance', 'Shared PA profile', request.options.sharedPressureAdvance ?? true);
-  const internal = bits(p.fun, 28) === 1;
-  const external = sdcardState(p) === 1;
+  if (device.sharedPressureAdvance) options.sharedPressureAdvance = request.options.sharedPressureAdvance ?? true;
+  if (device.sharedPressureAdvance && flow && options.flowCalibration === 'off') booleanOption('sharedPressureAdvance', 'Shared PA profile', request.options.sharedPressureAdvance ?? true);
+  const internal = device.internalRecording;
+  const external = device.storage === 'normal';
   const warning = request.requirements.warnings.some(w => ['10014001', '10014002'].includes(w.code));
   const timelapse = flags.support_timelapse === true && (internal || external) && !warning;
   booleanOption('timelapse', 'Timelapse', timelapse && (request.options.timelapse ?? true), timelapse);
@@ -40,6 +37,6 @@ export function printOptions(request: D.PrintPreparationRequest, p: Report, prof
   options.timelapseStorage = storage;
   if (internal) descriptors.push({ key: 'timelapseStorage', label: 'Timelapse storage', choices: [{ value: 'internal', label: 'Internal' }, { value: 'external', label: 'External' }], enabled: timelapse });
   if (!timelapse && (request.options.timelapse ?? true)) issues.push({ id: 'timelapse-disabled', severity: 'notice', message: 'Timelapse is unavailable for this print. Your saved preference is retained.' });
-  if (bits(p.fun, 48) === 1 || bits(p.flag3, 16) === 1) booleanOption('externalChangeAssist', 'Multi-color with external', multipleExternal && (request.options.externalChangeAssist ?? false), multipleExternal);
+  if (device.externalChangeAssist) booleanOption('externalChangeAssist', 'Multi-color with external', multipleExternal && (request.options.externalChangeAssist ?? false), multipleExternal);
   return { options, descriptors, issues, flags, internal };
 }

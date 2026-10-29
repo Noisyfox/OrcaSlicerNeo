@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type * as D from '@orca/printer-control/domain';
 import { bambuCapabilities } from '../../shared/bambuPrinters';
-import { cameraProtocol, bits, id, number, record, records, type Report, type TelemetryProjection } from './telemetry';
+import { cameraProtocol, id, number, record, records, type Report, type TelemetryProjection } from './telemetry';
 import { protocolReport } from './protocol';
 const known = <T>(value: D.Reading<T>): T | undefined => value.kind === 'known' && value.freshness === 'fresh' ? value.value : undefined;
 const fail = (code: D.ErrorCode, message: string): D.PrinterError => ({ code, message });
@@ -33,8 +33,7 @@ export function commandCapabilities(context: CommandContext): D.PrinterCapabilit
     targetC: range(heater.role === 'nozzle' ? p.nozzle_temp_range : heater.role === 'bed' ? p.bed_temp_range : p.support_chamber_temp_edit_range) })));
   if (heaters) c['thermal.setTarget'] = supported(heaters);
   const fans = nonempty(topology.fans.map(fan => {
-    const part = records(record(record(p.device).airduct).parts).find(part => bits(part.id, 0, 4) === 0 && `fan:${bits(part.id, 4, 8)}` === fan.id);
-    const min = bits(part?.range, 0, 16), max = bits(part?.range, 16, 16);
+    const { min, max } = context.machine.fans.find(part => part.id === fan.id) ?? {};
     const reported = min !== undefined && max !== undefined && min <= max && max > 0 && max <= 100;
     return { fanId: fan.id, speedFraction: { min: reported ? min / 100 : 0, max: reported ? max / 100 : 1, step: null } };
   }));
@@ -42,8 +41,8 @@ export function commandCapabilities(context: CommandContext): D.PrinterCapabilit
   const lights = nonempty(topology.lights.filter(light => ['chamber_light', 'chamber_light2'].includes(light.id)).map(light => light.id));
   if (lights) c['lights.set'] = supported({ lightIds: lights });
   const motion = topology.motionGroups[0];
-  if (motion && bits(p.fun, 32) === 1) c['motion.home'] = supported([{ motionGroupId: motion.id, axes: ['x', 'y', 'z'] }]);
-  if (motion && bits(p.fun, 38) === 1) c['motion.jog'] = supported(nonempty(['x', 'y', 'z'].map(axis => ({ motionGroupId: motion.id, axis: axis as D.Axis, kind: 'step' as const,
+  if (motion && context.machine.home) c['motion.home'] = supported([{ motionGroupId: motion.id, axes: ['x', 'y', 'z'] }]);
+  if (motion && context.machine.jog) c['motion.jog'] = supported(nonempty(['x', 'y', 'z'].map(axis => ({ motionGroupId: motion.id, axis: axis as D.Axis, kind: 'step' as const,
     steps: [{ id: 'small', label: 'Small step' }, { id: 'large', label: 'Large step' }] as const })))!);
   const extruders = nonempty(topology.extruders.filter(ext => records(record(record(p.device).extruder).info).some(item => `extruder:${item.id}` === ext.id)).map(ext => ({ extruderId: ext.id,
     distanceMm: { min: -10, max: 10, step: 10 }, speed: { kind: 'device-controlled' as const } })));
@@ -82,7 +81,7 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
   const busyMaterial = state.materials.state.tools.some(tool => { const activity = known(tool.activity); return activity !== undefined && activity !== 'idle'; });
   if (['motion.home', 'motion.jog', 'extrusion.move', 'tools.select', 'materials.load', 'materials.unload', 'materials.switch', 'hardware.refreshNozzles'].includes(command.type)
     && (!idle && phase !== 'paused' || busyMaterial)) return reject('busy', 'The printer is busy. Wait until movement or material changing is available.');
-  if (bits(p.job_attr, 4, 4) !== undefined && bits(p.job_attr, 4, 4)! > 1 && command.type !== 'jobs.cancel' && command.type !== 'lights.set') return reject('precondition-failed', 'This processing task must be controlled on the printer.');
+  if (context.machine.localControlOnly && command.type !== 'jobs.cancel' && command.type !== 'lights.set') return reject('precondition-failed', 'This processing task must be controlled on the printer.');
   switch (command.type) {
     case 'jobs.pause':
       if (phase !== 'printing') return reject('precondition-failed', 'Only a running print can be paused.');
@@ -113,7 +112,7 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
       if (targetC !== 0 && limit.max === null) return reject('precondition-failed', 'The maximum heater temperature is unknown.');
       if (heaterId === 'chamber' && !idle && number(record(record(p.device).airduct).modeCur) === 0) return reject('precondition-failed', 'Chamber temperature cannot be changed while printing in cooling mode.');
       const fields = heaterId.startsWith('nozzle:') ? records(record(record(p.device).extruder).info).length ? { command: 'set_nozzle_temp', extruder_index: Number(heaterId.split(':')[1]), target_temp: targetC } : { command: 'gcode_line', param: `M104 S${targetC}\n` }
-        : heaterId === 'bed' ? bits(p.fun, 39) === 1 ? { command: 'set_bed_temp', temp: targetC } : { command: 'gcode_line', param: `M140 S${targetC}\n` }
+        : heaterId === 'bed' ? context.machine.bedTemperatureCommand ? { command: 'set_bed_temp', temp: targetC } : { command: 'gcode_line', param: `M140 S${targetC}\n` }
         : { command: 'set_ctt', ctt_val: targetC };
       return prepared(fields, next => known(next.values.thermal.find(heater => heater.heaterId === heaterId)?.targetC ?? { kind: 'unknown', reason: 'not-reported' }) === targetC);
     }
@@ -177,7 +176,7 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
       const external = unit === '254' || unit === '255', wireUnit = unit === '254' ? 255 : Number(unit);
       const fields: Report = { command: 'ams_change_filament', curr_temp: loading ? (external ? next : previous) ?? -1 : 210, tar_temp: loading ? next ?? -1 : 210,
         ams_id: wireUnit, slot_id: loading ? Number(tray) : 255, target: loading ? wireUnit < 16 ? wireUnit * 4 + Number(tray) : wireUnit : 255 };
-      if (bits(p.aux, 29) === 1) fields.extruder_id = Number(toolId.split(':')[1]);
+      if (context.machine.filamentSwitch) fields.extruder_id = Number(toolId.split(':')[1]);
       return prepared(fields, next => {
         const current = next.values.materials.state.tools.find(tool => tool.toolId === toolId);
         return !!current && known(current.activity) === 'idle' && known(current.loadedPathId) === (loading ? path!.id : null);
