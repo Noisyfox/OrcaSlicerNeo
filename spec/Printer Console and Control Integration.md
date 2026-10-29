@@ -9,10 +9,12 @@ Account-backed automatic networking followed by LAN-only access. No complete
 hardware or six-target control qualification is claimed.
 Local-artifact print preparation/submission is implemented and initially enabled
 only by the Bambu agent. Development-host LAN qualification includes two completed
-H2D prints using AMS B1 and the fixed right nozzle; dual-tool and Cloud printing
-remain unqualified. The 2026-10-29 repeat on production build `87c7f259` also
-physically verified Orca-style send completion: the modal closed automatically
-and Device selected the correct printer and task.
+H2D fixed-right-nozzle prints using AMS B1 and a completed fixed-dual-nozzle PETG
+print using left A2 and right B1. Orca-style send completion is physically verified:
+the modal closed automatically and Device selected the correct printer and task.
+The dual-nozzle run needed external recovery from a dirty nozzle-camera error;
+Neo's error-specific dialog/actions, other supply paths and Cloud printing remain
+unqualified.
 
 **Scope:** The printer-console and printer-control experience shared by the
 Electron desktop application and the Web application.
@@ -712,17 +714,21 @@ shared-app unit suite and workspace typechecks. The Bambu Electron fixture cover
 renderer/preload/main requests, binary chunk delivery, persisted options,
 cancellation and successful-send navigation; Moonraker send/retry and keyless
 regressions pass. The fixture caught and fixed an observation target carrying a
-command-only revision field. Physical acceptance is separate: a development-host
-H2D LAN print using one PETG source (AMS 2 Pro B1) and the fixed right nozzle now
-completed. The user confirmed feeding, extrusion and first layer; the device
-reported completion and zero heater targets. Dual-tool and other supply-path
-acceptance remain open; Cloud physical acceptance is deferred as agreed. The
-agent now ends submission on successful plugin completion, matching Orca without
-requiring a filename or observed print start. The 2026-10-29 repeat on production
-build `87c7f259` physically verified that transition: one send closed the modal
-and selected Fox and Fox in Device with task name `LAN-Cube-10mm`. The user again
-confirmed B1 feeding, right-nozzle extrusion and first layer; the printer finished
-at 100%, ready, with all heater targets zero. Qualification remains scoped under the
+command-only revision field. Physical acceptance is separate: development-host
+H2D LAN qualification now covers two completed right-nozzle PETG runs from AMS
+2 Pro B1 and one completed fixed-dual-nozzle run from left AMS 0 A2 and right B1.
+The user confirmed normal feeding, first-layer extrusion, nozzle switching and
+both finished cubes without obvious defects or missing material. Device reported
+50/50 layers, 100%, ready and all heater targets zero. Both production builds
+`87c7f259` (single nozzle) and `574c6f0d` (dual nozzle) physically verified the
+Orca-style plugin-success transition: the modal closed automatically and Device
+selected Fox and Fox with the exact submitted task name.
+
+The dual-nozzle task paused at `0500808F` before its first layer. The user continued
+through Orca or the printer; Neo observed recovery and did not resend. Neo's
+error-specific dialog and ignore/problem-solved continuation actions remain a
+known gap, not a passed recovery case. Other supply paths remain open and Cloud
+physical acceptance is deferred. Preserve the precise
 [domain qualification boundary](Printer%20Domain%20and%20Control%20Architecture.md#implementation-progress).
 
 
