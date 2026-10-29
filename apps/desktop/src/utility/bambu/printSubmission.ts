@@ -12,7 +12,6 @@ import { record, text, bits } from './telemetry';
 import { sdcardState } from './printOptions';
 import { prepareBambuPrint } from './printValidation';
 import { printParameters } from './printParameters';
-import { validatePrintArtifacts } from './printArtifacts';
 import { printerPrintProfile } from './printResources';
 type File = { descriptor: D.PrintArtifactDescriptor; path: string; handle: FileHandle; offset: number };
 type Job = { request: D.PrintSubmissionRequest; signature: string; state: D.PrintSubmissionState; files: Map<string, File>; directory: string; token: string; name: { display: string; remote: string }; nativeDone: Promise<void> | null; timer: ReturnType<typeof setTimeout> | null };
@@ -122,12 +121,11 @@ export class BambuPrintSubmissions {
     if ([...job.files.values()].some(f => f.offset !== f.descriptor.sizeBytes)) return error('Artifact transfer is incomplete.');
     try {
       await Promise.all([...job.files.values()].map(f => f.handle.close()));
-      await validatePrintArtifacts(job.files.get('print')!.path, job.files.get('configuration')!.path, job.request.requirements);
       if (job.timer) clearTimeout(job.timer);
       job.state = { ...job.state, phase: 'sending', progress: null, message: 'Sending print', canCancel: true }; this.changed();
       job.nativeDone = this.send(job);
       return this.get(ref);
-    } catch { await this.finish(job, 'failed', 'Print package validation failed.'); return this.get(ref); }
+    } catch { await this.finish(job, 'failed', 'Print preparation failed.'); return this.get(ref); }
   }); }
   private async send(job: Job) {
     let nativeInvoked = false;

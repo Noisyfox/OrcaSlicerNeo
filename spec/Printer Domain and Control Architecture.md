@@ -1221,27 +1221,25 @@ Native material-ID conversion changes dispatch metadata only, not the project.
 
 Validation includes 13 mapping/lifecycle tests, the desktop and printer-control
 unit suites, typechecks, the serial native quick build and real-WASM archive
-smoke. The real archive inspector also accepts the native H2D print/configuration
-pair and rejects mismatched material identities. Fixture acceptance is not LAN
-or Cloud physical-print qualification. The following shared-UI stage activates this capability only for Bambu; other
+smoke. Fixture acceptance is not LAN or Cloud physical-print qualification.
+The following shared-UI stage activates this capability only for Bambu; other
 agents retain their existing interfaces. See the console specification for
 software delivery and physical qualification status.
 
 The final integration pass adds Orca's P1 compatibility-confirmation exceptions,
 mixed AMS Lite tray numbering, hidden Shared PA semantics, high-chamber and
 loaded-material softening diagnostics, selected-AMS drying checks, manual-PA
-and smart-nozzle-blob advisories. Print archives are checked against the declared
-model and material metadata before native dispatch. Recording cleanup requires
-an explicit per-submission action and is skipped if cancellation arrives during
-the capacity query. Device monitoring releases its view subscription while the
+and smart-nozzle-blob advisories. Native-generated print packages pass directly
+to the networking plugin without host-side ZIP/XML reinspection. Recording
+cleanup requires an explicit per-submission action and is skipped if cancellation
+arrives during the capacity query. Device monitoring releases its view subscription while the
 modal owns an independent target; a submission keeps its own agent lease.
 
 Validation on 2026-10-28 (development macOS ARM64):
 
 - `pnpm test`: 2,688 passed, five conditional skips at the full-suite checkpoint.
   Subsequent focused runs pass 330 desktop tests, the shared send/Device tests,
-  six preparation-panel tests and 657 client tests. The opt-in real-archive test
-  was separately enabled with `NEO_PRINT_FIXTURE_DIR` and passed.
+  six preparation-panel tests and 657 client tests.
 - `pnpm typecheck` and `pnpm --filter @orca/platform-contract test:import-guard`
   pass. `git diff --check` and the added local documentation links pass.
 - `bash scripts/build.sh quick --variant serial -j 8` and the corresponding

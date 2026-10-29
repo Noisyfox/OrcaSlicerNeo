@@ -11,7 +11,6 @@ import { BambuPrintSubmissions } from './printSubmission';
 import { printContext, printRequest, printTarget } from './printFixtures';
 import { prepareBambuPrint } from './printValidation';
 import { id } from './telemetry';
-vi.mock('./printArtifacts', () => ({ validatePrintArtifacts: vi.fn(async () => undefined) }));
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 async function fixture(cloud = false, timelapse = false, recordingSpaceAction?: D.PrintSubmissionRequest['recordingSpaceAction'], initial?: { context: ReturnType<typeof printContext>; input: D.PrintPreparationRequest }) {
