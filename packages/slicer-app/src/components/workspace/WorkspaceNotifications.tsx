@@ -96,14 +96,17 @@ function NotificationList({ visible }: { visible: boolean }) {
           {card.severity === 'error' ? <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden="true" />
             : card.severity === 'warning' ? <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden="true" />
             : <Info className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
-          <div className="flex min-w-0 flex-1 flex-col gap-2"><ToastTitle />
+          <div className="flex min-w-0 flex-1 flex-col gap-1"><ToastTitle />
             <ToastDescription className="line-clamp-2 group-data-[expanded]/toast:line-clamp-none" />
-            {card.progress && <Progress value={progressValue(card.progress.value)}>
-              <ProgressLabel className="sr-only">{card.progress.label}</ProgressLabel><ProgressValue />
-            </Progress>}
-            {card.actions.length > 0 && <div className="flex flex-wrap gap-2">
-              {card.actions.map(action => <Button key={action.id} variant="outline" size="sm" data-testid={action.testId}
-                disabled={action.disabled} onClick={() => { void action.onClick(); }}>{action.label}</Button>)}
+            {(card.progress || card.actions.length > 0) && <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              {card.progress && <Progress value={progressValue(card.progress.value)}
+                className="min-w-24 flex-1 flex-nowrap items-center gap-2 [&>[data-slot=progress-track]]:order-first [&>[data-slot=progress-track]]:w-auto [&>[data-slot=progress-track]]:flex-1">
+                <ProgressLabel className="sr-only">{card.progress.label}</ProgressLabel><ProgressValue className="shrink-0" />
+              </Progress>}
+              {card.actions.length > 0 && <div className="ml-auto flex max-w-full flex-wrap items-center gap-1">
+                {card.actions.map(action => <Button key={action.id} variant="ghost" size="xs" data-testid={action.testId}
+                  disabled={action.disabled} onClick={() => { void action.onClick(); }}>{action.label}</Button>)}
+              </div>}
             </div>}
           </div>
           {card.dismissible && <ToastClose />}
