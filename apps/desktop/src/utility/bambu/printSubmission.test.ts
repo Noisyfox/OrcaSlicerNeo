@@ -33,13 +33,14 @@ async function fixture(cloud = false, timelapse = false, recordingSpaceAction?: 
   const begin = await service.begin({ request, artifacts }); if (!begin.ok) throw new Error(begin.error.message);
   const ref = begin.value.ref;
   const state = () => { const result = service.get(ref); if (!result.ok) throw new Error(result.error.message); return result.value; };
-  const send = async () => { for (const artifact of artifacts) expect(await service.chunk({ ref, role: artifact.role, offset: 0, bytes: new Uint8Array([1]) })).toEqual({ ok: true, value: null }); await service.commit(ref); await vi.waitFor(() => expect(native.startPrint).toHaveBeenCalled()); };
+  const commit = async () => { for (const artifact of artifacts) expect(await service.chunk({ ref, role: artifact.role, offset: 0, bytes: new Uint8Array([1]) })).toEqual({ ok: true, value: null }); await service.commit(ref); };
+  const send = async () => { await commit(); await vi.waitFor(() => expect(native.startPrint).toHaveBeenCalled()); };
   const push = async (patch: Record<string, unknown>, channel: 'local-message' | 'message' = 'local-message', deviceId = 'fixture') => {
     const generation = context.generation + 1;
     context = printContext({ ...context.report, ...patch }); context.generation = generation;
     await service.onEvent({ type: channel, args: [deviceId, JSON.stringify({ print: { command: 'push_status', ...patch } })] });
   };
-  return { service, native, monitor, devices, repository, commands, request, artifacts, ref, state, send, push, directory, update: (next: typeof context) => { context = next; }, complete: (result: NativePrintResult) => complete(result) };
+  return { service, native, monitor, devices, repository, commands, request, artifacts, ref, state, commit, send, push, directory, update: (next: typeof context) => { context = next; }, complete: (result: NativePrintResult) => complete(result) };
 }
 function singleTool(model: string, patch: Record<string, unknown> = {}) {
   const context = printContext({ device: {}, cfg: undefined, nozzle_temper: 25, nozzle_target_temper: 0, nozzle_type: 'hardened_steel', nozzle_diameter: .4, ...patch });
@@ -207,28 +208,55 @@ it('validates changed readiness when sending begins without falling back or star
   await f.service.commit(f.ref); await vi.waitFor(() => expect(f.state().phase).toBe('failed'));
   expect(f.native.startPrint).not.toHaveBeenCalled();
 });
-async function commitRecording(f: Awaited<ReturnType<typeof fixture>>) {
-  for (const artifact of f.artifacts) await f.service.chunk({ ref: f.ref, role: artifact.role, offset: 0, bytes: new Uint8Array([1]) });
-  await f.service.commit(f.ref);
-  await vi.waitFor(() => expect(f.commands).toHaveBeenCalled());
-}
-async function capacityReply(f: Awaited<ReturnType<typeof fixture>>, enough: boolean) {
+async function capacityReply(f: Awaited<ReturnType<typeof fixture>>, enough: boolean, result = 0) {
   const query = f.commands.mock.calls.find(c => c[1].command === 'ipcam_get_media_info')![1];
-  await f.service.onEvent({ type: 'local-message', args: ['fixture', JSON.stringify({ camera: { ...query, result: 0, is_enough: enough, file_count: 2 } })] });
+  await f.service.onEvent({ type: 'local-message', args: ['fixture', JSON.stringify({ camera: { ...query, result, is_enough: enough, file_count: 2 } })] });
 }
-it('insufficient recording space does not delete videos without this submission authorization', async () => {
-  const f = await fixture(false, true); await commitRecording(f); await capacityReply(f, false);
-  await vi.waitFor(() => expect(f.state().phase).toBe('failed'));
-  expect(f.commands.mock.calls.some(c => c[1].command === 'ipcam_delete_oldest_timelapse')).toBe(false); expect(f.native.startPrint).not.toHaveBeenCalled();
+it.each([true, false])('checks recording capacity only when preparation requests it (enough: %s)', async enough => {
+  const f = await fixture(false, true); await f.service.cancel(f.ref);
+  const pending = f.service.prepare({ ...printRequest(), options: { timelapse: true }, checkRecording: true });
+  await vi.waitFor(() => expect(f.commands).toHaveBeenCalledOnce()); await capacityReply(f, enough);
+  expect(await pending).toMatchObject({ ok: true, value: { recordingSpace: { status: enough ? 'enough' : 'insufficient', canClean: true } } });
+  expect(f.commands.mock.calls.map(c => c[1].command)).toEqual(['ipcam_get_media_info']);
+  expect(f.native.startPrint).not.toHaveBeenCalled();
 });
-it('explicit cleanup authorization sends oldest-video cleanup before native printing', async () => {
-  const f = await fixture(false, true, 'clean-oldest'); await commitRecording(f); await capacityReply(f, false);
-  await vi.waitFor(() => expect(f.native.startPrint).toHaveBeenCalledOnce());
-  expect(f.commands.mock.calls.map(c => c[1].command)).toEqual(['ipcam_get_media_info', 'ipcam_delete_oldest_timelapse']);
-  f.complete({ code: -6010, mayHaveStarted: false, cancelRequested: false });
+it('reports a failed capacity query as an optional recording notice', async () => {
+  const f = await fixture(false, true); await f.service.cancel(f.ref);
+  const pending = f.service.prepare({ ...printRequest(), options: { timelapse: true }, checkRecording: true });
+  await vi.waitFor(() => expect(f.commands).toHaveBeenCalledOnce()); await capacityReply(f, false, 1);
+  expect(await pending).toMatchObject({ ok: true, value: { recordingSpace: { status: 'unknown' }, issues: expect.arrayContaining([expect.objectContaining({ id: 'recording-space-unknown', severity: 'notice' })]) } });
 });
-it('cancelling while recording space is queried never starts the printer', async () => {
-  const f = await fixture(false, true, 'clean-oldest'); await commitRecording(f); await f.service.cancel(f.ref); await capacityReply(f, false);
-  await vi.waitFor(() => expect(f.state().phase).toBe('cancelled')); expect(f.native.startPrint).not.toHaveBeenCalled();
-  expect(f.commands.mock.calls.some(c => c[1].command === 'ipcam_delete_oldest_timelapse')).toBe(false);
+it('submits independently without a capacity precheck or unsolicited recording cleanup', async () => {
+  const f = await fixture(false, true); await f.send();
+  expect(f.commands).not.toHaveBeenCalled();
+  expect(f.native.startPrint.mock.calls[0][1].task_record_timelapse).toBe(true);
+});
+it('disables timelapse for this submission without checking capacity or deleting recordings', async () => {
+  const f = await fixture(false, true, 'disable-timelapse'); await f.send();
+  expect(f.commands).not.toHaveBeenCalled();
+  expect(f.native.startPrint.mock.calls[0][1].task_record_timelapse).toBe(false);
+});
+it('executes explicit cleanup before printing without another capacity query', async () => {
+  const f = await fixture(false, true, 'clean-oldest'); await f.send();
+  expect(f.commands.mock.calls.map(c => c[1].command)).toEqual(['ipcam_delete_oldest_timelapse']);
+});
+it('does not print after an authorized recording cleanup fails', async () => {
+  const f = await fixture(false, true, 'clean-oldest'); f.commands.mockResolvedValue(-1);
+  await f.commit(); await vi.waitFor(() => expect(f.state().phase).toBe('failed'));
+  expect(f.native.startPrint).not.toHaveBeenCalled();
+});
+it('cancelling before cleanup admission does not delete recordings or start printing', async () => {
+  const f = await fixture(false, true, 'clean-oldest');
+  const dispatch = f.monitor.dispatch.getMockImplementation()!;
+  f.monitor.dispatch.mockImplementationOnce(async (target, work) => { await f.service.cancel(f.ref); return dispatch(target, work); });
+  await f.commit(); await vi.waitFor(() => expect(f.state().phase).toBe('cancelled'));
+  expect(f.commands).not.toHaveBeenCalled(); expect(f.native.startPrint).not.toHaveBeenCalled();
+});
+it('cancelling during authorized cleanup prevents the subsequent print call', async () => {
+  const f = await fixture(false, true, 'clean-oldest'); let complete!: () => void;
+  f.commands.mockImplementationOnce(() => new Promise<number>(resolve => { complete = () => resolve(0); }));
+  await f.commit(); await vi.waitFor(() => expect(f.commands).toHaveBeenCalledOnce());
+  await f.service.cancel(f.ref); complete();
+  await vi.waitFor(() => expect(f.state().phase).toBe('cancelled'));
+  expect(f.native.startPrint).not.toHaveBeenCalled();
 });

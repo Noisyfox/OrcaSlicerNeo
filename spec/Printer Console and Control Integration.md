@@ -972,9 +972,12 @@ When no valid saved preference exists, follow Orca's defaults:
 | Shared PA Profile | On, subject to its display and effect conditions. |
 
 Persist user changes immediately as preferences for the **physical printer**,
-including when the user subsequently cancels the preparation dialog. Restoring
-a preference still requires validation against the target's current supported
-choices and conditions. This is local application persistence, not a change to
+including when the user subsequently cancels the preparation dialog. Saving is
+independent of sending: pending or failed preference writes do not block printing
+with the current in-memory options. Show a save-failure notice and retain the
+ability to retry saving. Restoring a preference still requires validation against
+the target's current supported choices and conditions. This is local application
+persistence, not a change to
 the device's persistent settings or project configuration.
 
 Store these preferences in Electron's existing `printer-config.json`, in a
@@ -1023,6 +1026,12 @@ recording location is usable, turn off and disable timelapse for this submission
 explain why, and retain the saved timelapse-on preference. Printing may proceed
 when its other checks pass. Known unavailable storage is distinct from an
 unsuccessful capacity query.
+
+Request recording capacity once during the send-time preparation check. Reuse
+that result through warning/action confirmation and do not query again during
+submission. Like Orca, submission executes the selected options and any explicitly
+authorized cleanup; it does not require a previous preparation call. A direct
+submission can therefore omit this optional recording diagnostic.
 
 When the device capacity check confirms insufficient recording space, offer
 turning off timelapse for this submission and printing, without changing the

@@ -14,7 +14,6 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   const [allowAbnormal, setAllowAbnormal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(true);
   const reading = useRef(false), loaded = useRef(false);
   const [exporting, setExporting] = useState(false);
@@ -29,7 +28,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   if (requirements) request.current = { target, requirements, bindings, options, allowAbnormalStorage: allowAbnormal, suggest: !initialized.current };
   const active = exporting || !!operation && !['failed', 'cancelled', 'unknown', 'sent'].includes(operation.phase);
   const activeRef = useRef(active); activeRef.current = active;
-  const canPrint = !!prepared && !prepared.issues.some(i => i.severity === 'block') && !error && !saveError && !saving && !active && operation?.phase !== 'unknown';
+  const canPrint = !!prepared && !prepared.issues.some(i => i.severity === 'block') && !error && !active && operation?.phase !== 'unknown';
 
   useEffect(() => {
     live.current = true; watchAbort.current = new AbortController();
@@ -92,12 +91,12 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   }, [platform, target.printerId, target.routeId, route.configurationRevision]);
 
   function persist(patch: Partial<D.PrintPreferences>) {
-    const version = ++saveVersion.current; setSaving(true); setSaveError(false);
-    saveChain.current = saveChain.current.catch(() => undefined).then(async () => {
+    const version = ++saveVersion.current; setSaveError(false);
+    saveChain.current = saveChain.current.then(async () => {
       const config = await platform.printers.configuration.load();
       await platform.printers.configuration.save({ ...config, printPreferences: { ...config.printPreferences, [printer.identity.id]: { ...config.printPreferences?.[printer.identity.id], ...patch } } });
       if (live.current && version === saveVersion.current) setSaveError(false);
-    }).catch(() => { if (live.current) setSaveError(true); }).finally(() => { if (live.current && version === saveVersion.current) setSaving(false); });
+    }).catch(() => { if (live.current && version === saveVersion.current) setSaveError(true); });
   }
   function changeOption(key: keyof D.PrintOptions, value: string | boolean) {
     setOptions(previous => ({ ...previous, [key]: value })); setConfirmation(null); setRecordingAction(undefined);
@@ -112,9 +111,9 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
     setExporting(true); activeRef.current = true; setError(null);
     let submission: D.PrintSubmissionRef | null = null;
     try {
-      await saveChain.current;
       if (!live.current) return;
-      const checked = await platform.printers.service.submissions.prepare({ ...request.current, suggest: false, checkRecording: true });
+      const checked = confirmed && confirmation ? { ok: true as const, value: confirmation }
+        : await platform.printers.service.submissions.prepare({ ...request.current, suggest: false, checkRecording: true });
       if (!live.current) return;
       if (!checked.ok) throw new Error(checked.error.message);
       setPrepared(checked.value);
@@ -128,7 +127,6 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
       const exported = await platform.runtime.exportPrintPlate({ receipt: sourceReceipt.current, filenameBase: submittedName, materialCatalogIds: checked.value.materialCatalogIds });
       if (!live.current) return;
       if (!exported.ok) throw new Error(exported.error);
-      if (JSON.stringify(exported.manifest) !== JSON.stringify((({ contentId: _id, ...manifest }) => manifest)(request.current.requirements))) throw new Error('Slice changed');
       const { suggest: _suggest, ...input } = request.current;
       const submitted = await platform.printers.service.submissions.submit({ ...input, requestId: crypto.randomUUID() as D.Id<'request'>, jobName: submittedName, acknowledgedIssues: acknowledged, recordingSpaceAction: recordingAction },
         ([['print', exported.bytes], ['configuration', exported.configBytes]] as const).map(([role, bytes]) => ({ role, fileName: exported.fileName, sizeBytes: bytes.byteLength, chunks: (async function* () { yield bytes; })() })));

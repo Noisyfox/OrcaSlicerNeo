@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import type * as D from '@orca/printer-control/domain';
 import type { PlatformCapabilities } from '@orca/platform-contract';
-import type { PrintManifest, SliceResultReceipt } from '@slicer/client';
+import type { ExportPrintResult, PrintManifest, SliceResultReceipt } from '@slicer/client';
 import { PrintPreparationPanel } from './PrintPreparationPanel';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 const id = <T extends string>(s: string) => s as D.Id<T>;
@@ -17,13 +17,14 @@ async function setup(allowAbnormalStorage = false, manifestValue = manifest, rea
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   let configDocument = { allowAbnormalStorage, version: 1 as const, printers: [], printPreferences: { fixture: { timelapse: true, timelapseStorage: 'external' as const } } };
   let issues: D.PrintIssue[] = [], candidates: D.PrintMaterialSource[] = manifestValue.materials.map((material, index) => ({ materialKey: material.key, pathId: id<'path'>(index ? 'source-b' : 'source-a'), label: index ? 'AMS B1' : 'AMS A1', color: index ? '#00FFFF' : '#FF0000', materialType: material.type, unit: { id: id('unit-a'), name: 'AMS', kind: 'automatic-feeder', categoryLabel: 'AMS' }, slot: { id: id(index ? 'slot-b' : 'slot-a'), name: index ? 'B1' : 'A1' }, tool: { id: id('tool-a'), name: 'Nozzle' }, presence: 'present', remainingFraction: null, disabledReason: null }));
+  let recordingSpace: D.PrintPreparation['recordingSpace'];
   let wake: (() => void) | undefined;
   const ref = { printerId: id<'printer'>('fixture'), routeId: id<'route'>('route'), id: id<'print-submission'>('submission') };
   let current: D.PrintSubmissionState = { ref, requestId: id('request'), phase: 'sending', route: 'lan', progress: .5, message: 'Sending print', canCancel: true };
   const submissions = {
     prepare: vi.fn(async (request: D.PrintPreparationRequest): Promise<D.Result<D.PrintPreparation>> => ({ ok: true, value: {
       configurationRevision: 'r1', route: 'lan', bindings: request.suggest ? candidates.map(({ materialKey, pathId }) => ({ materialKey, pathId })) : request.bindings,
-      candidates, options: { ...request.options, timelapseStorage: 'internal' }, materialCatalogIds: [],
+      candidates, options: { ...request.options, timelapseStorage: 'internal' }, materialCatalogIds: [], recordingSpace: request.checkRecording ? recordingSpace : undefined,
       nozzleLabels: manifestValue.nozzleDiameters.map((_, index) => manifestValue.nozzleDiameters.length === 2 ? index ? 'Right Nozzle' : 'Left Nozzle' : 'Nozzle 1'), optionDescriptors: [{ key: 'timelapse', label: 'Timelapse', choices: [{ value: true, label: 'On' }, { value: false, label: 'Off' }], enabled: true }], issues,
     } })),
     submit: vi.fn(async () => ({ ok: true as const, value: ref })),
@@ -31,7 +32,7 @@ async function setup(allowAbnormalStorage = false, manifestValue = manifest, rea
     cancel: vi.fn(async () => { current = { ...current, phase: 'cancelling', canCancel: false, message: 'Cancelling sending…' }; wake?.(); return { ok: true as const, value: current }; }),
   };
   const configuration = { load: vi.fn(async () => structuredClone(configDocument)), save: vi.fn(async next => { configDocument = next; }) };
-  const runtime = { describePrintPlate: vi.fn(async () => ({ ok: true, receipt, manifest: manifestValue })), exportPrintPlate: vi.fn(async () => ({ ok: true, receipt, manifest: manifestValue, fileName: 'fixture.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]) })) };
+  const runtime = { describePrintPlate: vi.fn(async () => ({ ok: true, receipt, manifest: manifestValue })), exportPrintPlate: vi.fn(async (): Promise<ExportPrintResult> => ({ ok: true, receipt, manifest: manifestValue, fileName: 'fixture.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]), plateIndex: 1, gcodePath: 'Metadata/plate_1.gcode' })) };
   const read = vi.fn(readStatus);
   const platform = { runtime, printers: { configuration, service: { submissions, observations: { read, watch: async function* (_request: unknown, options: { signal: AbortSignal }) { await new Promise<void>(resolve => options.signal.addEventListener('abort', () => resolve(), { once: true })); } } } } } as unknown as PlatformCapabilities;
   const printer = { identity: { id: id('fixture'), displayName: 'Fixture' } } as D.SavedPrinter;
@@ -39,7 +40,7 @@ async function setup(allowAbnormalStorage = false, manifestValue = manifest, rea
   const close = vi.fn(), busy = vi.fn();
   await act(async () => { root!.render(<PrintPreparationPanel platform={platform} printer={printer} route={route} receipt={receipt} onClose={close} onBusyChange={busy} />); });
   const click = async (label: string) => { await act(async () => { const button = [...container.querySelectorAll('button')].find(b => b.textContent === label); if (!button) throw new Error(`No button ${label}`); button.click(); }); };
-  return { read, setSources: (value: D.PrintMaterialSource[]) => { candidates = value; }, close, busy, runtime, submissions, configuration, click, update: (phase: D.PrintSubmissionState['phase']) => { current = { ...current, phase, canCancel: false }; wake?.(); }, issues: (value: D.PrintIssue[]) => { issues = value; }, removeSources: () => { candidates = []; }, document: () => configDocument };
+  return { recordingSpace: (value: D.PrintPreparation['recordingSpace']) => { recordingSpace = value; }, read, setSources: (value: D.PrintMaterialSource[]) => { candidates = value; }, close, busy, runtime, submissions, configuration, click, update: (phase: D.PrintSubmissionState['phase']) => { current = { ...current, phase, canCancel: false }; wake?.(); }, issues: (value: D.PrintIssue[]) => { issues = value; }, removeSources: () => { candidates = []; }, document: () => configDocument };
 }
 it('waits for printer information before validating or displaying initial diagnostics', async () => {
   vi.useFakeTimers(); let release!: () => void;
@@ -98,6 +99,7 @@ it('requires per-send warning confirmation, waits for send completion, then sele
   const f = await setup(); f.issues([{ id: 'warning', severity: 'warning', message: 'Review material' }]);
   await f.click('Send'); expect(f.submissions.submit).not.toHaveBeenCalled();
   await f.click('Confirm and print'); expect(f.submissions.submit).toHaveBeenCalledOnce(); expect(f.close).not.toHaveBeenCalled();
+  expect(f.submissions.prepare.mock.calls.filter(([request]) => request.checkRecording)).toHaveLength(1);
   expect((f.submissions.submit.mock.calls[0] as unknown as [D.PrintSubmissionRequest])[0].acknowledgedIssues).toEqual(['warning']);
   await act(async () => f.update('sent')); expect(f.close).toHaveBeenCalledOnce(); expect(useDeviceSelectionStore.getState().requestedPrinterId).toBe('fixture');
 });
@@ -115,7 +117,7 @@ it('unknown outcomes allow closing but never offer retry', async () => {
 });
 it('does not admit a job if the dialog disappears while native packaging is pending', async () => {
   const f = await setup(); let release!: () => void;
-  f.runtime.exportPrintPlate.mockImplementationOnce(async () => { await new Promise<void>(resolve => { release = resolve; }); return { ok: true, receipt, manifest, fileName: 'fixture.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]) }; });
+  f.runtime.exportPrintPlate.mockImplementationOnce(async () => { await new Promise<void>(resolve => { release = resolve; }); return { ok: true, receipt, manifest, fileName: 'fixture.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]), plateIndex: 1, gcodePath: 'Metadata/plate_1.gcode' }; });
   await f.click('Send'); expect(f.runtime.exportPrintPlate).toHaveBeenCalledOnce();
   await act(async () => root!.unmount()); root = undefined;
   await act(async () => release()); expect(f.submissions.submit).not.toHaveBeenCalled();
@@ -152,7 +154,7 @@ it('renames only the submitted artifact and locks segmented options during sendi
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
-  f.runtime.exportPrintPlate.mockResolvedValueOnce({ ok: true, receipt, manifest, fileName: 'My print_PETG_1h35m.gcode.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]) });
+  f.runtime.exportPrintPlate.mockResolvedValueOnce({ ok: true, receipt, manifest, fileName: 'My print_PETG_1h35m.gcode.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]), plateIndex: 1, gcodePath: 'Metadata/plate_1.gcode' });
   await f.click('Send');
   expect(f.runtime.exportPrintPlate).toHaveBeenCalledWith(expect.objectContaining({ filenameBase: 'My print' }));
   expect(f.submissions.submit).toHaveBeenCalledWith(expect.objectContaining({ jobName: 'My print' }), expect.arrayContaining([expect.objectContaining({ fileName: 'My print_PETG_1h35m.gcode.3mf' })]));
@@ -207,4 +209,51 @@ it('picks from grouped slots, exposes disabled reasons and resets only the curre
   await act(async () => (document.querySelector('[aria-label="Reset current filament mapping"]') as HTMLElement).click());
   expect(container.querySelector('[aria-label="Material 1 source"]')?.getAttribute('data-source')).toBe('');
   expect(f.configuration.save).not.toHaveBeenCalled();
+});
+
+it('keeps preference-save failure visible while sending the current in-memory options', async () => {
+  const f = await setup(); f.configuration.save.mockRejectedValueOnce(new Error('Fixture save failure'));
+  await act(async () => (container.querySelector('[aria-label="Timelapse"] [aria-label="Off"]') as HTMLButtonElement).click());
+  expect(container.textContent).toContain('You can still print with the current options');
+  expect((container.querySelector('[data-testid="print-submit"]') as HTMLButtonElement).disabled).toBe(false);
+  await f.click('Send');
+  expect(f.submissions.submit).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ timelapse: false }) }), expect.anything());
+});
+it('does not wait for an outstanding preference save before sending', async () => {
+  const f = await setup(); let finish!: () => void;
+  f.configuration.save.mockImplementationOnce(async () => new Promise<void>(resolve => { finish = resolve; }));
+  await act(async () => (container.querySelector('[aria-label="Timelapse"] [aria-label="Off"]') as HTMLButtonElement).click());
+  expect(f.configuration.save).toHaveBeenCalledOnce();
+  await f.click('Send'); expect(f.submissions.submit).toHaveBeenCalledOnce();
+  await act(async () => finish());
+});
+it.each(['disable-timelapse', 'clean-oldest'] as const)('retains the capacity decision through %s confirmation without querying again', async action => {
+  const f = await setup(); f.recordingSpace({ status: 'insufficient', canClean: true });
+  await f.click('Send'); expect(f.submissions.submit).not.toHaveBeenCalled();
+  f.recordingSpace({ status: 'enough', canClean: false });
+  await act(async () => {
+    const select = container.querySelector('[aria-label="Recording space action"]') as HTMLSelectElement;
+    select.value = action; select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await f.click('Confirm and print');
+  expect(f.submissions.submit).toHaveBeenCalledWith(expect.objectContaining({ recordingSpaceAction: action }), expect.anything());
+  expect(f.submissions.prepare.mock.calls.filter(([request]) => request.checkRecording)).toHaveLength(1);
+  expect(f.configuration.save).not.toHaveBeenCalled();
+});
+it('allows sending when optional recording capacity is unknown', async () => {
+  const f = await setup(); f.recordingSpace({ status: 'unknown', canClean: false });
+  await f.click('Send'); expect(f.submissions.submit).toHaveBeenCalledOnce();
+  expect(container.querySelector('[aria-label="Confirm print warnings"]')).toBeNull();
+});
+it('accepts an exported manifest with equivalent fields in a different order', async () => {
+  const f = await setup();
+  f.runtime.exportPrintPlate.mockResolvedValueOnce({ ok: true, receipt, manifest: Object.fromEntries(Object.entries(manifest).reverse()) as PrintManifest,
+    fileName: 'fixture.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]), plateIndex: 1, gcodePath: 'Metadata/plate_1.gcode' });
+  await f.click('Send'); expect(f.submissions.submit).toHaveBeenCalledOnce();
+});
+it('still refuses a stale receipt rejected by the runtime export', async () => {
+  const f = await setup(); f.runtime.exportPrintPlate.mockResolvedValueOnce({ ok: false, status: 'stale', error: 'Stale receipt' });
+  await f.click('Send');
+  expect(f.runtime.exportPrintPlate).toHaveBeenCalledWith(expect.objectContaining({ receipt }));
+  expect(f.submissions.submit).not.toHaveBeenCalled();
 });

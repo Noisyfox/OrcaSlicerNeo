@@ -52,7 +52,7 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
       </div>)}
     </fieldset>}
     {state.error && (!requirements || !state.refreshing) && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
-    {state.saveError && <p role="alert" className="text-sm text-destructive">Print preferences could not be saved. Adjust the option again to retry.</p>}
+    {state.saveError && <p role="alert" className="text-sm text-destructive">Print preferences could not be saved. You can still print with the current options. Adjust an option to retry saving.</p>}
     {operation && <div role="status" className="flex flex-col gap-2 text-sm"><p>{operation.message}</p>{state.active && <Progress value={operation.progress === null ? null : operation.progress * 100} aria-label="Sending print" />}</div>}
     {confirmation && <div className="flex flex-col gap-3 rounded border p-3" role="group" aria-label="Confirm print warnings">
       <p className="font-medium">Review before printing</p>

@@ -1251,9 +1251,13 @@ mixed AMS Lite tray numbering, hidden Shared PA semantics, high-chamber and
 loaded-material softening diagnostics, selected-AMS drying checks, manual-PA
 and smart-nozzle-blob advisories. Native-generated print packages pass directly
 to the networking plugin without host-side ZIP/XML reinspection. Recording
-cleanup requires an explicit per-submission action and is skipped if cancellation
-arrives during the capacity query. Device monitoring releases its view subscription while the
-modal owns an independent target; a submission keeps its own agent lease.
+cleanup requires an explicit per-submission action. Recording-capacity queries
+belong to send-time preparation only; confirmation reuses that result and native
+sending does not query again. Direct submission does not require a prior
+preparation call or capacity result. Cancellation before cleanup admission or
+while cleanup is pending prevents the subsequent print call. Device monitoring
+releases its view subscription while the modal owns an independent target;
+a submission keeps its own agent lease.
 
 Validation on 2026-10-28 (development macOS ARM64):
 
@@ -1355,8 +1359,9 @@ indices, material properties, tool/nozzle requirements, printer compatibility,
 estimated consumption and print duration. Do not infer the used requirements
 from the current editable rack, palette order or coincident device slot indices.
 Resolve automatic slicing assignments from the retained completed generation.
-The projection and artifact export must refer to that same generation and reject
-stale/unavailable results under the existing publication contract.
+The projection and artifact export must refer to that same generation. The
+runtime's receipt check rejects stale/unavailable results under the existing
+publication contract; the shared UI does not compare serialized manifest contents.
 
 Extend runtime/client/native bridge export to build the required print artifact
 from the retained result. Reuse Orca's existing 3MF writer and archive contract;
