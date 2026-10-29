@@ -754,9 +754,9 @@ valid print. Renaming affects the submitted artifact and the task name shown by
 the printer, not the project. The shared submission request carries the dialog
 name explicitly as `jobName`; the Bambu agent passes it as the native task/project
 name. Formatted export filenames may contain material/time suffixes and must not
-be used to derive the task name. Its unique remote upload filename remains separate and is
-used to correlate observed startup; a matching display name alone cannot confirm
-that this submission started.
+be used to derive the task name. Upload filenames remain transport details and
+are not used to decide successful sending. Plugin success ends submission;
+Device shows actual preparation and printing independently.
 Each material card shows the sliced material colour above the selected device
 source colour. Transparent colours render over an opaque grey/white checkerboard, including
 partially transparent colours; text contrast uses the composited appearance.
@@ -864,8 +864,10 @@ rule instead of that fallback.
   slot/material/color so reuse is apparent. Agent validation still checks the
   complete mapping against device restrictions.
 - Follow Orca's external-holder exception, including automatic assignment when
-  the eligible candidate set contains only one external holder. A material-type
-  mismatch produces a warning without blocking submission. This is an explicit
+  the entire eligible candidate set is exactly one external holder. An occupied
+  AMS slot with unknown material remains a manual candidate and prevents this
+  sole-candidate fallback. A material-type mismatch produces a warning without
+  blocking submission. This is an explicit
   exception to leaving unmatched requirements empty; it does not bypass other
   path, printer or nozzle checks.
 - Follow Orca's model configuration for mixing AMS and external supply within
@@ -992,9 +994,10 @@ unrelated changes. Preference edits must not change connection configuration
 revisions or trigger reconnection. The optional `printPreferences` section is
 keyed by physical printer ID; `allowAbnormalStorage` stores the global opt-in.
 Electron merges preference edits per printer and option, rejecting conflicting
-edits to the same option. Web normalization also preserves the fields. The
-preparation UI's immediate writes and effective-option fallback remain to be
-wired in the following implementation stages.
+edits to the same option. Web normalization also preserves the fields. Explicit
+preparation-option edits are saved immediately, including when the dialog is
+cancelled. Device-refresh normalization and submission-only effective-option
+fallbacks do not overwrite the saved preference.
 
 Orca's [option handling](../packages/slicer-wasm/cpp/src/slic3r/GUI/SelectMachine.cpp)
 stores these switches by printer type in application configuration when the
@@ -1123,8 +1126,13 @@ features into scope.
 
 The Bambu agent automatically prefers LAN when the target, credentials, firmware
 and storage meet the required conditions; otherwise it uses Cloud when available.
-Show the actual selected path and any path change in submission progress. LAN-only
-devices remain local. Automatic fallback is permitted only when the agent can
+Resolve `support_cloud_print_only` from the pinned model/firmware resources,
+with explicit device/capability booleans overriding those defaults, including
+`false`. For a device with both routes, this flag excludes LAN; a LAN-only
+device remains local, following Orca's separate LAN path. Revalidate the same
+conditions immediately before native admission.
+Show the actual selected path and any path change in submission progress.
+Automatic fallback is permitted only when the agent can
 establish that printing has not been initiated. If a start may have been sent
 and its outcome is unknown, reconcile device state before considering another
 attempt; never blindly resend through Cloud. Do not add a user-facing or hidden
