@@ -6,14 +6,6 @@ import { WorkspaceNotifications } from './WorkspaceNotifications';
 import { useNotificationStore as notifications } from '@/stores/useNotificationStore';
 import { usePlateSessionStore as plates } from '@/stores/usePlateSessionStore';
 import type { PlateSessionSnapshot } from '@slicer/client';
-import { useArrangementStore } from '@/stores/useArrangementStore';
-import { ArrangementEditBoundary } from './ArrangementEditBoundary';
-
-const cancel = vi.hoisted(() => vi.fn());
-vi.mock('@orca/platform-contract', async original => ({
-  ...await original<typeof import('@orca/platform-contract')>(),
-  usePlatform: () => ({ runtime: { cancelArrangement: cancel } }),
-}));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const snapshot = (currentPlateId = 'a', revision = 1): PlateSessionSnapshot => ({
@@ -22,17 +14,15 @@ const snapshot = (currentPlateId = 'a', revision = 1): PlateSessionSnapshot => (
   plates: ['a', 'b'].map((plateId, displayIndex) => ({ plateId, displayIndex, name: plateId, origin: [0, 0, 0] })),
 });
 
-describe('slice notification presentation', () => {
+describe('workspace notification presentation', () => {
   let root: Root;
   beforeEach(() => {
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} });
     notifications.getState().reset(); plates.getState().setSnapshot(snapshot());
-    useArrangementStore.setState({ active: false, cancellable: false, cancelling: false });
-    cancel.mockResolvedValue({ ok: true });
     document.body.innerHTML = '<div id="root"></div>';
     root = createRoot(document.getElementById('root')!);
   });
-  afterEach(() => { act(() => root.unmount()); useArrangementStore.setState({ active: false }); vi.useRealTimers(); vi.unstubAllGlobals(); });
+  afterEach(() => { act(() => root.unmount()); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
   it('keeps full diagnostics indefinitely, acknowledges explicit close and preserves other cards', async () => {
     const token = notifications.getState().begin({ plateId: 'a', inputRevision: 1 });
@@ -70,35 +60,57 @@ describe('slice notification presentation', () => {
     expect(document.querySelectorAll('[data-testid="slice-notification"]')).toHaveLength(0);
   });
 
-  it('renders arrangement progress and cancellation outside the editing fence, then updates the same toast', async () => {
-    const token = notifications.getState().beginArrangement('a');
-    notifications.getState().updateArrangement(token, { progress: 42, message: 'Packing plate 2' });
-    useArrangementStore.setState({ active: true, cancellable: false });
-    await act(async () => root.render(<><ArrangementEditBoundary><input /></ArrangementEditBoundary><WorkspaceNotifications /></>));
-    const card = () => document.querySelector('[data-testid="arrangement-status"]')!;
+  it('renders caller-supplied progress, actions and dismissal policy outside disabled controls', async () => {
+    const token = notifications.getState().beginOperation({ key: 'transfer', plateId: 'a', title: 'Uploading models',
+      message: 'Sending model 2', severity: 'info', progress: { value: 42, label: 'Upload progress' }, dismissible: false });
+    const details = vi.fn();
+    const cancel = vi.fn(() => notifications.getState().updateOperation(token, { message: 'Stopping transfer…', actions: [
+      { id: 'stop', label: 'Stopping…', disabled: true, onClick: cancel },
+    ] }));
+    notifications.getState().updateOperation(token, { actions: [
+      { id: 'stop', label: 'Stop transfer', onClick: cancel }, { id: 'details', label: 'Details', onClick: details },
+    ] });
+    await act(async () => root.render(<><fieldset disabled><input /></fieldset><WorkspaceNotifications /></>));
+    const card = () => document.querySelector('[data-testid="workspace-notification"]')!;
     expect(card().closest('[data-testid="workspace-notifications"]')).not.toBeNull();
-    expect(card().textContent).toContain('Packing plate 2');
+    expect(card().textContent).toContain('Uploading models');
+    expect(card().textContent).toContain('Sending model 2');
     expect(card().querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('42');
     expect(card().querySelector('[data-slot="toast-close"]')).toBeNull();
-    expect(card().querySelector('[data-testid="arrange-cancel"]')).toBeNull();
-    await act(async () => useArrangementStore.setState({ cancellable: true }));
-    const button = card().querySelector<HTMLButtonElement>('[data-testid="arrange-cancel"]')!;
+    const buttons = card().querySelectorAll<HTMLButtonElement>('button');
+    expect([...buttons].map(button => button.textContent)).toEqual(['Stop transfer', 'Details']);
+    await act(async () => buttons[1].click());
+    expect(details).toHaveBeenCalledOnce();
+    const button = buttons[0];
     expect(button.closest('fieldset[disabled]')).toBeNull();
     await act(async () => button.click());
     expect(cancel).toHaveBeenCalledOnce();
     expect(button.disabled).toBe(true);
-    expect(card().textContent).toContain('Cancelling arrangement…');
+    expect(button.textContent).toBe('Stopping…');
+    await act(async () => button.click());
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(card().textContent).toContain('Stopping transfer…');
     await act(async () => {
-      notifications.getState().updateArrangement(token, { progress: null, title: 'Arrangement cancelled', message: 'No arrangement changes were applied.' });
-      useArrangementStore.setState({ active: false, cancelling: false });
+      notifications.getState().finishOperation(token, { title: 'Transfer stopped', message: 'Nothing was uploaded.', severity: 'info' });
     });
     expect(card().querySelector('[role="progressbar"]')).toBeNull();
-    expect(document.querySelectorAll('[data-testid="arrangement-status"]')).toHaveLength(1);
-    expect(card().textContent).toContain('Arrangement cancelled');
+    expect(document.querySelectorAll('[data-testid="workspace-notification"]')).toHaveLength(1);
+    expect(card().textContent).toContain('Transfer stopped');
+    expect(card().querySelectorAll('button')).toHaveLength(1);
     await act(async () => root.render(<WorkspaceNotifications visible={false} />));
     expect(document.querySelector<HTMLElement>('[data-testid="workspace-notifications"]')?.hidden).toBe(true);
     await act(async () => root.render(<WorkspaceNotifications />));
     await act(async () => card().querySelector<HTMLButtonElement>('[data-slot="toast-close"]')!.click());
-    expect(document.querySelector('[data-testid="arrangement-status"]')).toBeNull();
+    expect(document.querySelector('[data-testid="workspace-notification"]')).toBeNull();
+  });
+
+  it('supports indeterminate progress and allows the caller to make a running card dismissible', async () => {
+    const token = notifications.getState().beginOperation({ key: 'download', plateId: 'a', title: 'Downloading',
+      message: 'Waiting for response', severity: 'info', progress: { value: null, label: 'Download progress' } });
+    await act(async () => root.render(<WorkspaceNotifications />));
+    expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBeNull();
+    expect(document.querySelector('[data-slot="toast-close"]')).not.toBeNull();
+    await act(async () => notifications.getState().updateOperation(token, { progress: { value: 150, label: 'Download progress' } }));
+    expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('100');
   });
 });

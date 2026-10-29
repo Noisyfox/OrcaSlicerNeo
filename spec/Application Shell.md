@@ -191,6 +191,18 @@ variant matching the application's existing `base-mira` components. Notification
 policy belongs to the shared feature layer rather than the platform hosts or
 individual toast call sites.
 
+Progress and actions are shared notification capabilities. Callers supply the
+title, message, severity, optional determinate or indeterminate progress with an
+accessible label, action labels/callbacks/disabled state, dismissal policy and
+foreground priority. The renderer consumes that model without importing feature
+stores, platform services or command implementations. In particular, Cancel is
+a caller-supplied action; its request and retry semantics belong to the operation.
+Operations update a stable card and finish it with a terminal outcome. Finishing
+removes progress and actions, releases foreground priority and enables dismissal;
+later updates or callbacks cannot revive a finished or replaced operation.
+Replacement keys isolate independent operations; owner deletion and project
+replacement release their notification metadata and callbacks.
+
 The workspace notification stack anchors below the Slice action area and extends
 downward, following the selected design. Prepare and Preview share this surface,
 including when the action changes to Export, Send or Send & Print. Notifications

@@ -14,13 +14,13 @@ import { ArrangeCurrentPlateButton, ArrangementButton, ArrangementPanel } from '
 const mocked = vi.hoisted(() => ({
   platform: null as unknown as PlatformCapabilities,
   unfinished: false, activePainting: false, closePainting: vi.fn(),
-  arrange: vi.fn(), cancel: vi.fn(),
+  arrange: vi.fn(),
 }));
 vi.mock('@orca/platform-contract', async (original) => ({
   ...await original<typeof import('@orca/platform-contract')>(),
   usePlatform: () => mocked.platform,
 }));
-vi.mock('../actions/arrangementActions', () => ({ arrangeModels: mocked.arrange, cancelArrangement: mocked.cancel }));
+vi.mock('../actions/arrangementActions', () => ({ arrangeModels: mocked.arrange }));
 vi.mock('../viewport/gizmo/painting/PaintingProvider', () => ({
   usePaintingController: () => ({ unfinished: mocked.unfinished, active: mocked.activePainting, close: mocked.closePainting }),
   usePaintingState: () => ({ phase: mocked.activePainting ? 'idle' : 'closed' }),

@@ -101,41 +101,50 @@ describe('slice notification lifecycle', () => {
   });
 });
 
-describe('arrangement notification lifecycle', () => {
+describe('operation notification lifecycle', () => {
   beforeEach(() => store.getState().reset());
+  const beginOperation = (plateId = 'a', key = 'transfer') => store.getState().beginOperation({ key, plateId,
+    title: 'Transferring', message: 'Preparing transfer', severity: 'info',
+    progress: { value: 0, label: 'Transfer progress' }, dismissible: false, priority: 'foreground' });
+  const outcome = { title: 'Transfer complete', message: 'Done', severity: 'info' } as const;
 
   it('updates one running card, keeps cancellation reachable, and replaces the previous operation', () => {
-    const token = store.getState().beginArrangement('a');
-    store.getState().updateArrangement(token, { progress: 42, message: 'Packing' });
+    const token = beginOperation();
+    store.getState().updateOperation(token, { progress: { value: 42, label: 'Transfer progress' }, message: 'Sending' });
     store.getState().dismiss(token.id);
-    expect(visibleNotifications(store.getState().notifications, 'a')).toMatchObject([{ progress: 42, dismissed: false }]);
-    store.getState().updateArrangement(token, { progress: null, title: 'Arrangement complete' });
+    expect(visibleNotifications(store.getState().notifications, 'a')).toMatchObject([{ progress: { value: 42 }, dismissed: false }]);
+    store.getState().finishOperation(token, outcome);
     store.getState().invalidate(['a']);
     expect(visibleNotifications(store.getState().notifications, 'a')).toMatchObject([{ stale: false }]);
     store.getState().dismiss(token.id);
     expect(visibleNotifications(store.getState().notifications, 'a')).toEqual([]);
-    const next = store.getState().beginArrangement('a');
-    store.getState().updateArrangement(token, { message: 'Late result' });
-    expect(store.getState().notifications).toMatchObject([{ id: next.id, progress: 0 }]);
+    const next = beginOperation();
+    store.getState().updateOperation(token, { message: 'Late result' });
+    expect(store.getState().notifications).toMatchObject([{ id: next.id, progress: { value: 0 } }]);
+    const independent = beginOperation('a', 'download');
+    expect(store.getState().notifications.map(n => n.id)).toEqual([next.id, independent.id]);
   });
 
   it('isolates slicing phases, plate ownership and project sessions from operation updates', () => {
     const slice = begin();
     store.getState().receive(slice, event('validation', [warning()]));
-    const token = store.getState().beginArrangement('a');
+    const token = beginOperation();
     store.getState().receive(slice, event('processing'));
     store.getState().receive(slice, event('slicing'));
     expect(visibleNotifications(store.getState().notifications, 'a')[0].id).toBe(token.id);
     expect(visibleNotifications(store.getState().notifications, 'b')).toEqual([]);
-    store.getState().updateArrangement(token, { progress: null });
-    store.getState().updateArrangement(token, { progress: 99, message: 'Late progress' });
-    expect(store.getState().notifications.find(n => n.id === token.id)).toMatchObject({ progress: null });
+    store.getState().finishOperation(token, outcome);
+    store.getState().updateOperation(token, { progress: { value: 99, label: 'Late progress' }, message: 'Late progress',
+      actions: [{ id: 'stale', label: 'Stale action', onClick: () => {} }] });
+    store.getState().finishOperation(token, { ...outcome, message: 'Late terminal' });
+    expect(store.getState().notifications.find(n => n.id === token.id)).toMatchObject({
+      message: 'Done', status: 'finished', progress: null, actions: [], dismissible: true, priority: 'normal' });
     store.getState().reconcileOwners(['b'], []);
-    store.getState().updateArrangement(token, { message: 'Deleted plate' });
+    store.getState().updateOperation(token, { message: 'Deleted plate' });
     expect(store.getState().notifications).toEqual([]);
-    const oldProject = store.getState().beginArrangement('b');
+    const oldProject = beginOperation('b');
     store.getState().reset();
-    store.getState().updateArrangement(oldProject, { message: 'Old project' });
+    store.getState().updateOperation(oldProject, { message: 'Old project' });
     expect(store.getState().notifications).toEqual([]);
   });
 });

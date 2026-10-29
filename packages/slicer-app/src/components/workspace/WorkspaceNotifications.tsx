@@ -1,14 +1,15 @@
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { CircleAlert, Info, TriangleAlert } from 'lucide-react';
-import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Progress, ProgressLabel, ProgressValue } from '@/components/ui/progress';
 import { Toast, ToastClose, ToastContent, ToastDescription, ToastProvider, ToastTitle,
   ToastViewport, createToastManager, useToastManager } from '@/components/ui/toast';
 import { useNotificationStore, visibleNotifications, type WorkspaceNotification } from '@/stores/useNotificationStore';
-import { useArrangementStore } from '@/stores/useArrangementStore';
-import { cancelArrangement } from './actions/arrangementActions';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+
+function progressValue(value: number | null): number | null {
+  return value === null ? null : Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+}
 
 export function WorkspaceNotifications({ visible = true }: { visible?: boolean }) {
   const [manager] = useState(() => createToastManager<WorkspaceNotification>());
@@ -16,8 +17,6 @@ export function WorkspaceNotifications({ visible = true }: { visible?: boolean }
 }
 
 function NotificationList({ visible }: { visible: boolean }) {
-  const platform = usePlatform();
-  const { active, cancellable, cancelling } = useArrangementStore();
   const notifications = useNotificationStore(s => s.notifications);
   const plateId = usePlateSessionStore(s => s.snapshot?.currentPlateId);
   const cards = useMemo(() => visibleNotifications(notifications, plateId ?? ''), [notifications, plateId]);
@@ -40,7 +39,7 @@ function NotificationList({ visible }: { visible: boolean }) {
     for (const card of cards) if (rendered.current.get(card.id) !== card) {
       programmaticClosures.current.delete(card.id);
       add({
-      id: card.id, title: card.source === 'arrangement' ? card.title : card.stale ? 'Awaiting revalidation' : card.severity === 'error' ? 'Error' : 'Warning',
+      id: card.id, title: card.stale ? 'Awaiting revalidation' : card.title,
       description: card.message, type: card.severity, data: card, timeout: 0,
       priority: !card.stale && card.severity === 'error' ? 'high' : 'low',
       onClose: () => {
@@ -77,16 +76,15 @@ function NotificationList({ visible }: { visible: boolean }) {
     observer.observe(front.current); measure();
     return () => observer.disconnect();
   }, [frontId, frontMounted]);
-  return <ToastViewport ref={viewport} data-testid="workspace-notifications" aria-label="Workspace notifications" data-arrangement-allowed="true"
+  return <ToastViewport ref={viewport} data-testid="workspace-notifications" aria-label="Workspace notifications" data-notification-surface="true"
     style={{ '--notification-width': `${bounds.width}px`, left: bounds.left, top: bounds.top, maxHeight: bounds.height } as CSSProperties}
     className="pointer-events-none fixed grid w-[min(320px,var(--notification-width))] items-start gap-2 overflow-hidden pb-3 data-[expanded]:pointer-events-auto data-[expanded]:overflow-y-auto"
     hidden={!visible || !cards.length}>
     {cards.map((card, index) => {
       const toast = byId.get(card.id);
       if (!toast) return null;
-      const running = card.source === 'arrangement' && card.progress !== null;
       return <Toast key={card.id} toast={toast} ref={index === 0 ? front : undefined} swipeDirection={[]}
-        data-testid={card.source === 'arrangement' ? 'arrangement-status' : 'slice-notification'}
+        data-testid={card.testId ?? 'workspace-notification'}
         data-severity={card.severity} data-stale={card.stale || undefined}
         style={state => ({ gridArea: state.expanded ? undefined : '1 / 1', zIndex: cards.length - index,
           height: !state.expanded && index > 0 ? frontHeight : undefined, overflow: 'hidden',
@@ -100,13 +98,15 @@ function NotificationList({ visible }: { visible: boolean }) {
             : <Info className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
           <div className="flex min-w-0 flex-1 flex-col gap-2"><ToastTitle />
             <ToastDescription className="line-clamp-2 group-data-[expanded]/toast:line-clamp-none" />
-            {running && <>
-              <Progress value={card.progress}><ProgressLabel className="sr-only">Arrangement progress</ProgressLabel><ProgressValue /></Progress>
-              {active && cancellable && <Button variant="outline" size="sm" data-testid="arrange-cancel" disabled={cancelling}
-                onClick={() => { void cancelArrangement(platform); }}>{cancelling ? 'Cancelling…' : 'Cancel'}</Button>}
-            </>}
+            {card.progress && <Progress value={progressValue(card.progress.value)}>
+              <ProgressLabel className="sr-only">{card.progress.label}</ProgressLabel><ProgressValue />
+            </Progress>}
+            {card.actions.length > 0 && <div className="flex flex-wrap gap-2">
+              {card.actions.map(action => <Button key={action.id} variant="outline" size="sm" data-testid={action.testId}
+                disabled={action.disabled} onClick={() => { void action.onClick(); }}>{action.label}</Button>)}
+            </div>}
           </div>
-          {!running && <ToastClose />}
+          {card.dismissible && <ToastClose />}
         </ToastContent>
       </Toast>;
     })}

@@ -10,7 +10,7 @@ export function ArrangementEditBoundary({ children }: { children: ReactNode }) {
     const guard = (event: Event) => {
       if (!useArrangementStore.getState().active) return;
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest('[data-arrangement-allowed]')) return;
+      if (target?.closest('[data-notification-surface]')) return;
       // Native disabled controls leave the notification stack as the keyboard
       // destination; do not trap focus before Tab/F6 can reach Cancel.
       if (event instanceof KeyboardEvent && (event.key === 'Tab' || event.key === 'F6')) return;

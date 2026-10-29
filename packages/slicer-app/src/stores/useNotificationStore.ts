@@ -6,7 +6,24 @@ export interface NotificationAttempt extends PlateOperationTarget {
   readonly id: number;
 }
 
-export interface SliceNotification extends SliceDiagnostic {
+export interface NotificationAction {
+  readonly id: string;
+  readonly label: string;
+  readonly onClick: () => void | Promise<void>;
+  readonly disabled?: boolean;
+  readonly testId?: string;
+}
+
+interface NotificationPresentation {
+  readonly title: string;
+  readonly progress: { readonly value: number | null; readonly label: string } | null;
+  readonly actions: readonly NotificationAction[];
+  readonly dismissible: boolean;
+  readonly priority: 'foreground' | 'normal';
+  readonly testId?: string;
+}
+
+export interface SliceNotification extends SliceDiagnostic, NotificationPresentation {
   readonly source: 'slice';
   readonly plateId: string;
   readonly id: string;
@@ -17,21 +34,23 @@ export interface SliceNotification extends SliceDiagnostic {
   readonly order: number;
 }
 
-export interface ArrangementNotification {
-  readonly source: 'arrangement';
+export interface OperationNotification extends NotificationPresentation {
+  readonly source: 'operation';
+  readonly key: string;
+  readonly status: 'active' | 'finished';
   readonly id: string;
   readonly session: number;
   readonly plateId: string;
-  readonly title: string;
   readonly message: string;
   readonly severity: 'info' | 'warning' | 'error';
-  readonly progress: number | null;
   readonly stale: false;
   readonly dismissed: boolean;
   readonly order: number;
 }
-export type WorkspaceNotification = SliceNotification | ArrangementNotification;
-export type ArrangementNotificationUpdate = Pick<ArrangementNotification, 'title' | 'message' | 'severity' | 'progress'>;
+export type WorkspaceNotification = SliceNotification | OperationNotification;
+export type OperationOutcome = Pick<OperationNotification, 'title' | 'message' | 'severity'>;
+export type OperationNotificationInput = OperationOutcome & Pick<OperationNotification, 'key' | 'plateId'> & Partial<NotificationPresentation>;
+export type OperationNotificationUpdate = Partial<OperationOutcome & NotificationPresentation>;
 const isSlice = (n: WorkspaceNotification): n is SliceNotification => n.source === 'slice';
 
 interface ActiveAttempt {
@@ -51,8 +70,9 @@ interface NotificationState {
   begin: (target: PlateOperationTarget) => NotificationAttempt;
   receive: (attempt: NotificationAttempt, event: SliceDiagnosticEvent) => void;
   fail: (attempt: NotificationAttempt, message: string) => void;
-  beginArrangement: (plateId: string) => ArrangementNotification;
-  updateArrangement: (token: ArrangementNotification, update: Partial<ArrangementNotificationUpdate>) => void;
+  beginOperation: (input: OperationNotificationInput) => OperationNotification;
+  updateOperation: (token: OperationNotification, update: OperationNotificationUpdate) => void;
+  finishOperation: (token: OperationNotification, outcome: OperationOutcome) => void;
   dismiss: (id: string) => void;
   invalidate: (plateIds: readonly string[]) => void;
   reconcileOwners: (plateIds: readonly string[], objectIds: readonly string[]) => void;
@@ -91,6 +111,8 @@ function replacePhase(state: NotificationState, token: NotificationAttempt,
     const previous = old.find(n => n.attempt.id === token.id && diagnosticKey(n) === key);
     return {
       ...diagnostic, source: 'slice', plateId: token.plateId, id: JSON.stringify([token.session, token.id, phase, key]),
+      title: diagnostic.severity === 'error' ? 'Error' : 'Warning', progress: null, actions: [],
+      dismissible: true, priority: 'normal', testId: 'slice-notification',
       attempt: token, phase, stale: false, dismissed: previous?.dismissed ?? false,
       order: previous?.order ?? nextOrder++,
     };
@@ -138,21 +160,24 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     return replacePhase(state, token, phase, [...diagnostics,
       { key: 'failure', severity: 'error', message, objectIds: [] }]);
   }),
-  beginArrangement: plateId => {
+  beginOperation: input => {
     const state = get();
-    const token: ArrangementNotification = { source: 'arrangement', id: `arrangement:${state.session}:${state.nextOrder}`,
-      session: state.session, plateId, title: 'Arranging models', message: 'Preparing arrangement…',
-      severity: 'info', progress: 0, stale: false, dismissed: false, order: state.nextOrder };
+    const token: OperationNotification = { progress: null, actions: [], dismissible: true, priority: 'normal',
+      ...input, source: 'operation', status: 'active', id: `operation:${state.session}:${state.nextOrder}`,
+      session: state.session, stale: false, dismissed: false, order: state.nextOrder };
     set({ nextOrder: state.nextOrder + 1,
-      notifications: [...state.notifications.filter(n => n.source !== 'arrangement'), token] });
+      notifications: [...state.notifications.filter(n => n.source !== 'operation' || n.key !== input.key), token] });
     return token;
   },
-  updateArrangement: (token, update) => set(state => state.session !== token.session ? state : ({
-    notifications: state.notifications.map(n => n.source === 'arrangement' && n.id === token.id &&
-      !(n.progress === null && update.progress !== undefined && update.progress !== null) ? { ...n, ...update } : n),
+  updateOperation: (token, update) => set(state => state.session !== token.session ? state : ({
+    notifications: state.notifications.map(n => n.source === 'operation' && n.id === token.id && n.status === 'active'
+      ? { ...n, ...update } : n),
   })),
-  dismiss: id => set(state => ({ notifications: state.notifications.map(n => n.id === id &&
-    !(n.source === 'arrangement' && n.progress !== null) ? { ...n, dismissed: true } : n) })),
+  finishOperation: (token, outcome) => set(state => state.session !== token.session ? state : ({
+    notifications: state.notifications.map(n => n.source === 'operation' && n.id === token.id && n.status === 'active'
+      ? { ...n, ...outcome, status: 'finished', progress: null, actions: [], dismissible: true, priority: 'normal' } : n),
+  })),
+  dismiss: id => set(state => ({ notifications: state.notifications.map(n => n.id === id && n.dismissible ? { ...n, dismissed: true } : n) })),
   invalidate: plateIds => set(state => {
     if (!plateIds.length) return state;
     const affected = new Set(plateIds);
@@ -176,7 +201,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
 }));
 
 export function visibleNotifications(notifications: readonly WorkspaceNotification[], plateId: string): WorkspaceNotification[] {
-  const priority = (n: WorkspaceNotification) => n.source === 'arrangement' && n.progress !== null ? -1
+  const priority = (n: WorkspaceNotification) => n.priority === 'foreground' ? -1
     : n.stale ? 3 : n.severity === 'error' ? 0 : n.severity === 'warning' ? 1 : 2;
   return notifications.filter(n => n.plateId === plateId && !n.dismissed)
     .sort((a, b) => priority(a) - priority(b) || b.order - a.order);

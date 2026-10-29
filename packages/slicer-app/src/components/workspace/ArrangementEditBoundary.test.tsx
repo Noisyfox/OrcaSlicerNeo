@@ -19,7 +19,7 @@ it('blocks portal edits, shortcuts, and queued mutations while allowing camera p
   await act(async () => root.render(<ArrangementEditBoundary><input /><canvas /></ArrangementEditBoundary>));
   const canvas = host.querySelector('canvas')!;
   canvas.addEventListener('pointerdown', camera);
-  const cancelButton = document.createElement('button'); cancelButton.dataset.arrangementAllowed = '';
+  const cancelButton = document.createElement('button'); cancelButton.dataset.notificationSurface = '';
   cancelButton.addEventListener('click', cancel); document.body.append(cancelButton);
   await act(async () => useArrangementStore.setState({ active: true }));
   expect(host.querySelector('fieldset')!.disabled).toBe(true);
