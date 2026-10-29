@@ -28,6 +28,16 @@ export function enqueueProjectMutationOperation<T>(operation: () => Promise<T>):
  * without recursively requesting project-command admission. */
 export function enqueuePaintingOperation<T>(operation: () => Promise<T>): Promise<T> {
   if (useArrangementStore.getState().active) return Promise.reject(new Error('arrangement_busy'));
+  return enqueueOperation(operation);
+}
+
+/** Read-only reservations preserve publication ordering without edit admission,
+ * a mutation lease, or changing the active painting session. */
+export function enqueueProjectReadOperation<T>(operation: () => Promise<T>): Promise<T> {
+  return enqueueOperation(operation);
+}
+
+function enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
   const task = new Promise<T>((resolve, reject) => {
     operationQueue.push({ operation: operation as () => Promise<unknown>, resolve: resolve as (value: unknown) => void, reject });
   });

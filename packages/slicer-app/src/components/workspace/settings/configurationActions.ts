@@ -22,7 +22,7 @@ import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { historyContextForStructure, projectHistoryStatus, runProjectHistoryMutation, runProjectMutationOperation } from '../actions/historyMutation';
+import { historyContextForStructure, projectHistoryStatus, readProjectMutationReservation, runProjectHistoryMutation, runProjectMutationOperation } from '../actions/historyMutation';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 
@@ -173,7 +173,7 @@ export function commitScopedConfigurationMutation(
 
 /** Defer the editor's validity check until its existing publication reservation. */
 export function readConfigurationEditor<T>(operation: () => Promise<T>) {
-  return configurationMutationQueue.then(() => runProjectMutationOperation(operation));
+  return configurationMutationQueue.then(() => readProjectMutationReservation(operation));
 }
 
 /** Refresh exactly the captured owners under the same publication reservation. */

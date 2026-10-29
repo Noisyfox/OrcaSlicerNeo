@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from '../objectList/useObjectListStore';
@@ -6,8 +6,9 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
-import { historyContextForStructure, projectHistoryStatus, runProjectHistoryMutation, syncHistoryStatus } from './historyMutation';
-import { acquireProjectMutationLease } from '@/history/projectMutationGate';
+import { historyContextForStructure, projectHistoryStatus, readProjectMutationReservation, runProjectHistoryMutation, runProjectMutationOperation, syncHistoryStatus } from './historyMutation';
+import { acquireProjectMutationLease, enqueueProjectMutationOperation } from '@/history/projectMutationGate';
+import { useArrangementStore } from '@/stores/useArrangementStore';
 
 const status: HistoryStatus = {
   editingSession: null, navigationFloor: null,
@@ -49,6 +50,42 @@ function transactionRuntime() {
     })),
   };
 }
+
+describe('read-only project reservations', () => {
+  afterEach(() => useArrangementStore.setState({ active: false }));
+
+  it('admits reads without a publication lease while arrangement still rejects edits', async () => {
+    useArrangementStore.setState({ active: true });
+    const read = vi.fn(async () => {
+      expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+      return 'snapshot';
+    });
+    await expect(readProjectMutationReservation(read)).resolves.toBe('snapshot');
+    const edit = vi.fn(async () => {});
+    await expect(enqueueProjectMutationOperation(edit)).rejects.toThrow('arrangement_busy');
+    expect(edit).not.toHaveBeenCalled();
+  });
+
+  it('keeps reads behind atomic publication instead of bypassing the shared FIFO', async () => {
+    const events: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const mutation = runProjectMutationOperation(async () => {
+      useArrangementStore.setState({ active: true }); events.push('mutating');
+      await gate; events.push('published');
+    });
+    await vi.waitFor(() => expect(events).toEqual(['mutating']));
+    const reading = readProjectMutationReservation(async () => {
+      expect(useArrangementStore.getState().active).toBe(true);
+      expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+      events.push('read');
+    });
+    await Promise.resolve();
+    expect(events).toEqual(['mutating']);
+    release(); await Promise.all([mutation, reading]);
+    expect(events).toEqual(['mutating', 'published', 'read']);
+  });
+});
 
 describe('structural history transaction boundary', () => {
   beforeEach(() => {

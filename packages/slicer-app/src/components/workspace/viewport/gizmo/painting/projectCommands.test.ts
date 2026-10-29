@@ -8,7 +8,7 @@ import { coordinatePaintingRpc, runProjectHistoryMutation, runProjectMutationOpe
 import { saveProject, saveProjectAs, newProject, openProject } from '@/projectActions';
 import { addModel } from '@/components/workspace/actions/sceneActions';
 import { sliceModel, exportGcode } from '@/components/workspace/actions/sliceActions';
-import { commitScopedConfigurationMutation } from '@/components/workspace/settings/configurationActions';
+import { commitScopedConfigurationMutation, readConfigurationEditor } from '@/components/workspace/settings/configurationActions';
 import { createHistoryRestoreCoordinator } from '@/history/restoreCoordinator';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
@@ -61,6 +61,20 @@ async function setup(preloadFilament = false) {
 }
 
 describe('shared painting command admission', () => {
+  it('reads background configuration without opening or refreshing the active painting session', async () => {
+    const { runtime, controller } = await setup();
+    const before = controller.getSnapshot();
+    const paintingRead = vi.spyOn(runtime, 'readPaintingSession');
+    const projectOperation = vi.spyOn(controller, 'projectOperation');
+    const result = await readConfigurationEditor(() => runtime.getPrintConfigEditor());
+    expect(result.ok).toBe(true);
+    expect(projectOperation).not.toHaveBeenCalled();
+    expect(paintingRead).not.toHaveBeenCalled();
+    expect(controller.getSnapshot().phase).toBe(before.phase);
+    expect(controller.getSnapshot().epoch).toBe(before.epoch);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+  });
+
   it('accepts a filament colour edit after painter open with the native history revision', async () => {
     const { runtime, controller: c, filamentReads } = await setup(true);
     expect(filamentReads).not.toHaveBeenCalled();

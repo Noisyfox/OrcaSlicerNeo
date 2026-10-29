@@ -127,24 +127,20 @@ async function setup(scopedFixture=false,presentationFixture=false){
     scoped:(next:typeof scopedProject)=>{scopedProject=next;},mutate,project:(next:typeof project)=>{project=next;},refresh:async()=>act(async()=>{useHistoryRestoreStore.getState().advanceRevision();})};
 }
 
-it.each(['project', 'object', 'part'] as const)('pauses %s editor refresh during arrangement and resumes without a busy error', async scope => {
+it.each(['project', 'object', 'part'] as const)('refreshes the %s editor independently of arrangement edit admission', async scope => {
   const h = await setup(scope !== 'project');
   if (scope !== 'project') await click('config-mode-scoped');
   if (scope === 'part') await h.selectParts([1]);
   await click('config-page-Speed');
   h.read.mockClear(); h.scopedRead.mockClear();
   const reads = scope === 'project' ? h.read : h.scopedRead;
-  const input = () => container.querySelector<HTMLInputElement>('[data-testid="config-input-outer_wall_speed"]')!;
-  expect(input().matches(':disabled')).toBe(false);
   await act(async () => useArrangementStore.setState({ active: true }));
   await h.refresh();
-  expect(reads).not.toHaveBeenCalled();
+  expect(reads).toHaveBeenCalledOnce();
   expect(container.textContent).not.toContain('arrangement_busy');
-  expect(input().matches(':disabled')).toBe(true);
   await act(async () => useArrangementStore.setState({ active: false }));
   expect(reads).toHaveBeenCalledOnce();
   expect(container.textContent).not.toContain('arrangement_busy');
-  expect(input().matches(':disabled')).toBe(false);
 });
 
 it('uses loaded Hybrid choices, one captured typed mutation/history operation, mapped ownership, reset and scoped boundaries',async()=>{
