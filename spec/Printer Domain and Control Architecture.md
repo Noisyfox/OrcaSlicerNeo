@@ -1277,11 +1277,11 @@ Validation on 2026-10-28 (development macOS ARM64):
   `pnpm --filter @orca/desktop build` pass; the preparation screenshot was
   inspected for layout and readable controls.
 
-Development-host LAN qualification now includes a completed H2D print without a
-Filament Track Switch: one 10 mm PETG cube on Textured PEI, with AMS 2 Pro B1
+Development-host LAN qualification now includes two completed H2D prints without
+a Filament Track Switch: the same 10 mm PETG cube on Textured PEI, with AMS 2 Pro B1
 feeding the fixed right nozzle. The user confirmed normal feeding, extrusion
-and first layer; the device reported completion, readiness and zero heater
-targets. This qualifies that single-source, fixed-tool path only. Simultaneous
+and first layer in both runs; the device reported completion, readiness and zero
+heater targets. This qualifies that single-source, fixed-tool path only. Simultaneous
 dual-tool printing, other supply paths and Cloud physical printing remain
 unqualified; this is not complete host or release-matrix qualification.
 
@@ -1302,8 +1302,12 @@ native call settles, release its temporary files and monitoring lease before
 publishing that outcome. Printer selection is not locked by print submissions;
 changing selection does not cancel the physical print. Regression tests cover
 success without status reports, native reader cleanup and cancellation racing
-dispatch. The revised modal success
-transition still requires physical revalidation.
+dispatch. The 2026-10-29 repeat on production build `87c7f259` physically verified
+the revised modal transition: one authorized LAN send closed the dialog and
+selected Fox and Fox in Device, displaying `LAN-Cube-10mm`; the printer then
+completed all 50 layers. Its fresh export retained all four fixed-hotend `H-1`
+commands. This closes the modal-transition retest for that fixed-right-tool path;
+it does not qualify dual-tool, other supply paths or Cloud printing.
 
 The [console specification](Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission)
 owns the interaction, mapping review and feature envelope. This section owns

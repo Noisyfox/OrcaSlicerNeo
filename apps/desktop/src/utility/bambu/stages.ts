@@ -63,6 +63,7 @@ const stages: Record<number, string> = {
   57: "Measuring Surface",
   58: "Thermal Preconditioning for first layer optimization",
   65: "Calibrating the detection position of nozzle clumping",
+  72: "Hotend Type Detection",
   74: "Heatbed surface foreign object detection",
 };
 export const stageLabel = (code: number) => stages[code] ?? `Stage ${code}`;

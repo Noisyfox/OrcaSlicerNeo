@@ -8,10 +8,11 @@ regression cover software behavior; physical H2D + AMS acceptance remains last,
 Account-backed automatic networking followed by LAN-only access. No complete
 hardware or six-target control qualification is claimed.
 Local-artifact print preparation/submission is implemented and initially enabled
-only by the Bambu agent. Development-host LAN qualification includes one completed
-H2D print using AMS B1 and the fixed right nozzle; dual-tool and Cloud printing
-remain unqualified. Orca-style send completion has software regression coverage;
-the revised modal success transition still requires physical revalidation.
+only by the Bambu agent. Development-host LAN qualification includes two completed
+H2D prints using AMS B1 and the fixed right nozzle; dual-tool and Cloud printing
+remain unqualified. The 2026-10-29 repeat on production build `87c7f259` also
+physically verified Orca-style send completion: the modal closed automatically
+and Device selected the correct printer and task.
 
 **Scope:** The printer-console and printer-control experience shared by the
 Electron desktop application and the Web application.
@@ -717,9 +718,11 @@ completed. The user confirmed feeding, extrusion and first layer; the device
 reported completion and zero heater targets. Dual-tool and other supply-path
 acceptance remain open; Cloud physical acceptance is deferred as agreed. The
 agent now ends submission on successful plugin completion, matching Orca without
-requiring a filename or observed print start. Software regression covers this
-behavior; physical revalidation of the modal's success transition remains
-open under the
+requiring a filename or observed print start. The 2026-10-29 repeat on production
+build `87c7f259` physically verified that transition: one send closed the modal
+and selected Fox and Fox in Device with task name `LAN-Cube-10mm`. The user again
+confirmed B1 feeding, right-nozzle extrusion and first layer; the printer finished
+at 100%, ready, with all heater targets zero. Qualification remains scoped under the
 [domain qualification boundary](Printer%20Domain%20and%20Control%20Architecture.md#implementation-progress).
 
 
