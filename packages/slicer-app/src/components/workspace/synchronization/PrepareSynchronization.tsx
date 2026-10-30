@@ -66,6 +66,8 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
   const [mapping, setMapping] = useState<(string | null)[]>([]), [replacements, setReplacements] = useState<(number | null)[]>([]);
   const [appendUnused, setAppendUnused] = useState(true), [colourOnly, setColourOnly] = useState(false);
   const controller = useRef(new AbortController()), initialRevision = useRef<number | null>(null), live = useRef(true);
+  const observation = useRef<{ key: string; abort: AbortController } | null>(null);
+  const reviewed = useRef({ source, phase }); reviewed.current = { source, phase };
   const visible = phase !== 'reading' || kind === 'filament';
   useProjectModal(visible, '[data-testid="prepare-synchronization-dialog"]');
   function failure(cause: unknown) { if (live.current) { setError(cause instanceof Error ? cause.message : String(cause)); setPhase('error'); setBusy(false); } }
@@ -113,6 +115,7 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     const route = synchronizationRoute(printer, operation);
     if (!route) throw new Error('This printer does not provide the observations required for synchronization.');
     setBusy(true); setError(null); setSelected(printer);
+    await retainSourceObservation(printer, route);
     const result = await readSynchronizationSource(service, printer, route, operation, controller.current.signal);
     if (!live.current || controller.current.signal.aborted) return;
     if (!result.ok) throw new Error(result.error.message);
@@ -144,26 +147,48 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     })().catch(failure);
     return () => { live.current = false; controller.current.abort(); };
   }, []);
-  // Watch only declared streaming topics. An on-demand-only agent performs no background access.
-  useEffect(() => {
-    if (phase !== 'filament' || !source || !selected) return;
-    const route = selected.routes.find(r => r.id === source.target.routeId), cap = route?.capabilities.observations.materials;
-    if (cap?.kind !== 'supported' || !cap.constraints.delivery.some(d => d === 'push' || d === 'poll')) return;
-    const abort = new AbortController();
-    void (async () => {
-      for await (const event of service.observations.watch({ target: source.target, topics: ['materials'] }, { signal: abort.signal })) {
-        if (abort.signal.aborted) return;
-        const reading = event.type === 'snapshot' ? event.snapshot.values.materials : event.values.materials;
-        if (!reading) continue;
-        if (reading.kind !== 'known' || reading.freshness !== 'fresh' || reading.sourceRouteId !== source.target.routeId
-          || reading.value.state.inventoryRevision !== source.inventoryRevision || reading.value.topologyRevision !== source.topologyRevision) {
-          setReady(false); setError('The source is disconnected or its materials changed. Refresh this device to review the current materials.');
-        }
+  // Hold the selected source across reads/review. Revalidating a proposal must
+  // not tear down its own sole subscription and thereby disconnect the device.
+  async function retainSourceObservation(printer: D.SavedPrinter, route: D.PrinterRoute) {
+    const capability = route.capabilities.observations.materials;
+    if (capability.kind !== 'supported' || !capability.constraints.delivery.some(d => d === 'push' || d === 'poll')) return;
+    const key = JSON.stringify([printer.identity.id, route.id, route.configurationRevision]);
+    if (observation.current?.key === key && !observation.current.abort.signal.aborted) return;
+    observation.current?.abort.abort();
+    const lease = { key, abort: new AbortController() }; observation.current = lease;
+    const signal = controller.current.signal, abort = () => lease.abort.abort();
+    signal.addEventListener('abort', abort, { once: true });
+    const accept = (event: D.PrinterEvent<'materials'>) => {
+      const { source: basis, phase: reviewing } = reviewed.current;
+      if (!live.current || lease.abort.signal.aborted || !basis || reviewing !== 'filament') return;
+      const reading = event.type === 'snapshot' ? event.snapshot.values.materials : event.values.materials;
+      if (reading && (reading.kind !== 'known' || reading.freshness !== 'fresh' || reading.sourceRouteId !== basis.target.routeId
+        || reading.value.state.inventoryRevision !== basis.inventoryRevision || reading.value.topologyRevision !== basis.topologyRevision)) {
+        setReady(false); setError('The source is disconnected or its materials changed. Refresh this device to review the current materials.');
       }
-      if (!abort.signal.aborted) throw new Error('Device observations ended.');
-    })().catch(() => { if (!abort.signal.aborted) { setReady(false); setError('Device disconnected. Your mapping is retained. Refresh after reconnecting.'); } });
-    return () => abort.abort();
-  }, [service, source, selected, phase]);
+    };
+    const stream = service.observations.watch({ target: { printerId: printer.identity.id, routeId: route.id }, topics: ['materials'] }, { signal: lease.abort.signal })[Symbol.asyncIterator]();
+    try {
+      const first = await stream.next();
+      if (first.done) throw new Error('Device observations ended.');
+      accept(first.value);
+    } catch (cause) { abort(); signal.removeEventListener('abort', abort); observation.current = null; throw cause; }
+    void (async () => {
+      try {
+        while (!lease.abort.signal.aborted) {
+          const event = await stream.next();
+          if (event.done) { if (!lease.abort.signal.aborted) throw new Error('Device observations ended.'); return; }
+          accept(event.value);
+        }
+      } catch {
+        if (live.current && !lease.abort.signal.aborted) { setReady(false); setError('Device disconnected. Your mapping is retained. Refresh after reconnecting.'); }
+      } finally {
+        signal.removeEventListener('abort', abort);
+        if (observation.current === lease) observation.current = null;
+        await stream.return?.();
+      }
+    })();
+  }
   useEffect(() => {
     if (phase === 'filament' && source && currentDevice !== source.target.printerId) {
       setReady(false); setError('Device selection changed. Your mapping is retained. Cancel and open synchronization again to use another device.');

@@ -69,7 +69,7 @@ export interface SendGcodeDialogProps {
 
 /** The dialog copies the current Device target once; subsequent selection is independent. */
 export function SendGcodeDialog({ open, action, onClose, initialSelection, platform: injectedPlatform, onNavigateToDevice, targetReceipt }: SendGcodeDialogProps) {
-  useProjectModal(open, '[data-testid="send-gcode-dialog"]');
+  useProjectModal(open, '[data-testid="send-gcode-dialog"]', { pauseDeviceObservation: true });
   const contextPlatform = usePlatform();
   const platform = injectedPlatform ?? contextPlatform;
   const sliceStatus = useSlicerStore((state) => state.status);

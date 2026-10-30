@@ -33,7 +33,7 @@ async function fixture() {
   const service = { ...base, describe: async () => ({ ok: true, value: { target, configurationRevision: route.configurationRevision, capabilities: caps, descriptor: snapshot.values.descriptor } }), observations: { ...base.observations, watch }, controls: { evaluate: async () => ({ ok: true, value: { availability: { kind: 'available' }, basis: {} } }), submit }, operations: { ...base.operations, watch: async function* () { yield { phase: { kind: 'completed' } }; } } } as unknown as D.PrinterService;
   const platform = { printers: { service } } as unknown as PlatformCapabilities;
   const element = document.createElement('div'); document.body.append(element); const root = createRoot(element);
-  const render = async (visible = true) => act(async () => { root.render(<PlatformProvider value={platform}><PrinterMonitor printer={printer} route={route} visible={visible} /></PlatformProvider>); });
+  const render = async (visible = true, observeWhileHidden = false) => act(async () => { root.render(<PlatformProvider value={platform}><PrinterMonitor printer={printer} route={route} visible={visible} observeWhileHidden={observeWhileHidden} /></PlatformProvider>); });
   const update = async (name: string, task = 'task-1', freshness: 'fresh' | 'stale' = 'fresh', phase: 'printing' | 'paused' | 'idle' = 'printing') => act(async () => {
     const reading = known({ ...status, printStatus: { ...status.printStatus, phase: known(phase), name: known(name), taskId: known(task as D.Id<'device-task'>) } });
     if (reading.kind === 'known') reading.freshness = freshness;
@@ -320,4 +320,15 @@ it('discards a late task preview and releases object URLs on hide', async () => 
     expect(f.element.querySelector('img')).toBeNull();
     expect(f.service.media.readCurrentPrintPreview).toHaveBeenCalledTimes(2);
   } finally { await f.close(); vi.unstubAllGlobals(); }
+});
+
+it('starts an explicitly selected device while hidden and retains the same observation when shown', async () => {
+  const f = await fixture();
+  try {
+    await f.render(false); expect(f.watch).not.toHaveBeenCalled();
+    await f.render(false, true); expect(f.watch).toHaveBeenCalledOnce();
+    await f.render(false, true); expect(f.watch).toHaveBeenCalledOnce();
+    await f.render(true); expect(f.watch).toHaveBeenCalledOnce();
+    expect(f.element.textContent).toContain('External task');
+  } finally { await f.close(); }
 });

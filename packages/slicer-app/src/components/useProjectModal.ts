@@ -1,10 +1,10 @@
 import { useLayoutEffect } from 'react';
 import { useProjectDialogStore } from '@/stores/useProjectDialogStore';
 /** Covers keyboard/drop routes and focus as well as the visible pointer backdrop. */
-export function useProjectModal(open: boolean, selector: string) {
+export function useProjectModal(open: boolean, selector: string, { pauseDeviceObservation = false }: { pauseDeviceObservation?: boolean } = {}) {
   useLayoutEffect(() => {
     if (!open) return;
-    useProjectDialogStore.setState({ open: true });
+    useProjectDialogStore.setState({ open: true, deviceObservationPaused: pauseDeviceObservation });
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = document.querySelector<HTMLElement>(selector);
     const focusable = () => [...(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled),select:not(:disabled),input:not(:disabled),[tabindex="0"]') ?? [])];
@@ -21,9 +21,9 @@ export function useProjectModal(open: boolean, selector: string) {
     };
     for (const type of ['keydown', 'drop', 'dragover']) window.addEventListener(type, guard, true);
     return () => {
-      useProjectDialogStore.setState({ open: false });
+      useProjectDialogStore.setState({ open: false, deviceObservationPaused: false });
       for (const type of ['keydown', 'drop', 'dragover']) window.removeEventListener(type, guard, true);
       previous?.focus();
     };
-  }, [open, selector]);
+  }, [open, selector, pauseDeviceObservation]);
 }

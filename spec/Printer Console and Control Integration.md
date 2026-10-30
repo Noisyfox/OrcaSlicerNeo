@@ -138,6 +138,16 @@ the main application, including Device selection, cannot be operated behind
 them. Printer sync does not open a modal for an ordinary successful update.
 Do not silently retarget an in-flight operation if its source changes.
 
+A synchronization modal locks project interaction while retaining the Device
+monitor and its existing connection. For streaming-capable sources, retain one
+source-scoped material observation across reads and review; refreshing the
+proposal updates its validation basis without replacing that subscription.
+An explicit chooser selection activates the Device observation owner even when
+its page is hidden, so canceling the proposal does not undo the connection.
+On-demand-only sources still perform no background read or subscription. The
+print-preparation modal's independent need to pause Device observations does
+not apply to synchronization.
+
 If the source disconnects while the Filament dialog is open, retain the dialog
 and mapping choices, but disable application. After the original source
 reconnects, reread the required observations and revalidate before allowing

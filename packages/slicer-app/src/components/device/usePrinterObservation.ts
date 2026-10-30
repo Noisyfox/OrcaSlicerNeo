@@ -19,12 +19,12 @@ export function monitorTopics(capabilities: D.PrinterCapabilities) {
   return { stream, manual };
 }
 
-export function usePrinterObservation(service: D.PrinterService, printer: D.SavedPrinter, route: D.PrinterRoute, visible: boolean) {
+export function usePrinterObservation(service: D.PrinterService, printer: D.SavedPrinter, route: D.PrinterRoute, visible: boolean, observeWhileHidden = false) {
   const [snapshot, setSnapshot] = useState<D.PrinterSnapshot | null>(null), [capabilities, setCapabilities] = useState(route.capabilities);
   const [error, setError] = useState<string | null>(null), [refreshing, setRefreshing] = useState(false);
   const latest = useRef<D.PrinterSnapshot | null>(null), latestErrors = useRef<{ stream: string | null; manual: string | null }>({ stream: null, manual: null }), latestCapabilities = useRef(capabilities);
   const shown = useRef(visible); shown.current = visible;
-  const [started, setStarted] = useState(visible);
+  const [started, setStarted] = useState(visible || observeWhileHidden);
   const readController = useRef<AbortController | null>(null), reading = useRef(false);
   const { stream, manual } = monitorTopics(capabilities);
   const streamKey = stream.join(',');
@@ -39,8 +39,9 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
     if (shown.current) setSnapshot(latest.current);
   }
   useEffect(() => {
-    if (visible) { setStarted(true); setSnapshot(latest.current); setError(latestErrors.current.stream ?? latestErrors.current.manual); setCapabilities(latestCapabilities.current); }
-  }, [visible]);
+    if (visible || observeWhileHidden) setStarted(true);
+    if (visible) { setSnapshot(latest.current); setError(latestErrors.current.stream ?? latestErrors.current.manual); setCapabilities(latestCapabilities.current); }
+  }, [visible, observeWhileHidden]);
   useEffect(() => () => readController.current?.abort(), []);
   useEffect(() => {
     if (!started || !streamKey) return;

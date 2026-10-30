@@ -112,6 +112,8 @@ describe('Prepare synchronization workflow', () => {
     const button = [...f.container.querySelectorAll('button')].find(b => b.textContent === 'Apply Filament sync')!;
     expect(button.disabled).toBe(true); expect(inputs.map(i => i.value)).toEqual(['source/0', 'source/0']);
     await click(f.container, 'Refresh device'); expect(button.disabled).toBe(false);
+    expect(f.watch).toHaveBeenCalledOnce();
+    expect(useProjectDialogStore.getState()).toMatchObject({ open: true, deviceObservationPaused: false });
     expect([...f.container.querySelectorAll<HTMLSelectElement>('select[aria-label^="Source for material"]')].map(i => i.value)).toEqual(['source/0', 'source/0']);
     await click(f.container, 'Apply Filament sync'); expect(apply).toHaveBeenCalledOnce();
     expect(apply).toHaveBeenCalledWith(expect.objectContaining({ mapping: ['source/0', 'source/0'] }));
