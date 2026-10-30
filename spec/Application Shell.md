@@ -674,8 +674,7 @@ remove the last slot. Edit, Merge, and Delete are available by right-clicking a
 slot. Existing mutation capabilities and reference-impact confirmations still
 control these commands. The accepted [Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization)
 adds Filament Sync immediately to the left of Flushing Volumes in the toolbar
-above material slots, with Add/Delete at the right; Filament Sync is not yet
-implemented. Flushing Volumes requires multiple actual
+above material slots, with Add/Delete at the right. The sync action is implemented. Flushing Volumes requires multiple actual
 materials and native SEMM/Bambu capability; fixed-material printers such as
 U1 hide it. Its dialog and automatic-calculation preference are owned by
 [Multi-Filament Support](Multi-Filament%20Support.md#101-flushing-volume-policy).
@@ -728,9 +727,9 @@ abbreviation (SF/HF/XHF and the other native flow variants). Values come from th
 effective native nozzle_diameter and nozzle_volume_type vectors; flow types beyond the
 serialized vector length repeat its first entry, matching native
 ConfigOptionVector::get_at semantics, retaining the canonical preset transition and
-existing Sync control. It currently remains an inert placeholder; the accepted
+existing Sync control. The implemented
 [Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization)
-reuses this button for Printer sync rather than adding a second header action.
+reuses this button for Printer sync.
 Printer sync follows Orca's direct action with necessary confirmations or
 configuration choices; it adds no generic before/after preview. Filament Sync
 opens the modal mapping/rebuild dialog owned by that specification.

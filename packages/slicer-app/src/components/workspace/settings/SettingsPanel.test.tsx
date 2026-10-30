@@ -1,3 +1,4 @@
+import { usePrepareSynchronization } from '../synchronization/PrepareSynchronization';
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -284,7 +285,7 @@ describe('SettingsPanel preset transitions', () => {
     expect(container.querySelector('[data-testid="process-preset-select"]')?.getAttribute('title')).toBe(child.source_name);
   });
 
-  it('uses native model labels and canonical targets, with inert Sync and actual-profile editing', async () => {
+  it('uses native model labels and canonical targets, with explicit Sync and actual-profile editing', async () => {
     resetStores();
     useSettingsStore.setState({ prints: initialSnapshot.prints.map(item => ({ ...item, label: 'Process alias' })) });
     useSettingsStore.setState({ printerPicker: {
@@ -298,8 +299,10 @@ describe('SettingsPanel preset transitions', () => {
     expect(container.querySelector('[data-testid="process-preset-select"]')?.getAttribute('title')).toBe('Candidate Process B');
     expect(container.querySelector('[data-testid="preset-select"]')?.textContent).toBe('Old Printer Model');
     expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('Old Printer');
-    await act(async () => (container.querySelector('[data-testid="nozzle-sync-placeholder"]') as HTMLElement).click());
+    await act(async () => (container.querySelector('[data-testid="printer-sync"]') as HTMLElement).click());
     expect(runtime.selectPrinterWithRememberedRack).not.toHaveBeenCalled();
+    expect(usePrepareSynchronization.getState().kind).toBe('printer');
+    act(() => usePrepareSynchronization.setState({ kind: null }));
     await act(async () => (container.querySelector('[data-testid="preset-edit-printer"]') as HTMLElement).click());
     expect(edit).toHaveBeenCalledWith('Old Printer');
     await selectOption(container, 'preset-select', 'New Printer Model');

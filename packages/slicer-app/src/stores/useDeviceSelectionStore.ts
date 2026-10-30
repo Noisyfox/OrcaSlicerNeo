@@ -1,13 +1,18 @@
 import { create } from 'zustand';
-/** Live Device selection, separate from the ephemeral print-dialog target. */
+/** Device selection and page navigation have separate callers and lifetimes. */
 export const useDeviceSelectionStore = create<{
   currentPrinterId: string | null;
   requestedPrinterId: string | null;
-  requestVersion: number;
+  selectionRequestVersion: number;
+  navigationRequestVersion: number;
   setCurrent(id: string | null): void;
+  selectPrinter(id: string): void;
   showPrinter(id: string): void;
 }>(set => ({
-  currentPrinterId: null, requestedPrinterId: null, requestVersion: 0,
+  currentPrinterId: null, requestedPrinterId: null, selectionRequestVersion: 0, navigationRequestVersion: 0,
   setCurrent: currentPrinterId => set({ currentPrinterId }),
-  showPrinter: requestedPrinterId => set(state => ({ requestedPrinterId, requestVersion: state.requestVersion + 1 })),
+  selectPrinter: requestedPrinterId => set(state => ({ requestedPrinterId, currentPrinterId: requestedPrinterId,
+    selectionRequestVersion: state.selectionRequestVersion + 1 })),
+  showPrinter: requestedPrinterId => set(state => ({ requestedPrinterId, currentPrinterId: requestedPrinterId,
+    selectionRequestVersion: state.selectionRequestVersion + 1, navigationRequestVersion: state.navigationRequestVersion + 1 })),
 }));

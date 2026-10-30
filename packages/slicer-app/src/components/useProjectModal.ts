@@ -1,17 +1,17 @@
 import { useLayoutEffect } from 'react';
-import { usePrintDialogStore } from '@/stores/usePrintDialogStore';
+import { useProjectDialogStore } from '@/stores/useProjectDialogStore';
 /** Covers keyboard/drop routes and focus as well as the visible pointer backdrop. */
-export function usePrintModal(open: boolean) {
+export function useProjectModal(open: boolean, selector: string) {
   useLayoutEffect(() => {
     if (!open) return;
-    usePrintDialogStore.setState({ open: true });
+    useProjectDialogStore.setState({ open: true });
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const dialog = document.querySelector<HTMLElement>('[data-testid="send-gcode-dialog"]');
+    const dialog = document.querySelector<HTMLElement>(selector);
     const focusable = () => [...(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled),select:not(:disabled),input:not(:disabled),[tabindex="0"]') ?? [])];
     focusable()[0]?.focus();
     const guard = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
-      const inside = !!target?.closest('[data-testid="send-gcode-dialog"],[data-slot="select-content"],[data-print-dialog-popover]');
+      const inside = !!target?.closest(`${selector},[data-slot="select-content"],[data-print-dialog-popover]`);
       if (event instanceof KeyboardEvent && event.key === 'Tab' && inside && !target?.closest('[data-slot="select-content"],[data-print-dialog-popover]')) {
         const nodes = focusable(), first = nodes[0], last = nodes.at(-1);
         if (event.shiftKey && target === first) { event.preventDefault(); last?.focus(); }
@@ -21,9 +21,9 @@ export function usePrintModal(open: boolean) {
     };
     for (const type of ['keydown', 'drop', 'dragover']) window.addEventListener(type, guard, true);
     return () => {
-      usePrintDialogStore.setState({ open: false });
+      useProjectDialogStore.setState({ open: false });
       for (const type of ['keydown', 'drop', 'dragover']) window.removeEventListener(type, guard, true);
       previous?.focus();
     };
-  }, [open]);
+  }, [open, selector]);
 }

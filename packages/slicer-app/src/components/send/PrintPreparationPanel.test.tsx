@@ -12,7 +12,7 @@ const receipt: SliceResultReceipt = { plateId: 'plate-1', inputStamp: 1, resultG
 const manifest: PrintManifest = { plateId: 'plate-1', printerModel: 'Fixture', printerModelId: 'fixture', nozzleDiameters: [.4], nozzleFlowTypes: ['Standard'], filamentMap: [1], requiresDynamicMapping: false, bedType: 'High Temp Plate', durationSeconds: 60, weightGrams: 1, layerCount: 10, toolpathOutside: false, timelapseWarningCode: 0, warnings: [],
   materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FF0000', presetId: 'fixture', presetName: 'PLA', brand: 'Generic', toolIndex: 0, nozzleDiameter: .4, nozzleFlowType: 'Standard', chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3 }] };
 let root: Root | undefined, container: HTMLDivElement;
-afterEach(async () => { await act(async () => root?.unmount()); root = undefined; container?.remove(); vi.useRealTimers(); useDeviceSelectionStore.setState({ currentPrinterId: null, requestedPrinterId: null, requestVersion: 0 }); });
+afterEach(async () => { await act(async () => root?.unmount()); root = undefined; container?.remove(); vi.useRealTimers(); useDeviceSelectionStore.setState({ currentPrinterId: null, requestedPrinterId: null, selectionRequestVersion: 0, navigationRequestVersion: 0 }); });
 async function setup(allowAbnormalStorage = false, manifestValue = manifest, readStatus = async (): Promise<D.Result<null>> => ({ ok: true, value: null })) {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   let configDocument = { allowAbnormalStorage, version: 1 as const, printers: [], printPreferences: { fixture: { timelapse: true, timelapseStorage: 'external' as const } } };

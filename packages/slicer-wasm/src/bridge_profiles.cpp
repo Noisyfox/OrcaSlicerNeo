@@ -964,6 +964,11 @@ void apply_synchronized_hardware(const json& tools)
     else bridge.preset_drafts.erase_field(Preset::TYPE_PRINTER, bundle.printers.get_selected_preset_name(), "nozzle_diameter");
     EffectivePrinterDraftGuard active(bundle, bundle.printers.get_selected_preset_name());
     const auto effective = PresetDrafts::effective_printer_config();
+    // Imported projects may store a short actual-flow vector, whose remaining
+    // heads inherit entry zero. Materialize it before indexed hardware edits.
+    auto* actual_flows = bundle.project_config.option<ConfigOptionEnumsGeneric>("nozzle_volume_type", true);
+    const int inherited_flow = actual_flows->empty() ? int(nvtStandard) : actual_flows->get_at(0);
+    actual_flows->values.resize(tools.size(), inherited_flow);
     const auto choices = sidebar_flow_choices_json(effective);
     std::vector<std::string> capacities;
     for (size_t i = 0; i < tools.size(); ++i) {
@@ -1006,6 +1011,7 @@ json synchronize_printer_json(const json& request)
     const auto& current = bundle.printers.get_selected_preset();
     const Preset* target = nullptr;
     bool exact = false;
+    bool primary_match = false;
     for (const auto& preset : bundle.printers) {
         if (!preset.is_visible || preset.is_default || !device_model_matches(preset, identity)) continue;
         const auto config = PresetDrafts::effective_preset_config(bundle, bridge.preset_drafts, Preset::TYPE_PRINTER, preset.name);
@@ -1015,9 +1021,15 @@ json synchronize_printer_json(const json& request)
         for (size_t i = 0; i < tools.size(); ++i)
             if (tools[i].contains("diameterMm") && !tools[i]["diameterMm"].is_null() &&
                 std::abs(diameters->get_at(i) - tools[i]["diameterMm"].get<double>()) > 1e-9) candidate_exact = false;
+        const bool candidate_primary = tools[0].contains("diameterMm") && !tools[0]["diameterMm"].is_null() &&
+            std::abs(diameters->get_at(0) - tools[0]["diameterMm"].get<double>()) < 1e-9;
+        // Model changes need a canonical base before the complete mixed vector
+        // is drafted. Like Orca, prefer the first normalized tool's diameter;
+        // do not accidentally pick a 0.2 base with a native High Flow gate.
         if (!target || (candidate_exact && !exact) || (candidate_exact == exact &&
-            (preset.name == current.name || (target->name != current.name && preset.name < target->name)))) {
-            target = &preset; exact = candidate_exact;
+            (preset.name == current.name || (target->name != current.name &&
+                ((candidate_primary && !primary_match) || (candidate_primary == primary_match && preset.name < target->name)))))) {
+            target = &preset; exact = candidate_exact; primary_match = candidate_primary;
         }
     }
     if (!target) return transition_error("preset_not_visible", "Enable this printer model in Setup before synchronizing");

@@ -100,7 +100,7 @@ In particular, the following choices remain reviewable:
 | Remote-file consistency | Explicit strict/best-effort version modes and route-scoped references; provider support and the exact request model need validation. |
 | Transfers | Paged listings, streamed reads, invalidation notifications and reject/rename/overwrite upload policies; no exact wire API or universal provider support is assumed. |
 | Credentials | Opaque credential references; Bambu session storage/refresh is delegated to the black-box plugin in section 2.1. Other credential migration and host storage remain open. |
-| Project material import | The accepted [Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization) specifies modal material mapping/rebuild and atomic native application; it is not implemented. |
+| Project material import | The accepted [Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization) provides implemented modal material mapping/rebuild and atomic native application; physical qualification remains separate. |
 
 A proposed abstraction is not evidence that a particular printer or host
 already implements it. This classification applies to sections 2–11, including
@@ -1977,8 +1977,19 @@ Bambu as the initial device integration. It exposes empty slots, missing data
 and unresolved preset matches, and follows existing native compatibility and
 history rules. That UI specification owns the settled interaction and initial
 capability-based Bambu coverage. A failed or stale proposal cannot partially
-change the project. This is design scope, not an implemented material-import
-capability.
+change the project. The shared import and initial Bambu normalization are
+implemented; the domain does not imply support by an additional agent.
+
+The current material contract carries `catalogRefs`, a list of namespaced
+associations for the same material. Agents can supply `orca-filament` references
+to native `filament_id` values while retaining their own catalogue identity.
+Hardware model associations use `orca-printer-model`; agent-declared
+`orca-compatible-printer-model` associations additionally permit Filament import
+into a compatible project model. Printer sync resolves only the device's own
+model. These are catalogue associations, not display-name equality or protocol
+IDs interpreted by the shared UI. Nozzle `flowReporting` explicitly separates
+supported, unsupported and unknown reporting; an absent value with unknown
+support cannot silently select Standard.
 
 Printer-hardware import uses the same application/native ownership boundary:
 device observations do not mutate slicing presets or project nozzle/flow and

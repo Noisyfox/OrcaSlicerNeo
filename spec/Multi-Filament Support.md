@@ -1149,7 +1149,8 @@ the final selected Printer preset's capacity memory after successful sync.
 When sync also switches Printer, its observed capacities replace the remembered
 initialization values within that same atomic project operation. Undo restores
 the project but does not revert the independent capacity-preference write.
-This is accepted sync design, not delivered device-import behavior.
+This explicit device-import path is implemented through the same native
+Printer transition as ordinary selection; physical acceptance remains separate.
 
 A newly created Plate defaults to Auto For Flush when the existing native
 capability supports it. Otherwise it starts in Manual with the native default

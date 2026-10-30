@@ -1,3 +1,4 @@
+import { PrepareSynchronization } from './synchronization/PrepareSynchronization';
 import { NozzleMappingConfirmation } from './nozzleMapping/NozzleMappingConfirmation';
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 // The sidebar/scene split: owns the resizable divider between the settings
@@ -679,6 +680,7 @@ export function Workspace({
 
   return (
     <>
+    <PrepareSynchronization sceneInteraction={sceneInteraction} />
     {__ORCA_E2E__ && <WorkspaceHistoryProbe />}
     {import.meta.env.VITE_SCOPED_CONFIGURATION_GATE === '1' && (
       <ScopedConfigurationGateProbe platform={platform} coordinator={historyRestore} />

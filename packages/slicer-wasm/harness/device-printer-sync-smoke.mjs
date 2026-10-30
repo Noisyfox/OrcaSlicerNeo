@@ -11,6 +11,8 @@ function sync(overrides = {}) {
   return command('orc_synchronize_printer', { expected_revision: history().revision, identity: source, tools,
     confirm_model_change: true, rack_memory: {}, bed_memory: {}, history_context: context, ...overrides });
 }
+ok(command('orc_test_set_filament_reference_fixture', { mapping_project_settings: { nozzle_volume_type: 'Standard' } }));
+assert.deepEqual(profiles().printer_picker.flows.map(f => f.actual), [0, null]);
 command('orc_history_reset', context);
 const name = profiles().printer.name;
 const before = draft(name).effective_values.nozzle_diameter;
@@ -25,6 +27,7 @@ assert.deepEqual(updated.profile_snapshot.printer_picker.flows.map(f => f.actual
 assert.deepEqual(updated.native_scoped_config.snapshot.project.extruder_ams_count, '1#5;1#3');
 ok(command('orc_history_undo', context));
 assert.equal(draft(name).effective_values.nozzle_diameter, before);
+assert.deepEqual(profiles().printer_picker.flows.map(f => f.actual), [0, null]);
 ok(command('orc_history_redo', context));
 assert.match(draft(name).effective_values.nozzle_diameter, /0\.4.*0\.6/);
 const baseline = JSON.stringify({ draft: draft(name), session: call('orc_get_filament_session_snapshot'), history: history() });
@@ -43,6 +46,9 @@ assert.equal(sync(request).error_code, 'printer_model_mismatch');
 const changed = ok(sync({ ...request, confirm_model_change: true }));
 assert.equal(changed.profile_snapshot.printer.name, other.name);
 assert.equal(changed.mutation.history_entry_delta, 1);
+const reversed = ok(sync({ tools: [tools[1], tools[0]] }));
+assert.match(reversed.profile_snapshot.printer.name, /H2D 0.6 nozzle/);
+assert.deepEqual(reversed.profile_snapshot.printer_picker.flows.map(f => f.actual), [1, 0]);
 const returned = ok(sync());
 assert.match(returned.profile_snapshot.printer.name, /H2D/);
 assert.match(draft(returned.profile_snapshot.printer.name).effective_values.nozzle_diameter, /0\.4.*0\.6/);

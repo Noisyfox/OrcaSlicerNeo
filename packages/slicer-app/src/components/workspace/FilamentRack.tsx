@@ -1,3 +1,4 @@
+import { requestPrepareSynchronization, usePrepareSynchronization } from './synchronization/PrepareSynchronization';
 import { useCommittedCallback, type PresetComboItem, PresetCombobox } from './PresetCombobox';
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 import { useEffect, useMemo, useState } from 'react';
@@ -8,7 +9,7 @@ import { type FilamentMutationResultOrError, type FilamentSessionSlot } from '@s
 import { filamentNumberColour, filamentSwatchStyle, filamentSwatchTitle } from './FilamentSwatch';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
-import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
+import { ChevronDown, ChevronUp, Minus, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FlushingVolumesDialog, flushingModified } from './FlushingVolumesDialog';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
@@ -137,6 +138,7 @@ function SlotCard({ slot, presetItems, mergeDestinations, canDelete, canMerge, p
 
 export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: string) => void }) {
   const platform = usePlatform();
+  const syncPending = usePrepareSynchronization(s => s.kind !== null);
   const snapshot = useFilamentSessionStore((state) => state.snapshot);
   const pendingKind = useFilamentSessionStore((state) => state.pendingKind);
   const rejected = useFilamentSessionStore((state) => state.rejected);
@@ -242,6 +244,8 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
           </Button>
         </div>
         {expanded && <div className="flex h-8 items-center gap-1">
+          <Button variant="secondary" size="icon-xs" data-testid="filament-sync" aria-label="Sync Filament" title="Sync Filament"
+            disabled={pending || syncPending} onClick={() => requestPrepareSynchronization('filament')}><RefreshCw /></Button>
           {showFlushing && <Button variant="secondary" size="xs" className="flushing-volumes-button"
             data-modified={flushModified} data-testid="flushing-volumes-open" disabled={pending}
             title={flushModified ? 'Flushing volumes differ from automatic calculation' : 'Edit flushing volumes'}

@@ -202,8 +202,8 @@ selects a different Printer source, including remembered-rack restoration and
 filament-reference repair. Do not maintain a copied or sync-specific remapping
 path; future changes to ordinary Printer-switch behavior apply to sync through
 the shared implementation. Sync composes its final hardware values into one
-atomic project operation under that design; device synchronization itself is
-not yet implemented.
+atomic project operation under that design. The shared device-sync workflow
+and native application are implemented; physical acceptance remains separate.
 
 Editing a field in the active Printer draft does not itself restore, replace,
 or otherwise normalize the material rack. This includes a field that changes

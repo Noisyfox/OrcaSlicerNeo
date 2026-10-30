@@ -65,8 +65,8 @@ used when the other one is unavailable.
 sync executes directly with Orca-style necessary confirmations/configuration
 choices and no generic change-preview dialog; Filament sync uses a modal
 mapping/rebuild dialog. Each accepted project operation applies atomically in
-native code. Product choices are settled below; implementation and physical
-qualification remain pending.
+native code. The shared workflow, normalized Bambu observations and native
+transactions are implemented; physical qualification remains pending.
 
 ### Scope
 
@@ -116,8 +116,7 @@ gateway or universal plugin framework in the initial delivery.
 
 ### Entry points and device selection
 
-Reuse the existing Printer section's Sync control, currently an inert placeholder
-in the Nozzle row. Do not add another Printer-header button. Put Filament Sync
+Reuse the Printer section's Sync control in the Nozzle row. Do not add another Printer-header button. Put Filament Sync
 immediately to the left of Flushing Volumes in the material toolbar; retain the
 existing independent eligibility of Flushing Volumes. Detailed layout ownership
 remains in [Application Shell](Application%20Shell.md).
@@ -217,7 +216,12 @@ diameter vector against visible same-vendor/model presets and their effective
 drafts, with matching count/order, current-source preference and stable canonical
 tie-breaking. If a different exact matching source is selected, use the shared
 Printer-switch path described below; otherwise update the current Printer
-draft. Mixed diameters do not require a pre-authored mixed variant.
+draft. When changing to a different device model without an exact full-vector
+source, prefer its canonical base matching the first normalized tool's reported
+diameter, following Orca's model-resolution rule, then apply the complete vector.
+This avoids choosing an unrelated small-nozzle base and its flow restrictions.
+It does not synthesize a mixed `printer_variant` or override an already applicable
+current source. Mixed diameters do not require a pre-authored mixed variant.
 Do not implement a multi-nozzle sync as sequential per-head commands that could
 select intermediate profiles or publish intermediate project states.
 
@@ -408,6 +412,27 @@ acceptance does not establish real-device qualification for every enabled
 model, transport or host. Hotend racks, dynamic switcher-based mapping,
 Auto For Match and physical sub-nozzle inventory selection remain deferred
 under the scope exclusions above.
+
+### Implementation and qualification
+
+The shared [Prepare workflow](../packages/slicer-app/src/components/workspace/synchronization/PrepareSynchronization.tsx)
+uses the same Printer receipt publication and preference handling as ordinary
+selection. The native Printer command composes observed hardware into the
+existing remembered-rack transition. Material imports share ordinary preset,
+color, Merge-reference and flushing primitives inside one native transaction.
+The read-only catalogue resolver is shared with Orca's AMS synchronization;
+protocol IDs are normalized by the agent before crossing this boundary.
+
+The [source boundary tests](../packages/printer-control/src/synchronization.test.ts),
+[workflow tests](../packages/slicer-app/src/components/workspace/synchronization/PrepareSynchronization.test.tsx),
+[Printer native smoke](../packages/slicer-wasm/harness/device-printer-sync-smoke.mjs),
+[Filament native smoke](../packages/slicer-wasm/harness/device-filament-sync-smoke.mjs)
+and [Electron fixture journey](../apps/desktop/e2e/prepare-synchronization.e2e.ts)
+cover the software boundaries below. Their fixtures do not qualify a connected
+printer. The legacy all-command smoke's separate 100 ms slot-history budget is
+not qualified on the current development host: both the new serial artifact
+and an unchanged earlier threaded artifact exceeded it. This evidence does not
+identify a cause or qualify the broader timing budget.
 
 ### Required acceptance boundaries
 

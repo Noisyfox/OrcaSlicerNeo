@@ -1,10 +1,11 @@
 import { publishNozzleRepairNotice } from '../nozzleMapping/nozzleMappingNotices';
-import { publishRememberedBedType } from '@/preferences';
+import { publishRememberedBedType, publishRememberedFilamentRack } from '@/preferences';
 import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
 import { unstable_batchedUpdates } from 'react-dom';
-import type { PlatformCapabilities } from '@orca/platform-contract';
+import { updateUserPreferences, type PlatformCapabilities } from '@orca/platform-contract';
 import type {
+  PrinterTransitionSuccess,
   NativeScopedConfigMutationRequest,
   NativeScopedConfigTransport,
   PresetDraftMutationRequest,
@@ -434,3 +435,63 @@ export function commitGlobalBedType(platform: PlatformCapabilities, value: strin
   return commitScopedConfigurationMutation(platform, { version: 1, operation: 'set',
     targets: [{ scope: 'project' }], key: 'curr_bed_type', value });
 }
+
+export function publishPrinterTransition(platform: PlatformCapabilities, transition: PrinterTransitionSuccess) {
+  // This command already committed the single native history entry.
+  // Publish its receipt directly; do not issue a second rack edit,
+  // revision bump, profile read, or scoped-config revalidation.
+  unstable_batchedUpdates(() => {
+    const status = projectHistoryStatus(transition.historyStatus);
+    if (status.revision === transition.historyStatus.revision) {
+      const previousScoped = useSettingsStore.getState().nativeScopedConfig;
+      const configurationMode = useSettingsStore.getState().configurationMode;
+      useSettingsStore.getState().hydrateProfileSnapshot(transition.profileSnapshot);
+      if (transition.mutation.kind === 'set-toolhead-diameter' || transition.mutation.kind === 'set-project-flow')
+        useSettingsStore.getState().setConfigurationMode(configurationMode);
+      const scoped = useSettingsStore.getState().applyNativeScopedConfigTransport(
+        transition.nativeScopedConfig,
+      );
+      if (scoped === 'refresh-required')
+        throw new Error('Printer transition scoped configuration receipt was not accepted');
+      publishNozzleRepairNotice(previousScoped, useSettingsStore.getState().nativeScopedConfig,
+        (useSettingsStore.getState().values.nozzle_diameter?.split(',').length ?? 0));
+      useFilamentSessionStore.getState().publish(transition.filamentSession);
+      applyPlateSessionTransforms(transition.plateSession, glVolumeCollection.volumes);
+      usePlateSessionStore.getState().setSnapshot(transition.plateSession);
+      const project = useProjectStore.getState();
+      const selections = {
+        printer: transition.profileSnapshot.printer.name,
+        print: transition.profileSnapshot.print.name,
+      };
+      project.setProject(project.scope === 'project'
+        ? { projectPresets: selections } : { systemPresets: selections });
+      invalidateAfterSharedConfigurationMutation(
+        transition.mutation.affectedPlateIds, platform.runtime,
+        transition.mutation.allPlateResultsInvalidated,
+      );
+    }
+  });
+
+  }
+
+export async function rememberPrinterTransition(platform: PlatformCapabilities, transition: PrinterTransitionSuccess) {
+  // Rack memory is an independent user preference, not part of the
+  // native project-history frame. Publish only the normalized rack
+  // returned by a successful native transition, even in project scope.
+  await publishRememberedFilamentRack(
+    platform.preferences, transition.profileSnapshot.printer.name, transition.filamentSession,
+  );
+  await publishRememberedBedType(platform.preferences, transition.profileSnapshot.printer.name,
+    transition.nativeScopedConfig.snapshot.project.curr_bed_type);
+  const project = useProjectStore.getState();
+  if (project.scope !== 'project') {
+    try {
+      await updateUserPreferences(platform.preferences, prefs => ({ ...prefs, selectedProfiles: {
+        printer: transition.profileSnapshot.printer.name,
+        print: transition.profileSnapshot.print.name,
+      } }));
+    } catch (error) {
+      console.error('preset preference save failed; keeping resolved session state', error);
+    }
+  }
+  }

@@ -1,4 +1,4 @@
-import { usePrintModal } from './usePrintModal';
+import { useProjectModal } from '../useProjectModal';
 import { PrintPreparationPanel } from './PrintPreparationPanel';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -69,7 +69,7 @@ export interface SendGcodeDialogProps {
 
 /** The dialog copies the current Device target once; subsequent selection is independent. */
 export function SendGcodeDialog({ open, action, onClose, initialSelection, platform: injectedPlatform, onNavigateToDevice, targetReceipt }: SendGcodeDialogProps) {
-  usePrintModal(open);
+  useProjectModal(open, '[data-testid="send-gcode-dialog"]');
   const contextPlatform = usePlatform();
   const platform = injectedPlatform ?? contextPlatform;
   const sliceStatus = useSlicerStore((state) => state.status);

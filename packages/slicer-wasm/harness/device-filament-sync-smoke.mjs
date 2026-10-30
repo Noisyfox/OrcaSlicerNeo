@@ -75,4 +75,13 @@ ok(apply({ mapping: [sources[0].slotId], replacements: [null], appendUnused: fal
 assert.equal(rack().slots[0].preset.name, 'Synced tuned PLA');
 assert.equal(ok(call('orc_get_preset_draft', ['string', 'string'], ['filament', 'Synced tuned PLA'])).effective_values.nozzle_temperature,
   customBefore.effective_values.nozzle_temperature);
-console.log('PASS device Filament sync: native exact/fallback matching, mapping identities, append deduplication, explicit Merge replacement, late rollback, Undo/Redo, parallel colors, 3MF and preserved custom drafts');
+// The native preset vector may be padded to tool count; proposal rows still
+// describe the project rack, including a one-material dual-nozzle project.
+const single = rack().slots[0];
+ok(command('orc_select_printer_with_remembered_rack', { printer: ok(call('orc_get_preset_snapshot')).printer.name,
+  remembered_bed_type: null, remembered_rack: { version: 1, slots: [{ preset: single.preset.name, colour: single.colour.effective, native: single.colour.native }] }, history_context: context }));
+const oneMaterial = ok(prepare());
+assert.equal(oneMaterial.references.length, 1);
+assert.equal(oneMaterial.projectTypes.length, 1);
+assert.ok(oneMaterial.sources.every(s => s.matches.length === 1));
+console.log('PASS device Filament sync: native exact/fallback matching, mapping identities, append deduplication, explicit Merge replacement, late rollback, Undo/Redo, parallel colors, 3MF, preserved custom drafts and single-material dual-nozzle proposal dimensions');

@@ -2192,12 +2192,13 @@ json prepare_material_import_command(const json& request, const Runtime& runtime
             auto encoded = encode_match("");
             encoded["slotId"] = source["slotId"];
             encoded["matches"] = json::array();
-            for (const auto& previous : bundle.filament_presets) encoded["matches"].push_back(encode_match(previous));
+            for (size_t slot = 0; slot < State::material_slot_count(bundle.project_config); ++slot)
+                encoded["matches"].push_back(encode_match(bundle.filament_presets.at(slot)));
             sources.push_back(std::move(encoded));
         }
         json project_types = json::array();
-        for (const auto& name : bundle.filament_presets)
-            project_types.push_back(PresetDrafts::effective_preset_config(bundle, state().preset_drafts, Preset::TYPE_FILAMENT, name).opt_string("filament_type", 0u));
+        for (size_t slot = 0; slot < State::material_slot_count(bundle.project_config); ++slot)
+            project_types.push_back(PresetDrafts::effective_preset_config(bundle, state().preset_drafts, Preset::TYPE_FILAMENT, bundle.filament_presets.at(slot)).opt_string("filament_type", 0u));
         return {{"ok", true}, {"revision", state().history_revision}, {"sources", sources}, {"projectTypes", project_types}, {"references", material_reference_kinds()}};
     } catch (const FilamentCommandFailure& error) { return command_error(error.code, error.what()); }
 }
