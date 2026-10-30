@@ -7,7 +7,7 @@ const warning = (message = 'Native warning', objectIds: string[] = []): SliceDia
 const begin = (plateId = 'a', inputRevision = 1) => store.getState().begin({ plateId, inputRevision });
 const event = (phase: SliceDiagnosticEvent['phase'], diagnostics: SliceDiagnostic[] = [], plateId = 'a'):
   SliceDiagnosticEvent => ({ taskId: '10', plateId, inputRevision: 1, phase, diagnostics });
-const cards = (plateId = 'a') => visibleNotifications(store.getState().notifications, plateId);
+const cards = (plateId = 'a') => visibleNotifications(store.getState().notifications, plateId).filter(n => n.source === 'slice');
 
 describe('slice notification lifecycle', () => {
   beforeEach(() => store.getState().reset());
@@ -98,5 +98,53 @@ describe('slice notification lifecycle', () => {
     expect(cards().map(n => n.message)).toEqual(['Native process failed', 'Later warning', 'Fresh']);
     store.getState().receive(retry, event('processing'));
     expect(cards()).toHaveLength(3);
+  });
+});
+
+describe('operation notification lifecycle', () => {
+  beforeEach(() => store.getState().reset());
+  const beginOperation = (plateId = 'a', key = 'transfer') => store.getState().beginOperation({ key, plateId,
+    title: 'Transferring', message: 'Preparing transfer', severity: 'info',
+    progress: { value: 0, label: 'Transfer progress' }, dismissible: false, priority: 'foreground' });
+  const outcome = { title: 'Transfer complete', message: 'Done', severity: 'info' } as const;
+
+  it('updates one running card, keeps cancellation reachable, and replaces the previous operation', () => {
+    const token = beginOperation();
+    store.getState().updateOperation(token, { progress: { value: 42, label: 'Transfer progress' }, message: 'Sending' });
+    store.getState().dismiss(token.id);
+    expect(visibleNotifications(store.getState().notifications, 'a')).toMatchObject([{ progress: { value: 42 }, dismissed: false }]);
+    store.getState().finishOperation(token, outcome);
+    store.getState().invalidate(['a']);
+    expect(visibleNotifications(store.getState().notifications, 'a')).toMatchObject([{ stale: false }]);
+    store.getState().dismiss(token.id);
+    expect(visibleNotifications(store.getState().notifications, 'a')).toEqual([]);
+    const next = beginOperation();
+    store.getState().updateOperation(token, { message: 'Late result' });
+    expect(store.getState().notifications).toMatchObject([{ id: next.id, progress: { value: 0 } }]);
+    const independent = beginOperation('a', 'download');
+    expect(store.getState().notifications.map(n => n.id)).toEqual([next.id, independent.id]);
+  });
+
+  it('isolates slicing phases, plate ownership and project sessions from operation updates', () => {
+    const slice = begin();
+    store.getState().receive(slice, event('validation', [warning()]));
+    const token = beginOperation();
+    store.getState().receive(slice, event('processing'));
+    store.getState().receive(slice, event('slicing'));
+    expect(visibleNotifications(store.getState().notifications, 'a')[0].id).toBe(token.id);
+    expect(visibleNotifications(store.getState().notifications, 'b')).toEqual([]);
+    store.getState().finishOperation(token, outcome);
+    store.getState().updateOperation(token, { progress: { value: 99, label: 'Late progress' }, message: 'Late progress',
+      actions: [{ id: 'stale', label: 'Stale action', onClick: () => {} }] });
+    store.getState().finishOperation(token, { ...outcome, message: 'Late terminal' });
+    expect(store.getState().notifications.find(n => n.id === token.id)).toMatchObject({
+      message: 'Done', status: 'finished', progress: null, actions: [], dismissible: true, priority: 'normal' });
+    store.getState().reconcileOwners(['b'], []);
+    store.getState().updateOperation(token, { message: 'Deleted plate' });
+    expect(store.getState().notifications).toEqual([]);
+    const oldProject = beginOperation('b');
+    store.getState().reset();
+    store.getState().updateOperation(oldProject, { message: 'Old project' });
+    expect(store.getState().notifications).toEqual([]);
   });
 });

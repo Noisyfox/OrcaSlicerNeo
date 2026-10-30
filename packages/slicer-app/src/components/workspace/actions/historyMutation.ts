@@ -15,7 +15,7 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { projectFilamentPlateInputRevisions, refreshFilamentSession } from '@/stores/useFilamentSessionStore';
-import { acquireProjectMutationLease, enqueueProjectMutationOperation, enqueuePaintingOperation, type ProjectMutationLease } from '@/history/projectMutationGate';
+import { acquireProjectMutationLease, enqueueProjectMutationOperation, enqueueProjectReadOperation, enqueuePaintingOperation, type ProjectMutationLease } from '@/history/projectMutationGate';
 import { projectHistoryStatus } from '@/history/projectHistoryStatus';
 import { captureHistoryTransportDiagnostics, historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from '@/history/historyDiagnostics';
 
@@ -141,7 +141,7 @@ function enqueueHistoryOperation<T>(operation: () => Promise<T>): Promise<T> {
  * in-progress drag.
  */
 export function readProjectMutationReservation<T>(operation: () => Promise<T>): Promise<T> {
-  return enqueueHistoryOperation(operation);
+  return enqueueProjectReadOperation(operation);
 }
 
 export type TransformReservationState = {
@@ -395,7 +395,7 @@ export function restoreProjectHistory(
 export async function readProjectHistoryStatus(
   runtime: Pick<SlicerRuntime, 'getHistoryStatus'>,
 ): Promise<HistoryStatus | null> {
-  return enqueueProjectMutationOperation(async () => {
+  return enqueueProjectReadOperation(async () => {
     try {
       const status = await runtime.getHistoryStatus();
       const projected = projectHistoryStatus(status);
@@ -444,7 +444,7 @@ export async function resetProjectHistory(
 
 /** Read and project the Worker's current checkpoint state. */
 export async function syncHistoryStatus(runtime: Pick<SlicerRuntime, 'getHistoryStatus'>): Promise<HistoryStatus | null> {
-  return enqueueProjectMutationOperation(async () => {
+  return enqueueProjectReadOperation(async () => {
     try {
       const status = await runtime.getHistoryStatus();
       return projectHistoryStatus(status);

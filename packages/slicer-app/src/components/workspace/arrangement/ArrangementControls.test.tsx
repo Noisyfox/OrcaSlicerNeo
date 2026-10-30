@@ -9,18 +9,18 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { ArrangeCurrentPlateButton, ArrangementButton, ArrangementPanel, ArrangementStatus } from './ArrangementControls';
+import { ArrangeCurrentPlateButton, ArrangementButton, ArrangementPanel } from './ArrangementControls';
 
 const mocked = vi.hoisted(() => ({
   platform: null as unknown as PlatformCapabilities,
   unfinished: false, activePainting: false, closePainting: vi.fn(),
-  arrange: vi.fn(), cancel: vi.fn(),
+  arrange: vi.fn(),
 }));
 vi.mock('@orca/platform-contract', async (original) => ({
   ...await original<typeof import('@orca/platform-contract')>(),
   usePlatform: () => mocked.platform,
 }));
-vi.mock('../actions/arrangementActions', () => ({ arrangeModels: mocked.arrange, cancelArrangement: mocked.cancel }));
+vi.mock('../actions/arrangementActions', () => ({ arrangeModels: mocked.arrange }));
 vi.mock('../viewport/gizmo/painting/PaintingProvider', () => ({
   usePaintingController: () => ({ unfinished: mocked.unfinished, active: mocked.activePainting, close: mocked.closePainting }),
   usePaintingState: () => ({ phase: mocked.activePainting ? 'idle' : 'closed' }),
@@ -52,8 +52,8 @@ beforeEach(() => {
     runtime: { getRuntimeExecutionState: () => ({ threaded: true, serialSliceActive: false }) },
   } as unknown as PlatformCapabilities;
   useArrangementStore.setState({ preferences: normalizeArrangementPreferences(null), ready: false, active: false,
-    alignY: false, mode: 'byLayer', printer: null, printerStructure: '', result: null,
-    progress: 0, message: '', cancellable: false, cancelling: false });
+    alignY: false, mode: 'byLayer', printer: null, printerStructure: '',
+    cancellable: false, cancelling: false });
   useSettingsStore.setState({ modelLoaded: true, selectedPrinter: 'Printer', printers: [], values: { printer_structure: 'i3' } });
   useSlicerStore.setState({ status: 'idle' });
   usePlateSessionStore.setState({ snapshot: plateSnapshot() });
@@ -81,36 +81,6 @@ describe('arrangement controls', () => {
     mocked.platform.runtime.getRuntimeExecutionState = () => ({ threaded: false, sliceActive: true, serialSliceActive: true, serialTerminalEpoch: '0' });
     await render();
     expect(button('arrange-current-plate').disabled).toBe(true);
-  });
-
-  it('renders real progress, permits threaded cancellation, and has no serial Cancel action', async () => {
-    useArrangementStore.setState({ active: true, progress: 42, message: 'Packing plate 2', cancellable: false });
-    await act(async () => root.render(<ArrangementStatus />));
-    expect(container.textContent).toContain('Packing plate 2');
-    expect(container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('42');
-    expect(button('arrange-cancel')).toBeNull();
-    expect(container.querySelector('[data-arrangement-allowed="true"]')).not.toBeNull();
-    await act(async () => useArrangementStore.setState({ cancellable: true }));
-    await act(async () => button('arrange-cancel').click());
-    expect(mocked.cancel).toHaveBeenCalledWith(mocked.platform);
-    await act(async () => useArrangementStore.setState({ cancelling: true }));
-    expect(button('arrange-cancel').disabled).toBe(true);
-  });
-
-  it('reports each parking reason and the plate limit, and allows dismissing the result', async () => {
-    useArrangementStore.setState({ result: { ok: true, cancelled: false, changed: false, placed: 7,
-      plateLimitReached: true, unplaced: [
-        { instanceId: 1, reason: 'plate-limit' }, { instanceId: 2, reason: 'plate-limit' },
-        { instanceId: 3, reason: 'non-printable' }, { instanceId: 4, reason: 'too-tall' },
-      ] } });
-    await act(async () => root.render(<ArrangementStatus />));
-    expect(container.textContent).toContain('7 placed · 4 parked outside plates');
-    expect(container.textContent).toContain('The 36-plate limit was reached.');
-    expect(container.textContent).toContain('36-plate limit reached: 2');
-    expect(container.textContent).toContain('Marked non-printable: 1');
-    expect(container.textContent).toContain('Exceeds print height: 1');
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Dismiss arrangement status"]')!.click());
-    expect(container.textContent).toBe('');
   });
 
   it('opens settings rather than running immediately and applies rotation exclusion in the visible controls', async () => {

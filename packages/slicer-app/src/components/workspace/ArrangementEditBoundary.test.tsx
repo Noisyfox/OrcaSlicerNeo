@@ -19,7 +19,7 @@ it('blocks portal edits, shortcuts, and queued mutations while allowing camera p
   await act(async () => root.render(<ArrangementEditBoundary><input /><canvas /></ArrangementEditBoundary>));
   const canvas = host.querySelector('canvas')!;
   canvas.addEventListener('pointerdown', camera);
-  const cancelButton = document.createElement('button'); cancelButton.dataset.arrangementAllowed = '';
+  const cancelButton = document.createElement('button'); cancelButton.dataset.notificationSurface = '';
   cancelButton.addEventListener('click', cancel); document.body.append(cancelButton);
   await act(async () => useArrangementStore.setState({ active: true }));
   expect(host.querySelector('fieldset')!.disabled).toBe(true);
@@ -27,6 +27,9 @@ it('blocks portal edits, shortcuts, and queued mutations while allowing camera p
   canvas.dispatchEvent(new Event('pointerdown', { bubbles: true })); cancelButton.click();
   expect(edit).not.toHaveBeenCalled(); expect(shortcut).not.toHaveBeenCalled();
   expect(camera).toHaveBeenCalledOnce(); expect(cancel).toHaveBeenCalledOnce();
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F6', bubbles: true }));
+  expect(shortcut.mock.calls.map(([event]) => event.key)).toEqual(['Tab', 'F6']);
   await expect(enqueueProjectMutationOperation(async () => edit())).rejects.toThrow('arrangement_busy');
   await act(async () => useArrangementStore.setState({ active: false }));
   portal.click(); expect(edit).toHaveBeenCalledOnce();

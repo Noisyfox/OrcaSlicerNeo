@@ -243,9 +243,15 @@ identity, with first-choice fallback. Incomplete or pending field input does
 not delay nozzle navigation; a dispatched edit retains its captured native
 index and revision. Field-local feedback cannot migrate to another binding.
 
-Print snapshot reads and element commands use the existing project command FIFO,
-history transaction and receipt publication. Refreshes reject superseded reads;
-the interface adds no preset draft or history owner. Objects retain their own
+Print snapshot reads and element commands share the existing project command FIFO.
+Element commands retain history transactions and receipt publication.
+Read-only reservations use the FIFO only for consistent ordering with atomic
+publication. They do not acquire an editing lease, run editing admission checks,
+or change the active painting session. An arrangement editing lock rejects edits,
+but cannot reject background configuration, mapping or material snapshot reads.
+Reads wait for an earlier FIFO operation to publish when necessary; the editor
+does not pause refreshing based on arrangement state. Refreshes reject superseded
+reads; the interface adds no preset draft or history owner. Objects retain their own
 scoped value path and use the target-specific projection in section 3.1;
 they never adopt a fabricated Project preset owner. Plates keep their current
 whole-option path.

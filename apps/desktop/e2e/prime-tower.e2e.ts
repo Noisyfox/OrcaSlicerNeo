@@ -547,7 +547,7 @@ test('Prepare prime tower collision and outside warnings do not block slicing or
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 30_000 });
-    const stack = page.getByTestId('slice-notifications');
+    const stack = page.getByTestId('workspace-notifications');
     const cards = page.getByTestId('slice-notification');
     await expect(cards).toHaveCount(2);
     await expect(stack).toContainText('Prime Tower intersects an exclusion area.');

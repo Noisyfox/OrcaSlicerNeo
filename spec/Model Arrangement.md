@@ -331,6 +331,13 @@ Both operations remain available through their buttons.
 Display progress while computing, without showing intermediate model layouts.
 Apply the completed result once.
 
+Use the [shared workspace notification stack](Application%20Shell.md#persistent-workspace-notifications)
+below the Slice action area for progress, cancellation and terminal outcomes.
+Update one card throughout the operation; do not show a separate bottom status
+popup. Keep the running card and its threaded Cancel action reachable while
+editing is disabled. Completion preserves placed/parked counts, parking reasons
+and the plate-limit warning; terminal cards are explicitly dismissible.
+
 Disable all editing functions for the duration of the operation, including
 model and plate edits, printing-configuration changes, arrangement-parameter
 changes, and Undo/Redo. Do not admit another arrangement concurrently. Keep

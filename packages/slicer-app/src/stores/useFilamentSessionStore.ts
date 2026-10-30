@@ -16,7 +16,7 @@ import type {
 import { applyFilamentMutationResult } from './plateResultLifecycle';
 import { usePlateSessionStore } from './usePlateSessionStore';
 import { useHistoryNavigationStore } from './useHistoryNavigationStore';
-import { enqueueProjectMutationOperation, type ProjectMutationLease } from '../history/projectMutationGate';
+import { enqueueProjectMutationOperation, enqueueProjectReadOperation, type ProjectMutationLease } from '../history/projectMutationGate';
 import { projectHistoryStatus } from '../history/projectHistoryStatus';
 import { glVolumeCollection } from '../components/workspace/viewport/GLVolume';
 import { readSceneDeltaProjection } from '../components/workspace/viewport/sceneDeltaProjection';
@@ -129,11 +129,11 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set, get) =
     const complete = { ...snapshot, routing: base.routing, assignments: base.assignments };
     set({ snapshot: complete, rejected: null }); reconcilePaintingPalette(complete);
   },
-  load: (runtime): Promise<FilamentSessionSnapshotResult> => enqueueProjectMutationOperation(
+  load: (runtime): Promise<FilamentSessionSnapshotResult> => enqueueProjectReadOperation(
     () => readFilamentSnapshot(runtime, set, () => true),
   ),
   refresh: (runtime, isCurrent = () => true, lease): Promise<FilamentSessionSnapshotResult> =>
-    lease ? readFilamentSnapshot(runtime, set, isCurrent) : enqueueProjectMutationOperation(
+    lease ? readFilamentSnapshot(runtime, set, isCurrent) : enqueueProjectReadOperation(
       () => readFilamentSnapshot(runtime, set, isCurrent),
     ),
   run: async (runtime, command) => {
@@ -233,7 +233,7 @@ export type FilamentMutationRequest =
 
 /** Read flushing defaults under the same FIFO used by material/project edits. */
 export function readFlushingVolumes(runtime: Pick<SlicerClient, 'getFlushingVolumes'>, revision?: number) {
-  return enqueueProjectMutationOperation(async () => {
+  return enqueueProjectReadOperation(async () => {
     const snapshot = useFilamentSessionStore.getState().snapshot;
     if (!snapshot) return { ok: false as const, error: 'Materials are unavailable' };
     const result = await runtime.getFlushingVolumes({ version: 1, revision: revision ?? snapshot.revisions.session });

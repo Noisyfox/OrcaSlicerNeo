@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react';
 import { LayoutGrid, X } from 'lucide-react';
 import { usePlatform, type ArrangementPreferences } from '@orca/platform-contract';
-import type { ArrangementParkingReason } from '@slicer/client';
-import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Progress, ProgressLabel, ProgressValue } from '@/components/ui/progress';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { isSerialSliceBusy } from '@/runtimeExecution';
 import {
@@ -17,7 +14,7 @@ import {
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
-import { arrangeModels, cancelArrangement } from '../actions/arrangementActions';
+import { arrangeModels } from '../actions/arrangementActions';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { usePaintingController, usePaintingState } from '../viewport/gizmo/painting/PaintingProvider';
 
@@ -167,50 +164,5 @@ export function ArrangeCurrentPlateButton({ sceneInteraction, disabled = false, 
       onClick={() => { void arrangeModels(controls.platform, sceneInteraction, 'current'); }}>
       {compact ? 'Arrange' : 'Arrange current plate'}
     </Button>
-  );
-}
-
-const PARKING_REASONS: Record<ArrangementParkingReason, string> = {
-  'non-printable': 'Marked non-printable',
-  degenerate: 'Unusable footprint',
-  'too-tall': 'Exceeds print height',
-  unfit: 'Cannot fit on a plate',
-  'plate-limit': '36-plate limit reached',
-  'current-plate-overflow': 'No room on the current plate',
-};
-
-export function ArrangementStatus() {
-  const platform = usePlatform();
-  const { active, result, progress, message, cancellable, cancelling } = useArrangementStore();
-  if (!active && !result) return null;
-  const counts = new Map<ArrangementParkingReason, number>();
-  if (result?.ok && !result.cancelled)
-    for (const item of result.unplaced) counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
-  return (
-    <div className="fixed bottom-10 left-1/2 z-40 w-96 max-w-[calc(100vw-1rem)] -translate-x-1/2"
-      data-arrangement-allowed="true" data-testid="arrangement-status" aria-live="polite">
-      <Alert variant={result && !result.ok ? 'destructive' : 'default'}>
-        <AlertTitle>{active ? 'Arranging models' : !result?.ok ? 'Arrangement failed' : result.cancelled ? 'Arrangement cancelled' : 'Arrangement complete'}</AlertTitle>
-        {!active && <AlertAction>
-          <Button size="icon-xs" variant="ghost" aria-label="Dismiss arrangement status"
-            onClick={() => useArrangementStore.setState({ result: null })}><X data-icon="inline-start" /></Button>
-        </AlertAction>}
-        <AlertDescription className="flex flex-col gap-2">
-          {active ? <>
-            <Progress value={Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0}>
-              <ProgressLabel>{message || 'Arranging models…'}</ProgressLabel><ProgressValue />
-            </Progress>
-            {cancellable && <Button variant="outline" size="sm" data-testid="arrange-cancel" disabled={cancelling}
-              onClick={() => { void cancelArrangement(platform); }}>{cancelling ? 'Cancelling…' : 'Cancel'}</Button>}
-          </> : result && (!result.ok ? <span>{result.error}</span> : result.cancelled ? <span>No arrangement changes were applied.</span> : <>
-            <span>{result.placed} placed · {result.unplaced.length} parked outside plates</span>
-            {result.plateLimitReached && <span>The 36-plate limit was reached.</span>}
-            {counts.size > 0 && <ul className="flex list-disc flex-col gap-1 pl-4">
-              {[...counts].map(([reason, count]) => <li key={reason}>{PARKING_REASONS[reason]}: {count}</li>)}
-            </ul>}
-          </>)}
-        </AlertDescription>
-      </Alert>
-    </div>
   );
 }
