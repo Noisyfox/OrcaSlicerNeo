@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from '../../desktop/e2e/plate-controls.helpers';
 import { test, expect, configuredActivation } from './browser-fixture';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -76,6 +77,7 @@ test('real Web mapping survives browser project download/reopen and slices the c
     }
     await dialog.getByTestId('mapping-confirm').click();
     await expect(dialog).toHaveCount(0);
+    await selectGcodeOutput(page, 'export', { timeout: 120_000 });
     await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 120_000 });
     const committed = (await responses('mutateNozzleMapping')).at(-1)!.result;
     const sliced = (await responses('slicePlate')).at(-1)!.result;

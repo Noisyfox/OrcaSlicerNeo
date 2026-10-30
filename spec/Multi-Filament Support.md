@@ -988,9 +988,12 @@ physical printer validation or send-time AMS mapping.
   Properties tabs replace the proposed Plate-list mapping button and floating
   editor. A separate, editable confirmation dialog is shown before manual
   slicing as specified in section 14.1.5, not opened from a Plate-list button.
-- Add slicing-mode selection to the slice-button dropdown, using Orca's
-  behavior as a reference. Do not add a mapping-editor entry to that dropdown;
-  mapping is edited in Plates > Filament Mapping.
+- Add mode selection under a **Filament mapping** submenu in the slice-button
+  dropdown, using Orca's behavior as a reference. Send & Print, Send and Export
+  appear in that order only after successful slicing; Send & Print is the default.
+  Hide the dropdown trigger when neither mapping nor output choices are available.
+  Do not add a mapping-editor entry to that dropdown; mapping is edited in
+  Plates > Filament Mapping.
 - Exclude send/print-time assignment to the printer's actual AMS slots.
   Live device synchronization and account/provider integration are not required
   for this manual configuration feature.

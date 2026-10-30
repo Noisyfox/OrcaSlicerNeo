@@ -1,6 +1,6 @@
 import { readZipEntries } from '../../../packages/slicer-wasm/harness/native-3mf-parser.mjs';
 import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
-import { expectCurrentPlate, clickPlateControl } from '../../desktop/e2e/plate-controls.helpers';
+import { selectGcodeOutput, expectCurrentPlate, clickPlateControl } from '../../desktop/e2e/plate-controls.helpers';
 import { test, expect, configuredActivation } from './browser-fixture';
 
 import { readFile } from 'node:fs/promises';
@@ -90,9 +90,10 @@ test('real Web Send preserves browser multipart encoding and starts the server-r
     await page.getByTestId('config-input-filename_format').press('Enter');
     await expect(page.getByTestId('btn-slice')).toBeEnabled();
     await page.getByTestId('btn-slice').click();
+    await selectGcodeOutput(page, 'export', { timeout: 120_000 });
     await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 120_000 });
     await page.getByTestId('output-mode-select').click();
-    await page.getByRole('option', { name: 'Send & Print', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Send & Print', exact: true }).click();
     await page.getByTestId('btn-send-and-print').click();
     await expect(page.getByTestId('send-printer-select')).toBeEnabled();
     await page.getByTestId('send-printer-select').click();
@@ -134,6 +135,7 @@ test('real Web G-code export downloads the native generated basename directly', 
   await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
   await page.getByTestId('btn-slice').click();
+  await selectGcodeOutput(page, 'export', { timeout: 120_000 });
   await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 120_000 });
   const downloaded = page.waitForEvent('download');
   await page.getByTestId('btn-export').click();
@@ -866,6 +868,7 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   }
 
   const download = page.waitForEvent('download');
+  await selectGcodeOutput(page, 'export');
   await page.getByTestId('btn-export').click();
   const result = await download;
   expect(result.suggestedFilename()).toMatch(/\.gcode$/);

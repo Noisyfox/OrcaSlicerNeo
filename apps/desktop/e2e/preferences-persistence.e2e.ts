@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from './plate-controls.helpers';
 import { selectFixturePrinter } from './printer-selection';
 import { _electron } from './electron-fixture';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
@@ -147,6 +148,7 @@ test('persists shared profile/sidebar preferences but not session work', async (
     if (await layerHeight.count()) await layerHeight.fill('0.21');
     await first.page.getByTestId('btn-slice').click();
     await expect(first.page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 10_000 });
+    await selectGcodeOutput(first.page, 'export');
     await first.page.getByTestId('btn-export').click();
     await expect.poll(() => existsSync(firstExport)).toBe(true);
   } finally {

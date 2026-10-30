@@ -73,7 +73,7 @@ test('Bambu Send & Print persists options, cancels safely, allows selection afte
     await page.locator('#app-tab-prepare').click(); await page.getByTestId('btn-add-model').click(); await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 30_000 });
     await app.evaluate(() => { globalThis.printFixture.holdRead = true; });
-    await page.getByTestId('output-mode-select').click(); await page.getByRole('option', { name: 'Send & Print', exact: true }).click(); await page.getByTestId('btn-send-and-print').click();
+    await page.getByTestId('output-mode-select').click(); await page.getByRole('menuitemradio', { name: 'Send & Print', exact: true }).click(); await page.getByTestId('btn-send-and-print').click();
     const dialog = page.getByTestId('send-gcode-dialog');
     await expect(dialog.getByText('Loading printer information…', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('alert')).toHaveCount(0);

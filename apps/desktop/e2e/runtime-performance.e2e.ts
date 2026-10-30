@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from './plate-controls.helpers';
 import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
 import { expect, test } from '@playwright/test';
@@ -83,6 +84,7 @@ test('measures real startup, import, slice-to-preview, export and process memory
       { timeout: 30_000, intervals: [20] }).toBe('ready');
     const sliceToPreviewMs = performance.now() - sliceAt;
     const exportAt = performance.now();
+    await selectGcodeOutput(page, 'export');
     await page.getByTestId('btn-export').click();
     await expect.poll(() => existsSync(output), { intervals: [10] }).toBe(true);
     expect(readFileSync(output, 'utf8')).toContain('G1');

@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from '../../desktop/e2e/plate-controls.helpers';
 import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
 import { test, expect } from './browser-fixture';
 
@@ -29,6 +30,7 @@ test('real Web STEP flow: Add Model → renders named solid → slice → downlo
 
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  await selectGcodeOutput(page, 'export');
   await expect(page.getByTestId('btn-export')).toBeEnabled();
   const download = page.waitForEvent('download');
   await page.getByTestId('btn-export').click();

@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from './plate-controls.helpers';
 import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
@@ -111,6 +112,7 @@ async function sliceToPreview(page: Page): Promise<SliceReceipt> {
     __orcaE2e?: { gpuStreamingStatus?: () => string };
   }).__orcaE2e?.gpuStreamingStatus?.()), { timeout: 30_000 }).toBe('ready');
   await expect(page.getByTestId('layer-scrubber')).toBeVisible();
+  await selectGcodeOutput(page, 'export');
   await expect(page.getByTestId('btn-export')).toBeEnabled();
   const slices = (await protocol(page)).slices;
   expect(slices).toHaveLength(previous + 1);
@@ -120,6 +122,7 @@ async function sliceToPreview(page: Page): Promise<SliceReceipt> {
 async function exportAndCompare(page: Page, output: string, directory: string, receipt: SliceReceipt) {
   if (existsSync(output)) unlinkSync(output);
   const previous = (await protocol(page)).exports.length;
+  await selectGcodeOutput(page, 'export');
   await page.getByTestId('btn-export').click();
   await expect.poll(() => existsSync(output), { timeout: 30_000 }).toBe(true);
   // File creation precedes write completion. The button unlocks only once

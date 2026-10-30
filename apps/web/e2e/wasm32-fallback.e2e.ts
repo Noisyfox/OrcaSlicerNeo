@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from '../../desktop/e2e/plate-controls.helpers';
 import { test, expect } from './browser-fixture';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -44,7 +45,9 @@ test('wasm32 fallback downloads only its selected variant and slices locally', a
   await (await chooser).setFiles(fileURLToPath(new URL('../../../packages/slicer-wasm/fixtures/cube.stl', import.meta.url)));
   await expect(page.getByTestId('btn-slice')).toBeEnabled(); await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
-  const downloading = page.waitForEvent('download'); await page.getByTestId('btn-export').click();
+  const downloading = page.waitForEvent('download');
+  await selectGcodeOutput(page, 'export');
+  await page.getByTestId('btn-export').click();
   const download = await downloading;
   expect((await readFile((await download.path())!, 'utf8'))).toContain('G1');
   states.push(...await page.evaluate(() => (window as any).__fallbackRuntimeStates));

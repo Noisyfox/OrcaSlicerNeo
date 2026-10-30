@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from './plate-controls.helpers';
 import { _electron } from './electron-fixture';
 import { openProjectMenu, waitForProjectLoad } from './project-menu';
 // Real threaded regression for an imported multi-plate project whose native
@@ -37,6 +38,7 @@ async function expectFilamentRackReady(page: Page): Promise<void> {
 
 async function exportCompletedGcode(page: Page, exportPath: string): Promise<string> {
   const previousMtime = existsSync(exportPath) ? statSync(exportPath).mtimeMs : null;
+  await selectGcodeOutput(page, 'export');
   const button = page.getByTestId('btn-export');
   await button.click();
   // Creation/mtime proves this export started, but writeFile may still be

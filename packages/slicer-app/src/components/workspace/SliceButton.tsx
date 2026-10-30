@@ -3,11 +3,12 @@ import { useMappingCommit } from './nozzleMapping/NozzleMappingControls';
 import { mappingModeLabel } from './nozzleMapping/NozzleMappingEditor';
 // packages/slicer-app/src/components/workspace/SliceButton.tsx
 import { useEffect, useState } from 'react';
-import { Download, Send as SendIcon, Printer, LoaderCircle, X } from 'lucide-react';
+import { ChevronDown, Download, Send as SendIcon, Printer, LoaderCircle, X } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
-import { Select, SelectTrigger, SelectContent, SelectGroup, SelectItem } from '@/components/ui/select';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem,
+  DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent } from '@/components/ui/dropdown-menu';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { cancelSlice, exportGcode, sliceModel } from './actions/sliceActions';
@@ -18,9 +19,9 @@ import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
 
 type OutputMode = 'export' | 'send' | 'send-and-print';
 const outputModes = {
-  export: { label: 'Export', description: 'Export G-code', icon: Download },
-  send: { label: 'Send', description: 'Send G-code to printer', icon: SendIcon },
   'send-and-print': { label: 'Send & Print', description: 'Send G-code and start printing', icon: Printer },
+  send: { label: 'Send', description: 'Send G-code to printer', icon: SendIcon },
+  export: { label: 'Export', description: 'Export G-code', icon: Download },
 } satisfies Record<OutputMode, { label: string; description: string; icon: typeof Download }>;
 
 // Workspace actions float at the viewport's top-left corner.
@@ -43,7 +44,7 @@ export function SliceButton({ activeTab = 'home', onNavigateToDevice, onSlice }:
   useEffect(() => { if (!busy) setCancelling(false); }, [busy]);
   const [exporting, setExporting] = useState(false);
   const [outputMenuOpen, setOutputMenuOpen] = useState(false);
-  const [outputMode, setOutputMode] = useState<OutputMode>('export');
+  const [outputMode, setOutputMode] = useState<OutputMode>('send-and-print');
   const [sendAction, setSendAction] = useState<SendGcodeAction | null>(null);
   const showActions = isWorkspaceTab(activeTab);
   const output = outputModes[outputMode];
@@ -81,35 +82,41 @@ export function SliceButton({ activeTab = 'home', onNavigateToDevice, onSlice }:
           <LoaderCircle className="size-3.5 animate-spin group-hover:hidden group-focus-visible:hidden" />
           <X className="hidden size-4 group-hover:block group-focus-visible:block" />
         </Button>
-      </ButtonGroup> : <Select open={outputMenuOpen} onOpenChange={setOutputMenuOpen} value={String(outputMode)} onValueChange={(value) => {
-          setOutputMenuOpen(false);
-          if (value === 'export' || value === 'send' || value === 'send-and-print') setOutputMode(value);
-          if (value === 'mapping:0' || value === 'mapping:2')
-            void mappingEdit.commit({ kind: 'mode', mode: value === 'mapping:0' ? 0 : 2 });
-        }} disabled={busy || restoring || exporting}>
+      </ButtonGroup> : <DropdownMenu open={outputMenuOpen} onOpenChange={setOutputMenuOpen}>
           <ButtonGroup aria-label="Slice and G-code output" className="gap-0.5 [&>[data-slot]]:rounded-md!">
             <Button variant="default" className="w-[150px] justify-start" disabled={actionDisabled} onClick={executeOutput} title={actionDescription} aria-label={actionDescription} data-testid={hasCompletedResult ? `btn-${outputMode}` : 'btn-slice'}>
               {busy ? 'Slicing…' : exporting ? 'Exporting…' : hasCompletedResult ? output.label : 'Slice'}
             </Button>
-            <SelectTrigger variant="action" className="size-7! shrink-0" aria-label="Choose G-code output mode" data-testid="output-mode-select" />
+            {(mapping.snapshot?.eligible || hasCompletedResult) && <DropdownMenuTrigger render={<Button size="icon-xs" className="size-7! shrink-0" />}
+              disabled={busy || restoring || exporting} aria-label="Choose G-code output mode" data-testid="output-mode-select"><ChevronDown /></DropdownMenuTrigger>}
           </ButtonGroup>
-          <SelectContent side="bottom" align="end" className="min-w-44">
-            {mapping.snapshot?.eligible && <SelectGroup>
-              <div className="px-2 py-1 text-xs text-muted-foreground">Slicing mode</div>
-              {mapping.snapshot.modes.filter(m => m.mode === 0 || m.mode === 2 || m.mode === 1 && mapping.snapshot?.effective.mode === 1).map(m =>
-                <SelectItem key={m.mode} value={`mapping:${m.mode}`} disabled={mappingEdit.disabled || !m.available} title={m.reason || undefined}>
-                  {mappingModeLabel(m.mode)}{(mapping.snapshot!.effective.mode === m.mode || m.mode === 2 && mapping.snapshot!.effective.mode === 3) ? ' ✓' : ''}
-                  {!m.available ? ' (unavailable)' : ''}
-                </SelectItem>)}
-            </SelectGroup>}
-            <SelectGroup>
+          <DropdownMenuContent side="bottom" align="end" className="min-w-44">
+            {mapping.snapshot?.eligible && <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Filament mapping</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent aria-label="Filament mapping">
+                <DropdownMenuRadioGroup value={String(mapping.snapshot.effective.mode === 3 ? 2 : mapping.snapshot.effective.mode)} onValueChange={value => {
+                  setOutputMenuOpen(false);
+                  if (value === '0' || value === '2') void mappingEdit.commit({ kind: 'mode', mode: value === '0' ? 0 : 2 });
+                }}>
+                {mapping.snapshot.modes.filter(m => m.mode === 0 || m.mode === 2 || m.mode === 1 && mapping.snapshot?.effective.mode === 1).map(m =>
+                  <DropdownMenuRadioItem key={m.mode} value={String(m.mode)} disabled={mappingEdit.disabled || !m.available} title={m.reason || undefined}>
+                    {mappingModeLabel(m.mode)}
+                    {!m.available ? ' (unavailable)' : ''}
+                  </DropdownMenuRadioItem>)}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>}
+            {hasCompletedResult && <DropdownMenuRadioGroup value={outputMode} onValueChange={value => {
+              setOutputMenuOpen(false);
+              if (value === 'export' || value === 'send' || value === 'send-and-print') setOutputMode(value);
+            }}>
               {(Object.keys(outputModes) as OutputMode[]).map((mode) => {
                 const Icon = outputModes[mode].icon;
-                return <SelectItem key={mode} value={mode} className="pr-8"><Icon />{outputModes[mode].label}</SelectItem>;
+                return <DropdownMenuRadioItem key={mode} value={mode}><Icon />{outputModes[mode].label}</DropdownMenuRadioItem>;
               })}
-            </SelectGroup>
-          </SelectContent>
-        </Select>}
+            </DropdownMenuRadioGroup>}
+          </DropdownMenuContent>
+        </DropdownMenu>}
     </div>}
     {showActions && <SendGcodeDialog
       open={sendAction !== null}
