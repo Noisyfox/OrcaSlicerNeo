@@ -1211,6 +1211,53 @@ export type ExportGcodeResult =
   | { ok: true; fileName: string; bytes: Uint8Array }
   | { ok: false; status: Exclude<ResultReadStatus, 'ok'>; error: string };
 
+/** Immutable requirements of a completed slice, before device material binding. */
+export interface PrintManifest {
+  plateId: string;
+  printerModel: string;
+  printerModelId: string;
+  materials: Array<{
+    key: string;
+    /** Original zero-based slice filament index, including gaps in the used set. */
+    index: number;
+    type: string;
+    color: string;
+    presetId: string;
+    presetName: string;
+    brand: string;
+    toolIndex: number;
+    nozzleDiameter: number;
+    nozzleFlowType: string;
+    chamberTemperature: number;
+    softeningTemperature: number;
+    requiredNozzleHardness: number;
+    usedGrams: number;
+    usedMeters: number;
+  }>;
+  nozzleDiameters: number[];
+  nozzleFlowTypes: string[];
+  /** Native one-based tool assignments, indexed by original filament index. */
+  filamentMap: number[];
+  requiresDynamicMapping: boolean;
+  bedType: string;
+  durationSeconds: number;
+  layerCount: number;
+  weightGrams: number;
+  timelapseWarningCode: number;
+  toolpathOutside: boolean;
+  warnings: Array<{ message: string; code: string }>;
+}
+export type PrintManifestResult =
+  | { ok: true; receipt: SliceResultReceipt; manifest: PrintManifest }
+  | { ok: false; status: Exclude<ResultReadStatus, 'ok'>; error: string };
+export interface ExportPrintRequest extends ExportGcodeRequest {
+  materialCatalogIds?: readonly { materialKey: string; catalogId: string }[];
+}
+export type ExportPrintResult =
+  | { ok: true; receipt: SliceResultReceipt; manifest: PrintManifest; fileName: string;
+      bytes: Uint8Array; configBytes: Uint8Array; plateIndex: number; gcodePath: string }
+  | { ok: false; status: Exclude<ResultReadStatus, 'ok'>; error: string };
+
 /** Fresh ordinary plate images, with WebGL bottom-up RGBA rows. */
 export interface ProjectPlateThumbnail {
   plateId: string;
@@ -1784,6 +1831,8 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines>;
   /** Export only the captured current plate's completed result. */
   exportGcodePlate(request: ExportGcodeRequest): Promise<ExportGcodeResult>;
+  describePrintPlate(receipt: SliceResultReceipt): Promise<PrintManifestResult>;
+  exportPrintPlate(request: ExportPrintRequest): Promise<ExportPrintResult>;
   /** Export the complete active plate session as a native-compatible BBS 3MF archive. */
   exportProject(request?: ExportProjectRequest): Promise<ExportProjectResult>;
   cancel(): Promise<CancelResult>;

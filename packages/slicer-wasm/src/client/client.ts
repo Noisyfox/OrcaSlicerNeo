@@ -32,7 +32,8 @@ import type {
   ModelMutationResult, ModelPlateSessionMutation, ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, ModelScenePatchResult, SliceResultStatus, SliceDiagnostic, SliceDiagnosticEvent, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
-  ExportGcodeRequest, ExportGcodeResult, ExportProjectRequest, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
+  ExportGcodeRequest, ExportGcodeResult, PrintManifest, PrintManifestResult, ExportPrintResult, ExportPrintRequest,
+  ExportProjectRequest, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   AddVolumeRequest, AddVolumeResult, ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
@@ -3459,6 +3460,46 @@ export function createClient(
       const path = r.path;
       const bytes = m.FS.readFile(path);
       return { ok: true, fileName: r.file_name, bytes };
+    },
+
+    async describePrintPlate(receipt: SliceResultReceipt): Promise<PrintManifestResult> {
+      const m = await module();
+      const generation = Number(receipt.resultGeneration);
+      if (!Number.isSafeInteger(generation) || generation < 1)
+        return { ok: false, status: 'failed', error: 'invalid result generation' };
+      const r = callJson(m, 'orc_describe_print_plate', ['string'], [JSON.stringify({
+        receipt: { plate_id: receipt.plateId, input_stamp: receipt.inputStamp, result_generation: generation },
+        filename_base: '',
+      })]) as { ok: boolean; status?: ResultReadStatus; manifest: PrintManifest; error?: string };
+      if (!r.ok) return { ok: false, status: r.status === 'stale' || r.status === 'unavailable' ? r.status : 'failed',
+        error: r.error ?? 'Print requirements unavailable' };
+      return { ok: true, receipt: { ...receipt }, manifest: r.manifest };
+    },
+
+    async exportPrintPlate({ receipt, filenameBase, materialCatalogIds = [] }: ExportPrintRequest): Promise<ExportPrintResult> {
+      const m = await module();
+      const generation = Number(receipt.resultGeneration);
+      if (!Number.isSafeInteger(generation) || generation < 1)
+        return { ok: false, status: 'failed', error: 'invalid result generation' };
+      const r = callJson(m, 'orc_export_print_plate', ['string'], [JSON.stringify({
+        material_catalog_ids: materialCatalogIds,
+        receipt: { plate_id: receipt.plateId, input_stamp: receipt.inputStamp, result_generation: generation },
+        filename_base: filenameBase,
+      })]) as { ok: boolean; status?: ResultReadStatus; manifest: PrintManifest; path?: string;
+        config_path?: string; file_name: string; plate_index: number; gcode_path: string; error?: string };
+      if (!r.ok) return { ok: false, status: r.status === 'stale' || r.status === 'unavailable' ? r.status : 'failed',
+        error: r.error ?? 'Print package export failed' };
+      try {
+        if (!r.path || !r.config_path || !r.file_name || !r.gcode_path || r.plate_index !== 1)
+          throw new Error('Invalid print package response');
+        return { ok: true, receipt: { ...receipt }, manifest: r.manifest, fileName: r.file_name,
+          bytes: m.FS.readFile(r.path), configBytes: m.FS.readFile(r.config_path),
+          plateIndex: r.plate_index, gcodePath: r.gcode_path };
+      } finally {
+        // Only temporary archives are consumed. The retained G-code remains available.
+        try { if (r.path) m.FS.unlink(r.path); }
+        finally { if (r.config_path) m.FS.unlink(r.config_path); }
+      }
     },
 
     async exportProject(request?: ExportProjectRequest): Promise<ExportProjectResult> {

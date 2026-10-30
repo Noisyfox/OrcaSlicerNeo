@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from './plate-controls.helpers';
 import { _electron } from './electron-fixture';
 // Real packaged Step8 acceptance. This file is intentionally separate from
 // packaged.e2e.ts: the latter uses the tiny JS bridge stub for a fast asset and
@@ -46,6 +47,7 @@ test('real packaged utility runtime ships only threaded wasm64 and completes sli
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+    await selectGcodeOutput(page, 'export');
     await expect(page.getByTestId('btn-export')).toBeEnabled();
     await page.getByTestId('btn-export').click();
     await expect.poll(() => existsSync(exportPath)).toBe(true);

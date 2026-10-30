@@ -7,3 +7,7 @@ for (const line of declarations.split('\n').filter(line => line.startsWith('type
   assert(originals.split('\n').includes(line), `Public Orca declaration changed: ${line}`);
 }
 console.log('Common plugin declarations match checked-in Orca headers');
+
+const printParams = readFileSync(new URL('../native/print_params.hpp', import.meta.url), 'utf8');
+const structure = /struct PrintParams \{[\s\S]*?\n\};/;
+assert.equal(printParams.match(structure)?.[0], originals.match(structure)?.[0], 'PrintParams ABI drift');

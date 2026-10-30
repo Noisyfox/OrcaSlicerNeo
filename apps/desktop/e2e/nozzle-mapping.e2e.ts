@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from './plate-controls.helpers';
 import { extrudingTools } from '../../../packages/slicer-wasm/harness/nozzle-mapping-gcode.mjs';
 import { _electron } from './electron-fixture';
 import { test, expect } from '@playwright/test';
@@ -85,7 +86,10 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
     await expect(capacity).toBeEnabled();
     await expect.poll(() => Object.values(JSON.parse(readFileSync(preferences, 'utf8')).rememberedNozzleCapacities ?? {})).toEqual([[9, 6]]);
     await page.getByTestId('output-mode-select').click();
-    await page.getByRole('option', { name: 'Auto For Flush', exact: true }).click();
+    await expect(page.getByRole('menuitemradio', { name: 'Auto For Flush', exact: true })).toHaveCount(0);
+    await page.getByRole('menuitem', { name: 'Filament mapping', exact: true }).click();
+    await expect(page.getByRole('menuitemradio', { name: 'Manual', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('menuitemradio', { name: 'Auto For Flush', exact: true }).click();
     await expect(page.getByTestId('mapping-mode-0')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('mapping-materials')).toHaveCount(0);
     await expect(page.getByTestId('output-mode-select')).toHaveAttribute('aria-expanded', 'false');
@@ -127,6 +131,7 @@ test('real nozzle mapping edits, confirms, cancels and slices with native Plate 
     const confirmSlice = async () => {
       await dialog.getByTestId('mapping-confirm').click();
       await expect(dialog).toHaveCount(0);
+      await selectGcodeOutput(page, 'export', { timeout: 180000 });
       await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 180000 });
     };
     const exportTools = async (tools: number[]) => {

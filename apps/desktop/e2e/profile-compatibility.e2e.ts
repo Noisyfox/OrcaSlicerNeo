@@ -8,7 +8,7 @@ import { expect, test, type ElectronApplication, type Page } from '@playwright/t
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { clickPlateControl, expectCurrentPlate } from './plate-controls.helpers';
+import { selectGcodeOutput, clickPlateControl, expectCurrentPlate } from './plate-controls.helpers';
 import { selectFixturePrinter } from './printer-selection';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
@@ -104,6 +104,7 @@ test('printer transitions atomically replace the Process picker while the Filame
     await expect(page.getByTestId('btn-slice')).toBeEnabled();
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
+    await selectGcodeOutput(page, 'export');
     await expect(page.getByTestId('btn-export')).toBeEnabled();
 
     const processTopBeforeTransition = (await page.getByTestId('process-preset-select').boundingBox())?.y;

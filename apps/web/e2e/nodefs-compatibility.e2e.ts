@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from '../../desktop/e2e/plate-controls.helpers';
 import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
 import { test, expect } from './browser-fixture';
 import { readFile } from 'node:fs/promises';
@@ -43,6 +44,7 @@ test('unchanged shared threaded artifacts keep browser temporary files in MEMFS'
     __orcaE2e?: { gpuStreamingStatus?(): string };
   }).__orcaE2e?.gpuStreamingStatus?.())).toBe('ready');
   const downloadPromise = page.waitForEvent('download');
+  await selectGcodeOutput(page, 'export');
   await page.getByTestId('btn-export').click();
   const output = await downloadPromise;
   const bytes = await readFile((await output.path())!);

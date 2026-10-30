@@ -50,5 +50,26 @@ export function mergePrinterConfigurations(base: PrinterConfigurationDocument, n
     const value = after.get(id);
     if (value) merged.set(id, value); else merged.delete(id);
   }
-  return { version: 1, printers: [...merged.values()] };
+  const preferences = { ...current.printPreferences };
+  const mergeValue = <T>(before: T, after: T, current: T): T => {
+    if (before === after) return current;
+    if (current !== before && current !== after) throw new Error('This print preference was changed in another application instance. Reload before saving.');
+    return after;
+  };
+  for (const id of new Set([...Object.keys(base.printPreferences ?? {}), ...Object.keys(next.printPreferences ?? {})])) {
+    const before = base.printPreferences?.[id] ?? {}, after = next.printPreferences?.[id] ?? {};
+    const values = { ...current.printPreferences?.[id] } as Record<string, unknown>;
+    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      const field = key as keyof typeof before;
+      const value = mergeValue(before[field], after[field], current.printPreferences?.[id]?.[field]);
+      if (value === undefined) delete values[key]; else values[key] = value;
+    }
+    // defineProperty avoids special object keys changing the map's prototype.
+    if (Object.keys(values).length) Object.defineProperty(preferences, id, { value: values, enumerable: true, configurable: true, writable: true });
+    else delete preferences[id];
+  }
+  const allowAbnormalStorage = mergeValue(base.allowAbnormalStorage, next.allowAbnormalStorage, current.allowAbnormalStorage);
+  return { version: 1, printers: [...merged.values()],
+    ...(Object.keys(preferences).length ? { printPreferences: preferences } : {}),
+    ...(allowAbnormalStorage === undefined ? {} : { allowAbnormalStorage }) };
 }

@@ -6,6 +6,7 @@ import { commandCapabilities } from '../src/utility/bambu/commands';
 import { savedBambuPrinter } from '../src/shared/bambuPrinters';
 import type { BambuDevice } from '../src/shared/bambuDevices';
 import { Ipc } from '../src/shared/ipc';
+import { bambuRegionChoices } from '../src/shared/bambu';
 const devices: BambuDevice[] = ['a', 'b'].map(deviceId => ({ deviceId, name: `Workshop ${deviceId.toUpperCase()}`, model: 'H2D', routes: [{ channel: 'cloud', revision: 'r1' }] }));
 export function controlSnapshot(device: string, task = 'External task', fresh = true, camera = false) {
   const printer = savedBambuPrinter(devices.find(value => value.deviceId === device)!);
@@ -23,11 +24,12 @@ export function controlSnapshot(device: string, task = 'External task', fresh = 
 interface FixtureState { requests: unknown[]; data: Record<string, ReturnType<typeof controlSnapshot>>; commands: D.CommandRequest[]; tokens: string[]; operations: Record<string, D.CommandOperation> }
 declare global { var bambuControlFixture: FixtureState; }
 export async function installControlFixture(app: ElectronApplication, camera = false) {
-  await app.evaluate(({ ipcMain, BrowserWindow }, { channels, devices, data }) => {
+  await app.evaluate(({ ipcMain, BrowserWindow }, { channels, devices, data, regionChoices }) => {
     globalThis.bambuControlFixture = { data, requests: [], commands: [], tokens: [], operations: {} };
     ipcMain.removeHandler(channels.bambuRead);
     ipcMain.handle(channels.bambuRead, (_event, kind) => kind === 'printers.saved' ? { ok: true, value: devices }
-      : kind === 'account.state' ? { status: 'signed-out', error: null } : { ok: true, value: [] });
+      : kind === 'account.state' ? { status: 'signed-out', error: null }
+      : kind === 'account.settings' ? [{ key: 'region', label: 'Region', value: 'Others', choices: regionChoices }] : { ok: true, value: [] });
     ipcMain.removeHandler(channels.bambuControl);
     ipcMain.handle(channels.bambuControl, (_event, request) => {
       const fixture = globalThis.bambuControlFixture, { method, input } = request;
@@ -50,7 +52,7 @@ export async function installControlFixture(app: ElectronApplication, camera = f
       throw new Error('Unexpected fixture call');
     });
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channels.bambuChanged, 'printers');
-  }, { channels: Ipc, devices, data: { 'bambu:a': controlSnapshot('a', 'External task', true, camera), 'bambu:b': controlSnapshot('b', 'Second task', true, camera) } });
+  }, { channels: Ipc, devices, regionChoices: bambuRegionChoices, data: { 'bambu:a': controlSnapshot('a', 'External task', true, camera), 'bambu:b': controlSnapshot('b', 'Second task', true, camera) } });
 }
 export async function publishControlSnapshot(app: ElectronApplication, device: string, task: string, fresh = true) {
   await app.evaluate(({ BrowserWindow }, { id, data, channel }) => {

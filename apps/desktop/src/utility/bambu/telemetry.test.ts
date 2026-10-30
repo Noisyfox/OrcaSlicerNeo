@@ -255,3 +255,121 @@ it('keeps camera hardware, live-view disabled state and unknown recording state 
   expect(t.project(target, identity).values.cameras).toMatchObject([{ enabled: { value: true }, health: { kind: 'unknown' } }]);
   t.accept(push({ msg: 0, ipcam: { ipcam_dev: '0' } })); expect(t.project(target, identity).values.cameras).toEqual([]);
 });
+
+const parsedMachine = (report: Record<string, unknown>) => {
+  const telemetry = new BambuTelemetry();
+  telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 0, ...report } }));
+  return telemetry.project(target, identity).machine;
+};
+it('preserves missing protocol settings and explicit zero over legacy fallbacks', () => {
+  expect(parsedMachine({})).toMatchObject({ storage: undefined, flowCalibration: undefined, smartNozzleBlob: { supported: false, mode: undefined }, nozzleFlowSupported: false });
+  expect(parsedMachine({ home_flag: ((1 << 16) | (1 << 8)).toString(16) })).toMatchObject({ storage: 'normal', flowCalibration: true });
+  expect(parsedMachine({ fun: '0', aux: '0', home_flag: ((1 << 16) | (1 << 8)).toString(16) })).toMatchObject({ storage: 'missing', flowCalibration: false });
+  expect(parsedMachine({ flag3: ((1 << 17) | (1 << 10)).toString(16) })).toMatchObject({ maxColors: 32, legacyNozzleFlow: 'High Flow', legacyHighFlow: true });
+});
+it('decodes high protocol bits without losing precision and keeps nozzle protocol selection', () => {
+  const p = { fun: ((1n << 60n) | (1n << 48n) | (1n << 28n)).toString(16), cfg: (2n << 43n).toString(16), fun2: (1 << 15).toString(16), aux: (1n << 29n).toString(16), stat: '0', flag3: (1 << 10).toString(16) };
+  expect(parsedMachine(p)).toMatchObject({ hotendRack: true, externalChangeAssist: true, internalRecording: true, filamentSwitch: true, smartNozzleBlob: { supported: true, mode: 'auto' }, nozzleFlowSupported: true, legacyNozzleFlow: undefined, legacyHighFlow: false, maxColors: undefined });
+});
+it('decodes AMS subtype and fan ranges into the owned machine state', () => {
+  expect(parsedMachine({})).toMatchObject({ amsUnits: [], fans: [] });
+  const machine = parsedMachine({ ams: { ams: [{ id: 0, info: '25' }] }, device: { airduct: { parts: [{ id: '20', range: (100 << 16) | 20 }] } } });
+  expect(machine.amsUnits[0]).toMatchObject({ id: '0', lite: true, type: 5, drying: true });
+  expect(machine.fans).toEqual([{ id: 'fan:2', min: 20, max: 100 }]);
+});
+it('shares parsed machine state across readers and freshness changes, replacing it only on accepted reports', () => {
+  let now = 0;
+  const telemetry = new BambuTelemetry(() => now);
+  const report = (value: Record<string, unknown>) => JSON.stringify({ print: { command: 'push_status', ...value } });
+  telemetry.accept(report({ msg: 0, fun2: '8000', cfg: '100000000000' }));
+  const first = telemetry.project(target, identity);
+  expect(telemetry.project(target, identity).machine).toBe(first.machine);
+  expect(Object.isFrozen(first.machine)).toBe(true);
+  now = 16_000;
+  const stale = telemetry.project(target, identity);
+  expect(stale.fresh).toBe(false); expect(stale.machine).toBe(first.machine);
+  telemetry.accept(report({ msg: 1, mc_percent: 20 }));
+  const next = telemetry.project(target, identity).machine;
+  expect(next).not.toBe(first.machine); expect(next.smartNozzleBlob).toEqual(first.machine.smartNozzleBlob);
+  telemetry.accept(report({ msg: 1, cfg: '0', ams: { ams: [{ id: 0, info: '25' }] } }));
+  const changed = telemetry.project(target, identity).machine;
+  expect(changed.smartNozzleBlob).toEqual({ supported: true, mode: 'off' });
+  expect(changed.amsUnits[0]).toMatchObject({ id: '0', lite: true, drying: true });
+  telemetry.accept(report({ msg: 1, ams: { ams: [{ id: 0, info: '5' }] } }));
+  expect(telemetry.project(target, identity).machine.amsUnits[0].drying).toBe(false);
+  expect(changed.amsUnits[0].drying).toBe(true);
+  telemetry.accept(report({ msg: 0, fun2: '0' }));
+  expect(telemetry.project(target, identity).machine.smartNozzleBlob).toEqual({ supported: false, mode: undefined });
+  expect(first.machine.smartNozzleBlob).toEqual({ supported: true, mode: 'auto' });
+  telemetry.invalidate(); const invalidated = telemetry.project(target, identity).machine;
+  expect(telemetry.accept(report({ msg: 1, cfg: '0' }))).toBe('resync');
+  expect(telemetry.project(target, identity).machine).toBe(invalidated);
+});
+it('refreshes projected capabilities on info updates without advancing print generation or mutating old readings', () => {
+  let now = 0;
+  const telemetry = new BambuTelemetry(() => now);
+  telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: 'IDLE', nozzle_temper: 25, nozzle_target_temper: 0, nozzle_diameter: .4 } }));
+  const first = telemetry.project(target, identity);
+  const generation = first.generation;
+  expect(telemetry.accept(JSON.stringify({ info: { command: 'get_capabilities', capabilities: { flags: { support_test: true } } } }))).toBe('updated');
+  const updated = telemetry.project(target, identity);
+  expect(updated.generation).toBe(generation); expect(updated.machine).toBe(first.machine);
+  expect(updated.report.capabilities).toEqual({ flags: { support_test: true } });
+  expect(first.report.capabilities).toEqual({});
+  now = 16_000;
+  const stale = telemetry.project(target, identity);
+  expect(stale.values.status.operationalState).toMatchObject({ kind: 'known', freshness: 'stale' });
+  expect(first.values.status.operationalState).toMatchObject({ kind: 'known', freshness: 'fresh' });
+});
+it.each([
+  ['DOWNLOADING', true], ['FLASHING', true], ['UPGRADE_REQUEST', true], ['PRE_FLASH_START', true], ['PRE_FLASH_SUCCESS', true],
+  ['UPGRADE_SUCCESS', false], ['DOWNLOAD_FAIL', false], ['FLASH_FAIL', false], ['PRE_FLASH_FAIL', false], ['UPGRADE_FAIL', false],
+])('decodes legacy upgrade status %s like Orca', (status, firmwareUpdating) => {
+  expect(parsedMachine({ upgrade_state: { status } }).firmwareUpdating).toBe(firmwareUpdating);
+});
+it.each([0, 1, 2, 3])('prefers upgrade display state %i over the legacy status', dis_state => {
+  expect(parsedMachine({ upgrade_state: { dis_state, status: dis_state === 2 ? 'UPGRADE_SUCCESS' : 'FLASHING' } }).firmwareUpdating).toBe(dis_state === 2);
+});
+it('retains legacy upgrade state across deltas and clears it when upgrading finishes', () => {
+  const telemetry = new BambuTelemetry();
+  telemetry.accept(push({ msg: 0, upgrade_state: { status: 'FLASHING' } }));
+  telemetry.accept(push({ msg: 1, upgrade_state: { progress: '50' } }));
+  expect(telemetry.project(target, identity).machine.firmwareUpdating).toBe(true);
+  telemetry.accept(push({ msg: 1, upgrade_state: { status: 'UPGRADE_SUCCESS' } }));
+  expect(telemetry.project(target, identity).machine.firmwareUpdating).toBe(false);
+});
+it('lets cfg clear legacy forced upgrading without clearing an independent consistency request', () => {
+  const telemetry = new BambuTelemetry();
+  const required = () => telemetry.project(target, identity).machine.firmwareUpdateRequired;
+  telemetry.accept(push({ msg: 0, upgrade_state: { force_upgrade: true } })); expect(required()).toBe(true);
+  telemetry.accept(push({ msg: 1, cfg: '0' })); expect(required()).toBe(false);
+  telemetry.accept(push({ msg: 1, upgrade_state: { consistency_request: true } })); expect(required()).toBe(true);
+  telemetry.accept(push({ msg: 1, upgrade_state: { consistency_request: false } })); expect(required()).toBe(false);
+  telemetry.accept(push({ msg: 1, cfg: '4' })); expect(required()).toBe(true);
+  telemetry.accept(push({ msg: 1, mc_percent: 10 })); expect(required()).toBe(true);
+  telemetry.accept(push({ msg: 1, cfg: '0' })); expect(required()).toBe(false);
+});
+it('projects cfg speed changes over retained spd_lvl, including zero and high-bit reports', () => {
+  const telemetry = new BambuTelemetry();
+  const speed = () => telemetry.project(target, identity).values.status.printStatus.speedModeId;
+  expect(speed().kind).toBe('unknown');
+  telemetry.accept(push({ msg: 0, spd_lvl: 2 })); expect(speed()).toMatchObject({ value: '2' });
+  telemetry.accept(push({ msg: 1, cfg: ((1n << 60n) | (3n << 8n)).toString(16) })); expect(speed()).toMatchObject({ value: '3' });
+  telemetry.accept(push({ msg: 1, spd_lvl: 1 })); expect(speed()).toMatchObject({ value: '3' });
+  telemetry.accept(push({ msg: 1, cfg: '0' })); expect(speed()).toMatchObject({ value: '0' });
+  telemetry.accept(push({ msg: 0, spd_lvl: 1 })); expect(speed()).toMatchObject({ value: '1' });
+});
+it('uses a no-msg LAN report as a fresh full baseline after reconnecting', () => {
+  const telemetry = new BambuTelemetry();
+  telemetry.accept(push({ msg: 0, home_flag: '100', cfg: '200', upgrade_state: { force_upgrade: true }, ams: { ams: [{ id: 0 }] } }));
+  telemetry.invalidate();
+  expect(telemetry.accept(push({ msg: 1, sdcard: false }))).toBe('resync');
+  expect(telemetry.accept(push({ sdcard: false, gcode_state: 'IDLE' }))).toBe('updated');
+  const current = telemetry.project(target, identity);
+  expect(current.fresh).toBe(true);
+  expect(current.machine).toMatchObject({ storage: 'missing', firmwareUpdateRequired: false, amsUnits: [] });
+  expect(current.report).not.toHaveProperty('home_flag'); expect(current.report).not.toHaveProperty('cfg');
+  expect(current.values.status.printStatus.speedModeId.kind).toBe('unknown');
+  expect(telemetry.accept(push({ msg: 1, sdcard: true }))).toBe('updated');
+  expect(telemetry.project(target, identity).machine.storage).toBe('normal');
+});

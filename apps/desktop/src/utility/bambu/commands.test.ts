@@ -3,14 +3,15 @@ import type * as D from '@orca/printer-control/domain';
 import { BambuTelemetry } from './telemetry';
 import { commandCapabilities, prepareCommand, type CommandContext } from './commands';
 import { BambuRecovery } from './recovery';
+import { printErrorResource } from './errorResources';
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 const identity: D.PrinterIdentity = { id: target.printerId, displayName: 'Printer', manufacturer: 'Bambu Lab', model: 'H2D', serialNumber: 'a', externalRefs: [] };
-function fixture(patch = {}, model: string | null = 'H2D') {
+function fixture(patch = {}, model: string | null = 'H2D', serialNumber = 'a') {
   const telemetry = new BambuTelemetry(() => 100);
   telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: 'IDLE', home_flag: 7, fun: ((1n << 32n) | (1n << 38n) | (1n << 39n)).toString(16),
     lights_report: [{ node: 'chamber_light', mode: 'off' }], device: { bed_temp: 30, extruder: { state: 2, info: [{ id: 0, temp: 220, snow: 0, star: 0, stat: 0 }, { id: 1, temp: 25, snow: 255, star: 255, stat: 0 }] } },
     ams: { tray_exist_bits: '1', ams: [{ id: 0, info: '3', tray: [{ id: 0, tray_type: 'PLA', nozzle_temp_min: 190, nozzle_temp_max: 230 }] }] }, ...patch } }));
-  const context = (): CommandContext => ({ ...telemetry.project(target, identity), target, configurationRevision: 'r1', model });
+  const context = (): CommandContext => ({ ...telemetry.project(target, { ...identity, serialNumber }), target, configurationRevision: 'r1', model });
   return { telemetry, context };
 }
 it('derives targets from reports and only defaults H2D protocol limits, not attached hardware', () => {
@@ -113,7 +114,7 @@ it('confirms same-task cancellation and treats the cancelled task as inactive', 
   expect(prepareCommand(f.context(), { type: 'motion.home', params: { motionGroupId: 'gantry' as D.Id<'motion'>, axes: ['x', 'y', 'z'] } })).toMatchObject({ ok: true });
   f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, device: { extruder: { state: 3 << 12 } } } }));
   const recovered = new BambuRecovery().decorate(f.context());
-  expect(recovered.recovery?.map(item => item.kind)).toEqual(['resume', 'abort']);
+  expect(recovered.recovery?.map(item => item.command.fields.param)).toEqual(['resume', 'abort']);
 });
 
 it('advertises camera delivery only from reported protocols and includes it in capability revision', () => {
@@ -126,4 +127,84 @@ it('advertises camera delivery only from reported protocols and includes it in c
   expect(jpeg.cameras[0].liveView).toMatchObject({ kind: 'supported', constraints: { transports: ['jpeg-frames'], maxConcurrentViews: 1, requestIdRetentionMs: 300000 } });
   expect(avc.cameras[0].liveView).toMatchObject({ kind: 'supported', constraints: { transports: ['mse-fmp4'] } });
   expect(avc.revision).not.toBe(jpeg.revision); expect(JSON.stringify(avc)).not.toContain('private');
+});
+it('confirms a speed command from a cfg delta overriding the old spd_lvl', () => {
+  const f = fixture({ gcode_state: 'RUNNING', subtask_id: 'task-1', spd_lvl: 2 });
+  const result = prepareCommand(f.context(), { type: 'jobs.setSpeed', params: { modeId: '3' } });
+  expect(result.ok).toBe(true);
+  if (!result.ok) throw new Error(result.error.message);
+  expect(result.value.confirmed!(f.context())).toBe(false);
+  f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, cfg: '300' } }));
+  expect(result.value.confirmed!(f.context())).toBe(true);
+});
+
+it('uses the pinned serial-prefix error catalog and distinct Orca ignore/resume/close commands', () => {
+  const f = fixture({ print_error: 0x0500808f, gcode_state: 'PAUSE', job_id: '9876543210987654', subtask_id: '123' }, 'O1D', '239fixture');
+  const recovery = new BambuRecovery();
+  const context = recovery.decorate(f.context());
+  const alert = context.values.alerts[0];
+  expect(alert).toMatchObject({ code: '0500808F', severity: 'warning', message: expect.stringContaining('Nozzle camera lens is dirty'), dialog: { title: 'Warning', dismissible: true } });
+  expect(alert.actions.map(a => a.label)).toEqual(['Problem Solved and Resume', 'Ignore this and Resume']);
+  for (const [index, command] of [[0, 'resume'], [1, 'ignore']] as const) {
+    expect(prepareCommand(context, { type: 'actions.invoke', params: { actionRef: alert.actions[index].actionRef } })).toMatchObject({ ok: true, value: { section: 'print', qos: 1, fields: { command, err: String(0x0500808f), param: 'reserve', job_id: '9876543210987654' } } });
+  }
+  expect(prepareCommand(context, { type: 'actions.invoke', params: { actionRef: alert.dialog!.dismissAction!.actionRef } })).toMatchObject({ ok: true, value: { section: 'system', qos: 0, fields: { command: 'uiop', name: 'print_error', action: 'close', source: 1, type: 'dialog', err: '0500808F' } } });
+  expect(recovery.decorate(f.context()).values.alerts[0]).toEqual(alert);
+  // A temperature-only delta must retain both the error episode and the error's job ID.
+  f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, nozzle_temper: 140 } }));
+  expect(recovery.decorate(f.context()).values.alerts[0]).toEqual(alert);
+  f.telemetry.invalidate();
+  const stale = recovery.decorate(f.context());
+  expect(stale.values.alerts[0].actions.every(a => a.availability.kind === 'blocked')).toBe(true);
+  expect(prepareCommand(stale, { type: 'actions.invoke', params: { actionRef: alert.actions[0].actionRef } })).toMatchObject({ ok: false, error: { code: 'offline' } });
+});
+it('invalidates error references when the error clears, recurs, or moves to another job', () => {
+  const f = fixture({ print_error: 0x0500808f, gcode_state: 'PAUSE', job_id: '1', subtask_id: '10' }, 'O1D', '239fixture');
+  const recovery = new BambuRecovery();
+  const first = recovery.decorate(f.context()).values.alerts[0];
+  const invoke: D.PrinterCommand = { type: 'actions.invoke', params: { actionRef: first.actions[0].actionRef } };
+  const update = (patch: object) => { f.telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 1, ...patch } })); return recovery.decorate(f.context()); };
+  expect(prepareCommand(update({ job_id: '2' }), invoke)).toMatchObject({ ok: false, error: { code: 'stale-context' } });
+  expect(update({ print_error: 0 }).values.alerts).toEqual([]);
+  const again = update({ print_error: 0x0500808f });
+  expect(again.values.alerts[0].id).not.toBe(first.id);
+  expect(prepareCommand(again, invoke)).toMatchObject({ ok: false, error: { code: 'stale-context' } });
+  expect(prepareCommand(again, { type: 'actions.invoke', params: { actionRef: { ...again.values.alerts[0].actions[0].actionRef, routeId: 'other' as D.Id<'route'> } } })).toMatchObject({ ok: false, error: { code: 'stale-context' } });
+});
+it('never borrows another printer family catalog and preserves cancellation as an informational outcome', () => {
+  expect(printErrorResource('31Bfixture', 0x0500808c)?.message).toBe('Detected build plate offset or debris. Please align the build plate with the heatbed and remove all debris from the plate surface before continuing.');
+  const context = new BambuRecovery().decorate(fixture({ print_error: 0x0500808f }, 'O1D', 'unknown').context());
+  expect(context.values.alerts[0]).toMatchObject({ code: '0500808F', message: 'Unknown error.', actions: [], dialog: { dismissible: true } });
+  const cancelled = new BambuRecovery().decorate(fixture({ print_error: 0x0300400c, gcode_state: 'FAILED' }, 'O1D', '239fixture').context());
+  expect(cancelled.values.alerts[0]).toMatchObject({ severity: 'info', message: 'The task was canceled.' });
+  expect(cancelled.values.alerts[0].dialog).toBeUndefined();
+});
+
+it.each([
+  [0x03008003, 'Stop Printing', { command: 'stop', err: String(0x03008003), job_id: '77', param: 'reserve' }, 1],
+  [0x07fec00a, 'Filament Extruded, Continue', { command: 'ams_control', param: 'done' }, 0],
+  [0x07fec00a, 'Not Extruded Yet, Retry', { command: 'ams_control', param: 'resume' }, 0],
+  [0x18ff8004, 'Finished, Continue', { command: 'ams_control', param: 'resume' }, 0],
+  [0x05024003, 'OK', { command: 'clean_print_error', subtask_id: '88', print_error: 0x05024003 }, 0],
+  [0x05ff8081, 'No Reminder Next Time', { command: 'idle_ignore', err: String(0x05ff8081), type: 0 }, 1],
+  [0x05ff8080, 'Recheck', { command: 'refresh_nozzle' }, 1],
+  [0x03008044, 'Got it, Turn off the Fire Alarm.', { command: 'buzzer_ctrl', mode: 0 }, 1],
+  [0x0502c010, 'Stop Drying', { command: 'auto_stop_ams_dry' }, 0],
+] as const)('encodes catalog error %i action %s as Orca does', (print_error, label, fields, qos) => {
+  const context = new BambuRecovery().decorate(fixture({ print_error, job_id: '77', subtask_id: '88', gcode_state: 'PAUSE' }, 'O1D', '239fixture').context());
+  const action = context.values.alerts[0].actions.find(action => action.label === label)!;
+  expect(action).toBeDefined();
+  expect(prepareCommand(context, { type: 'actions.invoke', params: { actionRef: action.actionRef } })).toMatchObject({ ok: true, value: { fields, section: 'print', qos } });
+  expect(action.keepDialogOpen === true).toBe(label === 'Not Extruded Yet, Retry');
+});
+it('hides internal errors and blocks local-only resumption without blocking stop or closing the dialog', () => {
+  const recovery = new BambuRecovery();
+  expect(recovery.decorate(fixture({ print_error: 0x0502400c }, 'O1D', '239fixture').context()).values.alerts).toEqual([]);
+  const context = recovery.decorate(fixture({ print_error: 0x03008003, job_attr: 32 }, 'O1D', '239fixture').context());
+  const alert = context.values.alerts[0];
+  const stop = alert.actions.find(a => a.label === 'Stop Printing')!;
+  const resume = alert.actions.find(a => a.label.includes('Resume'))!;
+  expect(prepareCommand(context, { type: 'actions.invoke', params: { actionRef: stop.actionRef } }).ok).toBe(true);
+  expect(prepareCommand(context, { type: 'actions.invoke', params: { actionRef: alert.dialog!.dismissAction!.actionRef } }).ok).toBe(true);
+  expect(prepareCommand(context, { type: 'actions.invoke', params: { actionRef: resume.actionRef } })).toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
 });

@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-10-23
+**Updated:** 2026-10-30
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -12,6 +12,9 @@ Section 2.3 records the accepted Bambu monitoring/control scope and interactions
 with implementation authorized in independently verified increments and physical
 qualification deferred until software verification is complete. The gateway remains deferred.
 Interface availability alone does not establish device support or runtime delivery.
+Section 2.4 records the selected local-artifact print-submission direction;
+its product decisions are accepted, with explicit implementation gates and
+deferred scope. That design record does not authorize implementation.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
 capabilities, controls, material systems, read-only sensors, cameras, remote
@@ -951,6 +954,21 @@ selection, window contention or connection-takeover protocol between independent
 instances. Within an instance, native target changes must still preserve the
 target and outcome of pending operations and reject obsolete callbacks.
 
+Packed Bambu report fields are decoded in the host-private
+[telemetry parser](../apps/desktop/src/utility/bambu/telemetry.ts). Control,
+recovery and print rules consume named protocol state instead of interpreting
+bit positions themselves. After each accepted complete/incremental report is
+merged, the telemetry owner replaces its immutable parsed machine state.
+Consumers share that state through the host-private command context; reading a
+context does not repeat protocol decoding. Freshness is evaluated separately.
+Missing report values retain their unknown state and legacy-field precedence;
+protocol details do not enter shared domain interfaces.
+Following Orca, only `msg: 1` merges into the existing report baseline; `msg: 0`
+and reports without `msg` replace it. Explicit `cfg` values override legacy
+force-upgrade and speed fields, including zero. Upgrade display state takes
+precedence over legacy upgrade status strings; the five legacy in-progress
+statuses remain recognized when display state is absent.
+
 Keep ordinary monitoring focused on the selected printer. On selection change,
 release the old printer's ordinary monitoring connection/selection/subscription
 as applicable, retain its cached data with actual freshness, and acquire the new
@@ -1109,6 +1127,17 @@ does not add a unified operation-history panel or uniformly persistent outcome
 badges. This does not weaken underlying outcome tracking or replay restrictions.
 Relevant device errors and supported contextual recovery actions remain included
 in the control cards; an independent HMS page remains excluded.
+Current errors may carry agent-directed dialog presentation alongside their inline
+alert. Bambu uses pinned English error/action resources selected by serial prefix;
+[recovery](../apps/desktop/src/utility/bambu/recovery.ts) owns action definitions
+and opaque references scoped to the observed error, device task and configuration.
+Closing a dialog and clearing an error are distinct protocol operations. All
+underlying error/job fields and severity are decoded in the cached machine state;
+ordinary partial reports preserve omitted fields. Legacy AMS acknowledgement also
+sends Orca's separate UI-close notification. Commands are never replayed because
+an error remains visible. The shared UI contains no Bambu codes or wire payloads.
+See the [console behavior](Printer%20Console%20and%20Control%20Integration.md#accepted-task-hardware-and-recovery-scope)
+for dialog lifetime and current implementation limits.
 
 For Bambu FAILED reports, explicit print error 0300400C means task cancellation
 according to Orca's checked-in HMS resources. Project it as cancelled/ready with
@@ -1165,6 +1194,391 @@ Native export changes require affected addon/plugin and packaged-host checks,
 with the existing six-target release obligations retained. No slicer WASM build
 is implied by a networking-addon-only change. Existing real-account acceptance
 and packaged startup do not prove control authorization or physical execution.
+
+### 2.4 Local-artifact print submission
+
+**Decision status:** The user selected option B for this feature: a shared
+print-preparation experience and vendor-independent print-submission contract,
+with agent-owned upload/start orchestration. Initially only the Bambu agent
+enables this new capability. This is distinct from the earlier domain-wide
+option B in section 1. Existing Moonraker upload/start behavior remains current.
+Implementation is authorized in independently verified stages. Accepted product
+decisions, implementation validation gates and explicitly deferred behavior are
+recorded below. Delivery status is tracked separately from those decisions.
+
+#### Implementation progress
+
+The runtime now exposes receipt-bound `describePrintPlate` and `exportPrintPlate`.
+Both read the retained native slice result and reject stale generations. Native
+`store_bbs_3mf` creates a single-plate print archive and a configuration archive
+from that result; the typed client consumes their temporary MEMFS paths and
+returns bytes. Material requirements preserve original filament indices and fixed
+tool assignments, including H2D dual tools. Dynamic mapping is identified for
+the future agent's eligibility check, rather than silently flattened.
+
+The real-WASM [artifact smoke](../packages/slicer-wasm/harness/print-submission-smoke.mjs)
+checks archive entries, exact retained G-code bytes, H2D nozzle metadata and
+stale-result rejection. Serial quick build, this smoke, client tests and
+typecheck pass on the development host. This runtime stage does not enable a
+printer capability or qualify physical printing. The shared UI integration and
+physical-printer qualification remain separate delivery gates.
+
+The host-only Bambu native wrapper now exposes independent LAN/Cloud print calls
+with numeric progress, out-of-queue cancellation and conservative dispatch
+evidence. Ordinary status requests remain available during upload; teardown waits
+for the active call before clearing callbacks or unloading. The by-value
+`PrintParams` layout is checked against the pinned source, and calls reject other
+ABI series. Native fixtures cover cancellation, concurrent admission, dispatch
+races and release ordering. The real v2.2.0 macOS ARM64 plugin passes
+`node packages/bambu-native/scripts/smoke.mjs --print-abi`, which deliberately
+omits address/credentials and verifies rejection before network I/O. This does
+not constitute LAN or Cloud print acceptance.
+
+The shared `PrinterSubmissions` contract and Bambu agent implementation now cover
+preparation, bounded artifact transfer, idempotent admission, cancellation,
+known-failure retry, qualified LAN preference and safe Cloud fallback. The agent
+owns model-resource rules, physical-tool mapping, material catalog conversion,
+options and storage checks. At the start of sending, it reads connection data,
+selects a route and validates the request once. Following Orca's `PrintJob`,
+this prepared state is retained through connection setup and native sending;
+intervening device updates do not trigger another route selection or full
+validation. Cancellation and the qualified LAN-to-Cloud failure fallback
+remain active.
+Following Orca, successful plugin completion ends submission as `sent`; physical
+print progress is observed separately in Device. An unknown outcome is retained
+as a record without an automatic retry; it releases submission resources and
+allows printer selection changes.
+Native material-ID conversion changes dispatch metadata only, not the project.
+
+Validation includes 13 mapping/lifecycle tests, the desktop and printer-control
+unit suites, typechecks, the serial native quick build and real-WASM archive
+smoke. Fixture acceptance is not LAN or Cloud physical-print qualification.
+The following shared-UI stage activates this capability only for Bambu; other
+agents retain their existing interfaces. See the console specification for
+software delivery and physical qualification status.
+
+The final integration pass adds Orca's P1 compatibility-confirmation exceptions,
+mixed AMS Lite tray numbering, hidden Shared PA semantics, high-chamber and
+loaded-material softening diagnostics, selected-AMS drying checks, manual-PA
+and smart-nozzle-blob advisories. Native-generated print packages pass directly
+to the networking plugin without host-side ZIP/XML reinspection. Recording
+cleanup requires an explicit per-submission action. Recording-capacity queries
+belong to send-time preparation only; confirmation reuses that result and native
+sending does not query again. Direct submission does not require a prior
+preparation call or capacity result. Cancellation before cleanup admission or
+while cleanup is pending prevents the subsequent print call. Device monitoring
+releases its view subscription while the modal owns an independent target;
+a submission keeps its own agent lease.
+
+Validation on 2026-10-28 (development macOS ARM64):
+
+- `pnpm test`: 2,688 passed, five conditional skips at the full-suite checkpoint.
+  Subsequent focused runs pass 330 desktop tests, the shared send/Device tests,
+  six preparation-panel tests and 657 client tests.
+- `pnpm typecheck` and `pnpm --filter @orca/platform-contract test:import-guard`
+  pass. `git diff --check` and the added local documentation links pass.
+- `bash scripts/build.sh quick --variant serial -j 8` and the corresponding
+  `--variant threaded` build pass. The artifact smoke passes against both,
+  including material-ID conversion and Auto For Flush resolved fixed tools.
+  The minimal imported H2D fixture emits existing missing per-extruder preset
+  diagnostics; it proves archive/assignment behavior, not printable settings.
+- Four focused Electron journeys pass: Bambu control, Bambu print submission,
+  Moonraker send/retry, and keyless Moonraker Send & Print. The real-Web
+  multipart send/start journey passes in Chrome. The renderer CSS smoke and
+  `pnpm --filter @orca/desktop build` pass; the preparation screenshot was
+  inspected for layout and readable controls.
+
+Development-host LAN qualification includes two completed fixed-right-nozzle H2D
+prints and a completed fixed-dual-nozzle print, all without a Filament Track Switch.
+The single-source case uses a 10 mm PETG cube on Textured PEI, fed by AMS 2 Pro B1.
+The dual-source case uses two 10 mm PETG cubes on the same plate, with AMS 0 A2
+feeding the left nozzle and AMS 2 Pro 1 B1 feeding the right. The user confirmed
+normal feeding, first-layer extrusion and dual-nozzle switching, then confirmed
+both cubes completed without visible defects or missing material. The device
+reported 50/50 layers, completion, readiness and zero heater targets. Qualification
+covers these fixed-tool PETG paths only; other supply paths, Cloud physical
+printing and the broader host/release matrix remain unqualified.
+
+The dual-nozzle run paused before the first layer at error `0500808F` (dirty nozzle
+camera lens). The user continued that same task through Orca or the printer; Neo
+observed the error clear and printing resume without issuing a recovery command
+or another submission. Neo now exposes Orca's bundled error text and its separate
+ignore-and-resume and problem-solved-and-resume actions through generic alert
+dialogs, with protocol
+and UI fixture coverage. This physical round preceded that implementation and
+does not qualify Neo's handling of recovery; ordinary Resume was not tested as
+an equivalent action.
+
+Fixed Bambu nozzle assignments must preserve Orca's inactive hotend placeholder
+(`H-1`), rather than requesting an explicit hotend through `H0`/`H1`, which can
+make an H2D require a Filament Track Switch. The pinned Orca correction and the
+real-WASM artifact smoke cover this distinction in both local WASM variants.
+The actual LAN submission archive was also checked before the repaired print.
+
+Submission completion follows Orca's plugin-return semantics. A nonnegative
+native result reports **Print job sent** and closes the modal in favor of the
+target's Device page. It does not assert physical print start. No filename/task
+matching, extra full-status request or print-start confirmation timer is required.
+Actual preparation, feeding and print progress remain Device observations. The
+user-visible task name remains unchanged. A failed call that may already have
+dispatched remains `unknown` without automatic resend or fallback. Once the
+native call settles, release its temporary files and monitoring lease before
+publishing that outcome. Printer selection is not locked by print submissions;
+changing selection does not cancel the physical print. Regression tests cover
+success without status reports, native reader cleanup and cancellation racing
+dispatch. The 2026-10-29 repeat on production build `87c7f259` physically verified
+the revised modal transition: one authorized LAN send closed the dialog and
+selected Fox and Fox in Device, displaying `LAN-Cube-10mm`; the printer then
+completed all 50 layers. Its fresh export retained all four fixed-hotend `H-1`
+commands. This closes the modal-transition retest for that fixed-right-tool path.
+The completed dual-nozzle case also verified that transition on production build
+`574c6f0d`, displaying `LAN-Dual-Tool-10mm`; other supply paths and Cloud printing
+remain outside physical qualification.
+
+The [console specification](Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission)
+owns the interaction, mapping review and feature envelope. This section owns
+artifact provenance, agent responsibilities, submission and outcome semantics.
+The application-wide host/runtime boundaries remain unchanged.
+
+The accepted initial scope is owned by the console's
+[delivery envelope](Printer%20Console%20and%20Control%20Integration.md#accepted-initial-delivery-envelope):
+ordinary single-nozzle and H2D fixed dual-tool printing, both LAN and Cloud,
+and one valid Neo-sliced plate per submission. Rack/special dynamic mapping,
+external print-package import, remote-file reprinting and multi-plate queues
+are deferred. Automatic slicing that produces fixed tool assignments is included.
+The console also owns the accepted
+[entry and selection](Printer%20Console%20and%20Control%20Integration.md#accepted-entry-and-selection):
+reuse Send & Print, initialize from Device selection or leave empty, and use a
+modal bound to the workspace's current plate/result. Project edits and new
+slicing are blocked while it is open; underlying result validity checks remain.
+
+#### Selected responsibility boundary
+
+Submitting a local printable artifact and starting an existing remote file are
+different operations. Retain the latter meaning for the existing `jobs.start`
+contract. Add a separately advertised submission capability for agents that
+accept local artifacts and orchestrate delivery and start. Its exact API name
+and DTO decomposition remain implementation choices; do not expose Bambu's
+`PrintParams` or an arbitrary vendor-options bag in the shared application.
+
+The existing file-upload API must not report a fabricated remote file merely
+because a combined plugin operation has begun. Bambu file browsing, downloading
+and deletion are not prerequisites for submitting a local print. Other agents
+may adopt the common capability later; this feature does not require doing so.
+
+Public assessment and submission requests remain independently addressed.
+An assessment supplies useful candidates, constraints and diagnostics, but
+submission cannot require a previous assessment call, connection call or UI
+session. The agent validates the complete request and current relevant device
+conditions when sending begins. Bambu retains that prepared state during the
+send, following Orca; it does not promise an atomic snapshot spanning asynchronous
+connection and upload work. Capability support and current availability remain
+separate.
+
+#### Artifact and material provenance
+
+Keep two separate mappings: slicing assigns project materials to printing
+tools; submission assigns the completed artifact's material requirements to
+physical supply paths. Submission must preserve the tool assignments encoded
+by the slice. Changing those assignments requires the applicable slicing
+workflow, not a silent substitution during dispatch.
+
+The runtime projection is bound to a completed plate result receipt.
+It describes used material requirements, their artifact identities and original
+indices, material properties, tool/nozzle requirements, printer compatibility,
+estimated consumption and print duration. Do not infer the used requirements
+from the current editable rack, palette order or coincident device slot indices.
+Resolve automatic slicing assignments from the retained completed generation.
+The projection and artifact export must refer to that same generation. The
+runtime's receipt check rejects stale/unavailable results under the existing
+publication contract; the shared UI does not compare serialized manifest contents.
+
+Extend runtime/client/native bridge export to build the required print artifact
+from the retained result. Reuse Orca's existing 3MF writer and archive contract;
+ordinary project persistence is not a substitute for a sliced print package.
+Any Cloud configuration artifact must share the same result provenance.
+Shared application code still reaches WASM only through the runtime/client.
+Native networking, host temporary paths and credentials remain outside WASM.
+
+Material bindings use domain supply paths, preserving unit, slot and tool
+relationships. The Bambu agent privately converts them to native AMS/slot
+encodings, external-holder sentinels and nozzle numbering. Whole-plan validation
+must cover combinations that are individually reachable but incompatible
+together. Device telemetry and submission selections do not implicitly import
+materials into the project or modify project history.
+The console's accepted
+[basic material mapping](Printer%20Console%20and%20Control%20Integration.md#accepted-basic-material-mapping)
+defines automatic suggestions, ordinary AMS reuse, the external-holder type
+exception and dialog-local binding lifetime. The Bambu agent applies Orca's
+model-resource mixed-supply policy; the shared application must not branch on
+model names. A refresh revalidates the existing plan without substituting paths.
+The accepted
+[observation and assistance rules](Printer%20Console%20and%20Control%20Integration.md#accepted-observation-and-external-assistance-behavior)
+permit explicit selection of an occupied AMS slot with unidentified material,
+while keeping unknown metadata distinct from stale state. Normal refresh does
+not suspend an otherwise valid submission; disconnection or expired critical
+state blocks a new start until automatic recovery and revalidation. External
+multicolor assistance is included, defaults off and uses actual device-reported
+support normalized by the Bambu agent, independently of model-based mixing rules.
+
+The accepted
+[print options and preferences](Printer%20Console%20and%20Control%20Integration.md#accepted-print-options-and-preferences)
+include calibration, timelapse and shared PA options with Orca's capability and
+effect conditions. The agent normalizes supported choices and validates their
+effective values; automatic calibration remains distinct from on/off. User
+option changes persist immediately, including after dialog cancellation, per
+stable physical printer identity in a separate section of `printer-config.json`.
+LAN and Cloud routes of the same printer share those preferences. Extend the
+host-injected configuration schema, normalization and concurrent merge paths
+together, without coupling preference changes to connection revisions or
+credential ownership. Storage-location choices also persist per printer;
+temporary fallback or submission-only disabling does not overwrite the user's
+saved preference. The accepted
+[timelapse storage behavior](Printer%20Console%20and%20Control%20Integration.md#accepted-timelapse-storage-behavior)
+permits an explicitly confirmed oldest-video cleanup action before printing
+under Orca's supported conditions. The Bambu agent owns capacity queries and
+cleanup execution. Capacity-query failure or timeout is advisory and cannot
+authorize deletion or bypass other critical checks. Material bindings and
+external multicolor assistance retain their separately accepted dialog-local
+rules.
+
+The accepted
+[compatibility checks](Printer%20Console%20and%20Control%20Integration.md#accepted-compatibility-checks-and-acknowledgements)
+keep Orca's model compatibility policy and material prohibition/warning severity
+in the Bambu agent. Shared UI renders blocking or confirmable diagnostics.
+Nozzle-diameter mismatches permit explicit acknowledgement scoped to the current
+dialog, physical printer and mismatch content. Material prohibitions cannot be
+overridden; material warnings require submission-specific confirmation. These
+acknowledgements are not durable printer preferences and cannot waive unrelated
+blocking checks. Known nozzle hardness insufficiency blocks sending, while
+unknown nozzle material produces an advisory that hardness cannot be verified.
+For devices supporting nozzle flow-type reporting, invalid data or a mismatch
+with the slicing requirement blocks sending without override; unsupported
+devices skip that check. Agent-owned readiness gates preserve preparation
+choices while the device is busy or not ready. Recovery re-enables the action
+for an explicit user click, never an automatically queued print.
+Print-file storage checks follow Orca's model/transport conditions and its
+persistent global Allow Abnormal Storage preference, default off; this override
+does not waive missing-card or read-only checks. Special-material flow
+calibration restrictions remain agent-owned: unsupported Auto blocks sending,
+whereas On follows Orca's calibration-skipped advisory behavior.
+Other applicable pre-print checks follow Orca's conditions and severity in the
+agent, with the explicitly accepted Neo differences taking precedence and
+deferred hardware modes remaining excluded.
+
+#### Submission lifecycle and host execution
+
+Reuse explicit target/configuration provenance, request identity and operation
+tracking. Keep artifact reception, validation, transfer and start dispatch
+distinguishable. Transfer completion, successful native return,
+device acceptance and observed print start are different evidence. Unknown
+outcomes must survive observer interruption and must not trigger a blind second
+start or automatic LAN-to-Cloud resend. Agent-side physical transport selection
+stays behind the existing Bambu automatic route and must not retarget an
+outstanding submission when the UI selects another printer. Prefer LAN when its
+requirements are satisfied, otherwise Cloud when available, and expose the
+selected transport to the observer. Fallback requires affirmative evidence that
+printing has not been initiated. No LAN-only sending preference is included in
+this delivery.
+
+Closing an observer is not cancellation. The accepted
+[cancellation and closure rules](Printer%20Console%20and%20Control%20Integration.md#accepted-sending-paths-cancellation-and-closure)
+allow preparation/upload cancellation but require authoritative termination and
+non-start evidence before reporting cancelled and returning to preparation.
+After possible start dispatch, reconcile the outcome instead; physical print
+cancellation remains a separate action. An explicit unknown outcome permits
+observer closure and printer selection changes without retaining a connection
+lease; its recorded outcome remains available. The accepted
+[success and retry interaction](Printer%20Console%20and%20Control%20Integration.md#accepted-success-presentation-and-retry)
+navigates to the target's Device status after successful plugin completion,
+matching Orca's sending interaction. Physical print start is observed there,
+independently of the terminal `sent` submission phase. Ordinary
+send failures expose a direct retry through the normal sending flow, with no
+additional recovery wizard. Unknown outcomes retain their reconciliation
+boundary. Reconciliation timing and operation retention are implementation
+validation items: timeout or expiry is not evidence that no print started.
+Application-exit behavior during submission is explicitly deferred from this
+clarification round;
+no quit-confirmation or restart/resume policy is accepted here. Progress must
+represent the evidence available: native stage/percentage reports do not justify
+inventing byte counts or transfer speeds.
+
+The existing native wrapper serializes calls and its addon rejects concurrent
+invocations. Long-running print functions therefore require an explicit task,
+callback, cancellation and shutdown design; appending cancellation to the same
+blocked queue is insufficient. Preserve plugin lifetime until callbacks and
+native work have finished. Bounded artifact transport and host-private temporary
+file ownership/cleanup must be designed with this lifecycle.
+
+#### Reference implementation and feasibility limits
+
+The initial source comparison used Neo `cb9f9558` and its pinned Orca source
+`c936ee9a5c`. Orca's
+[SelectMachineDialog](../packages/slicer-wasm/cpp/src/slic3r/GUI/SelectMachine.cpp)
+collects mapping and print options, performs device checks and prepares the job.
+[DevMappingUtil](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevMapping.cpp)
+matches eligible supply slots by material type/color with further tie-breaking.
+[Plater](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp) exports print/config
+3MF artifacts, and [PrintJob](../packages/slicer-wasm/cpp/src/slic3r/GUI/Jobs/PrintJob.cpp)
+invokes the network plugin's combined transfer/start functions. These GUI-bound
+classes are behavioral references, not components to port into WASM.
+
+Neo already has result receipts, plain G-code export, ordinary project export,
+material topology/inventory, Bambu observations/controls and generic operation
+tracking. Its existing Send path selects plain G-code and submits empty material
+bindings. The Bambu provider currently advertises neither file upload nor
+`jobs.start`, and the native wrapper does not expose the print entry points.
+The common contract alone is not an executable print workflow.
+
+The plugin version is owned by
+[artifacts.json](../packages/bambu-native/artifacts.json). The inspected v2.2.0
+[LAN implementation](https://github.com/ClusterM/open-bamboo-networking/blob/v2.2.0/src/print_job.cpp)
+can return success after publishing the start message; this is not independent
+proof that printing began. Its
+[status document](https://github.com/ClusterM/open-bamboo-networking/blob/v2.2.0/STATUS.md)
+records separate Cloud prerequisites and qualification limits. Existing login,
+enumeration or monitoring does not qualify Cloud submission. Validate the
+fixed plugin ABI, including the by-value print parameter structure, rather than
+copying a newer upstream structure or relying solely on existing typedef checks.
+
+No print-package execution, native print-call fixture, build or physical print
+was performed by this initial read-only investigation. A focused artifact/native
+feasibility check is proposed before broad implementation. Both LAN and Cloud
+are now required by the accepted delivery envelope. Cloud prerequisites or
+qualification failures remain explicit blockers to that portion of delivery;
+successful LAN execution cannot substitute for Cloud acceptance. The accepted
+first physical acceptance phase is **H2D with AMS over LAN**. Cloud physical
+acceptance is deferred to a later phase while Cloud remains in the functional
+design scope. Record LAN results independently; do not label Cloud or untested
+single-nozzle models as physically qualified. Artifact and native-ABI feasibility
+must be established before the capability is enabled for real submissions;
+transport/fallback follows the accepted rules above.
+
+#### Implementation validation and deferred scope
+
+The product clarification baseline is complete for this increment. The following
+engineering checks remain necessary before implementation can claim the accepted
+behavior; this documentation commit does not satisfy them or authorize physical
+printing. API names, timeout constants and internal task representation are
+implementation choices constrained by the accepted behavior, not separate user
+workflows.
+
+| Boundary | Required evidence or explicit deferral |
+| --- | --- |
+| Runtime artifact | Inspect real exported print/config 3MF artifacts and material/tool metadata from the same retained slice result; ordinary project export or a mocked archive is insufficient. |
+| Native plugin | Verify pinned ABI/symbols, callback and cancellation behavior, task ownership and safe release. Long-running sends must not prevent cancellation or required device observations. |
+| Agent execution | Exercise validation, automatic path selection, duplicate requests, concurrent admission, cancellation races and late/unknown results. No new queue or blind retry may be inferred from a busy call or timeout. |
+| Shared UI and persistence | Verify capability gating, modal result binding, mapping preservation, direct retry, success navigation, preference normalization and independent-instance writes; preserve the existing Moonraker path. |
+| Physical acceptance | First phase: H2D with AMS over LAN, including actual mapped material feed and print-start observation. Cloud physical acceptance is deferred; other device and release claims require separate qualification. |
+| Application exit | Explicitly deferred from this clarification round. No quit-confirmation, automatic resume or cross-restart recovery behavior is accepted by this document. Native callback/lifetime safety still applies. |
+
+Acceptance covers artifact/result coherence, used-material extraction,
+tool-number conversion, invalid/unknown paths, combination rules, stale context,
+manual-selection preservation, cancellation, duplicate requests and unknown
+post-dispatch outcomes. Real WASM artifact inspection and physical material feed
+and print-start verification are required in addition to mocks. Follow the
+[testing guidelines](../doc/testing_guidelines.md) for check scope; a fixture
+does not establish a device, Cloud or cross-platform delivery claim.
 
 ## 3. Identity, configuration and stateless access
 

@@ -564,3 +564,13 @@ describe('provider catalogue and route management', () => {
     expect(unwrap(await service.listSaved())).toHaveLength(1);
   });
 });
+
+it('preference edits preserve route revision and survive connection record edits', async () => {
+  const { service, configuration } = setup();
+  const before = unwrap(await service.describe(target));
+  await configuration.save({ ...await configuration.load(), printPreferences: { 'bambu:serial': { timelapseStorage: 'external' } }, allowAbnormalStorage: true });
+  expect(unwrap(await service.describe(target)).configurationRevision).toBe(before.configurationRevision);
+  unwrap(await service.rename(target, 'Renamed'));
+  expect((await configuration.load()).printPreferences).toEqual({ 'bambu:serial': { timelapseStorage: 'external' } });
+  expect((await configuration.load()).allowAbnormalStorage).toBe(true);
+});

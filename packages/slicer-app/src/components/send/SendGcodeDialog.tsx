@@ -1,3 +1,6 @@
+import { usePrintModal } from './usePrintModal';
+import { PrintPreparationPanel } from './PrintPreparationPanel';
+import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SavedPrinter } from '@orca/printer-control/domain';
 import { usePrinterCatalogue } from '../device/usePrinterCatalogue';
@@ -64,11 +67,9 @@ export interface SendGcodeDialogProps {
   targetReceipt?: import('@slicer/client').SliceResultReceipt;
 }
 
-/**
- * The Send panel owns an ephemeral target selection. It intentionally does
- * not use DevicePanel's selection or write selection to any repository.
- */
-export function SendGcodeDialog({ open, action, onClose, initialSelection = null, platform: injectedPlatform, onNavigateToDevice, targetReceipt }: SendGcodeDialogProps) {
+/** The dialog copies the current Device target once; subsequent selection is independent. */
+export function SendGcodeDialog({ open, action, onClose, initialSelection, platform: injectedPlatform, onNavigateToDevice, targetReceipt }: SendGcodeDialogProps) {
+  usePrintModal(open);
   const contextPlatform = usePlatform();
   const platform = injectedPlatform ?? contextPlatform;
   const sliceStatus = useSlicerStore((state) => state.status);
@@ -79,8 +80,9 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const sliceReady = activeSliceTarget === null && (targetReceipt ? cachedReceipt?.inputStamp === targetReceipt.inputStamp &&
     cachedReceipt?.resultGeneration === targetReceipt.resultGeneration && cachedReceipt?.sliceTaskId === targetReceipt.sliceTaskId : sliceStatus === 'done');
   const catalogue = usePrinterCatalogue(platform.printers.service, open);
-  const printers = useMemo(() => catalogue.printers.filter(printer => sendRoute(printer, action === 'send-and-print')), [catalogue.printers, action]);
-  const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
+  const printers = useMemo(() => catalogue.printers.filter(printer => sendRoute(printer, action === 'send-and-print') || action === 'send-and-print' && printer.routes.some(r => r.capabilities.submission?.kind === 'supported')), [catalogue.printers, action]);
+  const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection ?? (action === 'send-and-print' ? useDeviceSelectionStore.getState().currentPrinterId : null));
+  const [preparationBusy, setPreparationBusy] = useState(false);
   const [state, setState] = useState<SendState>('idle');
   const [progress, setProgress] = useState<{ loaded: number; total?: number; fraction?: number }>({ loaded: 0 });
   const [uploadSpeed, setUploadSpeed] = useState(0);
@@ -104,8 +106,9 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     () => printers.find((printer) => printer.identity.id === selectedPrinterId) ?? null,
     [printers, selectedPrinterId],
   );
+  const submissionRoute = action === 'send-and-print' ? selectedPrinter?.routes.find(r => r.capabilities.submission?.kind === 'supported') : undefined;
   const reason = !catalogue.loaded ? 'Loading printers…' : catalogue.failed ? 'Printer configuration is unavailable. Check Device settings.' : unavailableReason(sliceReady, printers, selectedPrinter);
-  const busy = !catalogue.loaded || state === 'uploading' || state === 'starting';
+  const busy = preparationBusy || !catalogue.loaded || state === 'uploading' || state === 'starting';
   const controlsDisabled = busy || state === 'success';
   const awaitingConfirmation = state === 'uploading' && progress.fraction !== undefined && progress.fraction >= 1;
   const progressValue = state !== 'uploading' || progress.fraction === undefined
@@ -155,6 +158,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       setSwitchToDeviceAfterSend(false);
       return;
     }
+    setSelectedPrinterId(initialSelection ?? (action === 'send-and-print' ? useDeviceSelectionStore.getState().currentPrinterId : null));
     setState('idle');
     setMessage(null);
     setProgress({ loaded: 0 });
@@ -218,6 +222,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   }
 
   function close() {
+    if (preparationBusy) return;
     clearCloseCountdown();
     cancelUpload();
     onClose();
@@ -351,30 +356,35 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     }
   }
 
+  const printerControl = (
+    <div className="flex flex-col gap-2">
+      {!submissionRoute && <label htmlFor="send-printer" className="text-sm font-medium">Printer</label>}
+      <Select value={selectedPrinterId ?? ''} onValueChange={(value) => { if (value) selectPrinter(value); }} disabled={controlsDisabled || printers.length === 0}>
+        <SelectTrigger id="send-printer" className={submissionRoute ? "h-7 w-full border-0 bg-transparent px-0 shadow-none" : "w-full"} data-testid="send-printer-select" aria-label="Printer">
+          <SelectValue placeholder="Select a printer">
+            {(value) => printerLabel(value, printers)}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {printers.map((printer) => (
+            <SelectItem key={printer.identity.id} value={printer.identity.id} data-testid={`send-printer-${printer.identity.id}`}>{printer.identity.displayName}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="send-gcode-title" data-testid="send-gcode-dialog">
-      <div className="flex w-full max-w-md flex-col gap-4 rounded-lg border bg-card p-5 shadow-lg">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="send-gcode-title" data-testid="send-gcode-dialog" onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape' && !preparationBusy) close(); }}>
+      <div className={`flex w-full ${submissionRoute ? "max-w-[720px]" : "max-w-xl"} max-h-[90vh] overflow-y-auto flex-col gap-5 rounded-lg border bg-card p-5 shadow-lg`}>
         <div>
-          <h2 id="send-gcode-title" className="font-semibold">{action === 'send' ? 'Send G-code' : 'Send and print'}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Choose a printer for this operation. This choice is not saved.</p>
+          <h2 id="send-gcode-title" className="font-semibold">{action === 'send' ? 'Send G-code' : 'Send print job'}</h2>
+          {!submissionRoute && <p className="mt-1 text-sm text-muted-foreground">Choose a printer for this operation. This choice is not saved.</p>}
         </div>
-        <div className="flex flex-col gap-2">
-          <label htmlFor="send-printer" className="text-sm font-medium">Printer</label>
-          <Select value={selectedPrinterId ?? ''} onValueChange={(value) => { if (value) selectPrinter(value); }} disabled={controlsDisabled || printers.length === 0}>
-            <SelectTrigger id="send-printer" className="w-full" data-testid="send-printer-select" aria-label="Printer">
-              <SelectValue placeholder="Select a printer">
-                {(value) => printerLabel(value, printers)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {printers.map((printer) => (
-                <SelectItem key={printer.identity.id} value={printer.identity.id} data-testid={`send-printer-${printer.identity.id}`}>{printer.identity.displayName}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {!(submissionRoute && sliceReady) && printerControl}
         {reason && <p className="text-sm text-muted-foreground" role="status" data-testid="send-disabled-reason">{reason}</p>}
+        {submissionRoute && selectedPrinter && sliceReady ? <PrintPreparationPanel printerControl={printerControl} key={selectedPrinter.identity.id} platform={platform} printer={selectedPrinter} route={submissionRoute} receipt={targetReceipt} onClose={onClose} onBusyChange={setPreparationBusy} /> : <>
         {busy && (
           <div className="flex flex-col gap-2" data-testid="send-progress-status" role="status" aria-live="polite">
             <Progress value={progressValue ?? null} aria-label={progressLabel} />
@@ -406,6 +416,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
             <Button type="button" onClick={() => void send()} disabled={busy || Boolean(reason) || state === 'success' || state === 'start-failed-after-upload' || state === 'outcome-unknown'} data-testid="send-submit">{action === 'send' ? 'Send' : 'Send & Print'}</Button>
           </div>
         </div>
+        </>}
       </div>
     </div>
   );

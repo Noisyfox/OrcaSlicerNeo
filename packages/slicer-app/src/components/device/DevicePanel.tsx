@@ -1,3 +1,5 @@
+import { usePrintDialogStore } from '@/stores/usePrintDialogStore';
+import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { PrinterDiscovery } from './PrinterDiscovery';
 import {
   useEffect,
@@ -117,6 +119,7 @@ export function removePrinter(printers: readonly PrinterConfiguration[], printer
 
 export function DevicePanel({ initialSelection = null, sidebarVisible = true, visible = true }: DevicePanelProps = {}) {
   const platform = usePlatform();
+  const printDialogOpen = usePrintDialogStore(s => s.open);
   const { printers, loaded: configurationLoaded, failed: loadFailed, refresh } = usePrinterCatalogue(platform.printers.service);
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
   const [remembered, setRemembered] = useState<string | null | undefined>(undefined);
@@ -248,6 +251,15 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   useEffect(() => {
     if (configurationLoaded && !loadFailed && selectedPrinterId && !selectedPrinter) setSelectedPrinterId(null);
   }, [configurationLoaded, loadFailed, selectedPrinter, selectedPrinterId]);
+
+  const requestedSelection = useDeviceSelectionStore(s => s.requestVersion);
+  useEffect(() => { useDeviceSelectionStore.getState().setCurrent(selectedPrinterId); }, [selectedPrinterId]);
+  useEffect(() => {
+    if (requestedSelection) {
+      selectPrinter(useDeviceSelectionStore.getState().requestedPrinterId);
+      setSelectedPage('monitor');
+    }
+  }, [requestedSelection]);
 
   const consoleRoute = selectedPrinter?.routes.find(route => route.capabilities.webInterface.kind === 'supported');
 
@@ -426,7 +438,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
         />
 
         <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card" id="device-content" role={activePage ? "tabpanel" : undefined} aria-labelledby={activePage ? `device-tab-${activePage}` : undefined} aria-label={activePage ? undefined : "Printer details"}>
-          {selectedPrinter && monitorRoute && <div hidden={activePage !== 'monitor'} className="h-full"><PrinterMonitor key={`${selectedPrinter.identity.id}:${monitorRoute.id}:${monitorRoute.configurationRevision}`} printer={selectedPrinter} route={monitorRoute} visible={visible && activePage === 'monitor'} /></div>}
+          {!printDialogOpen && selectedPrinter && monitorRoute && <div hidden={activePage !== 'monitor'} className="h-full"><PrinterMonitor key={`${selectedPrinter.identity.id}:${monitorRoute.id}:${monitorRoute.configurationRevision}`} printer={selectedPrinter} route={monitorRoute} visible={visible && activePage === 'monitor'} /></div>}
           <div hidden={activePage !== 'web'} ref={webviewContainerRef} className="absolute inset-0 [&>iframe]:h-full [&>iframe]:w-full [&>webview]:h-full [&>webview]:w-full" data-testid="device-webview-container" />
           {!selectedPrinter && (
             <div className="absolute inset-0 flex items-center justify-center p-6">

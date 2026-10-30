@@ -3242,6 +3242,42 @@ describe('SlicerClient bridge contract', () => {
     expect(replaced.objects).toBe(1);
   });
 
+  it('exports receipt-bound print artifacts without exposing paths or consuming the retained G-code', async () => {
+    const module = createMockModule();
+    const c = createClient(async () => module);
+    await c.addModel(new Uint8Array(4), 'stl');
+    const sliced = await c.slice({});
+    const receipt = sliced.receipt!;
+    const manifest = await c.describePrintPlate(receipt);
+    expect(manifest).toMatchObject({ ok: true, receipt, manifest: { materials: [{ index: 0, toolIndex: 0 }] } });
+    const result = await c.exportPrintPlate({ receipt, filenameBase: '' });
+    expect(result).toMatchObject({ ok: true, receipt, plateIndex: 1, gcodePath: 'Metadata/plate_1.gcode' });
+    expect(result).not.toHaveProperty('path');
+    if (!result.ok) throw new Error(result.error);
+    expect(result.bytes).not.toBe(result.configBytes);
+    expect(() => module.FS.readFile('/tmp/mock-print.3mf')).toThrow();
+    expect(() => module.FS.readFile('/tmp/mock-print-config.3mf')).toThrow();
+    expect(await c.exportGcodePlate({ receipt, filenameBase: '' })).toMatchObject({ ok: true });
+    await c.slice({});
+    expect(await c.describePrintPlate(receipt)).toMatchObject({ ok: false, status: 'stale' });
+    expect(await c.exportPrintPlate({ receipt, filenameBase: '' })).toMatchObject({ ok: false, status: 'stale' });
+  });
+
+  it('cleans both temporary print archives when reading the configuration fails', async () => {
+    const module = createMockModule();
+    const c = createClient(async () => module);
+    await c.addModel(new Uint8Array(4), 'stl');
+    const sliced = await c.slice({});
+    const read = module.FS.readFile.bind(module.FS);
+    vi.spyOn(module.FS, 'readFile').mockImplementation((path) => {
+      if (path === '/tmp/mock-print-config.3mf') throw new Error('read failed');
+      return read(path);
+    });
+    await expect(c.exportPrintPlate({ receipt: sliced.receipt!, filenameBase: '' })).rejects.toThrow('read failed');
+    expect(() => read('/tmp/mock-print.3mf')).toThrow();
+    expect(() => read('/tmp/mock-print-config.3mf')).toThrow();
+  });
+
   it('exportProject returns a transferable BBS archive byte buffer', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');

@@ -1,6 +1,6 @@
 # Documentation Index
 
-**Updated:** 2026-10-27
+**Updated:** 2026-10-30
 
 Specifications own accepted behavior, required constraints, exclusions and open
 decisions; engineering references own build/debug/verification procedures.
@@ -39,6 +39,7 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Toolpath inspection and rendering | [G-code Preview](../spec/G-code%20Preview%20v2.md), [GPU Streaming Renderer](../spec/G-code%20Preview%20GPU%20Streaming%20Renderer.md) |
 | Device console, monitoring/control and upload/print | [Printer Console](../spec/Printer%20Console%20and%20Control%20Integration.md), including the selected [Bambu control design](../spec/Printer%20Console%20and%20Control%20Integration.md#bambu-control-design) and its accepted interaction decisions; [provider architecture](../spec/Printer%20Domain%20and%20Control%20Architecture.md#23-bambu-monitoring-and-control-design) owns execution and qualification boundaries. |
 | Printer discovery, capabilities, materials, sensors, cameras and remote files | [Printer Domain and Control Architecture](../spec/Printer%20Domain%20and%20Control%20Architecture.md) (Moonraker subset delivered; Electron Bambu [implementation and acceptance sequence](../spec/Printer%20Domain%20and%20Control%20Architecture.md#22-bambu-implementation-and-acceptance-sequence) records accepted account/Cloud behavior and six-target packaging/startup; LAN hardware and broader real-account qualification remain open, gateway deferred) |
+| Local-artifact print submission and material mapping | [Preparation UI](../spec/Printer%20Console%20and%20Control%20Integration.md#print-preparation-and-submission), [submission architecture](../spec/Printer%20Domain%20and%20Control%20Architecture.md#24-local-artifact-print-submission) (option B implemented, initially Bambu-only; H2D fixed-right-tool and fixed-dual-tool PETG LAN prints completed, Orca-style plugin-success modal transition physically verified; error-specific recovery UI/actions have software coverage; physical recovery, other supply paths and Cloud acceptance remain open) |
 | Electron utility, temporary files and proposed Python | [Native Python Plugin Architecture](../spec/Native%20Python%20Plugin%20Architecture.md) (host work delivered; Python remains design work) |
 | Live camera playback and remote media URLs | [Camera architecture and acceptance sequence](../spec/Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback), [Camera UI](../spec/Printer%20Console%20and%20Control%20Integration.md#camera-live-view) (v2.2.0 LAN reader/remux, binary transport and shared Camera card delivered with fixture acceptance; H2D H.264 LAN accepted on the development host; JPEG hardware/six-platform playback qualification pending, TUTK excluded) |
 

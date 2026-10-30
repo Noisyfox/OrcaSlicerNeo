@@ -45,3 +45,19 @@ describe('Electron printer configuration persistence', () => {
     expect(filesystem.writeText).not.toHaveBeenCalled();
   });
 });
+
+describe('independent print preference edits', () => {
+  it('merges different printers and different option keys without erasing connection records', async () => {
+    const { mergePrinterConfigurations: merge } = await import('./printerConfigurationPersistence');
+    const base = { version: 1 as const, printers: [record] };
+    const next = { ...base, printPreferences: { bambu: { timelapse: true } } };
+    const current = { ...base, printPreferences: { bambu: { bedLeveling: 'auto' as const }, second: { timelapse: false } }, allowAbnormalStorage: true };
+    expect(merge(base, next, current)).toEqual({ ...current, printPreferences: { ...current.printPreferences, bambu: { timelapse: true, bedLeveling: 'auto' } } });
+  });
+  it('rejects conflicting edits to the same preference and preserves explicit deletion', async () => {
+    const { mergePrinterConfigurations: merge } = await import('./printerConfigurationPersistence');
+    const base = { version: 1 as const, printers: [], printPreferences: { bambu: { bedLeveling: 'auto' as const } } };
+    expect(() => merge(base, { ...base, printPreferences: { bambu: { bedLeveling: 'on' } } }, { ...base, printPreferences: { bambu: { bedLeveling: 'off' } } })).toThrow(/another application instance/);
+    expect(merge(base, { ...base, printPreferences: {} }, base)).toEqual({ version: 1, printers: [] });
+  });
+});

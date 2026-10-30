@@ -219,3 +219,10 @@ it('keeps every recent operation empty without storing browser file locations', 
   expect(await adapter.recentProjects.thumbnail('anything')).toBeNull();
   expect({ ...localStorage }).toEqual(before);
 });
+
+it('retains physical print preferences in Web storage even without that printer provider', async () => {
+  localStorage.clear();
+  const value = { version: 1 as const, printers: [], printPreferences: { 'bambu:serial': { flowCalibration: 'auto' as const, timelapseStorage: 'external' as const } }, allowAbnormalStorage: true };
+  await createBrowserPrinterConfigurationRepository().save(value);
+  expect(await createBrowserPrinterConfigurationRepository().load()).toEqual(value);
+});

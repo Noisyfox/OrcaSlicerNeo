@@ -362,7 +362,7 @@ test('Send and Send & Print use Moonraker fixture without re-upload on start fai
 
     // Send is upload-only.
     await page.getByTestId('output-mode-select').click();
-    await page.getByRole('option', { name: 'Send', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Send', exact: true }).click();
     await page.getByTestId('btn-send').click();
     await chooseSendPrinter(page, printerId);
     fixture.holdUploadResponse();
@@ -383,7 +383,7 @@ test('Send and Send & Print use Moonraker fixture without re-upload on start fai
 
     // Send & Print uploads once, reports the failed start, then retries start only.
     await page.getByTestId('output-mode-select').click();
-    await page.getByRole('option', { name: 'Send & Print', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Send & Print', exact: true }).click();
     await page.getByTestId('btn-send-and-print').click();
     await chooseSendPrinter(page, printerId);
     await page.getByTestId('send-submit').click();
@@ -423,7 +423,7 @@ test('Send & Print works with a keyless Moonraker printer and sends no API-key h
     await waitForReady(page);
     await addFixtureModelAndSlice(page);
     await page.getByTestId('output-mode-select').click();
-    await page.getByRole('option', { name: 'Send & Print', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Send & Print', exact: true }).click();
     await page.getByTestId('btn-send-and-print').click();
     await chooseSendPrinter(page, printerId);
     await page.getByTestId('send-submit').click();

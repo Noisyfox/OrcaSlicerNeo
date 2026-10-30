@@ -1,5 +1,6 @@
 #include <napi.h>
 #include "plugin_agent.hpp"
+#include "print_params_napi.hpp"
 #include <atomic>
 #include <cmath>
 #include <limits>
@@ -13,6 +14,10 @@ static Napi::Value output_value(Napi::Env env, const Output& output) {
             auto result = Napi::Object::New(env);
             result.Set("result", value.result); result.Set("httpCode", value.http_code); result.Set("body", value.body);
             return result;
+        } else if constexpr (std::is_same_v<T, PrintResult>) {
+            auto result = Napi::Object::New(env);
+            result.Set("code", value.code); result.Set("mayHaveStarted", value.may_have_started);
+            result.Set("cancelRequested", value.cancel_requested); return result;
         } else return Napi::Value::From(env, value);
     }, output);
 }
@@ -83,7 +88,7 @@ public:
 class AgentWrap;
 class CallWorker : public Napi::AsyncWorker {
 public:
-    CallWorker(Napi::Env env, AgentWrap* owner, std::function<Output()> work);
+    CallWorker(Napi::Env env, AgentWrap* owner, std::function<Output()> work, bool printing = false);
     void Execute() override { try { result_ = work_(); } catch (...) { SetError("Bambu native call failed"); } }
     void OnOK() override;
     void OnError(const Napi::Error& error) override;
@@ -93,6 +98,7 @@ private:
     Napi::Promise::Deferred deferred_;
     std::function<Output()> work_;
     Output result_ = 0;
+    bool printing_;
 };
 
 class AgentWrap : public Napi::ObjectWrap<AgentWrap> {
@@ -100,6 +106,7 @@ public:
     static Napi::Object Init(Napi::Env env, Napi::Object exports) {
         exports.Set("Agent", DefineClass(env, "Agent", {
             InstanceMethod("invoke", &AgentWrap::Invoke), InstanceMethod("drain", &AgentWrap::Drain), InstanceMethod("dispose", &AgentWrap::Dispose),
+            InstanceMethod("startPrint", &AgentWrap::StartPrint), InstanceMethod("cancelPrint", &AgentWrap::CancelPrint),
         }));
         return exports;
     }
@@ -114,15 +121,40 @@ public:
         if (hub_) hub_->release(true);
         if (agent_) { try { agent_->clear_callbacks(); agent_->destroy(); } catch (...) {} }
     }
-    void Complete() { busy_ = false; Unref(); }
+    void Complete(bool printing) { if (printing) print_.reset(); else busy_ = false; Unref(); }
 private:
     std::shared_ptr<PluginAgent> agent_;
     std::shared_ptr<EventHub> hub_;
     bool busy_ = false;
+    std::shared_ptr<PrintState> print_;
+    Napi::Value StartPrint(const Napi::CallbackInfo& info) {
+        if (!agent_ || busy_ || print_) throw Napi::Error::New(info.Env(), "Native print closed or busy");
+        if (info.Length() != 2 || !info[0].IsString() || !info[1].IsObject() || info[1].IsArray())
+            throw Napi::TypeError::New(info.Env(), "Invalid print request");
+        const auto route = info[0].As<Napi::String>().Utf8Value();
+        if (route != "lan" && route != "cloud") throw Napi::TypeError::New(info.Env(), "Invalid print route");
+        auto params = read_print_params(info[1].As<Napi::Object>());
+        auto agent = agent_; auto hub = hub_; auto state = std::make_shared<PrintState>();
+        auto work = [agent, hub, state, route, params]() -> Output {
+            return agent->print(route, params, state, [hub](PluginEvent event) { hub->send(std::move(event)); });
+        };
+        print_ = state; Ref();
+        auto worker = new CallWorker(info.Env(), this, work, true);
+        auto promise = worker->promise(); worker->Queue(); return promise;
+    }
+    Napi::Value CancelPrint(const Napi::CallbackInfo& info) {
+        const bool requested = print_ && !print_->may_have_started;
+        if (requested) print_->cancel = true;
+        // Acceptance is only a request. Completion determines whether dispatch raced it.
+        return Napi::Boolean::New(info.Env(), requested);
+    }
     Napi::Value Invoke(const Napi::CallbackInfo& info) {
         if (!agent_ || busy_) throw Napi::Error::New(info.Env(), "Native agent closed or busy");
         if (info.Length() != 2 || !info[0].IsString() || !info[1].IsArray()) throw Napi::TypeError::New(info.Env(), "Invalid native request");
         const auto method = info[0].As<Napi::String>().Utf8Value();
+        if (print_ && method != "send_message" && method != "send_message_to_printer" &&
+            method != "get_version" && method != "is_server_connected" && method != "get_subtask_info")
+            throw Napi::Error::New(info.Env(), "Native print in progress");
         std::vector<Input> arguments;
         auto array = info[1].As<Napi::Array>();
         for (uint32_t i = 0; i < array.Length(); ++i) {
@@ -162,19 +194,19 @@ private:
         auto promise = worker->promise(); worker->Queue(); return promise;
     }
     Napi::Value Drain(const Napi::CallbackInfo& info) {
-        if (!hub_ || busy_) throw Napi::Error::New(info.Env(), "Native agent closed or busy");
+        if (!hub_ || busy_ || print_) throw Napi::Error::New(info.Env(), "Native agent closed or busy");
         return hub_->drain(info.Env());
     }
     Napi::Value Dispose(const Napi::CallbackInfo& info) {
-        if (busy_ || (agent_ && agent_->has_agent())) throw Napi::Error::New(info.Env(), "Destroy agent before unloading");
+        if (busy_ || print_ || (agent_ && agent_->has_agent())) throw Napi::Error::New(info.Env(), "Destroy agent before unloading");
         if (hub_) hub_->release();
         hub_.reset(); agent_.reset(); return info.Env().Undefined();
     }
 };
-CallWorker::CallWorker(Napi::Env env, AgentWrap* owner, std::function<Output()> work)
-    : Napi::AsyncWorker(env), owner_(owner), deferred_(Napi::Promise::Deferred::New(env)), work_(std::move(work)) {}
-void CallWorker::OnOK() { owner_->Complete(); deferred_.Resolve(output_value(Env(), result_)); }
-void CallWorker::OnError(const Napi::Error& error) { owner_->Complete(); deferred_.Reject(error.Value()); }
+CallWorker::CallWorker(Napi::Env env, AgentWrap* owner, std::function<Output()> work, bool printing)
+    : Napi::AsyncWorker(env), owner_(owner), deferred_(Napi::Promise::Deferred::New(env)), work_(std::move(work)), printing_(printing) {}
+void CallWorker::OnOK() { owner_->Complete(printing_); deferred_.Resolve(output_value(Env(), result_)); }
+void CallWorker::OnError(const Napi::Error& error) { owner_->Complete(printing_); deferred_.Reject(error.Value()); }
 Napi::Object InitCamera(Napi::Env env, Napi::Object exports);
 static Napi::Object Init(Napi::Env env, Napi::Object exports) { return InitCamera(env, AgentWrap::Init(env, exports)); }
 NODE_API_MODULE(bambu, Init)

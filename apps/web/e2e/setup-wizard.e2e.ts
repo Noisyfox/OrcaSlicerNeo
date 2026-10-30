@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from '../../desktop/e2e/plate-controls.helpers';
 import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 const { test, expect } = playwright;
 import { readFile } from 'node:fs/promises';
@@ -85,6 +86,7 @@ test('real native Web mandatory setup saves activation and next startup keeps se
   await (await chooser).setFiles(resolve(import.meta.dirname, '../../../packages/slicer-wasm/fixtures/cube.stl'));
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
   await page.getByTestId('btn-slice').click();
+  await selectGcodeOutput(page, 'export', { timeout: 120_000 });
   await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 120_000 });
   const downloaded = page.waitForEvent('download');
   await page.getByTestId('btn-export').click();

@@ -1,6 +1,6 @@
 import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
-import { expectCurrentPlate, clickPlateControl } from './plate-controls.helpers';
+import { selectGcodeOutput, expectCurrentPlate, clickPlateControl } from './plate-controls.helpers';
 // apps/desktop/e2e/app.e2e.ts — the full v1 flow against the built app.
 // Mock mode (default): expects the mock gcode marker. Real mode
 // (ORCA_E2E_REAL=1, CI e2e-real job): expects real extruder moves (G1).
@@ -603,6 +603,7 @@ test('native G-code Save As receives generated suggestion and supports cancellat
     await page.getByTestId('btn-add-model').click();
     await expect(page.getByTestId('btn-slice')).toBeEnabled();
     await page.getByTestId('btn-slice').click();
+    await selectGcodeOutput(page, 'export', { timeout: 120_000 });
     await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 120_000 });
     await page.getByTestId('btn-export').click();
     await expect.poll(() => app.evaluate(() => (globalThis as unknown as { gcodeSaveTest: { calls: unknown[] } }).gcodeSaveTest.calls.length)).toBe(1);
@@ -649,17 +650,18 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     // floating-control positions and keeps the selector square.
     const viewportBox = await page.getByTestId('viewport').boundingBox();
     const actionBox = await page.getByTestId('btn-slice').boundingBox();
-    const selectorBox = await page.getByTestId('output-mode-select').boundingBox();
     const statsBox = await page.locator('.scene-stats').boundingBox();
     expect(viewportBox).not.toBeNull();
     expect(actionBox).not.toBeNull();
-    expect(selectorBox).not.toBeNull();
     expect(statsBox).not.toBeNull();
     expect(actionBox!.width).toBe(150);
     expect(actionBox!.x - viewportBox!.x).toBeCloseTo(4, 0);
     expect(actionBox!.y - viewportBox!.y).toBeCloseTo(4, 0);
-    expect(selectorBox!.width).toBeCloseTo(28, 3);
-    expect(selectorBox!.height).toBeCloseTo(28, 3);
+    if (await page.getByTestId('output-mode-select').isVisible()) {
+      await page.getByTestId('output-mode-select').click();
+      await expect(page.getByRole('menuitemradio', { name: /^(Export|Send|Send & Print)$/ })).toHaveCount(0);
+      await page.keyboard.press('Escape');
+    }
     expect(statsBox!.x + statsBox!.width).toBeCloseTo(viewportBox!.x + viewportBox!.width - 4, 0);
     expect(statsBox!.y).toBeCloseTo(viewportBox!.y + 4, 0);
 
@@ -755,6 +757,15 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     }), { timeout: 20_000 }).toBe(true);
     await expect(page.getByTestId('viewport')).toBeVisible();
     await expect(page.getByTestId('layer-scrubber')).toBeVisible({ timeout: SLICE_RESULT_TIMEOUT });
+    await expect(page.getByTestId('btn-send-and-print')).toBeEnabled();
+    const selectorBox = await page.getByTestId('output-mode-select').boundingBox();
+    expect(selectorBox).not.toBeNull();
+    expect(selectorBox!.width).toBeCloseTo(28, 3);
+    expect(selectorBox!.height).toBeCloseTo(28, 3);
+    await page.getByTestId('output-mode-select').click();
+    await expect(page.getByRole('menuitemradio', { name: /^(Export|Send|Send & Print)$/ })).toHaveText(['Send & Print', 'Send', 'Export']);
+    await expect(page.getByRole('menuitemradio', { name: 'Send & Print', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('menuitemradio', { name: 'Export', exact: true }).click();
     await expect(page.getByTestId('btn-export')).toBeEnabled();
 
     // Slim cross-line thumbs must remain hit-testable outside the track.
@@ -1271,6 +1282,7 @@ test('real DRC flow: import → slice → export gcode', async () => {
     await expect(page.getByTestId('viewport')).toBeVisible();
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    await selectGcodeOutput(page, 'export');
     await page.getByTestId('btn-export').click();
     await expect.poll(() => existsSync(exportPath) ? readFileSync(exportPath, 'utf8') : '', { timeout: 30_000 }).toContain('G1');
   } finally {
@@ -1299,6 +1311,7 @@ test('real STEP flow: Add Model → renders named solid → slice → export G-c
 
       await page.getByTestId('btn-slice').click();
       await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+      await selectGcodeOutput(page, 'export');
       await expect(page.getByTestId('btn-export')).toBeEnabled();
       await page.getByTestId('btn-export').click();
       await expect.poll(() => existsSync(exportPath) ? readFileSync(exportPath, 'utf8') : '', { timeout: 30_000 }).toContain('G1');
@@ -1690,6 +1703,7 @@ test('object list: rename, printable, and slice (mock)', async () => {
     // The metadata edits invalidate any prior slice; a fresh slice succeeds.
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    await selectGcodeOutput(page, 'export');
     await expect(page.getByTestId('btn-export')).toBeEnabled();
   } finally {
     await app.close();

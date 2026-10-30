@@ -163,8 +163,10 @@ transparent 6px separator overlays the canvas without hover/focus fill.
 The canvas meets the titlebar, window edge, sidebar and status bar. Floating
 controls retain a frame inset of 4px top/right and 6px left. There is no separate
 top toolbar row. Plate actions live in the Plates sidebar tab. The teal split action at
-top-left offers Slice until a result exists, then Export, Send or Send & Print
-according to its selector. The selector defaults to Export and opens downward.
+top-left offers Slice until a result exists, then Send & Print, Send or Export
+according to its selector. The selector defaults to Send & Print and opens downward.
+These output choices appear only after successful slicing, in that order;
+eligible filament-mapping modes live in a Filament mapping submenu.
 The two rounded halves have a 2px gap and no enclosing panel. During slicing,
 the main half shows actual percentage; the spinner square becomes a red Cancel
 control on hover/focus when threaded cancellation is available; serial slicing

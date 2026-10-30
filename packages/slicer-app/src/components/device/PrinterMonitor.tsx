@@ -9,6 +9,7 @@ import { usePrinterObservation } from './usePrinterObservation';
 import { ActuatorCard, ControlCard, display, MotionCard, ThermalCard, valueOf } from './PrinterControlCards';
 import { CameraCard } from './media/CameraCard';
 import { MaterialControlCard } from './MaterialControlCard';
+import { PrinterAlerts } from './PrinterAlerts';
 
 const monitoringTopics = ['status', 'thermal', 'motion', 'actuators', 'materials', 'sensors'] as const;
 export function supportsMonitor(capabilities: D.PrinterCapabilities): boolean {
@@ -58,7 +59,8 @@ export function PrinterMonitor({ printer, route, visible = true }: { printer: D.
     {canRefresh && !snapshot && <p className="text-sm text-muted-foreground">No readings requested. Use Refresh to read the printer.</p>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {feedback && <div role="status" className="flex items-center justify-between gap-3 rounded border p-2 text-sm"><span>{feedback}</span><Button size="sm" variant="ghost" onClick={() => setFeedback(null)}>Dismiss</Button></div>}
-    {valueOf(snapshot?.values.alerts)?.map(alert => <section key={alert.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-destructive/40 p-3 text-sm"><span>{alert.message} <span className="text-muted-foreground">{alert.code}</span></span><div className="flex gap-2">{alert.actions.map(action => <Button key={action.actionRef.token} size="sm" variant="secondary" disabled={controls.disabled || action.availability.kind !== 'available'} onClick={() => void send({ type: 'actions.invoke', params: { actionRef: action.actionRef } })}>{action.label}</Button>)}</div></section>)}
+    <PrinterAlerts alerts={valueOf(snapshot?.values.alerts) ?? []} printerName={printer.identity.displayName} visible={visible}
+      disabled={controls.disabled} feedback={feedback} onInvoke={action => void send({ type: 'actions.invoke', params: { actionRef: action.actionRef } })} />
     </>}
     progress={<PrintProgressCard preview={preview} status={status?.printStatus} progressActions={<>
         {(capabilities.commands['jobs.pause'].kind === 'supported' || capabilities.commands['jobs.resume'].kind === 'supported') && <Button size="icon-lg" variant="ghost" className="text-muted-foreground" aria-label={pauseResumeLabel} title={pauseResumeLabel} disabled={controls.disabled || capabilities.commands[pauseResumeCommand].kind !== 'supported' || liveStatus && phase !== (paused ? 'paused' : 'printing')} onClick={() => void send({ type: pauseResumeCommand, params: {} })}><PauseResumeIcon className="size-4" fill="currentColor" strokeWidth={0} /></Button>}

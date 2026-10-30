@@ -7,6 +7,10 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
+import type { NozzleMappingSnapshot } from '@slicer/client';
+const mapping = vi.hoisted(() => ({ snapshot: null as NozzleMappingSnapshot | null, commit: vi.fn() }));
+vi.mock('./nozzleMapping/useNozzleMapping', () => ({ useNozzleMapping: () => ({ snapshot: mapping.snapshot, revision: 1 }) }));
+vi.mock('./nozzleMapping/NozzleMappingControls', () => ({ useMappingCommit: () => ({ disabled: false, commit: mapping.commit }) }));
 vi.mock('./actions/sliceActions', () => ({ exportGcode: vi.fn(), sliceModel: vi.fn(), cancelSlice: vi.fn(async () => true) }));
 import { cancelSlice, exportGcode, sliceModel } from './actions/sliceActions';
 vi.mock('../send/SendGcodeDialog', () => ({
@@ -50,6 +54,7 @@ describe('SliceButton send navigation', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    mapping.snapshot = null;
     act(() => root?.unmount());
     root = undefined;
     document.body.innerHTML = '';
@@ -92,7 +97,7 @@ describe('SliceButton send navigation', () => {
     expect(container.querySelector('[data-testid="btn-send-and-print"]')).toBeNull();
   });
 
-  it.each(['prepare', 'preview'] as const)('shows one Slice action and an output selector on %s', async (activeTab) => {
+  it.each(['prepare', 'preview'] as const)('shows only Slice before a result or mapping is available on %s', async (activeTab) => {
     const { platform } = makePlatform();
     const container = document.createElement('div');
     document.body.append(container);
@@ -104,7 +109,7 @@ describe('SliceButton send navigation', () => {
 
     expect(container.querySelector('[data-testid="toolbar-actions"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="btn-slice"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="output-mode-select"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="output-mode-select"]')).toBeNull();
     expect(container.querySelector('[data-testid="btn-export"]')).toBeNull();
     expect(container.querySelector('[data-testid="btn-send"]')).toBeNull();
   });
@@ -118,22 +123,49 @@ describe('SliceButton send navigation', () => {
     return container;
   }
 
-  it('executes Slice before completion and Export afterwards', async () => {
+  it('keeps mapping in a submenu before slicing and exposes output choices only for a successful slice', async () => {
+    mapping.snapshot = {
+      ok: true, plateId: 'A', revision: 1, eligible: true, nozzles: [], usedFilaments: [], diagnostics: [],
+      saved: { mode: 3, filamentMap: [], volumeMap: null, nozzleMap: null },
+      effective: { mode: 3, filamentMap: [], volumeMap: [], nozzleMap: [] },
+      modes: [{ mode: 0, available: true, reason: '' }, { mode: 2, available: true, reason: '' }],
+    };
+    const container = await renderButton();
+    await act(async () => { (container.querySelector('[data-testid="output-mode-select"]') as HTMLElement).click(); });
+    expect(document.querySelector('[role="menuitemradio"]')).toBeNull();
+    const submenu = document.querySelector('[data-slot="dropdown-menu-sub-trigger"]') as HTMLElement;
+    expect(submenu.textContent).toBe('Filament mapping');
+    await act(async () => { submenu.click(); });
+    const items = Array.from(document.querySelectorAll('[role="menuitemradio"]'));
+    expect(items.map(item => item.textContent)).toEqual(['Auto For Flush', 'Manual']);
+    expect(items[1].getAttribute('aria-checked')).toBe('true');
+    await act(async () => { (items[0] as HTMLElement).click(); });
+    expect(mapping.commit).toHaveBeenCalledWith({ kind: 'mode', mode: 0 });
+    expect(container.querySelector('[data-testid="output-mode-select"]')?.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => { useSlicerStore.setState({ status: 'done' }); });
+    await act(async () => { (container.querySelector('[data-testid="output-mode-select"]') as HTMLElement).click(); });
+    expect(Array.from(document.querySelectorAll('[role="menuitemradio"]')).map(item => item.textContent)).toEqual(['Send & Print', 'Send', 'Export']);
+    expect(document.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent).toBe('Send & Print');
+    await act(async () => { useSlicerStore.setState({ status: 'error' }); });
+    expect(document.querySelector('[role="menuitemradio"]')).toBeNull();
+  });
+
+  it('executes Slice before completion and defaults to Send & Print afterwards', async () => {
     useSettingsStore.setState({ modelLoaded: true });
     const container = await renderButton();
     await act(async () => { (container.querySelector('[data-testid="btn-slice"]') as HTMLElement).click(); });
     expect(sliceModel).toHaveBeenCalledOnce();
     await act(async () => { useSlicerStore.setState({ status: 'done' }); });
     expect(container.querySelector('[data-testid="btn-slice"]')).toBeNull();
-    await act(async () => { (container.querySelector('[data-testid="btn-export"]') as HTMLElement).click(); });
-    expect(exportGcode).toHaveBeenCalledOnce();
+    expect(container.querySelector('[data-testid="btn-send-and-print"]')?.textContent).toBe('Send & Print');
+    expect(exportGcode).not.toHaveBeenCalled();
   });
 
-  it.each([['Send', 'send'], ['Send & Print', 'send-and-print']] as const)('selects %s without executing it', async (label, mode) => {
+  it.each([['Send', 'send'], ['Export', 'export']] as const)('selects %s without executing it', async (label, mode) => {
     useSlicerStore.setState({ status: 'done' });
     const container = await renderButton();
     await act(async () => { (container.querySelector('[data-testid="output-mode-select"]') as HTMLElement).click(); });
-    const option = Array.from(document.querySelectorAll('[role="option"]')).find(el => el.textContent?.includes(label));
+    const option = Array.from(document.querySelectorAll('[role="menuitemradio"]')).find(el => el.textContent === label);
     expect(option).toBeDefined();
     await act(async () => {
       option!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));

@@ -193,9 +193,13 @@ export interface PrinterState {
     code: string;
     message: string;
     actions: readonly PrinterAction[];
+    /** Optional agent-directed presentation; protocol-specific details stay in the agent. */
+    dialog?: { title: string; dismissible: boolean; dismissAction?: PrinterAction };
   }[]>;
 }
 export interface PrinterCapabilities {
+  /** Capability to prepare and submit local artifacts through the agent. */
+  submission: Capability<{ formats: NonEmptyReadonlyArray<'print-3mf'> }>;
   revision: Revision;
   commands: CommandCapabilities;
   cameras: readonly CameraMediaCapability[];

@@ -1,3 +1,4 @@
+import { selectGcodeOutput } from '../../desktop/e2e/plate-controls.helpers';
 import { test, expect } from './browser-fixture';
 
 
@@ -155,6 +156,7 @@ test('real bed selector uses native labels, global/local scope, keyboard and com
   await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+  await selectGcodeOutput(page, 'export', { timeout: 30_000 });
   await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 30_000 });
   await page.reload();
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });

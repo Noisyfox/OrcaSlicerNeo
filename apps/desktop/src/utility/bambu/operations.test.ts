@@ -173,3 +173,25 @@ it.each(['missing', 'fail'] as const)('does not accept a jog with %s ACK', async
     expect(f.commands()).toHaveLength(1);
   } finally { await f.close(); vi.useRealTimers(); }
 });
+
+it('sends the legacy error acknowledgement and UI close once, with independent sequences and request deduplication', async () => {
+  const f = fixture(); try {
+    await f.monitor.start(target, 'view');
+    await f.push();
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: 'PAUSE', subtask_id: '88', job_id: '77', print_error: 0x07018004 } })] });
+    const context = await f.monitor.context(target); if (!context.ok) throw new Error('No context');
+    const confirm = context.value.values.alerts[0].actions.find(a => a.label === 'Confirm')!;
+    const input = request({ command: { type: 'actions.invoke', params: { actionRef: confirm.actionRef } } });
+    const result = await f.operations.submit(input); expect(result.kind).toBe('recorded');
+    const sent = () => vi.mocked(f.native.sendMessage).mock.calls.map(call => JSON.parse(call[1])).filter(p => p.print?.command === 'clean_print_error' || p.system?.command === 'uiop');
+    expect(sent()).toHaveLength(2);
+    expect(sent()[0].print).toMatchObject({ command: 'clean_print_error', print_error: 0x07018004, subtask_id: '88' });
+    expect(sent()[1].system).toMatchObject({ command: 'uiop', name: 'print_error', action: 'close', err: '07018004' });
+    expect(sent()[0].print.sequence_id).not.toBe(sent()[1].system.sequence_id);
+    expect(await f.operations.submit(input)).toEqual(result);
+    expect(sent()).toHaveLength(2);
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 1, print_error: 0 } })] });
+    expect(await f.operations.submit({ ...input, requestId: 'stale' as D.Id<'request'> })).toMatchObject({ kind: 'rejected', error: { code: 'stale-context' } });
+    expect(sent()).toHaveLength(2);
+  } finally { await f.close(); }
+});

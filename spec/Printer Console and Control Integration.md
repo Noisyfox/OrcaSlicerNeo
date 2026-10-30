@@ -1,12 +1,20 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-10-24
+**Updated:** 2026-10-30
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
 regression cover software behavior; physical H2D + AMS acceptance remains last,
 Account-backed automatic networking followed by LAN-only access. No complete
 hardware or six-target control qualification is claimed.
+Local-artifact print preparation/submission is implemented and initially enabled
+only by the Bambu agent. Development-host LAN qualification includes two completed
+H2D fixed-right-nozzle prints using AMS B1 and a completed fixed-dual-nozzle PETG
+print using left A2 and right B1. Orca-style send completion is physically verified:
+the modal closed automatically and Device selected the correct printer and task.
+The dual-nozzle run needed external recovery from a dirty nozzle-camera error;
+Error-specific dialogs/actions now have software coverage; physical recovery,
+other supply paths and Cloud printing remain unqualified.
 
 **Scope:** The printer-console and printer-control experience shared by the
 Electron desktop application and the Web application.
@@ -233,6 +241,37 @@ invoking a device-provided recovery action is not automatic replay of an
 uncertain command. Presentation follows the accepted command interaction below.
 This does not introduce an HMS browser, an error-history page or unrelated
 diagnostics.
+
+Current printer errors can request a modeless dialog, following Orca's
+`DeviceErrorDialog`: show the printer, error code, message and agent-supported
+actions once per error/task episode. Ordinary refresh does not reopen a dismissed
+dialog. The inline alert remains available through View error details; clearing
+the error removes the dialog, and a new episode opens it again. Hidden Device
+pages do not display the dialog. Stale/offline status disables recovery actions
+without preventing local dismissal. Honor the agent's non-dismissible presentation
+when the resource requires it.
+
+Bambu selects the bundled English Orca error/action resource by serial-number
+prefix. Empty introductions are internal errors and are suppressed; unknown
+errors retain their code and an unknown-error message without invented recovery
+choices. Preserve the resource's action order and distinct commands, including
+Ignore this and Resume, Problem Solved and Resume, stopping, AMS done/retry/abort,
+error acknowledgement and nozzle recheck when present. Ordinary Resume is a
+separate operation. Closing the dialog sends Orca's UI-close notification, not
+an error-clear or print-resume command. Like Orca, invoking an action hides the
+dialog; the designated not-extruded Retry keeps it open. Existing command feedback
+continues to report rejection/unknown outcomes without automatic replay.
+
+The agent owns wire fields, task/error context and resource selection. The shared
+UI consumes only generic alert presentation and opaque action references; a
+reference is rechecked against the current episode during command admission.
+Protocol tests cover exact payloads, legacy AMS acknowledgement plus UI close,
+incremental-state retention and invalidated references. Component and Electron
+fixtures cover presentation, dismissal, visibility, stale state and invocation.
+The former real dirty-camera error was recovered outside Neo and does not qualify
+these new actions physically. Online HMS updates, illustration/failure-snapshot
+retrieval, independent HMS navigation and command-specific guard dialogs are not
+implemented by this current-error presentation.
 
 Device calibration may be visible as reported activity, but no calibration
 selection/start dialog is included. Detection settings, including device-side
@@ -637,6 +676,13 @@ control is unavailable.
 
 ## Send G-code
 
+This section describes the delivered Moonraker workflow. The selected
+[print-submission design](#print-preparation-and-submission) adds a distinct
+agent capability through the existing Send & Print action. Its accepted
+[entry and selection rules](#accepted-entry-and-selection) supersede the
+delivered Send & Print initial-selection behavior described below when
+implemented; Send remains an upload-only action.
+
 After a successful slice, the toolbar provides two separate actions:
 
 - **Send** uploads the G-code and leaves it on the printer.
@@ -689,6 +735,537 @@ switching to Device; when disabled, it only counts down to closing. The
 printer selector and this option are disabled while sending and during the
 success countdown. Close remains available for early dismissal. Errors,
 cancellation, and a failed print start never navigate to Device.
+
+## Print preparation and submission
+
+The shared preparation modal and initial Bambu-only submission capability are
+implemented. It copies the current Device selection once, owns its mapping and
+options, saves explicit option changes per physical printer, and locks project
+editing while open. Agent diagnostics control availability and per-send warning
+confirmation. Sending/cancellation remain visible until the agent reports their
+outcomes; successful plugin completion closes the modal and selects the printer
+in Device, where actual print progress is observed separately.
+The former Moonraker upload/start flow remains available through the same entry.
+
+Software validation on macOS ARM64 includes shared component tests, the complete
+shared-app unit suite and workspace typechecks. The Bambu Electron fixture covers
+renderer/preload/main requests, binary chunk delivery, persisted options,
+cancellation and successful-send navigation; Moonraker send/retry and keyless
+regressions pass. The fixture caught and fixed an observation target carrying a
+command-only revision field. Physical acceptance is separate: development-host
+H2D LAN qualification now covers two completed right-nozzle PETG runs from AMS
+2 Pro B1 and one completed fixed-dual-nozzle run from left AMS 0 A2 and right B1.
+The user confirmed normal feeding, first-layer extrusion, nozzle switching and
+both finished cubes without obvious defects or missing material. Device reported
+50/50 layers, 100%, ready and all heater targets zero. Both production builds
+`87c7f259` (single nozzle) and `574c6f0d` (dual nozzle) physically verified the
+Orca-style plugin-success transition: the modal closed automatically and Device
+selected Fox and Fox with the exact submitted task name.
+
+The dual-nozzle task paused at `0500808F` before its first layer. The user continued
+through Orca or the printer; Neo observed recovery and did not resend. Neo's
+error-specific dialog and ignore/problem-solved continuation actions now have
+software coverage; this earlier external recovery is not a passed Neo recovery case. Other supply paths remain open and Cloud
+physical acceptance is deferred. Preserve the precise
+[domain qualification boundary](Printer%20Domain%20and%20Control%20Architecture.md#implementation-progress).
+
+
+**Decision status:** Adopt a shared, capability-driven preparation UI and a
+generic local-artifact submission contract (option B), initially enabled only
+by the Bambu agent. The sections below record the accepted product decisions
+and explicitly deferred scope. Delivery and physical qualification are limited
+to the implementation and acceptance described above. The
+[domain design](Printer%20Domain%20and%20Control%20Architecture.md#24-local-artifact-print-submission)
+owns artifact provenance, agent execution, outcome semantics and implementation
+validation boundaries. Preserve the existing Moonraker workflow.
+
+The preparation view presents the target printer and plate preview,
+estimated duration/consumption, editable material bindings, device-supported
+print options, and actionable blocking/warning diagnostics. Each mapping row
+connects a used slice material to an actual device supply path and shows its
+target tool. Group candidates by reported units/slots without hard-coded
+four-slot AMS layouts or fixed left/right array positions. Shared controls use
+capabilities and topology; Bambu-specific compatibility and wire rules remain
+inside its agent.
+
+The preparation modal follows Orca's `SelectMachineDialog` layout: a plate
+thumbnail on the upper left; the editable submission name, estimated time and
+weight, printer selector, refresh action and build-plate type as text directly
+below the printer name (without a separate plate icon) on the
+upper right; filament source cards grouped by slice nozzle in the middle; and
+two columns of segmented print options above the Send action. Narrow windows
+stack nozzle groups and options vertically and scroll the modal body.
+The thumbnail reuses the existing local plate renderer and releases its GPU
+resources and object URL when closed. Missing preview graphics never block a
+valid print. Renaming affects the submitted artifact and the task name shown by
+the printer, not the project. The shared submission request carries the dialog
+name explicitly as `jobName`; the Bambu agent passes it as the native task/project
+name. Formatted export filenames may contain material/time suffixes and must not
+be used to derive the task name. Upload filenames remain transport details and
+are not used to decide successful sending. Plugin success ends submission;
+Device shows actual preparation and printing independently.
+Each material card shows the sliced material colour above the selected device
+source colour. Transparent colours render over an opaque grey/white checkerboard, including
+partially transparent colours; text contrast uses the composited appearance.
+Missing colours use the current theme's surface and foreground colours.
+Its picker follows Orca's `AmsMappingPopup`: a slot-card popover grouped by
+reported tool, feeder unit and external holder, with source colour,
+slot label, material type, selected checkmark and reported remaining fraction.
+It retains empty, incompatible and unreachable slots as disabled cards with
+agent-provided reasons. Unknown occupied materials display `?` and remain
+selectable when the agent permits them. A reset action clears only the current
+material binding; selecting a slot closes the popover, and Escape closes the
+popover without closing print preparation. Unit capacity comes from the reported
+topology, not a hard-coded four-slot AMS layout. The agent supplies unit/category,
+slot and tool labels and selection eligibility together with each source.
+Supply-device names (`unit.name`) and category labels (`unit.categoryLabel`) are
+displayed as provided by the agent. The picker title and category headings must
+not translate `automatic-feeder` into a vendor name: Bambu supplies `AMS`, while
+another agent can supply `MMU` or its own product name without shared UI changes.
+Its picker exposes the full source name and material type;
+unassigned and unavailable selections stay explicit. Nozzle labels arrive in
+slice tool-index order from the agent (`nozzleLabels`); the shared renderer does
+not infer physical left/right positions from device IDs. Bambu reports Left
+Nozzle then Right Nozzle for the supported fixed dual-nozzle slice layout.
+Device warnings sit between materials and print options. Options retain their
+agent-provided visibility, values and enabled state; the application-wide
+abnormal-storage preference remains outside this modal.
+
+Automatic suggestions and manual changes operate on the submission draft.
+They do not recolor the editable project or replace slicing tool assignments.
+An explicit material import is a separate workflow. The accepted mapping rules
+below govern suggestions, editing, refresh, unknown material information and
+lifetime.
+
+#### Accepted initial delivery envelope
+
+The user confirmed the following scope as one group:
+
+- Support ordinary single-nozzle Bambu printers with AMS or an external holder,
+  and H2D fixed dual-tool supply paths. H2D is the primary physical acceptance
+  target; this does not establish qualification for every single-nozzle model.
+- Include fixed tool assignments produced by the slicer's automatic allocation.
+  These are not the special dynamic mapping mode. Hotend racks and special
+  dynamic filament/nozzle mapping are deferred to a later extension.
+- Both LAN and Cloud submission are required for this delivery and need separate
+  verification. LAN-only implementation does not complete the agreed scope.
+  First physical acceptance uses H2D with AMS over LAN; Cloud physical acceptance
+  is deferred while Cloud stays in the functional design scope. Record untested
+  routes and models explicitly. Transport selection and fallback follow the
+  accepted execution rules below.
+- Permit submission of any one Neo plate with a valid completed slice result,
+  with one plate per submission. Importing external print packages, reprinting
+  files already on the printer, and multi-plate submission/queues are deferred.
+
+External multicolor assistance is included under the capability and interaction
+rules below. Broader hardware/firmware combinations require separate acceptance.
+The agreed hardware envelope does not automatically approve every
+special mode available on those printers.
+
+#### Accepted entry and selection
+
+Reuse the existing **Send & Print** action. A printer advertising the new
+submission capability receives the material-mapping and print-options flow;
+other printers retain the existing upload/start execution. **Send** continues
+to mean upload only; adding Bambu upload-only support is outside this increment.
+
+When opening Send & Print, initialize the target from the Device page's current
+printer selection if it is a suitable target for this action. Otherwise leave
+the selector empty. Do not fall back to another printer in the list. The
+dialog's selection is independent after opening: changing it does not change
+Device selection, and no separate remembered Send & Print target overrides the
+initial Device selection. Actual compatibility/readiness checks remain required
+before submission; preselection is not print authorization.
+
+The user first selects the desired sliced plate in the workspace and opens
+Send & Print. Bind the modal to that current plate and its completed slice
+result; show its name and preview without an in-dialog plate selector. This
+implements the accepted ability to print any valid Neo plate through workspace
+selection, one plate per submission.
+
+Use a modal dialog. While it is open, prevent project editing, workspace plate
+switching and starting another slice. Opening requires a valid completed result
+and no active slicing. Result changes are therefore not an ordinary interactive
+case: do not design a separate result-changed/reopen flow. Retain underlying
+receipt validity checks at export/submission so obsolete results cannot be
+published if an invariant fails. Device observations can still update while
+the project remains fixed, under the mapping and observation rules below.
+
+Orca's
+[print action](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp) passes the
+current plate into a modal machine-selection dialog; upload-only uses a
+separate dialog. Its machine list prioritizes the currently selected device
+and defaults to the first entry, with restoration of the last machine when
+none is selected. Neo deliberately uses the accepted Device-selection-or-empty
+rule instead of that fallback.
+
+#### Accepted basic material mapping
+
+- Automatically populate suggested bindings from legal supply paths using
+  matching material type and nearest color, allowing manual adjustment. Leave
+  requirements without a suitable match unassigned, except for the explicit
+  external-holder behavior below. Suggestions never initiate printing.
+- Follow Orca's ordinary AMS reuse rule: multiple slice material requirements
+  may share one actual slot when their material types match and their supply
+  paths are legal. Color and brand need not match; show the actual selected
+  slot/material/color so reuse is apparent. Agent validation still checks the
+  complete mapping against device restrictions.
+- Follow Orca's external-holder exception, including automatic assignment when
+  the entire eligible candidate set is exactly one external holder. An occupied
+  AMS slot with unknown material remains a manual candidate and prevents this
+  sole-candidate fallback. A material-type mismatch produces a warning without
+  blocking submission. This is an explicit
+  exception to leaving unmatched requirements empty; it does not bypass other
+  path, printer or nozzle checks.
+- Follow Orca's model configuration for mixing AMS and external supply within
+  one print. The Bambu agent owns interpretation of
+  `print.support_ams_ext_mix_print` in the pinned printer resources; the shared
+  UI does not hard-code model identities. Orca defaults a missing value to
+  false. When mixing is not allowed, a plan containing both supply kinds blocks
+  submission with an explanation. A true value is only permission under this
+  check, not proof of automatic external-spool switching or universal path
+  compatibility.
+- Preserve existing bindings during device refresh; do not automatically move
+  a requirement to another slot. Mark invalid bindings and block submission
+  until resolved, including an emptied AMS slot, incompatible material type or
+  lost supply path. External-holder type mismatch remains warning-only under
+  the exception above. Unknown material information and stale observations are
+  handled separately below.
+- Bindings live only within the current dialog and selected printer. Reopening
+  the dialog or changing printer clears them and performs a fresh match. Do not
+  persist them across openings or cache a previous printer's choices for later
+  restoration. Refreshing the same printer in the same dialog preserves them.
+
+Orca's
+[matching algorithm](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevMapping.cpp)
+filters ordinary candidates by material type and scores color distance; it
+allows slot reuse and has a sole-external-candidate fallback. The
+[manual picker](../packages/slicer-wasm/cpp/src/slic3r/GUI/AmsMappingPopup.cpp)
+checks normal AMS material types, while the print dialog disables that check
+for external holders and reports a non-blocking mismatch warning. The
+[model configuration reader](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevConfigUtil.h)
+reads the mixed-supply flag from the model resource's `00.00.00.00` section;
+this particular check is not a live firmware-version comparison or reported
+capability bit. Keep that vendor policy in the agent.
+
+#### Accepted observation and external assistance behavior
+
+An AMS slot with positively reported filament presence but unidentified material
+information is not an empty slot. Do not automatically match it. Allow explicit
+manual selection when the supply path is legal and explain that material type
+cannot be verified. This is an exception for unknown metadata, not permission
+to select a known incompatible type or to treat unknown presence as present.
+Orca's [picker projection](../packages/slicer-wasm/cpp/src/slic3r/GUI/AmsMappingPopupUpdate.cpp)
+shows an occupied unidentified slot as `?` and permits picking it without the
+normal identified-material type comparison.
+
+On opening the modal, wait for a device observation read to complete before
+running preparation validation or accepting initial mapping suggestions. Initial
+loading and explicit device refresh show a loading status; display diagnostics
+only once that refresh completes. A failed read shows its connection/read error;
+stale Bambu telemetry reports one blocking status issue rather than cascading
+missing-material, nozzle and storage diagnostics. Automatic observation updates
+continue to revalidate cached state without initiating a device read each time.
+
+Keep device observations updating while the modal is open. A normal refresh in
+progress does not disable printing when the retained relevant state remains
+valid. If the device disconnects or critical observations become stale, retain
+the bindings but block starting a print. Critical observations include the
+connection/readiness, supply paths and selected AMS slot presence needed to
+validate this submission. Successful automatic updates and revalidation restore
+the start action without requiring a manual refresh. Reported unidentified
+material metadata is distinct from stale/unavailable observations and follows
+the explicit-selection rule above. Exact freshness timing is an implementation
+detail governed by the observation contract, not a requirement to invalidate
+state during every refresh cycle.
+
+Include **Multi-color with external** in this delivery. It enables manual
+external-spool changes during printing when multiple slice material requirements
+share an external holder. Follow Orca's actual device capability reports to
+decide whether the option is shown; do not infer support from a model name or
+the separate AMS/external mixing configuration. The Bambu agent interprets the
+old and new reported capability forms in
+[DeviceManager](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.cpp)
+and exposes the capability to shared UI.
+
+Default this option to off for each new dialog and require an explicit user
+choice to enable it. Follow Orca's mapping eligibility: multiple material
+requirements must map to the same external holder before the option is usable.
+Do not carry an enabled value onto an unsupported target or ineligible mapping.
+The existing mixed-supply and legal-path checks continue to apply. Agent-owned
+submission translates the choice into the native print parameter; shared UI
+does not send vendor protocol fields. The saved print-option preferences below
+must not change this explicit-off decision.
+
+#### Accepted print options and preferences
+
+Include bed leveling, flow dynamics calibration, nozzle offset calibration,
+timelapse and Shared PA Profile in this delivery. The Bambu agent exposes the
+available choices and applicable constraints using Orca's device capability,
+display and effect conditions; shared UI does not hard-code model identities.
+Preserve automatic/on/off semantics where supported instead of reducing an
+automatic calibration choice to a boolean. Shared PA Profile applies only under
+Orca's PA-mode capability and flow-calibration-off conditions; it controls
+whether nozzles and filaments of the same type share PA calibration parameters.
+Include timelapse storage-location selection when supported and validate storage
+conditions. Recording-file browsing and downloads are outside this scope.
+
+When no valid saved preference exists, follow Orca's defaults:
+
+| Option | Initial preference |
+| --- | --- |
+| Bed leveling, flow dynamics calibration, nozzle offset calibration | Automatic when supported; otherwise on when available. |
+| Timelapse | On, subject to device and current-condition checks; disable and turn off when those checks do not permit it. |
+| Shared PA Profile | On, subject to its display and effect conditions. |
+
+Persist user changes immediately as preferences for the **physical printer**,
+including when the user subsequently cancels the preparation dialog. Saving is
+independent of sending: pending or failed preference writes do not block printing
+with the current in-memory options. Show a save-failure notice and retain the
+ability to retry saving. Restoring a preference still requires validation against
+the target's current supported choices and conditions. This is local application
+persistence, not a change to
+the device's persistent settings or project configuration.
+
+Store these preferences in Electron's existing `printer-config.json`, in a
+separate section keyed by stable domain printer identity. The same physical
+Bambu printer shares preferences across LAN and Cloud; display-name or IP-address
+changes do not select a new preference record. Cloud-only printers must not
+require a fabricated Moonraker connection record to store preferences. Keep
+provider credentials and native account state under their existing ownership.
+Shared application code accesses the host-injected persistence boundary rather
+than reading the file directly; preserve the shared Web/Electron architecture.
+
+Persistence now extends the
+[configuration schema and normalization](../packages/printer-control/src/configuration.ts)
+and the host persistence/merge paths together so preferences survive ordinary
+configuration edits and independent application instances do not overwrite
+unrelated changes. Preference edits must not change connection configuration
+revisions or trigger reconnection. The optional `printPreferences` section is
+keyed by physical printer ID; `allowAbnormalStorage` stores the global opt-in.
+Electron merges preference edits per printer and option, rejecting conflicting
+edits to the same option. Web normalization also preserves the fields. Explicit
+preparation-option edits are saved immediately, including when the dialog is
+cancelled. Device-refresh normalization and submission-only effective-option
+fallbacks do not overwrite the saved preference.
+
+Orca's [option handling](../packages/slicer-wasm/cpp/src/slic3r/GUI/SelectMachine.cpp)
+stores these switches by printer type in application configuration when the
+user changes an option. Neo deliberately changes that granularity to physical
+printer identity. Material mappings remain dialog-local and external multicolor
+assistance remains explicitly off on each new dialog.
+
+#### Accepted timelapse storage behavior
+
+Persist the user's storage-location selection per physical printer in
+`printer-config.json`, immediately on user change and even if the preparation
+dialog is subsequently cancelled. Unlike Orca's dialog-memory-only location,
+this preference survives reopening the application. Without a saved preference,
+prefer available internal storage, otherwise available external storage. If
+neither is usable, apply the submission-only timelapse disabling rule below.
+
+Keep the saved preference separate from the effective choice for this
+submission. When restoring preferences or refreshing device state, if external
+storage is unavailable but internal storage is available, switch this submission
+to internal storage and explain the fallback. Preserve the saved external
+preference; only an explicit user change to the location replaces it. If no
+recording location is usable, turn off and disable timelapse for this submission,
+explain why, and retain the saved timelapse-on preference. Printing may proceed
+when its other checks pass. Known unavailable storage is distinct from an
+unsuccessful capacity query.
+
+Request recording capacity once during the send-time preparation check. Reuse
+that result through warning/action confirmation and do not query again during
+submission. Like Orca, submission executes the selected options and any explicitly
+authorized cleanup; it does not require a previous preparation call. A direct
+submission can therefore omit this optional recording diagnostic.
+
+When the device capacity check confirms insufficient recording space, offer
+turning off timelapse for this submission and printing, without changing the
+saved preference. Also offer **Clean up oldest videos and print** under Orca's
+conditions: internal storage, or external storage reporting existing videos,
+with the corresponding agent capability available. Explicit confirmation for
+this submission authorizes the Bambu agent to send the oldest-timelapse cleanup
+command before starting the print. Do not silently delete videos or treat a
+previous confirmation as standing permission. Dismissing the confirmation
+returns to preparation without dispatching cleanup or printing. This bounded
+cleanup action does not add recording-file browsing or downloads.
+
+If the recording-capacity check fails or times out, keep the effective timelapse
+choice and allow printing with a visible notice that recording space could not
+be verified and the video might not be saved. This outcome does not authorize
+cleanup. Connection, material mapping and other critical print checks still
+apply; failure of this optional capacity check is not proof of valid critical
+device state. Orca likewise proceeds on capacity-check failure or timeout, and
+its insufficient-space confirmation explicitly sends the oldest-video deletion
+command before print dispatch. Cleanup/start failure and cancellation outcomes
+remain subject to the execution decisions below.
+
+#### Accepted compatibility checks and acknowledgements
+
+The Bambu agent owns printer-model compatibility checks, using Orca's rules and
+model resources. Identical model IDs pass; otherwise the slicing model must
+appear in the target printer's compatible-model list. A known incompatible
+combination blocks sending. An absent model ID follows Orca's advisory behavior:
+explain that compatibility cannot be verified without blocking solely on that
+absence. After compatibility passes, retain Orca's send-time model-mismatch
+confirmation and its P1P/P1S and upgrade-kit exceptions. Shared UI renders the
+agent's diagnostics rather than hard-coding model names. See Orca's
+[compatibility predicate](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceCore/DevConfigUtil.cpp)
+and [send-time checks](../packages/slicer-wasm/cpp/src/slic3r/GUI/SelectMachine.cpp).
+
+An installed nozzle diameter differing from the slicing requirement may be
+overridden through explicit acknowledgement that the user checked the installed
+nozzle and wants to print. Display all affected nozzle positions and their
+installed versus required diameters for dual-nozzle devices. Acknowledgement is
+valid only within the current dialog, for the current printer and current
+mismatch content; it is not a saved preference and must not cover a changed
+mismatch. It does not waive unrelated blocking checks.
+
+Apply Orca's material prohibition and risk rules for the accepted hardware
+scope through the Bambu agent. Evaluate the relevant material, vendor, model,
+supply-path and nozzle context rather than reducing these checks to material
+type matching. Preserve rule severity: prohibitions block submission with no
+user override; warnings show their reasons and require confirmation for this
+submission before continuing. Do not persist acknowledgement as a long-term
+preference. These checks complement the accepted mapping rules, including
+ordinary AMS reuse and the external-holder type-mismatch exception.
+
+For the accepted fixed-nozzle hardware scope, block sending when the material's
+required nozzle hardness exceeds the known installed nozzle hardness. This is
+not overridable. If nozzle material is unknown, explain that hardness cannot
+be verified but do not block solely on that missing material information;
+all other checks still apply.
+
+Follow Orca's nozzle flow-type gate: when the device supports that capability,
+invalid flow-type data or a mismatch between the installed nozzle and slicing
+requirement blocks sending without an acknowledgement override. Devices that
+do not support the capability skip this check. The agent determines capability
+and matching; the user must correct device nozzle settings or the slicing
+configuration to resolve a reported mismatch.
+
+Follow Orca's device-readiness gates for printing or system print tasks,
+filament changes, upgrades, AMS setup, and required forced or consistency
+upgrades. Keep existing mappings and option selections while blocked. Once
+readiness and all other checks recover, enable the print action again and
+require the user to click it. Do not queue a submission to start automatically
+when the printer becomes available.
+
+Follow Orca's model- and transport-dependent print-file storage checks, including
+the supported internal-storage exceptions. Add a persistent application-wide
+**Allow Abnormal Storage** option, default off, under **Preferences → Developer
+→ Storage**, matching Orca's placement. It is not shown in the print-preparation
+modal. Changes save immediately to the existing global `printer-config.json`
+field, including when Preferences is subsequently closed with Cancel. Printing
+reads the saved value without offering a per-submission override.
+When enabled, apply Orca's abnormal-storage override conditions; it does not
+waive separate missing-card, read-only or unrelated readiness checks. This is
+a global preference, distinct from the per-physical-printer print options.
+Keep print-file storage eligibility separate from optional timelapse recording
+eligibility.
+
+The Bambu agent also applies Orca's special-material flow-calibration rules
+from the relevant model/material configuration. Where automatic calibration is
+unsupported for the material, selecting Auto blocks sending until the option
+is changed. Selecting On produces the advisory that the device skips calibration
+and uses its existing calibration value, while permitting sending if other
+checks pass. Do not collapse Auto and On into the same validation outcome.
+
+For other pre-print checks applicable to the accepted hardware scope, follow
+Orca's conditions and severity through the Bambu agent. This includes applicable
+color-count limits and model/firmware-specific material restrictions. Explicit
+Neo decisions in this specification take precedence over the reference behavior.
+This baseline does not bring deferred hotend-rack or special dynamic mapping
+features into scope.
+
+#### Accepted sending paths, cancellation and closure
+
+The Bambu agent automatically prefers LAN when the target, credentials, firmware
+and storage meet the required conditions; otherwise it uses Cloud when available.
+Resolve `support_cloud_print_only` from the pinned model/firmware resources,
+with explicit device/capability booleans overriding those defaults, including
+`false`. For a device with both routes, this flag excludes LAN; a LAN-only
+device remains local, following Orca's separate LAN path. Evaluate these
+conditions once when sending begins and retain the prepared state and connection
+data through the send, as Orca's `PrintJob` does. Device updates during connection
+setup or upload do not trigger another route selection or full validation.
+Show the actual selected path and any path change in submission progress.
+Automatic fallback is permitted only when the agent can
+establish that printing has not been initiated. If a start may have been sent
+and its outcome is unknown, reconcile device state before considering another
+attempt; never blindly resend through Cloud. Do not add a user-facing or hidden
+LAN-only sending preference in this delivery. Orca's `lan_mode_only` is a hidden
+configuration read, not an existing preference-page control to reproduce.
+
+During preparation or upload, provide **Cancel sending**. Once requested, show
+**Cancelling** and wait for the agent to confirm termination and that printing
+was not initiated before returning to preparation with the mappings and options
+retained. A cancellation request alone is not a cancelled outcome. If cancellation
+races with start dispatch and non-start cannot be established, follow the unknown
+outcome path instead of enabling an immediate resend.
+
+Once the start command has been sent, or may have been sent, stop offering
+Cancel sending and reconcile the start outcome. Stopping a physical print uses
+the separate Device cancel-print action; it is never an implicit consequence of
+closing this dialog or cancelling transfer. Disable direct window closure and
+Escape while sending or cancellation is pending. Allow closure after success,
+failure, or an explicit unknown-outcome state. Once the native call settles,
+an unknown outcome releases the submission's connection lease and temporary
+files; retain its outcome record without holding the printer selection.
+
+Orca's window-close handler requests worker cancellation and immediately closes
+the dialog; its progress Cancel action requests cancellation and returns to
+preparation. Worker/plugin cancellation is cooperative. Neo deliberately waits
+for authoritative cancellation outcome before restoring preparation and does
+not equate a closed window with a stopped printer.
+
+#### Accepted success presentation and retry
+
+A successful plugin return completes sending, matching Orca: report **Print job
+sent**, close the dialog, open Device and select the target physical printer.
+Do not wait for a matching filename, task identifier or observed preparation/
+printing state. Actual print progress is shown independently in Device; send
+success does not claim physical print start. This post-success navigation selects
+the submitted printer; preparation-time selection remains independent of Device.
+If the outcome is unknown, retain its explanation and let the user close the
+dialog or open Device to inspect the printer instead of navigating as if success
+were established. The user can select another printer; the uncertain submission
+does not keep a monitoring connection or block subsequent submissions. Reusing
+its original request identity returns the recorded outcome without sending again.
+
+For a failed send, provide a direct **Retry** action that re-enters the normal
+sending flow with the current preparation choices. Follow Orca's simple retry
+interaction rather than adding a recovery wizard or separate user steps to
+prove non-start. Normal submission checks still apply. This does not turn an
+unknown start outcome into an ordinary failure or authorize automatic resend;
+the accepted unknown-outcome reconciliation and fallback boundaries still apply.
+
+#### Reference and implementation boundaries
+
+Orca's reference flow is
+[SelectMachineDialog](../packages/slicer-wasm/cpp/src/slic3r/GUI/SelectMachine.cpp):
+choose a device, suggest/edit material assignments, evaluate printer/material
+checks and print options, then prepare/send the print. Orca also has
+device-specific multi-plate, external-feed and hotend-rack paths. Review each
+applicable behavior within the accepted envelope rather than claiming universal parity.
+
+Keep preparation, transfer and submission-outcome feedback distinct and report
+unknown outcomes explicitly. A plugin success or transfer completion is not
+proof of physical print start. Reconciliation timing and operation retention
+are implementation validation items under the domain contract; they must not
+turn timeout, lost observation or an expired record into proof of non-start.
+Application-exit behavior during submission is explicitly deferred from this
+clarification round; no quit-confirmation or restart/resume policy is accepted
+here. The
+existing Moonraker speed/countdown/retry behavior above is not automatically
+the specification for a combined Bambu submission.
+
+The shared UI remains host-neutral. Initial concrete execution uses the
+existing Electron Bambu provider; a static Web gateway is not introduced by
+this direction. Mobile support remains deferred under the shared application
+policy. Artifact packaging stays off the renderer thread, and binary transport
+must avoid unnecessary copies and keep temporary files host-private; exact
+memory/size limits require the artifact feasibility check.
 
 ## Platform differences
 

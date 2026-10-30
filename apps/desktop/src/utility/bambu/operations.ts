@@ -49,7 +49,9 @@ export class BambuOperations {
         tracked = { generation: context.generation, operation, request, prepared: prepared.value, sequence, token: lease.value, timer };
         this.operations.set(operation.ref.id, tracked); this.changed();
         try {
-          const code = await send(prepared.value.section, { ...prepared.value.fields, sequence_id: sequence }, prepared.value.qos);
+          let code = await send(prepared.value.section, { ...prepared.value.fields, sequence_id: sequence }, prepared.value.qos);
+          const followUp = prepared.value.followUp;
+          if (code === 0 && followUp) code = await send(followUp.section, { ...followUp.fields, sequence_id: String(++this.sequence) }, followUp.qos);
           if (code !== 0 && !terminal(tracked.operation.phase)) this.update(tracked, { kind: 'outcome-unknown', reason: 'Transport did not confirm delivery. This command will not be resent.' });
         } catch { if (!terminal(tracked.operation.phase)) this.update(tracked, { kind: 'outcome-unknown', reason: 'The connection ended during dispatch. This command will not be resent.' }); }
         return { ok: true, value: operation.ref };

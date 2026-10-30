@@ -33,7 +33,8 @@
       "sources": [
         "native/addon.cpp",
         "native/plugin_agent.cpp",
-        "native/camera.cpp"
+        "native/camera.cpp",
+        "native/plugin_print.cpp"
       ],
       "conditions": [
         [
