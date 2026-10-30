@@ -920,19 +920,20 @@ std::string normalized_identity(std::string value)
     return value;
 }
 
-bool device_model_matches(const Preset& preset, const json& identity)
+bool device_model_matches(const Preset& preset, const json& identity, const bool allow_compatible)
 {
     const auto model = preset.config.opt_string("printer_model");
     if (model.empty()) return false;
-    if (model == identity.value("model", "")) return true;
+    if (model == identity.value("model", "") && identity.value("manufacturer", "").empty()) return true;
     const auto refs = identity.value("externalRefs", json::array());
     for (const auto& [vendor_id, vendor] : state().presets.vendors) {
         const auto manufacturer = normalized_identity(identity.value("manufacturer", ""));
         if (!manufacturer.empty() && manufacturer != normalized_identity(vendor.name) && manufacturer != normalized_identity(vendor_id)) continue;
         for (const auto& definition : vendor.models) {
             if (definition.name != model) continue;
+            if (model == identity.value("model", "")) return true;
             for (const auto& ref : refs)
-                if (ref.value("namespace", "") == "orca-printer-model" && ref.value("value", "") == definition.model_id) return true;
+                if ((ref.value("namespace", "") == "orca-printer-model" || (allow_compatible && ref.value("namespace", "") == "orca-compatible-printer-model")) && ref.value("value", "") == definition.model_id) return true;
         }
     }
     return false;

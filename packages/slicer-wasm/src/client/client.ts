@@ -593,7 +593,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     return { ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' };
   if (historyStatus.revision !== mutation.revision_after || historyStatus.dirty !== mutation.dirty)
     return { ok: false, version: 1, error: 'filament mutation history status does not match receipt', errorCode: 'invalid_response' };
-  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge', 'assign', 'routing', 'flushing']);
+  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge', 'assign', 'routing', 'flushing', 'synchronize']);
   if (!validMutationKinds.has(String(mutation.kind)))
     return { ok: false, version: 1, error: 'invalid filament mutation kind', errorCode: 'invalid_response' };
   const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(mutation, key);
@@ -605,6 +605,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     delete: [...baseKeys, 'source', 'destination', 'slot_count'],
     merge: [...baseKeys, 'source', 'destination', 'slot_count'],
     flushing: baseKeys,
+    synchronize: baseKeys,
     assign: [...baseKeys, 'slot', 'accepted_targets'],
     routing: [...baseKeys, 'selector', 'slot', 'accepted_targets'],
   };
@@ -631,14 +632,14 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     const validColour = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
     const valid = colour && typeof colour === 'object' && !Array.isArray(colour) &&
       ((colour.kind === 'solid' && Object.keys(colour).length === 2 && validColour(colour.color)) ||
-       (colour.kind === 'linear-gradient' && Object.keys(colour).length === 2 && Array.isArray(colour.colors) &&
+       ((colour.kind === 'linear-gradient' || colour.kind === 'parallel') && Object.keys(colour).length === 2 && Array.isArray(colour.colors) &&
         colour.colors.length >= 2 && colour.colors.length <= 7 && colour.colors.every(validColour)));
     if (!valid) return { ok: false, version: 1, error: 'invalid filament mutation colour', errorCode: 'invalid_response' };
     const native = snapshot.slots[Number(mutation.slot) - 1].colour.native;
     const first = colour.kind === 'solid' ? colour.color : (colour.colors as string[])[0];
     const multi = colour.kind === 'solid' ? first : (colour.colors as string[]).join(' ');
     if (native.representative !== first || native.multiColour !== multi ||
-        native.type !== (colour.kind === 'solid' ? '1' : '0'))
+        native.type !== (colour.kind === 'linear-gradient' ? '0' : '1'))
       return { ok: false, version: 1, error: 'filament mutation colour does not match snapshot', errorCode: 'invalid_response' };
   }
   if (mutation.kind === 'delete' || mutation.kind === 'merge') {
@@ -2718,6 +2719,21 @@ export function createClient(
       const m = await module();
       return normalizePrinterTransition(callJson(m, 'orc_set_project_flow', ['string'],
         [JSON.stringify({ index, flow, expected_revision: expectedRevision, history_context: context })]), 'set-project-flow');
+    },
+
+    async prepareMaterialImport(request) {
+      const raw = callJson(await module(), 'orc_prepare_material_import', ['string'], [JSON.stringify(request)]) as any;
+      if (raw?.ok !== true) return { ok: false, error: String(raw?.error ?? 'Invalid material import response'), errorCode: String(raw?.error_code ?? 'invalid_response') };
+      const match = (m: any) => isRecord(m) && (m.preset === null || typeof m.preset === 'string') && (m.warning === null || typeof m.warning === 'string');
+      if (!Number.isSafeInteger(raw.revision) || raw.revision !== request.revision || !Array.isArray(raw.sources) ||
+        raw.sources.length !== request.sources.length || raw.sources.some((s: any, i: number) => !match(s) || s.slotId !== request.sources[i].slotId || !Array.isArray(s.matches) || s.matches.length !== raw.projectTypes?.length || !s.matches.every(match)) ||
+        !Array.isArray(raw.projectTypes) || raw.projectTypes.some((t: unknown) => typeof t !== 'string') ||
+        !Array.isArray(raw.references) || raw.references.length !== raw.projectTypes.length || raw.references.some((r: any, i: number) => r.slot !== i + 1 || !Array.isArray(r.kinds) || r.kinds.some((k: any) => typeof k !== 'string')))
+        return { ok: false, error: 'Invalid material import preparation', errorCode: 'invalid_response' };
+      return raw;
+    },
+    async applyMaterialImport(request) {
+      return normalizeFilamentMutationResult(callJson(await module(), 'orc_apply_material_import', ['string'], [JSON.stringify(request)]));
     },
 
     async synchronizePrinter(request: import('./types').PrinterSynchronizationRequest): Promise<PrinterTransitionResult> {

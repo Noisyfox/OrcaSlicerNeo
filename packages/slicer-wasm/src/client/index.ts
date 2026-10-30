@@ -19,6 +19,7 @@ export type {
   FilamentMutationSummary, FilamentMutationResult, FilamentMutationResultOrError,
   FilamentCommandRequest, FilamentSlotPresetRequest, FilamentSlotColourRequest,
   FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
+  MaterialImportSource, MaterialImportRequest, MaterialImportMatch, MaterialImportPreparation, MaterialImportApplication, PrinterSynchronizationRequest,
   RememberedFilamentRackPreference, PrinterTransitionMutationReceipt, PrinterTransitionSuccess,
   PrinterTransitionError, PrinterTransitionResult,
   FilamentAssignmentTargetRequest, FilamentAssignmentRequest,

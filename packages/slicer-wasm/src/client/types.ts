@@ -1433,7 +1433,7 @@ export interface FilamentSessionSnapshotError {
 export type FilamentSessionSnapshotResult = FilamentSessionSnapshot | FilamentSessionSnapshotError;
 
 export interface FilamentMutationSummary {
-  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'delete' | 'merge' | 'assign' | 'routing' | 'flushing';
+  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'delete' | 'merge' | 'assign' | 'routing' | 'flushing' | 'synchronize';
   readonly slot?: number;
   readonly source?: number;
   readonly destination?: number | null;
@@ -1488,7 +1488,7 @@ export interface FilamentSlotPresetRequest extends FilamentCommandRequest {
 
 export type FilamentSlotColourValue =
   | { readonly kind: 'solid'; readonly color: string }
-  | { readonly kind: 'linear-gradient'; readonly colors: readonly string[] };
+  | { readonly kind: 'linear-gradient' | 'parallel'; readonly colors: readonly string[] };
 
 export interface FilamentSlotColourRequest extends FilamentCommandRequest {
   readonly slot: number;
@@ -1518,6 +1518,38 @@ export interface RememberedFilamentSlot {
 export interface RememberedFilamentRackPreference {
   readonly version: 1;
   readonly slots: readonly RememberedFilamentSlot[];
+}
+
+export interface MaterialImportSource {
+  readonly slotId: string;
+  readonly catalogRefs: readonly { readonly namespace: string; readonly value: string }[];
+  readonly materialType: string;
+  readonly colour: FilamentSlotColourValue | null;
+  readonly toolIndices: readonly number[];
+}
+export interface MaterialImportRequest extends FilamentCommandRequest {
+  readonly identity: PrinterSynchronizationRequest['identity'];
+  readonly sources: readonly MaterialImportSource[];
+}
+export interface MaterialImportMatch {
+  readonly preset: string | null;
+  readonly warning: string | null;
+}
+export type MaterialImportPreparation = {
+  readonly ok: true;
+  readonly revision: number;
+  readonly sources: readonly (MaterialImportMatch & { readonly slotId: string; readonly matches: readonly MaterialImportMatch[] })[];
+  readonly projectTypes: readonly string[];
+  readonly references: readonly { readonly slot: number; readonly kinds: readonly string[] }[];
+} | { readonly ok: false; readonly error: string; readonly errorCode: string };
+export interface MaterialImportApplication extends MaterialImportRequest {
+  readonly mode: 'mapping' | 'rebuild';
+  readonly colourOnly: boolean;
+  readonly appendUnused: boolean;
+  /** One source or null for each project slot, including unused project slots. */
+  readonly mapping: readonly (string | null)[];
+  /** One-based surviving destinations for removed slots; null leaves unreferenced slots without a replacement. */
+  readonly replacements: readonly (number | null)[];
 }
 
 export interface PrinterSynchronizationRequest {
@@ -1821,6 +1853,8 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   ): Promise<PrinterTransitionResult>;
   /** Match the complete ordered nozzle vector, or edit only this toolhead's
    * Printer draft. Commits exactly one history entry with an atomic receipt. */
+  prepareMaterialImport(request: MaterialImportRequest): Promise<MaterialImportPreparation>;
+  applyMaterialImport(request: MaterialImportApplication): Promise<FilamentMutationResultOrError>;
   synchronizePrinter(request: PrinterSynchronizationRequest): Promise<PrinterTransitionResult>;
   setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
   /** Configure host-owned base-Printer flow memory. Fresh-project seeding is
