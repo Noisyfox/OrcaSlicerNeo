@@ -12,12 +12,15 @@
 .printer-print-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px; }
 .printer-print-summary strong { overflow-wrap: anywhere; }
 .printer-print-summary > span { color: var(--color-primary); }
-.printer-print-progress { height: 6px; overflow: hidden; border-radius: 8px; background: var(--color-secondary); }
+.printer-print-progress-row { display: flex; align-items: center; gap: 8px; }
+.printer-print-progress-actions { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
+.printer-print-progress { flex: 1; min-width: 0; height: 6px; overflow: hidden; border-radius: 8px; background: var(--color-secondary); }
 .printer-print-progress > span { display: block; height: 100%; background: var(--color-primary); transition: width 180ms; }
 .printer-print-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; font-size: 11px; }
 .printer-print-facts dt { color: var(--color-muted-foreground); }
 .printer-print-facts dd { text-align: right; overflow-wrap: anywhere; }
 .printer-print-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.printer-environment-controls > .printer-print-actions { margin-top: 12px; }
 .printer-print-speed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--color-muted-foreground); }
 .printer-machine-controls { display: grid; grid-template-columns: minmax(175px, .8fr) minmax(330px, 1.5fr); }
 .printer-environment-controls { min-width: 0; border-right: 1px solid var(--color-border); padding-right: 12px; }
@@ -68,8 +71,8 @@
 @container (max-width: 900px) { .printer-monitor-layout { grid-template-columns: 1fr; } }
 @container (max-width: 560px) { .printer-machine-controls { grid-template-columns: 1fr; gap: 16px; } .printer-environment-controls { border: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; } .printer-environment-controls .printer-control-card + .printer-control-card { margin: 0; padding: 0; border: 0; } .printer-material-units { grid-template-columns: 1fr; } .printer-motion-controls { grid-template-columns: minmax(180px, 1fr) minmax(115px, .6fr); } }
 
-.printer-fan-controls summary { cursor: pointer; padding: 5px 0; font-size: 11px; }
-.printer-fan-controls > div { display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
+.printer-actuator-controls summary { cursor: pointer; padding: 5px 0; font-size: 11px; }
+.printer-actuator-controls > div { display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
 
 .printer-slot-material { min-height: 28px; font-weight: 600; }
 .printer-slot-details summary { cursor: pointer; color: var(--color-muted-foreground); font-size: 10px; }

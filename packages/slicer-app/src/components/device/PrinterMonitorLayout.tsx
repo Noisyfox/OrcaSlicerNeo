@@ -22,17 +22,19 @@ export function PrinterMonitorLayout({ title, subtitle, status, toolbar, notices
   </div>;
 }
 
-export function PrintProgressCard({ status, preview, details, children }: { status?: PrintStatus; preview?: string | null; details?: ReactNode; children: ReactNode }) {
+export function PrintProgressCard({ status, preview, details, progressActions }: { status?: PrintStatus; preview?: string | null; details?: ReactNode; progressActions: ReactNode }) {
   const progress = valueOf(status?.progressFraction);
   return <ControlCard title="Printing progress">
     <div className="printer-print-overview">
       <div className="printer-print-preview" aria-label="Print preview">{preview ? <img src={preview} alt="Current print preview" /> : <div className="printer-preview-empty"><Box size={32} strokeWidth={1} /><span>No preview available</span></div>}</div>
       <div className="printer-print-details">
         <div className="printer-print-summary"><strong title={valueOf(status?.name) ?? undefined}>{display(status?.name, name => name ?? 'No active print')}</strong><span>{display(status?.phase)}</span></div>
-        <div className="printer-print-progress" role="progressbar" aria-label="Print progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress === undefined ? undefined : Math.round(progress * 100)}><span style={{ width: `${Math.max(0, Math.min(100, (progress ?? 0) * 100))}%` }} /></div>
+        <div className="printer-print-progress-row">
+          <div className="printer-print-progress" role="progressbar" aria-label="Print progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress === undefined ? undefined : Math.round(progress * 100)}><span style={{ width: `${Math.max(0, Math.min(100, (progress ?? 0) * 100))}%` }} /></div>
+          <div className="printer-print-progress-actions">{progressActions}</div>
+        </div>
         <dl className="printer-print-facts"><dt>Progress</dt><dd>{display(status?.progressFraction, value => `${Math.round(value * 100)}%`)}</dd><dt>Remaining</dt><dd>{display(status?.remainingSeconds, value => `${Math.ceil(value / 60)} min`)}</dd>{details}</dl>
       </div>
     </div>
-    <div className="printer-print-actions">{children}</div>
   </ControlCard>;
 }

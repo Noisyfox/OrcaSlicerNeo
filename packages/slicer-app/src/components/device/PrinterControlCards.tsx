@@ -40,7 +40,7 @@ export function ThermalCard({ capabilities, snapshot, disabled, send }: CardCont
 export function ActuatorCard({ capabilities, snapshot, disabled, send }: CardControls) {
   const topology = valueOf(snapshot?.values.descriptor)?.topology, actuators = valueOf(snapshot?.values.actuators);
   const fans = capabilities.commands['fans.setSpeed'], lights = capabilities.commands['lights.set'];
-  return <ControlCard title="Fans and lighting">{!!topology?.fans.length && <details className="printer-fan-controls"><summary>Fans · {topology.fans.length}</summary><div>{topology.fans.map(fan => {
+  return <ControlCard title="Fans and lighting">{!!topology?.fans.length && <details className="printer-actuator-controls"><summary>Fans · {topology.fans.length}</summary><div>{topology.fans.map(fan => {
     const limit = fans.kind === 'supported' ? fans.constraints.find(item => item.fanId === fan.id)?.speedFraction : undefined;
     const current = valueOf(actuators?.fans.find(item => item.fanId === fan.id)?.speedFraction);
     const percentage = current === undefined ? -1 : Math.round(current * 100);
@@ -54,7 +54,7 @@ export function ActuatorCard({ capabilities, snapshot, disabled, send }: CardCon
         onChange={event => send({ type: 'fans.setSpeed', params: { fanId: fan.id, speedFraction: Number(event.target.value) / 100 } })}>
         <option value="-1" disabled>Not reported</option>{options.map(value => <option key={value} value={value} disabled={!allowed(value)}>{value}%</option>)}</select></label>;
   })}</div></details>}
-    {topology?.lights.map(light => <label key={light.id} className="flex items-center justify-between text-sm"><span>{light.name.replaceAll('_', ' ')}</span><input type="checkbox" aria-label={light.name.replaceAll('_', ' ')} disabled={disabled || lights.kind !== 'supported' || !lights.constraints.lightIds.includes(light.id)} checked={valueOf(actuators?.lights.find(item => item.lightId === light.id)?.on) ?? false} onChange={event => send({ type: 'lights.set', params: { lightId: light.id, on: event.target.checked } })} /></label>)}
+    {!!topology?.lights.length && <details className="printer-actuator-controls"><summary>Lights · {topology.lights.length}</summary><div>{topology.lights.map(light => <label key={light.id} className="flex items-center justify-between text-sm"><span>{light.name.replaceAll('_', ' ')}</span><input type="checkbox" aria-label={light.name.replaceAll('_', ' ')} disabled={disabled || lights.kind !== 'supported' || !lights.constraints.lightIds.includes(light.id)} checked={valueOf(actuators?.lights.find(item => item.lightId === light.id)?.on) ?? false} onChange={event => send({ type: 'lights.set', params: { lightId: light.id, on: event.target.checked } })} /></label>)}</div></details>}
     {!topology?.fans.length && !topology?.lights.length && <p className="text-sm text-muted-foreground">No actuators reported.</p>}</ControlCard>;
 }
 /** Prefer a short 10 mm move, constrained to the reported range and increment.

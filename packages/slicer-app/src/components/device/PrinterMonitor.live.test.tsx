@@ -34,14 +34,70 @@ async function fixture() {
   const platform = { printers: { service } } as unknown as PlatformCapabilities;
   const element = document.createElement('div'); document.body.append(element); const root = createRoot(element);
   const render = async (visible = true) => act(async () => { root.render(<PlatformProvider value={platform}><PrinterMonitor printer={printer} route={route} visible={visible} /></PlatformProvider>); });
-  const update = async (name: string, task = 'task-1', freshness: 'fresh' | 'stale' = 'fresh') => act(async () => {
-    const reading = known({ ...status, printStatus: { ...status.printStatus, name: known(name), taskId: known(task as D.Id<'device-task'>) } });
+  const update = async (name: string, task = 'task-1', freshness: 'fresh' | 'stale' = 'fresh', phase: 'printing' | 'paused' | 'idle' = 'printing') => act(async () => {
+    const reading = known({ ...status, printStatus: { ...status.printStatus, phase: known(phase), name: known(name), taskId: known(task as D.Id<'device-task'>) } });
     if (reading.kind === 'known') reading.freshness = freshness;
     snapshot = { ...snapshot, values: { ...snapshot.values, status: reading } }; wake?.(); await Promise.resolve();
   });
-  const click = async (label: string) => act(async () => { [...element.querySelectorAll('button')].find(button => button.textContent === label)!.click(); });
+  const click = async (label: string) => act(async () => { [...element.querySelectorAll('button')].find(button => (button.getAttribute('aria-label') ?? button.textContent) === label)!.click(); });
   return { service, snapshot, known, material, element, render, update, click, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
 }
+it('shares one icon-only pause/resume control beside progress and respects state and capabilities', async () => {
+  const f = await fixture(); try {
+    await f.render();
+    const pause = f.element.querySelector<HTMLButtonElement>('[aria-label="Pause"]')!;
+    const actions = pause.closest('.printer-print-progress-row')!;
+    expect(actions.querySelector('[role="progressbar"]')).not.toBeNull();
+    expect(actions.querySelectorAll('button')).toHaveLength(2);
+    expect(pause.textContent).toBe('');
+    expect(actions.querySelector('[aria-label="Cancel print"]')?.textContent).toBe('');
+    expect(f.element.querySelector('[aria-label="Resume"]')).toBeNull();
+    await f.click('Pause');
+    expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'jobs.pause' } });
+    // A command acknowledgement alone does not optimistically change the device state.
+    expect(f.element.querySelector('[aria-label="Resume"]')).toBeNull();
+    await f.update('External task', 'task-1', 'fresh', 'paused');
+    const resume = f.element.querySelector<HTMLButtonElement>('[aria-label="Resume"]')!;
+    expect(resume).toBe(pause);
+    expect(f.element.querySelector('[aria-label="Pause"]')).toBeNull();
+    await f.click('Resume');
+    expect((f.submit.mock.calls[1] as unknown[])[0]).toMatchObject({ command: { type: 'jobs.resume' } });
+    f.caps.commands['jobs.resume'] = { kind: 'unsupported', layer: 'adapter', reason: 'Not supported' };
+    await f.render();
+    expect(resume.disabled).toBe(true);
+    await f.update('No active print', 'task-1', 'fresh', 'idle');
+    expect(pause.disabled).toBe(true);
+    expect(actions.querySelector<HTMLButtonElement>('[aria-label="Cancel print"]')?.disabled).toBe(true);
+  } finally { await f.close(); }
+});
+
+it('collapses lights independently and places speed below fans and lighting', async () => {
+  const f = await fixture(); try {
+    const lightId = 'chamber-light' as D.Id<'light'>;
+    f.topology.lights = [{ id: lightId, name: 'Chamber light' }];
+    f.topology.fans = [{ id: 'part-fan' as D.Id<'fan'>, name: 'Part fan', role: 'part' }];
+    f.caps.commands['lights.set'] = { kind: 'supported', constraints: { lightIds: [lightId] } };
+    f.caps.commands['jobs.setSpeed'] = { kind: 'supported', constraints: { modes: [{ id: '2', label: 'Standard' }] } };
+    await f.render();
+    const summary = [...f.element.querySelectorAll('summary')].find(item => item.textContent === 'Lights · 1')!;
+    const disclosure = summary.closest('details')!;
+    expect(disclosure.open).toBe(false);
+    await act(async () => summary.click());
+    expect(disclosure.open).toBe(true);
+    expect([...f.element.querySelectorAll('summary')].find(item => item.textContent === 'Fans · 1')?.closest('details')?.open).toBe(false);
+    const light = f.element.querySelector<HTMLInputElement>('[aria-label="Chamber light"]')!;
+    await act(async () => light.click());
+    expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'lights.set', params: { lightId, on: true } } });
+    const speed = f.element.querySelector<HTMLSelectElement>('[aria-label="Print speed"]')!;
+    const lightingCard = disclosure.closest('.printer-control-card')!;
+    expect(lightingCard.compareDocumentPosition(speed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(speed.closest('.printer-environment-controls')).not.toBeNull();
+    expect(f.element.querySelector('.printer-print-column [aria-label="Print speed"]')).toBeNull();
+    await f.update('External task');
+    expect(disclosure.open).toBe(true);
+  } finally { await f.close(); }
+});
+
 it('automatically monitors, lays out reported material units and retains the subscription while hidden', async () => {
   const f = await fixture(); try {
     await f.render(); expect(f.watch).toHaveBeenCalledOnce(); expect(f.element.textContent).toContain('External task');
@@ -50,7 +106,7 @@ it('automatically monitors, lays out reported material units and retains the sub
     expect(f.element.textContent).not.toMatch(/HMS|Browse files|Start monitoring|Connect printer/);
     await f.render(false); await f.update('Hidden update'); expect(f.element.textContent).toContain('External task');
     await f.render(true); expect(f.element.textContent).toContain('Hidden update'); expect(f.watch).toHaveBeenCalledOnce();
-    await f.update('Stale task', 'task-1', 'stale'); expect([...f.element.querySelectorAll('button')].find(button => button.textContent === 'Pause')?.disabled).toBe(true);
+    await f.update('Stale task', 'task-1', 'stale'); expect([...f.element.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Pause')?.disabled).toBe(true);
   } finally { await f.close(); }
 });
 it('pauses directly but binds cancellation confirmation to the original task', async () => {
@@ -80,7 +136,7 @@ it('retains a hidden stream failure and disables controls when the page returns'
     expect(f.element.textContent).not.toContain('Printer monitoring is unavailable.');
     await f.render(true);
     expect(f.element.textContent).toContain('Printer monitoring is unavailable.');
-    expect([...f.element.querySelectorAll('button')].find(button => button.textContent === 'Pause')?.disabled).toBe(true);
+    expect([...f.element.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Pause')?.disabled).toBe(true);
   } finally { await f.close(); }
 });
 
@@ -133,7 +189,7 @@ it('keeps stream and manual refresh errors independent across updates and hidden
     read.mockResolvedValue({ ok: true, value: { ...f.snapshot, values: { sensors: f.snapshot.values.sensors! } } });
     await f.click('Refresh');
     expect(f.element.textContent).toContain('Printer monitoring is unavailable.');
-    expect([...f.element.querySelectorAll('button')].find(button => button.textContent === 'Pause')?.disabled).toBe(true);
+    expect([...f.element.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Pause')?.disabled).toBe(true);
     expect(f.watch).toHaveBeenCalledOnce();
   } finally { await f.close(); }
 });
@@ -203,7 +259,7 @@ it('reports an interrupted operation as unknown and never duplicates a pending c
   const f = await fixture(); try {
     f.service.operations.watch = async function* () {};
     await f.render();
-    const pause = [...f.element.querySelectorAll('button')].find(button => button.textContent === 'Pause')!;
+    const pause = [...f.element.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Pause')!;
     await act(async () => { pause.click(); pause.click(); });
     expect(f.submit).toHaveBeenCalledOnce();
     expect(f.element.textContent).toContain('Command outcome unknown');

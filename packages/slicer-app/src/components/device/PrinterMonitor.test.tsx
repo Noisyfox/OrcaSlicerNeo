@@ -50,7 +50,7 @@ it('shows route capabilities, reads only on Refresh, retains the console and nev
     expect(readPreview).not.toHaveBeenCalled();
     expect(mount).toHaveBeenCalledOnce();
     expect(dispose).not.toHaveBeenCalled();
-    const pause = [...element.querySelectorAll('button')].find(button => button.textContent === 'Pause')!;
+    const pause = [...element.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Pause')!;
     await act(async () => { pause.click(); });
     expect(submit).toHaveBeenCalledOnce();
     expect(submit.mock.calls[0][0]).toMatchObject({ target: { printerId: 'p1', routeId: printer.routes[0].id, expectedConfigurationRevision: printer.routes[0].configurationRevision }, command: { type: 'jobs.pause', params: {} } });

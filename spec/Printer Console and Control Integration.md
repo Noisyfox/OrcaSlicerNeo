@@ -86,6 +86,12 @@ progress card: preview area and print actions on the left, existing readings
 and controls on the right. Moonraker retains a preview placeholder without
 fetching thumbnails; unsupported sections are omitted. Sharing the layout does
 not add Moonraker speed, temperature, motion, material or camera controls.
+Print actions follow Orca's layout: icon-only pause/resume and cancel buttons
+sit immediately to the right of the progress bar. Pause and resume share one
+button, switching icon, accessible name, tooltip and command from observed
+print state. Capabilities, pending/stale-state locks and cancellation confirmation
+continue to govern the actions; command acknowledgement does not change the
+displayed phase optimistically.
 Bambu capabilities enable live observation for the selected device
 and task, temperature, actuator, motion, tool and material cards. The
 provider validates commands against fresh observations and their original target.
@@ -156,10 +162,11 @@ The Monitor follows the reference's two-column desktop composition: the camera
 card above printing progress on the left, with the current-task thumbnail to the
 left of the progress information inside the same card; temperature,
 lighting/fans, a directional XY pad with homing and Z controls, and individually
-addressed extruders on the right. A visible Print speed label accompanies the
-mode selector. Material units form a grid beneath the controls, with compact
+addressed extruders on the right. The Print speed mode selector, with its
+visible label, sits below Fans and lighting. Material units form a grid beneath the controls, with compact
 reported slots and explicit tool paths; external holders remain distinct.
-Fan controls and nozzle hardware details can expand within their sections.
+Fan controls, lighting controls and nozzle hardware details are independently
+collapsed by default and can expand within their sections.
 No calibration, print-options, RFID or material-editing entry is implied by the
 reference image. The explicit printer selector, current-device header and
 freshness feedback remain visible. Narrow content areas stack the sections
