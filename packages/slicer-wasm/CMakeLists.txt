@@ -86,6 +86,16 @@ endforeach()
 
 set(LIBSLIC3R_ROOT "${ORCA_SRC}/src/libslic3r")
 
+# Use Orca's distinct slicer and Bambu compatibility versions. Generating this
+# at configure time also keeps incremental builds in sync with version.inc.
+include("${ORCA_SRC}/version.inc")
+set(SLIC3R_BUILD_ID "OrcaSlicer-${SoftFever_VERSION}-wasm")
+set(BBL_INTERNAL_TESTING 0)
+set(ORCA_CHECK_GCODE_PLACEHOLDERS 0)
+configure_file("${LIBSLIC3R_ROOT}/libslic3r_version.h.in"
+  "${GEN_INCLUDE}/libslic3r_version.h" @ONLY)
+message(STATUS "Orca version: ${SoftFever_VERSION}; Bambu compatibility version: ${SLIC3R_VERSION}")
+
 # ---- Source set: all libslic3r .cpp minus the dropped v1 features ----
 file(GLOB_RECURSE LIBSLIC3R_SRC CONFIGURE_DEPENDS "${LIBSLIC3R_ROOT}/*.cpp")
 
@@ -178,7 +188,7 @@ target_include_directories(slic3r_core PUBLIC
 )
 
 # Compile defines libslic3r expects (spike-proven set + WASM guards). The
-# version macros come from GEN_INCLUDE/libslic3r_version.h (build.sh writes it).
+# version macros come from GEN_INCLUDE/libslic3r_version.h (configured above).
 target_compile_definitions(slic3r_core PUBLIC
   USE_TBB
   TBB_USE_CAPTURED_EXCEPTION=0

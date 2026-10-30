@@ -219,26 +219,6 @@ if not exist "%OCCT_ROOT%\lib\libTKXDESTEP.a" (
   exit /b 1
 )
 
-REM ---------------- Version header (fork-derived) ----------------
-REM Replaces the static stub: version + commit hash come from the pinned
-REM submodule so G-code/3MF metadata matches the actual source.
-set "VER=0.0.0"
-set "GITHASH=0000000"
-for /f "delims=" %%v in ('git -C "%ORCA_SRC%" describe --tags --always 2^>nul') do set "VER=%%v"
-for /f "delims=" %%h in ('git -C "%ORCA_SRC%" rev-parse --short HEAD 2^>nul') do set "GITHASH=%%h"
-> "%GEN_INCLUDE%\libslic3r_version.h" echo #ifndef __SLIC3R_VERSION_H
->> "%GEN_INCLUDE%\libslic3r_version.h" echo #define __SLIC3R_VERSION_H
->> "%GEN_INCLUDE%\libslic3r_version.h" echo #define SLIC3R_APP_NAME "OrcaSlicer"
->> "%GEN_INCLUDE%\libslic3r_version.h" echo #define SLIC3R_APP_KEY "OrcaSlicer"
->> "%GEN_INCLUDE%\libslic3r_version.h" echo #define SLIC3R_VERSION "%VER%"
->> "%GEN_INCLUDE%\libslic3r_version.h" echo #define SoftFever_VERSION "%VER%"
->> "%GEN_INCLUDE%\libslic3r_version.h" echo #define GIT_COMMIT_HASH "%GITHASH%"
->> "%GEN_INCLUDE%\libslic3r_version.h" echo #define SLIC3R_BUILD_ID "OrcaSlicer-%VER%-wasm"
->> "%GEN_INCLUDE%\libslic3r_version.h" echo #define BBL_INTERNAL_TESTING 0
->> "%GEN_INCLUDE%\libslic3r_version.h" echo #define ORCA_CHECK_GCODE_PLACEHOLDERS 0
->> "%GEN_INCLUDE%\libslic3r_version.h" echo #endif
-echo [wasm] Wrote %GEN_INCLUDE%\libslic3r_version.h ^(SLIC3R_VERSION=%VER%^)
-
 REM Profiles are installed by the runtime Worker before orc_init().
 REM WASM only retains the distinct /info resource needed by the bridge.
 set "INFO_DIR=%ORCA_SRC%\resources\info"
