@@ -22,7 +22,7 @@ function snapshot(): D.PrinterSnapshot<'materials' | 'descriptor'> {
         color: { kind: 'solid', rgba: '#AA0000FF' }, catalogRefs: [] }), spoolIdentity: unknown, remaining: unknown })), tools: [], dryers: [] } };
   const hardware: D.PrinterTopology = { revision: 'topology', completeness: 'complete', materials: topology, motionGroups: [], extruders: [],
     tools: toolIds.map((toolId, i) => ({ id: toolId, name: `Configured ${i}`, extruderId: id(`e${i}`), nozzleId: id(`n${i}`), motionGroupId: id('motion') })),
-    nozzles: toolIds.map((_, i) => ({ id: id(`n${i}`), diameterMm: i === 1 ? 0.6 : 0.4, flowType: 'standard flow', constructionMaterial: null, type: null, heaterId: null })),
+    nozzles: toolIds.map((_, i) => ({ id: id(`n${i}`), diameterMm: i === 1 ? 0.6 : 0.4, flowType: 'standard flow', flowReporting: 'supported', constructionMaterial: null, type: null, heaterId: null })),
     heaters: [], fans: [], lights: [], cameras: [], sensors: [] };
   return { target, configurationRevision: 'configuration', values: {
     materials: known(inventory), descriptor: known({ revision: 'descriptor', identity, technology: 'fdm', firmware: unknown, buildVolume: null, topology: hardware }),

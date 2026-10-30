@@ -1536,6 +1536,21 @@ describe('SlicerClient bridge contract', () => {
     ] });
   });
 
+  it('synchronizes Printer hardware through one revision-fenced ordinary transition', async () => {
+    const c = makeClient();
+    const revision = (await c.getHistoryStatus()).revision;
+    const request = { revision, identity: { manufacturer: 'Bambu Lab', model: 'P1S', externalRefs: [] },
+      tools: [{ diameterMm: 0.6, flowType: 'high flow', flowReporting: 'supported' as const, capacity: 8 }],
+      confirmModelChange: true, rackMemory: {}, bedMemory: {}, context: presetContext };
+    expect(await c.synchronizePrinter(request)).toMatchObject({ ok: true,
+      mutation: { kind: 'synchronize-printer', historyEntryDelta: 1, revisionBefore: revision, revisionAfter: revision + 1 },
+      nativeScopedConfig: { snapshot: { project: { extruder_ams_count: '1#8' } } },
+      profileSnapshot: { printerPicker: { flows: [{ actual: 1 }] } } });
+    expect(await c.synchronizePrinter(request)).toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    await c.undoHistory();
+    expect(await c.getProfileSnapshot()).toMatchObject({ ok: true, printer: { name: 'Bambu Lab X1 Carbon 0.4 nozzle' } });
+  });
+
   it('browses all editor presets without selection and ranks nonempty overrides within printer compatibility sections', async () => {
     const c = makeClient();
     await c.init(MOCK_PROFILE_ACTIVATION);

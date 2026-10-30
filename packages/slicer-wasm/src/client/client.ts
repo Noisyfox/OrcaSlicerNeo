@@ -1549,7 +1549,7 @@ function normalizePresetDraftMutation(raw: unknown, target: PresetDraftMutationR
     plateSession, filamentSession, historyStatus, nativeScopedConfig, profileSnapshot: profile } as Extract<PresetDraftMutationResult, { ok: true }>;
 }
 
-function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow'): PrinterTransitionResult {
+function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow' | 'synchronize-printer'): PrinterTransitionResult {
   const invalid = (error: string): PrinterTransitionResult => ({
     ok: false, error, errorCode: 'invalid_response',
   });
@@ -2718,6 +2718,20 @@ export function createClient(
       const m = await module();
       return normalizePrinterTransition(callJson(m, 'orc_set_project_flow', ['string'],
         [JSON.stringify({ index, flow, expected_revision: expectedRevision, history_context: context })]), 'set-project-flow');
+    },
+
+    async synchronizePrinter(request: import('./types').PrinterSynchronizationRequest): Promise<PrinterTransitionResult> {
+      const m = await module();
+      const rackMemory = Object.fromEntries(Object.entries(request.rackMemory).map(([name, rack]) => [name, {
+        version: rack.version, slots: rack.slots.map(({ preset, colour, native }) => ({ preset, colour,
+          native: { representative: native.representative, multi_colour: native.multiColour, type: native.type } })),
+      }]));
+      return normalizePrinterTransition(callJson(m, 'orc_synchronize_printer', ['string'], [JSON.stringify({
+        expected_revision: request.revision,
+        identity: { ...request.identity, manufacturer: request.identity.manufacturer ?? '', model: request.identity.model ?? '' },
+        tools: request.tools, confirm_model_change: request.confirmModelChange,
+        rack_memory: rackMemory, bed_memory: request.bedMemory, history_context: request.context,
+      })]), 'synchronize-printer');
     },
 
     async setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: HistoryContext): Promise<PrinterTransitionResult> {

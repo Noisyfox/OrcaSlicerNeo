@@ -15,6 +15,7 @@ export interface SynchronizationSource {
     name: string;
     diameterMm: number | null;
     flowType: string | null;
+    flowReporting: D.Nozzle['flowReporting'];
     capacity: number;
   }[];
   materials: readonly {
@@ -51,7 +52,7 @@ export function synchronizationSource(
   if (!unique(ordered.map(t => t.id)) || ordered.some(t => !inventory.toolIds.includes(t.id)))
     return failure('invalid-request', 'Synchronization tool references are inconsistent.');
   const tools = ordered.map(tool => ({ id: tool.id, name: tool.name, diameterMm: tool.nozzle?.diameterMm || null,
-    flowType: tool.nozzle?.flowType ?? null,
+    flowType: tool.nozzle?.flowType ?? null, flowReporting: tool.nozzle?.flowReporting ?? 'unknown',
     capacity: Math.max(1, new Set(topology.paths.filter(p => p.toolId === tool.id).map(p => p.slotId)).size),
   }));
   if (topology.paths.some(p => !tools.some(t => t.id === p.toolId) || !topology.slots.some(s => s.id === p.slotId)))

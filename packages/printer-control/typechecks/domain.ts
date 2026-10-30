@@ -48,7 +48,7 @@ export const manualPrinter = {
     nozzles: [{
       id: id<'nozzle'>('nozzle-0'),
       diameterMm: 0.4,
-      constructionMaterial: 'brass', type: null, flowType: null,
+      constructionMaterial: 'brass', type: null, flowType: null, flowReporting: 'unknown',
       heaterId
     }],
     tools: [{
@@ -171,7 +171,7 @@ export const multiToolPrinter = {
     nozzles: [...manualPrinter.topology.nozzles, {
       id: id<'nozzle'>('nozzle-1'),
       diameterMm: 0.6,
-      constructionMaterial: null, type: null, flowType: null,
+      constructionMaterial: null, type: null, flowType: null, flowReporting: 'unknown',
       heaterId: id<'heater'>('hotend-1')
     }],
     tools: [...manualPrinter.topology.tools, {

@@ -1520,8 +1520,18 @@ export interface RememberedFilamentRackPreference {
   readonly slots: readonly RememberedFilamentSlot[];
 }
 
+export interface PrinterSynchronizationRequest {
+  readonly revision: number;
+  readonly identity: { readonly manufacturer: string | null; readonly model: string | null; readonly externalRefs: readonly { namespace: string; value: string }[] };
+  readonly tools: readonly { readonly diameterMm: number | null; readonly flowType: string | null; readonly flowReporting: 'supported' | 'unsupported' | 'unknown'; readonly capacity: number }[];
+  readonly confirmModelChange: boolean;
+  readonly rackMemory: Readonly<Record<string, RememberedFilamentRackPreference>>;
+  readonly bedMemory: Readonly<Record<string, string>>;
+  readonly context: import('./history').HistoryContext;
+}
+
 export interface PrinterTransitionMutationReceipt {
-  readonly kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow';
+  readonly kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow' | 'synchronize-printer';
   readonly historyEntryDelta: 1;
   readonly revisionBefore: number;
   readonly revisionAfter: number;
@@ -1811,6 +1821,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   ): Promise<PrinterTransitionResult>;
   /** Match the complete ordered nozzle vector, or edit only this toolhead's
    * Printer draft. Commits exactly one history entry with an atomic receipt. */
+  synchronizePrinter(request: PrinterSynchronizationRequest): Promise<PrinterTransitionResult>;
   setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
   /** Configure host-owned base-Printer flow memory. Fresh-project seeding is
    * explicit and runs before the host establishes its new clean baseline. */

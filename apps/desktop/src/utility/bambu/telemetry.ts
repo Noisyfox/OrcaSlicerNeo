@@ -220,6 +220,7 @@ export class BambuTelemetry {
       const nozzleId = id<'nozzle'>(`nozzle:${key}`);
       nozzles.push({ id: nozzleId, heaterId: id(`nozzle:${key}`), diameterMm: nonNegative(nozzle?.diameter ?? (item.legacy ? p.nozzle_diameter : undefined)) ?? null,
         type: type ?? null, constructionMaterial: type === 'hardened_steel' ? 'hardened steel' : type === 'stainless_steel' ? 'stainless steel' : ({ '00': 'stainless steel', '01': 'hardened steel', '05': 'tungsten carbide' } as Record<string, string>)[type?.slice(2, 4) ?? ''] ?? null,
+        flowReporting: this.machine.nozzleFlowSupported ? 'supported' : 'unknown',
         flowType: ({ S: 'standard flow', A: 'standard flow', X: 'standard flow', H: 'high flow', E: 'high flow', U: 'TPU high flow', B: 'E3D high flow' } as Record<string, string>)[type?.[1] ?? '']
           ?? (item.legacy && this.machine.legacyNozzleFlow ? this.machine.legacyNozzleFlow === 'High Flow' ? 'high flow' : 'standard flow' : null) });
       tools.push({ id: id(`tool:${key}`), name: side ? `${side} extruder` : `Tool ${key}`, extruderId: id(`extruder:${key}`), nozzleId, motionGroupId: id('gantry') });

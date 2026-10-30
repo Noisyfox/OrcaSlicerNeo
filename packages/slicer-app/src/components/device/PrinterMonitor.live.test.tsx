@@ -198,7 +198,7 @@ it('uses reported tool names while keeping material and nozzle IDs opaque', asyn
   const f = await fixture(); try {
     const tool = 'opaque-head' as D.Id<'tool'>, nozzle = 'opaque-tip' as D.Id<'nozzle'>, slot = 'opaque-slot' as D.Id<'slot'>, path = 'opaque-path' as D.Id<'path'>;
     f.topology.tools = [{ id: tool, name: 'Left head', extruderId: 'opaque-drive' as D.Id<'extruder'>, nozzleId: nozzle, motionGroupId: 'opaque-gantry' as D.Id<'motion'> }];
-    f.topology.nozzles = [{ id: nozzle, heaterId: 'opaque-heater' as D.Id<'heater'>, diameterMm: 0.4, constructionMaterial: 'hardened steel', flowType: null, type: null }];
+    f.topology.nozzles = [{ id: nozzle, heaterId: 'opaque-heater' as D.Id<'heater'>, diameterMm: 0.4, constructionMaterial: 'hardened steel', flowType: null, flowReporting: 'unknown', type: null }];
     f.material.topology.slots = [{ id: slot, unitId: f.material.topology.units[0].id, name: 'Spool A' }];
     f.material.topology.paths = [{ id: path, slotId: slot, toolId: tool, loading: 'automatic' }];
     f.caps.commands['materials.load'] = { kind: 'supported', constraints: { pathIds: [path] } };

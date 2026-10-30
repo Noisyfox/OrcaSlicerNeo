@@ -12,6 +12,7 @@
 #include <cctype>
 #include <optional>
 #include <memory>
+#include <limits>
 #include <tuple>
 #include <boost/filesystem.hpp>
 #include <map>
@@ -909,6 +910,125 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
         before_profiles.base_printer);
 }
 
+
+void apply_project_flow(size_t index, int flow);
+
+std::string normalized_identity(std::string value)
+{
+    value.erase(std::remove_if(value.begin(), value.end(), [](unsigned char ch) { return !std::isalnum(ch); }), value.end());
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) { return std::tolower(ch); });
+    return value;
+}
+
+bool device_model_matches(const Preset& preset, const json& identity)
+{
+    const auto model = preset.config.opt_string("printer_model");
+    if (model.empty()) return false;
+    if (model == identity.value("model", "")) return true;
+    const auto refs = identity.value("externalRefs", json::array());
+    for (const auto& [vendor_id, vendor] : state().presets.vendors) {
+        const auto manufacturer = normalized_identity(identity.value("manufacturer", ""));
+        if (!manufacturer.empty() && manufacturer != normalized_identity(vendor.name) && manufacturer != normalized_identity(vendor_id)) continue;
+        for (const auto& definition : vendor.models) {
+            if (definition.name != model) continue;
+            for (const auto& ref : refs)
+                if (ref.value("namespace", "") == "orca-printer-model" && ref.value("value", "") == definition.model_id) return true;
+        }
+    }
+    return false;
+}
+
+void apply_synchronized_hardware(const json& tools)
+{
+    auto& bridge = state();
+    auto& bundle = bridge.presets;
+    const auto before = PresetDrafts::effective_printer_config();
+    const auto* previous = before.opt<ConfigOptionFloats>("nozzle_diameter");
+    if (!tools.is_array() || tools.empty() || !previous || tools.size() != previous->size())
+        throw std::runtime_error("Device tools do not match the Printer topology");
+    const auto* definition = print_config_def.get("nozzle_diameter");
+    const auto* baseline = bundle.printers.get_selected_preset().config.opt<ConfigOptionFloats>("nozzle_diameter");
+    json diameters = json::array();
+    bool has_override = false;
+    for (size_t i = 0; i < tools.size(); ++i) {
+        // An absent diameter is not the protocol's zero sentinel in project config.
+        const double value = tools[i].contains("diameterMm") && !tools[i]["diameterMm"].is_null()
+            ? tools[i]["diameterMm"].get<double>() : previous->get_at(i);
+        if (!std::isfinite(value) || value <= 0 || value < definition->min || value > definition->max)
+            throw std::runtime_error("Invalid synchronized nozzle diameter");
+        if (std::abs(value - baseline->get_at(i)) < 1e-9) diameters.push_back(nullptr);
+        else { diameters.push_back({{"value", value}}); has_override = true; }
+    }
+    if (has_override) bridge.preset_drafts.set(Preset::TYPE_PRINTER, bundle.printers.get_selected_preset_name(), "nozzle_diameter", diameters);
+    else bridge.preset_drafts.erase_field(Preset::TYPE_PRINTER, bundle.printers.get_selected_preset_name(), "nozzle_diameter");
+    EffectivePrinterDraftGuard active(bundle, bundle.printers.get_selected_preset_name());
+    const auto effective = PresetDrafts::effective_printer_config();
+    const auto choices = sidebar_flow_choices_json(effective);
+    std::vector<std::string> capacities;
+    for (size_t i = 0; i < tools.size(); ++i) {
+        auto label = tools[i].value("flowType", json());
+        if (label.is_null() && tools[i].value("flowReporting", "unknown") != "unsupported")
+            throw std::runtime_error("Set the nozzle flow types on the device before synchronizing");
+        std::string flow_name = label.is_string() ? normalized_identity(label.get<std::string>()) : "standard";
+        if (flow_name == "standardflow") flow_name = "standard";
+        int flow = -1;
+        const auto* flow_def = print_config_def.get("nozzle_volume_type");
+        for (size_t j = 0; j < flow_def->enum_labels.size(); ++j)
+            if (normalized_identity(flow_def->enum_labels[j]) == flow_name)
+                flow = flow_def->enum_keys_map->at(flow_def->enum_values[j]);
+        const bool accepted = flow >= 0 && (std::any_of(choices[i]["choices"].begin(), choices[i]["choices"].end(),
+            [flow](const json& choice) { return choice["value"] == flow; }) || (choices[i]["choices"].empty() && flow == nvtStandard));
+        if (!accepted) throw std::runtime_error("Reported nozzle flow is unavailable for this Printer");
+        const auto* current_flow = bundle.project_config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
+        if (!current_flow || current_flow->empty() || current_flow->get_at(i) != flow) apply_project_flow(i, flow);
+        if (!tools[i].contains("capacity") || !tools[i]["capacity"].is_number_unsigned() ||
+            tools[i]["capacity"].get<std::uint64_t>() < 1 || tools[i]["capacity"].get<std::uint64_t>() > std::numeric_limits<int>::max())
+            throw std::runtime_error("Invalid synchronized material capacity");
+        capacities.push_back("1#" + std::to_string(tools[i]["capacity"].get<int>()));
+    }
+    bundle.project_config.set_key_value("extruder_ams_count", new ConfigOptionStrings(std::move(capacities)));
+    bundle.update_compatible(PresetSelectCompatibleType::Always, PresetSelectCompatibleType::Always);
+    bundle.update_multi_material_filament_presets();
+    Filament::Commands::repair_nozzle_mapping_targets(effective);
+    validate_profile_transition(bundle.project_config, bundle.filament_presets.size());
+    PrimeTower::normalize_coordinate_positions();
+}
+
+json synchronize_printer_json(const json& request)
+{
+    auto& bridge = state(); auto& bundle = bridge.presets;
+    if (!request.contains("expected_revision") || request["expected_revision"] != bridge.history_revision)
+        return transition_error("stale_revision", "Printer synchronization inputs changed");
+    const auto& identity = request.at("identity"); const auto& tools = request.at("tools");
+    if (!identity.is_object() || !tools.is_array() || tools.empty())
+        return transition_error("invalid_request", "Synchronization identity and tools are required");
+    const auto& current = bundle.printers.get_selected_preset();
+    const Preset* target = nullptr;
+    bool exact = false;
+    for (const auto& preset : bundle.printers) {
+        if (!preset.is_visible || preset.is_default || !device_model_matches(preset, identity)) continue;
+        const auto config = PresetDrafts::effective_preset_config(bundle, bridge.preset_drafts, Preset::TYPE_PRINTER, preset.name);
+        const auto* diameters = config.opt<ConfigOptionFloats>("nozzle_diameter");
+        if (!diameters || diameters->size() != tools.size()) continue;
+        bool candidate_exact = true;
+        for (size_t i = 0; i < tools.size(); ++i)
+            if (tools[i].contains("diameterMm") && !tools[i]["diameterMm"].is_null() &&
+                std::abs(diameters->get_at(i) - tools[i]["diameterMm"].get<double>()) > 1e-9) candidate_exact = false;
+        if (!target || (candidate_exact && !exact) || (candidate_exact == exact &&
+            (preset.name == current.name || (target->name != current.name && preset.name < target->name)))) {
+            target = &preset; exact = candidate_exact;
+        }
+    }
+    if (!target) return transition_error("preset_not_visible", "Enable this printer model in Setup before synchronizing");
+    if (!device_model_matches(current, identity) && !request.value("confirm_model_change", false))
+        return transition_error("printer_model_mismatch", "The connected device requires switching Printer to " + target->name);
+    const auto racks = request.value("rack_memory", json::object());
+    const auto beds = request.value("bed_memory", json::object());
+    return select_printer_with_remembered_rack_json({{"printer", target->name},
+        {"remembered_rack", racks.value(target->name, json())}, {"remembered_bed_type", beds.value(target->name, json())},
+        {"history_context", request.at("history_context")}, {"synchronized_hardware", tools}});
+}
+
 json select_printer_with_remembered_rack_json(const json& request)
 {
     const auto editing_context = HistoryMetadata::parse_history_context(
@@ -941,6 +1061,7 @@ json select_printer_with_remembered_rack_json(const json& request)
     auto& bundle = bridge.presets;
     const std::uint64_t revision_before = bridge.history_revision;
     const auto before_profiles = capture_profile_transition_state();
+    const auto before_drafts = bridge.preset_drafts;
     Model before_model = bridge.model;
     const auto before_plates = bridge.plate_session_plates;
     const auto before_plate_revisions = bridge.plate_input_revisions;
@@ -965,6 +1086,7 @@ json select_printer_with_remembered_rack_json(const json& request)
             history_started = false;
         }
         if (!mutated) return;
+        bridge.preset_drafts = before_drafts;
         restore_profile_transition_state(ProfileTransitionState(before_profiles));
         replace_model_preserving_project(bridge.model, std::move(before_model));
         bridge.mutable_object_capture_cache.clear();
@@ -980,7 +1102,7 @@ json select_printer_with_remembered_rack_json(const json& request)
         PrimeTower::invalidate_projection_cache();
     };
 
-    if (!HistoryMetadata::begin_timestamped_operation(bridge, "Select Printer", before_history_context))
+    if (!HistoryMetadata::begin_timestamped_operation(bridge, request.contains("synchronized_hardware") ? "Sync Printer" : "Select Printer", before_history_context))
         return transition_error("history_capture_failed", "could not capture Printer transition history predecessor");
     history_started = true;
 
@@ -994,8 +1116,9 @@ json select_printer_with_remembered_rack_json(const json& request)
         json plate_session;
         json after_context;
         {
-            apply_printer_transition_state(before_profiles, remembered_slots,
-                request["remembered_bed_type"], true);
+            if (!request.contains("synchronized_hardware") || printer_name != before_profiles.printer)
+                apply_printer_transition_state(before_profiles, remembered_slots, request["remembered_bed_type"], true);
+            if (request.contains("synchronized_hardware")) apply_synchronized_hardware(request["synchronized_hardware"]);
             plate_session = PlateSession::shared_configuration_mutation_snapshot();
             profile_snapshot = preset_snapshot_json();
             filament_snapshot = Filament::Session::filament_session_snapshot_json();
@@ -1017,7 +1140,7 @@ json select_printer_with_remembered_rack_json(const json& request)
         filament_snapshot["revisions"]["project"] = bridge.history_revision;
         const auto native_scoped_config = ScopedConfig::native_scoped_config_full_transport(bridge.history_revision);
         const auto history_status = HistoryMetadata::history_status_json(bridge);
-        const json receipt{{"kind", "select-printer-with-remembered-rack"},
+        const json receipt{{"kind", request.contains("synchronized_hardware") ? "synchronize-printer" : "select-printer-with-remembered-rack"},
                            {"history_entry_delta", 1},
                            {"revision_before", revision_before},
                            {"revision_after", bridge.history_revision},
@@ -1832,3 +1955,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_option_metadata()
 }
 
 } // extern "C"
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_synchronize_printer(const char* request)
+{
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    try { return duplicate_json(synchronize_printer_json(json::parse(request ? request : "")).dump()); }
+    catch (const std::exception& error) { return duplicate_json(json{{"ok", false}, {"error", error.what()}, {"error_code", "invalid_request"}}.dump()); }
+}

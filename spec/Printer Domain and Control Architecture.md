@@ -1027,6 +1027,8 @@ Restoring a Moonraker selection does not authorize background observation.
 The current typed contract includes `jobs.setSpeed` with discoverable mode IDs
 and labels, and `hardware.refreshNozzles` for explicit device re-identification.
 Nozzle records include nullable type and flow type alongside material and diameter.
+`flowReporting` distinguishes supported, explicitly unsupported and unknown reporting;
+a missing flow value on an unknown device must not become a Standard-flow default.
 Print status includes individually unknown-capable device task identity, detailed
 stage, current/total layers and speed mode. Device task identity is independent
 of Neo jobs; an optional `expectedTaskId` guard must be checked or explicitly

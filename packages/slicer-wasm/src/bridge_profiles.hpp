@@ -39,6 +39,8 @@ BedType supported_default_bed_type(const BedTypeCapabilities& capabilities);
 // roots removed because the new printer no longer supports their bed type.
 std::set<std::string> normalize_bed_types(bool reset_global);
 json select_printer_with_remembered_rack_json(const json& request);
+bool device_model_matches(const Preset& preset, const json& identity);
+json synchronize_printer_json(const json& request);
 json set_toolhead_diameter_json(const json& request);
 json set_project_flow_json(const json& request);
 // Transition/load-only repair; never invoke from a projection or history restore.

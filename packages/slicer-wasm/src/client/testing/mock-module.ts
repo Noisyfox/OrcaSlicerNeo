@@ -3034,6 +3034,27 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         mutation: { kind: 'set-project-flow', history_entry_delta: 1, revision_before: before, revision_after: historyRevision,
           dirty: status.dirty, all_plate_results_invalidated: true, affected_plate_ids: plates.affected_plate_ids } };
     },
+    orc_synchronize_printer(requestJson: string) {
+      const request = JSON.parse(requestJson);
+      if (request.expected_revision !== historyRevision)
+        return { ok: false, error_code: 'stale_revision', error: 'Printer synchronization inputs changed' };
+      const model = request.identity?.model;
+      const candidate = candidates('printer').find(p => p.name === model || p.model === model);
+      if (!candidate) return { ok: false, error_code: 'preset_not_visible', error: 'Enable this model in Setup' };
+      if (candidate.name !== selected.printer && !request.confirm_model_change)
+        return { ok: false, error_code: 'printer_model_mismatch', error: 'Connected printer requires a model change' };
+      const values = editorValuesFor('printer', candidate.name, 'nozzle_diameter') ?? [];
+      if (!Array.isArray(request.tools) || request.tools.length !== values.length || request.tools.some((t: any) =>
+        !Number.isSafeInteger(t.capacity) || t.capacity < 1 || (t.diameterMm !== null && (!Number.isFinite(t.diameterMm) || t.diameterMm <= 0)) ||
+        t.flowType === null && t.flowReporting !== 'unsupported' || t.flowType !== null && !['standard flow', 'high flow'].includes(t.flowType)))
+        return { ok: false, error_code: 'native_validation_failure', error: 'Invalid device hardware' };
+      const result = bridge.orc_select_printer_with_remembered_rack(JSON.stringify({ printer: candidate.name,
+        synchronized_hardware: request.tools,
+        remembered_rack: request.rack_memory?.[candidate.name] ?? null,
+        remembered_bed_type: request.bed_memory?.[candidate.name] ?? null, history_context: request.history_context })) as any;
+      if (result.ok) result.mutation.kind = 'synchronize-printer';
+      return result;
+    },
     orc_set_toolhead_diameter(requestJson: string) {
       let request: any;
       try { request = JSON.parse(requestJson); }
@@ -3115,11 +3136,19 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       current.revisions = { ...current.revisions, session: historyRevision, project: historyRevision };
       filamentSessionState = current;
       repairMockProjectFlows(previousPrinter !== selected.printer);
+      if (request.synchronized_hardware) {
+        const tools = request.synchronized_hardware as any[];
+        const previous = editorValuesFor('printer', selected.printer, 'nozzle_diameter')!;
+        const overrides = presetDraftRegistry.printer[selected.printer] ??= {};
+        overrides.nozzle_diameter = tools.map((tool, i) => ({ value: tool.diameterMm ?? previous[i] }));
+        tools.forEach((tool, i) => applyMockProjectFlow(i, tool.flowType === 'high flow' ? 1 : 0));
+        nativeScopedConfig.project.extruder_ams_count = tools.map(tool => `1#${tool.capacity}`).join(';');
+      }
       const context = { ...nativePresetDraftHistoryContext(),
         selection: clone(request.history_context.selection), gizmo: clone(request.history_context.gizmo) };
       historyEntries.splice(historyCursor + 1);
       historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
-        label: 'Select Printer', category: 'project', context: clone(context) });
+        label: request.synchronized_hardware ? 'Sync Printer' : 'Select Printer', category: 'project', context: clone(context) });
       historyCursor = historyEntries.length - 1;
       if (editingSession) editingSession.hasEffectiveCommit = true;
       const plateSession = plateMutation('shared-configuration', [...plateIds], [...plateIds]);
@@ -4006,6 +4035,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_configure_nozzle_capacity_memory: { ret: 'number', args: ['string'] },
     orc_configure_project_flow_memory: { ret: 'number', args: ['string'] },
     orc_set_project_flow: { ret: 'number', args: ['string'] },
+    orc_synchronize_printer: { ret: 'number', args: ['string'] },
     orc_set_toolhead_diameter: { ret: 'number', args: ['string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_user_preset_info: { ret: 'number', args: ['string', 'string'] },
