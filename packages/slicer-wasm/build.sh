@@ -193,29 +193,6 @@ fi
 [[ -f "$OCCT_ROOT/include/opencascade/Standard.hxx" && -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]] \
   || die "staged OCCT prefix is incomplete: $OCCT_ROOT"
 
-# ---------------- Version header (fork-derived) ----------------
-# Replaces the spike's static stub: version + commit hash come from the
-# pinned submodule so G-code/3MF metadata matches the actual source.
-# (Note: no `local` here — this is script top level, not a function.)
-{
-  ver="$(git -C "$ORCA_SRC" describe --tags --always 2>/dev/null || echo 0.0.0)"
-  githash="$(git -C "$ORCA_SRC" rev-parse --short HEAD 2>/dev/null || echo 0000000)"
-  cat > "$GEN_INCLUDE/libslic3r_version.h" <<EOF
-#ifndef __SLIC3R_VERSION_H
-#define __SLIC3R_VERSION_H
-#define SLIC3R_APP_NAME "OrcaSlicer"
-#define SLIC3R_APP_KEY "OrcaSlicer"
-#define SLIC3R_VERSION "$ver"
-#define SoftFever_VERSION "$ver"
-#define GIT_COMMIT_HASH "$githash"
-#define SLIC3R_BUILD_ID "OrcaSlicer-$ver-wasm"
-#define BBL_INTERNAL_TESTING 0
-#define ORCA_CHECK_GCODE_PLACEHOLDERS 0
-#endif
-EOF
-} > /dev/null
-log "Wrote $GEN_INCLUDE/libslic3r_version.h (SLIC3R_VERSION=$(git -C "$ORCA_SRC" describe --tags --always 2>/dev/null || echo 0.0.0))"
-
 # Profile packages are installed by the runtime Worker before orc_init().
 # WASM only retains the distinct /info resource needed by the bridge.
 INFO_DIR="$ORCA_SRC/resources/info"
