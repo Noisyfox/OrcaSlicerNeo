@@ -81,7 +81,7 @@ export function prepareBambuPrint(request: D.PrintPreparationRequest, context: C
     if (!pathId) continue;
     const slotId = topology.materials.paths.find(path => path.id === pathId)?.slotId;
     const material = context.values.materials.state.slots.find(slot => slot.slotId === slotId);
-    const catalogId = material && known(material.material)?.catalogRef?.value;
+    const catalogId = material && known(material.material)?.catalogRefs.find(ref => ref.namespace === 'bambu-filament')?.value;
     const requirement = r.materials.find(m => catalogId && printerFilamentId(m.presetId) === catalogId);
     if ((requirement?.softeningTemperature ?? 43) - highChamber <= 5) issue(`softening:${tool.toolId}:${catalogId ?? 'unknown'}`, requirement ? 'Loaded filament may soften at this chamber temperature. Unload it before printing.' : 'Loaded filament is unknown and may soften at this chamber temperature. Check it before printing.', 'warning');
   }
