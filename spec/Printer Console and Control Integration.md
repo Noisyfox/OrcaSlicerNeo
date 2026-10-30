@@ -66,7 +66,9 @@ sync executes directly with Orca-style necessary confirmations/configuration
 choices and no generic change-preview dialog; Filament sync uses a modal
 mapping/rebuild dialog. Each accepted project operation applies atomically in
 native code. The shared workflow, normalized Bambu observations and native
-transactions are implemented; physical qualification remains pending.
+transactions are implemented. Development-host H2D + AMS read/import/history
+acceptance passed; mixed physical nozzles and post-sync printing remain
+unqualified, as recorded below.
 
 ### Scope
 
@@ -443,6 +445,47 @@ printer. The legacy all-command smoke's separate 100 ms slot-history budget is
 not qualified on the current development host: both the new serial artifact
 and an unchanged earlier threaded artifact exceeded it. This evidence does not
 identify a cause or qualify the broader timing budget.
+
+### Development-host H2D synchronization acceptance
+
+On 2026-10-31, after staged software verification, the macOS ARM64 Electron
+development build used the existing account-backed Bambu connection to a real
+H2D. Its reported hardware was two 0.4 mm Standard-flow nozzles, AMS 0 and
+AMS 2 Pro 1 with four present slots each, and two external holders with unknown
+presence and retained transparent-color metadata. No fixture provider was
+installed for this round.
+
+Direct Printer sync succeeded without a generic preview and exposed the
+independent Filament continuation. The ordered tool configuration remained
+0.4 mm Standard / 0.4 mm Standard, with five reachable material slots per tool
+(four AMS slots plus its external holder). Filament rebuild reviewed and
+imported ten source records: eight AMS materials with their PETG-CF/PETG/PC
+presets and colors, plus the two external-holder records. The latter explicitly
+showed unknown presence and the native Generic ABS fallback warning; this does
+not establish a loaded spool or a suitable material for printing.
+
+The first hardware attempt exposed an observation-ownership defect: entering
+the synchronization modal released the hidden Device monitor, and refreshing a
+proposal replaced its sole source subscription. The corrected workflow retains
+the existing monitor and one source-scoped observation across review/refresh.
+After repository tests, typechecks and the Electron fixture journey passed
+again, the hardware rerun kept Apply enabled after refresh. Rebuild applied as
+one Sync Filament history entry; Undo restored the original five-material rack,
+and Redo restored all ten imported records. A separate mapping run assigned two
+distinct existing project materials to the same physical AMS slot, with append
+disabled: both received the reviewed color, all three unmapped materials stayed
+unchanged, and Undo restored both original colors. Printer and Filament Undo
+entries remained independent. Canceling a later proposal left the project
+unchanged and Device still reported Live. The local test project was restored
+to its original clean state.
+
+This round qualifies connected-device reads and local project synchronization
+on that development host. It issued no heating, motion, loading, upload or print
+commands. Different physical nozzle diameters/flows, actual empty AMS slots,
+external-holder feeding, slicing/sending after sync, other models/transports,
+and the packaged/Web release matrix remain unqualified. Software fixtures and
+both native WASM variants cover mixed-diameter transitions, atomic failures,
+reference remapping and persistence; they do not replace those physical checks.
 
 ### Required acceptance boundaries
 
