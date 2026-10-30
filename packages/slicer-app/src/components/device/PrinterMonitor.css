@@ -12,7 +12,9 @@
 .printer-print-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px; }
 .printer-print-summary strong { overflow-wrap: anywhere; }
 .printer-print-summary > span { color: var(--color-primary); }
-.printer-print-progress { height: 6px; overflow: hidden; border-radius: 8px; background: var(--color-secondary); }
+.printer-print-progress-row { display: flex; align-items: center; gap: 8px; }
+.printer-print-progress-actions { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
+.printer-print-progress { flex: 1; min-width: 0; height: 6px; overflow: hidden; border-radius: 8px; background: var(--color-secondary); }
 .printer-print-progress > span { display: block; height: 100%; background: var(--color-primary); transition: width 180ms; }
 .printer-print-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; font-size: 11px; }
 .printer-print-facts dt { color: var(--color-muted-foreground); }

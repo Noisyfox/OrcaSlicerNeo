@@ -42,6 +42,20 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
       await holder.getByText('Details', { exact: true }).click();
     }
     await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
+    const printActions = panel.locator('.printer-print-progress-row');
+    const pauseControl = printActions.getByRole('button', { name: 'Pause', exact: true });
+    const cancelControl = printActions.getByRole('button', { name: 'Cancel print', exact: true });
+    await expect(printActions.getByRole('button')).toHaveCount(2);
+    await expect(pauseControl).toHaveText('');
+    await expect(cancelControl).toHaveText('');
+    const barBounds = await printActions.getByRole('progressbar').boundingBox();
+    const pauseBounds = await pauseControl.boundingBox();
+    const cancelBounds = await cancelControl.boundingBox();
+    expect(barBounds).not.toBeNull(); expect(pauseBounds).not.toBeNull(); expect(cancelBounds).not.toBeNull();
+    expect(barBounds!.width).toBeGreaterThan(0);
+    expect(pauseBounds!.x).toBeGreaterThanOrEqual(barBounds!.x + barBounds!.width);
+    expect(cancelBounds!.x).toBeGreaterThanOrEqual(pauseBounds!.x + pauseBounds!.width);
+    expect(Math.abs(barBounds!.y + barBounds!.height / 2 - pauseBounds!.y - pauseBounds!.height / 2)).toBeLessThan(1);
     const commands = () => app.evaluate(() => globalThis.bambuControlFixture.commands);
     const tokens = () => app.evaluate(() => globalThis.bambuControlFixture.tokens);
     await expect.poll(tokens).toHaveLength(1); const originalTokens = await tokens();

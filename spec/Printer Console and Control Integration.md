@@ -86,6 +86,12 @@ progress card: preview area and print actions on the left, existing readings
 and controls on the right. Moonraker retains a preview placeholder without
 fetching thumbnails; unsupported sections are omitted. Sharing the layout does
 not add Moonraker speed, temperature, motion, material or camera controls.
+Print actions follow Orca's layout: icon-only pause/resume and cancel buttons
+sit immediately to the right of the progress bar. Pause and resume share one
+button, switching icon, accessible name, tooltip and command from observed
+print state. Capabilities, pending/stale-state locks and cancellation confirmation
+continue to govern the actions; command acknowledgement does not change the
+displayed phase optimistically.
 Bambu capabilities enable live observation for the selected device
 and task, temperature, actuator, motion, tool and material cards. The
 provider validates commands against fresh observations and their original target.
