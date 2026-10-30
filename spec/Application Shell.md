@@ -672,8 +672,10 @@ selector with a truncated name, and a dropdown chevron. The heading shows the
 material count and a collapse toggle; plus and minus buttons add a slot or
 remove the last slot. Edit, Merge, and Delete are available by right-clicking a
 slot. Existing mutation capabilities and reference-impact confirmations still
-control these commands. Flushing Volumes sits at the left of the toolbar above
-material slots, with Add/Delete at the right. It requires multiple actual
+control these commands. The accepted [Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization)
+adds Filament Sync immediately to the left of Flushing Volumes in the toolbar
+above material slots, with Add/Delete at the right; Filament Sync is not yet
+implemented. Flushing Volumes requires multiple actual
 materials and native SEMM/Bambu capability; fixed-material printers such as
 U1 hide it. Its dialog and automatic-calculation preference are owned by
 [Multi-Filament Support](Multi-Filament%20Support.md#101-flushing-volume-policy).
@@ -726,7 +728,13 @@ abbreviation (SF/HF/XHF and the other native flow variants). Values come from th
 effective native nozzle_diameter and nozzle_volume_type vectors; flow types beyond the
 serialized vector length repeat its first entry, matching native
 ConfigOptionVector::get_at semantics, retaining the canonical preset transition and
-existing Sync placeholder. Single-extruder rows retain their compact layout. The Printer
+existing Sync control. It currently remains an inert placeholder; the accepted
+[Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization)
+reuses this button for Printer sync rather than adding a second header action.
+Printer sync follows Orca's direct action with necessary confirmations or
+configuration choices; it adds no generic before/after preview. Filament Sync
+opens the modal mapping/rebuild dialog owned by that specification.
+Single-extruder rows retain their compact layout. The Printer
 preset editor opens from a 24px square settings button to the left
 of the selector, using a gray sliders icon and a dark-gray rounded background.
 The device/material reference palette is sampled directly from the supplied

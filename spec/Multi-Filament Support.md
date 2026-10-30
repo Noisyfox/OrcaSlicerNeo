@@ -1143,6 +1143,14 @@ Capacity restoration belongs to the same atomic operation and Undo entry as
 the preset switch. This rule does not override capacities saved in a project
 when opening it.
 
+The accepted [Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization)
+explicitly imports observed capacities into the current project and updates
+the final selected Printer preset's capacity memory after successful sync.
+When sync also switches Printer, its observed capacities replace the remembered
+initialization values within that same atomic project operation. Undo restores
+the project but does not revert the independent capacity-preference write.
+This is accepted sync design, not delivered device-import behavior.
+
 A newly created Plate defaults to Auto For Flush when the existing native
 capability supports it. Otherwise it starts in Manual with the native default
 mapping. This new-Plate policy is distinct from importing saved Plate modes.
