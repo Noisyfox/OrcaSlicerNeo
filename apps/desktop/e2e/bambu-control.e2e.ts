@@ -22,6 +22,13 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     };
     await validateRequests();
     await panel.getByText('Fans · 4', { exact: true }).click();
+    const lighting = panel.getByRole('heading', { name: 'Fans and lighting', exact: true }).locator('..');
+    const lightsSummary = lighting.locator('summary').filter({ hasText: /^Lights ·/ });
+    await expect(lighting.getByRole('checkbox').first()).toBeHidden();
+    await lightsSummary.click();
+    await expect(lighting.getByRole('checkbox').first()).toBeVisible();
+    await expect(lighting.getByRole('combobox', { name: 'Parts speed', exact: true })).toBeVisible();
+    await lightsSummary.click();
     for (const name of ['Parts', 'Aux', 'Exhaust', 'Heat']) {
       await expect(panel.getByRole('combobox', { name: `${name} speed`, exact: true })).toBeVisible();
     }
@@ -93,6 +100,10 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
     await expect(page.getByRole('option', { name: 'Workshop B', exact: true })).toBeHidden();
     await expect(panel.locator('label').filter({ has: page.getByRole('combobox', { name: 'Print speed', exact: true }) })).toContainText('Print speed');
+    const lightingBounds = await panel.getByRole('heading', { name: 'Fans and lighting', exact: true }).locator('..').boundingBox();
+    const speedBounds = await panel.getByRole('combobox', { name: 'Print speed', exact: true }).boundingBox();
+    expect(lightingBounds).not.toBeNull(); expect(speedBounds).not.toBeNull();
+    expect(speedBounds!.y).toBeGreaterThanOrEqual(lightingBounds!.y + lightingBounds!.height);
     await expect(panel.getByRole('progressbar', { name: 'Print progress' })).toHaveAttribute('aria-valuenow', '42');
     const moveRight = panel.getByRole('button', { name: 'Move X positive', exact: true });
     const pad = await moveRight.boundingBox();

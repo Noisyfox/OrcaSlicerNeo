@@ -71,6 +71,33 @@ it('shares one icon-only pause/resume control beside progress and respects state
   } finally { await f.close(); }
 });
 
+it('collapses lights independently and places speed below fans and lighting', async () => {
+  const f = await fixture(); try {
+    const lightId = 'chamber-light' as D.Id<'light'>;
+    f.topology.lights = [{ id: lightId, name: 'Chamber light' }];
+    f.topology.fans = [{ id: 'part-fan' as D.Id<'fan'>, name: 'Part fan', role: 'part' }];
+    f.caps.commands['lights.set'] = { kind: 'supported', constraints: { lightIds: [lightId] } };
+    f.caps.commands['jobs.setSpeed'] = { kind: 'supported', constraints: { modes: [{ id: '2', label: 'Standard' }] } };
+    await f.render();
+    const summary = [...f.element.querySelectorAll('summary')].find(item => item.textContent === 'Lights · 1')!;
+    const disclosure = summary.closest('details')!;
+    expect(disclosure.open).toBe(false);
+    await act(async () => summary.click());
+    expect(disclosure.open).toBe(true);
+    expect([...f.element.querySelectorAll('summary')].find(item => item.textContent === 'Fans · 1')?.closest('details')?.open).toBe(false);
+    const light = f.element.querySelector<HTMLInputElement>('[aria-label="Chamber light"]')!;
+    await act(async () => light.click());
+    expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'lights.set', params: { lightId, on: true } } });
+    const speed = f.element.querySelector<HTMLSelectElement>('[aria-label="Print speed"]')!;
+    const lightingCard = disclosure.closest('.printer-control-card')!;
+    expect(lightingCard.compareDocumentPosition(speed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(speed.closest('.printer-environment-controls')).not.toBeNull();
+    expect(f.element.querySelector('.printer-print-column [aria-label="Print speed"]')).toBeNull();
+    await f.update('External task');
+    expect(disclosure.open).toBe(true);
+  } finally { await f.close(); }
+});
+
 it('automatically monitors, lays out reported material units and retains the subscription while hidden', async () => {
   const f = await fixture(); try {
     await f.render(); expect(f.watch).toHaveBeenCalledOnce(); expect(f.element.textContent).toContain('External task');

@@ -162,10 +162,11 @@ The Monitor follows the reference's two-column desktop composition: the camera
 card above printing progress on the left, with the current-task thumbnail to the
 left of the progress information inside the same card; temperature,
 lighting/fans, a directional XY pad with homing and Z controls, and individually
-addressed extruders on the right. A visible Print speed label accompanies the
-mode selector. Material units form a grid beneath the controls, with compact
+addressed extruders on the right. The Print speed mode selector, with its
+visible label, sits below Fans and lighting. Material units form a grid beneath the controls, with compact
 reported slots and explicit tool paths; external holders remain distinct.
-Fan controls and nozzle hardware details can expand within their sections.
+Fan controls, lighting controls and nozzle hardware details are independently
+collapsed by default and can expand within their sections.
 No calibration, print-options, RFID or material-editing entry is implied by the
 reference image. The explicit printer selector, current-device header and
 freshness feedback remain visible. Narrow content areas stack the sections

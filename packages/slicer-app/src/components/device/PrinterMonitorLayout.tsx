@@ -22,7 +22,7 @@ export function PrinterMonitorLayout({ title, subtitle, status, toolbar, notices
   </div>;
 }
 
-export function PrintProgressCard({ status, preview, details, progressActions, children }: { status?: PrintStatus; preview?: string | null; details?: ReactNode; progressActions: ReactNode; children: ReactNode }) {
+export function PrintProgressCard({ status, preview, details, progressActions }: { status?: PrintStatus; preview?: string | null; details?: ReactNode; progressActions: ReactNode }) {
   const progress = valueOf(status?.progressFraction);
   return <ControlCard title="Printing progress">
     <div className="printer-print-overview">
@@ -36,6 +36,5 @@ export function PrintProgressCard({ status, preview, details, progressActions, c
         <dl className="printer-print-facts"><dt>Progress</dt><dd>{display(status?.progressFraction, value => `${Math.round(value * 100)}%`)}</dd><dt>Remaining</dt><dd>{display(status?.remainingSeconds, value => `${Math.ceil(value / 60)} min`)}</dd>{details}</dl>
       </div>
     </div>
-    {children && <div className="printer-print-actions">{children}</div>}
   </ControlCard>;
 }
