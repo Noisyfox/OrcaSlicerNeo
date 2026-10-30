@@ -2,6 +2,8 @@ import { _electron, desktopLaunchOptions } from './electron-fixture';
 import { isBambuControlRequest } from '../src/shared/bambuControl';
 import { expect, test } from '@playwright/test';
 import { installControlFixture, publishControlSnapshot } from './bambu-control-fixture';
+import { Ipc } from '../src/shared/ipc';
+import type * as D from '@orca/printer-control/domain';
 test('Bambu control cards retain selection, bind edits and cancellation, and disable stale controls', async () => {
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
   try {
@@ -101,5 +103,49 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     await expect.poll(() => panel.getByTestId('device-monitor').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.screenshot({ path: '/tmp/orca-bambu-control-narrow.png' });
     await validateRequests();
+  } finally { await app.close(); }
+});
+
+test('Bambu error dialogs invoke opaque actions, stay dismissed across refreshes and respect visibility and stale state', async () => {
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    await installControlFixture(app);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
+    const publish = async (episode: string, fresh = true) => app.evaluate(({ BrowserWindow }, { channel, episode, fresh }) => {
+      const data = globalThis.bambuControlFixture.data['bambu:a'];
+      const ref = { ...data.snapshot.target, configurationRevision: data.description.configurationRevision };
+      const action = (label: string): D.PrinterAction => ({ actionRef: { ...ref, token: `${episode}:${label}` as D.Id<'action-context'> }, label, description: null, expiresAtMs: null, availability: { kind: 'available' } });
+      data.snapshot.values.alerts = { kind: 'known', freshness: fresh ? 'fresh' : 'stale', observedAtMs: null, receivedAtMs: Date.now(), sourceRouteId: ref.routeId, value: [{
+        id: episode as D.Id<'alert'>, severity: 'warning', code: '0500808F', message: 'Nozzle camera lens is dirty.',
+        actions: [action('Problem Solved and Resume'), action('Ignore this and Resume')],
+        dialog: { title: 'Warning', dismissible: true, dismissAction: action('Close') },
+      }] };
+      if (data.snapshot.values.status?.kind === 'known') data.snapshot.values.status.freshness = fresh ? 'fresh' : 'stale';
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, 'control');
+    }, { channel: Ipc.bambuChanged, episode, fresh });
+    const dialog = page.getByRole('dialog', { name: 'Workshop A: Warning' });
+    await publish('episode-1');
+    await expect(dialog).toContainText('Nozzle camera lens is dirty.');
+    await dialog.getByRole('button', { name: 'Ignore this and Resume', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(() => app.evaluate(() => globalThis.bambuControlFixture.commands.at(-1)?.command)).toMatchObject({ type: 'actions.invoke', params: { actionRef: { token: 'episode-1:Ignore this and Resume' } } });
+    await expect(page.getByRole('button', { name: 'View error details' })).toBeEnabled();
+    await publish('episode-1'); await expect(dialog).toBeHidden();
+    await page.getByRole('button', { name: 'View error details' }).click();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect.poll(() => app.evaluate(() => globalThis.bambuControlFixture.commands.at(-1)?.command)).toMatchObject({ params: { actionRef: { token: 'episode-1:Close' } } });
+    await publish('episode-2', false);
+    await expect(dialog.getByRole('button', { name: 'Problem Solved and Resume', exact: true })).toBeDisabled();
+    await page.locator('#app-tab-prepare').click(); await expect(dialog).toBeHidden();
+    await publish('episode-3'); await expect(dialog).toBeHidden();
+    await page.locator('#app-tab-device').click();
+    await expect(dialog.getByRole('button', { name: 'Problem Solved and Resume', exact: true })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Problem Solved and Resume', exact: true }).click();
+    await expect.poll(() => app.evaluate(() => globalThis.bambuControlFixture.commands.at(-1)?.command)).toMatchObject({ params: { actionRef: { token: 'episode-3:Problem Solved and Resume' } } });
   } finally { await app.close(); }
 });

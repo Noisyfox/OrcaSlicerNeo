@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-10-29
+**Updated:** 2026-10-30
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -1127,6 +1127,17 @@ does not add a unified operation-history panel or uniformly persistent outcome
 badges. This does not weaken underlying outcome tracking or replay restrictions.
 Relevant device errors and supported contextual recovery actions remain included
 in the control cards; an independent HMS page remains excluded.
+Current errors may carry agent-directed dialog presentation alongside their inline
+alert. Bambu uses pinned English error/action resources selected by serial prefix;
+[recovery](../apps/desktop/src/utility/bambu/recovery.ts) owns action definitions
+and opaque references scoped to the observed error, device task and configuration.
+Closing a dialog and clearing an error are distinct protocol operations. All
+underlying error/job fields and severity are decoded in the cached machine state;
+ordinary partial reports preserve omitted fields. Legacy AMS acknowledgement also
+sends Orca's separate UI-close notification. Commands are never replayed because
+an error remains visible. The shared UI contains no Bambu codes or wire payloads.
+See the [console behavior](Printer%20Console%20and%20Control%20Integration.md#accepted-task-hardware-and-recovery-scope)
+for dialog lifetime and current implementation limits.
 
 For Bambu FAILED reports, explicit print error 0300400C means task cancellation
 according to Orca's checked-in HMS resources. Project it as cancelled/ready with
@@ -1291,10 +1302,12 @@ printing and the broader host/release matrix remain unqualified.
 The dual-nozzle run paused before the first layer at error `0500808F` (dirty nozzle
 camera lens). The user continued that same task through Orca or the printer; Neo
 observed the error clear and printing resume without issuing a recovery command
-or another submission. Neo still lacks Orca's error-specific message/dialog and
-its separate ignore-and-resume and problem-solved-and-resume actions. This round
-does not qualify Neo's handling of that recovery; ordinary Resume was not tested
-as an equivalent action.
+or another submission. Neo now exposes Orca's bundled error text and its separate
+ignore-and-resume and problem-solved-and-resume actions through generic alert
+dialogs, with protocol
+and UI fixture coverage. This physical round preceded that implementation and
+does not qualify Neo's handling of recovery; ordinary Resume was not tested as
+an equivalent action.
 
 Fixed Bambu nozzle assignments must preserve Orca's inactive hotend placeholder
 (`H-1`), rather than requesting an explicit hotend through `H0`/`H1`, which can

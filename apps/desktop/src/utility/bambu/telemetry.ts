@@ -23,6 +23,7 @@ function bits(value: unknown, offset: number, width = 1): number | undefined {
 }
 /** Named protocol state shared by control and print rules. Missing bits stay unknown. */
 function decodeMachineState(p: Report) {
+  const printError = nonNegative(p.print_error) ?? 0, printErrorLevel = (printError & 0xf000) >> 12;
   const newNozzleProtocol = ['cfg', 'fun', 'aux', 'stat'].every(key => p[key] !== undefined);
   const legacyFlow = bits(p.flag3, 10, 3);
   const storage = bits(p.aux, 12, 2) ?? bits(p.home_flag, 8, 2) ?? (typeof p.sdcard === 'boolean' ? p.sdcard ? 1 : 0 : undefined);
@@ -38,6 +39,9 @@ function decodeMachineState(p: Report) {
     id: `fan:${bits(part.id, 4, 8)}`, min: bits(part.range, 0, 16), max: bits(part.range, 16, 16),
   }));
   return Object.freeze({
+    printError,
+    printErrorLevel: printErrorLevel === 4 ? 'error' as const : printErrorLevel === 8 ? 'warning' as const : printErrorLevel === 12 ? 'info' as const : 'unknown' as const,
+    jobId: identifier(p.job_id) ?? '', subtaskId: identifier(p.subtask_id) ?? '',
     amsUnits: Object.freeze(amsUnits), fans: Object.freeze(fans),
     externalSpools: Object.freeze(records(p.vir_slot).map(tray => Object.freeze({ id: String(tray.id), manualPressureAdvance: typeof tray.cali_idx === 'number' && tray.cali_idx >= 0 }))),
     storage: storage === undefined ? undefined : (['missing', 'normal', 'abnormal', 'read-only'] as const)[storage],

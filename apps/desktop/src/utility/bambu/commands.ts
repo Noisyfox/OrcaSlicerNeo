@@ -11,9 +11,11 @@ function range(value: unknown): D.Range {
   const values = Array.isArray(value) ? value.map(number) : [];
   return { min: values[0] ?? null, max: values[1] ?? null, step: 1 };
 }
-export interface CommandContext extends TelemetryProjection { target: D.PrinterTarget; configurationRevision: string; model: string | null; recovery?: { action: D.PrinterAction; kind: 'resume' | 'abort' }[] }
+export interface CommandContext extends TelemetryProjection { target: D.PrinterTarget; configurationRevision: string; model: string | null; recovery?: { action: D.PrinterAction; command: PreparedCommand }[] }
 export interface PreparedCommand {
   section: 'print' | 'system'; fields: Report; qos: number;
+  /** Orca's legacy error acknowledgement also closes the printer's error UI. */
+  followUp?: Pick<PreparedCommand, 'section' | 'fields' | 'qos'>;
   /** Only explicit report predicates confirm completion; without one, ACK ends tracking as accepted. */
   confirmed?: (next: TelemetryProjection) => boolean;
 }
@@ -81,7 +83,7 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
   const busyMaterial = state.materials.state.tools.some(tool => { const activity = known(tool.activity); return activity !== undefined && activity !== 'idle'; });
   if (['motion.home', 'motion.jog', 'extrusion.move', 'tools.select', 'materials.load', 'materials.unload', 'materials.switch', 'hardware.refreshNozzles'].includes(command.type)
     && (!idle && phase !== 'paused' || busyMaterial)) return reject('busy', 'The printer is busy. Wait until movement or material changing is available.');
-  if (context.machine.localControlOnly && command.type !== 'jobs.cancel' && command.type !== 'lights.set') return reject('precondition-failed', 'This processing task must be controlled on the printer.');
+  if (context.machine.localControlOnly && command.type !== 'jobs.cancel' && command.type !== 'lights.set' && command.type !== 'actions.invoke') return reject('precondition-failed', 'This processing task must be controlled on the printer.');
   switch (command.type) {
     case 'jobs.pause':
       if (phase !== 'printing') return reject('precondition-failed', 'Only a running print can be paused.');
@@ -100,7 +102,8 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
       const ref = command.params.actionRef;
       const recovery = context.recovery?.find(item => item.action.actionRef.token === ref.token);
       if (!recovery || ref.printerId !== context.target.printerId || ref.routeId !== context.target.routeId || ref.configurationRevision !== context.configurationRevision) return reject('stale-context', 'This recovery action is no longer applicable.');
-      return prepared({ command: 'ams_control', param: recovery.kind }, undefined, 'print', 0);
+      if (recovery.action.availability.kind !== 'available') return reject('precondition-failed', recovery.action.availability.kind === 'blocked' ? recovery.action.availability.reasons.map(reason => reason.message).join(' ') : recovery.action.availability.reason);
+      return { ok: true, value: recovery.command };
     }
     case 'hardware.refreshNozzles': return prepared({ command: 'refresh_nozzle' });
     case 'thermal.setTarget': {

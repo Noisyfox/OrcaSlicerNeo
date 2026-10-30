@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-10-29
+**Updated:** 2026-10-30
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
@@ -13,8 +13,8 @@ H2D fixed-right-nozzle prints using AMS B1 and a completed fixed-dual-nozzle PET
 print using left A2 and right B1. Orca-style send completion is physically verified:
 the modal closed automatically and Device selected the correct printer and task.
 The dual-nozzle run needed external recovery from a dirty nozzle-camera error;
-Neo's error-specific dialog/actions, other supply paths and Cloud printing remain
-unqualified.
+Error-specific dialogs/actions now have software coverage; physical recovery,
+other supply paths and Cloud printing remain unqualified.
 
 **Scope:** The printer-console and printer-control experience shared by the
 Electron desktop application and the Web application.
@@ -234,6 +234,37 @@ invoking a device-provided recovery action is not automatic replay of an
 uncertain command. Presentation follows the accepted command interaction below.
 This does not introduce an HMS browser, an error-history page or unrelated
 diagnostics.
+
+Current printer errors can request a modeless dialog, following Orca's
+`DeviceErrorDialog`: show the printer, error code, message and agent-supported
+actions once per error/task episode. Ordinary refresh does not reopen a dismissed
+dialog. The inline alert remains available through View error details; clearing
+the error removes the dialog, and a new episode opens it again. Hidden Device
+pages do not display the dialog. Stale/offline status disables recovery actions
+without preventing local dismissal. Honor the agent's non-dismissible presentation
+when the resource requires it.
+
+Bambu selects the bundled English Orca error/action resource by serial-number
+prefix. Empty introductions are internal errors and are suppressed; unknown
+errors retain their code and an unknown-error message without invented recovery
+choices. Preserve the resource's action order and distinct commands, including
+Ignore this and Resume, Problem Solved and Resume, stopping, AMS done/retry/abort,
+error acknowledgement and nozzle recheck when present. Ordinary Resume is a
+separate operation. Closing the dialog sends Orca's UI-close notification, not
+an error-clear or print-resume command. Like Orca, invoking an action hides the
+dialog; the designated not-extruded Retry keeps it open. Existing command feedback
+continues to report rejection/unknown outcomes without automatic replay.
+
+The agent owns wire fields, task/error context and resource selection. The shared
+UI consumes only generic alert presentation and opaque action references; a
+reference is rechecked against the current episode during command admission.
+Protocol tests cover exact payloads, legacy AMS acknowledgement plus UI close,
+incremental-state retention and invalidated references. Component and Electron
+fixtures cover presentation, dismissal, visibility, stale state and invocation.
+The former real dirty-camera error was recovered outside Neo and does not qualify
+these new actions physically. Online HMS updates, illustration/failure-snapshot
+retrieval, independent HMS navigation and command-specific guard dialogs are not
+implemented by this current-error presentation.
 
 Device calibration may be visible as reported activity, but no calibration
 selection/start dialog is included. Detection settings, including device-side
@@ -726,8 +757,8 @@ selected Fox and Fox with the exact submitted task name.
 
 The dual-nozzle task paused at `0500808F` before its first layer. The user continued
 through Orca or the printer; Neo observed recovery and did not resend. Neo's
-error-specific dialog and ignore/problem-solved continuation actions remain a
-known gap, not a passed recovery case. Other supply paths remain open and Cloud
+error-specific dialog and ignore/problem-solved continuation actions now have
+software coverage; this earlier external recovery is not a passed Neo recovery case. Other supply paths remain open and Cloud
 physical acceptance is deferred. Preserve the precise
 [domain qualification boundary](Printer%20Domain%20and%20Control%20Architecture.md#implementation-progress).
 

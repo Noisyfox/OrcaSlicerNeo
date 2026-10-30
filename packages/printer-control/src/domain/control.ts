@@ -22,6 +22,8 @@ export interface PrinterAction {
   availability: Availability;
   /** Null means no known expiry, not a guarantee of continued validity. */
   expiresAtMs: UnixMs | null;
+  /** A retry can retain its error dialog, as directed by the agent. */
+  keepDialogOpen?: boolean;
 }
 
 /** One source for command parameters, support constraints and confirmed results. */

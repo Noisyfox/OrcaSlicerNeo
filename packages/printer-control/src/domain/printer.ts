@@ -193,6 +193,8 @@ export interface PrinterState {
     code: string;
     message: string;
     actions: readonly PrinterAction[];
+    /** Optional agent-directed presentation; protocol-specific details stay in the agent. */
+    dialog?: { title: string; dismissible: boolean; dismissAction?: PrinterAction };
   }[]>;
 }
 export interface PrinterCapabilities {
