@@ -75,7 +75,7 @@ describe('FilamentAssignmentCell semantics', () => {
     expect(trigger.style.backgroundImage).toContain('linear-gradient(90deg, #000000, #ffffff)');
     expect(trigger.textContent).toBe('1');
     expect(trigger.querySelector('span')).toBeNull();
-    expect(trigger.style.color).toBe('var(--color-foreground)');
+    expect(trigger.style.color).toBe('rgb(255, 255, 255)');
     await act(async () => { trigger.click(); });
     const swatches = [...document.body.querySelectorAll<HTMLElement>('[data-slot="select-item"] [aria-hidden="true"][style]')];
     expect(swatches[0].style.backgroundImage).toContain('#000000, #ffffff');
@@ -92,7 +92,7 @@ describe('FilamentAssignmentCell semantics', () => {
     expect(trigger.style.backgroundImage).toContain('linear-gradient(90deg, #000000, #ffffff)');
     expect(trigger.textContent).toBe('1');
     expect(trigger.querySelector('span')).toBeNull();
-    expect(trigger.style.color).toBe('var(--color-control-background)');
+    expect(trigger.style.color).toBe('rgb(23, 23, 23)');
   });
 
   it('assigns numeric slots without Default for model parts and objects', async () => {

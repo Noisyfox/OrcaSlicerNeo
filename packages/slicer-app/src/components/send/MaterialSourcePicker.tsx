@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Check, ChevronDown, Disc3, Eraser, X } from 'lucide-react';
 import type { PrintMaterialRequirement, PrintMaterialSource } from '@orca/printer-control/domain';
+import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverClose, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger } from '@/components/ui/popover';
 
@@ -75,17 +76,5 @@ function SourceSlot({ source, selected, onSelect }: { source: PrintMaterialSourc
 
 function materialColor(value: string | null | undefined) {
   if (!value || !/^#[\da-f]{6}([\da-f]{2})?$/i.test(value)) return undefined;
-  const [r, g, b] = [1, 3, 5].map(index => parseInt(value.slice(index, index + 2), 16));
-  const alpha = value.length === 9 ? parseInt(value.slice(7), 16) / 255 : 1;
-  // Transparent filament swatches need an opaque backing: contrast against the
-  // checkerboard's average shade, not RGB hidden behind a zero alpha channel.
-  const brightness = alpha * (.299 * r + .587 * g + .114 * b) + (1 - alpha) * 238;
-  return {
-    backgroundColor: alpha < 1 ? '#ffffff' : value,
-    ...(alpha < 1 ? {
-      backgroundImage: `linear-gradient(${value}, ${value}), conic-gradient(#dddddd 25%, #ffffff 0 50%, #dddddd 0 75%, #ffffff 0)`,
-      backgroundSize: '100% 100%, 8px 8px',
-    } : {}),
-    color: brightness > 150 ? '#111111' : '#ffffff',
-  };
+  return { ...colorSwatchStyle({ mode: 'solid', colors: [value] }), color: colorSwatchForeground(value) };
 }

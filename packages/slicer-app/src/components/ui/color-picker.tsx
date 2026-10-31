@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { cn } from 'cn';
+import { colorSwatchStyle } from '@/components/ui/color-swatch';
 import { MinusIcon, PanelLeftIcon, PlusIcon, RotateCcwIcon, SearchIcon, StarIcon, XIcon } from 'lucide-react';
 import { colorValueKey, colorValueSupported, DEFAULT_COLOR_PICKER_UI, MAX_COLOR_FAVORITES, MAX_GRADIENT_COLORS, normalizeColorFavorites, type ColorPickerUiState, type ColorValue } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
@@ -33,9 +34,8 @@ export interface ColorPickerProps {
 }
 
 function ColorSwatch({ value, className }: { value: ColorValue; className?: string }) {
-  return <span aria-hidden="true" className={cn('color-checkerboard block overflow-hidden rounded-sm', className)}>
-    <span className="block size-full" style={{ background: colorValueCss(value) }} />
-  </span>;
+  return <span aria-hidden="true" className={cn('block overflow-hidden rounded-sm', className)}
+    style={colorSwatchStyle(value.kind === 'solid' ? { mode: 'solid', colors: [value.color] } : { mode: 'gradient', colors: value.colors })} />;
 }
 
 function useWheelValue<T extends HTMLElement>(ref: RefObject<T | null>, value: number, max: number, step: number, disabled: boolean | undefined, onChange: (value: number) => void) {
@@ -281,7 +281,7 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
                   onClick={event => { if (disabled || event.target !== event.currentTarget) return; const rect = event.currentTarget.getBoundingClientRect(); clearEditors(); setEndpoint(Math.round(clamp((event.clientX - rect.left - 10) / Math.max(1, rect.width - 20), 0, 1) * (value.colors.length - 1))); }}>
                   <span aria-hidden="true" className="color-gradient-track pointer-events-none absolute inset-x-0 top-1/2 h-5 -translate-y-1/2 rounded-sm border border-border" />
                   {value.colors.map((hex, index) => <TabsTrigger key={index} value={String(index)} disabled={disabled} aria-label={`Gradient color ${index + 1}`}
-                    className="absolute top-1/2 p-0" style={{ left: `calc(10px + (100% - 20px) * ${index / (value.colors.length - 1)})`, background: hex }} />)}
+                    className="absolute top-1/2 p-0" style={{ left: `calc(10px + (100% - 20px) * ${index / (value.colors.length - 1)})`, ...colorSwatchStyle({ mode: 'solid', colors: [hex] }) }} />)}
                 </TabsList>
               </Tabs>
               <div className="ml-[10px] mr-1 flex shrink-0 gap-1.5">

@@ -133,8 +133,12 @@ order into Orca's space-separated `filament_multi_colour` with type `0`.
 Disabled states and errors remain controlled by the runtime.
 
 Translucent filament swatches display the colour over the same checkerboard
-used by the picker. This applies to the rack, object-list assignment cells and
-choices, Change Filament context menus, and painting-panel filament choices.
+used by the picker: fixed white and light-grey squares, independent of the
+application theme. One shared swatch renderer serves the picker, rack, nozzle
+mapping, object-list assignment cells and choices, Change Filament context
+menus, painting-panel filament choices, device materials, and print-source
+selection. Number and label contrast uses the representative colour composited
+over the checkerboard average, including alpha.
 Solid, gradient, and partitioned swatches preserve their native colour order;
 any translucent colour enables the checkerboard underneath the full swatch.
 Opaque swatches retain their existing appearance. This background affects UI
