@@ -145,6 +145,13 @@ it('groups sparse materials by slice nozzle and shows the actual source colour i
   expect((left.querySelector('[data-source]') as HTMLElement).style.backgroundColor).toBe('rgb(0, 255, 255)');
   expect((left.querySelector('[data-testid="slice-material-4"]') as HTMLElement).style.backgroundColor).toBe('rgb(51, 51, 51)');
 });
+it('uses the shared light checkerboard and readable labels for transparent slice materials', async () => {
+  await setup(false, { ...manifest, materials: [{ ...manifest.materials[0], color: '#00000000' }] });
+  const swatch = container.querySelector<HTMLElement>('[data-testid="slice-material-0"]')!;
+  expect(swatch.style.backgroundColor).toBe('var(--color-swatch-background)');
+  expect(swatch.style.backgroundImage).toContain('var(--color-swatch-checkerboard)');
+  expect(swatch.style.color).toBe('rgb(23, 23, 23)');
+});
 it('renames only the submitted artifact and locks segmented options during sending', async () => {
   const f = await setup();
   await act(async () => (container.querySelector('[aria-label="Rename print job"]') as HTMLElement).click());

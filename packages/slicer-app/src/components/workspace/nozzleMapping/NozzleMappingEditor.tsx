@@ -1,7 +1,7 @@
 import type { FilamentSessionSlot, NozzleMappingMode, NozzleMappingSnapshot } from '@slicer/client';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { filamentNumberColour, filamentSwatchStyle } from '../FilamentSwatch';
+import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
 
 export const mappingModeLabel = (mode: NozzleMappingMode) => mode === 0 ? 'Auto For Flush' : mode === 1 ? 'Auto For Match' : 'Manual';
 
@@ -48,7 +48,7 @@ export function NozzleMappingEditor({ snapshot, filamentMap = snapshot.effective
           <div className="flex h-6 min-w-0 flex-1 items-center overflow-hidden rounded-l-sm bg-control-background"
             title={slot?.preset.name} data-testid={`mapping-material-${id}`}>
             <span className="flex h-full w-6 shrink-0 items-center justify-center text-xs"
-              style={slot ? { ...filamentSwatchStyle(slot.colour.display), color: filamentNumberColour(slot.colour.effective) } : undefined}>
+              style={slot ? { ...colorSwatchStyle(slot.colour.display), color: colorSwatchForeground(slot.colour.effective) } : undefined}>
               {id}
             </span>
             <span className="min-w-0 truncate px-1.5 text-xs">{slot?.preset.label || slot?.preset.name || 'Filament'}</span>

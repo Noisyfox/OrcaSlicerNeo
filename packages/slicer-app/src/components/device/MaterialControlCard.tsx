@@ -1,3 +1,4 @@
+import { colorSwatchStyle } from '@/components/ui/color-swatch';
 import { Button } from '@/components/ui/button';
 import { ControlCard, display, valueOf, type CardControls } from './PrinterControlCards';
 /** Reported hardware topology owns unit count, display names and tool routing. */
@@ -14,7 +15,8 @@ export function MaterialControlCard({ snapshot, capabilities, disabled, send }: 
     <div className="printer-material-slots">{inventory.topology.slots.filter(slot => slot.unitId === unit.id).map(slot => {
       const state = inventory.state.slots.find(item => item.slotId === slot.id), material = valueOf(state?.material), color = material?.color;
       return <div className="printer-material-slot" key={slot.id}>
-        <div className="flex items-center gap-2">{color && <span aria-label="Material color" className="printer-material-color" style={{ background: color.kind === 'solid' ? color.rgba : `linear-gradient(90deg, ${color.rgba.join(', ')})` }} />}<strong>{slot.name}</strong></div>
+        <div className="flex items-center gap-2">{color && <span aria-label="Material color" className="printer-material-color" style={colorSwatchStyle(color.kind === 'solid' ? { mode: 'solid', colors: [color.rgba] }
+          : { mode: color.appearance === 'parallel' ? 'multicolor' : 'gradient', colors: color.rgba })} />}<strong>{slot.name}</strong></div>
         <p className="printer-slot-material">{material?.materialType || 'Unknown material'}</p>
         <details className="printer-slot-details"><summary>Details</summary>
           <p>Presence: {display(state?.presence)}</p>
