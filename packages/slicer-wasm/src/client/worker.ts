@@ -53,7 +53,7 @@ const historyMutationOperations = new Set([
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'assignFilament',
   'setFilamentRouting', 'setFlushingVolumes', 'movePrimeTower', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
-  'mutatePresetDraft', 'selectPrinterWithRememberedRack', 'setToolheadDiameter', 'setProjectFlow',
+  'mutatePresetDraft', 'selectPrinterWithRememberedRack', 'applyMaterialImport', 'synchronizePrinter', 'setToolheadDiameter', 'setProjectFlow',
 ]);
 
 // Serial Print::process() occupies the sole stateful Worker. These commands
@@ -75,8 +75,8 @@ const restrictedWhileSerialSlicing = new Set([
   'openHistorySession', 'closeHistorySession', 'resetHistory', 'movePrimeTower', 'resetPlateSession',
   'selectPlate', 'addPlate', 'deletePlate', 'recomputePlateMembership',
   'markSharedConfigurationMutation', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
-  'mutatePresetDraft', 'revalidateNativeScopedConfig', 'selectProfile', 'selectPrinterWithRememberedRack', 'setToolheadDiameter', 'setProjectFlow', 'configureProjectFlowMemory', 'configureNozzleCapacityMemory', 'mutateNozzleMapping', 'addModel', 'closeProject',
-  'loadProject', 'importProjectGeometry', 'addShape', 'addVolume', 'clearModel',
+  'mutatePresetDraft', 'revalidateNativeScopedConfig', 'selectProfile', 'selectPrinterWithRememberedRack', 'applyMaterialImport', 'synchronizePrinter', 'setToolheadDiameter', 'setProjectFlow', 'configureProjectFlowMemory', 'configureNozzleCapacityMemory', 'mutateNozzleMapping', 'addModel', 'closeProject',
+  'prepareMaterialImport', 'getDeviceFilamentOptions', 'getPrinterDeviceMatch', 'loadProject', 'importProjectGeometry', 'addShape', 'addVolume', 'clearModel',
   'setInstanceOffset', 'setModelTransform', 'setModelTransforms', 'deleteObjects',
   'deleteVolumes', 'cloneObjects', 'reorderObjects', 'reorderVolumes',
   'splitVolumeToParts', 'splitObjectToObjects', 'mergeObjectsToMultipart',

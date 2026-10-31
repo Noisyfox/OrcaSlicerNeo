@@ -373,3 +373,16 @@ it('uses a no-msg LAN report as a fresh full baseline after reconnecting', () =>
   expect(telemetry.accept(push({ msg: 1, sdcard: true }))).toBe('updated');
   expect(telemetry.project(target, identity).machine.storage).toBe('normal');
 });
+
+ it('normalizes catalogue associations in the agent without claiming a spool is present', () => {
+   const { telemetry } = model();
+   telemetry.accept(push({ msg: 0, nozzle_temper: 20, nozzle_diameter: '0.4', nozzle_type: 'hardened_steel', flag3: '0',
+     ams: { tray_exist_bits: '0', ams: [{ id: '0', tray: [{ id: '0', tray_info_idx: 'GFA00', tray_type: 'PLA' }] }] } }));
+   const projected = telemetry.project(target, identity).values;
+   expect(projected.descriptor.identity.externalRefs).toContainEqual({ namespace: 'orca-printer-model', value: 'O1D' });
+   expect(projected.descriptor.topology.nozzles[0].flowType).toBe('standard flow');
+   expect(projected.materials.state.slots[0].material).toMatchObject({ value: { catalogRefs: expect.arrayContaining([
+     { namespace: 'bambu-filament', value: 'GFA00' }, { namespace: 'orca-filament', value: 'OFoiVqVM' },
+   ]) } });
+   expect(projected.materials.state.slots[0].presence).toMatchObject({ value: 'empty' });
+ });

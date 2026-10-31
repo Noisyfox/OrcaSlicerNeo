@@ -144,7 +144,7 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set, get) =
       try {
         const result = await command();
         if (result.ok) {
-          if (result.result.mutation.kind === 'delete' || result.result.mutation.kind === 'merge')
+          if (result.result.mutation.kind === 'delete' || result.result.mutation.kind === 'merge' || result.result.mutation.kind === 'synchronize')
             await refreshRemappedPaint(runtime);
           // The native command and this receipt share one commit. Project it
           // before any dependent session/result publication; do not issue a

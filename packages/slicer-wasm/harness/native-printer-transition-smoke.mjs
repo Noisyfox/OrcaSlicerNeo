@@ -371,7 +371,9 @@ function exportedReferences() {
   return {
     paint: [...text('3D/3dmodel.model').matchAll(/paint_color="([^"]+)"/g)].map(m => m[1]),
     tools: [...text('Metadata/custom_gcode_per_layer.xml').matchAll(/extruder="(\d+)"/g)].map(m => Number(m[1])),
-    maps: callJson('orc_get_plate_session_snapshot').plates.map(p => p.settings.filament_map),
+    // Plate routing may inherit the project map instead of serializing a redundant override.
+    maps: callJson('orc_get_plate_session_snapshot').plates.map(p => p.settings.filament_map
+      ?? callJson('orc_get_filament_session_snapshot').mappings.filament.join(',')),
   };
 }
 const importedRefs = exportedReferences();

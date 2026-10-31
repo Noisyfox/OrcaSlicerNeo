@@ -672,8 +672,9 @@ selector with a truncated name, and a dropdown chevron. The heading shows the
 material count and a collapse toggle; plus and minus buttons add a slot or
 remove the last slot. Edit, Merge, and Delete are available by right-clicking a
 slot. Existing mutation capabilities and reference-impact confirmations still
-control these commands. Flushing Volumes sits at the left of the toolbar above
-material slots, with Add/Delete at the right. It requires multiple actual
+control these commands. The accepted [Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization)
+adds Filament Sync immediately to the left of Flushing Volumes in the toolbar
+above material slots, with Add/Delete at the right. The sync action is implemented. Flushing Volumes requires multiple actual
 materials and native SEMM/Bambu capability; fixed-material printers such as
 U1 hide it. Its dialog and automatic-calculation preference are owned by
 [Multi-Filament Support](Multi-Filament%20Support.md#101-flushing-volume-policy).
@@ -726,7 +727,44 @@ abbreviation (SF/HF/XHF and the other native flow variants). Values come from th
 effective native nozzle_diameter and nozzle_volume_type vectors; flow types beyond the
 serialized vector length repeat its first entry, matching native
 ConfigOptionVector::get_at semantics, retaining the canonical preset transition and
-existing Sync placeholder. Single-extruder rows retain their compact layout. The Printer
+existing Sync control. The implemented
+[Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization)
+reuses this button for Printer sync.
+Printer sync follows Orca's direct action with necessary confirmations or
+configuration choices; it adds no generic before/after preview. Filament Sync
+directly imports for clean, empty Plates; otherwise it opens the modal
+mapping/rebuild dialog under that specification's native occupancy, draft and
+reference-replacement rules.
+Synchronization uses the existing shared Dialog, form controls, Table and
+material swatch presentation. Device choice and necessary Printer confirmations
+use the standard compact modal; the Filament mapping dialog has a bounded
+scrolling body and a fixed action footer. Use shared Select popups and Checkbox
+controls with the existing focus, disabled, color and typography tokens rather
+than browser-native form controls or a separate modal surface.
+The selected Printer name shows a small solid green circle on its right,
+before the dropdown arrow, while the current Device has fresh observed
+connection data and its exact manufacturer/model matches the project Printer.
+Use the same native identity predicate as Printer sync, including agent-owned
+catalogue aliases; display labels and Filament-only compatible models do not
+establish a match. This indicator concerns model agreement only, not nozzle,
+flow, AMS or completed synchronization. Hide it for stale/disconnected,
+unavailable or mismatched sources. Reuse existing observations without adding
+a connection, polling loop or device read for the indicator.
+For the same fresh, exactly model-matched device, Filament dropdowns prepend
+installed material choices ahead of ordinary project/user/system presets.
+Show source location, color and native preset label, grouping by reported tool
+reachability on multi-tool devices. Include automatic feeders and external
+holders without assuming Bambu numbering or fixed slot counts. Like Orca's
+dropdown, require a reported material identity and a compatible native base
+match or same-type Generic preset; omit unresolved entries rather than using
+the broader full-sync fallback. Retained empty/unknown metadata may remain
+listed and does not establish a loaded spool. Search also covers source/tool
+labels. Choosing a device entry performs the ordinary single-slot preset and
+color edit atomically, with existing flushing/history and one Undo; it neither
+rebuilds the rack nor persists a physical Send binding. Revalidate source and
+project revisions before applying; hide stale, disconnected or model-mismatched
+device groups while retaining the ordinary preset catalogue.
+Single-extruder rows retain their compact layout. The Printer
 preset editor opens from a 24px square settings button to the left
 of the selector, using a gray sliders icon and a dark-gray rounded background.
 The device/material reference palette is sampled directly from the supplied

@@ -1,4 +1,4 @@
-import { usePrintDialogStore } from './stores/usePrintDialogStore';
+import { useProjectDialogStore } from './stores/useProjectDialogStore';
 import { useDeviceSelectionStore } from './stores/useDeviceSelectionStore';
 import { paintingCommandAllowed, closePaintingForCommand, paintingSessionActive } from './components/workspace/viewport/gizmo/painting/projectCommands';
 // packages/slicer-app/src/App.tsx (boot effect: app config load → worker
@@ -198,7 +198,7 @@ function AppContent() {
       void closePaintingForCommand().then((closed) => { if (closed) navigate(); });
     } else navigate();
   }, []);
-  const deviceNavigation = useDeviceSelectionStore(s => s.requestVersion);
+  const deviceNavigation = useDeviceSelectionStore(s => s.navigationRequestVersion);
   useEffect(() => { if (deviceNavigation) handleTabChange('device'); }, [deviceNavigation, handleTabChange]);
   const navigateToPreview = useCallback(() => {
     handleTabChange('preview');
@@ -326,7 +326,7 @@ function AppContent() {
     }
   }, [platform.preferences, platform.runtime, preferences]);
 
-  const printDialogOpen = usePrintDialogStore(s => s.open);
+  const projectDialogOpen = useProjectDialogStore(s => s.open);
   const menuState = useMemo(() => {
     const snapshot = buildMenuStateSnapshot({
     version: 1,
@@ -353,11 +353,11 @@ function AppContent() {
       menuMode: resolveMenuMode(platform.chrome),
     },
   }, platform.chrome, recentHistory.projects);
-    if (printDialogOpen) for (const [command, item] of Object.entries(snapshot.items)) {
+    if (projectDialogOpen) for (const [command, item] of Object.entries(snapshot.items)) {
       if (item && !['quit', 'open-source', 'open-configuration-folder'].includes(command)) item.enabled = false;
     }
     return snapshot;
-  }, [printDialogOpen,
+  }, [projectDialogOpen,
     boot,
     setup,
     activeTab,

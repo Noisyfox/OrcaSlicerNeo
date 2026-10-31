@@ -136,7 +136,8 @@ Translucent filament swatches display the colour over the same checkerboard
 used by the picker: fixed white and light-grey squares, independent of the
 application theme. One shared swatch renderer serves the picker, rack, nozzle
 mapping, object-list assignment cells and choices, Change Filament context
-menus, painting-panel filament choices, device materials, and print-source
+menus, painting-panel filament choices, device materials, Prepare synchronization
+review and installed-material menus, and print-source
 selection. Number and label contrast uses the representative colour composited
 over the checkerboard average, including alpha.
 Solid, gradient, and partitioned swatches preserve their native colour order;

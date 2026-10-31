@@ -1,0 +1,60 @@
+import assert from 'node:assert/strict';
+import { createNozzleMappingFixture } from './nozzle-mapping-fixtures.mjs';
+const { call, command, ok, context } = await createNozzleMappingFixture(process.argv[2]);
+const history = () => call('orc_history_status');
+const profiles = () => ok(call('orc_get_preset_snapshot'));
+const draft = name => ok(call('orc_get_preset_draft', ['string', 'string'], ['printer', name]));
+const source = { manufacturer: 'Bambu Lab', model: 'H2D', externalRefs: [{ namespace: 'orca-printer-model', value: 'O1D' }] };
+const beforeMatch = JSON.stringify(history());
+assert.equal(command('orc_get_printer_device_match', source).matches, true);
+assert.equal(command('orc_get_printer_device_match', { ...source, manufacturer: 'Other vendor' }).matches, false);
+assert.equal(command('orc_get_printer_device_match', { ...source, externalRefs: [{ namespace: 'orca-compatible-printer-model', value: 'O1D' }] }).matches, false);
+assert.equal(JSON.stringify(history()), beforeMatch);
+const tools = [{ diameterMm: 0.4, flowType: 'standard flow', flowReporting: 'supported', capacity: 5 },
+  { diameterMm: 0.6, flowType: 'high flow', flowReporting: 'supported', capacity: 3 }];
+function sync(overrides = {}) {
+  return command('orc_synchronize_printer', { expected_revision: history().revision, identity: source, tools,
+    confirm_model_change: true, rack_memory: {}, bed_memory: {}, history_context: context, ...overrides });
+}
+ok(command('orc_test_set_filament_reference_fixture', { mapping_project_settings: { nozzle_volume_type: 'Standard' } }));
+assert.deepEqual(profiles().printer_picker.flows.map(f => f.actual), [0, null]);
+command('orc_history_reset', context);
+const name = profiles().printer.name;
+const before = draft(name).effective_values.nozzle_diameter;
+const revision = history().revision;
+const updated = ok(sync({ identity: { manufacturer: null, model: null, externalRefs: source.externalRefs } }));
+assert.equal(updated.mutation.kind, 'synchronize-printer');
+assert.equal(updated.mutation.history_entry_delta, 1);
+assert.equal(history().revision, revision + 1);
+assert.equal(updated.profile_snapshot.printer.name, name);
+assert.match(draft(name).effective_values.nozzle_diameter, /0\.4.*0\.6/);
+assert.deepEqual(updated.profile_snapshot.printer_picker.flows.map(f => f.actual), [0, 1]);
+assert.deepEqual(updated.native_scoped_config.snapshot.project.extruder_ams_count, '1#5;1#3');
+ok(command('orc_history_undo', context));
+assert.equal(draft(name).effective_values.nozzle_diameter, before);
+assert.deepEqual(profiles().printer_picker.flows.map(f => f.actual), [0, null]);
+ok(command('orc_history_redo', context));
+assert.match(draft(name).effective_values.nozzle_diameter, /0\.4.*0\.6/);
+const baseline = JSON.stringify({ draft: draft(name), session: call('orc_get_filament_session_snapshot'), history: history() });
+const bad = sync({ tools: [tools[0], { ...tools[1], flowType: 'unavailable flow' }] });
+assert.equal(bad.ok, false);
+assert.equal(JSON.stringify({ draft: draft(name), session: call('orc_get_filament_session_snapshot'), history: history() }), baseline);
+assert.equal(sync({ expected_revision: revision }).error_code, 'stale_revision');
+assert.equal(sync({ tools: [tools[0], { ...tools[1], flowType: null, flowReporting: 'unknown' }] }).ok, false);
+assert.equal(ok(sync()).mutation.history_entry_delta, 1);
+assert.equal(sync({ identity: { ...source, model: 'Absent model', externalRefs: [] } }).error_code, 'preset_not_visible');
+const other = profiles().printers.find(p => p.model !== 'Bambu Lab H2D' && p.model && p.name.includes('0.4 nozzle') && p.is_visible);
+assert.ok(other);
+const request = { identity: { manufacturer: '', model: other.model, externalRefs: [] },
+  tools: [{ diameterMm: 0.4, flowType: 'standard flow', capacity: 8 }], confirm_model_change: false };
+assert.equal(sync(request).error_code, 'printer_model_mismatch');
+const changed = ok(sync({ ...request, confirm_model_change: true }));
+assert.equal(changed.profile_snapshot.printer.name, other.name);
+assert.equal(changed.mutation.history_entry_delta, 1);
+const reversed = ok(sync({ tools: [tools[1], tools[0]] }));
+assert.match(reversed.profile_snapshot.printer.name, /H2D 0.6 nozzle/);
+assert.deepEqual(reversed.profile_snapshot.printer_picker.flows.map(f => f.actual), [1, 0]);
+const returned = ok(sync());
+assert.match(returned.profile_snapshot.printer.name, /H2D/);
+assert.match(draft(returned.profile_snapshot.printer.name).effective_values.nozzle_diameter, /0\.4.*0\.6/);
+console.log('PASS device Printer sync: mixed diameters, flow/capacity, canonical source, atomic rollback, stale source, ordinary switch and Undo/Redo');

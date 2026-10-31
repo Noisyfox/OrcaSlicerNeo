@@ -100,7 +100,7 @@ In particular, the following choices remain reviewable:
 | Remote-file consistency | Explicit strict/best-effort version modes and route-scoped references; provider support and the exact request model need validation. |
 | Transfers | Paged listings, streamed reads, invalidation notifications and reject/rename/overwrite upload policies; no exact wire API or universal provider support is assumed. |
 | Credentials | Opaque credential references; Bambu session storage/refresh is delegated to the black-box plugin in section 2.1. Other credential migration and host storage remain open. |
-| Project material import | A revision-bound proposal followed by an explicit native transaction; the precise review UI and proposal representation remain open. |
+| Project material import | The accepted [Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization) provides implemented modal material mapping/rebuild and atomic native application; physical qualification remains separate. |
 
 A proposed abstraction is not evidence that a particular printer or host
 already implements it. This classification applies to sections 2–11, including
@@ -1027,6 +1027,8 @@ Restoring a Moonraker selection does not authorize background observation.
 The current typed contract includes `jobs.setSpeed` with discoverable mode IDs
 and labels, and `hardware.refreshNozzles` for explicit device re-identification.
 Nozzle records include nullable type and flow type alongside material and diameter.
+`flowReporting` distinguishes supported, explicitly unsupported and unknown reporting;
+a missing flow value on an unknown device must not become a Standard-flow default.
 Print status includes individually unknown-capable device task identity, detailed
 stage, current/total layers and speed mode. Device task identity is independent
 of Neo jobs; an optional `expectedTaskId` guard must be checked or explicitly
@@ -1946,6 +1948,34 @@ multi-color descriptions. Remaining
 quantity includes a unit and whether it is measured, estimated or unspecified.
 Vendor/catalogue references are namespaced and are not assumed to be Neo
 filament preset identifiers.
+An observed supply remains distinct from an eligible project-sync source.
+Source eligibility requires a non-empty normalized material catalogue identity;
+retained color or material type alone is insufficient. Presence is independent:
+an identified supply may still have empty or unknown presence. Sync and the
+installed-material dropdown share source conversion, native eligibility and
+native matching, with their different fallback ranges owned by the
+[Prepare synchronization rules](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization).
+
+Printer and material sync are shared application workflows that future agents
+must be able to reuse. Normalized observations and independent capabilities
+select the applicable workflow; provider/model identity does not select a
+separate shared UI or project mutation implementation. Protocol encodings,
+device aliases/numbering, catalogue normalization and vendor policy belong to
+the agent. Native compatibility and reference transformations remain in their
+existing owners. Preserve opaque IDs, arbitrary reported resource cardinality
+within native limits, and both push-backed and explicit on-demand reads.
+Project synchronization may reuse fresh, coherent cached observations for
+topics maintained by push/poll delivery, without requiring another device
+round trip. Cache provenance and required tool/nozzle/material references must
+pass the same normalization as a device read; unrelated missing device
+resources do not block synchronization. Missing or unusable cached data triggers
+an explicit device read; on-demand-only sources and an explicit Refresh always
+perform that read. Failed refreshes remain failures. This selection uses
+observation capabilities rather than provider/model identity and does not
+weaken the pre-commit source or project revision checks.
+The [agent extensibility rules](Printer%20Console%20and%20Control%20Integration.md#agent-extensibility)
+apply even though the initial runtime integration is Bambu only; they do not
+authorize implementation of additional agents or a gateway.
 
 Track selected and loaded paths independently, with loading, unloading,
 switching and fault state. The selected next source is not necessarily the
@@ -1956,12 +1986,44 @@ support does not imply permission to modify material metadata.
 
 Inventory synchronization updates the device model. It must not silently
 rewrite the open project's native rack, presets, colors or assignments.
-Import into the project is an explicit application workflow. The proposed flow
-prepares a mapping with enough device/project context to detect stale input and
-exposes empty slots, missing data and unresolved preset matches. Beyond the
-required provenance below, proposal details and confirmation UI remain open. Applying it follows existing
-native compatibility rules and the atomic history contract. A failed or stale
-proposal cannot partially change the project.
+Import into the project is an explicit application workflow. The accepted
+[Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization)
+uses one atomic native application, with Bambu as the initial device
+integration. Clean empty projects import Filament directly after Sync; occupied
+projects, modified active Filaments and necessary reference replacements retain
+the modal mapping/rebuild review. It exposes empty slots, missing data
+and unresolved preset matches, and follows existing native compatibility and
+history rules. That UI specification owns the settled interaction and initial
+capability-based Bambu coverage. A failed or stale proposal cannot partially
+change the project. The shared import and initial Bambu normalization are
+implemented; the domain does not imply support by an additional agent.
+
+The current material contract carries `catalogRefs`, a list of namespaced
+associations for the same material. Agents can supply `orca-filament` references
+to native `filament_id` values while retaining their own catalogue identity.
+Hardware model associations use `orca-printer-model`; agent-declared
+`orca-compatible-printer-model` associations additionally permit Filament import
+into a compatible project model. Printer sync resolves only the device's own
+model. These are catalogue associations, not display-name equality or protocol
+IDs interpreted by the shared UI. Nullable manufacturer/model descriptions
+remain unknown; the same native model predicate handles them and the catalogue
+associations for Printer sync, Filament sync and installed-material selection.
+Nozzle `flowReporting` explicitly separates
+supported, unsupported and unknown reporting; an absent value with unknown
+support cannot silently select Standard.
+
+Printer-hardware import uses the same application/native ownership boundary:
+device observations do not mutate slicing presets or project nozzle/flow and
+capacity inputs. The application explicitly captures a source and prepares the
+validated request; native code resolves compatible presets and applies project
+changes directly after the explicit Sync action and any necessary Orca-style
+confirmations/configuration choices. There is no generic Printer before/after
+preview dialog or Printer preview API. Filament import uses the direct or
+conditional modal workflow described above.
+Keep vendor protocol encodings and model/catalogue normalization in the agent,
+and physical-device slot/tool identities separate from project rack/nozzle
+identities. Hardware requests must also retain their source route/configuration,
+relevant descriptor/topology context and native project revision for validation.
 
 Every material import proposal retains the source observation snapshot's
 configuration revision alongside its printer/route, topology, inventory and

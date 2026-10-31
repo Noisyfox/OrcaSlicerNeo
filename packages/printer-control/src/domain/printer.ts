@@ -77,6 +77,8 @@ export interface Nozzle {
   constructionMaterial: string | null;
   type: string | null;
   flowType: string | null;
+  /** Unknown reporting support must not be treated as an unsupported device default. */
+  flowReporting: 'supported' | 'unsupported' | 'unknown';
   heaterId: Id<'heater'> | null;
 }
 export interface Tool {

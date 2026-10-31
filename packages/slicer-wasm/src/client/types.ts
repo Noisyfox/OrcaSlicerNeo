@@ -1433,7 +1433,7 @@ export interface FilamentSessionSnapshotError {
 export type FilamentSessionSnapshotResult = FilamentSessionSnapshot | FilamentSessionSnapshotError;
 
 export interface FilamentMutationSummary {
-  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'delete' | 'merge' | 'assign' | 'routing' | 'flushing';
+  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'delete' | 'merge' | 'assign' | 'routing' | 'flushing' | 'synchronize';
   readonly slot?: number;
   readonly source?: number;
   readonly destination?: number | null;
@@ -1484,11 +1484,12 @@ export interface FilamentCommandRequest {
 export interface FilamentSlotPresetRequest extends FilamentCommandRequest {
   readonly slot: number;
   readonly preset: string;
+  readonly deviceSource?: { readonly identity: PrinterSynchronizationRequest['identity']; readonly material: MaterialImportSource };
 }
 
 export type FilamentSlotColourValue =
   | { readonly kind: 'solid'; readonly color: string }
-  | { readonly kind: 'linear-gradient'; readonly colors: readonly string[] };
+  | { readonly kind: 'linear-gradient' | 'parallel'; readonly colors: readonly string[] };
 
 export interface FilamentSlotColourRequest extends FilamentCommandRequest {
   readonly slot: number;
@@ -1520,8 +1521,61 @@ export interface RememberedFilamentRackPreference {
   readonly slots: readonly RememberedFilamentSlot[];
 }
 
+export interface MaterialImportSource {
+  readonly slotId: string;
+  readonly catalogRefs: readonly { readonly namespace: string; readonly value: string }[];
+  readonly materialType: string;
+  readonly colour: FilamentSlotColourValue | null;
+  readonly toolIndices: readonly number[];
+}
+export interface MaterialImportRequest extends FilamentCommandRequest {
+  readonly identity: PrinterSynchronizationRequest['identity'];
+  readonly sources: readonly MaterialImportSource[];
+}
+export interface MaterialImportPreparationRequest extends MaterialImportRequest {
+  /** Null for initial matching; otherwise the complete mapping to plan unused additions. */
+  readonly mapping: readonly (string | null)[] | null;
+}
+export type DeviceFilamentOptions = { readonly ok: true; readonly revision: number; readonly options: readonly { readonly slotId: string; readonly preset: string; readonly label: string }[] }
+  | { readonly ok: false; readonly error: string; readonly errorCode: string };
+export interface MaterialImportMatch {
+  readonly preset: string | null;
+  readonly warning: string | null;
+}
+export type MaterialImportPreparation = {
+  readonly ok: true;
+  readonly revision: number;
+  /** Native all-plate occupancy and active Filament draft guard, following Orca. */
+  readonly requiresReview: boolean;
+  /** Native-eligible sources in request order; unidentified supplies are omitted. */
+  readonly sources: readonly (MaterialImportMatch & { readonly slotId: string; readonly matches: readonly MaterialImportMatch[] })[];
+  /** Ordered unused sources from the same native append planner used by Apply. */
+  readonly additions: readonly string[];
+  readonly projectTypes: readonly string[];
+  readonly references: readonly { readonly slot: number; readonly kinds: readonly string[] }[];
+} | { readonly ok: false; readonly error: string; readonly errorCode: string };
+export interface MaterialImportApplication extends MaterialImportRequest {
+  readonly mode: 'mapping' | 'rebuild';
+  readonly colourOnly: boolean;
+  readonly appendUnused: boolean;
+  /** One source or null for each project slot, including unused project slots. */
+  readonly mapping: readonly (string | null)[];
+  /** One-based surviving destinations for removed slots; null leaves unreferenced slots without a replacement. */
+  readonly replacements: readonly (number | null)[];
+}
+
+export interface PrinterSynchronizationRequest {
+  readonly revision: number;
+  readonly identity: { readonly manufacturer: string | null; readonly model: string | null; readonly externalRefs: readonly { namespace: string; value: string }[] };
+  readonly tools: readonly { readonly diameterMm: number | null; readonly flowType: string | null; readonly flowReporting: 'supported' | 'unsupported' | 'unknown'; readonly capacity: number }[];
+  readonly confirmModelChange: boolean;
+  readonly rackMemory: Readonly<Record<string, RememberedFilamentRackPreference>>;
+  readonly bedMemory: Readonly<Record<string, string>>;
+  readonly context: import('./history').HistoryContext;
+}
+
 export interface PrinterTransitionMutationReceipt {
-  readonly kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow';
+  readonly kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow' | 'synchronize-printer';
   readonly historyEntryDelta: 1;
   readonly revisionBefore: number;
   readonly revisionAfter: number;
@@ -1809,8 +1863,15 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
     rememberedBedType: string | null,
     context: import('./history').HistoryContext,
   ): Promise<PrinterTransitionResult>;
+  /** Read installed material choices without changing project or preset visibility. */
+  getDeviceFilamentOptions(request: MaterialImportRequest): Promise<DeviceFilamentOptions>;
+  prepareMaterialImport(request: MaterialImportPreparationRequest): Promise<MaterialImportPreparation>;
+  applyMaterialImport(request: MaterialImportApplication): Promise<FilamentMutationResultOrError>;
   /** Match the complete ordered nozzle vector, or edit only this toolhead's
    * Printer draft. Commits exactly one history entry with an atomic receipt. */
+  synchronizePrinter(request: PrinterSynchronizationRequest): Promise<PrinterTransitionResult>;
+  /** Read-only, exact model/vendor match using the same native predicate as Printer sync. */
+  getPrinterDeviceMatch(identity: PrinterSynchronizationRequest['identity']): Promise<{ ok: true; printer: string; matches: boolean } | { ok: false; error: string }>;
   setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
   /** Configure host-owned base-Printer flow memory. Fresh-project seeding is
    * explicit and runs before the host establishes its new clean baseline. */

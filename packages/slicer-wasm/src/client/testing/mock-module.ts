@@ -1651,6 +1651,48 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let projectFlowMemory: Record<string, number[]> = {};
   let nextFilamentIdentity = 1000;
   let filamentSessionState: any = opts.filamentSession !== undefined ? clone(opts.filamentSession) : undefined;
+  const hasMaterialIdentity = (source: any) => source.catalogRefs.some((ref: any) => !!ref.value);
+  function prepareMaterialImportMock(request: any): any {
+    const error = (code: string, message: string) => ({ ok: false, version: 1, error_code: code, error: message, status: { state: 'error', error: message } });
+    if (request.revision !== historyRevision) return error('stale_revision', 'Project materials changed');
+    const current = presetFixtures.printer.find(p => p.name === selected.printer)!;
+    if (![current.model, current.name].includes(request.identity?.model)) return error('printer_model_mismatch', 'Sync Printer first');
+    const slots = (filamentSessionSnapshot() as any).slots;
+    const match = (source: any, previous?: string) => {
+      const candidate = candidates('filament').find(p => p.name.startsWith(`Generic ${source.materialType}`))
+        ?? candidates('filament').find(p => p.name === previous) ?? candidates('filament')[0];
+      return { preset: candidate?.name ?? null, warning: 'Generic or previous compatible preset used.' };
+    };
+    const requiresReview = objectPlateIds.some(plate => plateIds.includes(plate)) || slots.some((slot: any) => Object.keys(presetDraftRegistry.filament[slot.preset.name] ?? {}).length > 0);
+    const prepared = { ok: true, revision: historyRevision, requiresReview, additions: [] as string[], sources: request.sources.filter(hasMaterialIdentity).map((source: any) => ({ slotId: source.slotId,
+      ...match(source), matches: slots.map((slot: any) => match(source, slot.preset.name)) })),
+      projectTypes: slots.map(() => 'PLA'), references: slots.map((slot: any) => ({ slot: slot.slot, kinds: objectMeta.length ? ['Model assignment'] : [] })) };
+    if (request.mapping) {
+      const represented = slots.map((slot: any, i: number) => {
+        const source = request.sources.find((s: any) => s.slotId === request.mapping[i] && hasMaterialIdentity(s));
+        const colour = source?.colour;
+        return { preset: source ? match(source, slot.preset.name).preset : slot.preset.name,
+          color: colour ? colour.kind === 'solid' ? colour.color : colour.colors[0] : slot.colour.effective };
+      });
+      for (const source of request.sources.filter(hasMaterialIdentity)) {
+        if (request.mapping.includes(source.slotId)) continue;
+        const preset = match(source).preset, colour = source.colour;
+        const color = colour ? colour.kind === 'solid' ? colour.color : colour.colors[0] : null;
+        if (represented.some((r: any) => r.preset === preset && (color === null || color === r.color))) continue;
+        prepared.additions.push(source.slotId); represented.push({ preset, color: color ?? represented.at(-1)?.color });
+      }
+    }
+    return prepared;
+  }
+  function deviceFilamentOptionsMock(request: any): any {
+    const prepared = prepareMaterialImportMock(request);
+    if (!prepared.ok) return prepared;
+    return { ok: true, revision: historyRevision, options: request.sources.flatMap((source: any) => {
+      if (!hasMaterialIdentity(source)) return [];
+      const preset = candidates('filament').find(p => source.materialType && p.name.startsWith(`Generic ${source.materialType}`));
+      return preset ? [{ slotId: source.slotId, preset: preset.name, label: filamentLabel(preset.name) }] : [];
+    }) };
+  }
   function filamentMutation(requestJson: string, kind: string): unknown {
     if (opts.filamentMutation !== undefined) return clone(opts.filamentMutation);
     let request: any;
@@ -1668,7 +1710,46 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const next: any = clone(snapshot);
     const fail = (error: string, code: string) => errorEnvelope(error, code);
     const slot = (value: unknown): number | null => Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= next.slots.length ? (value as number) - 1 : null;
-    if (kind === 'flushing') {
+    if (kind === 'synchronize') {
+      const prepared = prepareMaterialImportMock(request);
+      if (!prepared.ok) return prepared;
+      const eligible = request.sources.filter(hasMaterialIdentity);
+      if (!eligible.length) return fail('No eligible device materials to synchronize', 'unresolved_material');
+      const sources = new Map<string, any>(request.sources.map((source: any) => [source.slotId, source]));
+      const apply = (sourceId: string, i: number, old?: any) => {
+        const source = sources.get(sourceId), candidate = prepared.sources.find((p: any) => p.slotId === sourceId);
+        if (!source || !candidate) throw new Error('Unknown synchronization source');
+        const preset = request.colourOnly && old ? old.preset.name : (candidate.matches[i]?.preset ?? candidate.preset);
+        const color = source.colour;
+        const representative = color ? color.kind === 'solid' ? color.color : color.colors[0] : old?.colour.effective ?? '#26A69A';
+        const multiple = color && color.kind !== 'solid';
+        return { logical_id: old?.logical_id ?? `filament-${nextFilamentIdentity++}`, slot: i + 1,
+          preset: { is_user: false, is_project_embedded: false, id: preset, name: preset, label: filamentLabel(preset), vendor: filamentVendor(preset) },
+          colour: color ? { effective: representative, provenance: 'user', native: { representative, multi_colour: multiple ? color.colors.join(' ') : representative, type: color.kind === 'linear-gradient' ? '0' : '1' },
+            display: multiple ? { mode: color.kind === 'linear-gradient' ? 'gradient' : 'multicolor', colors: color.colors } : { mode: 'solid', colors: [representative] } } : old?.colour };
+      };
+      if (request.mode === 'rebuild' && request.colourOnly) {
+        next.slots = next.slots.map((slot: any, i: number) => eligible[i] ? apply(eligible[i].slotId, i, slot) : slot);
+      } else if (request.mode === 'rebuild') {
+        for (let i = eligible.length; i < next.slots.length; ++i) {
+          if (prepared.references[i].kinds.length && !request.replacements[i]) return fail('Choose surviving replacement', 'replacement_required');
+          for (const group of ['objects', 'parts', 'modifiers']) for (const ref of next.assignments[group]) {
+            if (ref.effective_slot === i + 1) ref.effective_slot = request.replacements[i] ?? 1;
+            if (ref.explicit_slot === i + 1) ref.explicit_slot = request.replacements[i] ?? 1;
+          }
+        }
+        next.slots = eligible.map((source: any, i: number) => apply(source.slotId, i, next.slots[i]));
+      } else {
+        if (request.mapping.length !== next.slots.length) return fail('Incomplete project mapping', 'invalid_command');
+        next.slots = next.slots.map((slot: any, i: number) => request.mapping[i] && eligible.some((source: any) => source.slotId === request.mapping[i]) ? apply(request.mapping[i], i, slot) : slot);
+        if (request.appendUnused && !request.colourOnly) for (const id of prepared.additions) next.slots.push(apply(id, next.slots.length));
+      }
+      if (next.slots.length > 64) return fail('Material rack capacity exceeded', 'capability_rejected');
+      const size = next.slots.length;
+      for (const key of ['filament', 'volume', 'nozzle', 'filament2']) next.mappings[key] = Array.from({length: size}, (_, i) => next.mappings[key][i] ?? (key === 'volume' ? 0 : 1));
+      next.flushing.matrix_dimension = size;
+      next.flushing.matrix = Array(size * size * next.flushing.plane_count).fill(0);
+    } else if (kind === 'flushing') {
       const n = next.slots.length, planes = next.flushing.plane_count;
       if (n < 2 || !Array.isArray(request.matrix) || request.matrix.length !== n * n * planes ||
           !Array.isArray(request.multipliers) || request.multipliers.length !== planes ||
@@ -1691,22 +1772,28 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const index = slot(request.slot);
       if (index === null) return fail('unsupported filament slot reference', 'unsupported_reference');
       if (kind === 'select-preset') {
+        if (request.deviceSource) {
+          const options = deviceFilamentOptionsMock({ ...request, identity: request.deviceSource.identity, sources: [request.deviceSource.material] });
+          if (!options.ok) return fail(options.error, options.error_code);
+          if (!options.options.some((option: any) => option.preset === request.preset)) return fail('Device filament match changed', 'unsupported_reference');
+        }
         if (typeof request.preset !== 'string') return fail('preset is required', 'invalid_command');
         next.slots[index].preset = { is_project_embedded: false, is_user: false, id: request.preset, name: request.preset, label: filamentLabel(request.preset), vendor: filamentVendor(request.preset) };
-      } else {
-        const colour = request.colour;
+      }
+      if (kind === 'set-colour' || request.deviceSource?.material?.colour) {
+        const colour = request.deviceSource?.material?.colour ?? request.colour;
         const validColour = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
         if (!colour || typeof colour !== 'object' || Array.isArray(colour) ||
             !((colour.kind === 'solid' && Object.keys(colour).length === 2 && validColour(colour.color)) ||
-              (colour.kind === 'linear-gradient' && Object.keys(colour).length === 2 && Array.isArray(colour.colors) &&
+              ((colour.kind === 'linear-gradient' || colour.kind === 'parallel') && Object.keys(colour).length === 2 && Array.isArray(colour.colors) &&
                 colour.colors.length >= 2 && colour.colors.length <= 7 && colour.colors.every(validColour))))
           return fail('native filament colour validation failed', 'native_validation_failure');
         const representative = colour.kind === 'solid' ? colour.color : colour.colors[0];
         const multi = colour.kind === 'solid' ? representative : colour.colors.join(' ');
         next.slots[index].colour = { effective: representative, provenance: 'user',
-          native: { representative, multi_colour: multi, type: colour.kind === 'solid' ? '1' : '0' },
+          native: { representative, multi_colour: multi, type: colour.kind === 'linear-gradient' ? '0' : '1' },
           display: colour.kind === 'solid' ? { mode: 'solid', colors: [representative] }
-            : { mode: 'gradient', colors: [...colour.colors] } };
+            : { mode: colour.kind === 'parallel' ? 'multicolor' : 'gradient', colors: [...colour.colors] } };
       }
     } else if (kind === 'add') {
       if (next.slots.length >= next.capabilities.max_slots || !next.capabilities.flexible)
@@ -1768,8 +1855,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     next.capabilities.can_delete = next.capabilities.flexible && next.slots.length > next.capabilities.min_slots;
     next.capabilities.can_merge = next.capabilities.can_delete;
     next.revisions.session += 1; next.revisions.project = next.revisions.session;
+    const recordsHistory = kind === 'synchronize' || !!request.deviceSource;
+    if (recordsHistory && !historyEntries.length) {
+      historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(nativePresetDraftHistoryContext()) });
+      historyCursor = 0; savedHistoryCursor = 0;
+    }
     historyRevision = next.revisions.session;
     filamentSessionState = next;
+    if (recordsHistory) {
+      historyEntries.splice(historyCursor + 1);
+      historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`, label: kind === 'synchronize' ? 'Sync Filament' : 'Select Filament', category: 'project', context: clone(nativePresetDraftHistoryContext()) });
+      historyCursor = historyEntries.length - 1;
+    }
     const mutation: Record<string, unknown> = {
       kind, history_entry_delta: 1, revision_before: request.revision,
       revision_after: next.revisions.session, dirty: true, all_plate_results_invalidated: true,
@@ -1780,7 +1877,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       mutation.slot = request.slot;
       if (kind === 'select-preset') mutation.preset = request.preset;
       else mutation.colour = request.colour;
-    } else if (kind !== 'flushing') {
+    } else if (kind !== 'flushing' && kind !== 'synchronize') {
       mutation.source = request.source ?? request.slot;
       mutation.destination = kind === 'merge'
         ? (request.destination > request.source ? request.destination - 1 : request.destination)
@@ -2531,6 +2628,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         saved: { mode: null, filamentMap: null, volumeMap: null, nozzleMap: null },
         effective: { mode: 0, filamentMap: [1], volumeMap: [0], nozzleMap: [0] }, diagnostics: [] };
     },
+    orc_get_device_filament_options(requestJson: string) { return deviceFilamentOptionsMock(JSON.parse(requestJson)); },
+    orc_prepare_material_import(requestJson: string) { return prepareMaterialImportMock(JSON.parse(requestJson)); },
+    orc_apply_material_import(requestJson: string) { return filamentMutation(requestJson, 'synchronize'); },
     orc_select_filament_slot_preset(requestJson: string) {
       return filamentMutation(requestJson, 'select-preset');
     },
@@ -3034,6 +3134,34 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         mutation: { kind: 'set-project-flow', history_entry_delta: 1, revision_before: before, revision_after: historyRevision,
           dirty: status.dirty, all_plate_results_invalidated: true, affected_plate_ids: plates.affected_plate_ids } };
     },
+    orc_get_printer_device_match(requestJson: string) {
+      const identity = JSON.parse(requestJson);
+      const printer = candidates('printer').find(p => p.name === selected.printer);
+      const manufacturer = String(identity.manufacturer ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return { ok: true, printer: selected.printer, matches: !!printer?.model && printer.model === identity.model
+        && (!manufacturer || manufacturer === printer.vendor_id || manufacturer === String(printer.vendor).toLowerCase().replace(/[^a-z0-9]/g, '')) };
+    },
+    orc_synchronize_printer(requestJson: string) {
+      const request = JSON.parse(requestJson);
+      if (request.expected_revision !== historyRevision)
+        return { ok: false, error_code: 'stale_revision', error: 'Printer synchronization inputs changed' };
+      const model = request.identity?.model;
+      const candidate = candidates('printer').find(p => p.name === model || p.model === model);
+      if (!candidate) return { ok: false, error_code: 'preset_not_visible', error: 'Enable this model in Setup' };
+      if (candidate.name !== selected.printer && !request.confirm_model_change)
+        return { ok: false, error_code: 'printer_model_mismatch', error: 'Connected printer requires a model change' };
+      const values = editorValuesFor('printer', candidate.name, 'nozzle_diameter') ?? [];
+      if (!Array.isArray(request.tools) || request.tools.length !== values.length || request.tools.some((t: any) =>
+        !Number.isSafeInteger(t.capacity) || t.capacity < 1 || (t.diameterMm !== null && (!Number.isFinite(t.diameterMm) || t.diameterMm <= 0)) ||
+        t.flowType === null && t.flowReporting !== 'unsupported' || t.flowType !== null && !['standard flow', 'high flow'].includes(t.flowType)))
+        return { ok: false, error_code: 'native_validation_failure', error: 'Invalid device hardware' };
+      const result = bridge.orc_select_printer_with_remembered_rack(JSON.stringify({ printer: candidate.name,
+        synchronized_hardware: request.tools,
+        remembered_rack: request.rack_memory?.[candidate.name] ?? null,
+        remembered_bed_type: request.bed_memory?.[candidate.name] ?? null, history_context: request.history_context })) as any;
+      if (result.ok) result.mutation.kind = 'synchronize-printer';
+      return result;
+    },
     orc_set_toolhead_diameter(requestJson: string) {
       let request: any;
       try { request = JSON.parse(requestJson); }
@@ -3115,11 +3243,19 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       current.revisions = { ...current.revisions, session: historyRevision, project: historyRevision };
       filamentSessionState = current;
       repairMockProjectFlows(previousPrinter !== selected.printer);
+      if (request.synchronized_hardware) {
+        const tools = request.synchronized_hardware as any[];
+        const previous = editorValuesFor('printer', selected.printer, 'nozzle_diameter')!;
+        const overrides = presetDraftRegistry.printer[selected.printer] ??= {};
+        overrides.nozzle_diameter = tools.map((tool, i) => ({ value: tool.diameterMm ?? previous[i] }));
+        tools.forEach((tool, i) => applyMockProjectFlow(i, tool.flowType === 'high flow' ? 1 : 0));
+        nativeScopedConfig.project.extruder_ams_count = tools.map(tool => `1#${tool.capacity}`).join(';');
+      }
       const context = { ...nativePresetDraftHistoryContext(),
         selection: clone(request.history_context.selection), gizmo: clone(request.history_context.gizmo) };
       historyEntries.splice(historyCursor + 1);
       historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
-        label: 'Select Printer', category: 'project', context: clone(context) });
+        label: request.synchronized_hardware ? 'Sync Printer' : 'Select Printer', category: 'project', context: clone(context) });
       historyCursor = historyEntries.length - 1;
       if (editingSession) editingSession.hasEffectiveCommit = true;
       const plateSession = plateMutation('shared-configuration', [...plateIds], [...plateIds]);
@@ -4006,6 +4142,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_configure_nozzle_capacity_memory: { ret: 'number', args: ['string'] },
     orc_configure_project_flow_memory: { ret: 'number', args: ['string'] },
     orc_set_project_flow: { ret: 'number', args: ['string'] },
+    orc_synchronize_printer: { ret: 'number', args: ['string'] },
+    orc_get_printer_device_match: { ret: 'number', args: ['string'] },
     orc_set_toolhead_diameter: { ret: 'number', args: ['string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_user_preset_info: { ret: 'number', args: ['string', 'string'] },
@@ -4037,6 +4175,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_apply_remembered_filament_rack: { ret: 'number', args: ['string'] },
     orc_assign_filament: { ret: 'number', args: ['string'] },
     orc_set_filament_routing: { ret: 'number', args: ['string'] },
+    orc_prepare_material_import: { ret: 'number', args: ['string'] },
+    orc_get_device_filament_options: { ret: 'number', args: ['string'] },
+    orc_apply_material_import: { ret: 'number', args: ['string'] },
     orc_get_flushing_volumes: { ret: 'number', args: ['string'] },
     orc_set_flushing_volumes: { ret: 'number', args: ['string'] },
     orc_set_auto_flush_policy: { ret: 'number', args: ['string'] },

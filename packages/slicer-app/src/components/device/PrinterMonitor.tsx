@@ -19,9 +19,9 @@ export function supportsMonitor(capabilities: D.PrinterCapabilities): boolean {
       && !['jobs.start', 'files.delete', 'actions.invoke', 'materials.writeMetadata', 'materials.refreshTag'].includes(name));
 }
 
-export function PrinterMonitor({ printer, route, visible = true }: { printer: D.SavedPrinter; route: D.PrinterRoute; visible?: boolean }) {
+export function PrinterMonitor({ printer, route, visible = true, observeWhileHidden = false }: { printer: D.SavedPrinter; route: D.PrinterRoute; visible?: boolean; observeWhileHidden?: boolean }) {
   const { printers: { service } } = usePlatform();
-  const { snapshot, capabilities, error, refreshing, refresh, live, liveStatus, canRefresh } = usePrinterObservation(service, printer, route, visible);
+  const { snapshot, capabilities, error, refreshing, refresh, live, liveStatus, canRefresh } = usePrinterObservation(service, printer, route, visible, observeWhileHidden);
   const target = { printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision };
   const { send: submit, feedback, pending, setFeedback } = usePrinterCommands(service, target, capabilities.revision);
   const [cancel, setCancel] = useState<{ name: string; taskId?: D.Id<'device-task'> } | null>(null);

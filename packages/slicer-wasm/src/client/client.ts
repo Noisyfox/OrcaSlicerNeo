@@ -45,7 +45,7 @@ import type {
   FilamentSessionSnapshotResult, FilamentSessionSnapshot, FilamentSessionSlot,
   FilamentAssignmentProjection, FilamentRoutingProjection,
   FilamentMutationResultOrError, FilamentMutationResult,
-  FilamentSlotPresetRequest, FilamentSlotColourRequest, FilamentSlotColourValue,
+  FilamentSlotPresetRequest, FilamentSlotColourRequest, FilamentSlotColourValue, DeviceFilamentOptions,
   FilamentCommandRequest, FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
   RememberedFilamentRackRequest,
   RememberedFilamentRackPreference, PrinterTransitionResult,
@@ -593,7 +593,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     return { ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' };
   if (historyStatus.revision !== mutation.revision_after || historyStatus.dirty !== mutation.dirty)
     return { ok: false, version: 1, error: 'filament mutation history status does not match receipt', errorCode: 'invalid_response' };
-  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge', 'assign', 'routing', 'flushing']);
+  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge', 'assign', 'routing', 'flushing', 'synchronize']);
   if (!validMutationKinds.has(String(mutation.kind)))
     return { ok: false, version: 1, error: 'invalid filament mutation kind', errorCode: 'invalid_response' };
   const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(mutation, key);
@@ -605,6 +605,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     delete: [...baseKeys, 'source', 'destination', 'slot_count'],
     merge: [...baseKeys, 'source', 'destination', 'slot_count'],
     flushing: baseKeys,
+    synchronize: baseKeys,
     assign: [...baseKeys, 'slot', 'accepted_targets'],
     routing: [...baseKeys, 'selector', 'slot', 'accepted_targets'],
   };
@@ -631,14 +632,14 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     const validColour = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
     const valid = colour && typeof colour === 'object' && !Array.isArray(colour) &&
       ((colour.kind === 'solid' && Object.keys(colour).length === 2 && validColour(colour.color)) ||
-       (colour.kind === 'linear-gradient' && Object.keys(colour).length === 2 && Array.isArray(colour.colors) &&
+       ((colour.kind === 'linear-gradient' || colour.kind === 'parallel') && Object.keys(colour).length === 2 && Array.isArray(colour.colors) &&
         colour.colors.length >= 2 && colour.colors.length <= 7 && colour.colors.every(validColour)));
     if (!valid) return { ok: false, version: 1, error: 'invalid filament mutation colour', errorCode: 'invalid_response' };
     const native = snapshot.slots[Number(mutation.slot) - 1].colour.native;
     const first = colour.kind === 'solid' ? colour.color : (colour.colors as string[])[0];
     const multi = colour.kind === 'solid' ? first : (colour.colors as string[]).join(' ');
     if (native.representative !== first || native.multiColour !== multi ||
-        native.type !== (colour.kind === 'solid' ? '1' : '0'))
+        native.type !== (colour.kind === 'linear-gradient' ? '0' : '1'))
       return { ok: false, version: 1, error: 'filament mutation colour does not match snapshot', errorCode: 'invalid_response' };
   }
   if (mutation.kind === 'delete' || mutation.kind === 'merge') {
@@ -1549,7 +1550,7 @@ function normalizePresetDraftMutation(raw: unknown, target: PresetDraftMutationR
     plateSession, filamentSession, historyStatus, nativeScopedConfig, profileSnapshot: profile } as Extract<PresetDraftMutationResult, { ok: true }>;
 }
 
-function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow'): PrinterTransitionResult {
+function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter' | 'set-project-flow' | 'synchronize-printer'): PrinterTransitionResult {
   const invalid = (error: string): PrinterTransitionResult => ({
     ok: false, error, errorCode: 'invalid_response',
   });
@@ -2718,6 +2719,57 @@ export function createClient(
       const m = await module();
       return normalizePrinterTransition(callJson(m, 'orc_set_project_flow', ['string'],
         [JSON.stringify({ index, flow, expected_revision: expectedRevision, history_context: context })]), 'set-project-flow');
+    },
+
+    async getDeviceFilamentOptions(request) {
+      const raw = callJson(await module(), 'orc_get_device_filament_options', ['string'], [JSON.stringify(request)]);
+      if (isRecord(raw) && raw.ok === true && raw.revision === request.revision && Array.isArray(raw.options)
+        && raw.options.every(o => isRecord(o) && typeof o.slotId === 'string' && request.sources.some(s => s.slotId === o.slotId)
+          && typeof o.preset === 'string' && typeof o.label === 'string') && new Set(raw.options.map(o => (o as {slotId: string}).slotId)).size === raw.options.length)
+        return raw as unknown as Extract<DeviceFilamentOptions, { ok: true }>;
+      return { ok: false, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid device filament options',
+        errorCode: isRecord(raw) && typeof raw.error_code === 'string' ? raw.error_code : 'invalid_response' };
+    },
+
+    async prepareMaterialImport(request) {
+      const raw = callJson(await module(), 'orc_prepare_material_import', ['string'], [JSON.stringify(request)]) as any;
+      if (raw?.ok !== true) return { ok: false, error: String(raw?.error ?? 'Invalid material import response'), errorCode: String(raw?.error_code ?? 'invalid_response') };
+      const match = (m: any) => isRecord(m) && (m.preset === null || typeof m.preset === 'string') && (m.warning === null || typeof m.warning === 'string');
+      // Native eligibility may exclude unconfigured physical supplies. Preserve
+      // the requested order/identity without duplicating that policy in JS.
+      const sourceIndices = Array.isArray(raw.sources) ? raw.sources.map((s: any) => request.sources.findIndex(r => r.slotId === s?.slotId)) : [];
+      if (!Number.isSafeInteger(raw.revision) || raw.revision !== request.revision || typeof raw.requiresReview !== 'boolean' || !Array.isArray(raw.sources) ||
+        raw.sources.some((s: any, i: number) => !match(s) || sourceIndices[i] < 0 || i > 0 && sourceIndices[i] <= sourceIndices[i - 1] || !Array.isArray(s.matches) || s.matches.length !== raw.projectTypes?.length || !s.matches.every(match)) ||
+        !Array.isArray(raw.additions) || raw.additions.some((id: unknown) => typeof id !== 'string' || !raw.sources.some((s: any) => s.slotId === id) || request.mapping?.includes(id)) || new Set(raw.additions).size !== raw.additions.length ||
+        !Array.isArray(raw.projectTypes) || raw.projectTypes.some((t: unknown) => typeof t !== 'string') ||
+        !Array.isArray(raw.references) || raw.references.length !== raw.projectTypes.length || raw.references.some((r: any, i: number) => r.slot !== i + 1 || !Array.isArray(r.kinds) || r.kinds.some((k: any) => typeof k !== 'string')))
+        return { ok: false, error: 'Invalid material import preparation', errorCode: 'invalid_response' };
+      return raw;
+    },
+    async applyMaterialImport(request) {
+      return normalizeFilamentMutationResult(callJson(await module(), 'orc_apply_material_import', ['string'], [JSON.stringify(request)]));
+    },
+
+    async getPrinterDeviceMatch(identity) {
+      const raw = callJson(await module(), 'orc_get_printer_device_match', ['string'],
+        [JSON.stringify(identity)]);
+      if (isRecord(raw) && raw.ok === true && typeof raw.printer === 'string' && typeof raw.matches === 'boolean')
+        return { ok: true, printer: raw.printer, matches: raw.matches };
+      return { ok: false, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid printer model match response' };
+    },
+
+    async synchronizePrinter(request: import('./types').PrinterSynchronizationRequest): Promise<PrinterTransitionResult> {
+      const m = await module();
+      const rackMemory = Object.fromEntries(Object.entries(request.rackMemory).map(([name, rack]) => [name, {
+        version: rack.version, slots: rack.slots.map(({ preset, colour, native }) => ({ preset, colour,
+          native: { representative: native.representative, multi_colour: native.multiColour, type: native.type } })),
+      }]));
+      return normalizePrinterTransition(callJson(m, 'orc_synchronize_printer', ['string'], [JSON.stringify({
+        expected_revision: request.revision,
+        identity: request.identity,
+        tools: request.tools, confirm_model_change: request.confirmModelChange,
+        rack_memory: rackMemory, bed_memory: request.bedMemory, history_context: request.context,
+      })]), 'synchronize-printer');
     },
 
     async setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: HistoryContext): Promise<PrinterTransitionResult> {

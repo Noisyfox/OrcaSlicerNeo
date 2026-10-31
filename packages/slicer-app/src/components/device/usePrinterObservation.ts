@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as D from '@orca/printer-control/domain';
+import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 
 const contentTopics: D.StateTopic[] = ['status', 'sensors', 'thermal', 'motion', 'actuators', 'materials', 'alerts', 'cameras'];
 /** Select only topics consumed by this screen. A metadata capability alone never starts device access. */
@@ -19,12 +20,13 @@ export function monitorTopics(capabilities: D.PrinterCapabilities) {
   return { stream, manual };
 }
 
-export function usePrinterObservation(service: D.PrinterService, printer: D.SavedPrinter, route: D.PrinterRoute, visible: boolean) {
+export function usePrinterObservation(service: D.PrinterService, printer: D.SavedPrinter, route: D.PrinterRoute, visible: boolean, observeWhileHidden = false) {
   const [snapshot, setSnapshot] = useState<D.PrinterSnapshot | null>(null), [capabilities, setCapabilities] = useState(route.capabilities);
   const [error, setError] = useState<string | null>(null), [refreshing, setRefreshing] = useState(false);
   const latest = useRef<D.PrinterSnapshot | null>(null), latestErrors = useRef<{ stream: string | null; manual: string | null }>({ stream: null, manual: null }), latestCapabilities = useRef(capabilities);
+  const connectionOwner = useRef({});
   const shown = useRef(visible); shown.current = visible;
-  const [started, setStarted] = useState(visible);
+  const [started, setStarted] = useState(visible || observeWhileHidden);
   const readController = useRef<AbortController | null>(null), reading = useRef(false);
   const { stream, manual } = monitorTopics(capabilities);
   const streamKey = stream.join(',');
@@ -36,12 +38,15 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
   }
   function accept(next: D.PrinterSnapshot) {
     latest.current = latest.current ? { ...next, values: { ...latest.current.values, ...next.values } } : next;
+    useDeviceSelectionStore.getState().publishConnection(connectionOwner.current, latest.current);
     if (shown.current) setSnapshot(latest.current);
   }
   useEffect(() => {
-    if (visible) { setStarted(true); setSnapshot(latest.current); setError(latestErrors.current.stream ?? latestErrors.current.manual); setCapabilities(latestCapabilities.current); }
-  }, [visible]);
+    if (visible || observeWhileHidden) setStarted(true);
+    if (visible) { setSnapshot(latest.current); setError(latestErrors.current.stream ?? latestErrors.current.manual); setCapabilities(latestCapabilities.current); }
+  }, [visible, observeWhileHidden]);
   useEffect(() => () => readController.current?.abort(), []);
+  useEffect(() => () => useDeviceSelectionStore.getState().clearConnection(connectionOwner.current), []);
   useEffect(() => {
     if (!started || !streamKey) return;
     const abort = new AbortController();
@@ -60,10 +65,11 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
       if (!abort.signal.aborted) throw new Error('Observation ended');
     })().catch(() => {
       if (!abort.signal.aborted) {
+        useDeviceSelectionStore.getState().clearConnection(connectionOwner.current);
         reportError('stream', 'Printer monitoring is unavailable.');
       }
     });
-    return () => abort.abort();
+    return () => { abort.abort(); useDeviceSelectionStore.getState().clearConnection(connectionOwner.current); };
   }, [service, target.printerId, target.routeId, route.configurationRevision, started, streamKey]);
   async function refresh() {
     if (reading.current || !manual.length) return;
@@ -73,8 +79,8 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
       const result = await service.observations.read({ target, source: 'device', topics: manual as [D.StateTopic, ...D.StateTopic[]] }, { signal: abort.signal });
       if (abort.signal.aborted) return;
       if (result.ok) { accept(result.value); reportError('manual', null); }
-      else reportError('manual', 'Unable to refresh. Previously reported readings may be stale.');
-    } catch { if (!abort.signal.aborted) reportError('manual', 'Unable to refresh. Previously reported readings may be stale.'); }
+      else { useDeviceSelectionStore.getState().clearConnection(connectionOwner.current); reportError('manual', 'Unable to refresh. Previously reported readings may be stale.'); }
+    } catch { if (!abort.signal.aborted) { useDeviceSelectionStore.getState().clearConnection(connectionOwner.current); reportError('manual', 'Unable to refresh. Previously reported readings may be stale.'); } }
     finally { reading.current = false; if (!abort.signal.aborted) setRefreshing(false); }
   }
   return { snapshot, capabilities, error, refreshing, refresh, live: stream.length > 0, liveStatus: stream.includes('status'), canRefresh: manual.length > 0 };

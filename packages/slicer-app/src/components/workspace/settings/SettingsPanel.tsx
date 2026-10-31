@@ -1,20 +1,17 @@
-import { publishNozzleRepairNotice } from '../nozzleMapping/nozzleMappingNotices';
+import { requestPrepareSynchronization, usePrepareSynchronization } from '../synchronization/PrepareSynchronization';
 import { NozzleCapacityInput } from '../nozzleMapping/NozzleMappingControls';
 import { useCommittedCallback, samePresetItems, PresetCombobox, type PresetComboItem } from '../PresetCombobox';
 import {
   commitProjectFlow,
   configurePrinterProjectPreferences,
   loadRememberedFilamentRackFromRepository,
-  publishRememberedFilamentRack,
   loadRememberedBedTypeFromRepository,
-  publishRememberedBedType
 } from '@/preferences';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
-import { memo, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import { ObjectList } from '../objectList/ObjectList';
 import { PlateToolbar } from '../PlateToolbar';
-import { unstable_batchedUpdates } from 'react-dom';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useProjectStore } from '@/stores/useProjectStore';
@@ -23,21 +20,34 @@ import { cn } from 'cn';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { type SceneInteractionController } from '../viewport/SceneInteractionController';
-import { updateUserPreferences, usePlatform } from '@orca/platform-contract';
-import { commitGlobalBedType, selectProcessPreset, invalidateAfterSharedConfigurationMutation } from './configurationActions';
-import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
-import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
-import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
-import { glVolumeCollection } from '../viewport/GLVolume';
-import { historyContextForStructure, projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
+import { updateUserPreferences, usePlatform, type PlatformCapabilities } from '@orca/platform-contract';
+import { commitGlobalBedType, selectProcessPreset, publishPrinterTransition, rememberPrinterTransition } from './configurationActions';
+import { historyContextForStructure, runProjectMutationOperation, readProjectMutationReservation } from '../actions/historyMutation';
+import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import { UserPresetActions } from './UserPresetActions';
-import { type PrinterTransitionSuccess } from '@orca/slicer-runtime';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
 
 type PresetKind = 'printer' | 'print';
+
+/** Reuse the monitor's freshness and native sync predicate; never open a device stream here. */
+function useConnectedPrinterMatch(platform: PlatformCapabilities, printer: string, serialSlicing: boolean) {
+  const connection = useDeviceSelectionStore(s => s.connection);
+  const current = useDeviceSelectionStore(s => s.currentPrinterId);
+  const key = connection?.target.printerId === current ? JSON.stringify([printer, connection]) : null;
+  const [match, setMatch] = useState<{ key: string; matches: boolean } | null>(null);
+  useEffect(() => {
+    if (!key || !connection || serialSlicing) return;
+    let active = true;
+    void readProjectMutationReservation(() => platform.runtime.getPrinterDeviceMatch(connection.identity))
+      .then(result => { if (active) setMatch({ key, matches: result.ok && result.printer === printer && result.matches }); })
+      .catch(() => { if (active) setMatch({ key, matches: false }); });
+    return () => { active = false; };
+  }, [platform.runtime, key, printer, serialSlicing]);
+  return key !== null && match?.key === key && match.matches ? connection!.identity.displayName : undefined;
+}
 
 export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, renderLayout }: {
   sceneInteraction: SceneInteractionController | null;
@@ -46,6 +56,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   renderLayout?: (panels: { printer: ReactNode; settings: ReactNode }) => ReactNode;
 }) {
   const platform = usePlatform();
+  const syncPending = usePrepareSynchronization(s => s.kind !== null);
   const metadata = useSettingsStore((s) => s.metadata);
   const printerPicker = useSettingsStore((s) => s.printerPicker);
   const nozzleDiameter = useSettingsStore((s) => s.values.nozzle_diameter);
@@ -60,6 +71,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   const mutationPending = useProjectStore((s) => s.projectMutationPendingCount > 0);
   const projectOperation = useProjectStore((s) => s.operation.phase);
   const slicing = useSlicerStore((s) => s.status === 'slicing');
+  const connectedPrinter = useConnectedPrinterMatch(platform, selectedPrinter, slicing && platform.runtime.getRuntimeExecutionState().threaded === false);
   const setError = useSlicerStore((s) => s.setError);
   const [presetTransitionPending, setPresetTransitionPending] = useState(false);
   const selectionPending = useRef(false);
@@ -112,8 +124,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
         const transition = await platform.runtime.setToolheadDiameter(activeToolhead, Number(value), history.revision,
           historyContextForStructure(sceneInteraction));
         if (!transition.ok) throw new Error(transition.error);
-        publishPrinterTransition(transition);
-        await rememberPrinterTransition(transition);
+        publishPrinterTransition(platform, transition);
+        await rememberPrinterTransition(platform, transition);
       });
     } catch (error) { setError(`select toolhead diameter: ${String(error)}`); }
     finally { selectionPending.current = false; setPresetTransitionPending(false); }
@@ -129,7 +141,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
     setPresetTransitionPending(true);
     try {
       await runProjectMutationOperation(async () => {
-        const result = await commitProjectFlow(platform.runtime, platform.preferences, request, publishPrinterTransition);
+        const result = await commitProjectFlow(platform.runtime, platform.preferences, request, result => publishPrinterTransition(platform, result));
         if (!result.ok) throw new Error(result.error);
       });
     } catch (error) { setError(`select nozzle flow: ${String(error)}`); }
@@ -159,66 +171,6 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
     finally { selectionPending.current = false; setPresetTransitionPending(false); }
   }
 
-  function publishPrinterTransition(transition: PrinterTransitionSuccess) {
-    // This command already committed the single native history entry.
-    // Publish its receipt directly; do not issue a second rack edit,
-    // revision bump, profile read, or scoped-config revalidation.
-    unstable_batchedUpdates(() => {
-      const status = projectHistoryStatus(transition.historyStatus);
-      if (status.revision === transition.historyStatus.revision) {
-        const previousScoped = useSettingsStore.getState().nativeScopedConfig;
-        const configurationMode = useSettingsStore.getState().configurationMode;
-        useSettingsStore.getState().hydrateProfileSnapshot(transition.profileSnapshot);
-        if (transition.mutation.kind === 'set-toolhead-diameter' || transition.mutation.kind === 'set-project-flow')
-          useSettingsStore.getState().setConfigurationMode(configurationMode);
-        const scoped = useSettingsStore.getState().applyNativeScopedConfigTransport(
-          transition.nativeScopedConfig,
-        );
-        if (scoped === 'refresh-required')
-          throw new Error('Printer transition scoped configuration receipt was not accepted');
-        publishNozzleRepairNotice(previousScoped, useSettingsStore.getState().nativeScopedConfig,
-          (useSettingsStore.getState().values.nozzle_diameter?.split(',').length ?? 0));
-        useFilamentSessionStore.getState().publish(transition.filamentSession);
-        applyPlateSessionTransforms(transition.plateSession, glVolumeCollection.volumes);
-        usePlateSessionStore.getState().setSnapshot(transition.plateSession);
-        const project = useProjectStore.getState();
-        const selections = {
-          printer: transition.profileSnapshot.printer.name,
-          print: transition.profileSnapshot.print.name,
-        };
-        project.setProject(project.scope === 'project'
-          ? { projectPresets: selections } : { systemPresets: selections });
-        invalidateAfterSharedConfigurationMutation(
-          transition.mutation.affectedPlateIds, platform.runtime,
-          transition.mutation.allPlateResultsInvalidated,
-        );
-      }
-    });
-
-  }
-
-  async function rememberPrinterTransition(transition: PrinterTransitionSuccess) {
-    // Rack memory is an independent user preference, not part of the
-    // native project-history frame. Publish only the normalized rack
-    // returned by a successful native transition, even in project scope.
-    await publishRememberedFilamentRack(
-      platform.preferences, transition.profileSnapshot.printer.name, transition.filamentSession,
-    );
-    await publishRememberedBedType(platform.preferences, transition.profileSnapshot.printer.name,
-      transition.nativeScopedConfig.snapshot.project.curr_bed_type);
-    const project = useProjectStore.getState();
-    if (project.scope !== 'project') {
-      try {
-        await updateUserPreferences(platform.preferences, prefs => ({ ...prefs, selectedProfiles: {
-          printer: transition.profileSnapshot.printer.name,
-          print: transition.profileSnapshot.print.name,
-        } }));
-      } catch (error) {
-        console.error('preset preference save failed; keeping resolved session state', error);
-      }
-    }
-  }
-
   // System profile names and per-printer preferences persist across projects.
   // Compatibility and effective configuration remain native.
   async function handleSelectPreset(kind: PresetKind, name: string) {
@@ -237,8 +189,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             historyContextForStructure(sceneInteraction));
           if (!transition.ok) throw new Error(transition.error ?? 'Printer transition failed');
 
-          publishPrinterTransition(transition);
-          await rememberPrinterTransition(transition);
+          publishPrinterTransition(platform, transition);
+          await rememberPrinterTransition(platform, transition);
         });
         return;
       }
@@ -309,6 +261,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
               onEdit={onEditPrinter ? editPrinter : undefined}
               disabled={controlsDisabled}
               testId="preset-select"
+              connectedPrinter={connectedPrinter}
             />
           </div>
           {bedVisible && <div className="min-w-0 flex-[0.6]">
@@ -325,8 +278,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
         </div>
         <div data-testid="printer-nozzle-row" className={cn('flex min-w-0 items-center gap-1 pt-1', multiExtruder && 'printer-nozzle-multi-row')}>
           <Button type="button" variant="settings" size="icon-sm"
-            aria-label="Sync nozzle" title="Sync nozzle" data-testid="nozzle-sync-placeholder"
-            disabled={controlsDisabled}><RefreshCw data-icon="inline-start" /></Button>
+            aria-label="Sync Printer" title="Sync Printer" data-testid="printer-sync"
+            disabled={controlsDisabled || syncPending} onClick={() => requestPrepareSynchronization('printer')}><RefreshCw data-icon="inline-start" /></Button>
           <div className={cn('flex min-w-0 flex-1 items-center', multiExtruder ? 'gap-1 printer-nozzle-multi-controls' : 'printer-nozzle-single-controls', !multiExtruder && bedVisible && !!printerPicker.flows[0]?.choices.length && 'printer-nozzle-align-bed')}>
           <Select items={printerPicker.variants.map(item => ({ value: item.value, label: item.value }))}
             value={printerPicker.selectedVariant || null}
@@ -423,7 +376,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
 // typing in the popup's search input filters the list (case-insensitive
 // substring) — the shadcn base-mira popup style: a button trigger showing
 // the current value, search input inside the popup.
-const PresetRow = memo(function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false, modified }: {
+const PresetRow = memo(function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false, modified, connectedPrinter }: {
   modified: boolean;
   compact?: boolean;
   label: string;
@@ -433,12 +386,16 @@ const PresetRow = memo(function PresetRow({ label, items, value, onValue, onEdit
   onEdit?: () => void;
   disabled: boolean;
   testId?: string;
+  connectedPrinter?: string;
 }) {
   if (items.length === 0) return null;
   return <div className={cn(compact ? "min-w-0 flex-1" : "flex flex-col gap-1 py-1")}>
     <Label className={compact ? "sr-only" : "text-xs text-muted-foreground"}>{label}</Label>
     <PresetCombobox items={items} value={value} onValue={onValue} disabled={disabled} modified={modified}
       ariaLabel={label} testId={testId} searchPlaceholder="Search presets…" emptyText="No matching presets"
+      trailing={connectedPrinter && <span className="size-1.5 shrink-0 rounded-full bg-status-success"
+        data-testid="printer-connection-indicator" role="img" aria-label="Connected printer model matches"
+        title={`Connected to ${connectedPrinter}`} />}
       leading={onEdit && <Button type="button" variant="settings" size="icon-sm"
         aria-label="Edit Printer" title="Printer settings" data-testid="preset-edit-printer"
         disabled={disabled || value.length === 0} onClick={onEdit}><SlidersHorizontal /></Button>} />

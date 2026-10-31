@@ -5,7 +5,7 @@ export { startWorker, createWorkerClient } from './worker';
 export { mountNativeTemporaryDirectory } from './temporaryFilesystem';
 export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
-  SlicerClient, OrcaModule, OrcaModuleFactory,
+  DeviceFilamentOptions, SlicerClient, OrcaModule, OrcaModuleFactory,
   ArrangementRequest, ArrangementResult, ArrangementParkingReason, ArrangementPlateSessionMutation,
   ModelMutationResult, ModelPlateSessionMutation, InitResult, FilamentCatalogItem, PresetInfo, PresetSelection, ProfileSnapshot, PrinterPicker, BedTypeCapabilities,
   FilamentColourProvenance, FilamentNativeColour, FilamentColourDisplay,
@@ -19,6 +19,7 @@ export type {
   FilamentMutationSummary, FilamentMutationResult, FilamentMutationResultOrError,
   FilamentCommandRequest, FilamentSlotPresetRequest, FilamentSlotColourRequest,
   FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
+  MaterialImportSource, MaterialImportRequest, MaterialImportMatch, MaterialImportPreparation, MaterialImportApplication, PrinterSynchronizationRequest,
   RememberedFilamentRackPreference, PrinterTransitionMutationReceipt, PrinterTransitionSuccess,
   PrinterTransitionError, PrinterTransitionResult,
   FilamentAssignmentTargetRequest, FilamentAssignmentRequest,

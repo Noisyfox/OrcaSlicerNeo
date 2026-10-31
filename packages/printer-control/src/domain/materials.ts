@@ -42,7 +42,8 @@ export interface MaterialMetadata {
   manufacturer: string | null;
   color: MaterialColor | null;
   diameterMm: number | null;
-  catalogRef: ExternalRef | null;
+  /** Namespaced identities of the same catalogue material, including provider-normalized library associations. */
+  catalogRefs: readonly ExternalRef[];
 }
 export type MaterialMetadataPatch = AtLeastOne<MaterialMetadata>;
 export type RemainingMaterial = {

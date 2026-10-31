@@ -1,3 +1,4 @@
+import { usePrepareSynchronization } from '../synchronization/PrepareSynchronization';
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -9,6 +10,8 @@ import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import type * as D from '@orca/printer-control/domain';
+import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { sliceModel } from '../actions/sliceActions';
 import { SettingsPanel } from './SettingsPanel';
@@ -152,6 +155,7 @@ function makePlatform(
             optionMetadata:Object.fromEntries(keys.map(key=>[key,state.metadata![key]])),editorVectors:{},editorBindings:{},editorSelection:{kind:'print',activeSource:true,choices:[],nozzles:[],firstChoiceId:null,
               fieldBindings:Object.fromEntries(keys.map(key=>[key,{kind:'shared'}]))}};
         }),
+        getPrinterDeviceMatch: vi.fn(async (_identity: unknown) => ({ ok: true as const, matches: false, printer: useSettingsStore.getState().selectedPrinter })),
         getRuntimeExecutionState: vi.fn(() => ({ threaded: false, sliceActive: false, serialSliceActive: false, serialTerminalEpoch: '0' })),
         getHistoryStatus: vi.fn(async () => (printerTransition() as Extract<PrinterTransitionResult, { ok: true }>).historyStatus),
         mutateNativeScopedConfig: vi.fn(async (request: { value?: string }) => ({ ok: true as const,
@@ -228,6 +232,36 @@ async function selectOption(container: HTMLElement, triggerId: string, name: str
 describe('SettingsPanel preset transitions', () => {
   let roots: Root[] = [];
 
+  it('shows the model-match circle from existing observations and hides it on mismatch, selection change or disconnect', async () => {
+    resetStores();
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    runtime.getPrinterDeviceMatch.mockImplementation(async () => ({ ok: true, matches: useSettingsStore.getState().selectedPrinter === 'Old Printer', printer: useSettingsStore.getState().selectedPrinter }));
+    const { container, root } = await render(platform); roots.push(root);
+    const owner = {}, printerId = 'device' as D.Id<'printer'>, routeId = 'route' as D.Id<'route'>;
+    const snapshot: D.PrinterSnapshot<'descriptor'> = { target: { printerId, routeId }, configurationRevision: 'config', values: {
+      descriptor: { kind: 'known', freshness: 'fresh', sourceRouteId: routeId, receivedAtMs: 1, observedAtMs: null, value: {
+        revision: 'topology', identity: { id: printerId, displayName: 'Connected fixture', manufacturer: 'Vendor', model: 'Model', serialNumber: null, externalRefs: [] },
+        technology: 'fdm', firmware: { kind: 'unknown', reason: 'not-reported' }, buildVolume: null,
+        topology: { revision: 'topology', completeness: 'partial', tools: [], nozzles: [], extruders: [], motionGroups: [], heaters: [], fans: [], lights: [], sensors: [], cameras: [], materials: { units: [], slots: [], paths: [], dryers: [] } },
+      } },
+    } };
+    const indicator = () => container.querySelector('[data-testid="preset-select"] [data-testid="printer-connection-indicator"]');
+    expect(indicator()).toBeNull(); expect(runtime.getPrinterDeviceMatch).not.toHaveBeenCalled();
+    await act(async () => { useDeviceSelectionStore.getState().setCurrent(printerId); useDeviceSelectionStore.getState().publishConnection(owner, snapshot); });
+    expect(indicator()).not.toBeNull();
+    const calls = runtime.getPrinterDeviceMatch.mock.calls.length;
+    await act(async () => { useDeviceSelectionStore.getState().publishConnection(owner, structuredClone(snapshot)); });
+    expect(runtime.getPrinterDeviceMatch).toHaveBeenCalledTimes(calls);
+    await act(async () => { useSettingsStore.setState({ selectedPrinter: 'New Printer' }); });
+    expect(indicator()).toBeNull();
+    await act(async () => { useSettingsStore.setState({ selectedPrinter: 'Old Printer' }); });
+    expect(indicator()).not.toBeNull();
+    await act(async () => { useDeviceSelectionStore.getState().setCurrent('other-device'); });
+    expect(indicator()).toBeNull(); expect(useSettingsStore.getState().selectedPrinter).toBe('Old Printer');
+    await act(async () => { useDeviceSelectionStore.getState().setCurrent(printerId); useDeviceSelectionStore.getState().clearConnection(owner); });
+    expect(indicator()).toBeNull();
+  });
+
   it('rejects mounting before the required profile snapshot is initialized', async () => {
     resetStores();
     useSettingsStore.setState({ printerPicker: null });
@@ -246,6 +280,7 @@ describe('SettingsPanel preset transitions', () => {
     roots.forEach((root) => root.unmount());
     roots = [];
     document.body.innerHTML = '';
+    useDeviceSelectionStore.setState({ connection: null, connectionOwner: null, currentPrinterId: null });
     vi.restoreAllMocks();
   });
 
@@ -284,7 +319,7 @@ describe('SettingsPanel preset transitions', () => {
     expect(container.querySelector('[data-testid="process-preset-select"]')?.getAttribute('title')).toBe(child.source_name);
   });
 
-  it('uses native model labels and canonical targets, with inert Sync and actual-profile editing', async () => {
+  it('uses native model labels and canonical targets, with explicit Sync and actual-profile editing', async () => {
     resetStores();
     useSettingsStore.setState({ prints: initialSnapshot.prints.map(item => ({ ...item, label: 'Process alias' })) });
     useSettingsStore.setState({ printerPicker: {
@@ -298,8 +333,10 @@ describe('SettingsPanel preset transitions', () => {
     expect(container.querySelector('[data-testid="process-preset-select"]')?.getAttribute('title')).toBe('Candidate Process B');
     expect(container.querySelector('[data-testid="preset-select"]')?.textContent).toBe('Old Printer Model');
     expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('Old Printer');
-    await act(async () => (container.querySelector('[data-testid="nozzle-sync-placeholder"]') as HTMLElement).click());
+    await act(async () => (container.querySelector('[data-testid="printer-sync"]') as HTMLElement).click());
     expect(runtime.selectPrinterWithRememberedRack).not.toHaveBeenCalled();
+    expect(usePrepareSynchronization.getState().kind).toBe('printer');
+    act(() => usePrepareSynchronization.setState({ kind: null }));
     await act(async () => (container.querySelector('[data-testid="preset-edit-printer"]') as HTMLElement).click());
     expect(edit).toHaveBeenCalledWith('Old Printer');
     await selectOption(container, 'preset-select', 'New Printer Model');

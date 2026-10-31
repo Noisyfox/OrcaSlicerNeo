@@ -3,6 +3,7 @@ import { stageLabel } from './stages';
 import n6 from '../../../../../packages/slicer-wasm/cpp/resources/printers/N6.json';
 import n7 from '../../../../../packages/slicer-wasm/cpp/resources/printers/N7.json';
 import type * as D from '@orca/printer-control/domain';
+import { materialCatalogRefs, modelCatalogRefs } from './printResources';
 
 export type Report = Record<string, unknown>;
 export const record = (value: unknown): Report => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Report : {};
@@ -219,7 +220,9 @@ export class BambuTelemetry {
       const nozzleId = id<'nozzle'>(`nozzle:${key}`);
       nozzles.push({ id: nozzleId, heaterId: id(`nozzle:${key}`), diameterMm: nonNegative(nozzle?.diameter ?? (item.legacy ? p.nozzle_diameter : undefined)) ?? null,
         type: type ?? null, constructionMaterial: type === 'hardened_steel' ? 'hardened steel' : type === 'stainless_steel' ? 'stainless steel' : ({ '00': 'stainless steel', '01': 'hardened steel', '05': 'tungsten carbide' } as Record<string, string>)[type?.slice(2, 4) ?? ''] ?? null,
-        flowType: ({ S: 'standard flow', A: 'standard flow', X: 'standard flow', H: 'high flow', E: 'high flow', U: 'TPU high flow', B: 'E3D high flow' } as Record<string, string>)[type?.[1] ?? ''] ?? null });
+        flowReporting: this.machine.nozzleFlowSupported ? 'supported' : 'unknown',
+        flowType: ({ S: 'standard flow', A: 'standard flow', X: 'standard flow', H: 'high flow', E: 'high flow', U: 'TPU high flow', B: 'E3D high flow' } as Record<string, string>)[type?.[1] ?? '']
+          ?? (item.legacy && this.machine.legacyNozzleFlow ? this.machine.legacyNozzleFlow === 'High Flow' ? 'high flow' : 'standard flow' : null) });
       tools.push({ id: id(`tool:${key}`), name: side ? `${side} extruder` : `Tool ${key}`, extruderId: id(`extruder:${key}`), nozzleId, motionGroupId: id('gantry') });
       temperature(`nozzle:${key}`, side ? `${side} nozzle` : `Nozzle ${key}`, 'nozzle', item.legacy ? p.nozzle_temper : bits(item.temp, 0, 16), item.legacy ? p.nozzle_target_temper : bits(item.temp, 16, 16));
     }
@@ -287,7 +290,7 @@ export class BambuTelemetry {
       severity: error === taskCancelledError ? 'info' : 'error',
       message: error === taskCancelledError ? 'The task was canceled.' : `Printer error ${error.toString(16).toUpperCase()}`, actions: [] }] : [];
     return { machine: this.machine, fresh, generation: this.generation, report: merge(p, { capabilities: record(this.info.capabilities) }), values: {
-      descriptor: { revision: topology.revision, identity, technology: 'fdm', buildVolume: null, firmware: firmware.length ? read(firmware) : unknown, topology },
+      descriptor: { revision: topology.revision, identity: { ...identity, externalRefs: [...identity.externalRefs, ...modelCatalogRefs(identity.model)] }, technology: 'fdm', buildVolume: null, firmware: firmware.length ? read(firmware) : unknown, topology },
       status: state, thermal, motion, actuators: { fans: fanState, lights: lightState }, sensors: { definitionRevision: topology.revision, definitions, readings },
       materials: material, firmware, cameras, alerts,
     } };
@@ -320,14 +323,14 @@ function materialInventory(p: Report, extruders: Report[], toolIds: D.Id<'tool'>
     const colors = Array.isArray(tray.cols) ? tray.cols.filter((color): color is string => typeof color === 'string' && /^[\da-fA-F]{8}$/.test(color)).map(color => `#${color}`) : [];
     const material: D.MaterialMetadata = { materialType: text(tray.tray_type) ?? null, manufacturer: text(tray.tray_sub_brands) ?? null,
       color: colors.length > 1 ? { kind: 'multiple', rgba: colors, appearance: 'unknown' } : rgba ? { kind: 'solid', rgba } : null,
-      diameterMm: number(tray.tray_diameter) ?? null, catalogRef: typeof tray.tray_info_idx === 'string' && tray.tray_info_idx ? { namespace: 'bambu-filament', value: tray.tray_info_idx } : null };
+      diameterMm: number(tray.tray_diameter) ?? null, catalogRefs: materialCatalogRefs(text(tray.tray_info_idx)) };
     const tag = text(tray.tray_uuid) || text(tray.tag_uid);
     // Presence is a hardware bitmap, never inferred from metadata (which may be stale).
     const type = bits(entries.find(entry => String(entry.id) === unit)?.info, 0, 4);
     const index = external ? undefined : type === 5 ? 24 + Number(slot) : Number(unit) >= 128 ? 16 + Number(unit) - 128 : Number(unit) * 4 + Number(slot);
     const exists = index === undefined || index > 63 ? undefined : bits(ams.tray_exist_bits, index);
     slotState.push({ slotId, presence: read(exists === undefined ? undefined : exists ? 'present' : 'empty'),
-      material: read(Object.values(material).some(value => value !== null) ? material : undefined),
+      material: read(Object.values(material).some(value => Array.isArray(value) ? value.length > 0 : value !== null) ? material : undefined),
       spoolIdentity: read(tag && !/^0+$/.test(tag) ? { namespace: 'bambu-spool', value: tag } : undefined),
       remaining: read(!external && ams.calibrate_remain_flag === true && typeof tray.tag_uid === 'string' && /[^0]/.test(tray.tag_uid)
         && fraction(tray.remain, 100) !== undefined ? { unit: 'fraction', value: fraction(tray.remain, 100)!, basis: 'estimated' } : undefined) });

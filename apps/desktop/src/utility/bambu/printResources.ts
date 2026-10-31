@@ -34,3 +34,14 @@ export const filamentCatalog = ids.filaments as Record<string, { bambu_id: strin
 export const printerFilamentId = (id: string) => filamentCatalog[id]?.bambu_id ?? id;
 export const filamentRules = blacklist.blacklist as Report[];
 export const nozzleHardness = nozzleInfo.nozzle_hrc as Record<string, number>;
+
+/** Keep Bambu catalogue translation in the agent; shared import sees namespaced associations. */
+export function materialCatalogRefs(value: string | undefined) {
+  if (!value) return [];
+  const native = Object.entries(filamentCatalog).filter(([key, material]) => key === value || material.bambu_id === value).map(([key]) => key);
+  return [{ namespace: 'bambu-filament', value }, ...native.map(value => ({ namespace: 'orca-filament', value }))];
+}
+export function modelCatalogRefs(model: string | null) {
+  const value = printerPrintProfile(model).model_id;
+  return typeof value === 'string' && value ? [{ namespace: 'orca-printer-model', value }] : [];
+}

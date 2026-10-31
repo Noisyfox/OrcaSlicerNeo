@@ -33,7 +33,7 @@ async function fixture() {
   const service = { ...base, describe: async () => ({ ok: true, value: { target, configurationRevision: route.configurationRevision, capabilities: caps, descriptor: snapshot.values.descriptor } }), observations: { ...base.observations, watch }, controls: { evaluate: async () => ({ ok: true, value: { availability: { kind: 'available' }, basis: {} } }), submit }, operations: { ...base.operations, watch: async function* () { yield { phase: { kind: 'completed' } }; } } } as unknown as D.PrinterService;
   const platform = { printers: { service } } as unknown as PlatformCapabilities;
   const element = document.createElement('div'); document.body.append(element); const root = createRoot(element);
-  const render = async (visible = true) => act(async () => { root.render(<PlatformProvider value={platform}><PrinterMonitor printer={printer} route={route} visible={visible} /></PlatformProvider>); });
+  const render = async (visible = true, observeWhileHidden = false) => act(async () => { root.render(<PlatformProvider value={platform}><PrinterMonitor printer={printer} route={route} visible={visible} observeWhileHidden={observeWhileHidden} /></PlatformProvider>); });
   const update = async (name: string, task = 'task-1', freshness: 'fresh' | 'stale' = 'fresh', phase: 'printing' | 'paused' | 'idle' = 'printing') => act(async () => {
     const reading = known({ ...status, printStatus: { ...status.printStatus, phase: known(phase), name: known(name), taskId: known(task as D.Id<'device-task'>) } });
     if (reading.kind === 'known') reading.freshness = freshness;
@@ -198,7 +198,7 @@ it('uses reported tool names while keeping material and nozzle IDs opaque', asyn
   const f = await fixture(); try {
     const tool = 'opaque-head' as D.Id<'tool'>, nozzle = 'opaque-tip' as D.Id<'nozzle'>, slot = 'opaque-slot' as D.Id<'slot'>, path = 'opaque-path' as D.Id<'path'>;
     f.topology.tools = [{ id: tool, name: 'Left head', extruderId: 'opaque-drive' as D.Id<'extruder'>, nozzleId: nozzle, motionGroupId: 'opaque-gantry' as D.Id<'motion'> }];
-    f.topology.nozzles = [{ id: nozzle, heaterId: 'opaque-heater' as D.Id<'heater'>, diameterMm: 0.4, constructionMaterial: 'hardened steel', flowType: null, type: null }];
+    f.topology.nozzles = [{ id: nozzle, heaterId: 'opaque-heater' as D.Id<'heater'>, diameterMm: 0.4, constructionMaterial: 'hardened steel', flowType: null, flowReporting: 'unknown', type: null }];
     f.material.topology.slots = [{ id: slot, unitId: f.material.topology.units[0].id, name: 'Spool A' }];
     f.material.topology.paths = [{ id: path, slotId: slot, toolId: tool, loading: 'automatic' }];
     f.caps.commands['materials.load'] = { kind: 'supported', constraints: { pathIds: [path] } };
@@ -218,7 +218,7 @@ it.each(['solid', 'parallel', 'gradient'] as const)('uses the shared translucent
     const slot = 'spool' as D.Id<'slot'>;
     f.material.topology.slots = [{ id: slot, unitId: f.material.topology.units[0].id, name: 'Spool' }];
     f.material.state.slots = [{ slotId: slot, presence: f.known('present'), spoolIdentity: unknown, remaining: unknown,
-      material: f.known({ materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRef: null,
+      material: f.known({ materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [],
         color: appearance === 'solid' ? { kind: 'solid', rgba: '#ffffff00' }
           : { kind: 'multiple', rgba: ['#ffffff00', '#ff0000'], appearance } }),
     }];
@@ -337,4 +337,15 @@ it('discards a late task preview and releases object URLs on hide', async () => 
     expect(f.element.querySelector('img')).toBeNull();
     expect(f.service.media.readCurrentPrintPreview).toHaveBeenCalledTimes(2);
   } finally { await f.close(); vi.unstubAllGlobals(); }
+});
+
+it('starts an explicitly selected device while hidden and retains the same observation when shown', async () => {
+  const f = await fixture();
+  try {
+    await f.render(false); expect(f.watch).not.toHaveBeenCalled();
+    await f.render(false, true); expect(f.watch).toHaveBeenCalledOnce();
+    await f.render(false, true); expect(f.watch).toHaveBeenCalledOnce();
+    await f.render(true); expect(f.watch).toHaveBeenCalledOnce();
+    expect(f.element.textContent).toContain('External task');
+  } finally { await f.close(); }
 });

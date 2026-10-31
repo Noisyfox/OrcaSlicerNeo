@@ -7,9 +7,13 @@ import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
+import type { SynchronizationSource } from '@orca/printer-control';
+import type * as D from '@orca/printer-control/domain';
 import type { FilamentSessionSnapshot, HistoryStatus } from '@slicer/client';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+const id = <K extends string>(value: string) => value as D.Id<K>;
 
 function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): FilamentSessionSnapshot {
   return {
@@ -58,7 +62,7 @@ function renderRack(runtime: Record<string, unknown>, onEditPreset?: (canonicalN
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
-  const platform = { runtime, preferences: { load: vi.fn(async () => structuredClone(DEFAULT_USER_PREFERENCES)), save: vi.fn(async () => {}) } } as unknown as PlatformCapabilities;
+  const platform = { runtime: { getRuntimeExecutionState: () => ({ threaded: true }), ...runtime }, preferences: { load: vi.fn(async () => structuredClone(DEFAULT_USER_PREFERENCES)), save: vi.fn(async () => {}) } } as unknown as PlatformCapabilities;
   act(() => { root.render(<PlatformProvider value={platform}><FilamentRack onEditPreset={onEditPreset} /></PlatformProvider>); });
   return { container, root, platform };
 }
@@ -92,6 +96,34 @@ describe('FilamentRack runtime interaction', () => {
     useFilamentSessionStore.getState().reset();
     useProjectStore.getState().reset();
     useSettingsStore.setState({ filamentCatalog: [], modifiedPresets: { printer: [], filament: [] } });
+    useDeviceSelectionStore.setState({ currentPrinterId: null, connection: null, materials: null, connectionOwner: null });
+  });
+
+  it.each(['solid', 'gradient', 'multicolor'] as const)('uses shared alpha swatches for installed %s materials', async mode => {
+    const snapshot = makeSnapshot();
+    const source: SynchronizationSource = { kind: 'filament', target: { printerId: id('printer'), routeId: id('route') }, configurationRevision: 'config',
+      topologyRevision: 'topology', inventoryRevision: 'inventory',
+      identity: { id: id('printer'), displayName: 'Device', manufacturer: 'Vendor', model: 'Model', serialNumber: null, externalRefs: [] },
+      tools: [{ id: id('tool'), name: 'Tool', diameterMm: .4, flowType: null, flowReporting: 'unknown', capacity: 1 }],
+      materials: [{ slotId: id('spool'), label: 'Holder · Spool', unitKind: 'manual-holder', toolIndices: [0], presence: 'unknown',
+        metadata: { materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [{ namespace: 'provider', value: 'material' }],
+          color: mode === 'solid' ? { kind: 'solid', rgba: '#00000000' }
+            : { kind: 'multiple', rgba: ['#00000000', '#ff000080'], appearance: mode === 'gradient' ? 'gradient' : 'parallel' } } }],
+    };
+    useDeviceSelectionStore.setState({ currentPrinterId: 'printer', materials: source });
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot),
+      getDeviceFilamentOptions: vi.fn(async () => ({ ok: true, revision: snapshot.revisions.session, options: [{ slotId: 'spool', preset: 'PLA', label: 'PLA' }] })) });
+    root = rendered.root;
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    await act(async () => rendered.container.querySelector<HTMLElement>('[data-testid="filament-preset-1"]')!.click());
+    const item = document.querySelector<HTMLElement>('[role="menuitem"][aria-label="Holder · Spool: PLA"]')!;
+    expect(item).toBeTruthy();
+    const swatch = item.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+    expect(swatch.style.backgroundColor).toBe('var(--color-swatch-background)');
+    expect(swatch.style.backgroundImage).toContain('var(--color-swatch-checkerboard)');
+    expect(swatch.style.backgroundImage).toContain('#00000000');
+    if (mode !== 'solid') expect(swatch.style.backgroundImage).toContain('#ff000080');
+    if (mode === 'multicolor') expect(swatch.style.backgroundImage).toContain('#00000000 0%, #00000000 50%, #ff000080 50%, #ff000080 100%');
   });
 
   it.each([

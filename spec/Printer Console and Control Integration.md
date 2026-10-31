@@ -59,6 +59,526 @@ The embedded console is a convenience and management surface. Sending and
 printing use the printer API directly, so either surface can continue to be
 used when the other one is unavailable.
 
+## Prepare printer and filament synchronization
+
+**Decision status:** Option B is selected with separate interactions: Printer
+sync executes directly with Orca-style necessary confirmations/configuration
+choices and no generic change-preview dialog; Filament sync uses a modal
+mapping/rebuild dialog when project use or edited Filament presets require
+review, and directly rebuilds clean empty plates following Orca. Each accepted project operation applies atomically in
+native code. The shared workflow, normalized Bambu observations and native
+transactions are implemented. Development-host H2D + AMS read/import/history
+acceptance passed; mixed physical nozzles and post-sync printing remain
+unqualified, as recorded below.
+
+### Scope
+
+Printer sync imports observed printer hardware into the project's slicing
+configuration. Filament sync imports physical material metadata into the native
+project rack. Both use shared, vendor-neutral application/domain contracts;
+the initial device integration is Bambu through its Electron provider. Web uses
+the same feature layer when its injected provider has the required capabilities;
+this design does not add a browser Bambu transport or gateway. Mobile support
+remains deferred.
+
+### Agent extensibility
+
+Generalize the synchronization workflow so future agents can reuse the same
+Printer action, Filament dialog, native application and history/persistence
+paths. Bambu is the first provider implementation, not the shared feature's
+data model or dispatch condition.
+
+Shared UI and orchestration consume normalized identity, topology, material
+inventory, namespaced catalogue references, capabilities and source revisions.
+Keep resource IDs opaque. Model tool/slot/path cardinality from those contracts,
+without fixed assumptions about two tools, four-slot AMS units, contiguous
+numbering or left/right device IDs. Native slicing limits still apply. Future
+multi-tool fixtures do not expand the initial Bambu runtime coverage.
+
+Agents own protocol decoding, device-model aliases, physical numbering/order,
+catalogue normalization and vendor-specific hardware policy. Native preset
+matching, effective drafts and project/reference transformations remain in the
+existing shared native owners. Common UI must not import Bambu resources,
+parse its protocol fields, or branch on Bambu/model IDs to decide the common
+sync flow. Vendor-specific validation results enter through the agent/domain
+boundary and native compatibility projection.
+
+Gate Printer and Filament sync independently by the observations and operations
+each actually needs. Accept push-backed or explicitly requested on-demand
+observations through the same service boundary; do not require a future agent
+to reproduce Bambu's connection, subscription, firmware or unrelated Monitor
+capabilities. No discovery-time/startup synchronization or polling is added for
+an on-demand agent. Native default/fallback rules remain compatible with the
+selected profile; Bambu-specific rules stay scoped to that provider.
+
+Keep abstractions limited to these concrete shared boundaries. Adding another
+agent should supply its normalization/capabilities and provider-specific rules,
+then reuse the existing workflow rather than copy a Bambu sync implementation
+or introduce parallel project mutation paths. This design adds no new agent,
+gateway or universal plugin framework in the initial delivery.
+
+### Entry points and device selection
+
+Reuse the Printer section's Sync control in the Nozzle row. Do not add another Printer-header button. Put Filament Sync
+immediately to the left of Flushing Volumes in the material toolbar; retain the
+existing independent eligibility of Flushing Volumes. Detailed layout ownership
+remains in [Application Shell](Application%20Shell.md).
+
+At each manual sync invocation, automatically use the currently connected
+printer. If no printer is connected, open a device chooser. Choosing a device
+connects it and makes it Device's current printer before starting the selected
+sync workflow. Failure to connect/read does not apply project changes.
+For a source whose required observation topics support push/poll delivery, use
+its fresh, coherent cached snapshot directly, as Orca uses its connected
+device state. Do not require a post-click telemetry message before showing a
+model-mismatch confirmation or applying the local synchronization. Missing,
+stale, incomplete or inconsistent required observations fall back to one
+explicit device read. On-demand-only sources still fetch on each sync. The
+Filament dialog's explicit Refresh always requests device data, preserves the
+mapping draft and never treats a failed refresh as a successful cached read.
+Both read paths retain the same source/configuration and project revision
+validation before native application.
+Canceling a necessary Printer confirmation or the Filament dialog leaves the
+selected device connected and current in Device; it cancels only the pending
+project mutation. Selection in Device alone must not be treated as permission
+to rewrite Prepare configuration.
+Changing the selected/connected printer in Device never automatically changes
+Prepare's Printer preset or materials. A subsequent manual sync invocation uses
+the latest connected printer rather than retaining the previous sync source.
+Capture the chosen source for each in-flight workflow. The Filament mapping
+dialog and any necessary Printer confirmation/configuration dialog are modal:
+the main application, including Device selection, cannot be operated behind
+them. Printer sync does not open a modal for an ordinary successful update.
+Do not silently retarget an in-flight operation if its source changes.
+
+A synchronization modal locks project interaction while retaining the Device
+monitor and its existing connection. For streaming-capable sources, retain one
+source-scoped material observation across reads and review; refreshing the
+proposal updates its validation basis without replacing that subscription.
+An explicit chooser selection activates the Device observation owner even when
+its page is hidden, so canceling the proposal does not undo the connection.
+On-demand-only sources still perform no background read or subscription. The
+print-preparation modal's independent need to pause Device observations does
+not apply to synchronization.
+
+If the source disconnects while the Filament dialog is open, retain the dialog
+and mapping choices, but disable application. After the original source
+reconnects, reread the required observations and revalidate before allowing
+confirmation. Do not automatically apply on recovery or silently discard
+reviewed choices; changes invalidating those choices require renewed review.
+An exceptional source switch also pauses that dialog rather than using the
+replacement device. Using a different source requires canceling and invoking
+sync again. For direct Printer sync, a failed read, disconnected source or
+changed source/configuration before commit rejects the operation without
+partial project changes; a new manual invocation can retry with current data.
+
+After a successful Printer sync, ask whether to continue with Filament sync.
+Only an affirmative choice opens that second workflow; declining or canceling
+it retains the already completed Printer changes. The two workflows are
+separate native operations with separate Undo entries. The offered
+continuation uses the Printer workflow's source; a later independent sync click
+resolves the latest connected device as above.
+
+An independent Filament sync first checks the source device against the
+project's Printer using model compatibility, not display-name equality. If they
+are incompatible, stop material import and offer a "Sync Printer first" entry.
+Only the user's "Sync Printer first" choice enters direct Printer sync; apply
+its necessary confirmations and, after success, offer the normal Filament
+continuation. Do not import against the incompatible Printer or switch
+it silently. Compatible-but-different models follow the native compatibility
+rules rather than an unconditional exact-model requirement.
+
+### Project workflow and ownership
+
+Read the required device observations outside the project mutation transaction.
+For Printer sync, validate and apply the requested hardware changes directly
+after the explicit Sync action. Follow Orca's necessary model-mismatch
+confirmation and applicable hardware/configuration choices, plus the ordinary
+Printer switch's existing required confirmations. Do not add a generic
+before/after summary, a universal confirm step, or a new Printer preview UI/API.
+Native staging and revision validation remain internal transaction concerns.
+After success, offer the optional Filament continuation.
+
+For Filament sync, prepare a native-validated material proposal. With every
+Plate empty and no modified active Filament, import directly after Sync unless
+referenced material removal requires an explicit replacement. Otherwise show
+the source device and configuration changes in the modal mapping/rebuild
+dialog, allow mapping and replacement choices, and apply on confirmation.
+Canceling that dialog does not apply its pending project changes.
+
+Printer sync covers model/preset resolution, nozzle diameter, project flow types
+and available material-slot capacity. Resolve physical tools to slicing
+extruders explicitly; never equate vendor numbering or array positions with
+project nozzle indices. Preserve applicable user-preset edits where possible;
+capacity import must distinguish physical slots from multiple paths reaching
+the same slot. After successful Printer sync, update both the current project
+capacity vector and the final selected Printer preset's remembered capacities,
+using the existing preset-keyed preference policy. Undo restores project state
+without reverting this preference write; reopening a project still uses its
+saved values rather than treating remembered capacities as live overrides.
+
+If the required model exists in profile resources but is not enabled, stop this
+sync and direct the user to Setup to enable it, then retry Sync. Do not implicitly
+enable the model, force a hidden preset visible, or bypass normal profile
+activation. Setup retains its existing whole-model/all-variants activation rule.
+
+For an already matching model and effective ordered nozzle-diameter vector,
+retain the current Printer source, including a user preset, and its unrelated
+customized settings. Update the applicable hardware-derived fields directly
+without a general preview step.
+Existing [project-owned Printer draft lifetime](Preset%20Editor%20Dialog.md#26-printer-drafts-are-project-owned)
+continues to apply: switching sources deactivates rather than deletes the old
+draft, and later selecting that source reactivates it. Sync does not implicitly
+save a preset or migrate unrelated overrides into a different source.
+
+Mixed nozzle diameters are in scope. The
+[upstream mixed-diameter sync behavior](https://github.com/OrcaSlicer/OrcaSlicer/blob/db35f3d0980a622bc158d1f13855abc913cad8ca/src/slic3r/GUI/Plater.cpp#L1878)
+is the Orca reference: preserve each physical nozzle's reported diameter rather
+than forcing a single-head choice. Neo must integrate this with its delivered
+[native toolhead selection and editing](Application%20Shell.md#native-toolhead-selection-and-editing),
+not introduce a parallel mixed-diameter path. Resolve the complete final ordered
+diameter vector against visible same-vendor/model presets and their effective
+drafts, with matching count/order, current-source preference and stable canonical
+tie-breaking. If a different exact matching source is selected, use the shared
+Printer-switch path described below; otherwise update the current Printer
+draft. When changing to a different device model without an exact full-vector
+source, prefer its canonical base matching the first normalized tool's reported
+diameter, following Orca's model-resolution rule, then apply the complete vector.
+This avoids choosing an unrelated small-nozzle base and its flow restrictions.
+It does not synthesize a mixed `printer_variant` or override an already applicable
+current source. Mixed diameters do not require a pre-authored mixed variant.
+Do not implement a multi-nozzle sync as sequential per-head commands that could
+select intermediate profiles or publish intermediate project states.
+
+Whenever sync changes the selected Printer source, invoke the same ordinary
+Printer-selection implementation, including restoration of the target preset's
+remembered filament rack, native compatibility normalization, topology and
+filament-reference repair, and existing preference publication. This applies to
+both model changes and diameter resolution that selects a different source.
+Do not copy that logic, add a sync-only filament remapper, or use a separate
+current-rack-preservation policy for sync. Future improvements to ordinary
+Printer-switch filament remapping must benefit sync through the shared path.
+Preserve the existing behavior of manual per-head editing outside sync.
+
+Apply the ordinary switch and the final observed hardware/flow/capacity values
+in one native project operation, without exposing the intermediate remembered
+configuration or a second history entry. Reuse the ordinary switch's existing
+reference-impact confirmations where required; do not wrap it in a generic
+Printer change-preview dialog. Observed sync capacities are the final project
+values and update the final target's capacity memory after success. The optional
+subsequent Filament sync remains separately confirmed; declining it retains the
+completed Printer switch, including its restored rack.
+
+Retain the effective profile's `printer_variant` and canonical identity rules;
+actual per-head diameters remain visible on nozzle cards and Multi. controls.
+Do not synthesize a mixed variant from the diameter vector or rewrite the
+Nozzle selector to a value without a canonical target. Preserve native flow
+candidate repair, compatibility, project/Plate mapping, invalidation, history
+and ordinary 3MF composition. These rules are owned by
+[Profile Compatibility and Preset Selection](Profile%20Compatibility%20and%20Preset%20Selection.md#available-profiles)
+and the existing toolhead workflow; upstream UI code is a reference rather
+than a replacement for Neo's delivered contracts.
+
+If the device has identified a nozzle but has not configured its flow type,
+stop Printer sync and explain that its device nozzle settings must be completed
+before retrying. Do not apply a partial Printer operation, substitute the
+project's old flow, or offer a project-only manual flow override for this case.
+This follows the
+[upstream initialization gate](https://github.com/OrcaSlicer/OrcaSlicer/blob/db35f3d0980a622bc158d1f13855abc913cad8ca/src/slic3r/GUI/Plater.cpp#L20021).
+For a device explicitly known not to support flow reporting, follow Orca's
+native default-flow policy (Standard), subject to Neo's native flow-candidate
+and compatibility rules. Do not classify an unreported/unknown capability as
+known lack of support.
+
+Unknown nozzle diameter follows Orca's existing device/preset-resolution
+semantics rather than introducing a Neo-specific stop/manual-fill/retain-old
+policy. The
+[upstream diameter matcher](https://github.com/OrcaSlicer/OrcaSlicer/blob/db35f3d0980a622bc158d1f13855abc913cad8ca/src/slic3r/GUI/DeviceCore/DevExtruderSystem.h#L158)
+treats the protocol's zero value as unknown and does not reject a preset match
+for that reason. Keep unknown data explicit at Neo's domain boundary; zero is
+not a valid physical diameter to write into the Printer draft. Preserve Neo's
+native value validation and atomic rejection behavior. The
+[subsequent upstream sync path](https://github.com/OrcaSlicer/OrcaSlicer/blob/db35f3d0980a622bc158d1f13855abc913cad8ca/src/slic3r/GUI/Plater.cpp#L2473)
+assumes a valid diameter choice and asserts its availability; this is not
+evidence of a general unknown-diameter recovery policy. Implementation
+qualification must exercise this path without inventing or claiming an
+upstream fallback that is not present. No generic Printer preview is added.
+
+Filament sync includes mapping source materials onto existing project slots,
+color-only updates, and rebuilding the rack. Preview the target compatible
+presets, colors, additions/removals and any required reassignment of project
+references. Match namespaced catalogue references through the applicable
+resource mapping and native compatibility rules; a device catalogue ID is not
+automatically a native preset ID. Ambiguous, generic-fallback and unresolved
+matches remain visible for review. Empty slots, unknown presence and unavailable
+metadata are distinct states. Candidate inclusion and fallback follow the
+accepted rules below; review must retain each source's actual presence state.
+
+Follow Orca's `SyncAmsInfoDialog::is_need_show` and `check_empty_project`:
+when every Plate has no object instances and no active Filament preset has
+unsaved edits, the explicit Sync action directly rebuilds the rack without
+mounting a detail/confirmation dialog. Configured rack entries, slice status
+and the currently selected Plate do not establish project use. Reuse native
+Plate membership and existing Filament draft/baseline dirty detection; Neo's
+simultaneous active preset drafts receive the protection of Orca's edited tab.
+An object on any Plate or a modified active Filament retains the modal, defaulting
+to mapping. Users can choose rebuild there. An empty project that needs explicit
+reference replacement still shows rebuild review under the reference rules
+below. No eligible source or a rejected direct operation shows an error without
+importing; fallback warnings after a successful direct sync use the existing
+workspace notifications. Both paths share the same source/revision validation,
+atomic native application, preference publication and one-entry Undo. Reading
+and direct application do not briefly mount the details dialog. Development
+StrictMode replay must not duplicate the automatic commit.
+
+Color-only updates remain available in the review dialog in either mode, but only update
+existing slots: never change presets, slot count, logical identities or
+references. Rebuild colors follow the eligible source order up to the existing
+rack size; excess sources are ignored and remaining project colors stay as-is.
+Mapping colors honor the explicit mapping and Keep unchanged choices; do not
+apply Orca's implicit index fallback over those explicit choices. Disable
+append and omit removal/reassignment proposals while Colors only is enabled.
+
+Each new mapping preview prepares initial suggestions from current device and
+project data, using Orca's type/color and applicable tool/path constraints.
+Users can adjust the proposal. Keep those choices while reviewing that proposal
+and through its permitted reconnect/revalidation flow, but do not persist a
+project-material-to-physical-slot association for later sync invocations or
+project reopen. An independent invocation always resolves the current connected
+source and computes new suggestions. Saved project configuration retains its
+ordinary effective presets, colors and references, not a lasting device binding.
+
+Mapping permits multiple project materials to select the same physical source
+slot. Keep their project slot identities and model/paint/Plate references
+independent; do not merge them as a side effect of sync. The first delivery has
+no sync-time merge option. Users can explicitly invoke the existing Merge
+workflow separately. Mapping does not establish a persistent Send path binding.
+
+Mapping mode displays the entire project rack, including slots unused by the
+selected Plate. A project slot without a selected device source stays unchanged.
+Edits affect shared project materials and therefore every Plate using those
+slots; the dialog does not create Plate-local copies of the rack.
+
+Mapping mode defaults to appending all unused eligible device materials to the
+project rack, with the additions shown before confirmation. Follow Orca's
+append-time preset/color duplicate detection, including recognition of a
+preserved custom preset for the same filament. Equivalent material already
+represented in the rack is not appended again; several identical unused device
+slots do not require duplicate project slots. This skips redundant additions,
+not a merge of independently existing project slots. Rebuild mode uses the
+eligible device-material list under its separate replacement semantics. Native
+preparation and application share one read-only append planner; the UI displays
+its ordered source list and re-queries it after mapping changes. A per-slot
+previous-preset fallback alone does not establish material equivalence.
+Superseded plan responses cannot enable confirmation for a newer mapping.
+
+Selecting an installed device material may admit its compatible hidden Filament
+preset to the ordinary catalogue. If selection fails, restore that visibility
+change together with the native project and history; preset configurations
+remain immutable and admission does not require copying the preset catalogue.
+
+If rebuilding removes a project material that still has references, require
+the user to choose its surviving replacement before allowing confirmation.
+Preview the affected model, painted, support, Plate and tool-change references.
+Reuse the existing native Merge reference-remapping implementation for these
+explicit replacements, composed into the single rebuild transaction; do not
+silently use Delete's slot-1 fallback or discard paint/events as a default.
+Reject unsupported reference transformations atomically under the existing
+[Delete and Merge contract](Multi-Filament%20Support.md#83-delete-and-merge-with).
+This required replacement handling does not add an automatic same-color merge
+option to mapping mode, and independent project slots that survive remain
+independent even when their device sources coincide.
+
+Follow Orca's empty-filament-ID gate before native preset fallback. A source
+requires usable metadata, a usable tool path and at least one non-empty
+provider-normalized catalogue identity. A type, color, diameter or retained
+transparent color alone does not establish eligibility. Unidentified supplies
+remain visible with their reported metadata and presence, but are excluded
+from rebuild, mapping choices and unused-material append. A submitted mapping
+to an unidentified source leaves the destination unchanged; no eligible
+sources disables confirmation and native application rejects without mutation.
+Reported identities that are unknown to the native catalogue remain eligible
+for the full fallback below. Apply this rule to every supply kind and provider,
+not only external holders or Bambu IDs.
+
+Sources with an identity may participate even when explicitly empty or with
+unknown presence. Retain namespaced provenance and never fabricate physical
+presence from metadata. Importing retained metadata is a project configuration
+operation, not a claim that the spool is installed or can supply a print; Send
+retains its independent inventory/path validation.
+
+Like Orca's shared `filament_ams_list`, Filament sync and installed-material
+dropdowns share the normalized source/provenance conversion and native source
+eligibility and matching foundation. Do not introduce a separate provider
+parser, catalogue matcher or network subscription for the dropdown. Their final
+match policies differ intentionally: the dropdown accepts exact native bases
+or same-type Generic presets, while full synchronization uses the complete
+fallback below. Source eligibility is native-authoritative for preview and
+apply; the typed client accepts its ordered subset without implementing a
+second eligibility policy.
+
+When there is no compatible exact match, follow Orca's complete native preset
+fallback sequence: compatible Generic candidates (including its type-word
+matching), then the existing selection where applicable, then another
+compatible Generic/system preset. Display the actual fallback and its reason
+in the preview rather than describing it as an exact match. Native validation
+still applies; do not bypass project compatibility constraints. Lack of any
+usable native result remains unresolved rather than inventing a preset. The
+first delivery does not restrict fallback to same-type Generic presets or
+require manual selection for every non-exact match.
+
+For full material updates, preserve the current compatible custom Filament
+preset when its non-empty native `filament_id` matches the resolved sync
+preset's ID. Retain its tuned effective configuration and source-local draft,
+while applying the reviewed tray metadata such as slot colors. Do not replace
+it with its system base solely because the device reports that base. Resolve
+the device catalogue reference before this comparison; matching display names
+or only material types does not establish this identity. This follows the
+[upstream preservation rule](https://github.com/OrcaSlicer/OrcaSlicer/commit/db35f3d0980a622bc158d1f13855abc913cad8ca).
+Distinct project slots sharing the source retain Neo's existing shared-draft
+ownership; sync does not create per-slot preset copies. Incompatible or
+different-ID presets follow the matching/fallback policy above.
+
+Flushing-volume updates use the existing
+[All / Color / None policy](Multi-Filament%20Support.md#101-flushing-volume-policy),
+including initialization of new pairs, remapping of surviving pairs and native
+effective Printer/Filament inputs. Do not add a sync-only calculation preference
+or renderer-side approximation. Rack and metadata mutations share the existing
+native preference, ordinary 3MF persistence and project history boundaries.
+
+Applying a confirmed material proposal, or executing direct Printer sync, is
+one native operation and one Undo entry. It must keep
+the Printer/project configuration, rack identities, model and painted
+assignments, Plate references/mappings, flushing state and affected slice-result
+lifecycles coherent. Return a complete authoritative receipt; do not simulate a
+batch by issuing independent renderer-side add/delete/preset/color commands.
+Reject stale or invalid input without a partially applied project. The
+[domain synchronization contract](Printer%20Domain%20and%20Control%20Architecture.md#6-material-systems-and-synchronization)
+owns provenance and revision validation; existing rack, history and persistence
+specifications continue to own their respective state.
+
+The agent owns device-protocol interpretation and vendor resource associations;
+the shared application owns source selection, review and orchestration; the
+native Worker owns preset compatibility, configuration conversion and project
+application. Keep Emscripten access behind the typed client/runtime boundary.
+Do not port wxWidgets dialogs or expose Orca's MachineObject as a shared API.
+
+Imported project materials do not establish Send's physical material-path
+bindings. Print preparation still validates the current target independently.
+Auto For Match, dynamic switcher-based slicing, hotend racks and multi-nozzle
+inventory selection are outside this first delivery; their presence in the
+Orca implementation is not authorization to enable them here.
+
+### Initial device coverage
+
+Enable the initial Bambu integration by applicable capabilities for existing
+single-nozzle and fixed-dual-nozzle devices, including mixed diameters. Do not
+restrict the feature to H2D by model name. Each action still requires its actual
+observation/configuration and native topology support; unavailable capabilities
+remain unavailable rather than being invented from the model label. Common
+application/domain contracts remain vendor-neutral; other agents gain no
+runtime support solely because these contracts exist.
+
+H2D + AMS is the first physical acceptance target. Fixture or development-host
+acceptance does not establish real-device qualification for every enabled
+model, transport or host. Hotend racks, dynamic switcher-based mapping,
+Auto For Match and physical sub-nozzle inventory selection remain deferred
+under the scope exclusions above.
+
+### Implementation and qualification
+
+The shared [Prepare workflow](../packages/slicer-app/src/components/workspace/synchronization/PrepareSynchronization.tsx)
+uses the same Printer receipt publication and preference handling as ordinary
+selection. The native Printer command composes observed hardware into the
+existing remembered-rack transition. Material imports share ordinary preset,
+color, Merge-reference and flushing primitives inside one native transaction.
+The read-only catalogue resolver is shared with Orca's AMS synchronization;
+protocol IDs are normalized by the agent before crossing this boundary.
+
+The [source boundary tests](../packages/printer-control/src/synchronization.test.ts),
+[workflow tests](../packages/slicer-app/src/components/workspace/synchronization/PrepareSynchronization.test.tsx),
+[Printer native smoke](../packages/slicer-wasm/harness/device-printer-sync-smoke.mjs),
+[Filament native smoke](../packages/slicer-wasm/harness/device-filament-sync-smoke.mjs)
+and [Electron fixture journey](../apps/desktop/e2e/prepare-synchronization.e2e.ts)
+cover the software boundaries below. Their fixtures do not qualify a connected
+printer. The legacy all-command smoke's separate 100 ms slot-history budget is
+not qualified on the current development host: both the new serial artifact
+and an unchanged earlier threaded artifact exceeded it. This evidence does not
+identify a cause or qualify the broader timing budget.
+
+### Development-host H2D synchronization acceptance
+
+On 2026-10-31, after staged software verification, the macOS ARM64 Electron
+development build used the existing account-backed Bambu connection to a real
+H2D. Its reported hardware was two 0.4 mm Standard-flow nozzles, AMS 0 and
+AMS 2 Pro 1 with four present slots each, and two external holders with unknown
+presence and retained transparent-color metadata. No fixture provider was
+installed for this round.
+
+Direct Printer sync succeeded without a generic preview and exposed the
+independent Filament continuation. The ordered tool configuration remained
+0.4 mm Standard / 0.4 mm Standard, with five reachable material slots per tool
+(four AMS slots plus its external holder). The run established source reading
+and project/history transactions, but does not qualify Orca-equivalent source
+eligibility: its ten-record rebuild included eight AMS materials with their
+PETG-CF/PETG/PC presets and colors and two unknown external-holder records with
+Generic ABS fallback. Unidentified external records must now be displayed but
+excluded under the eligibility rule above. The corrected filtering, colors-only rack preservation and clean-empty
+direct-sync path require a final hardware acceptance rerun;
+software fixtures and WASM tests do not establish that hardware qualification.
+
+The first hardware attempt exposed an observation-ownership defect: entering
+the synchronization modal released the hidden Device monitor, and refreshing a
+proposal replaced its sole source subscription. The corrected workflow retains
+the existing monitor and one source-scoped observation across review/refresh.
+After repository tests, typechecks and the Electron fixture journey passed
+again, the hardware rerun kept Apply enabled after refresh. Rebuild applied as
+one Sync Filament history entry; Undo restored the original five-material rack,
+and Redo restored all ten imported records. A separate mapping run assigned two
+distinct existing project materials to the same physical AMS slot, with append
+disabled: both received the reviewed color, all three unmapped materials stayed
+unchanged, and Undo restored both original colors. Printer and Filament Undo
+entries remained independent. Canceling a later proposal left the project
+unchanged and Device still reported Live. The local test project was restored
+to its original clean state.
+
+This round qualifies connected-device reads and local project synchronization
+on that development host. It issued no heating, motion, loading, upload or print
+commands. Different physical nozzle diameters/flows, actual empty AMS slots,
+external-holder feeding, slicing/sending after sync, other models/transports,
+and the packaged/Web release matrix remain unqualified. Software fixtures and
+both native WASM variants cover mixed-diameter transitions, atomic failures,
+reference remapping and persistence; they do not replace those physical checks.
+
+### Required acceptance boundaries
+
+Complete staged software verification before physical acceptance. Run static,
+fixture, native WASM and host-interaction checks first; reserve real-printer
+connection and hardware operations for the final acceptance stage.
+
+Verify native compatibility and catalogue ambiguity, model/paint/Plate reference
+preservation, color semantics, flushing state, atomic failure, stale proposals,
+Undo/Redo and 3MF save/reopen. Exercise the direct Printer action and modal
+Filament mapping workflow through an affected host and separately test provider
+seams. Physical H2D + AMS acceptance must cover physical-tool order, reported
+nozzle/flow differences, empty/unknown
+materials, external spools, and slicing/sending after sync. Do not infer broader
+model, Cloud or multi-nozzle qualification from fixtures or one hardware target.
+Shared contract/workflow fixtures must also cover a non-Bambu-shaped topology
+(different tool and feeder-slot counts), missing catalogue associations and an
+on-demand material source without unrelated Monitor support. These fixtures
+verify extensibility, not implementation or hardware acceptance of another
+agent.
+Mixed-diameter acceptance must additionally prove complete-vector resolution,
+matching-profile and draft fallback paths, ordinary-switch remembered-rack
+restoration versus same-source rack preservation, reference repair,
+flow repair, effective per-head slice inputs and unchanged canonical-variant
+presentation, with one atomic commit and exact Undo/Redo.
+Use the repository [testing guidelines](../doc/testing_guidelines.md) for build
+and regression scope. Only small device/configuration projections cross into
+the Worker; do not copy project geometry or hold the mutation queue during
+network waits.
+
 ## Device page
 
 Device is a top-level page alongside Workspace. Workspace contains only the
