@@ -1,11 +1,12 @@
 import { expect, type Page, type Locator } from '@playwright/test';
 
 /** Export journeys explicitly choose their output instead of relying on the print default. */
-export async function selectGcodeOutput(page: Page, mode: 'export' | 'send' | 'send-and-print', options?: { timeout?: number }) {
+export async function selectGcodeOutput(page: Page, mode: 'export' | 'send' | 'send-and-print', options?: { timeout?: number; noWaitAfter?: boolean }) {
   if (await page.getByTestId(`btn-${mode}`).isVisible()) return;
   await page.getByTestId('output-mode-select').click(options);
   const label = { export: 'Export', send: 'Send', 'send-and-print': 'Send & Print' }[mode];
-  await page.getByRole('menuitemradio', { name: label, exact: true }).click();
+  await page.getByRole('menuitemradio', { name: label, exact: true }).click(options);
+  await expect(page.getByTestId(`btn-${mode}`)).toBeVisible({ timeout: options?.timeout });
 }
 
 /** Preserve current-plate identity assertions after the toolbar became a count. */
