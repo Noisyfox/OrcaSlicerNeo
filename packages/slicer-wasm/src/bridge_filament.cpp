@@ -1838,6 +1838,10 @@ void apply_slot_preset(PresetBundle& bundle, const std::size_t slot, const std::
     }
 }
 
+void apply_slot_colour(PresetBundle& bundle, std::size_t slot, const json& colour);
+void validate_material_import(const json& request);
+const Preset* resolve_material_picker_source(PresetBundle& bundle, const json& source);
+
 json select_filament_slot_preset_command(const json& request, const Runtime& runtime)
 {
     RuntimeScope scope(runtime);
@@ -1847,10 +1851,25 @@ json select_filament_slot_preset_command(const json& request, const Runtime& run
         if (!slot) throw FilamentCommandFailure("unsupported_reference", error);
         if (!request.contains("preset") || !request["preset"].is_string()) throw FilamentCommandFailure("invalid_command", "preset is required");
         const std::string name = request["preset"].get<std::string>();
+        const auto device = request.value("deviceSource", json());
+        if (!device.is_null()) {
+            if (!Profiles::device_model_matches(bundle.printers.get_selected_preset(), device.at("identity")))
+                throw FilamentCommandFailure("printer_model_mismatch", "The connected printer model changed");
+            validate_material_import({{"revision", request.at("revision")}, {"identity", device.at("identity")}, {"sources", json::array({device.at("material")})}});
+            const auto* matched = resolve_material_picker_source(bundle, device.at("material"));
+            if (!matched || matched->name != name) throw FilamentCommandFailure("unsupported_reference", "Device filament match changed");
+            // Orca admits compatible installed materials even when hidden from
+            // the ordinary catalogue. Selection owns this visibility change.
+            const_cast<Preset*>(matched)->is_visible = true;
+        }
         const Preset* preset = bundle.filaments.find_preset(name, false, true);
         if (preset == nullptr || !preset->is_visible || !preset->is_compatible)
             throw FilamentCommandFailure("unsupported_reference", "unsupported filament preset reference");
         apply_slot_preset(bundle, *slot, name);
+        if (!device.is_null() && !device.at("material").at("colour").is_null()) {
+            apply_slot_colour(bundle, *slot, device.at("material").at("colour"));
+            auto_recalculate_filament_flush(bundle, int(*slot), true);
+        }
         auto_recalculate_filament_flush(bundle, -1, false);
         return json{{"kind", "select-preset"}, {"slot", *slot + 1}, {"preset", name}};
     });
@@ -2110,6 +2129,19 @@ PresetBundle::FilamentSyncMatch resolve_material_source(PresetBundle& bundle, co
     return match;
 }
 
+const Preset* resolve_material_picker_source(PresetBundle& bundle, const json& source)
+{
+    // PresetComboBox::add_ams_filaments is stricter than full synchronization:
+    // a reported material identity, then a compatible base or same-type Generic.
+    if (std::none_of(source.at("catalogRefs").begin(), source.at("catalogRefs").end(),
+        [](const json& ref) { return !ref.value("value", "").empty(); })) return nullptr;
+    const auto match = resolve_material_source(bundle, source, "");
+    if (!match.preset) return nullptr;
+    const auto type = source.value("materialType", "");
+    return match.exact || (!type.empty() && match.preset->is_system &&
+        match.preset->name.rfind("Generic " + type, 0) == 0) ? match.preset : nullptr;
+}
+
 json material_reference_kinds()
 {
     std::map<int, std::set<std::string>> refs;
@@ -2173,6 +2205,22 @@ void validate_material_import(const json& request)
             } else throw std::runtime_error("Unsupported material color");
         }
     }
+}
+
+json device_filament_options_command(const json& request, const Runtime& runtime)
+{
+    RuntimeScope scope(runtime);
+    try {
+        auto& bundle = state().presets;
+        if (!Profiles::device_model_matches(bundle.printers.get_selected_preset(), request.at("identity")))
+            throw FilamentCommandFailure("printer_model_mismatch", "The connected printer model does not match");
+        validate_material_import(request);
+        json options = json::array();
+        for (const auto& source : request.at("sources"))
+            if (const auto* preset = resolve_material_picker_source(bundle, source))
+                options.push_back({{"slotId", source.at("slotId")}, {"preset", preset->name}, {"label", Profiles::preset_display_label(*preset)}});
+        return {{"ok", true}, {"revision", state().history_revision}, {"options", options}};
+    } catch (const FilamentCommandFailure& error) { return command_error(error.code, error.what()); }
 }
 
 json prepare_material_import_command(const json& request, const Runtime& runtime)
@@ -2917,6 +2965,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_filament_routing(const char* request_js
         Slic3r::Neo::Bridge::Filament::Session::filament_command_runtime()).dump()); }
     catch (const std::exception& e) { return duplicate_json(Slic3r::Neo::Bridge::Filament::Commands::command_error("invalid_command", e.what()).dump()); }
     catch (...) { return duplicate_json(Slic3r::Neo::Bridge::Filament::Commands::command_error("invalid_command", "invalid filament routing command").dump()); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_get_device_filament_options(const char* request)
+{
+    try { return duplicate_json(Commands::device_filament_options_command(json::parse(request), filament_command_runtime()).dump()); }
+    catch (const std::exception& e) { return duplicate_json(Commands::command_error("invalid_command", e.what()).dump()); }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_prepare_material_import(const char* request)

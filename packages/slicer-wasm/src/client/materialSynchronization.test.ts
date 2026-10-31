@@ -17,6 +17,21 @@ async function fixture() {
   return { client, request, apply, rack };
 }
 describe('material synchronization bridge contract', () => {
+  it('projects installed choices read-only and selects their preset and color as one ordinary edit', async () => {
+    const { client, request, rack } = await fixture();
+    const material = { ...request.sources[0], catalogRefs: [{ namespace: 'fixture', value: 'reported-id' }] };
+    const before = await client.getHistoryStatus();
+    expect(await client.getDeviceFilamentOptions(request)).toMatchObject({ ok: true, options: [] });
+    const options = await client.getDeviceFilamentOptions({ ...request, sources: [material] });
+    if (!options.ok) throw new Error(options.error);
+    expect(options.options).toEqual([{ slotId: material.slotId, preset: 'Generic PLA @System', label: 'Generic PLA' }]);
+    expect(await client.getHistoryStatus()).toEqual(before);
+    expect(await client.selectFilamentSlotPreset({ version: 1, revision: before.revision, slot: 1,
+      preset: options.options[0].preset, deviceSource: { identity: request.identity, material } })).toMatchObject({ ok: true,
+      result: { mutation: { kind: 'select-preset', historyEntryDelta: 1 }, snapshot: { slots: [{ colour: { effective: '#123456' } }] } } });
+    await client.undoHistory();
+    expect(await client.getFilamentSessionSnapshot()).toMatchObject({ slots: rack.slots });
+  });
   it('prepares fallback and per-project-slot matches without changing project/history', async () => {
     const { client, request, rack } = await fixture();
     const before = await client.getHistoryStatus();

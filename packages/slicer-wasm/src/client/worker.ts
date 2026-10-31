@@ -76,7 +76,7 @@ const restrictedWhileSerialSlicing = new Set([
   'selectPlate', 'addPlate', 'deletePlate', 'recomputePlateMembership',
   'markSharedConfigurationMutation', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
   'mutatePresetDraft', 'revalidateNativeScopedConfig', 'selectProfile', 'selectPrinterWithRememberedRack', 'applyMaterialImport', 'synchronizePrinter', 'setToolheadDiameter', 'setProjectFlow', 'configureProjectFlowMemory', 'configureNozzleCapacityMemory', 'mutateNozzleMapping', 'addModel', 'closeProject',
-  'prepareMaterialImport', 'getPrinterDeviceMatch', 'loadProject', 'importProjectGeometry', 'addShape', 'addVolume', 'clearModel',
+  'prepareMaterialImport', 'getDeviceFilamentOptions', 'getPrinterDeviceMatch', 'loadProject', 'importProjectGeometry', 'addShape', 'addVolume', 'clearModel',
   'setInstanceOffset', 'setModelTransform', 'setModelTransforms', 'deleteObjects',
   'deleteVolumes', 'cloneObjects', 'reorderObjects', 'reorderVolumes',
   'splitVolumeToParts', 'splitObjectToObjects', 'mergeObjectsToMultipart',

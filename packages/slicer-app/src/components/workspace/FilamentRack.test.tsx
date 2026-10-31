@@ -58,7 +58,7 @@ function renderRack(runtime: Record<string, unknown>, onEditPreset?: (canonicalN
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
-  const platform = { runtime, preferences: { load: vi.fn(async () => structuredClone(DEFAULT_USER_PREFERENCES)), save: vi.fn(async () => {}) } } as unknown as PlatformCapabilities;
+  const platform = { runtime: { getRuntimeExecutionState: () => ({ threaded: true }), ...runtime }, preferences: { load: vi.fn(async () => structuredClone(DEFAULT_USER_PREFERENCES)), save: vi.fn(async () => {}) } } as unknown as PlatformCapabilities;
   act(() => { root.render(<PlatformProvider value={platform}><FilamentRack onEditPreset={onEditPreset} /></PlatformProvider>); });
   return { container, root, platform };
 }

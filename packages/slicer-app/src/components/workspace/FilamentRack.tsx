@@ -12,6 +12,7 @@ import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummar
 import { ChevronDown, ChevronUp, Minus, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FlushingVolumesDialog, flushingModified } from './FlushingVolumesDialog';
+import { renderDeviceFilamentMenu, useDeviceFilaments, selectDeviceFilament, type DeviceFilaments } from './synchronization/DeviceFilamentMenu';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
 import {
   ContextMenu,
@@ -69,9 +70,11 @@ function ImpactDialog({ impact, onCancel, onConfirm }: {
   );
 }
 
-function SlotCard({ slot, presetItems, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
+function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
   slot: FilamentSessionSlot;
   presetItems: readonly PresetComboItem[];
+  deviceFilaments: DeviceFilaments | null;
+  onDevicePreset: (option: DeviceFilaments['prepared']['options'][number]) => void;
   mergeDestinations: readonly number[];
   canDelete: boolean;
   canMerge: boolean;
@@ -117,6 +120,7 @@ function SlotCard({ slot, presetItems, mergeDestinations, canDelete, canMerge, p
           value={slot.preset.name} onValue={selectPreset} disabled={pending}
           ariaLabel={`Filament preset for slot ${slot.slot}`} testId={`filament-preset-${slot.slot}`}
           searchPlaceholder="Search compatible presets…" emptyText="No compatible preset"
+          prependItems={query => renderDeviceFilamentMenu(deviceFilaments, query, onDevicePreset)}
           triggerStyle={FILAMENT_TRIGGER_STYLE} />
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -140,6 +144,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
   const platform = usePlatform();
   const syncPending = usePrepareSynchronization(s => s.kind !== null);
   const snapshot = useFilamentSessionStore((state) => state.snapshot);
+  const deviceFilaments = useDeviceFilaments(snapshot);
   const pendingKind = useFilamentSessionStore((state) => state.pendingKind);
   const rejected = useFilamentSessionStore((state) => state.rejected);
   const load = useFilamentSessionStore((state) => state.load);
@@ -265,6 +270,8 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
               key={slot.slot}
               slot={slot}
               presetItems={presetItems}
+              deviceFilaments={deviceFilaments}
+              onDevicePreset={option => { if (deviceFilaments) void updateSlot(() => selectDeviceFilament(platform, deviceFilaments, slot.slot, option)); }}
               canDelete={snapshot.capabilities.canDelete}
               canMerge={snapshot.capabilities.canMerge}
               mergeDestinations={snapshot.slots.map((entry) => entry.slot)}

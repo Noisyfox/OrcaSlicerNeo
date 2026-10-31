@@ -1484,6 +1484,7 @@ export interface FilamentCommandRequest {
 export interface FilamentSlotPresetRequest extends FilamentCommandRequest {
   readonly slot: number;
   readonly preset: string;
+  readonly deviceSource?: { readonly identity: PrinterSynchronizationRequest['identity']; readonly material: MaterialImportSource };
 }
 
 export type FilamentSlotColourValue =
@@ -1531,6 +1532,8 @@ export interface MaterialImportRequest extends FilamentCommandRequest {
   readonly identity: PrinterSynchronizationRequest['identity'];
   readonly sources: readonly MaterialImportSource[];
 }
+export type DeviceFilamentOptions = { readonly ok: true; readonly revision: number; readonly options: readonly { readonly slotId: string; readonly preset: string; readonly label: string }[] }
+  | { readonly ok: false; readonly error: string; readonly errorCode: string };
 export interface MaterialImportMatch {
   readonly preset: string | null;
   readonly warning: string | null;
@@ -1851,10 +1854,12 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
     rememberedBedType: string | null,
     context: import('./history').HistoryContext,
   ): Promise<PrinterTransitionResult>;
-  /** Match the complete ordered nozzle vector, or edit only this toolhead's
-   * Printer draft. Commits exactly one history entry with an atomic receipt. */
+  /** Read installed material choices without changing project or preset visibility. */
+  getDeviceFilamentOptions(request: MaterialImportRequest): Promise<DeviceFilamentOptions>;
   prepareMaterialImport(request: MaterialImportRequest): Promise<MaterialImportPreparation>;
   applyMaterialImport(request: MaterialImportApplication): Promise<FilamentMutationResultOrError>;
+  /** Match the complete ordered nozzle vector, or edit only this toolhead's
+   * Printer draft. Commits exactly one history entry with an atomic receipt. */
   synchronizePrinter(request: PrinterSynchronizationRequest): Promise<PrinterTransitionResult>;
   /** Read-only, exact model/vendor match using the same native predicate as Printer sync. */
   getPrinterDeviceMatch(identity: PrinterSynchronizationRequest['identity']): Promise<{ ok: true; printer: string; matches: boolean } | { ok: false; error: string }>;

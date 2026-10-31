@@ -13,6 +13,27 @@ const apply = extra => command('orc_apply_material_import', request({ mode: 'map
   mapping: rack().slots.map(() => sources[0].slotId), replacements: rack().slots.map(() => null), ...extra }));
 command('orc_history_reset', context);
 const before = rack();
+const pickerRequest = request({ sources: [...sources,
+  source('no-id', '#222222', 'PLA', []), source('wrong-type', '#333333', 'Unobtainium', [{ namespace: 'vendor', value: 'unknown' }]),
+  source('external', '#765432', 'PETG', [{ namespace: 'vendor', value: 'unknown' }])] });
+const pickerBefore = JSON.stringify(observe());
+const menu = ok(command('orc_get_device_filament_options', pickerRequest));
+assert.equal(JSON.stringify(observe()), pickerBefore, 'menu projection does not mutate native owners');
+assert.deepEqual(menu.options.map(o => o.slotId), [...sources.map(s => s.slotId), 'external']);
+assert.match(menu.options.at(-1).preset, /Generic PETG/);
+assert.equal(command('orc_get_device_filament_options', { ...pickerRequest, identity: { ...identity, externalRefs: [], model: 'Different' } }).error_code, 'printer_model_mismatch');
+const selected = ok(command('orc_select_filament_slot_preset', { version: 1, revision: history().revision, slot: 1,
+  preset: menu.options[0].preset, deviceSource: { identity, material: sources[0] } }));
+assert.equal(selected.result.mutation.history_entry_delta, 1);
+assert.equal(rack().slots[0].colour.effective, '#123456');
+assert.equal(rack().slots.length, before.slots.length);
+assert.deepEqual(rack().slots.map(s => s.logical_id), before.slots.map(s => s.logical_id));
+const pickerAfter = JSON.stringify(observe());
+assert.equal(command('orc_select_filament_slot_preset', { version: 1, revision: history().revision, slot: 1,
+  preset: menu.options[0].preset, deviceSource: { identity, material: { ...sources[0], colour: { kind: 'solid', color: 'invalid' } } } }).ok, false);
+assert.equal(JSON.stringify(observe()), pickerAfter, 'invalid device selection leaves every owner unchanged');
+ok(command('orc_history_undo', context));
+assert.deepEqual(rack().slots, before.slots);
 const ready = ok(prepare());
 assert.equal(ready.sources[0].warning, null);
 assert.match(ready.sources[0].preset, /Bambu PLA Basic/);

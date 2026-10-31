@@ -33,7 +33,7 @@ import {
 
 /** Shared Orca-style presentation; identity and transition policy stay with the caller. */
 export const PresetCombobox = memo(function PresetCombobox({ items, value, onValue, disabled, ariaLabel, testId,
-  searchPlaceholder, emptyText, leading, trailing, triggerStyle, modified, mode = 'combobox' }: {
+  searchPlaceholder, emptyText, leading, trailing, prependItems, triggerStyle, modified, mode = 'combobox' }: {
   /** Select uses the same opening, focus and item navigation as option editors. */
   mode?: 'combobox' | 'select' | 'grouped';
   modified: boolean;
@@ -47,6 +47,7 @@ export const PresetCombobox = memo(function PresetCombobox({ items, value, onVal
   emptyText: string;
   leading?: ReactNode;
   trailing?: ReactNode;
+  prependItems?: (query: string) => ReactNode;
   triggerStyle?: CSSProperties;
 }) {
   const [search, setSearch] = useState('');
@@ -103,12 +104,12 @@ export const PresetCombobox = memo(function PresetCombobox({ items, value, onVal
         onKeyDown={event => {
           if (event.key === 'ArrowDown') {
             event.preventDefault();
-            event.currentTarget.closest('[role="menu"]')?.querySelector<HTMLElement>('[role="menuitemradio"], [data-slot="dropdown-menu-sub-trigger"]')?.focus();
+            event.currentTarget.closest('[role="menu"]')?.querySelector<HTMLElement>('[role="menuitem"], [role="menuitemradio"], [data-slot="dropdown-menu-sub-trigger"]')?.focus();
           }
           if (event.key !== 'Escape') event.stopPropagation();
         }} /></div>
       <div data-slot="preset-menu-list" className="min-h-0 overflow-y-auto">
-      <PresetMenuOptions items={items} search={search} emptyText={emptyText} value={value} onValue={onValue} />
+      <PresetMenuOptions items={items} search={search} emptyText={emptyText} value={value} onValue={onValue} prependItems={prependItems} />
       </div>
     </DropdownMenuContent>
   </DropdownMenu>;
@@ -169,11 +170,13 @@ const PresetSelectOptions = memo(function PresetSelectOptions({ items, search, e
   </>;
 });
 
-const PresetMenuOptions = memo(function PresetMenuOptions({ items, search, emptyText, value, onValue }: {
-  items: readonly PresetComboItem[]; search: string; emptyText: string; value: string; onValue: (id: string) => void;
+const PresetMenuOptions = memo(function PresetMenuOptions({ items, search, emptyText, value, onValue, prependItems }: {
+  items: readonly PresetComboItem[]; search: string; emptyText: string; value: string; onValue: (id: string) => void; prependItems?: (query: string) => ReactNode;
 }) {
   const visibleSections = useMemo(() => presetSections(items, search), [items, search]);
+  const prepended = prependItems?.(search);
   return <>
+      {prepended}
       {visibleSections.map(section => <DropdownMenuGroup key={section.label}>
         <DropdownMenuLabel className="flex items-center gap-2">{heading(section.label)}</DropdownMenuLabel>
         {presetGroups(section.items, 'group').map(({ label, items: groupedItems }) => <DropdownMenuSub key={label}>
@@ -183,7 +186,7 @@ const PresetMenuOptions = memo(function PresetMenuOptions({ items, search, empty
           </DropdownMenuSubContent>
         </DropdownMenuSub>)}
       </DropdownMenuGroup>)}
-      {visibleSections.length === 0 &&
+      {visibleSections.length === 0 && !prepended &&
         <div className="px-2 py-1 text-xs text-muted-foreground">{emptyText}</div>}
   </>;
 });

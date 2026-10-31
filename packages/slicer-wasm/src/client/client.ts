@@ -45,7 +45,7 @@ import type {
   FilamentSessionSnapshotResult, FilamentSessionSnapshot, FilamentSessionSlot,
   FilamentAssignmentProjection, FilamentRoutingProjection,
   FilamentMutationResultOrError, FilamentMutationResult,
-  FilamentSlotPresetRequest, FilamentSlotColourRequest, FilamentSlotColourValue,
+  FilamentSlotPresetRequest, FilamentSlotColourRequest, FilamentSlotColourValue, DeviceFilamentOptions,
   FilamentCommandRequest, FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
   RememberedFilamentRackRequest,
   RememberedFilamentRackPreference, PrinterTransitionResult,
@@ -2405,7 +2405,10 @@ export function createClient(
 
     async selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError> {
       const m = await module();
-      return normalizeFilamentMutationResult(callJson(m, 'orc_select_filament_slot_preset', ['string'], [JSON.stringify(request)]));
+      const source = request.deviceSource;
+      const transport = source ? { ...request, deviceSource: { ...source, identity: { ...source.identity,
+        manufacturer: source.identity.manufacturer ?? '', model: source.identity.model ?? '' } } } : request;
+      return normalizeFilamentMutationResult(callJson(m, 'orc_select_filament_slot_preset', ['string'], [JSON.stringify(transport)]));
     },
 
     async setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError> {
@@ -2719,6 +2722,17 @@ export function createClient(
       const m = await module();
       return normalizePrinterTransition(callJson(m, 'orc_set_project_flow', ['string'],
         [JSON.stringify({ index, flow, expected_revision: expectedRevision, history_context: context })]), 'set-project-flow');
+    },
+
+    async getDeviceFilamentOptions(request) {
+      const raw = callJson(await module(), 'orc_get_device_filament_options', ['string'], [JSON.stringify({ ...request,
+        identity: { ...request.identity, manufacturer: request.identity.manufacturer ?? '', model: request.identity.model ?? '' } })]);
+      if (isRecord(raw) && raw.ok === true && raw.revision === request.revision && Array.isArray(raw.options)
+        && raw.options.every(o => isRecord(o) && typeof o.slotId === 'string' && request.sources.some(s => s.slotId === o.slotId)
+          && typeof o.preset === 'string' && typeof o.label === 'string') && new Set(raw.options.map(o => (o as {slotId: string}).slotId)).size === raw.options.length)
+        return raw as unknown as Extract<DeviceFilamentOptions, { ok: true }>;
+      return { ok: false, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid device filament options',
+        errorCode: isRecord(raw) && typeof raw.error_code === 'string' ? raw.error_code : 'invalid_response' };
     },
 
     async prepareMaterialImport(request) {

@@ -20,6 +20,11 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
       descriptor.value.topology.nozzles.forEach((nozzle, i) => {
         nozzle.diameterMm = i === 0 ? 0.6 : 0.4; nozzle.flowType = i === 0 ? 'high flow' : 'standard flow'; nozzle.flowReporting = 'supported';
       });
+      for (const data of Object.values(globalThis.bambuControlFixture.data)) {
+        const materials = data.snapshot.values.materials;
+        if (materials?.kind === 'known') for (const slot of materials.value.state.slots)
+          if (slot.material.kind === 'known' && slot.material.value) slot.material.value.catalogRefs = [{ namespace: 'fixture-material', value: slot.slotId }];
+      }
       for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, 'printers');
     }, Ipc.bambuChanged);
     await page.getByTestId('printer-sync').click();
@@ -88,6 +93,22 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await expect(dialog.getByRole('button', { name: 'Apply Filament sync' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.screenshot({ path: test.info().outputPath('printer-model-match-indicator.png'), fullPage: true });
+    await page.getByTestId('filament-preset-1').click();
+    const installed = page.getByTestId('device-filament-options');
+    await expect(installed.getByRole('menuitem', { name: /External/ }).first()).toBeVisible();
+    const menu = page.getByRole('menu', { name: 'Filament preset for slot 1', exact: true });
+    await expect(menu).toHaveCSS('opacity', '1');
+    await page.screenshot({ path: test.info().outputPath('device-filament-menu.png'), fullPage: true });
+    const search = menu.getByPlaceholder('Search compatible presets…');
+    await search.fill('External');
+    await expect(installed.getByRole('menuitem')).toHaveCount(2);
+    await expect(installed.getByRole('menuitem', { name: /AMS/ })).toHaveCount(0);
+    await search.fill('');
+    await installed.getByRole('menuitem', { name: /AMS 2 Pro 0 · Slot 1:/ }).click();
+    await expect(page.getByTestId('filament-colour-1')).toHaveAttribute('value', '#33aaffff');
+    await expect(page.getByTestId('filament-rack')).toContainText('Material (1)');
+    await page.getByTestId('history-undo').click();
+    await expect(page.getByTestId('filament-colour-1')).toHaveAttribute('value', '#26a69a');
     await page.locator('#app-tab-device').click();
     await page.getByTestId('device-printer-select').click();
     await page.getByRole('option', { name: 'Workshop B', exact: true }).click();
@@ -100,6 +121,10 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await publishControlSnapshot(app, 'b', 'Second task', false);
     await expect(page.getByTestId('printer-connection-indicator')).toHaveCount(0);
+    await page.getByTestId('filament-preset-1').click();
+    await expect(installed).toHaveCount(0);
+    await expect(menu.getByText('System presets', { exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
     await publishControlSnapshot(app, 'b', 'Second task', true);
     await expect(page.getByTestId('printer-connection-indicator')).toBeVisible();
     expect(await app.evaluate(() => globalThis.bambuControlFixture.commands)).toEqual([]);

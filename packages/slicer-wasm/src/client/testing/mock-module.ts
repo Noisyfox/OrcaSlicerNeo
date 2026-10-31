@@ -1666,6 +1666,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       ...match(source), matches: slots.map((slot: any) => match(source, slot.preset.name)) })),
       projectTypes: slots.map(() => 'PLA'), references: slots.map((slot: any) => ({ slot: slot.slot, kinds: objectMeta.length ? ['Model assignment'] : [] })) };
   }
+  function deviceFilamentOptionsMock(request: any): any {
+    const prepared = prepareMaterialImportMock(request);
+    if (!prepared.ok) return prepared;
+    return { ok: true, revision: historyRevision, options: request.sources.flatMap((source: any) => {
+      if (!source.catalogRefs.some((ref: any) => !!ref.value)) return [];
+      const preset = candidates('filament').find(p => source.materialType && p.name.startsWith(`Generic ${source.materialType}`));
+      return preset ? [{ slotId: source.slotId, preset: preset.name, label: filamentLabel(preset.name) }] : [];
+    }) };
+  }
   function filamentMutation(requestJson: string, kind: string): unknown {
     if (opts.filamentMutation !== undefined) return clone(opts.filamentMutation);
     let request: any;
@@ -1746,10 +1755,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const index = slot(request.slot);
       if (index === null) return fail('unsupported filament slot reference', 'unsupported_reference');
       if (kind === 'select-preset') {
+        if (request.deviceSource) {
+          const options = deviceFilamentOptionsMock({ ...request, identity: request.deviceSource.identity, sources: [request.deviceSource.material] });
+          if (!options.ok) return fail(options.error, options.error_code);
+          if (!options.options.some((option: any) => option.preset === request.preset)) return fail('Device filament match changed', 'unsupported_reference');
+        }
         if (typeof request.preset !== 'string') return fail('preset is required', 'invalid_command');
         next.slots[index].preset = { is_project_embedded: false, is_user: false, id: request.preset, name: request.preset, label: filamentLabel(request.preset), vendor: filamentVendor(request.preset) };
-      } else {
-        const colour = request.colour;
+      }
+      if (kind === 'set-colour' || request.deviceSource?.material?.colour) {
+        const colour = request.deviceSource?.material?.colour ?? request.colour;
         const validColour = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
         if (!colour || typeof colour !== 'object' || Array.isArray(colour) ||
             !((colour.kind === 'solid' && Object.keys(colour).length === 2 && validColour(colour.color)) ||
@@ -1823,15 +1838,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     next.capabilities.can_delete = next.capabilities.flexible && next.slots.length > next.capabilities.min_slots;
     next.capabilities.can_merge = next.capabilities.can_delete;
     next.revisions.session += 1; next.revisions.project = next.revisions.session;
-    if (kind === 'synchronize' && !historyEntries.length) {
+    const recordsHistory = kind === 'synchronize' || !!request.deviceSource;
+    if (recordsHistory && !historyEntries.length) {
       historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(nativePresetDraftHistoryContext()) });
       historyCursor = 0; savedHistoryCursor = 0;
     }
     historyRevision = next.revisions.session;
     filamentSessionState = next;
-    if (kind === 'synchronize') {
+    if (recordsHistory) {
       historyEntries.splice(historyCursor + 1);
-      historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`, label: 'Sync Filament', category: 'project', context: clone(nativePresetDraftHistoryContext()) });
+      historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`, label: kind === 'synchronize' ? 'Sync Filament' : 'Select Filament', category: 'project', context: clone(nativePresetDraftHistoryContext()) });
       historyCursor = historyEntries.length - 1;
     }
     const mutation: Record<string, unknown> = {
@@ -2595,6 +2611,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         saved: { mode: null, filamentMap: null, volumeMap: null, nozzleMap: null },
         effective: { mode: 0, filamentMap: [1], volumeMap: [0], nozzleMap: [0] }, diagnostics: [] };
     },
+    orc_get_device_filament_options(requestJson: string) { return deviceFilamentOptionsMock(JSON.parse(requestJson)); },
     orc_prepare_material_import(requestJson: string) { return prepareMaterialImportMock(JSON.parse(requestJson)); },
     orc_apply_material_import(requestJson: string) { return filamentMutation(requestJson, 'synchronize'); },
     orc_select_filament_slot_preset(requestJson: string) {
@@ -4142,6 +4159,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_assign_filament: { ret: 'number', args: ['string'] },
     orc_set_filament_routing: { ret: 'number', args: ['string'] },
     orc_prepare_material_import: { ret: 'number', args: ['string'] },
+    orc_get_device_filament_options: { ret: 'number', args: ['string'] },
     orc_apply_material_import: { ret: 'number', args: ['string'] },
     orc_get_flushing_volumes: { ret: 'number', args: ['string'] },
     orc_set_flushing_volumes: { ret: 'number', args: ['string'] },

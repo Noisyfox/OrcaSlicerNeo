@@ -748,6 +748,20 @@ establish a match. This indicator concerns model agreement only, not nozzle,
 flow, AMS or completed synchronization. Hide it for stale/disconnected,
 unavailable or mismatched sources. Reuse existing observations without adding
 a connection, polling loop or device read for the indicator.
+For the same fresh, exactly model-matched device, Filament dropdowns prepend
+installed material choices ahead of ordinary project/user/system presets.
+Show source location, color and native preset label, grouping by reported tool
+reachability on multi-tool devices. Include automatic feeders and external
+holders without assuming Bambu numbering or fixed slot counts. Like Orca's
+dropdown, require a reported material identity and a compatible native base
+match or same-type Generic preset; omit unresolved entries rather than using
+the broader full-sync fallback. Retained empty/unknown metadata may remain
+listed and does not establish a loaded spool. Search also covers source/tool
+labels. Choosing a device entry performs the ordinary single-slot preset and
+color edit atomically, with existing flushing/history and one Undo; it neither
+rebuilds the rack nor persists a physical Send binding. Revalidate source and
+project revisions before applying; hide stale, disconnected or model-mismatched
+device groups while retaining the ordinary preset catalogue.
 Single-extruder rows retain their compact layout. The Printer
 preset editor opens from a 24px square settings button to the left
 of the selector, using a gray sliders icon and a dark-gray rounded background.

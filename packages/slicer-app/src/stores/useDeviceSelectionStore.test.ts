@@ -9,8 +9,40 @@ function snapshot(): D.PrinterSnapshot<'descriptor'> {
         topology: { revision: 'topology', completeness: 'partial', tools: [], nozzles: [], extruders: [], motionGroups: [], heaters: [], fans: [], lights: [], sensors: [], cameras: [], materials: { units: [], slots: [], paths: [], dryers: [] } }, identity: { id: id('printer'), displayName: 'Device', manufacturer: 'Vendor', model: 'Model', serialNumber: null, externalRefs: [] } } },
   } };
 }
-afterEach(() => store.setState({ connection: null, connectionOwner: null }));
+function materialSnapshot(): D.PrinterSnapshot<'descriptor' | 'materials'> {
+  const next: D.PrinterSnapshot<'descriptor' | 'materials'> = snapshot();
+  if (next.values.descriptor?.kind !== 'known') throw new Error('fixture');
+  next.values.materials = { kind: 'known', freshness: 'fresh', sourceRouteId: id('route'), receivedAtMs: 1, observedAtMs: null,
+    value: { topologyRevision: 'topology', topology: next.values.descriptor.value.topology.materials, toolIds: [],
+      state: { inventoryRevision: 'inventory', slots: [], tools: [], dryers: [] } } };
+  return next;
+}
+afterEach(() => store.setState({ connection: null, connectionOwner: null, materials: null }));
 describe('observed Device connection projection', () => {
+  it('retains stable material observations and replaces them when the inventory changes', () => {
+    const owner = {}, next = materialSnapshot();
+    store.getState().publishConnection(owner, next);
+    const previous = store.getState().materials;
+    expect(previous).toMatchObject({ inventoryRevision: 'inventory' });
+    store.getState().publishConnection(owner, structuredClone(next));
+    expect(store.getState().materials).toBe(previous);
+    if (next.values.materials?.kind !== 'known') throw new Error('fixture');
+    next.values.materials.value.state.inventoryRevision = 'new-inventory';
+    store.getState().publishConnection(owner, next);
+    expect(store.getState().materials).toMatchObject({ inventoryRevision: 'new-inventory' });
+    store.getState().clearConnection(owner);
+    expect(store.getState().materials).toBeNull();
+  });
+  it.each(['stale', 'topology'] as const)('hides %s material evidence while retaining the connected model', reason => {
+    const owner = {}, next = materialSnapshot();
+    store.getState().publishConnection(owner, next);
+    if (next.values.materials?.kind !== 'known' || next.values.descriptor?.kind !== 'known') throw new Error('fixture');
+    if (reason === 'stale') next.values.materials.freshness = 'stale';
+    else next.values.descriptor.value.topology.revision = 'changed';
+    store.getState().publishConnection(owner, next);
+    expect(store.getState().connection).not.toBeNull();
+    expect(store.getState().materials).toBeNull();
+  });
   it('retains stable model evidence across ordinary telemetry updates', () => {
     const owner = {}; store.getState().publishConnection(owner, snapshot());
     const connection = store.getState().connection;
