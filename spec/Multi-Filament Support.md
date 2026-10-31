@@ -10,7 +10,9 @@ closes it.
 
 **Status:** Delivered native rack, assignments, flushing editor, Prime Tower and history behavior.
 Section 14 records the accepted nozzle-mapping design. Its native read-only
-projection, atomic edits and Plate-aware slicing are delivered; persistence extensions and UI remain pending.
+projection, atomic edits, Plate-aware slicing, persistence and UI are delivered
+under sections 14.1–14.6. Section 14.7's Convenience Mode extension is accepted
+design with implementation and qualification pending.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -963,6 +965,13 @@ including real Electron integration and Web threaded/serial import, confirmation
 download, reopen and slicing. This does not claim Level 4 release qualification,
 physical printer validation or send-time AMS mapping.
 
+Section 14.7 records the accepted Orca-style Convenience Mode extension, with
+implementation and qualification pending. It extends device-dependent mode
+availability while retaining the existing manual-input/result separation and
+explicit-choice behavior for unavailable modes. Sections 14.1–14.6 record the
+delivered baseline and its qualification; their evidence does not qualify the
+new extension.
+
 ### 14.1 Accepted scope and entry points
 
 - Provide manual project-filament-to-nozzle mapping for printers that combine
@@ -1162,10 +1171,12 @@ mapping fields. Do not resolve the project mode and expand project fallback
 maps into explicit Plate values as an import normalization step. An unavailable
 Auto For Flush mode follows section 14.1.2; Auto For Match follows the rule below.
 
-Preserve an imported `fmmAutoForMatch` mode and its mapping data. Device-material
-synchronization is outside this feature, so present the mode as unavailable
-and require an explicit user choice of Manual or supported Auto For Flush
-before slicing. Do not silently replace it with Auto For Flush.
+Preserve an imported `fmmAutoForMatch` mode and its mapping data. Its availability
+follows section 14.7's native-topology and selected-device rules. While the mode
+is unavailable, show the reason and require an explicit user choice of Manual
+or supported Auto For Flush before slicing. Do not silently replace it with
+Auto For Flush. Convenience remains unavailable in the delivered baseline until
+the section 14.7 extension is implemented.
 
 #### 14.1.5 Confirmation before manual slicing
 
@@ -1198,9 +1209,9 @@ Capacity excess remains a warning and does not prevent confirmation or slicing.
 ### 14.2 Existing native behavior and limits
 
 The reference is the Orca submodule at
-`c936ee9a5ce2979b96a80b47783ab4c29d369227`, not an assertion about every public
-Orca release. Recheck the relevant implementation when implementing the design
-or changing the pin.
+`9ac76bf08adc7e0f5aba3a9ce783ba5fb8730a4f`, including Neo adaptations, not an
+assertion about every public Orca release. Recheck the relevant implementation
+when implementing the design or changing the pin.
 
 - [PrintConfig](../packages/slicer-wasm/cpp/src/libslic3r/PrintConfig.hpp)
   distinguishes `Manual` (filament to extruder, with volume selection) from
@@ -1702,3 +1713,209 @@ artifact identity and exact project-load receipts; mock-only UI state cannot
 qualify these journeys. Neither gate contacts a printer or account. Complete
 host suites, packaged builds and physical-device tests remain outside this
 Level 3 implementation handoff.
+
+### 14.7 Convenience Mode extension
+
+**Decision status:** Accepted design, 2026-10-31; implementation and qualification
+pending. Use Orca's device-list-driven `fmmAutoForMatch` behavior with the explicit
+Neo policies below: preserve manual mapping inputs, retain unavailable saved
+modes until explicit user choice and add no slice-time hardware-sync prompt.
+Current runtime behavior remains the delivered baseline until the extension is
+implemented and qualified.
+
+#### Behavior reference and ownership
+
+The reference is the Orca submodule at
+`9ac76bf08adc7e0f5aba3a9ce783ba5fb8730a4f`, including its Neo adaptations,
+not a claim about every upstream release. The relevant native paths are
+[device-message handling](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_App.cpp),
+[Sidebar device-list loading and explicit sync](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp),
+[mode selection](../packages/slicer-wasm/cpp/src/slic3r/GUI/FilamentGroupPopup.cpp),
+[device candidate conversion](../packages/slicer-wasm/cpp/src/libslic3r/FilamentGroupUtils.cpp),
+[matching](../packages/slicer-wasm/cpp/src/libslic3r/FilamentGroup.cpp) and
+[automatic Plate writeback](../packages/slicer-wasm/cpp/src/slic3r/GUI/BackgroundSlicingProcess.cpp).
+
+Keep three operations distinct: device observations update the current device
+material list; explicit Filament Sync imports project presets and colors;
+explicit Printer Sync updates project hardware configuration. Convenience
+Mode consumes the device list without requiring either project import first.
+It selects slicing extruders, not persistent physical supply-path bindings.
+Send continues to prepare and validate those bindings independently.
+
+Maintain one Worker-owned device-material projection for the selected source,
+fed through the typed client/runtime by normalized printer observations. This
+is session state, not a second editable project rack, Sync-dialog draft,
+preference, history root or saved device binding. Provider protocol numbering
+stays in the provider; tool-to-slicing-extruder association must be explicit.
+Shared UI contains no Bambu model-name or protocol branches.
+
+Subscription-backed devices reuse the existing observation/cache lifecycle,
+including reception while Workspace is visible. Do not require another device
+round trip on every Slice or start another subscription when opening mapping
+controls. Pull sources update the list through their existing explicit material
+read/refresh and Sync entry points; selecting Convenience, opening its controls
+or slicing adds no pull request. Automatic polling is not introduced.
+
+Retain and permit the last same-source material list for advisory grouping
+through ordinary freshness expiry or a subscription interruption. Do not add
+a TTL/freshness filter to that list. This does not represent the cache as fresh
+or weaken project-import/Send validation. Source identity and delivery ordering
+must prevent a late old-source update from replacing the selected source.
+Device/route/configuration replacement withdraws the previous source before
+installing its successor. Observation updates alone do not mutate project
+inputs or start slicing.
+
+An explicit pull acquisition failure is different from passive expiry: follow
+Orca by withdrawing that source's grouping candidates, even if a prior success
+exists. Keep the acquisition error distinguishable from an observed empty
+inventory. Candidates remain withdrawn until another successful material
+acquisition/update; the failed refresh must not immediately republish its old
+cached snapshot as a success. With an eligible mode but no candidates, native
+Match-to-Flush fallback remains available without changing the saved mode.
+
+#### Accepted mode eligibility and retention
+
+Expose **Convenience Mode** (`fmmAutoForMatch`) in the existing Slice > Filament
+mapping submenu and Plate Filament Mapping mode control. Both edit the same
+Plate mode. Retain the existing manual confirmation flow; automatic modes gain
+no manual assignment confirmation. Keep the existing output-mode ordering and
+post-slice visibility.
+
+Native topology support and current-device eligibility are separate checks.
+The accepted device gate follows Orca: a selected device matching the selected
+Printer model is sufficient; prior Filament Sync, successful preset resolution
+for every supply, non-empty candidates and matching inventory revisions are not
+additional mode-admission requirements. Do not add an online/info-ready gate:
+temporary disconnection alone does not disable Convenience while the matching
+device selection remains. Clearing selection or changing to a non-matching
+device makes Convenience unavailable. A material-read failure or empty candidate
+list is distinct from losing the selected device. The same-source cache policy
+above governs advisory grouping; this device gate does not relax the existing
+project-import or Send freshness contracts.
+
+If Match is saved but currently unavailable, preserve the Plate's saved mode
+and manual mappings, show the unavailable reason and require the user to select
+another supported mode before slicing. Opening either mapping surface, passive
+observation updates, project import and direct Slice must not automatically
+change it to Flush. If the matching device becomes eligible again, the retained
+Match mode becomes usable without another mode edit. This deliberately differs
+from Orca's popup-initialization mode replacement and preserves section 14.1.4's
+explicit-choice behavior while replacing its unconditional device-sync exclusion.
+Unsupported native topologies do not acquire automatic grouping through this
+rule. The accepted native Match-to-Flush algorithm fallback when the mode is
+eligible is not a saved-mode mutation.
+
+#### Explicit hardware synchronization
+
+Do not add Orca's slice/Preview-time **Sync now / Later** hardware-mismatch
+prompt. Slice uses the project's current nozzle, flow and capacity configuration,
+subject to existing native validation. Observed device differences do not
+silently rewrite these inputs or start either Sync operation. Printer Sync
+and Filament Sync remain explicit existing user workflows, with their current
+validation and necessary confirmations. This differs deliberately from Orca's
+pre-slice hardware prompt; it does not change Convenience's model-match gate
+or weaken native slicing errors or Send's independent target validation.
+
+#### Accepted native material and slicing behavior
+
+Convert observed supplies for grouping independently of project-import
+eligibility. Reuse native candidate conversion and grouping rather than
+TypeScript preset matching or a new color-distance solver. Follow Orca's
+candidate requirements for type, representative color and supply classification;
+catalogue identity is not an extra requirement. Resolve support status through
+native catalogue lookup with Orca's unknown fallback. Preserve the distinction
+between AMS and external supply so the native per-extruder AMS-first/external
+fallback remains effective.
+
+Add no presence/placeholder filter ahead of the native converter. An observed
+empty slot or unknown presence can remain a candidate when its metadata meets
+the native converter's requirements. Missing metadata is not fabricated.
+Preserve the device's reported representative color independently of its
+multi-color description; the current public multi-color shape lacks that
+independent value and needs contract work. Do not assume its first color equals
+Orca's reported tray color.
+Native type/support matching, progressive relaxation, TPU behavior, capacity
+handling and Match-exception-to-Flush fallback remain authoritative. An empty
+candidate list does not introduce a new Slice blocker while the mode is
+eligible, or a claim that printing will be physically feasible. Progressive
+relaxation and algorithm fallback do not change the Plate's saved Convenience
+mode or editable mapping.
+
+At target-Plate Print update, install the current session list through
+`Print::set_extruder_filament_info()` before processing. The running task uses
+its installed copy; later observations update the session list for subsequent
+Print updates, not the active Print. No per-slice device proposal or inventory
+confirmation workflow is added.
+
+Compare the actual grouping-relevant input with the last input installed on
+each reusable Print. A changed color/type/support/extruder/supply-classification
+must invalidate the necessary native grouping and downstream steps before the
+next explicit slice; unrelated telemetry must not trigger recomputation.
+The existing setter only assigns data and is not evidence that this invalidation
+already happens. Ordinary observation changes do not auto-slice or discard an
+existing artifact merely because the physical inventory later changes.
+
+#### Accepted automatic mapping ownership and persistence
+
+Both Auto For Flush and Convenience retain the Plate's editable manual mapping
+inputs. Their computed filament, volume and nozzle maps belong only to the
+native Print/slice result; they must not overwrite editable Plate or project
+maps. Switching to Manual uses the retained inputs under section 14.1.3, not
+the latest automatic result. No separate last-manual backup is introduced.
+This deliberately differs from Orca's automatic Plate writeback and preserves
+the existing rules in sections 14.1.3 and 14.3–14.5.
+
+Keep the current project persistence contract: save the selected mode and
+retained editable mapping through the existing Orca project/Plate fields.
+Do not add a separate archive member for computed automatic maps, generated
+slice results or device observations. Reopening restores those project inputs;
+the next automatic slice recomputes its map using the then-applicable device
+session and native algorithm. Existing standard-format limits on Plate-local
+nozzle-map persistence, geometry-only imports and published imports remain
+unchanged.
+
+Because automatic grouping changes derived results rather than project inputs,
+its completion creates no mapping Undo entry, does not independently dirty the
+project and does not advance a Plate input stamp merely to publish a computed
+map. Explicit mode/manual-map edits retain their existing mutation, history,
+dirty-state and invalidation behavior. Preserve normal task/revision checks and
+result receipt publication; no automatic mapping writeback transaction or
+exception to receipt checks is introduced. Device observations are not Undo
+operations.
+
+#### Coverage and required evidence
+
+Initial automatic support covers existing native-supported SEMM configurations
+with two fixed extruders, including mixed nozzle diameters and different
+flow types. Do not impose a same-diameter or same-flow product gate; existing
+native validation remains authoritative for each combination. Name and test
+mixed-diameter/flow cases explicitly. H2D + AMS is the first physical acceptance
+target. Do not generalize the algorithm to other vendors, arbitrary extruder
+counts, switchers or multi-nozzle inventories.
+
+The shared design applies to both hosts through the existing provider boundary;
+an unavailable Web printer provider does not become available through this
+feature. Show the same unavailable-mode reason and retain imported Match state
+when no eligible source exists; no new provider, gateway or saved device-list
+mode is introduced. Mobile remains outside the supported product baseline;
+retain compact shared controls and no hover-only required action.
+
+Real-WASM evidence must show that swapping only the device's left/right
+materials changes subsequent native mapping and actual extruding G-code tools
+without changing the model or importing project Filaments. Cover raw candidates
+without catalogue IDs, presence/placeholder metadata, AMS/external fallback,
+empty candidates, native relaxation and source replacement. Verify continued
+use after same-source passive expiry, withdrawal after a failed explicit pull,
+recovery only after a successful acquisition/update, and no new device reads
+from mode controls or Slice. Exercise repeated slicing on the same Print, both
+Plate identities and both automatic modes.
+
+Prove eligibility without an online gate, unavailable-mode retention and explicit
+choice across import, both mapping surfaces and direct Slice, restoration of
+availability without a mode edit, no unsolicited hardware-sync prompt/import,
+cancellation, stale-task rejection and unchanged manual maps/history/dirty state
+after automatic grouping. Cover existing receipt binding, manual-mode transition,
+mixed diameters/flows and standard 3MF save/reopen without stored automatic maps.
+Apply the existing testing guidelines to both WASM builds and focused host
+integration. Fixture acceptance does not establish real-device print
+qualification; Send remains independently validated.
