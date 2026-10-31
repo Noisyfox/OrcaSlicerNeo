@@ -22,8 +22,15 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
       });
       for (const data of Object.values(globalThis.bambuControlFixture.data)) {
         const materials = data.snapshot.values.materials;
-        if (materials?.kind === 'known') for (const slot of materials.value.state.slots)
-          if (slot.material.kind === 'known' && slot.material.value) slot.material.value.catalogRefs = [{ namespace: 'fixture-material', value: slot.slotId }];
+        if (materials?.kind === 'known') {
+          const unidentified = materials.value.topology.slots.find(slot => materials.value.topology.units.some(unit => unit.id === slot.unitId && unit.kind === 'manual-holder'));
+          for (const slot of materials.value.state.slots) if (slot.material.kind === 'known' && slot.material.value) {
+            slot.material.value.catalogRefs = slot.slotId === unidentified?.id ? [] : [{ namespace: 'fixture-material', value: slot.slotId }];
+            if (slot.slotId === unidentified?.id) {
+              slot.material.value.materialType = null; slot.material.value.color = { kind: 'solid', rgba: '#00000000' };
+            }
+          }
+        }
       }
       for (const win of BrowserWindow.getAllWindows()) win.webContents.send(channel, 'printers');
     }, Ipc.bambuChanged);
@@ -53,6 +60,7 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await dialog.getByRole('button', { name: 'Continue to Filament sync' }).click();
     await expect(dialog.getByRole('combobox', { name: 'Filament sync mode' })).toContainText('Rebuild from device');
     await expect(dialog.getByLabel('Device materials')).toContainText('AMS');
+    await expect(dialog.getByLabel('Device materials').getByRole('row').filter({ hasText: 'Not eligible for synchronization' })).toHaveCount(1);
     await expect(dialog.getByRole('button', { name: 'Apply Filament sync' })).toBeEnabled();
     expect(await materialDeviceReadCount()).toBe(0);
     const retainedTokens = await app.evaluate(() => [...globalThis.bambuControlFixture.tokens].sort());
@@ -62,11 +70,17 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await expect.poll(() => app.evaluate(() => [...globalThis.bambuControlFixture.tokens].sort())).toEqual(retainedTokens);
     await expect(dialog).toHaveCSS('opacity', '1');
     await page.screenshot({ path: test.info().outputPath('filament-sync-review.png'), fullPage: true });
+    await dialog.getByRole('checkbox', { name: 'Colors only', exact: true }).check();
+    await expect(dialog.getByLabel('Material synchronization mapping').locator('tbody tr')).toHaveCount(1);
+    await dialog.getByRole('checkbox', { name: 'Colors only', exact: true }).uncheck();
     await dialog.getByRole('combobox', { name: 'Filament sync mode' }).click();
     await page.getByRole('option', { name: 'Update project mapping', exact: true }).click();
     await expect(dialog.getByRole('combobox', { name: 'Source for material 1', exact: true })).toBeVisible();
     await dialog.getByRole('checkbox', { name: 'Colors only', exact: true }).check();
     await expect(dialog.getByRole('checkbox', { name: 'Colors only', exact: true })).toBeChecked();
+    await expect(dialog.getByRole('checkbox', { name: 'Append unused device materials', exact: true })).toBeDisabled();
+    await expect(dialog.getByRole('checkbox', { name: 'Append unused device materials', exact: true })).not.toBeChecked();
+    await expect(dialog.getByTestId('sync-additions')).toHaveCount(0);
     await dialog.getByRole('checkbox', { name: 'Colors only', exact: true }).uncheck();
     await dialog.getByRole('checkbox', { name: 'Append unused device materials', exact: true }).uncheck();
     await expect(dialog.getByRole('checkbox', { name: 'Append unused device materials', exact: true })).not.toBeChecked();
@@ -82,7 +96,7 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await dialog.getByRole('combobox', { name: 'Filament sync mode' }).click();
     await page.getByRole('option', { name: 'Rebuild from device', exact: true }).click();
     await dialog.getByRole('button', { name: 'Apply Filament sync' }).click();
-    await expect(dialog).toHaveCount(0); await expect(page.getByTestId('filament-rack')).toContainText('Material (14)');
+    await expect(dialog).toHaveCount(0); await expect(page.getByTestId('filament-rack')).toContainText('Material (13)');
     // Printer and Filament are separate history entries; Undo material import keeps hardware.
     await page.getByTestId('history-undo').click();
     await expect(page.getByTestId('filament-rack')).toContainText('Material (1)');
@@ -101,7 +115,7 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await page.screenshot({ path: test.info().outputPath('device-filament-menu.png'), fullPage: true });
     const search = menu.getByPlaceholder('Search compatible presets…');
     await search.fill('External');
-    await expect(installed.getByRole('menuitem')).toHaveCount(2);
+    await expect(installed.getByRole('menuitem')).toHaveCount(1);
     await expect(installed.getByRole('menuitem', { name: /AMS/ })).toHaveCount(0);
     await search.fill('');
     await installed.getByRole('menuitem', { name: /AMS 2 Pro 0 · Slot 1:/ }).click();

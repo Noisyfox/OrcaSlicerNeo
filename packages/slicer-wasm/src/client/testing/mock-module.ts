@@ -1651,6 +1651,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let projectFlowMemory: Record<string, number[]> = {};
   let nextFilamentIdentity = 1000;
   let filamentSessionState: any = opts.filamentSession !== undefined ? clone(opts.filamentSession) : undefined;
+  const hasMaterialIdentity = (source: any) => source.catalogRefs.some((ref: any) => !!ref.value);
   function prepareMaterialImportMock(request: any): any {
     const error = (code: string, message: string) => ({ ok: false, version: 1, error_code: code, error: message, status: { state: 'error', error: message } });
     if (request.revision !== historyRevision) return error('stale_revision', 'Project materials changed');
@@ -1662,7 +1663,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         ?? candidates('filament').find(p => p.name === previous) ?? candidates('filament')[0];
       return { preset: candidate?.name ?? null, warning: 'Generic or previous compatible preset used.' };
     };
-    return { ok: true, revision: historyRevision, sources: request.sources.map((source: any) => ({ slotId: source.slotId,
+    return { ok: true, revision: historyRevision, sources: request.sources.filter(hasMaterialIdentity).map((source: any) => ({ slotId: source.slotId,
       ...match(source), matches: slots.map((slot: any) => match(source, slot.preset.name)) })),
       projectTypes: slots.map(() => 'PLA'), references: slots.map((slot: any) => ({ slot: slot.slot, kinds: objectMeta.length ? ['Model assignment'] : [] })) };
   }
@@ -1670,7 +1671,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const prepared = prepareMaterialImportMock(request);
     if (!prepared.ok) return prepared;
     return { ok: true, revision: historyRevision, options: request.sources.flatMap((source: any) => {
-      if (!source.catalogRefs.some((ref: any) => !!ref.value)) return [];
+      if (!hasMaterialIdentity(source)) return [];
       const preset = candidates('filament').find(p => source.materialType && p.name.startsWith(`Generic ${source.materialType}`));
       return preset ? [{ slotId: source.slotId, preset: preset.name, label: filamentLabel(preset.name) }] : [];
     }) };
@@ -1695,6 +1696,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (kind === 'synchronize') {
       const prepared = prepareMaterialImportMock(request);
       if (!prepared.ok) return prepared;
+      const eligible = request.sources.filter(hasMaterialIdentity);
+      if (!eligible.length) return fail('No eligible device materials to synchronize', 'unresolved_material');
       const sources = new Map<string, any>(request.sources.map((source: any) => [source.slotId, source]));
       const apply = (sourceId: string, i: number, old?: any) => {
         const source = sources.get(sourceId), candidate = prepared.sources.find((p: any) => p.slotId === sourceId);
@@ -1708,20 +1711,21 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           colour: color ? { effective: representative, provenance: 'user', native: { representative, multi_colour: multiple ? color.colors.join(' ') : representative, type: color.kind === 'linear-gradient' ? '0' : '1' },
             display: multiple ? { mode: color.kind === 'linear-gradient' ? 'gradient' : 'multicolor', colors: color.colors } : { mode: 'solid', colors: [representative] } } : old?.colour };
       };
-      if (request.mode === 'rebuild') {
-        if (!request.sources.length) return fail('No eligible materials', 'unresolved_material');
-        for (let i = request.sources.length; i < next.slots.length; ++i) {
+      if (request.mode === 'rebuild' && request.colourOnly) {
+        next.slots = next.slots.map((slot: any, i: number) => eligible[i] ? apply(eligible[i].slotId, i, slot) : slot);
+      } else if (request.mode === 'rebuild') {
+        for (let i = eligible.length; i < next.slots.length; ++i) {
           if (prepared.references[i].kinds.length && !request.replacements[i]) return fail('Choose surviving replacement', 'replacement_required');
           for (const group of ['objects', 'parts', 'modifiers']) for (const ref of next.assignments[group]) {
             if (ref.effective_slot === i + 1) ref.effective_slot = request.replacements[i] ?? 1;
             if (ref.explicit_slot === i + 1) ref.explicit_slot = request.replacements[i] ?? 1;
           }
         }
-        next.slots = request.sources.map((source: any, i: number) => apply(source.slotId, i, next.slots[i]));
+        next.slots = eligible.map((source: any, i: number) => apply(source.slotId, i, next.slots[i]));
       } else {
         if (request.mapping.length !== next.slots.length) return fail('Incomplete project mapping', 'invalid_command');
-        next.slots = next.slots.map((slot: any, i: number) => request.mapping[i] ? apply(request.mapping[i], i, slot) : slot);
-        if (request.appendUnused) for (const source of request.sources) {
+        next.slots = next.slots.map((slot: any, i: number) => request.mapping[i] && eligible.some((source: any) => source.slotId === request.mapping[i]) ? apply(request.mapping[i], i, slot) : slot);
+        if (request.appendUnused && !request.colourOnly) for (const source of eligible) {
           if (request.mapping.includes(source.slotId)) continue;
           const addition = apply(source.slotId, next.slots.length);
           if (!next.slots.some((slot: any) => slot.preset.name === addition.preset.name && slot.colour.effective === addition.colour.effective)) next.slots.push(addition);

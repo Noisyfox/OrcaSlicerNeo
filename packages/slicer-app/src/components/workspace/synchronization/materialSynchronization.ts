@@ -35,6 +35,7 @@ export function displayedMaterialMatch(prepared: PreparedMaterials, sourceId: st
 /** The same native candidate/color equivalence used for the displayed append list. */
 export function pendingMaterialAdditions(source: SynchronizationSource, prepared: PreparedMaterials, rack: FilamentSessionSnapshot,
   mapping: MaterialImportApplication['mapping'], colourOnly: boolean): string[] {
+  if (colourOnly) return [];
   const represented = rack.slots.map((slot, i) => {
     const device = source.materials.find(s => s.slotId === mapping[i]);
     const preset = !colourOnly && device ? displayedMaterialMatch(prepared, device.slotId, i)?.preset : slot.preset.name;

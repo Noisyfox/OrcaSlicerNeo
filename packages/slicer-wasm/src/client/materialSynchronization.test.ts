@@ -9,19 +9,40 @@ async function fixture() {
   if (!rack.ok) throw new Error(rack.error);
   const request: MaterialImportRequest = { version: 1, revision: rack.revisions.session,
     identity: { manufacturer: 'Bambu Lab', model: 'X1 Carbon', externalRefs: [] }, sources: [
-      { slotId: 'opaque:unknown-presence', toolIndices: [0], materialType: 'PLA', catalogRefs: [], colour: { kind: 'solid', color: '#123456' } },
-      { slotId: 'opaque:empty', toolIndices: [0], materialType: 'PLA', catalogRefs: [], colour: { kind: 'parallel', colors: ['#112233', '#445566'] } },
+      { slotId: 'opaque:unknown-presence', toolIndices: [0], materialType: 'PLA', catalogRefs: [{ namespace: 'fixture', value: 'reported-PLA' }], colour: { kind: 'solid', color: '#123456' } },
+      { slotId: 'opaque:empty', toolIndices: [0], materialType: 'PLA', catalogRefs: [{ namespace: 'fixture', value: 'reported-PLA' }], colour: { kind: 'parallel', colors: ['#112233', '#445566'] } },
     ] };
   const apply: MaterialImportApplication = { ...request, mode: 'mapping', mapping: rack.slots.map(() => request.sources[0].slotId),
     replacements: rack.slots.map(() => null), appendUnused: true, colourOnly: false };
   return { client, request, apply, rack };
 }
 describe('material synchronization bridge contract', () => {
+  it('excludes unidentified metadata before fallback in both sync preparation and installed choices', async () => {
+    const { client, request } = await fixture();
+    const unidentified = request.sources.map((s, i) => ({ ...s, slotId: `unidentified/${i}`, materialType: i ? 'PLA' : '', catalogRefs: [{ namespace: 'provider', value: '' }] }));
+    const mixed = { ...request, sources: [unidentified[0], request.sources[0], unidentified[1]] };
+    expect(await client.prepareMaterialImport(mixed)).toMatchObject({ ok: true, sources: [{ slotId: request.sources[0].slotId }] });
+    expect(await client.getDeviceFilamentOptions(mixed)).toMatchObject({ ok: true, options: [{ slotId: request.sources[0].slotId }] });
+    const before = await client.getFilamentSessionSnapshot(), history = await client.getHistoryStatus();
+    expect(await client.applyMaterialImport({ ...mixed, sources: unidentified, mode: 'rebuild', mapping: [], replacements: [], appendUnused: true, colourOnly: false }))
+      .toMatchObject({ ok: false, errorCode: 'unresolved_material' });
+    expect(await client.getFilamentSessionSnapshot()).toEqual(before);
+    expect(await client.getHistoryStatus()).toEqual(history);
+  });
+  it.each(['rebuild', 'mapping'] as const)('colors-only %s never adds unused sources or replaces presets', async mode => {
+    const { client, apply, rack } = await fixture();
+    const result = await client.applyMaterialImport({ ...apply, mode, colourOnly: true, appendUnused: true });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.result.snapshot.slots).toHaveLength(rack.slots.length);
+    expect(result.result.snapshot.slots[0]).toMatchObject({ logicalId: rack.slots[0].logicalId, preset: rack.slots[0].preset, colour: { effective: '#123456' } });
+    await client.undoHistory();
+    expect(await client.getFilamentSessionSnapshot()).toMatchObject({ slots: rack.slots });
+  });
   it('projects installed choices read-only and selects their preset and color as one ordinary edit', async () => {
     const { client, request, rack } = await fixture();
     const material = { ...request.sources[0], catalogRefs: [{ namespace: 'fixture', value: 'reported-id' }] };
     const before = await client.getHistoryStatus();
-    expect(await client.getDeviceFilamentOptions(request)).toMatchObject({ ok: true, options: [] });
+    expect(await client.getDeviceFilamentOptions({ ...request, sources: request.sources.map(s => ({ ...s, catalogRefs: [] })) })).toMatchObject({ ok: true, options: [] });
     const options = await client.getDeviceFilamentOptions({ ...request, sources: [material] });
     if (!options.ok) throw new Error(options.error);
     expect(options.options).toEqual([{ slotId: material.slotId, preset: 'Generic PLA @System', label: 'Generic PLA' }]);

@@ -26,7 +26,7 @@ afterEach(async () => {
   useDeviceSelectionStore.setState({ currentPrinterId: null, requestedPrinterId: null, selectionRequestVersion: 0, navigationRequestVersion: 0 });
   useFilamentSessionStore.getState().reset(); useHistoryNavigationStore.getState().reset(); document.body.innerHTML = '';
 });
-async function fixture({ connected = true, model = 'X1 Carbon', stream = false, models = false, materialOnly = false, secondary = false, strict = false } = {}) {
+async function fixture({ connected = true, model = 'X1 Carbon', stream = false, models = false, materialOnly = false, secondary = false, strict = false, unidentified = false, noIdentities = false } = {}) {
   let preferences: UserPreferences = structuredClone(DEFAULT_USER_PREFERENCES);
   const runtime = createClient(async () => createMockModule());
   if (models) {
@@ -51,7 +51,7 @@ async function fixture({ connected = true, model = 'X1 Carbon', stream = false, 
     paths: [0, 1].map(i => ({ id: id(`path/${i}`), slotId: id(`source/${i}`), toolId: id('tool'), loading: 'automatic' })), dryers: [] };
   const snapshot = (): D.PrinterSnapshot<'materials' | 'descriptor'> => ({ target, configurationRevision: 'config', values: {
     materials: known({ topologyRevision: 'topology', topology, toolIds: [id('tool')], state: { inventoryRevision: 'inventory', tools: [], dryers: [], slots: topology.slots.map((s, i) => ({ slotId: s.id,
-      presence: i ? unknown : known('empty' as const), material: known({ materialType: 'PLA', manufacturer: null, diameterMm: 1.75, catalogRefs: [], color: { kind: 'solid', rgba: i ? '#445566' : '#123456' } }), remaining: unknown, spoolIdentity: unknown })) } }, stale),
+      presence: i ? unknown : known('empty' as const), material: known({ materialType: noIdentities || unidentified && i ? null : 'PLA', manufacturer: null, diameterMm: 1.75, catalogRefs: noIdentities || unidentified && i ? [] : [{ namespace: 'fixture', value: 'reported-PLA' }], color: { kind: 'solid', rgba: i ? '#445566' : '#123456' } }), remaining: unknown, spoolIdentity: unknown })) } }, stale),
     descriptor: known({ revision: 'descriptor', identity: printer.identity, technology: 'fdm', firmware: unknown, buildVolume: null,
       topology: { revision: 'topology', completeness: 'complete', materials: topology, tools: [{ id: id('tool'), name: 'Tool', extruderId: id('extruder'), nozzleId: id('nozzle'), motionGroupId: id('gantry') }],
         nozzles: [{ id: id('nozzle'), diameterMm: 0.4, flowType: 'standard flow', flowReporting: 'supported', constructionMaterial: null, type: null, heaterId: null }], extruders: [], motionGroups: [], heaters: [], fans: [], lights: [], sensors: [], cameras: [] } }),
@@ -94,6 +94,53 @@ async function choose(trigger: HTMLElement, label: string) {
   });
 }
 describe('Prepare synchronization workflow', () => {
+  it('disables both import modes when only unidentified metadata is available', async () => {
+    const f = await fixture({ noIdentities: true }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
+    await start('filament');
+    const button = [...f.container.querySelectorAll('button')].find(b => b.textContent === 'Apply Filament sync')!;
+    expect(button.disabled).toBe(true);
+    await choose(f.container.querySelector<HTMLElement>('[role="combobox"][aria-label="Filament sync mode"]')!, 'Update project mapping');
+    expect(button.disabled).toBe(true); expect(apply).not.toHaveBeenCalled();
+  });
+  it('does not require removal replacements when only colors are synchronized', async () => {
+    const f = await fixture({ models: true, unidentified: true }); await start('filament');
+    await choose(f.container.querySelector<HTMLElement>('[role="combobox"][aria-label="Filament sync mode"]')!, 'Rebuild from device');
+    expect(f.container.querySelector('[aria-label="Replacement for material 2"]')).toBeTruthy();
+    await act(async () => { f.container.querySelector<HTMLElement>('#filament-sync-colors')!.click(); await flush(); });
+    expect(f.container.querySelector('[aria-label="Replacement for material 2"]')).toBeNull();
+    const button = [...f.container.querySelectorAll('button')].find(b => b.textContent === 'Apply Filament sync')!;
+    expect(button.disabled).toBe(false);
+    await click(f.container, 'Apply Filament sync');
+    const rack = await f.runtime.getFilamentSessionSnapshot(); if (!rack.ok) throw new Error(rack.error);
+    expect(rack.slots).toHaveLength(2);
+  });
+  it('displays unidentified source metadata without importing it or offering it for mapping', async () => {
+    const f = await fixture({ unidentified: true });
+    await start('filament');
+    expect(f.container.querySelector('[aria-label="Device materials"]')?.textContent).toContain('Tray 1');
+    expect(f.container.querySelector('[aria-label="Device materials"]')?.textContent).toContain('Not eligible for synchronization');
+    const review = f.container.querySelector('[aria-label="Material synchronization mapping"]')!;
+    expect(review.textContent).toContain('Tray 0'); expect(review.textContent).not.toContain('Tray 1');
+    await choose(f.container.querySelector<HTMLElement>('[role="combobox"][aria-label="Filament sync mode"]')!, 'Update project mapping');
+    const input = f.container.querySelector<HTMLElement>('[role="combobox"][aria-label="Source for material 1"]')!;
+    await act(async () => { input.click(); await flush(); });
+    const options = [...document.querySelectorAll('[data-slot="select-content"][data-open] [role="option"]')].map(o => o.textContent);
+    expect(options).toContain('Feeder · Tray 0'); expect(options).not.toContain('Feeder · Tray 1');
+  });
+  it('previews and commits colors only without growing a rebuild or enabling append', async () => {
+    const f = await fixture(); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
+    await start('filament');
+    await act(async () => { f.container.querySelector<HTMLElement>('#filament-sync-colors')!.click(); await flush(); });
+    const review = f.container.querySelector('[aria-label="Material synchronization mapping"]')!;
+    expect(review.querySelectorAll('tbody tr')).toHaveLength(1);
+    await choose(f.container.querySelector<HTMLElement>('[role="combobox"][aria-label="Filament sync mode"]')!, 'Update project mapping');
+    expect(f.container.querySelector('#filament-sync-append')?.hasAttribute('disabled')).toBe(true);
+    expect(f.container.querySelector('[data-testid="sync-additions"]')).toBeNull();
+    await click(f.container, 'Apply Filament sync');
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ colourOnly: true, appendUnused: false }));
+    const rack = await f.runtime.getFilamentSessionSnapshot();
+    expect(rack).toMatchObject({ slots: [expect.anything()] });
+  });
   it('commits Printer only once when development StrictMode replays effect setup', async () => {
     const f = await fixture({ strict: true }); const synchronize = vi.spyOn(f.runtime, 'synchronizePrinter');
     await start('printer');

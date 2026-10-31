@@ -2739,8 +2739,11 @@ export function createClient(
       const raw = callJson(await module(), 'orc_prepare_material_import', ['string'], [JSON.stringify(request)]) as any;
       if (raw?.ok !== true) return { ok: false, error: String(raw?.error ?? 'Invalid material import response'), errorCode: String(raw?.error_code ?? 'invalid_response') };
       const match = (m: any) => isRecord(m) && (m.preset === null || typeof m.preset === 'string') && (m.warning === null || typeof m.warning === 'string');
+      // Native eligibility may exclude unconfigured physical supplies. Preserve
+      // the requested order/identity without duplicating that policy in JS.
+      const sourceIndices = Array.isArray(raw.sources) ? raw.sources.map((s: any) => request.sources.findIndex(r => r.slotId === s?.slotId)) : [];
       if (!Number.isSafeInteger(raw.revision) || raw.revision !== request.revision || !Array.isArray(raw.sources) ||
-        raw.sources.length !== request.sources.length || raw.sources.some((s: any, i: number) => !match(s) || s.slotId !== request.sources[i].slotId || !Array.isArray(s.matches) || s.matches.length !== raw.projectTypes?.length || !s.matches.every(match)) ||
+        raw.sources.some((s: any, i: number) => !match(s) || sourceIndices[i] < 0 || i > 0 && sourceIndices[i] <= sourceIndices[i - 1] || !Array.isArray(s.matches) || s.matches.length !== raw.projectTypes?.length || !s.matches.every(match)) ||
         !Array.isArray(raw.projectTypes) || raw.projectTypes.some((t: unknown) => typeof t !== 'string') ||
         !Array.isArray(raw.references) || raw.references.length !== raw.projectTypes.length || raw.references.some((r: any, i: number) => r.slot !== i + 1 || !Array.isArray(r.kinds) || r.kinds.some((k: any) => typeof k !== 'string')))
         return { ok: false, error: 'Invalid material import preparation', errorCode: 'invalid_response' };

@@ -237,7 +237,7 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
         if (!checked.ok || useDeviceSelectionStore.getState().currentPrinterId !== source.target.printerId)
           return { ok: false, version: 1, errorCode: 'stale_context', error: checked.ok ? 'Device selection changed. Cancel and open synchronization again.' : checked.error.message };
         return platform.runtime.applyMaterialImport({ version: 1, revision: prepared.revision, identity: source.identity,
-          sources: materialImportSources(source), mode, mapping, replacements, appendUnused, colourOnly });
+          sources: materialImportSources(source), mode, mapping, replacements, appendUnused: appendUnused && !colourOnly, colourOnly });
       });
       if (!live.current) return;
       if (!result.ok) { setReady(false); setError(result.error); return; }
@@ -247,9 +247,10 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     finally { if (live.current) setBusy(false); }
   }
   const sources = prepared?.sources ?? [], additions = source && prepared && rack ? pendingMaterialAdditions(source, prepared, rack, mapping, colourOnly) : [];
-  const invalidReplacement = mode === 'rebuild' && !!rack && !!prepared && prepared.references.some((r, i) => i >= sources.length && r.kinds.length && (!replacements[i] || replacements[i]! > sources.length));
-  const unresolved = mode === 'rebuild' ? sources.some((s, i) => !displayedMaterialMatch(prepared!, s.slotId, i)?.preset) || !sources.length
-    : mapping.some((id, i) => id && !displayedMaterialMatch(prepared!, id, i)?.preset);
+  const rebuildSources = colourOnly && rack ? sources.slice(0, rack.slots.length) : sources;
+  const invalidReplacement = !colourOnly && mode === 'rebuild' && !!rack && !!prepared && prepared.references.some((r, i) => i >= sources.length && r.kinds.length && (!replacements[i] || replacements[i]! > sources.length));
+  const unresolved = !sources.length || (mode === 'rebuild' ? rebuildSources.some((s, i) => !displayedMaterialMatch(prepared!, s.slotId, i)?.preset)
+    : mapping.some((id, i) => id && !displayedMaterialMatch(prepared!, id, i)?.preset));
   if (!visible) return null;
   const label = (id: string) => source?.materials.find(s => s.slotId === id)?.label ?? id;
   const colorLabel = (id: string) => {
@@ -301,7 +302,7 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
           </div>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
             <Field orientation="horizontal" className="w-auto"><Checkbox id="filament-sync-colors" checked={colourOnly} disabled={busy} onCheckedChange={setColourOnly} /><FieldLabel htmlFor="filament-sync-colors">Colors only</FieldLabel></Field>
-            {mode === 'mapping' && <Field orientation="horizontal" className="w-auto"><Checkbox id="filament-sync-append" checked={appendUnused} disabled={busy} onCheckedChange={setAppendUnused} /><FieldLabel htmlFor="filament-sync-append">Append unused device materials</FieldLabel></Field>}
+            {mode === 'mapping' && <Field orientation="horizontal" className="w-auto"><Checkbox id="filament-sync-append" checked={appendUnused && !colourOnly} disabled={busy || colourOnly} onCheckedChange={setAppendUnused} /><FieldLabel htmlFor="filament-sync-append">Append unused device materials</FieldLabel></Field>}
           </div>
           <p className="text-muted-foreground">Changes affect materials on every Plate. Empty and unknown slots can contain retained metadata; Send checks the loaded material separately.</p>
           <section aria-label="Device materials" className="space-y-2">
@@ -310,7 +311,7 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
               <Table><TableHeader className="sticky top-0 bg-card"><TableRow className="hover:bg-transparent"><TableHead>Source</TableHead><TableHead>Material</TableHead><TableHead>Presence</TableHead><TableHead>Color</TableHead></TableRow></TableHeader>
                 <TableBody>{source.materials.map(s => <TableRow key={s.slotId} className="hover:bg-transparent">
                   <TableCell className="whitespace-normal">{s.label}{!s.toolIndices.length && <p className="text-muted-foreground">No usable tool path</p>}</TableCell>
-                  <TableCell>{s.metadata ? s.metadata.materialType || 'Material type not reported' : 'No material metadata'}</TableCell>
+                  <TableCell>{s.metadata ? s.metadata.materialType || 'Material type not reported' : 'No material metadata'}{!sources.some(p => p.slotId === s.slotId) && <p className="text-muted-foreground">Not eligible for synchronization</p>}</TableCell>
                   <TableCell><Badge variant="secondary">{s.presence}</Badge></TableCell><TableCell>{materialColor(s.slotId)}</TableCell>
                 </TableRow>)}</TableBody>
               </Table>
@@ -327,14 +328,14 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
                   onChange={value => setMapping(current => current.map((id, index) => index === i ? value || null : id))} />
                   {mapping[i] && <>{materialColor(mapping[i]!)}{!colourOnly && matchLabel(mapping[i]!, i)}</>}
                 </TableCell>
-              </TableRow>) : sources.map((s, i) => <TableRow key={s.slotId} className="hover:bg-transparent">
+              </TableRow>) : rebuildSources.map((s, i) => <TableRow key={s.slotId} className="hover:bg-transparent">
                 <TableCell className="align-top whitespace-normal">{label(s.slotId)}</TableCell>
                 <TableCell className="space-y-2 align-top whitespace-normal">{colourOnly && rack.slots[i] ? rack.slots[i].preset.label : matchLabel(s.slotId, i)}{materialColor(s.slotId)}</TableCell>
               </TableRow>)}</TableBody>
             </Table></div>
           </section>
-          {mode === 'mapping' && appendUnused && <p className="text-muted-foreground" data-testid="sync-additions">Additions: {additions.length ? additions.map(label).join(', ') : 'None'}</p>}
-          {mode === 'rebuild' && rack.slots.slice(sources.length).map((slot, offset) => {
+          {mode === 'mapping' && appendUnused && !colourOnly && <p className="text-muted-foreground" data-testid="sync-additions">Additions: {additions.length ? additions.map(label).join(', ') : 'None'}</p>}
+          {mode === 'rebuild' && !colourOnly && rack.slots.slice(sources.length).map((slot, offset) => {
             const i = offset + sources.length, refs = prepared.references[i]?.kinds ?? [];
             return <Field key={slot.logicalId} className="rounded-md border p-3">
               <FieldLabel htmlFor={`sync-replacement-${slot.slot}`}>Remove material {slot.slot}</FieldLabel>

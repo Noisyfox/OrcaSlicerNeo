@@ -315,7 +315,13 @@ Default to mapping updates when the project has models, and to rebuilding the
 rack from device materials when it has no models. Check the whole project,
 not just the selected Plate. Users can change mode in the preview; both defaults
 still require modal preview and explicit confirmation, including an empty
-project. Color-only updates remain available within the accepted scope.
+project. Color-only updates remain available in either mode, but only update
+existing slots: never change presets, slot count, logical identities or
+references. Rebuild colors follow the eligible source order up to the existing
+rack size; excess sources are ignored and remaining project colors stay as-is.
+Mapping colors honor the explicit mapping and Keep unchanged choices; do not
+apply Orca's implicit index fallback over those explicit choices. Disable
+append and omit removal/reassignment proposals while Colors only is enabled.
 
 Each new mapping preview prepares initial suggestions from current device and
 project data, using Orca's type/color and applicable tool/path constraints.
@@ -358,14 +364,33 @@ This required replacement handling does not add an automatic same-color merge
 option to mapping mode, and independent project slots that survive remain
 independent even when their device sources coincide.
 
-Usable material metadata is sufficient for a source slot to participate by
-default, including slots explicitly empty or with unknown presence. This also
-applies to unused-material appending. Show empty/unknown state honestly in the
-preview, retain namespaced provenance, and never fabricate physical presence
-from metadata. Slots without usable metadata remain distinguishable from
-eligible metadata-bearing slots. Importing retained metadata is a project
-configuration operation, not a claim that the spool is installed or can supply
-a print; Send retains its independent inventory/path validation.
+Follow Orca's empty-filament-ID gate before native preset fallback. A source
+requires usable metadata, a usable tool path and at least one non-empty
+provider-normalized catalogue identity. A type, color, diameter or retained
+transparent color alone does not establish eligibility. Unidentified supplies
+remain visible with their reported metadata and presence, but are excluded
+from rebuild, mapping choices and unused-material append. A submitted mapping
+to an unidentified source leaves the destination unchanged; no eligible
+sources disables confirmation and native application rejects without mutation.
+Reported identities that are unknown to the native catalogue remain eligible
+for the full fallback below. Apply this rule to every supply kind and provider,
+not only external holders or Bambu IDs.
+
+Sources with an identity may participate even when explicitly empty or with
+unknown presence. Retain namespaced provenance and never fabricate physical
+presence from metadata. Importing retained metadata is a project configuration
+operation, not a claim that the spool is installed or can supply a print; Send
+retains its independent inventory/path validation.
+
+Like Orca's shared `filament_ams_list`, Filament sync and installed-material
+dropdowns share the normalized source/provenance conversion and native source
+eligibility and matching foundation. Do not introduce a separate provider
+parser, catalogue matcher or network subscription for the dropdown. Their final
+match policies differ intentionally: the dropdown accepts exact native bases
+or same-type Generic presets, while full synchronization uses the complete
+fallback below. Source eligibility is native-authoritative for preview and
+apply; the typed client accepts its ordered subset without implementing a
+second eligibility policy.
 
 When there is no compatible exact match, follow Orca's complete native preset
 fallback sequence: compatible Generic candidates (including its type-word
@@ -468,11 +493,14 @@ installed for this round.
 Direct Printer sync succeeded without a generic preview and exposed the
 independent Filament continuation. The ordered tool configuration remained
 0.4 mm Standard / 0.4 mm Standard, with five reachable material slots per tool
-(four AMS slots plus its external holder). Filament rebuild reviewed and
-imported ten source records: eight AMS materials with their PETG-CF/PETG/PC
-presets and colors, plus the two external-holder records. The latter explicitly
-showed unknown presence and the native Generic ABS fallback warning; this does
-not establish a loaded spool or a suitable material for printing.
+(four AMS slots plus its external holder). The run established source reading
+and project/history transactions, but does not qualify Orca-equivalent source
+eligibility: its ten-record rebuild included eight AMS materials with their
+PETG-CF/PETG/PC presets and colors and two unknown external-holder records with
+Generic ABS fallback. Unidentified external records must now be displayed but
+excluded under the eligibility rule above. The corrected filtering and
+colors-only rack preservation require a final hardware acceptance rerun;
+software fixtures and WASM tests do not establish that hardware qualification.
 
 The first hardware attempt exposed an observation-ownership defect: entering
 the synchronization modal released the hidden Device monitor, and refreshing a

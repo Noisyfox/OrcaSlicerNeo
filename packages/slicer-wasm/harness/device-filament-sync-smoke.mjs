@@ -39,9 +39,46 @@ assert.equal(ready.sources[0].warning, null);
 assert.match(ready.sources[0].preset, /Bambu PLA Basic/);
 assert.equal(ready.references.length, before.slots.length);
 ok(prepare({ identity: { ...identity, model: 'Other compatible device', externalRefs: [{ namespace: 'orca-compatible-printer-model', value: 'O1D' }] } }));
-const fallback = ok(prepare({ sources: [source('unknown', '#FFFFFF', 'ASA Sparkle', [])] }));
+// Unreported identity is different from a reported identity unknown to the catalogue.
+const unidentified = [source('external/no-type', '#00000000', '', []), source('external/type-only', '#EE0011', 'PLA', [{ namespace: 'provider', value: '' }])];
+const mixedSources = [unidentified[0], ...sources, unidentified[1]];
+const eligible = ok(prepare({ sources: mixedSources }));
+assert.deepEqual(eligible.sources.map(s => s.slotId), sources.map(s => s.slotId));
+assert.deepEqual(ok(command('orc_get_device_filament_options', request({ sources: mixedSources }))).options.map(s => s.slotId), sources.map(s => s.slotId));
+const noIdentityBefore = JSON.stringify(observe());
+assert.equal(apply({ mode: 'rebuild', sources: unidentified, mapping: [], replacements: [] }).error_code, 'unresolved_material');
+assert.equal(JSON.stringify(observe()), noIdentityBefore, 'unidentified-only import does not change native owners or history');
+ok(apply({ mode: 'rebuild', sources: mixedSources, mapping: [], replacements: before.slots.map(() => null) }));
+assert.equal(rack().slots.length, sources.length, 'rebuild excludes unknown external records without compressing valid sources incorrectly');
+assert.deepEqual(rack().slots.map(s => s.colour.effective), ['#123456', '#ABCDEF', '#ABCDEF']);
+ok(command('orc_history_undo', context));
+assert.deepEqual(rack().slots, before.slots);
+ok(command('orc_history_redo', context));
+assert.equal(rack().slots.length, sources.length);
+ok(command('orc_history_undo', context));
+ok(apply({ sources: [unidentified[0], sources[0], unidentified[1]], mapping: before.slots.map(() => unidentified[0].slotId) }));
+assert.deepEqual(rack().slots.slice(0, before.slots.length), before.slots, 'invalid source mappings preserve existing slots');
+assert.equal(rack().slots.length, before.slots.length + 1, 'append includes only the identified unused source');
+ok(command('orc_history_undo', context));
+for (const mode of ['mapping', 'rebuild']) {
+  const materialSources = mode === 'mapping' ? mixedSources : [unidentified[0], sources[0]];
+  ok(apply({ mode, sources: materialSources, mapping: before.slots.map((_, i) => i ? sources[0].slotId : unidentified[0].slotId),
+    replacements: before.slots.map(() => null), colourOnly: true, appendUnused: true }));
+  assert.deepEqual(rack().slots.map(s => [s.logical_id, s.preset]), before.slots.map(s => [s.logical_id, s.preset]), 'color-only never changes rack size, identities or presets');
+  assert.deepEqual(rack().assignments, before.assignments);
+  assert.equal(rack().slots[mode === 'mapping' ? 1 : 0].colour.effective, '#123456');
+  if (mode === 'mapping') assert.deepEqual(rack().slots[0], before.slots[0]);
+  else assert.deepEqual(rack().slots[1], before.slots[1]);
+  ok(command('orc_history_undo', context));
+  assert.deepEqual(rack().slots, before.slots);
+}
+ok(apply({ mode: 'rebuild', sources: mixedSources, colourOnly: true, replacements: [], mapping: [] }));
+assert.equal(rack().slots.length, before.slots.length, 'extra eligible sources cannot grow a colors-only rebuild');
+ok(command('orc_history_undo', context));
+const fallback = ok(prepare({ sources: [source('unknown', '#FFFFFF', 'ASA Sparkle', [{ namespace: 'provider-material', value: 'unrecognized' }])] }));
 assert.match(fallback.sources[0].preset, /Generic ASA/);
 assert.ok(fallback.sources[0].warning);
+assert.deepEqual(ok(command('orc_get_device_filament_options', request({ sources: [source('unknown', '#FFFFFF', 'ASA Sparkle', [{ namespace: 'provider-material', value: 'unrecognized' }])] }))).options, [], 'picker retains its narrower matching policy on the same source');
 const mapped = ok(apply());
 assert.equal(mapped.result.mutation.history_entry_delta, 1);
 assert.equal(mapped.result.mutation.kind, 'synchronize');
@@ -71,7 +108,7 @@ ok(command('orc_history_redo', context));
 assert.equal(rack().slots.length, 1);
 // Color-only retains the project preset; native parallel colors stay multi-color.
 const retainedPreset = rack().slots[0].preset.name;
-ok(apply({ sources: [{ ...sources[0], materialType: 'ABS', catalogRefs: [], colour: { kind: 'parallel', colors: ['#112233', '#445566'] } }],
+ok(apply({ sources: [{ ...sources[0], materialType: 'ABS', catalogRefs: [{ namespace: 'provider-material', value: 'unrecognized' }], colour: { kind: 'parallel', colors: ['#112233', '#445566'] } }],
   mapping: [sources[0].slotId], replacements: [null], appendUnused: false, colourOnly: true }));
 assert.equal(rack().slots[0].preset.name, retainedPreset);
 assert.equal(rack().slots[0].colour.native.multi_colour, '#112233 #445566');

@@ -1948,6 +1948,13 @@ multi-color descriptions. Remaining
 quantity includes a unit and whether it is measured, estimated or unspecified.
 Vendor/catalogue references are namespaced and are not assumed to be Neo
 filament preset identifiers.
+An observed supply remains distinct from an eligible project-sync source.
+Source eligibility requires a non-empty normalized material catalogue identity;
+retained color or material type alone is insufficient. Presence is independent:
+an identified supply may still have empty or unknown presence. Sync and the
+installed-material dropdown share source conversion, native eligibility and
+native matching, with their different fallback ranges owned by the
+[Prepare synchronization rules](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization).
 
 Printer and material sync are shared application workflows that future agents
 must be able to reuse. Normalized observations and independent capabilities

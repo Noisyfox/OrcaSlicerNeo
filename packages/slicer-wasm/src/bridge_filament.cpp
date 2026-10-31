@@ -2129,12 +2129,26 @@ PresetBundle::FilamentSyncMatch resolve_material_source(PresetBundle& bundle, co
     return match;
 }
 
+bool has_material_identity(const json& source)
+{
+    // Orca gates both sync and picker matching on a reported filament ID.
+    // Use any provider-normalized catalogue association, never vendor numbering.
+    return std::any_of(source.at("catalogRefs").begin(), source.at("catalogRefs").end(),
+        [](const json& ref) { return !ref.value("value", "").empty(); });
+}
+
+json eligible_material_sources(const json& request)
+{
+    json sources = json::array();
+    for (const auto& source : request.at("sources")) if (has_material_identity(source)) sources.push_back(source);
+    return sources;
+}
+
 const Preset* resolve_material_picker_source(PresetBundle& bundle, const json& source)
 {
     // PresetComboBox::add_ams_filaments is stricter than full synchronization:
     // a reported material identity, then a compatible base or same-type Generic.
-    if (std::none_of(source.at("catalogRefs").begin(), source.at("catalogRefs").end(),
-        [](const json& ref) { return !ref.value("value", "").empty(); })) return nullptr;
+    if (!has_material_identity(source)) return nullptr;
     const auto match = resolve_material_source(bundle, source, "");
     if (!match.preset) return nullptr;
     const auto type = source.value("materialType", "");
@@ -2216,7 +2230,7 @@ json device_filament_options_command(const json& request, const Runtime& runtime
             throw FilamentCommandFailure("printer_model_mismatch", "The connected printer model does not match");
         validate_material_import(request);
         json options = json::array();
-        for (const auto& source : request.at("sources"))
+        for (const auto& source : eligible_material_sources(request))
             if (const auto* preset = resolve_material_picker_source(bundle, source))
                 options.push_back({{"slotId", source.at("slotId")}, {"preset", preset->name}, {"label", Profiles::preset_display_label(*preset)}});
         return {{"ok", true}, {"revision", state().history_revision}, {"options", options}};
@@ -2230,8 +2244,7 @@ json prepare_material_import_command(const json& request, const Runtime& runtime
         validate_material_import(request);
         json sources = json::array();
         auto& bundle = state().presets;
-        for (size_t i = 0; i < request["sources"].size(); ++i) {
-            const auto& source = request["sources"][i];
+        for (const auto& source : eligible_material_sources(request)) {
             const auto encode_match = [&](const std::string& previous) {
                 const auto match = resolve_material_source(bundle, source, previous);
                 return json{{"preset", match.preset ? json(match.preset->name) : json(nullptr)},
@@ -2259,24 +2272,28 @@ json apply_material_import_command(const json& request, const Runtime& runtime)
         const auto mode = request.at("mode").get<std::string>();
         if (mode != "mapping" && mode != "rebuild") throw std::runtime_error("Invalid synchronization mode");
         const bool color_only = request.at("colourOnly").get<bool>();
+        const auto eligible = eligible_material_sources(request);
         std::map<std::string, json> sources;
         for (const auto& source : request["sources"]) sources.emplace(source["slotId"].get<std::string>(), source);
+        if (eligible.empty())
+            throw FilamentCommandFailure("unresolved_material", "No eligible device materials to synchronize");
         std::vector<json> final_sources(count, json());
         std::set<std::string> used;
         if (mode == "mapping") {
             if (request.at("mapping").size() != count) throw std::runtime_error("Mapping must include the whole project rack");
             for (size_t i = 0; i < count; ++i) if (!request["mapping"][i].is_null()) {
                 const auto id = request["mapping"][i].get<std::string>();
-                final_sources[i] = sources.at(id); used.insert(id);
+                const auto& source = sources.at(id);
+                if (has_material_identity(source)) { final_sources[i] = source; used.insert(id); }
             }
         } else {
             final_sources.clear();
-            for (const auto& source : request["sources"]) final_sources.push_back(source);
-            if (final_sources.empty()) throw std::runtime_error("No eligible device materials to rebuild the rack");
+            for (const auto& source : eligible) final_sources.push_back(source);
+            if (color_only && final_sources.size() > count) final_sources.resize(count);
         }
         const auto initial_count = count;
         const auto refs = material_reference_kinds();
-        if (mode == "rebuild") while (count > final_sources.size()) {
+        if (mode == "rebuild" && !color_only) while (count > final_sources.size()) {
             const auto source = count - 1;
             const auto& replacement = request.at("replacements").at(source);
             if (!replacement.is_null() && (!replacement.is_number_unsigned() || replacement.get<size_t>() < 1 || replacement.get<size_t>() > final_sources.size()))
@@ -2309,7 +2326,7 @@ json apply_material_import_command(const json& request, const Runtime& runtime)
             if (i >= count) append();
             if (!final_sources[i].is_null()) apply(i, final_sources[i]);
         }
-        if (mode == "mapping" && request.at("appendUnused").get<bool>()) for (const auto& source : request["sources"]) {
+        if (mode == "mapping" && !color_only && request.at("appendUnused").get<bool>()) for (const auto& source : eligible) {
             if (used.count(source["slotId"].get<std::string>())) continue;
             const auto match = resolve_material_source(bundle, source, "");
             if (!match.preset) throw FilamentCommandFailure("unresolved_material", "No compatible Filament preset for an unused material");
