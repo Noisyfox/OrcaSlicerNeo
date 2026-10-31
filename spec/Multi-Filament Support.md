@@ -11,8 +11,8 @@ closes it.
 **Status:** Delivered native rack, assignments, flushing editor, Prime Tower and history behavior.
 Section 14 records the accepted nozzle-mapping design. Its native read-only
 projection, atomic edits, Plate-aware slicing, persistence and UI are delivered
-under sections 14.1–14.6. Section 14.7's Convenience Mode extension is accepted
-design with implementation and qualification pending.
+under sections 14.1–14.6. Section 14.7's Convenience Mode extension is implemented
+with real-WASM and host fixture acceptance; physical qualification remains pending.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -965,12 +965,12 @@ including real Electron integration and Web threaded/serial import, confirmation
 download, reopen and slicing. This does not claim Level 4 release qualification,
 physical printer validation or send-time AMS mapping.
 
-Section 14.7 records the accepted Orca-style Convenience Mode extension, with
-implementation and qualification pending. It extends device-dependent mode
-availability while retaining the existing manual-input/result separation and
-explicit-choice behavior for unavailable modes. Sections 14.1–14.6 record the
-delivered baseline and its qualification; their evidence does not qualify the
-new extension.
+Section 14.7 records the delivered Orca-style Convenience Mode extension. It
+extends device-dependent mode availability while retaining the existing
+manual-input/result separation and explicit-choice behavior for unavailable
+modes. Sections 14.1–14.6 record the
+delivered baseline and its qualification; section 14.7 records the extension's
+separate implementation and acceptance evidence.
 
 ### 14.1 Accepted scope and entry points
 
@@ -1175,8 +1175,7 @@ Preserve an imported `fmmAutoForMatch` mode and its mapping data. Its availabili
 follows section 14.7's native-topology and selected-device rules. While the mode
 is unavailable, show the reason and require an explicit user choice of Manual
 or supported Auto For Flush before slicing. Do not silently replace it with
-Auto For Flush. Convenience remains unavailable in the delivered baseline until
-the section 14.7 extension is implemented.
+Auto For Flush.
 
 #### 14.1.5 Confirmation before manual slicing
 
@@ -1716,12 +1715,11 @@ Level 3 implementation handoff.
 
 ### 14.7 Convenience Mode extension
 
-**Decision status:** Accepted design, 2026-10-31; implementation and qualification
-pending. Use Orca's device-list-driven `fmmAutoForMatch` behavior with the explicit
+**Decision status:** Implemented with software fixture acceptance, 2026-10-31;
+physical H2D + AMS and full release qualification remain pending. Use Orca's
+device-list-driven `fmmAutoForMatch` behavior with the explicit
 Neo policies below: preserve manual mapping inputs, retain unavailable saved
 modes until explicit user choice and add no slice-time hardware-sync prompt.
-Current runtime behavior remains the delivered baseline until the extension is
-implemented and qualified.
 
 #### Behavior reference and ownership
 
@@ -1919,3 +1917,51 @@ mixed diameters/flows and standard 3MF save/reopen without stored automatic maps
 Apply the existing testing guidelines to both WASM builds and focused host
 integration. Fixture acceptance does not establish real-device print
 qualification; Send remains independently validated.
+
+#### Implementation and software acceptance
+
+The [raw observation normalizer](../packages/printer-control/src/materialGrouping.ts)
+retains independent representative colors, stale same-source metadata and
+explicit tool/path associations without adopting Sync's catalogue-identity or
+presence filters. The [selected-device session](../packages/slicer-app/src/stores/useDeviceSelectionStore.ts)
+separates identity, advisory candidates and failed-pull state from project Sync
+evidence. [Ordered runtime publication](../packages/slicer-app/src/components/workspace/nozzleMapping/deviceMaterials.ts)
+is awaited by mapping operations and Slice. It performs no device reads and
+withdraws the prior native context even when a replacement publication failed.
+
+The [native bridge](../packages/slicer-wasm/src/bridge_nozzle_mapping.cpp)
+validates raw context atomically, checks native topology and selected-model
+eligibility, and installs candidate configs on the target Print before slicing.
+Changed candidates invalidate both wipe-tower and skirt/brim processing because
+by-layer and by-object grouping run in different passes. Observations remain
+outside history roots, editable mapping inputs and project archives.
+
+Acceptance on macOS ARM64 includes:
+
+- `pnpm test` and `pnpm typecheck`, affected package suites and publication,
+  acquisition failure/recovery, source replacement and UI tests.
+- Serial and threaded quick builds and the real-WASM
+  [Convenience harness](../packages/slicer-wasm/harness/convenience-mode-smoke.mjs):
+  selected identity before inventory, model mismatch, raw supplies without IDs,
+  left/right color swaps on reused Prints in both print sequences, native type
+  relaxation, external supplies, empty-list fallback, mixed diameters/flows,
+  unchanged input/history/manual maps and standard 3MF save/reopen/recompute.
+  Physical-tool placeholders expose actual extruding tools; ordinary Bambu
+  logical `T` identifiers alone are not treated as physical-tool evidence.
+- Existing serial native mapping slice and persistence harnesses, preserving
+  generic manual mapping, other automatic behavior and standard archive rules.
+  The existing full mapping journeys also pass on Electron threaded and Web
+  serial, including manual confirmation, cancellation, history, actual G-code
+  tools and project save/reopen.
+- Real [Electron Convenience](../apps/desktop/e2e/convenience-mode.e2e.ts)
+  and existing Prepare synchronization journeys, with provider IPC fixtures:
+  no prerequisite Sync, stale-cache availability, no menu/Slice device reads,
+  no automatic manual-map overwrite and no device control commands.
+- Real [Web import/admission](../apps/web/e2e/convenience-mode.e2e.ts)
+  on threaded and serial wasm64: saved unavailable Match remains selected,
+  both mapping surfaces retain it, Slice rejects without mode normalization,
+  and explicit Manual restores saved inputs. Web staging used `--soft` because
+  local wasm32 artifacts were absent; no wasm32 acceptance is claimed.
+
+These checks establish software behavior with fixtures, not physical printing,
+mixed-nozzle hardware acceptance or the full host/platform release matrix.

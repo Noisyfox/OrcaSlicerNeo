@@ -494,8 +494,9 @@ online gate, and adds no slice-time hardware-sync prompt. Printer/Filament Sync
 remain explicit existing workflows. Same-source cache reuse, existing-only pull
 acquisition, failed-pull candidate withdrawal and native candidate/fallback
 behavior are defined by that topic owner. Its initial fixed-dual coverage
-includes native-supported mixed diameters and flows. The extension's design
-is accepted; implementation and physical qualification remain pending.
+includes native-supported mixed diameters and flows. The extension is
+implemented with real-WASM and Electron/Web software acceptance; physical
+qualification remains pending. Its topic owner records the evidence and limits.
 
 ### Implementation and qualification
 

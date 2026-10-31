@@ -1967,7 +1967,9 @@ after failed explicit pulls and native candidate filtering/relaxation/fallback.
 These grouping policies do not relax project-import or command freshness rules.
 The accepted design adds no slice-time hardware-sync prompt and covers existing
 native-supported fixed-dual SEMM configurations, including mixed diameters and
-flows. The contract extension and feature are not implemented or qualified.
+flows. The contract extension and feature are implemented with software fixture
+acceptance; physical qualification remains pending. The feature topic owner
+records the native and host evidence.
 
 Printer and material sync are shared application workflows that future agents
 must be able to reuse. Normalized observations and independent capabilities
