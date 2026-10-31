@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createClient } from './client';
 import { createMockModule } from './testing/mock-module';
 import type { NozzleMappingSnapshot } from './nozzleMapping';
@@ -16,6 +16,17 @@ const fixture = (): NozzleMappingSnapshot => ({
 const client = (nozzleMapping: unknown) => createClient(async () => createMockModule({ nozzleMapping }));
 
 describe('nozzle mapping projection boundary', () => {
+  it('publishes raw device observations without treating them as a project edit', async () => {
+    const module = createMockModule(); const call = vi.spyOn(module, 'ccall');
+    const c = createClient(async () => module);
+    const before = await c.getHistoryStatus();
+    const value = { identity: { model: 'H2D', manufacturer: null, externalRefs: [] }, toolCount: 2,
+      materials: [{ slotId: 'opaque', toolIndex: 1, external: false, materialType: 'PLA', colour: '#FF0000', catalogRefs: [] }] };
+    expect(await c.setDeviceMaterialContext(value)).toEqual({ ok: true });
+    expect(call).toHaveBeenCalledWith('orc_set_device_material_context', 'number', ['string'], [JSON.stringify(value)]);
+    expect(await c.getHistoryStatus()).toEqual(before);
+    expect(await c.setDeviceMaterialContext(null)).toEqual({ ok: true });
+  });
   it('preserves non-dual manual mapping, hidden entries and absent saved values', async () => {
     const value = fixture();
     const c = client(value);

@@ -5,7 +5,7 @@ import type { UserPresetStorage, UserPresetKind, UserPresetRequest, UserPresetMu
 import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationPreparationRequest, ProfileActivationApplicationResult } from './setupWizard';
 import { createPaintingApi } from './paintingClient';
 import { decodeModelGeometry } from './modelGeometry';
-import type { NozzleMappingMutationResult, NozzleMappingRequest } from './nozzleMapping';
+import type { DeviceMaterialContext, NozzleMappingMutationResult, NozzleMappingRequest } from './nozzleMapping';
 import { decodeNozzleMapping } from './nozzleMapping';
 // packages/slicer-wasm/src/client/client.ts
 // ----------------------------------------------------------------
@@ -2294,6 +2294,13 @@ export function createClient(
     async getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult> {
       const m = await module();
       return normalizeFilamentSessionResult(callJson(m, 'orc_get_filament_session_snapshot', [], []));
+    },
+
+    async setDeviceMaterialContext(context: DeviceMaterialContext | null) {
+      const m = await module();
+      const raw = callJson(m, 'orc_set_device_material_context', ['string'], [JSON.stringify(context)]);
+      if (isRecord(raw) && raw.ok === true) return { ok: true as const };
+      return { ok: false as const, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid device material context response' };
     },
 
     async getNozzleMapping(plateId: string) {

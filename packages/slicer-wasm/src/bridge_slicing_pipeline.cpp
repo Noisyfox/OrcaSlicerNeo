@@ -952,6 +952,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             ScopedPlateModelContext model_context(state().model, *target_plate);
             print.apply(state().model, config);
         }
+        NozzleMapping::apply_device_materials(print);
         // Print::apply() may finish lazy native transform/config normalization
         // on the authoritative model while it constructs the reusable Print
         // snapshot. Refresh the history acceleration only after the scoped
