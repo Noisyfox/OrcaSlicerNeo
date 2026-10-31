@@ -116,7 +116,7 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     if (!route) throw new Error('This printer does not provide the observations required for synchronization.');
     setBusy(true); setError(null); setSelected(printer);
     await retainSourceObservation(printer, route);
-    const result = await readSynchronizationSource(service, printer, route, operation, controller.current.signal);
+    const result = await readSynchronizationSource(service, printer, route, operation, { signal: controller.current.signal, refresh: preserve });
     if (!live.current || controller.current.signal.aborted) return;
     if (!result.ok) throw new Error(result.error.message);
     setSource(result.value);

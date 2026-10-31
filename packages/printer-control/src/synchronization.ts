@@ -49,6 +49,8 @@ export function synchronizationSource(
     || !unique(inventory.state.slots.map(s => s.slotId))) return failure('invalid-request', 'Duplicate synchronization resource identity.');
   const ordered = descriptor?.topology.tools.map(t => ({ id: t.id, name: t.name, nozzle: descriptor.topology.nozzles.find(n => n.id === t.nozzleId) }))
     ?? inventory.toolIds.map(id => ({ id, name: id, nozzle: undefined }));
+  if (kind === 'printer' && (!ordered.length || ordered.length !== inventory.toolIds.length || ordered.some(t => !t.nozzle)))
+    return failure('offline', 'Required printer tool and nozzle observations are unavailable.');
   if (!unique(ordered.map(t => t.id)) || ordered.some(t => !inventory.toolIds.includes(t.id)))
     return failure('invalid-request', 'Synchronization tool references are inconsistent.');
   const tools = ordered.map(tool => ({ id: tool.id, name: tool.name, diameterMm: tool.nozzle?.diameterMm || null,
@@ -72,18 +74,38 @@ export function synchronizationSource(
     identity: descriptor?.identity ?? identity, tools, materials } };
 }
 export async function readSynchronizationSource(
-  service: D.PrinterService, printer: D.SavedPrinter, route: D.PrinterRoute, kind: SynchronizationKind, signal?: AbortSignal,
+  service: D.PrinterService, printer: D.SavedPrinter, route: D.PrinterRoute, kind: SynchronizationKind,
+  options: D.ReadOptions & { refresh?: boolean } = {},
 ): Promise<D.Result<SynchronizationSource>> {
   if (route.printerId !== printer.identity.id) return failure('invalid-target', 'Synchronization route does not belong to this printer.');
   const topics: ['materials', ...('descriptor' | 'materials')[]] = ['materials'];
   if (kind === 'printer' || route.capabilities.observations.descriptor.kind === 'supported') topics.push('descriptor');
   if (topics.some(topic => route.capabilities.observations[topic].kind !== 'supported'))
     return failure('unsupported', 'This route does not provide the required synchronization observations.');
-  const result = await service.observations.read({ target: { printerId: printer.identity.id, routeId: route.id }, topics, source: 'device' }, { signal });
-  if (!result.ok) return result;
-  if (result.value.target.printerId !== printer.identity.id || result.value.target.routeId !== route.id
-    || result.value.configurationRevision !== route.configurationRevision) return failure('stale-context', 'Printer connection settings changed.');
-  return synchronizationSource(result.value, printer.identity, kind);
+  const target = { printerId: printer.identity.id, routeId: route.id };
+  const normalize = (snapshot: D.PrinterSnapshot<'materials' | 'descriptor'>) => {
+    if (snapshot.target.printerId !== target.printerId || snapshot.target.routeId !== target.routeId
+      || snapshot.configurationRevision !== route.configurationRevision) return failure('stale-context', 'Printer connection settings changed.');
+    return synchronizationSource(snapshot, printer.identity, kind);
+  };
+  if (options.signal?.aborted) return failure('cancelled', 'Synchronization read cancelled.');
+  // Like Orca's connected MachineObject, a live source already owns current
+  // device state. On-demand-only agents still explicitly fetch on each sync.
+  const liveCache = topics.every(topic => {
+    const capability = route.capabilities.observations[topic];
+    return capability.kind === 'supported' && capability.constraints.delivery.some(d => d === 'push' || d === 'poll');
+  });
+  if (!options.refresh && liveCache) {
+    const cached = await service.observations.read({ target, topics, source: 'cache' }, { signal: options.signal });
+    if (options.signal?.aborted) return failure('cancelled', 'Synchronization read cancelled.');
+    if (cached.ok) {
+      const source = normalize(cached.value);
+      if (source.ok) return source;
+    } else if (cached.error.code === 'cancelled') return cached;
+  }
+  const result = await service.observations.read({ target, topics, source: 'device' }, { signal: options.signal });
+  if (options.signal?.aborted) return failure('cancelled', 'Synchronization read cancelled.');
+  return result.ok ? normalize(result.value) : result;
 }
 /** Confirmation checks local catalogue/cache only; never starts another device read or connection. */
 export async function validateSynchronizationSource(service: D.PrinterService, source: SynchronizationSource): Promise<D.Result<null>> {

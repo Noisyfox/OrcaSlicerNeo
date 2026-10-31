@@ -28,6 +28,11 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await dialog.getByRole('combobox', { name: 'Synchronization device' }).selectOption('bambu:a');
     await dialog.getByRole('button', { name: 'Connect and sync' }).click();
     await expect(dialog.getByRole('button', { name: 'Switch Printer and sync' })).toBeVisible();
+    const materialDeviceReadCount = () => app.evaluate(() => {
+      const requests = globalThis.bambuControlFixture.requests as { method: string; input: { source?: string; topics?: string[] } }[];
+      return requests.filter(r => r.method === 'read' && r.input.source === 'device' && r.input.topics?.includes('materials')).length;
+    });
+    expect(await materialDeviceReadCount()).toBe(0);
     await dialog.getByRole('button', { name: 'Switch Printer and sync' }).click();
     await expect(dialog.getByText('Printer synchronized. Continue with Filament sync?')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId('preset-select')).toContainText('H2D');
@@ -37,9 +42,11 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await expect(dialog.getByRole('combobox', { name: 'Filament sync mode' })).toHaveValue('rebuild');
     await expect(dialog.getByLabel('Device materials')).toContainText('AMS');
     await expect(dialog.getByRole('button', { name: 'Apply Filament sync' })).toBeEnabled();
+    expect(await materialDeviceReadCount()).toBe(0);
     const retainedTokens = await app.evaluate(() => [...globalThis.bambuControlFixture.tokens].sort());
     await dialog.getByRole('button', { name: 'Refresh device' }).click();
     await expect(dialog.getByRole('button', { name: 'Apply Filament sync' })).toBeEnabled();
+    expect(await materialDeviceReadCount()).toBe(1);
     await expect.poll(() => app.evaluate(() => [...globalThis.bambuControlFixture.tokens].sort())).toEqual(retainedTokens);
     await page.screenshot({ path: test.info().outputPath('filament-sync-review.png'), fullPage: true });
     await dialog.getByRole('button', { name: 'Apply Filament sync' }).click();

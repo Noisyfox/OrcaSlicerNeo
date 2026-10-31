@@ -1957,6 +1957,15 @@ device aliases/numbering, catalogue normalization and vendor policy belong to
 the agent. Native compatibility and reference transformations remain in their
 existing owners. Preserve opaque IDs, arbitrary reported resource cardinality
 within native limits, and both push-backed and explicit on-demand reads.
+Project synchronization may reuse fresh, coherent cached observations for
+topics maintained by push/poll delivery, without requiring another device
+round trip. Cache provenance and required tool/nozzle/material references must
+pass the same normalization as a device read; unrelated missing device
+resources do not block synchronization. Missing or unusable cached data triggers
+an explicit device read; on-demand-only sources and an explicit Refresh always
+perform that read. Failed refreshes remain failures. This selection uses
+observation capabilities rather than provider/model identity and does not
+weaken the pre-commit source or project revision checks.
 The [agent extensibility rules](Printer%20Console%20and%20Control%20Integration.md#agent-extensibility)
 apply even though the initial runtime integration is Bambu only; they do not
 authorize implementation of additional agents or a gateway.

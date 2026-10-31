@@ -41,7 +41,8 @@ async function fixture({ connected = true, model = 'X1 Carbon', stream = false, 
     host: { id: id('host'), name: 'Fixture', execution: 'browser' }, transport: { request: vi.fn(async () => { throw new Error('No hardware access'); }) } });
   const saved = await base.listSaved(); if (!saved.ok) throw new Error('fixture');
   const route: D.PrinterRoute = { ...saved.value[0].routes[0], id: target.routeId, printerId: target.printerId, configurationRevision: 'config' };
-  route.capabilities.observations.descriptor = materialOnly ? { kind: 'unsupported', layer: 'adapter', reason: 'Material-only agent' } : { kind: 'supported', constraints: { delivery: ['on-demand'] } };
+  route.capabilities.observations.descriptor = materialOnly ? { kind: 'unsupported', layer: 'adapter', reason: 'Material-only agent' }
+    : { kind: 'supported', constraints: { delivery: stream ? ['push', 'on-demand'] : ['on-demand'] } };
   route.capabilities.observations.materials = { kind: 'supported', constraints: { delivery: stream ? ['push', 'on-demand'] : ['on-demand'] } };
   const printer: D.SavedPrinter = { identity: { id: target.printerId, displayName: 'Generic fixture', manufacturer: 'Bambu Lab', model, serialNumber: null, externalRefs: [] }, routes: secondary ? [route, { ...route, id: id('second-route') }] : [route] };
   const topology: D.MaterialTopology = { units: [{ id: id('feeder'), name: 'Feeder', kind: 'automatic-feeder', sensorIds: [] }],
@@ -90,14 +91,37 @@ describe('Prepare synchronization workflow', () => {
     expect(synchronize).toHaveBeenCalledOnce();
     expect((await f.runtime.getHistoryStatus()).undoEntries).toHaveLength(1);
   });
-  it('opens only one material observation and device read under StrictMode', async () => {
+  it('uses one live observation under StrictMode and only fetches on explicit Refresh', async () => {
     const f = await fixture({ strict: true, stream: true });
     await start('filament');
     expect(f.watch).toHaveBeenCalledOnce();
-    expect(f.read.mock.calls.filter(([r]) => r.source === 'device')).toHaveLength(1);
+    expect(f.read.mock.calls.filter(([r]) => r.source === 'device')).toHaveLength(0);
     expect(f.container.textContent).toContain('Apply Filament sync');
+    await click(f.container, 'Refresh device');
+    expect(f.read.mock.calls.filter(([r]) => r.source === 'device')).toHaveLength(1);
+    expect(f.watch).toHaveBeenCalledOnce();
     await click(f.container, 'Cancel');
     expect(f.watch.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  });
+  it('shows model mismatch from the live cache and confirms Printer sync without a device round trip', async () => {
+    const f = await fixture({ stream: true, model: 'P1S' });
+    await start('printer');
+    expect(f.container.textContent).toContain('Switch the project Printer to match this device?');
+    expect((await f.runtime.getHistoryStatus()).undoEntries).toHaveLength(0);
+    expect(f.read.mock.calls.filter(([r]) => r.source === 'device')).toHaveLength(0);
+    await click(f.container, 'Switch Printer and sync');
+    expect(f.container.textContent).toContain('Printer synchronized.');
+    expect((await f.runtime.getHistoryStatus()).undoEntries).toHaveLength(1);
+    expect(f.read.mock.calls.filter(([r]) => r.source === 'device')).toHaveLength(0);
+  });
+  it('rejects a live-cache Printer confirmation if the source disconnects before acceptance', async () => {
+    const f = await fixture({ stream: true, model: 'P1S' });
+    await start('printer');
+    await act(async () => { f.disconnect(); await flush(); });
+    await click(f.container, 'Switch Printer and sync');
+    expect(f.container.textContent).toContain('Synchronization inventory changed');
+    expect((await f.runtime.getHistoryStatus()).undoEntries).toHaveLength(0);
+    expect(f.read.mock.calls.filter(([r]) => r.source === 'device')).toHaveLength(0);
   });
   it('uses the connected device, directly commits Printer once and leaves it when declining Filament', async () => {
     const f = await fixture(); const synchronize = vi.spyOn(f.runtime, 'synchronizePrinter');

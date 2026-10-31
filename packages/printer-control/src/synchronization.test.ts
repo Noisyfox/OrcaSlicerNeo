@@ -29,7 +29,7 @@ function snapshot(): D.PrinterSnapshot<'materials' | 'descriptor'> {
   } };
 }
 function inventory(s: ReturnType<typeof snapshot>) { if (s.values.materials?.kind !== 'known') throw new Error('fixture'); return s.values.materials.value; }
-async function fixture(s = snapshot()) {
+async function fixture(s = snapshot(), live = false) {
   const base = createMoonrakerService({ configuration: { load: async () => ({ version: 1, printers: [{ id: 'printer', displayName: 'Fixture', driverId: 'moonraker', apiBaseUrl: 'http://printer.local/', consoleUrl: '', apiKey: '' }] }), save: async () => {} },
     host: { id: id('host'), name: 'Host', execution: 'browser' }, transport: { request: vi.fn(async () => { throw new Error('Must not probe'); }) } });
   const saved = await base.listSaved(); if (!saved.ok) throw new Error('fixture');
@@ -37,8 +37,9 @@ async function fixture(s = snapshot()) {
   const route: D.PrinterRoute = { id: target.routeId, printerId: target.printerId, providerId: id('fixture'), label: 'On demand', configurationRevision: 'configuration',
     configuration: { typeId: id('fixture'), hostId: id('host'), channel: 'lan', address: 'printer.local', webInterfaceUrl: null, credentialRef: null },
     management: { rename: false, configure: false, forget: false }, capabilities: structuredClone(saved.value[0].routes[0].capabilities) };
-  route.capabilities.observations.descriptor = { kind: 'unsupported', layer: 'adapter', reason: 'Materials only' };
-  route.capabilities.observations.materials = { kind: 'supported', constraints: { delivery: ['on-demand'] } };
+  route.capabilities.observations.descriptor = live ? { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }
+    : { kind: 'unsupported', layer: 'adapter', reason: 'Materials only' };
+  route.capabilities.observations.materials = { kind: 'supported', constraints: { delivery: live ? ['push', 'on-demand'] : ['on-demand'] } };
   const printer: D.SavedPrinter = { identity, routes: [route] };
   const read = vi.fn(async <K extends D.StateTopic>(request: D.ObservationRequest<K> & { source: 'cache' | 'device' }): Promise<D.Result<D.PrinterSnapshot<K>>> => ({
     ok: true, value: { target, configurationRevision: s.configurationRevision,
@@ -48,6 +49,49 @@ async function fixture(s = snapshot()) {
   return { service, read, printer, route, s };
 }
 describe('project synchronization source boundary', () => {
+  it.each(['printer', 'filament'] as const)('uses a coherent live cache for %s without waiting for a device read', async kind => {
+    const f = await fixture(snapshot(), true);
+    expect(await readSynchronizationSource(f.service, f.printer, f.route, kind)).toMatchObject({ ok: true });
+    expect(f.read).toHaveBeenCalledOnce();
+    expect(f.read.mock.calls[0][0]).toMatchObject({ topics: ['materials', 'descriptor'], source: 'cache' });
+  });
+  it('uses required hardware from a partial global topology without requiring unrelated device resources', async () => {
+    const s = snapshot(); if (s.values.descriptor?.kind !== 'known') throw new Error('fixture');
+    s.values.descriptor.value.topology.completeness = 'partial';
+    const f = await fixture(s, true);
+    expect(await readSynchronizationSource(f.service, f.printer, f.route, 'printer')).toMatchObject({ ok: true });
+    expect(f.read.mock.calls.map(([request]) => request.source)).toEqual(['cache']);
+  });
+  it.each(['stale-materials', 'stale-descriptor', 'missing-descriptor', 'missing-nozzles', 'missing-tool', 'topology', 'route', 'configuration', 'unavailable'])(
+    'fetches current hardware when the cache is %s', async issue => {
+      const f = await fixture(snapshot(), true), cached = snapshot();
+      if (cached.values.materials?.kind !== 'known' || cached.values.descriptor?.kind !== 'known') throw new Error('fixture');
+      if (issue === 'stale-materials') cached.values.materials.freshness = 'stale';
+      if (issue === 'stale-descriptor') cached.values.descriptor.freshness = 'stale';
+      if (issue === 'missing-nozzles') cached.values.descriptor.value.topology.nozzles = [];
+      if (issue === 'missing-tool') cached.values.descriptor.value.topology.tools = cached.values.descriptor.value.topology.tools.slice(1);
+      if (issue === 'missing-descriptor') delete cached.values.descriptor;
+      if (issue === 'topology') inventory(cached).topologyRevision = 'changed';
+      if (issue === 'route') cached.target = { ...target, routeId: id('other-route') };
+      if (issue === 'configuration') cached.configurationRevision = 'other-configuration';
+      f.read.mockImplementationOnce(async () => issue === 'unavailable'
+        ? { ok: false, error: { code: 'transport', message: 'Cache unavailable' } } : { ok: true, value: cached });
+      expect(await readSynchronizationSource(f.service, f.printer, f.route, 'printer')).toMatchObject({ ok: true });
+      expect(f.read.mock.calls.map(([request]) => request.source)).toEqual(['cache', 'device']);
+    });
+  it('keeps explicit Refresh as a device read and never replaces a failed refresh with cached data', async () => {
+    const f = await fixture(snapshot(), true);
+    f.read.mockResolvedValueOnce({ ok: false, error: { code: 'offline', message: 'Device unavailable' } });
+    expect(await readSynchronizationSource(f.service, f.printer, f.route, 'printer', { refresh: true })).toMatchObject({ ok: false, error: { code: 'offline' } });
+    expect(f.read).toHaveBeenCalledOnce();
+    expect(f.read.mock.calls[0][0].source).toBe('device');
+  });
+  it('does not start a device fallback when the cache read was cancelled', async () => {
+    const f = await fixture(snapshot(), true), controller = new AbortController();
+    f.read.mockImplementationOnce(async () => { controller.abort(); return { ok: true, value: snapshot() }; });
+    expect(await readSynchronizationSource(f.service, f.printer, f.route, 'printer', { signal: controller.signal })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+    expect(f.read.mock.calls.map(([request]) => request.source)).toEqual(['cache']);
+  });
   it('retains arbitrary tool order and five-slot topology, counts distinct physical slots and includes retained empty/unknown metadata', () => {
     const result = synchronizationSource(snapshot(), identity, 'printer'); if (!result.ok) throw new Error(result.error.message);
     expect(result.value.tools.map(t => [t.id, t.diameterMm, t.capacity])).toEqual([['opaque:C', 0.4, 2], ['opaque:A', 0.6, 2], ['opaque:Z', 0.4, 1]]);

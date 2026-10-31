@@ -127,6 +127,16 @@ At each manual sync invocation, automatically use the currently connected
 printer. If no printer is connected, open a device chooser. Choosing a device
 connects it and makes it Device's current printer before starting the selected
 sync workflow. Failure to connect/read does not apply project changes.
+For a source whose required observation topics support push/poll delivery, use
+its fresh, coherent cached snapshot directly, as Orca uses its connected
+device state. Do not require a post-click telemetry message before showing a
+model-mismatch confirmation or applying the local synchronization. Missing,
+stale, incomplete or inconsistent required observations fall back to one
+explicit device read. On-demand-only sources still fetch on each sync. The
+Filament dialog's explicit Refresh always requests device data, preserves the
+mapping draft and never treats a failed refresh as a successful cached read.
+Both read paths retain the same source/configuration and project revision
+validation before native application.
 Canceling a necessary Printer confirmation or the Filament dialog leaves the
 selected device connected and current in Device; it cancels only the pending
 project mutation. Selection in Device alone must not be treated as permission
