@@ -38,9 +38,12 @@ async function expectFilamentRackReady(page: Page): Promise<void> {
 
 async function exportCompletedGcode(page: Page, exportPath: string): Promise<string> {
   const previousMtime = existsSync(exportPath) ? statSync(exportPath).mtimeMs : null;
-  await selectGcodeOutput(page, 'export');
+  await selectGcodeOutput(page, 'export', { noWaitAfter: true });
   const button = page.getByTestId('btn-export');
-  await button.click();
+  // Export stays in this document. As with the Preview tab below, Electron
+  // can leave Playwright's post-click wait pending after dispatch. The file
+  // update and re-enabled button below prove the actual save completed.
+  await button.click({ noWaitAfter: true });
   // Creation/mtime proves this export started, but writeFile may still be
   // writing the toolpath and trailing configuration. The button is enabled
   // again only after the awaited Electron write has settled.
