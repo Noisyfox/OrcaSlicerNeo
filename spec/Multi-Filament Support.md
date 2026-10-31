@@ -12,7 +12,8 @@ closes it.
 Section 14 records the accepted nozzle-mapping design. Its native read-only
 projection, atomic edits, Plate-aware slicing, persistence and UI are delivered
 under sections 14.1–14.6. Section 14.7's Convenience Mode extension is implemented
-with real-WASM and host fixture acceptance; physical qualification remains pending.
+with real-WASM, host fixture and LAN read-only hardware-backed grouping acceptance;
+physical printing qualification remains pending.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -1715,8 +1716,9 @@ Level 3 implementation handoff.
 
 ### 14.7 Convenience Mode extension
 
-**Decision status:** Implemented with software fixture acceptance, 2026-10-31;
-physical H2D + AMS and full release qualification remain pending. Use Orca's
+**Decision status:** Implemented with software fixture and LAN read-only hardware
+acceptance, 2026-10-31; physical printing, mixed-nozzle hardware and full release
+qualification remain pending. Use Orca's
 device-list-driven `fmmAutoForMatch` behavior with the explicit
 Neo policies below: preserve manual mapping inputs, retain unavailable saved
 modes until explicit user choice and add no slice-time hardware-sync prompt.
@@ -1965,3 +1967,47 @@ Acceptance on macOS ARM64 includes:
 
 These checks establish software behavior with fixtures, not physical printing,
 mixed-nozzle hardware acceptance or the full host/platform release matrix.
+
+#### LAN read-only hardware-backed grouping acceptance
+
+On 2026-10-31, the production Electron build on macOS ARM64 was exercised with
+the real native networking plugin and the existing independent LAN acceptance
+profile. No E2E overrides, mock providers or Cloud login were used. Home reported
+`Not signed in`; the operating-system socket table showed the Bambu utility's
+established connection to the saved H2D on LAN TCP 8883. Socket snapshots showed
+only the printer connection and a loopback listener, with no established Cloud
+TCP connection observed.
+
+Live reports described two 0.4 mm hardened-steel standard-flow HS01 nozzles,
+AMS 0 routed to the left extruder and AMS 2 Pro 1 routed to the right. These are
+observed routing assignments for this run, not fixed model assumptions. A local
+cube used project material 1 with Generic PETG; neither Printer Sync nor Filament
+Sync was performed in this session. The unused second project material remained
+unchanged. The Slice submenu and Plate control both selected Convenience Mode.
+
+| Project material 1 color | Retained manual nozzle | Convenience G-code target | Serialized G-code filament map |
+| --- | --- | --- | --- |
+| `#303CB0` (blue) | Nozzle 2 | Left / physical tool 0 | `1,1` |
+| `#80CFE0` (cyan) | Nozzle 1 | Right / physical tool 1 | `2,1` |
+
+The target evidence combines the exported native filament map with actual
+model-extrusion tool selections; a Bambu logical `T` index alone is insufficient.
+Switching back to Manual after each slice retained the deliberately opposite
+assignment. After slicing, Save remained disabled for the previously saved
+project, and the mapping Undo label did not advance. Standard 3MF mapping fields
+retained the selected Match mode and manual inputs rather than the automatic
+result; a before/after archive comparison confirmed the retained cyan mapping.
+
+After a normal close and restart, the saved LAN device returned to Live without
+credential entry and Cloud remained signed out. Reopening the saved 3MF restored
+Match; slicing again recomputed the cyan material to physical tool 1 while its
+saved manual map still assigned Nozzle 1. Local ignored evidence, including the
+3MF baselines, three G-code exports and deidentified result summaries, is under
+`.vitest/convenience-lan/`. The staged threaded WASM matched the built artifact
+(`b4e42e85c47201d6d781df74730fa8cee53e063528fccbf42ad723279e105b56`).
+
+This acceptance performed device reads and local slicing/export only. It sent
+no files, invoked no Send/Send & Print action, and performed no heating, motion,
+extrusion or material controls. The independent profile's submission directory
+remained empty. Physical printing/feeding/nozzle switching, mixed-nozzle hardware,
+Cloud, forced network loss/recovery and the full release matrix remain unqualified.

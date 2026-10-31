@@ -495,8 +495,9 @@ remain explicit existing workflows. Same-source cache reuse, existing-only pull
 acquisition, failed-pull candidate withdrawal and native candidate/fallback
 behavior are defined by that topic owner. Its initial fixed-dual coverage
 includes native-supported mixed diameters and flows. The extension is
-implemented with real-WASM and Electron/Web software acceptance; physical
-qualification remains pending. Its topic owner records the evidence and limits.
+implemented with real-WASM and Electron/Web software acceptance, plus LAN-only
+H2D device reads, grouping and local slicing/export without submission. Physical
+printing remains unqualified. Its topic owner records the evidence and limits.
 
 ### Implementation and qualification
 
