@@ -220,7 +220,7 @@ it.each(['solid', 'parallel', 'gradient'] as const)('uses the shared translucent
     f.material.state.slots = [{ slotId: slot, presence: f.known('present'), spoolIdentity: unknown, remaining: unknown,
       material: f.known({ materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [],
         color: appearance === 'solid' ? { kind: 'solid', rgba: '#ffffff00' }
-          : { kind: 'multiple', rgba: ['#ffffff00', '#ff0000'], appearance } }),
+          : { kind: 'multiple', rgba: ['#ffffff00', '#ff0000'], representativeRgba: '#ffffff00', appearance } }),
     }];
     await f.render();
     const swatch = f.element.querySelector<HTMLElement>('[aria-label="Material color"]')!;

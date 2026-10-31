@@ -322,7 +322,7 @@ function materialInventory(p: Report, extruders: Report[], toolIds: D.Id<'tool'>
     const rawColor = text(tray.tray_color), rgba = rawColor && /^[\da-fA-F]{8}$/.test(rawColor) ? `#${rawColor}` : null;
     const colors = Array.isArray(tray.cols) ? tray.cols.filter((color): color is string => typeof color === 'string' && /^[\da-fA-F]{8}$/.test(color)).map(color => `#${color}`) : [];
     const material: D.MaterialMetadata = { materialType: text(tray.tray_type) ?? null, manufacturer: text(tray.tray_sub_brands) ?? null,
-      color: colors.length > 1 ? { kind: 'multiple', rgba: colors, appearance: 'unknown' } : rgba ? { kind: 'solid', rgba } : null,
+      color: colors.length > 1 ? { kind: 'multiple', rgba: colors, representativeRgba: rgba, appearance: 'unknown' } : rgba ? { kind: 'solid', rgba } : null,
       diameterMm: number(tray.tray_diameter) ?? null, catalogRefs: materialCatalogRefs(text(tray.tray_info_idx)) };
     const tag = text(tray.tray_uuid) || text(tray.tag_uid);
     // Presence is a hardware bitmap, never inferred from metadata (which may be stale).
