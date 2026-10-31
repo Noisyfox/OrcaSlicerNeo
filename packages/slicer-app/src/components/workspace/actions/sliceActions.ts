@@ -1,5 +1,6 @@
 import { mappingConfirmation } from '../nozzleMapping/mappingConfirmation';
 import { commitNozzleMapping } from '../nozzleMapping/nozzleMappingActions';
+import { synchronizeDeviceMaterials } from '../nozzleMapping/deviceMaterials';
 import { paintingCommandAllowed, closePaintingForCommand, paintingSessionActive } from '../viewport/gizmo/painting/projectCommands';
 import { readProjectHistoryStatus, runProjectMutationOperation } from './historyMutation';
 import type { PlatformCapabilities } from '@orca/platform-contract';
@@ -134,6 +135,7 @@ async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlat
   }
   let target: PlateOperationTarget = { plateId, inputRevision: revision as number };
   try {
+    await synchronizeDeviceMaterials(platform.runtime);
     const mapping = await platform.runtime.getNozzleMapping(plateId);
     if (!mapping.ok) { setFailure(mapping.error); return; }
     if (mapping.revision !== target.inputRevision) { setFailure('Plate inputs changed before mapping confirmation'); return; }

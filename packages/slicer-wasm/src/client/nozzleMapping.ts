@@ -1,5 +1,19 @@
 import type { HistoryContext, HistoryStatus } from './history';
-import type { PlateSessionMutationResult, NativeScopedConfigTransport } from './types';
+import type { PlateSessionMutationResult, NativeScopedConfigTransport, PrinterSynchronizationRequest } from './types';
+
+/** Current device observations, never project inputs or a persistent supply binding. */
+export interface DeviceMaterialContext {
+  readonly identity: PrinterSynchronizationRequest['identity'];
+  readonly toolCount: number;
+  readonly materials: readonly {
+    readonly slotId: string;
+    readonly toolIndex: number;
+    readonly external: boolean;
+    readonly materialType: string;
+    readonly colour: string | null;
+    readonly catalogRefs: readonly { readonly namespace: string; readonly value: string }[];
+  }[];
+}
 
 /** Native enum values are part of the standard Orca 3MF contract. */
 export type NozzleMappingMode = 0 | 1 | 2 | 3;
@@ -54,6 +68,7 @@ export type NozzleMappingMutationResult = Exclude<NozzleMappingResult, NozzleMap
   readonly nativeScopedConfig?: NativeScopedConfigTransport;
 };
 export interface NozzleMappingMethods {
+  setDeviceMaterialContext(context: DeviceMaterialContext | null): Promise<{ ok: true } | { ok: false; error: string }>;
   configureNozzleCapacityMemory(memory: Record<string, number[]>, initializeNewProject: boolean): Promise<{ ok: true } | { ok: false; error: string }>;
   mutateNozzleMapping(request: NozzleMappingRequest, context: HistoryContext): Promise<NozzleMappingMutationResult>;
   getNozzleMapping(plateId: string): Promise<NozzleMappingResult>;

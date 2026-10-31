@@ -5,11 +5,13 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { waitForConfigurationMutations } from '../settings/configurationActions';
 import { readProjectMutationReservation } from '../actions/historyMutation';
+import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
+import { deviceMaterialPublicationVersion, synchronizeDeviceMaterials, useDeviceMaterialSession } from './deviceMaterials';
 
 type Runtime = PlatformCapabilities['runtime'];
-type Key = { plateId: string; plateRevision: number | undefined; revision: number | undefined };
+type Key = { plateId: string; plateRevision: number | undefined; revision: number | undefined; deviceRevision: number };
 type Loaded = { key: Key; snapshot: NozzleMappingSnapshot | null; error: string | null };
-const sameKey = (a: Key | undefined, b: Key) => a?.plateId === b.plateId && a.plateRevision === b.plateRevision && a.revision === b.revision;
+const sameKey = (a: Key | undefined, b: Key) => a?.plateId === b.plateId && a.plateRevision === b.plateRevision && a.revision === b.revision && a.deviceRevision === b.deviceRevision;
 
 /** One bounded, read-only projection per live Plate/runtime. Native receipts
  * remain authoritative; a new key never grants editability to an old value. */
@@ -30,7 +32,7 @@ function createProjection(runtime: Runtime) {
     },
     publish: (snapshot: NozzleMappingSnapshot, revision: number) => {
       requests.delete(snapshot.plateId); // A late read cannot replace this receipt.
-      entries.set(snapshot.plateId, { key: { plateId: snapshot.plateId, plateRevision: snapshot.revision, revision }, snapshot, error: null });
+      entries.set(snapshot.plateId, { key: { plateId: snapshot.plateId, plateRevision: snapshot.revision, revision, deviceRevision: deviceMaterialPublicationVersion(runtime) }, snapshot, error: null });
       emit();
     },
     read: (key: Key) => {
@@ -41,7 +43,7 @@ function createProjection(runtime: Runtime) {
         if (requests.get(key.plateId) !== request) return;
         requests.delete(key.plateId); entries.set(key.plateId, { key, snapshot, error }); emit();
       };
-      void waitForConfigurationMutations().then(() => readProjectMutationReservation(() =>
+      void waitForConfigurationMutations().then(() => synchronizeDeviceMaterials(runtime)).then(() => readProjectMutationReservation(() =>
         requests.get(key.plateId) === request ? runtime.getNozzleMapping(key.plateId) : Promise.resolve(null),
       )).then(result => {
         if (result) complete(result.ok ? result : null, result.ok ? null : result.error);
@@ -63,6 +65,8 @@ export function publishNozzleMappingSnapshot(runtime: Runtime, snapshot: NozzleM
 
 export function useNozzleMapping(enabled = true) {
   const { runtime } = usePlatform();
+  useDeviceMaterialSession(runtime);
+  const deviceRevision = useDeviceSelectionStore(s => s.groupingVersion);
   const plates = usePlateSessionStore(s => s.snapshot);
   const plateId = plates?.currentPlateId;
   const plateRevision = plateId ? plates?.inputRevisions?.[plateId] : undefined;
@@ -74,10 +78,10 @@ export function useNozzleMapping(enabled = true) {
   if (previousRuntime.current !== runtime) { previous.current = null; previousRuntime.current = runtime; }
   useEffect(() => {
     projection.retain(plates?.plates.map(p => p.plateId) ?? []);
-    if (enabled && plateId) projection.read({ plateId, plateRevision, revision });
-  }, [projection, enabled, plateId, plateRevision, revision, plates]);
+    if (enabled && plateId) projection.read({ plateId, plateRevision, revision, deviceRevision });
+  }, [projection, enabled, plateId, plateRevision, revision, deviceRevision, plates]);
   const loaded = plateId ? projection.entries.get(plateId) : undefined;
-  const current = enabled && plateId && loaded && sameKey(loaded.key, { plateId, plateRevision, revision }) &&
+  const current = enabled && plateId && loaded && sameKey(loaded.key, { plateId, plateRevision, revision, deviceRevision }) &&
     (!loaded.snapshot || loaded.snapshot.revision === plateRevision);
   if (!enabled || !plateId) previous.current = null;
   else if (loaded) previous.current = loaded.snapshot;

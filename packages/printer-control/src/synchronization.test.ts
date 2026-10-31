@@ -92,6 +92,15 @@ describe('project synchronization source boundary', () => {
     expect(await readSynchronizationSource(f.service, f.printer, f.route, 'printer', { signal: controller.signal })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
     expect(f.read.mock.calls.map(([request]) => request.source)).toEqual(['cache']);
   });
+  it('publishes the acquired raw snapshot without a second cache read and reports pull failure', async () => {
+    const f = await fixture(), onRead = vi.fn();
+    expect(await readSynchronizationSource(f.service, f.printer, f.route, 'filament', { onRead })).toMatchObject({ ok: true });
+    expect(f.read).toHaveBeenCalledOnce();
+    expect(onRead).toHaveBeenCalledWith(expect.objectContaining({ ok: true }), 'device');
+    f.read.mockRejectedValueOnce(new Error('Pull failed'));
+    expect(await readSynchronizationSource(f.service, f.printer, f.route, 'filament', { onRead })).toMatchObject({ ok: false });
+    expect(onRead).toHaveBeenLastCalledWith({ ok: false, error: { code: 'transport', message: 'Pull failed' } }, 'device');
+  });
   it('retains arbitrary tool order and five-slot topology, counts distinct physical slots and includes retained empty/unknown metadata', () => {
     const result = synchronizationSource(snapshot(), identity, 'printer'); if (!result.ok) throw new Error(result.error.message);
     expect(result.value.tools.map(t => [t.id, t.diameterMm, t.capacity])).toEqual([['opaque:C', 0.4, 2], ['opaque:A', 0.6, 2], ['opaque:Z', 0.4, 1]]);

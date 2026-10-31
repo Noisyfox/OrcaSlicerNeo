@@ -2616,6 +2616,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_filament_session_snapshot() {
       return filamentSessionSnapshot();
     },
+    orc_set_device_material_context(_request: string) {
+      return { ok: true };
+    },
     orc_mutate_nozzle_mapping(_request: string) {
       return opts.nozzleMappingMutation ?? { ok: false, errorCode: 'plate_not_found', error: 'No mapping fixture supplied' };
     },
@@ -4167,6 +4170,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_filament_session_snapshot: { ret: 'number', args: [] },
     orc_mutate_nozzle_mapping: { ret: 'number', args: ['string'] },
     orc_get_nozzle_mapping: { ret: 'number', args: ['string'] },
+    orc_set_device_material_context: { ret: 'number', args: ['string'] },
     orc_select_filament_slot_preset: { ret: 'number', args: ['string'] },
     orc_set_filament_slot_colour: { ret: 'number', args: ['string'] },
     orc_add_filament_slot: { ret: 'number', args: ['string'] },

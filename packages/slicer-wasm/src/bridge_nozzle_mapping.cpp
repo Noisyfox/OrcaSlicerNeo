@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cctype>
 #include <limits>
 #include <map>
 #include <set>
@@ -53,7 +54,96 @@ json saved_mode(const DynamicPrintConfig& config)
     const auto* value = config.option("filament_map_mode");
     return value ? json(value->getInt()) : json(nullptr);
 }
+
+bool match_topology_supported(const DynamicPrintConfig& printer)
+{
+    const auto* counts = printer.opt<ConfigOptionIntsNullable>("extruder_max_nozzle_count");
+    const bool multiple = counts && std::any_of(counts->values.begin(), counts->values.end(), [](int count) {
+        return count > 1 && count != ConfigOptionIntsNullable::nil_value();
+    });
+    const auto* switcher = printer.opt<ConfigOptionBool>("has_filament_switcher");
+    const auto* project_switcher = state().presets.project_config.opt<ConfigOptionBool>("has_filament_switcher");
+    return !multiple && (!switcher || !switcher->value) && (!project_switcher || !project_switcher->value);
+}
+
+bool selected_device_matches()
+{
+    const auto& context = state().device_material_context;
+    return !context.is_null() && Profiles::device_model_matches(
+        state().presets.printers.get_selected_preset(), context.at("identity"));
+}
 } // namespace
+
+json set_device_material_context(const json& context)
+{
+    if (!context.is_null()) {
+        if (!context.is_object() || !context.contains("identity") || !context["identity"].is_object() ||
+            !context.contains("toolCount") || !context["toolCount"].is_number_unsigned() ||
+            context["toolCount"].get<std::uint64_t>() > MAXIMUM_EXTRUDER_NUMBER ||
+            !context.contains("materials") || !context["materials"].is_array())
+            throw std::invalid_argument("Invalid device material context");
+        const auto& identity = context.at("identity");
+        for (const auto* key : {"model", "manufacturer"})
+            if (!identity.contains(key) || !(identity[key].is_null() || identity[key].is_string()))
+                throw std::invalid_argument("Invalid device model identity");
+        if (!identity.contains("externalRefs") || !identity["externalRefs"].is_array())
+            throw std::invalid_argument("Invalid device catalogue references");
+        const auto validate_refs = [](const json& refs) {
+            if (!refs.is_array()) throw std::invalid_argument("Invalid material catalogue references");
+            for (const auto& ref : refs)
+                if (!ref.is_object() || !ref.contains("namespace") || !ref["namespace"].is_string() ||
+                    !ref.contains("value") || !ref["value"].is_string())
+                    throw std::invalid_argument("Invalid catalogue reference");
+        };
+        validate_refs(identity.at("externalRefs"));
+        std::set<std::pair<std::string, unsigned>> supplied;
+        for (const auto& item : context.at("materials")) {
+            if (!item.is_object() || !item.contains("slotId") || !item["slotId"].is_string() || item["slotId"] == "" ||
+                !item.contains("toolIndex") || !item["toolIndex"].is_number_unsigned() ||
+                item["toolIndex"].get<std::uint64_t>() >= context["toolCount"].get<std::uint64_t>() ||
+                !item.contains("external") || !item["external"].is_boolean() ||
+                !item.contains("materialType") || !item["materialType"].is_string() || !item.contains("colour") ||
+                !(item["colour"].is_null() || item["colour"].is_string()) || !item.contains("catalogRefs"))
+                throw std::invalid_argument("Invalid device material");
+            if (!supplied.emplace(item["slotId"].get<std::string>(), item["toolIndex"].get<unsigned>()).second)
+                throw std::invalid_argument("Duplicate device supply");
+            validate_refs(item.at("catalogRefs"));
+            if (!item["colour"].is_null()) {
+                const auto color = item["colour"].get<std::string>();
+                if ((color.size() != 7 && color.size() != 9) || color.front() != '#' ||
+                    !std::all_of(color.begin() + 1, color.end(), [](unsigned char c) { return std::isxdigit(c); }))
+                    throw std::invalid_argument("Invalid device representative color");
+            }
+        }
+    }
+    state().device_material_context = context;
+    return {{"ok", true}};
+}
+
+void apply_device_materials(Print& print)
+{
+    std::vector<std::vector<DynamicPrintConfig>> materials(2);
+    const auto& context = state().device_material_context;
+    if (selected_device_matches() && context.at("toolCount") == 2) {
+        for (const auto& item : context.at("materials")) {
+            DynamicPrintConfig material;
+            material.set_key_value("filament_type", new ConfigOptionStrings{item.at("materialType").get<std::string>()});
+            material.set_key_value("filament_colour", new ConfigOptionStrings{item.at("colour").is_null() ? "" : item.at("colour").get<std::string>()});
+            material.set_key_value("tray_name", new ConfigOptionStrings{item.at("external").get<bool>() ? "Ext" : item.at("slotId").get<std::string>()});
+            bool support = false;
+            for (const auto& ref : item.at("catalogRefs")) {
+                if (ref.at("namespace") != "orca-filament") continue;
+                const auto info = state().presets.get_filament_by_filament_id(ref.at("value").get<std::string>());
+                if (info) { support = info->is_support; break; }
+            }
+            material.set_key_value("filament_is_support", new ConfigOptionBools{support});
+            materials[item.at("toolIndex").get<unsigned>()].push_back(std::move(material));
+        }
+    }
+    if (materials != print.get_extruder_filament_info()) {
+        print.set_extruder_filament_info(materials);
+    }
+}
 
 std::vector<int> decode_capacities(const DynamicPrintConfig& config, std::size_t nozzles)
 {
@@ -208,6 +298,10 @@ json projection(const std::string& plate_id)
     const bool automatic = eligible && nozzles == 2 && state().presets.is_bbl_vendor();
     const std::string automatic_reason = !eligible ? "Requires SEMM and multiple extruders"
         : !automatic ? "Automatic filament saving is unavailable for this printer topology" : "";
+    const bool match_supported = automatic && match_topology_supported(printer);
+    const bool match_available = match_supported && selected_device_matches();
+    const std::string match_reason = !match_supported ? "Convenience Mode is unavailable for this printer topology"
+        : !match_available ? "Select a device matching the project Printer to use Convenience Mode" : "";
     const auto capacities = decode_capacities(project, nozzles);
     const auto count = Filament::State::material_slot_count(project);
     const auto maps = effective_map(plate->settings, project, "filament_map", count, 1);
@@ -243,7 +337,7 @@ json projection(const std::string& plate_id)
         {"eligible", eligible}, {"nozzles", heads}, {"usedFilaments", used},
         {"modes", json::array({
             {{"mode", int(fmmAutoForFlush)}, {"available", automatic}, {"reason", automatic_reason}},
-            {{"mode", int(fmmAutoForMatch)}, {"available", false}, {"reason", "Device material synchronization is unavailable"}},
+            {{"mode", int(fmmAutoForMatch)}, {"available", match_available}, {"reason", match_reason}},
             {{"mode", int(fmmManual)}, {"available", eligible}, {"reason", eligible ? "" : "Requires SEMM and multiple extruders"}},
             {{"mode", int(fmmNozzleManual)}, {"available", eligible}, {"reason", eligible ? "" : "Requires SEMM and multiple extruders"}}
         })},
@@ -401,6 +495,14 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_nozzle_mapping(const char* p
         return duplicate_json(nlohmann::json{{"ok", false}, {"errorCode", "native_exception"},
             {"error", "Unknown nozzle mapping projection failure"}}.dump());
     }
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_set_device_material_context(const char* request)
+{
+    using namespace Slic3r::Neo::Bridge;
+    try { return Profiles::duplicate_json(NozzleMapping::set_device_material_context(nlohmann::json::parse(request ? request : "")).dump()); }
+    catch (const std::exception& error) { return Profiles::duplicate_json(nlohmann::json{{"ok", false}, {"error", error.what()}}.dump()); }
+    catch (...) { return Profiles::duplicate_json("{\"ok\":false,\"error\":\"Invalid device material context\"}"); }
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_mutate_nozzle_mapping(const char* request)

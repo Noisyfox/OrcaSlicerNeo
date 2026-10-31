@@ -465,9 +465,10 @@ Do not port wxWidgets dialogs or expose Orca's MachineObject as a shared API.
 
 Imported project materials do not establish Send's physical material-path
 bindings. Print preparation still validates the current target independently.
-Auto For Match, dynamic switcher-based slicing, hotend racks and multi-nozzle
-inventory selection are outside this first delivery; their presence in the
-Orca implementation is not authorization to enable them here.
+Auto For Match is owned by the separate accepted Convenience extension below,
+not by project-material import. Dynamic switcher-based slicing, hotend racks
+and multi-nozzle inventory selection remain outside this delivery; their
+presence in Orca is not authorization to enable them here.
 
 ### Initial device coverage
 
@@ -481,9 +482,22 @@ runtime support solely because these contracts exist.
 
 H2D + AMS is the first physical acceptance target. Fixture or development-host
 acceptance does not establish real-device qualification for every enabled
-model, transport or host. Hotend racks, dynamic switcher-based mapping,
-Auto For Match and physical sub-nozzle inventory selection remain deferred
-under the scope exclusions above.
+model, transport or host. Hotend racks, dynamic switcher-based mapping and
+physical sub-nozzle inventory selection remain deferred under the scope
+exclusions above.
+
+The separate [accepted Convenience Mode extension](Multi-Filament%20Support.md#147-convenience-mode-extension)
+uses a current device-material session list for native slicing without requiring
+project Filament import. It preserves automatic input/result separation and
+unavailable saved modes, uses selection/model-based eligibility without an
+online gate, and adds no slice-time hardware-sync prompt. Printer/Filament Sync
+remain explicit existing workflows. Same-source cache reuse, existing-only pull
+acquisition, failed-pull candidate withdrawal and native candidate/fallback
+behavior are defined by that topic owner. Its initial fixed-dual coverage
+includes native-supported mixed diameters and flows. The extension is
+implemented with real-WASM and Electron/Web software acceptance, plus LAN-only
+H2D device reads, grouping and local slicing/export without submission. Physical
+printing remains unqualified. Its topic owner records the evidence and limits.
 
 ### Implementation and qualification
 

@@ -63,7 +63,7 @@ assert.deepEqual(ok(projection(second)).effective.filamentMap, [2, 1], 'automati
 configure({ plate_settings: { [second]: { filament_map_mode: 'Auto For Match' } } });
 const rejected = await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'],
   [JSON.stringify(settings), second, ok(projection(second)).revision]);
-assert.match(rejected.error, /synchronization is unavailable/);
+assert.match(rejected.error, /Select a device/);
 assert.equal(ok(projection(second)).saved.mode, 1);
 mutate(second, { kind: 'mode', mode: 2 });
 // Leave preset UI restrictions unchanged; this is deliberately a synthetic native topology.
