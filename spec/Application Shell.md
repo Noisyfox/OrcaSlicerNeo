@@ -739,6 +739,15 @@ use the standard compact modal; the Filament mapping dialog has a bounded
 scrolling body and a fixed action footer. Use shared Select popups and Checkbox
 controls with the existing focus, disabled, color and typography tokens rather
 than browser-native form controls or a separate modal surface.
+The selected Printer name shows a small solid green circle on its right,
+before the dropdown arrow, while the current Device has fresh observed
+connection data and its exact manufacturer/model matches the project Printer.
+Use the same native identity predicate as Printer sync, including agent-owned
+catalogue aliases; display labels and Filament-only compatible models do not
+establish a match. This indicator concerns model agreement only, not nozzle,
+flow, AMS or completed synchronization. Hide it for stale/disconnected,
+unavailable or mismatched sources. Reuse existing observations without adding
+a connection, polling loop or device read for the indicator.
 Single-extruder rows retain their compact layout. The Printer
 preset editor opens from a 24px square settings button to the left
 of the selector, using a gray sliders icon and a dark-gray rounded background.

@@ -1551,6 +1551,15 @@ describe('SlicerClient bridge contract', () => {
     expect(await c.getProfileSnapshot()).toMatchObject({ ok: true, printer: { name: 'Bambu Lab X1 Carbon 0.4 nozzle' } });
   });
 
+  it('reads the current device model match without changing project history', async () => {
+    const c = makeClient(); const before = await c.getHistoryStatus();
+    const identity = { manufacturer: 'Bambu Lab', model: 'X1 Carbon', externalRefs: [] };
+    expect(await c.getPrinterDeviceMatch(identity)).toEqual({ ok: true, matches: true, printer: 'Bambu Lab X1 Carbon 0.4 nozzle' });
+    expect(await c.getPrinterDeviceMatch({ ...identity, manufacturer: 'Other vendor' })).toMatchObject({ ok: true, matches: false });
+    expect(await c.getPrinterDeviceMatch({ ...identity, model: null })).toMatchObject({ ok: true, matches: false });
+    expect(await c.getHistoryStatus()).toEqual(before);
+  });
+
   it('browses all editor presets without selection and ranks nonempty overrides within printer compatibility sections', async () => {
     const c = makeClient();
     await c.init(MOCK_PROFILE_ACTIVATION);

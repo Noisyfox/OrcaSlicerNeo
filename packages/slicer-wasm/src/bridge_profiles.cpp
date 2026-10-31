@@ -1975,3 +1975,15 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_synchronize_printer(const char* 
     try { return duplicate_json(synchronize_printer_json(json::parse(request ? request : "")).dump()); }
     catch (const std::exception& error) { return duplicate_json(json{{"ok", false}, {"error", error.what()}, {"error_code", "invalid_request"}}.dump()); }
 }
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_printer_device_match(const char* request)
+{
+    using namespace Slic3r::Neo::Bridge;
+    try {
+        const auto identity = json::parse(request ? request : "");
+        if (!identity.is_object()) throw std::runtime_error("Printer identity is required");
+        const auto& printer = state().presets.printers.get_selected_preset();
+        return Profiles::duplicate_json(json{{"ok", true}, {"printer", printer.name},
+            {"matches", Profiles::device_model_matches(printer, identity)}}.dump());
+    } catch (const std::exception& error) { return Profiles::error_json(error.what()); }
+}

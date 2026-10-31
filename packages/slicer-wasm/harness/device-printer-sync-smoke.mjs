@@ -5,6 +5,11 @@ const history = () => call('orc_history_status');
 const profiles = () => ok(call('orc_get_preset_snapshot'));
 const draft = name => ok(call('orc_get_preset_draft', ['string', 'string'], ['printer', name]));
 const source = { manufacturer: 'Bambu Lab', model: 'H2D', externalRefs: [{ namespace: 'orca-printer-model', value: 'O1D' }] };
+const beforeMatch = JSON.stringify(history());
+assert.equal(command('orc_get_printer_device_match', source).matches, true);
+assert.equal(command('orc_get_printer_device_match', { ...source, manufacturer: 'Other vendor' }).matches, false);
+assert.equal(command('orc_get_printer_device_match', { ...source, externalRefs: [{ namespace: 'orca-compatible-printer-model', value: 'O1D' }] }).matches, false);
+assert.equal(JSON.stringify(history()), beforeMatch);
 const tools = [{ diameterMm: 0.4, flowType: 'standard flow', flowReporting: 'supported', capacity: 5 },
   { diameterMm: 0.6, flowType: 'high flow', flowReporting: 'supported', capacity: 3 }];
 function sync(overrides = {}) {

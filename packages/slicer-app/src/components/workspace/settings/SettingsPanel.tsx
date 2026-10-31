@@ -8,7 +8,7 @@ import {
   loadRememberedBedTypeFromRepository,
 } from '@/preferences';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
-import { memo, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronUp, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import { ObjectList } from '../objectList/ObjectList';
 import { PlateToolbar } from '../PlateToolbar';
@@ -20,9 +20,10 @@ import { cn } from 'cn';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { type SceneInteractionController } from '../viewport/SceneInteractionController';
-import { updateUserPreferences, usePlatform } from '@orca/platform-contract';
+import { updateUserPreferences, usePlatform, type PlatformCapabilities } from '@orca/platform-contract';
 import { commitGlobalBedType, selectProcessPreset, publishPrinterTransition, rememberPrinterTransition } from './configurationActions';
-import { historyContextForStructure, runProjectMutationOperation } from '../actions/historyMutation';
+import { historyContextForStructure, runProjectMutationOperation, readProjectMutationReservation } from '../actions/historyMutation';
+import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import { UserPresetActions } from './UserPresetActions';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
@@ -30,6 +31,23 @@ import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
 
 type PresetKind = 'printer' | 'print';
+
+/** Reuse the monitor's freshness and native sync predicate; never open a device stream here. */
+function useConnectedPrinterMatch(platform: PlatformCapabilities, printer: string, serialSlicing: boolean) {
+  const connection = useDeviceSelectionStore(s => s.connection);
+  const current = useDeviceSelectionStore(s => s.currentPrinterId);
+  const key = connection?.target.printerId === current ? JSON.stringify([printer, connection]) : null;
+  const [match, setMatch] = useState<{ key: string; matches: boolean } | null>(null);
+  useEffect(() => {
+    if (!key || !connection || serialSlicing) return;
+    let active = true;
+    void readProjectMutationReservation(() => platform.runtime.getPrinterDeviceMatch(connection.identity))
+      .then(result => { if (active) setMatch({ key, matches: result.ok && result.printer === printer && result.matches }); })
+      .catch(() => { if (active) setMatch({ key, matches: false }); });
+    return () => { active = false; };
+  }, [platform.runtime, key, printer, serialSlicing]);
+  return key !== null && match?.key === key && match.matches ? connection!.identity.displayName : undefined;
+}
 
 export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, renderLayout }: {
   sceneInteraction: SceneInteractionController | null;
@@ -53,6 +71,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   const mutationPending = useProjectStore((s) => s.projectMutationPendingCount > 0);
   const projectOperation = useProjectStore((s) => s.operation.phase);
   const slicing = useSlicerStore((s) => s.status === 'slicing');
+  const connectedPrinter = useConnectedPrinterMatch(platform, selectedPrinter, slicing && platform.runtime.getRuntimeExecutionState().threaded === false);
   const setError = useSlicerStore((s) => s.setError);
   const [presetTransitionPending, setPresetTransitionPending] = useState(false);
   const selectionPending = useRef(false);
@@ -242,6 +261,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
               onEdit={onEditPrinter ? editPrinter : undefined}
               disabled={controlsDisabled}
               testId="preset-select"
+              connectedPrinter={connectedPrinter}
             />
           </div>
           {bedVisible && <div className="min-w-0 flex-[0.6]">
@@ -356,7 +376,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
 // typing in the popup's search input filters the list (case-insensitive
 // substring) — the shadcn base-mira popup style: a button trigger showing
 // the current value, search input inside the popup.
-const PresetRow = memo(function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false, modified }: {
+const PresetRow = memo(function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false, modified, connectedPrinter }: {
   modified: boolean;
   compact?: boolean;
   label: string;
@@ -366,12 +386,16 @@ const PresetRow = memo(function PresetRow({ label, items, value, onValue, onEdit
   onEdit?: () => void;
   disabled: boolean;
   testId?: string;
+  connectedPrinter?: string;
 }) {
   if (items.length === 0) return null;
   return <div className={cn(compact ? "min-w-0 flex-1" : "flex flex-col gap-1 py-1")}>
     <Label className={compact ? "sr-only" : "text-xs text-muted-foreground"}>{label}</Label>
     <PresetCombobox items={items} value={value} onValue={onValue} disabled={disabled} modified={modified}
       ariaLabel={label} testId={testId} searchPlaceholder="Search presets…" emptyText="No matching presets"
+      trailing={connectedPrinter && <span className="size-1.5 shrink-0 rounded-full bg-status-success"
+        data-testid="printer-connection-indicator" role="img" aria-label="Connected printer model matches"
+        title={`Connected to ${connectedPrinter}`} />}
       leading={onEdit && <Button type="button" variant="settings" size="icon-sm"
         aria-label="Edit Printer" title="Printer settings" data-testid="preset-edit-printer"
         disabled={disabled || value.length === 0} onClick={onEdit}><SlidersHorizontal /></Button>} />

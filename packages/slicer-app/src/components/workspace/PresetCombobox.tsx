@@ -33,7 +33,7 @@ import {
 
 /** Shared Orca-style presentation; identity and transition policy stay with the caller. */
 export const PresetCombobox = memo(function PresetCombobox({ items, value, onValue, disabled, ariaLabel, testId,
-  searchPlaceholder, emptyText, leading, triggerStyle, modified, mode = 'combobox' }: {
+  searchPlaceholder, emptyText, leading, trailing, triggerStyle, modified, mode = 'combobox' }: {
   /** Select uses the same opening, focus and item navigation as option editors. */
   mode?: 'combobox' | 'select' | 'grouped';
   modified: boolean;
@@ -46,6 +46,7 @@ export const PresetCombobox = memo(function PresetCombobox({ items, value, onVal
   searchPlaceholder: string;
   emptyText: string;
   leading?: ReactNode;
+  trailing?: ReactNode;
   triggerStyle?: CSSProperties;
 }) {
   const [search, setSearch] = useState('');
@@ -67,6 +68,7 @@ export const PresetCombobox = memo(function PresetCombobox({ items, value, onVal
           <span className={cn('min-w-0 flex-1 truncate text-left', modified && 'config-override-label')}>
             {entries.get(value)?.label ?? '— select —'}
           </span>
+          {trailing}
         </SelectTrigger>
       </div>
       <SelectContent align="start" aria-label={ariaLabel}
@@ -91,6 +93,7 @@ export const PresetCombobox = memo(function PresetCombobox({ items, value, onVal
         className="sidebar-dropdown min-w-0 flex-1 text-foreground" aria-label={ariaLabel}
         title={entries.get(value)?.name} data-testid={testId} style={triggerStyle}>
         <span className={cn('min-w-0 flex-1 truncate text-left', modified && 'config-override-label')}>{entries.get(value)?.label ?? '— select —'}</span>
+        {trailing}
         <ChevronDown className="sidebar-dropdown-arrow" />
       </DropdownMenuTrigger>
     </div>
@@ -119,6 +122,7 @@ export const PresetCombobox = memo(function PresetCombobox({ items, value, onVal
         aria-label={ariaLabel} title={entries.get(value)?.name} data-testid={testId}
         disabled={disabled} style={triggerStyle} render={<Button variant="ghost" size="sm" />}>
         <span className={cn('min-w-0 flex-1 truncate text-left', modified && 'config-override-label')}><ComboboxValue placeholder="— select —" /></span>
+        {trailing}
       </ComboboxTrigger>
     </div>
     <ComboboxContent>

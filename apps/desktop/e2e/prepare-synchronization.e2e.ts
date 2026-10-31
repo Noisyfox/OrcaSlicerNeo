@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { _electron, desktopLaunchOptions } from './electron-fixture';
-import { installControlFixture } from './bambu-control-fixture';
+import { installControlFixture, publishControlSnapshot } from './bambu-control-fixture';
 import { Ipc } from '../src/shared/ipc';
 
 test('Prepare sync uses Bambu observations, commits mixed hardware and reviews one native material batch', async () => {
@@ -31,6 +31,7 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
     await dialog.getByRole('button', { name: 'Connect and sync' }).click();
     await expect(dialog.getByRole('button', { name: 'Switch Printer and sync' })).toBeVisible();
+    await expect(page.getByTestId('printer-connection-indicator')).toHaveCount(0);
     await expect(dialog).toHaveCSS('opacity', '1');
     await page.screenshot({ path: test.info().outputPath('sync-printer-confirmation.png'), fullPage: true });
     const materialDeviceReadCount = () => app.evaluate(() => {
@@ -41,6 +42,7 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await dialog.getByRole('button', { name: 'Switch Printer and sync' }).click();
     await expect(dialog.getByText('Printer synchronized. Continue with Filament sync?')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId('preset-select')).toContainText('H2D');
+    await expect(page.getByTestId('preset-select').getByTestId('printer-connection-indicator')).toBeVisible();
     await expect(page.getByTestId('printer-nozzle-row')).toContainText('0.6');
     await expect(page.getByTestId('printer-nozzle-row')).toContainText('0.4');
     await dialog.getByRole('button', { name: 'Continue to Filament sync' }).click();
@@ -85,6 +87,7 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await expect(dialog.getByRole('combobox', { name: 'Synchronization device' })).toHaveCount(0);
     await expect(dialog.getByRole('button', { name: 'Apply Filament sync' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.screenshot({ path: test.info().outputPath('printer-model-match-indicator.png'), fullPage: true });
     await page.locator('#app-tab-device').click();
     await page.getByTestId('device-printer-select').click();
     await page.getByRole('option', { name: 'Workshop B', exact: true }).click();
@@ -95,6 +98,10 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await expect(dialog.getByText('Workshop B · H2D')).toBeVisible();
     await expect(dialog.getByRole('combobox', { name: 'Synchronization device' })).toHaveCount(0);
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await publishControlSnapshot(app, 'b', 'Second task', false);
+    await expect(page.getByTestId('printer-connection-indicator')).toHaveCount(0);
+    await publishControlSnapshot(app, 'b', 'Second task', true);
+    await expect(page.getByTestId('printer-connection-indicator')).toBeVisible();
     expect(await app.evaluate(() => globalThis.bambuControlFixture.commands)).toEqual([]);
   } finally { await app.close(); }
 });

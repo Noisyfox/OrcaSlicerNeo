@@ -3100,6 +3100,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         mutation: { kind: 'set-project-flow', history_entry_delta: 1, revision_before: before, revision_after: historyRevision,
           dirty: status.dirty, all_plate_results_invalidated: true, affected_plate_ids: plates.affected_plate_ids } };
     },
+    orc_get_printer_device_match(requestJson: string) {
+      const identity = JSON.parse(requestJson);
+      const printer = candidates('printer').find(p => p.name === selected.printer);
+      const manufacturer = String(identity.manufacturer ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return { ok: true, printer: selected.printer, matches: !!printer?.model && printer.model === identity.model
+        && (!manufacturer || manufacturer === printer.vendor_id || manufacturer === String(printer.vendor).toLowerCase().replace(/[^a-z0-9]/g, '')) };
+    },
     orc_synchronize_printer(requestJson: string) {
       const request = JSON.parse(requestJson);
       if (request.expected_revision !== historyRevision)
@@ -4102,6 +4109,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_configure_project_flow_memory: { ret: 'number', args: ['string'] },
     orc_set_project_flow: { ret: 'number', args: ['string'] },
     orc_synchronize_printer: { ret: 'number', args: ['string'] },
+    orc_get_printer_device_match: { ret: 'number', args: ['string'] },
     orc_set_toolhead_diameter: { ret: 'number', args: ['string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_user_preset_info: { ret: 'number', args: ['string', 'string'] },

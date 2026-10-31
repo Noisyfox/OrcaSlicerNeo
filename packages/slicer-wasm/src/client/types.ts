@@ -1856,6 +1856,8 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   prepareMaterialImport(request: MaterialImportRequest): Promise<MaterialImportPreparation>;
   applyMaterialImport(request: MaterialImportApplication): Promise<FilamentMutationResultOrError>;
   synchronizePrinter(request: PrinterSynchronizationRequest): Promise<PrinterTransitionResult>;
+  /** Read-only, exact model/vendor match using the same native predicate as Printer sync. */
+  getPrinterDeviceMatch(identity: PrinterSynchronizationRequest['identity']): Promise<{ ok: true; printer: string; matches: boolean } | { ok: false; error: string }>;
   setToolheadDiameter(index: number, diameter: number, expectedRevision: number, context: import('./history').HistoryContext): Promise<PrinterTransitionResult>;
   /** Configure host-owned base-Printer flow memory. Fresh-project seeding is
    * explicit and runs before the host establishes its new clean baseline. */

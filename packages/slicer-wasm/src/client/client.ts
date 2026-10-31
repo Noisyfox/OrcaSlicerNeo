@@ -2736,6 +2736,14 @@ export function createClient(
       return normalizeFilamentMutationResult(callJson(await module(), 'orc_apply_material_import', ['string'], [JSON.stringify(request)]));
     },
 
+    async getPrinterDeviceMatch(identity) {
+      const raw = callJson(await module(), 'orc_get_printer_device_match', ['string'],
+        [JSON.stringify({ ...identity, manufacturer: identity.manufacturer ?? '', model: identity.model ?? '' })]);
+      if (isRecord(raw) && raw.ok === true && typeof raw.printer === 'string' && typeof raw.matches === 'boolean')
+        return { ok: true, printer: raw.printer, matches: raw.matches };
+      return { ok: false, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid printer model match response' };
+    },
+
     async synchronizePrinter(request: import('./types').PrinterSynchronizationRequest): Promise<PrinterTransitionResult> {
       const m = await module();
       const rackMemory = Object.fromEntries(Object.entries(request.rackMemory).map(([name, rack]) => [name, {
