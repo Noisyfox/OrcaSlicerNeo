@@ -6,7 +6,8 @@ import { MAX_GRADIENT_COLORS, colorValueKey, normalizeHexColor, usePlatform, typ
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore, readFlushingVolumes } from '@/stores/useFilamentSessionStore';
 import { type FilamentMutationResultOrError, type FilamentSessionSlot } from '@slicer/client';
-import { filamentNumberColour, filamentSwatchStyle, filamentSwatchTitle } from './FilamentSwatch';
+import { filamentSwatchTitle } from './FilamentSwatch';
+import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus, RefreshCw } from 'lucide-react';
@@ -94,7 +95,7 @@ function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDes
   }, [colourSignature]);
   const draft = editorValue(slot);
   const displayedColour = (draft.kind === 'solid' ? draft.color : draft.colors[0]).toLowerCase();
-  const numberColour = filamentNumberColour(slot.colour.effective);
+  const numberColour = colorSwatchForeground(slot.colour.effective);
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<article />}
@@ -114,7 +115,7 @@ function SlotCard({ slot, presetItems, deviceFilaments, onDevicePreset, mergeDes
           }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0"
             aria-label={`Slot ${slot.slot} colour`} data-testid={`filament-colour-${slot.slot}`} value={displayedColour}
             title={filamentSwatchTitle(slot.colour.display)}
-            style={{ ...filamentSwatchStyle(slot.colour.display), color: numberColour,
+            style={{ ...colorSwatchStyle(slot.colour.display), color: numberColour,
               border: 0, backgroundClip: 'border-box', borderRadius: '4px 0 0 4px' }}>{slot.slot}</Button>} />
         <PresetCombobox mode="grouped" modified={modified} items={presetItems}
           value={slot.preset.name} onValue={selectPreset} disabled={pending}

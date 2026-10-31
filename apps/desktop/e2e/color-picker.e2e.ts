@@ -40,7 +40,7 @@ test('translucent filament swatches have checkerboards in the rack, assignment a
   writeFileSync(preferences, JSON.stringify({ version: 1,
     selectedProfiles: { printer: 'Bambu Lab X1 Carbon 0.4 nozzle', print: '0.20mm Standard @BBL X1C' },
     rememberedFilamentRacks: { 'Bambu Lab X1 Carbon 0.4 nozzle': { version: 1, slots: [
-      { preset: 'Generic PLA @System', colour: '#ff000000', native: { representative: '#ff000000', multiColour: '#ff000000', type: '1' } },
+      { preset: 'Generic PLA @System', colour: '#ffffff00', native: { representative: '#ffffff00', multiColour: '#ffffff00', type: '1' } },
       { preset: 'Generic PLA @System', colour: '#ff000080', native: { representative: '#ff000080', multiColour: '#ff000080 #ffffff', type: '0' } },
       { preset: 'Generic PLA @System', colour: '#00ff0040', native: { representative: '#00ff0040', multiColour: '#00ff0040 #0000ff #ffffff80', type: '1' } },
       { preset: 'Generic PLA @System', colour: '#0000ffff', native: { representative: '#0000ffff', multiColour: '#0000ffff', type: '1' } },
@@ -54,10 +54,21 @@ test('translucent filament swatches have checkerboards in the rack, assignment a
       await expect(page.getByTestId(`filament-colour-${slot}`)).toHaveCSS('background-size', '100% 100%, 12px 12px');
     }
     await expect(page.getByTestId('filament-colour-4')).toHaveCSS('background-image', 'none');
+    const white = page.getByTestId('filament-colour-1');
+    await expect(white).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    await expect(white).toHaveCSS('background-image', /conic-gradient\(rgb\(221, 221, 221\).*rgb\(255, 255, 255\)/);
+    await expect(white).toHaveCSS('color', 'rgb(23, 23, 23)');
+    await white.click();
+    const original = page.getByRole('button', { name: 'Original color', exact: true }).locator('span[aria-hidden="true"][style]');
+    await expect(original).toHaveCSS('background-image', await white.evaluate(element => getComputedStyle(element).backgroundImage));
+    await expect.poll(() => page.locator('[data-slot="popover-content"]').evaluate(element => element.getAnimations().every(animation => animation.playState === 'finished'))).toBe(true);
+    await page.screenshot({ path: test.info().outputPath('transparent-white-picker.png') });
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByTestId('btn-add-model').click();
     await page.getByTestId('config-mode-scoped').click();
     const cell = page.locator('[data-testid^="filament-cell-object-"]').first();
     await expect(cell).toHaveCSS('background-image', /conic-gradient/);
+    await expect(cell).toHaveCSS('color', 'rgb(23, 23, 23)');
     await cell.click();
     const choice = page.getByRole('option', { name: /^2 - / }).locator('span[aria-hidden="true"][style]');
     await expect(choice).toHaveCSS('background-image', /linear-gradient.*conic-gradient/);

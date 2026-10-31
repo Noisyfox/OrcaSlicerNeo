@@ -1,17 +1,17 @@
 @source "./**/*.{ts,tsx}";
 
-.color-checkerboard {
-  background-color: var(--color-card);
-  background-image: conic-gradient(var(--color-secondary) 25%, transparent 0 50%, var(--color-secondary) 0 75%, transparent 0);
-  background-size: 12px 12px;
+:root {
+  /* Colour previews use an opaque light backing independently of app theme. */
+  --color-swatch-background: #ffffff;
+  --color-swatch-checkerboard: conic-gradient(#dddddd 25%, #ffffff 0 50%, #dddddd 0 75%, #ffffff 0);
 }
 .color-spectrum-pointer { transform: translate(-50%, -50%); box-shadow: 0 0 0 1px var(--color-panel-header); }
-.color-channel-slider [data-slot="slider-track"] { background-image: var(--channel-gradient), conic-gradient(var(--color-secondary) 25%, transparent 0 50%, var(--color-secondary) 0 75%, transparent 0); background-size: auto, 8px 8px; height: 8px; }
+.color-channel-slider [data-slot="slider-track"] { background-color: var(--color-swatch-background); background-image: var(--channel-gradient), var(--color-swatch-checkerboard); background-size: auto, 12px 12px; height: 8px; }
 .color-channel-slider [data-slot="slider-range"] { background: transparent; }
 .color-saturation-slider [data-slot="slider-control"] { min-height: 64px; }
 .color-saturation-slider [data-slot="slider-track"] { width: 8px; height: 100%; }
 .color-gradient-stops { background: transparent; }
-.color-gradient-track { background-image: var(--gradient-colors), conic-gradient(var(--color-secondary) 25%, transparent 0 50%, var(--color-secondary) 0 75%, transparent 0); background-size: auto, 8px 8px; }
+.color-gradient-track { background-color: var(--color-swatch-background); background-image: var(--gradient-colors), var(--color-swatch-checkerboard); background-size: auto, 12px 12px; }
 .color-gradient-stops [data-slot="tabs-trigger"] {
   width: 10px;
   height: 10px;

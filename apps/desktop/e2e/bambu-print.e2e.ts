@@ -93,7 +93,9 @@ test('Bambu Send & Print persists options, cancels safely, allows selection afte
     const transparentSource = picker.getByRole('button', { name: 'External spool · ?', exact: true });
     await expect(transparentSource).toBeEnabled();
     await expect(transparentSource).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-    await expect(transparentSource).toHaveCSS('color', 'rgb(17, 17, 17)');
+    await expect(transparentSource).toHaveCSS('color', 'rgb(23, 23, 23)');
+    await expect(transparentSource).toHaveCSS('background-image', /linear-gradient.*conic-gradient/);
+    await expect(transparentSource).toHaveCSS('background-size', '100% 100%, 12px 12px');
     await page.screenshot({ path: '/tmp/neo-filament-picker.png', animations: 'disabled' });
     await picker.getByRole('button', { name: 'Reset current filament mapping' }).focus();
     await page.keyboard.press('Shift+Tab');

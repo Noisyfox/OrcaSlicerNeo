@@ -213,6 +213,23 @@ it('uses reported tool names while keeping material and nozzle IDs opaque', asyn
   } finally { await f.close(); }
 });
 
+it.each(['solid', 'parallel', 'gradient'] as const)('uses the shared translucent material swatch for %s device colours', async appearance => {
+  const f = await fixture(); try {
+    const slot = 'spool' as D.Id<'slot'>;
+    f.material.topology.slots = [{ id: slot, unitId: f.material.topology.units[0].id, name: 'Spool' }];
+    f.material.state.slots = [{ slotId: slot, presence: f.known('present'), spoolIdentity: unknown, remaining: unknown,
+      material: f.known({ materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [],
+        color: appearance === 'solid' ? { kind: 'solid', rgba: '#ffffff00' }
+          : { kind: 'multiple', rgba: ['#ffffff00', '#ff0000'], appearance } }),
+    }];
+    await f.render();
+    const swatch = f.element.querySelector<HTMLElement>('[aria-label="Material color"]')!;
+    expect(swatch.style.backgroundColor).toBe('var(--color-swatch-background)');
+    expect(swatch.style.backgroundImage).toContain('var(--color-swatch-checkerboard)');
+    if (appearance === 'parallel') expect(swatch.style.backgroundImage).toContain('#ffffff00 0%, #ffffff00 50%, #ff0000 50%, #ff0000 100%');
+  } finally { await f.close(); }
+});
+
 it.each([
   [{ min: -4, max: 6, step: 2 }, [-4, 6]],
   [{ min: 2, max: 4, step: 1 }, [4]],

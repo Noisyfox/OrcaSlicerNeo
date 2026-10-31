@@ -28,7 +28,7 @@ afterEach(async () => {
   useFilamentSessionStore.getState().reset(); useHistoryNavigationStore.getState().reset(); document.body.innerHTML = '';
   useNotificationStore.getState().reset();
 });
-async function fixture({ connected = true, model = 'X1 Carbon', stream = false, models = false, reviewModel = false, dirty = false, materialOnly = false, secondary = false, strict = false, unidentified = false, noIdentities = false } = {}) {
+async function fixture({ connected = true, model = 'X1 Carbon', stream = false, models = false, reviewModel = false, dirty = false, materialOnly = false, secondary = false, strict = false, unidentified = false, noIdentities = false, translucent = false } = {}) {
   let preferences: UserPreferences = structuredClone(DEFAULT_USER_PREFERENCES);
   const runtime = createClient(async () => createMockModule());
   if (models || reviewModel) await runtime.addShape('Cube', 'Other Plate model');
@@ -62,7 +62,7 @@ async function fixture({ connected = true, model = 'X1 Carbon', stream = false, 
     paths: [0, 1].map(i => ({ id: id(`path/${i}`), slotId: id(`source/${i}`), toolId: id('tool'), loading: 'automatic' })), dryers: [] };
   const snapshot = (): D.PrinterSnapshot<'materials' | 'descriptor'> => ({ target, configurationRevision: 'config', values: {
     materials: known({ topologyRevision: 'topology', topology, toolIds: [id('tool')], state: { inventoryRevision: 'inventory', tools: [], dryers: [], slots: topology.slots.map((s, i) => ({ slotId: s.id,
-      presence: i ? unknown : known('empty' as const), material: known({ materialType: noIdentities || unidentified && i ? null : 'PLA', manufacturer: null, diameterMm: 1.75, catalogRefs: noIdentities || unidentified && i ? [] : [{ namespace: 'fixture', value: 'reported-PLA' }], color: { kind: 'solid', rgba: i ? '#445566' : '#123456' } }), remaining: unknown, spoolIdentity: unknown })) } }, stale),
+      presence: i ? unknown : known('empty' as const), material: known({ materialType: noIdentities || unidentified && i ? null : 'PLA', manufacturer: null, diameterMm: 1.75, catalogRefs: noIdentities || unidentified && i ? [] : [{ namespace: 'fixture', value: 'reported-PLA' }], color: { kind: 'solid', rgba: translucent ? '#00000000' : i ? '#445566' : '#123456' } }), remaining: unknown, spoolIdentity: unknown })) } }, stale),
     descriptor: known({ revision: 'descriptor', identity: printer.identity, technology: 'fdm', firmware: unknown, buildVolume: null,
       topology: { revision: 'topology', completeness: 'complete', materials: topology, tools: [{ id: id('tool'), name: 'Tool', extruderId: id('extruder'), nozzleId: id('nozzle'), motionGroupId: id('gantry') }],
         nozzles: [{ id: id('nozzle'), diameterMm: 0.4, flowType: 'standard flow', flowReporting: 'supported', constructionMaterial: null, type: null, heaterId: null }], extruders: [], motionGroups: [], heaters: [], fans: [], lights: [], sensors: [], cameras: [] } }),
@@ -105,6 +105,15 @@ async function choose(trigger: HTMLElement, label: string) {
   });
 }
 describe('Prepare synchronization workflow', () => {
+  it('uses shared alpha swatches in source and result previews', async () => {
+    const f = await fixture({ reviewModel: true, translucent: true }); await start('filament');
+    for (const section of ['Device materials', 'Material synchronization mapping']) {
+      const swatch = f.container.querySelector<HTMLElement>(`[aria-label="${section}"] [style*="--color-swatch-checkerboard"]`)!;
+      expect(swatch).toBeTruthy();
+      expect(swatch.style.backgroundColor).toBe('var(--color-swatch-background)');
+      expect(swatch.style.backgroundImage).toContain('#00000000');
+    }
+  });
   it('directly imports into an empty clean project once under StrictMode without mounting details', async () => {
     const f = await fixture({ strict: true }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
     const shown: Element[] = [];

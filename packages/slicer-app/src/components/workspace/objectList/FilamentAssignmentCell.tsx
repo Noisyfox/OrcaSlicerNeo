@@ -10,7 +10,8 @@ import {
 import { TooltipFor } from '@/components/ui/tooltip';
 import { assignmentForRow } from './filamentAssignment';
 import type { FilamentSessionSnapshot, FilamentAssignmentTargetRequest } from '@slicer/client';
-import { FilamentSwatch, filamentSwatchStyle, filamentSwatchTitle } from '../FilamentSwatch';
+import { FilamentSwatch, filamentSwatchTitle } from '../FilamentSwatch';
+import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
 
 export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, allowDefault = false, pending = false, onAssign }: {
   snapshot: FilamentSessionSnapshot | null;
@@ -28,8 +29,6 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
   const selectedSlot = allowDefault ? assignment.explicitSlot : assignment.effectiveSlot;
   const display = selectedSlot > 0 ? snapshot.slots.find((slot) => slot.slot === selectedSlot)?.colour.display : undefined;
   const colour = selectedSlot > 0 ? snapshot.slots.find((slot) => slot.slot === selectedSlot)?.colour.effective : undefined;
-  const rgb = colour?.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})/i);
-  const lightColour = rgb && (Number.parseInt(rgb[1], 16) * 0.299 + Number.parseInt(rgb[2], 16) * 0.587 + Number.parseInt(rgb[3], 16) * 0.114) > 150;
   const label = selectedSlot > 0 ? `Slot ${selectedSlot}${assignment.inherited ? ' · inherited' : ''}` : 'Default';
   const items = [
     ...(allowDefault ? [{ value: '0', label: 'Default', display: null }] : []),
@@ -52,8 +51,8 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
           aria-label={`${kind === 'object' ? 'Object' : 'Part'} ${id} filament`}
           data-testid={`filament-cell-${kind}-${id}`}
           className="h-5 w-10 shrink-0 justify-center rounded-[1px] border border-input-button-foreground/40 px-0 py-0 text-xs leading-none"
-          style={{ height: 20, ...(display ? filamentSwatchStyle(display) : { backgroundColor: 'transparent' }),
-            color: lightColour ? 'var(--color-control-background)' : 'var(--color-foreground)' }}
+          style={{ height: 20, ...(display ? colorSwatchStyle(display) : { backgroundColor: 'transparent' }),
+            color: colour ? colorSwatchForeground(colour) : 'var(--color-foreground)' }}
           size="sm"
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
