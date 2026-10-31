@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createClient, createMockModule } from '@slicer/client';
@@ -25,7 +25,7 @@ afterEach(async () => {
   useDeviceSelectionStore.setState({ currentPrinterId: null, requestedPrinterId: null, selectionRequestVersion: 0, navigationRequestVersion: 0 });
   useFilamentSessionStore.getState().reset(); useHistoryNavigationStore.getState().reset(); document.body.innerHTML = '';
 });
-async function fixture({ connected = true, model = 'X1 Carbon', stream = false, models = false, materialOnly = false, secondary = false } = {}) {
+async function fixture({ connected = true, model = 'X1 Carbon', stream = false, models = false, materialOnly = false, secondary = false, strict = false } = {}) {
   let preferences: UserPreferences = structuredClone(DEFAULT_USER_PREFERENCES);
   const runtime = createClient(async () => createMockModule());
   if (models) {
@@ -71,7 +71,8 @@ async function fixture({ connected = true, model = 'X1 Carbon', stream = false, 
   const platform = { runtime, preferences: { load: async () => preferences, save: async (next: UserPreferences) => { preferences = next; } }, printers: { service } } as unknown as PlatformCapabilities;
   useDeviceSelectionStore.getState().setCurrent(connected ? 'device' : null);
   const container = document.createElement('div'); document.body.append(container); const root = createRoot(container); roots.push(root);
-  await act(async () => root.render(<PlatformProvider value={platform}><PrepareSynchronization sceneInteraction={null} /></PlatformProvider>));
+  const app = <PlatformProvider value={platform}><PrepareSynchronization sceneInteraction={null} /></PlatformProvider>;
+  await act(async () => root.render(strict ? <StrictMode>{app}</StrictMode> : app));
   return { container, runtime, read, watch, printer, preferences: () => preferences, disconnect: () => { stale = true; wake?.(); } };
 }
 const flush = () => new Promise<void>(resolve => setTimeout(resolve, 10));
@@ -81,6 +82,23 @@ async function click(container: HTMLElement, text: string) {
   await act(async () => { button!.click(); await flush(); });
 }
 describe('Prepare synchronization workflow', () => {
+  it('commits Printer only once when development StrictMode replays effect setup', async () => {
+    const f = await fixture({ strict: true }); const synchronize = vi.spyOn(f.runtime, 'synchronizePrinter');
+    await start('printer');
+    expect(f.container.textContent).toContain('Printer synchronized.');
+    expect(f.container.textContent).not.toContain('Printer synchronization inputs changed');
+    expect(synchronize).toHaveBeenCalledOnce();
+    expect((await f.runtime.getHistoryStatus()).undoEntries).toHaveLength(1);
+  });
+  it('opens only one material observation and device read under StrictMode', async () => {
+    const f = await fixture({ strict: true, stream: true });
+    await start('filament');
+    expect(f.watch).toHaveBeenCalledOnce();
+    expect(f.read.mock.calls.filter(([r]) => r.source === 'device')).toHaveLength(1);
+    expect(f.container.textContent).toContain('Apply Filament sync');
+    await click(f.container, 'Cancel');
+    expect(f.watch.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  });
   it('uses the connected device, directly commits Printer once and leaves it when declining Filament', async () => {
     const f = await fixture(); const synchronize = vi.spyOn(f.runtime, 'synchronizePrinter');
     await start('printer');

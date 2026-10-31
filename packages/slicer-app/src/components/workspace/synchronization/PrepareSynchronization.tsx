@@ -125,18 +125,24 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     if (live.current) setBusy(false);
   }
   useEffect(() => {
-    live.current = true; controller.current = new AbortController();
+    const lifetime = new AbortController();
+    live.current = true; controller.current = lifetime;
     void (async () => {
-      initialRevision.current = await projectRevision();
+      const revision = await projectRevision();
+      // StrictMode replays setup after cleanup. A shared live ref becomes true
+      // again, so only this setup's own signal can reject its obsolete work.
+      if (lifetime.signal.aborted) return;
+      initialRevision.current = revision;
       const saved = await service.listSaved();
+      if (lifetime.signal.aborted) return;
       if (!saved.ok) throw new Error(saved.error.message);
-      if (!live.current) return;
       const eligible = saved.value.filter(p => synchronizationRoute(p, kind));
       setPrinters(eligible);
       const current = eligible.find(p => p.identity.id === useDeviceSelectionStore.getState().currentPrinterId);
       if (current) for (const route of current.routes) {
         if (!synchronizationRoute({ ...current, routes: [route] }, kind)) continue;
         const cached = await service.observations.read({ target: { printerId: current.identity.id, routeId: route.id }, topics: ['materials'], source: 'cache' });
+        if (lifetime.signal.aborted) return;
         const reading = cached.ok && cached.value.values.materials;
         if (reading && reading.kind === 'known' && reading.freshness === 'fresh' && reading.sourceRouteId === route.id
           && cached.ok && cached.value.configurationRevision === route.configurationRevision) {
@@ -144,8 +150,8 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
         }
       }
       if (live.current) { setChoice(eligible[0]?.identity.id ?? ''); setPhase('choose'); }
-    })().catch(failure);
-    return () => { live.current = false; controller.current.abort(); };
+    })().catch(cause => { if (!lifetime.signal.aborted) failure(cause); });
+    return () => { live.current = false; lifetime.abort(); };
   }, []);
   // Hold the selected source across reads/review. Revalidating a proposal must
   // not tear down its own sole subscription and thereby disconnect the device.
