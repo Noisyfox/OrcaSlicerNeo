@@ -14,6 +14,7 @@ import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
 const id = <K extends string>(s: string) => s as D.Id<K>;
 const target: D.PrinterTarget = { printerId: id('device'), routeId: id('route') };
 const known = <T,>(value: T, stale = false): D.Reading<T> => ({ kind: 'known', value, freshness: stale ? 'stale' : 'fresh', sourceRouteId: target.routeId, receivedAtMs: 1, observedAtMs: null });
@@ -74,13 +75,23 @@ async function fixture({ connected = true, model = 'X1 Carbon', stream = false, 
   const container = document.createElement('div'); document.body.append(container); const root = createRoot(container); roots.push(root);
   const app = <PlatformProvider value={platform}><PrepareSynchronization sceneInteraction={null} /></PlatformProvider>;
   await act(async () => root.render(strict ? <StrictMode>{app}</StrictMode> : app));
-  return { container, runtime, read, watch, printer, preferences: () => preferences, disconnect: () => { stale = true; wake?.(); } };
+  return { container: document.body, runtime, read, watch, printer, preferences: () => preferences, disconnect: () => { stale = true; wake?.(); } };
 }
 const flush = () => new Promise<void>(resolve => setTimeout(resolve, 10));
 async function start(kind: 'printer' | 'filament') { await act(async () => { requestPrepareSynchronization(kind); await flush(); }); }
 async function click(container: HTMLElement, text: string) {
   const button = [...container.querySelectorAll('button')].find(b => b.textContent === text); expect(button).toBeTruthy();
   await act(async () => { button!.click(); await flush(); });
+}
+async function choose(trigger: HTMLElement, label: string) {
+  await act(async () => { trigger.click(); await flush(); });
+  const option = [...document.querySelectorAll<HTMLElement>('[data-slot="select-content"][data-open] [role="option"]')].find(o => o.textContent?.includes(label));
+  expect(option).toBeTruthy();
+  await act(async () => {
+    option!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    option!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    await flush();
+  });
 }
 describe('Prepare synchronization workflow', () => {
   it('commits Printer only once when development StrictMode replays effect setup', async () => {
@@ -135,10 +146,10 @@ describe('Prepare synchronization workflow', () => {
   });
   it('opens a chooser when disconnected and keeps connection selection after cancelling material review', async () => {
     const f = await fixture({ connected: false }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
-    await start('filament'); expect(f.container.querySelector('select[aria-label="Synchronization device"]')).toBeTruthy();
+    await start('filament'); expect(f.container.querySelector('[role="combobox"][aria-label="Synchronization device"]')).toBeTruthy();
     expect(f.read).not.toHaveBeenCalled();
     await click(f.container, 'Connect and sync');
-    expect(f.container.querySelector('select[aria-label="Filament sync mode"]')?.getAttribute('value') ?? (f.container.querySelector('select[aria-label="Filament sync mode"]') as HTMLSelectElement).value).toBe('rebuild');
+    expect(f.container.querySelector('[role="combobox"][aria-label="Filament sync mode"]')?.textContent).toContain('Rebuild from device');
     expect(f.container.textContent).toContain('empty'); expect(f.container.textContent).toContain('unknown');
     await click(f.container, 'Cancel');
     expect(apply).not.toHaveBeenCalled(); expect(useDeviceSelectionStore.getState().currentPrinterId).toBe('device');
@@ -148,17 +159,18 @@ describe('Prepare synchronization workflow', () => {
   it('keeps whole-project mapping through disconnect, refreshes the same source and applies one native batch', async () => {
     const f = await fixture({ stream: true, models: true }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
     await start('filament');
-    const mode = f.container.querySelector<HTMLSelectElement>('select[aria-label="Filament sync mode"]')!; expect(mode.value).toBe('mapping');
-    const inputs = [...f.container.querySelectorAll<HTMLSelectElement>('select[aria-label^="Source for material"]')]; expect(inputs).toHaveLength(2);
-    await act(async () => { inputs.forEach(input => { input.value = 'source/0'; input.dispatchEvent(new Event('change', { bubbles: true })); }); f.disconnect(); await flush(); });
+    const mode = f.container.querySelector<HTMLElement>('[role="combobox"][aria-label="Filament sync mode"]')!; expect(mode.textContent).toContain('Update project mapping');
+    const inputs = [...f.container.querySelectorAll<HTMLElement>('[role="combobox"][aria-label^="Source for material"]')]; expect(inputs).toHaveLength(2);
+    for (const input of inputs) await choose(input, 'Feeder · Tray 1');
+    await act(async () => { f.disconnect(); await flush(); });
     const button = [...f.container.querySelectorAll('button')].find(b => b.textContent === 'Apply Filament sync')!;
-    expect(button.disabled).toBe(true); expect(inputs.map(i => i.value)).toEqual(['source/0', 'source/0']);
+    expect(button.disabled).toBe(true); expect(inputs.map(i => i.querySelector('[data-slot="select-value"]')?.textContent)).toEqual(['Feeder · Tray 1', 'Feeder · Tray 1']);
     await click(f.container, 'Refresh device'); expect(button.disabled).toBe(false);
     expect(f.watch).toHaveBeenCalledOnce();
     expect(useProjectDialogStore.getState()).toMatchObject({ open: true, deviceObservationPaused: false });
-    expect([...f.container.querySelectorAll<HTMLSelectElement>('select[aria-label^="Source for material"]')].map(i => i.value)).toEqual(['source/0', 'source/0']);
+    expect([...f.container.querySelectorAll<HTMLElement>('[role="combobox"][aria-label^="Source for material"]')].map(i => i.querySelector('[data-slot="select-value"]')?.textContent)).toEqual(['Feeder · Tray 1', 'Feeder · Tray 1']);
     await click(f.container, 'Apply Filament sync'); expect(apply).toHaveBeenCalledOnce();
-    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ mapping: ['source/0', 'source/0'] }));
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ mapping: ['source/1', 'source/1'] }));
     expect(f.container.querySelector('[role="dialog"]')).toBeNull();
   });
   it('supports an on-demand material-only agent without descriptor or background Monitor access', async () => {
@@ -173,7 +185,7 @@ describe('Prepare synchronization workflow', () => {
   });
   it('automatically uses the connected route instead of choosing the first configured route', async () => {
     const f = await fixture({ secondary: true }); await start('filament');
-    expect(f.container.querySelector('select[aria-label="Synchronization device"]')).toBeNull();
+    expect(f.container.querySelector('[role="combobox"][aria-label="Synchronization device"]')).toBeNull();
     expect(f.read.mock.calls.filter(([r]) => r.source === 'device').map(([r]) => r.target.routeId)).toEqual(['second-route']);
     expect(f.container.textContent).toContain('Apply Filament sync');
   });

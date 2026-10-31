@@ -733,6 +733,12 @@ reuses this button for Printer sync.
 Printer sync follows Orca's direct action with necessary confirmations or
 configuration choices; it adds no generic before/after preview. Filament Sync
 opens the modal mapping/rebuild dialog owned by that specification.
+Synchronization uses the existing shared Dialog, form controls, Table and
+material swatch presentation. Device choice and necessary Printer confirmations
+use the standard compact modal; the Filament mapping dialog has a bounded
+scrolling body and a fixed action footer. Use shared Select popups and Checkbox
+controls with the existing focus, disabled, color and typography tokens rather
+than browser-native form controls or a separate modal surface.
 Single-extruder rows retain their compact layout. The Printer
 preset editor opens from a 24px square settings button to the left
 of the selector, using a gray sliders icon and a dark-gray rounded background.

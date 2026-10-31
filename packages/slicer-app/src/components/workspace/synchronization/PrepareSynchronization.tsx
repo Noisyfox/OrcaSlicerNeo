@@ -5,6 +5,14 @@ import type * as D from '@orca/printer-control/domain';
 import { loadUserPreferences, usePlatform, type PlatformCapabilities } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, MaterialImportApplication } from '@slicer/client';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectItem } from '@/components/ui/select';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
+import { FilamentSwatch } from '../FilamentSwatch';
 import { useProjectModal } from '@/components/useProjectModal';
 import { useProjectDialogStore } from '@/stores/useProjectDialogStore';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
@@ -49,6 +57,14 @@ export async function synchronizeProjectPrinter(platform: PlatformCapabilities, 
 }
 
 type Phase = 'reading' | 'choose' | 'confirm-printer' | 'need-printer' | 'continue-filament' | 'filament' | 'error';
+function SynchronizationSelect({ label, value, options, disabled, onChange, id }: {
+  label: string; value: string; options: { value: string; label: string }[]; disabled: boolean; onChange(value: string): void; id?: string;
+}) {
+  return <Select value={value} items={options} disabled={disabled} onValueChange={next => onChange(next ?? '')}>
+    <SelectTrigger id={id} aria-label={label} className="w-full min-w-0"><SelectValue className="truncate" /></SelectTrigger>
+    <SelectContent align="start"><SelectGroup>{options.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectGroup></SelectContent>
+  </Select>;
+}
 export function PrepareSynchronization({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const kind = usePrepareSynchronization(s => s.kind);
   return kind && <SynchronizationDialog key={kind} kind={kind} scene={sceneInteraction}
@@ -240,46 +256,108 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     const color = source?.materials.find(s => s.slotId === id)?.metadata?.color;
     return color ? color.kind === 'solid' ? color.rgba : color.rgba.join(' / ') : 'Keep project color';
   };
-  const matchLabel = (id: string, i: number) => { const m = displayedMaterialMatch(prepared!, id, i); return <><span>{m?.preset ?? 'No compatible preset'}</span>{m?.warning && <span className="block text-xs text-amber-700">{m.warning}</span>}</>; };
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="prepare-synchronization-dialog" role="dialog" aria-modal="true" aria-labelledby="prepare-sync-title">
-    <div className="flex max-h-[90vh] w-full max-w-3xl flex-col gap-4 overflow-hidden rounded-lg border bg-card p-5 shadow-lg">
-      <h2 id="prepare-sync-title" className="font-semibold">{phase === 'filament' || kind === 'filament' && !['need-printer', 'confirm-printer', 'continue-filament'].includes(phase) ? 'Sync Filament' : 'Sync Printer'}</h2>
-      {(source || selected) && <p className="text-sm font-medium">{(source?.identity ?? selected!.identity).displayName} · {(source?.identity ?? selected!.identity).model ?? 'Model not reported'}</p>}
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      {phase === 'reading' && <p role="status">Reading device materials…</p>}
-      {phase === 'choose' && <><label>Device <select className="rounded border bg-background p-2" aria-label="Synchronization device" value={choice} disabled={busy} onChange={e => setChoice(e.target.value)}>
-        {printers.map(p => <option key={p.identity.id} value={p.identity.id}>{p.identity.displayName}</option>)}</select></label>
-        {!printers.length && <p>No saved device supports this synchronization. Add a device in Device first.</p>}
-        <Button disabled={!choice || busy} onClick={() => {
+  const sourceOptions = sources.map(s => ({ value: s.slotId, label: label(s.slotId) }));
+  const matchLabel = (id: string, i: number) => {
+    const match = displayedMaterialMatch(prepared!, id, i);
+    return <div className="space-y-1"><p>{match?.preset ?? 'No compatible preset'}</p>
+      {match?.warning && <p className="text-xs text-muted-foreground">{match.warning}</p>}</div>;
+  };
+  const materialColor = (id: string) => {
+    const color = source?.materials.find(s => s.slotId === id)?.metadata?.color;
+    return <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+      {color && (color.kind === 'solid' || color.rgba.length > 0) && <FilamentSwatch className="size-4 shrink-0 rounded-sm border" display={{
+        mode: color.kind === 'solid' ? 'solid' : color.appearance === 'gradient' ? 'gradient' : 'multicolor',
+        colors: color.kind === 'solid' ? [color.rgba] : [...color.rgba],
+      }} />}{colorLabel(id)}</span>;
+  };
+  const filamentReview = phase === 'filament' && prepared && rack && source;
+  return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}>
+    <DialogContent data-testid="prepare-synchronization-dialog" className={`flex max-h-[85vh] flex-col ${filamentReview ? 'w-[min(95vw,56rem)] max-w-none' : 'w-[min(95vw,28rem)]'}`}>
+      <DialogHeader>
+        <DialogTitle>{phase === 'filament' || kind === 'filament' && !['need-printer', 'confirm-printer', 'continue-filament'].includes(phase) ? 'Sync Filament' : 'Sync Printer'}</DialogTitle>
+        <DialogDescription>{(source || selected) ? <>{(source?.identity ?? selected!.identity).displayName} · {(source?.identity ?? selected!.identity).model ?? 'Model not reported'}</> : 'Synchronize project settings from a connected device.'}</DialogDescription>
+      </DialogHeader>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto text-xs/relaxed">
+        {error && <Alert variant={phase === 'confirm-printer' ? 'default' : 'destructive'}><AlertDescription>{error}</AlertDescription></Alert>}
+        {phase === 'reading' && <p role="status" className="text-muted-foreground">Reading device materials…</p>}
+        {phase === 'choose' && <Field>
+          <FieldLabel htmlFor="synchronization-device">Device</FieldLabel>
+          <SynchronizationSelect id="synchronization-device" label="Synchronization device" value={choice} disabled={busy}
+            options={printers.map(p => ({ value: p.identity.id, label: p.identity.displayName }))} onChange={setChoice} />
+          {!printers.length && <p className="text-muted-foreground">No saved device supports this synchronization. Add a device in Device first.</p>}
+        </Field>}
+        {phase === 'confirm-printer' && <p>Switch the project Printer to match this device?</p>}
+        {phase === 'need-printer' && <p>The project Printer does not match this device. Synchronize Printer first?</p>}
+        {phase === 'continue-filament' && <p>Printer synchronized. Continue with Filament sync?</p>}
+        {filamentReview && <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Field orientation="horizontal" className="w-full sm:w-auto">
+              <FieldLabel htmlFor="filament-sync-mode" className="flex-none">Mode</FieldLabel>
+              <div className="min-w-0 flex-1 sm:w-52 sm:flex-none"><SynchronizationSelect id="filament-sync-mode" label="Filament sync mode" value={mode} disabled={busy}
+                options={[{ value: 'mapping', label: 'Update project mapping' }, { value: 'rebuild', label: 'Rebuild from device' }]}
+                onChange={value => setMode(value as typeof mode)} /></div>
+            </Field>
+            <Button variant="secondary" disabled={busy} onClick={() => void refresh()}>Refresh device</Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            <Field orientation="horizontal" className="w-auto"><Checkbox id="filament-sync-colors" checked={colourOnly} disabled={busy} onCheckedChange={setColourOnly} /><FieldLabel htmlFor="filament-sync-colors">Colors only</FieldLabel></Field>
+            {mode === 'mapping' && <Field orientation="horizontal" className="w-auto"><Checkbox id="filament-sync-append" checked={appendUnused} disabled={busy} onCheckedChange={setAppendUnused} /><FieldLabel htmlFor="filament-sync-append">Append unused device materials</FieldLabel></Field>}
+          </div>
+          <p className="text-muted-foreground">Changes affect materials on every Plate. Empty and unknown slots can contain retained metadata; Send checks the loaded material separately.</p>
+          <section aria-label="Device materials" className="space-y-2">
+            <h3 className="font-medium">Device materials</h3>
+            <div className="max-h-40 overflow-y-auto rounded-md border">
+              <Table><TableHeader className="sticky top-0 bg-card"><TableRow className="hover:bg-transparent"><TableHead>Source</TableHead><TableHead>Material</TableHead><TableHead>Presence</TableHead><TableHead>Color</TableHead></TableRow></TableHeader>
+                <TableBody>{source.materials.map(s => <TableRow key={s.slotId} className="hover:bg-transparent">
+                  <TableCell className="whitespace-normal">{s.label}{!s.toolIndices.length && <p className="text-muted-foreground">No usable tool path</p>}</TableCell>
+                  <TableCell>{s.metadata ? s.metadata.materialType || 'Material type not reported' : 'No material metadata'}</TableCell>
+                  <TableCell><Badge variant="secondary">{s.presence}</Badge></TableCell><TableCell>{materialColor(s.slotId)}</TableCell>
+                </TableRow>)}</TableBody>
+              </Table>
+            </div>
+          </section>
+          <section aria-label="Material synchronization mapping" className="space-y-2">
+            <h3 className="font-medium">{mode === 'mapping' ? 'Project material mapping' : 'Materials to import'}</h3>
+            <div className="rounded-md border"><Table className="table-fixed">
+              <TableHeader><TableRow className="hover:bg-transparent"><TableHead className="w-2/5">{mode === 'mapping' ? 'Project material' : 'Device material'}</TableHead><TableHead>{mode === 'mapping' ? 'Device source' : 'Result'}</TableHead></TableRow></TableHeader>
+              <TableBody>{mode === 'mapping' ? rack.slots.map((slot, i) => <TableRow key={slot.logicalId} className="hover:bg-transparent">
+                <TableCell className="align-top whitespace-normal"><span className="inline-flex items-center gap-2"><FilamentSwatch display={slot.colour.display} className="size-4 shrink-0 rounded-sm border" />{slot.slot}. {slot.preset.label}</span></TableCell>
+                <TableCell className="space-y-2 align-top whitespace-normal"><SynchronizationSelect label={`Source for material ${slot.slot}`} value={mapping[i] ?? ''} disabled={busy}
+                  options={[{ value: '', label: 'Keep unchanged' }, ...sourceOptions]}
+                  onChange={value => setMapping(current => current.map((id, index) => index === i ? value || null : id))} />
+                  {mapping[i] && <>{materialColor(mapping[i]!)}{!colourOnly && matchLabel(mapping[i]!, i)}</>}
+                </TableCell>
+              </TableRow>) : sources.map((s, i) => <TableRow key={s.slotId} className="hover:bg-transparent">
+                <TableCell className="align-top whitespace-normal">{label(s.slotId)}</TableCell>
+                <TableCell className="space-y-2 align-top whitespace-normal">{colourOnly && rack.slots[i] ? rack.slots[i].preset.label : matchLabel(s.slotId, i)}{materialColor(s.slotId)}</TableCell>
+              </TableRow>)}</TableBody>
+            </Table></div>
+          </section>
+          {mode === 'mapping' && appendUnused && <p className="text-muted-foreground" data-testid="sync-additions">Additions: {additions.length ? additions.map(label).join(', ') : 'None'}</p>}
+          {mode === 'rebuild' && rack.slots.slice(sources.length).map((slot, offset) => {
+            const i = offset + sources.length, refs = prepared.references[i]?.kinds ?? [];
+            return <Field key={slot.logicalId} className="rounded-md border p-3">
+              <FieldLabel htmlFor={`sync-replacement-${slot.slot}`}>Remove material {slot.slot}</FieldLabel>
+              <p className="text-muted-foreground">{refs.length ? refs.join(', ') : 'No project references'}</p>
+              {refs.length > 0 && <SynchronizationSelect id={`sync-replacement-${slot.slot}`} label={`Replacement for material ${slot.slot}`} value={String(replacements[i] ?? '')} disabled={busy}
+                options={[{ value: '', label: 'Choose surviving replacement' }, ...sources.map((s, j) => ({ value: String(j + 1), label: `${j + 1}. ${label(s.slotId)}` }))]}
+                onChange={value => setReplacements(current => current.map((n, j) => i === j ? Number(value) || null : n))} />}
+            </Field>;
+          })}
+        </>}
+      </div>
+      <DialogFooter className="shrink-0">
+        <Button variant="ghost" disabled={busy} onClick={onClose}>{phase === 'continue-filament' ? 'Done' : 'Cancel'}</Button>
+        {phase === 'choose' && <Button disabled={!choice || busy} onClick={() => {
           const printer = printers.find(p => p.identity.id === choice)!;
           useDeviceSelectionStore.getState().selectPrinter(printer.identity.id);
           setPhase('reading'); void readDevice(printer, kind).catch(failure);
-        }}>Connect and sync</Button></>}
-      {phase === 'confirm-printer' && <><p>Switch the project Printer to match this device?</p><Button disabled={busy} onClick={() => source && void syncPrinter(source, true)}>Switch Printer and sync</Button></>}
-      {phase === 'need-printer' && <><p>The project Printer does not match this device. Synchronize Printer first?</p><Button disabled={busy} onClick={() => selected && void (async () => { initialRevision.current = await projectRevision(); await readDevice(selected, 'printer'); })().catch(failure)}>Sync Printer first</Button></>}
-      {phase === 'continue-filament' && <><p>Printer synchronized. Continue with Filament sync?</p><Button disabled={busy} onClick={() => selected && void readDevice(selected, 'filament').catch(failure)}>Continue to Filament sync</Button></>}
-      {phase === 'filament' && prepared && rack && source && <div className="min-h-0 flex-1 space-y-4 overflow-auto">
-        <div className="flex flex-wrap items-center gap-4 text-sm"><label>Mode <select aria-label="Filament sync mode" className="rounded border bg-background p-1" disabled={busy} value={mode} onChange={e => setMode(e.target.value as typeof mode)}><option value="mapping">Update project mapping</option><option value="rebuild">Rebuild from device</option></select></label>
-          <label><input type="checkbox" checked={colourOnly} disabled={busy} onChange={e => setColourOnly(e.target.checked)} /> Colors only</label>
-          {mode === 'mapping' && <label><input type="checkbox" checked={appendUnused} disabled={busy} onChange={e => setAppendUnused(e.target.checked)} /> Append unused device materials</label>}
-          <Button variant="secondary" disabled={busy} onClick={() => void refresh()}>Refresh device</Button></div>
-        <p className="text-xs text-muted-foreground">Changes affect materials on every Plate. Empty and unknown slots can contain retained metadata; Send checks the loaded material separately.</p>
-        <div className="max-h-40 overflow-auto rounded border p-2 text-xs" aria-label="Device materials">{source.materials.map(s => <div key={s.slotId} className="flex justify-between gap-4 py-1"><span>{s.label}</span><span>{s.metadata ? s.metadata.materialType ?? 'Material type not reported' : 'No material metadata'} · {s.presence} · {colorLabel(s.slotId)}{!s.toolIndices.length ? ' · No usable tool path' : ''}</span></div>)}</div>
-        <table className="w-full text-left text-sm"><thead><tr><th>{mode === 'mapping' ? 'Project material' : 'Device material'}</th><th>{mode === 'mapping' ? 'Device source' : 'Result'}</th></tr></thead><tbody>
-          {mode === 'mapping' ? rack.slots.map((slot, i) => <tr key={slot.logicalId}><td className="border-t p-2">{slot.slot}. {slot.preset.label}</td><td className="border-t p-2"><select className="w-full rounded border bg-background p-1" aria-label={`Source for material ${slot.slot}`} disabled={busy} value={mapping[i] ?? ''} onChange={e => setMapping(m => m.map((id, index) => index === i ? e.target.value || null : id))}><option value="">Keep unchanged</option>{sources.map(s => <option key={s.slotId} value={s.slotId}>{label(s.slotId)}</option>)}</select>{mapping[i] && <><p className="mt-1 text-xs">Color: {colorLabel(mapping[i]!)}</p>{!colourOnly && matchLabel(mapping[i]!, i)}</>}</td></tr>)
-            : sources.map((s, i) => <tr key={s.slotId}><td className="border-t p-2">{label(s.slotId)}</td><td className="border-t p-2">{colourOnly && rack.slots[i] ? rack.slots[i].preset.label : matchLabel(s.slotId, i)}<p className="text-xs">Color: {colorLabel(s.slotId)}</p></td></tr>)}
-        </tbody></table>
-        {mode === 'mapping' && appendUnused && <p className="text-sm" data-testid="sync-additions">Additions: {additions.length ? additions.map(label).join(', ') : 'None'}</p>}
-        {mode === 'rebuild' && rack.slots.slice(sources.length).map((slot, offset) => {
-          const i = offset + sources.length, refs = prepared.references[i]?.kinds ?? [];
-          return <label key={slot.logicalId} className="block rounded border p-2 text-sm">Remove material {slot.slot} · {refs.length ? refs.join(', ') : 'No project references'}
-            {refs.length > 0 && <select aria-label={`Replacement for material ${slot.slot}`} className="ml-2 rounded border bg-background p-1" disabled={busy} value={replacements[i] ?? ''} onChange={e => setReplacements(current => current.map((n, j) => i === j ? Number(e.target.value) || null : n))}><option value="">Choose surviving replacement</option>{sources.map((s, j) => <option key={s.slotId} value={j + 1}>{j + 1}. {label(s.slotId)}</option>)}</select>}</label>;
-        })}
-      </div>}
-      <div className="flex shrink-0 justify-end gap-2">
+        }}>Connect and sync</Button>}
+        {phase === 'confirm-printer' && <Button disabled={busy} onClick={() => source && void syncPrinter(source, true)}>Switch Printer and sync</Button>}
+        {phase === 'need-printer' && <Button disabled={busy} onClick={() => selected && void (async () => { initialRevision.current = await projectRevision(); await readDevice(selected, 'printer'); })().catch(failure)}>Sync Printer first</Button>}
+        {phase === 'continue-filament' && <Button disabled={busy} onClick={() => selected && void readDevice(selected, 'filament').catch(failure)}>Continue to Filament sync</Button>}
         {phase === 'filament' && <Button disabled={busy || !ready || invalidReplacement || unresolved} onClick={() => void apply()}>Apply Filament sync</Button>}
-        <Button variant="ghost" disabled={busy} onClick={onClose}>{phase === 'continue-filament' ? 'Done' : 'Cancel'}</Button>
-      </div>
-    </div>
-  </div>;
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>;
 }

@@ -25,9 +25,14 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await page.getByTestId('printer-sync').click();
     const dialog = page.getByTestId('prepare-synchronization-dialog');
     await expect(dialog.getByRole('combobox', { name: 'Synchronization device' })).toBeVisible();
-    await dialog.getByRole('combobox', { name: 'Synchronization device' }).selectOption('bambu:a');
+    await expect(dialog).toHaveCSS('opacity', '1');
+    await page.screenshot({ path: test.info().outputPath('sync-device-chooser.png'), fullPage: true });
+    await dialog.getByRole('combobox', { name: 'Synchronization device' }).click();
+    await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
     await dialog.getByRole('button', { name: 'Connect and sync' }).click();
     await expect(dialog.getByRole('button', { name: 'Switch Printer and sync' })).toBeVisible();
+    await expect(dialog).toHaveCSS('opacity', '1');
+    await page.screenshot({ path: test.info().outputPath('sync-printer-confirmation.png'), fullPage: true });
     const materialDeviceReadCount = () => app.evaluate(() => {
       const requests = globalThis.bambuControlFixture.requests as { method: string; input: { source?: string; topics?: string[] } }[];
       return requests.filter(r => r.method === 'read' && r.input.source === 'device' && r.input.topics?.includes('materials')).length;
@@ -39,7 +44,7 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await expect(page.getByTestId('printer-nozzle-row')).toContainText('0.6');
     await expect(page.getByTestId('printer-nozzle-row')).toContainText('0.4');
     await dialog.getByRole('button', { name: 'Continue to Filament sync' }).click();
-    await expect(dialog.getByRole('combobox', { name: 'Filament sync mode' })).toHaveValue('rebuild');
+    await expect(dialog.getByRole('combobox', { name: 'Filament sync mode' })).toContainText('Rebuild from device');
     await expect(dialog.getByLabel('Device materials')).toContainText('AMS');
     await expect(dialog.getByRole('button', { name: 'Apply Filament sync' })).toBeEnabled();
     expect(await materialDeviceReadCount()).toBe(0);
@@ -48,7 +53,27 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await expect(dialog.getByRole('button', { name: 'Apply Filament sync' })).toBeEnabled();
     expect(await materialDeviceReadCount()).toBe(1);
     await expect.poll(() => app.evaluate(() => [...globalThis.bambuControlFixture.tokens].sort())).toEqual(retainedTokens);
+    await expect(dialog).toHaveCSS('opacity', '1');
     await page.screenshot({ path: test.info().outputPath('filament-sync-review.png'), fullPage: true });
+    await dialog.getByRole('combobox', { name: 'Filament sync mode' }).click();
+    await page.getByRole('option', { name: 'Update project mapping', exact: true }).click();
+    await expect(dialog.getByRole('combobox', { name: 'Source for material 1', exact: true })).toBeVisible();
+    await dialog.getByRole('checkbox', { name: 'Colors only', exact: true }).check();
+    await expect(dialog.getByRole('checkbox', { name: 'Colors only', exact: true })).toBeChecked();
+    await dialog.getByRole('checkbox', { name: 'Colors only', exact: true }).uncheck();
+    await dialog.getByRole('checkbox', { name: 'Append unused device materials', exact: true }).uncheck();
+    await expect(dialog.getByRole('checkbox', { name: 'Append unused device materials', exact: true })).not.toBeChecked();
+    await dialog.getByRole('combobox', { name: 'Source for material 1', exact: true }).click();
+    await page.getByRole('option', { name: 'AMS 2 Pro 0 · Slot 1', exact: true }).click();
+    await expect(dialog.getByRole('combobox', { name: 'Source for material 1', exact: true })).toContainText('AMS 2 Pro 0 · Slot 1');
+    await expect(dialog).toHaveCSS('opacity', '1');
+    await page.screenshot({ path: test.info().outputPath('filament-sync-mapping.png'), fullPage: true });
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await expect(dialog.getByRole('button', { name: 'Apply Filament sync' })).toBeInViewport();
+    await page.screenshot({ path: test.info().outputPath('filament-sync-mapping-compact.png'), fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await dialog.getByRole('combobox', { name: 'Filament sync mode' }).click();
+    await page.getByRole('option', { name: 'Rebuild from device', exact: true }).click();
     await dialog.getByRole('button', { name: 'Apply Filament sync' }).click();
     await expect(dialog).toHaveCount(0); await expect(page.getByTestId('filament-rack')).toContainText('Material (14)');
     // Printer and Filament are separate history entries; Undo material import keeps hardware.
