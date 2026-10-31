@@ -35,6 +35,7 @@ assert.equal(JSON.stringify(observe()), pickerAfter, 'invalid device selection l
 ok(command('orc_history_undo', context));
 assert.deepEqual(rack().slots, before.slots);
 const ready = ok(prepare());
+assert.equal(ready.requiresReview, true, 'occupied plates require material review');
 assert.equal(ready.sources[0].warning, null);
 assert.match(ready.sources[0].preset, /Bambu PLA Basic/);
 assert.equal(ready.references.length, before.slots.length);
@@ -142,4 +143,15 @@ const oneMaterial = ok(prepare());
 assert.equal(oneMaterial.references.length, 1);
 assert.equal(oneMaterial.projectTypes.length, 1);
 assert.ok(oneMaterial.sources.every(s => s.matches.length === 1));
+// Rack entries do not establish project use. Dirty active drafts still require
+// review, and an occupied non-selected plate must not take the direct path.
+ok(call('orc_clear_model'));
+assert.equal(ok(prepare()).requiresReview, true, 'empty plates retain review for a modified active Filament');
+ok(command('orc_mutate_preset_draft', { history_context: context, action: 'reset-preset', kind: 'filament', canonical_name: 'Synced tuned PLA', expected_revision: history().revision }));
+assert.equal(rack().slots.length, 1);
+assert.equal(ok(prepare()).requiresReview, false, 'clean empty plates sync directly despite a configured rack');
+ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Used on another plate']));
+const emptySelected = ok(call('orc_add_plate'));
+assert.equal(emptySelected.plates.find(p => p.plate_id === emptySelected.current_plate_id).instance_ids.length, 0);
+assert.equal(ok(prepare()).requiresReview, true, 'all plates participate in the dialog decision');
 console.log('PASS device Filament sync: native exact/fallback matching, mapping identities, append deduplication, explicit Merge replacement, late rollback, Undo/Redo, parallel colors, 3MF, preserved custom drafts and single-material dual-nozzle proposal dimensions');

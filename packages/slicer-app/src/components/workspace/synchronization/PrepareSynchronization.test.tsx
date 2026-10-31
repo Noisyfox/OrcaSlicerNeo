@@ -12,6 +12,7 @@ import { useProjectDialogStore } from '@/stores/useProjectDialogStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+import { useNotificationStore } from '@/stores/useNotificationStore';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
@@ -25,14 +26,24 @@ afterEach(async () => {
   usePrepareSynchronization.setState({ kind: null }); useProjectDialogStore.setState({ open: false });
   useDeviceSelectionStore.setState({ currentPrinterId: null, requestedPrinterId: null, selectionRequestVersion: 0, navigationRequestVersion: 0 });
   useFilamentSessionStore.getState().reset(); useHistoryNavigationStore.getState().reset(); document.body.innerHTML = '';
+  useNotificationStore.getState().reset();
 });
-async function fixture({ connected = true, model = 'X1 Carbon', stream = false, models = false, materialOnly = false, secondary = false, strict = false, unidentified = false, noIdentities = false } = {}) {
+async function fixture({ connected = true, model = 'X1 Carbon', stream = false, models = false, reviewModel = false, dirty = false, materialOnly = false, secondary = false, strict = false, unidentified = false, noIdentities = false } = {}) {
   let preferences: UserPreferences = structuredClone(DEFAULT_USER_PREFERENCES);
   const runtime = createClient(async () => createMockModule());
+  if (models || reviewModel) await runtime.addShape('Cube', 'Other Plate model');
   if (models) {
-    await runtime.addShape('Cube', 'Other Plate model');
     const initial = await runtime.getFilamentSessionSnapshot(); if (!initial.ok) throw new Error(initial.error);
     await runtime.addFilamentSlot({ version: 1, revision: initial.revisions.session });
+  }
+  if (dirty) {
+    const rack = await runtime.getFilamentSessionSnapshot(), plates = await runtime.getPlateSessionSnapshot();
+    if (!rack.ok || !plates.ok) throw new Error('fixture');
+    const edited = await runtime.mutatePresetDraft({ action: 'set', kind: 'filament', canonicalName: rack.slots[0].preset.name,
+      expectedRevision: rack.revisions.session, key: 'enable_pressure_advance', value: '1' }, {
+      activePlateId: plates.currentPlateId, selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, gizmo: null, nativeScopedConfig: {},
+    });
+    if (!edited.ok) throw new Error(edited.error);
   }
   const profile = await runtime.getProfileSnapshot(); if (!profile.ok) throw new Error(profile.error);
   useSettingsStore.getState().hydrateProfileSnapshot(profile);
@@ -94,9 +105,50 @@ async function choose(trigger: HTMLElement, label: string) {
   });
 }
 describe('Prepare synchronization workflow', () => {
-  it('disables both import modes when only unidentified metadata is available', async () => {
+  it('directly imports into an empty clean project once under StrictMode without mounting details', async () => {
+    const f = await fixture({ strict: true }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
+    const shown: Element[] = [];
+    const observer = new MutationObserver(() => { const dialog = f.container.querySelector('[data-testid="prepare-synchronization-dialog"]'); if (dialog) shown.push(dialog); });
+    observer.observe(f.container, { childList: true, subtree: true });
+    await start('filament'); observer.disconnect();
+    expect(shown).toHaveLength(0); expect(apply).toHaveBeenCalledOnce();
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ mode: 'rebuild', colourOnly: false }));
+    expect((await f.runtime.getHistoryStatus()).undoEntries).toHaveLength(1);
+    expect(useNotificationStore.getState().notifications.at(-1)).toMatchObject({ title: 'Filament synchronized', severity: 'warning' });
+    await f.runtime.undoHistory(); expect((await f.runtime.getFilamentSessionSnapshot())).toMatchObject({ slots: [expect.anything()] });
+  });
+  it('retains details for a modified Filament draft even when every plate is empty', async () => {
+    const f = await fixture({ dirty: true }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
+    await start('filament'); expect(f.container.textContent).toContain('Apply Filament sync'); expect(apply).not.toHaveBeenCalled();
+  });
+  it('keeps device selection necessary but bypasses material details after Connect and sync', async () => {
+    const f = await fixture({ connected: false }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
+    await start('filament'); expect(f.container.querySelector('[aria-label="Synchronization device"]')).toBeTruthy();
+    await click(f.container, 'Connect and sync');
+    expect(apply).toHaveBeenCalledOnce(); expect(f.container.querySelector('[role="dialog"]')).toBeNull();
+  });
+  it('revalidates the direct source before committing without a confirmation dialog', async () => {
+    const f = await fixture(); const prepare = f.runtime.prepareMaterialImport.bind(f.runtime);
+    vi.spyOn(f.runtime, 'prepareMaterialImport').mockImplementation(async request => { const result = await prepare(request); f.disconnect(); return result; });
+    const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
+    await start('filament'); expect(apply).not.toHaveBeenCalled();
+    expect(f.container.textContent).toContain('Synchronization inventory changed');
+    expect((await f.runtime.getHistoryStatus()).undoEntries).toHaveLength(0);
+  });
+  it('retains details when another plate has a model and the selected plate is empty', async () => {
+    const f = await fixture({ reviewModel: true }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
+    await f.runtime.addPlate();
+    await start('filament'); expect(f.container.textContent).toContain('Apply Filament sync'); expect(apply).not.toHaveBeenCalled();
+  });
+  it('shows an error without importing when an empty project has no eligible device materials', async () => {
     const f = await fixture({ noIdentities: true }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
+    await start('filament'); expect(f.container.textContent).toContain('No eligible device materials');
+    expect(apply).not.toHaveBeenCalled(); expect(f.container.textContent).not.toContain('Device materials');
+  });
+  it('disables both import modes when only unidentified metadata is available', async () => {
+    const f = await fixture({ noIdentities: true, reviewModel: true }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
     await start('filament');
+    await choose(f.container.querySelector<HTMLElement>('[role="combobox"][aria-label="Filament sync mode"]')!, 'Rebuild from device');
     const button = [...f.container.querySelectorAll('button')].find(b => b.textContent === 'Apply Filament sync')!;
     expect(button.disabled).toBe(true);
     await choose(f.container.querySelector<HTMLElement>('[role="combobox"][aria-label="Filament sync mode"]')!, 'Update project mapping');
@@ -115,7 +167,7 @@ describe('Prepare synchronization workflow', () => {
     expect(rack.slots).toHaveLength(2);
   });
   it('displays unidentified source metadata without importing it or offering it for mapping', async () => {
-    const f = await fixture({ unidentified: true });
+    const f = await fixture({ unidentified: true, reviewModel: true });
     await start('filament');
     expect(f.container.querySelector('[aria-label="Device materials"]')?.textContent).toContain('Tray 1');
     expect(f.container.querySelector('[aria-label="Device materials"]')?.textContent).toContain('Not eligible for synchronization');
@@ -128,8 +180,9 @@ describe('Prepare synchronization workflow', () => {
     expect(options).toContain('Feeder · Tray 0'); expect(options).not.toContain('Feeder · Tray 1');
   });
   it('previews and commits colors only without growing a rebuild or enabling append', async () => {
-    const f = await fixture(); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
+    const f = await fixture({ reviewModel: true }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
     await start('filament');
+    await choose(f.container.querySelector<HTMLElement>('[role="combobox"][aria-label="Filament sync mode"]')!, 'Rebuild from device');
     await act(async () => { f.container.querySelector<HTMLElement>('#filament-sync-colors')!.click(); await flush(); });
     const review = f.container.querySelector('[aria-label="Material synchronization mapping"]')!;
     expect(review.querySelectorAll('tbody tr')).toHaveLength(1);
@@ -150,7 +203,7 @@ describe('Prepare synchronization workflow', () => {
     expect((await f.runtime.getHistoryStatus()).undoEntries).toHaveLength(1);
   });
   it('uses one live observation under StrictMode and only fetches on explicit Refresh', async () => {
-    const f = await fixture({ strict: true, stream: true });
+    const f = await fixture({ strict: true, stream: true, reviewModel: true });
     await start('filament');
     expect(f.watch).toHaveBeenCalledOnce();
     expect(f.read.mock.calls.filter(([r]) => r.source === 'device')).toHaveLength(0);
@@ -192,11 +245,11 @@ describe('Prepare synchronization workflow', () => {
     expect((await f.runtime.getHistoryStatus()).undoEntries).toHaveLength(1);
   });
   it('opens a chooser when disconnected and keeps connection selection after cancelling material review', async () => {
-    const f = await fixture({ connected: false }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
+    const f = await fixture({ connected: false, reviewModel: true }); const apply = vi.spyOn(f.runtime, 'applyMaterialImport');
     await start('filament'); expect(f.container.querySelector('[role="combobox"][aria-label="Synchronization device"]')).toBeTruthy();
     expect(f.read).not.toHaveBeenCalled();
     await click(f.container, 'Connect and sync');
-    expect(f.container.querySelector('[role="combobox"][aria-label="Filament sync mode"]')?.textContent).toContain('Rebuild from device');
+    expect(f.container.querySelector('[role="combobox"][aria-label="Filament sync mode"]')?.textContent).toContain('Update project mapping');
     expect(f.container.textContent).toContain('empty'); expect(f.container.textContent).toContain('unknown');
     await click(f.container, 'Cancel');
     expect(apply).not.toHaveBeenCalled(); expect(useDeviceSelectionStore.getState().currentPrinterId).toBe('device');
@@ -221,7 +274,7 @@ describe('Prepare synchronization workflow', () => {
     expect(f.container.querySelector('[role="dialog"]')).toBeNull();
   });
   it('supports an on-demand material-only agent without descriptor or background Monitor access', async () => {
-    const f = await fixture({ materialOnly: true }); await start('filament');
+    const f = await fixture({ materialOnly: true, reviewModel: true }); await start('filament');
     expect(f.container.textContent).toContain('Apply Filament sync'); expect(f.watch).not.toHaveBeenCalled();
     expect(f.read.mock.calls.filter(([r]) => r.source === 'device').map(([r]) => r.topics)).toEqual([['materials']]);
   });
@@ -231,7 +284,7 @@ describe('Prepare synchronization workflow', () => {
     await click(f.container, 'Cancel'); expect((await f.runtime.getProfileSnapshot())).toMatchObject({ printer: { name: 'Bambu Lab X1 Carbon 0.4 nozzle' } });
   });
   it('automatically uses the connected route instead of choosing the first configured route', async () => {
-    const f = await fixture({ secondary: true }); await start('filament');
+    const f = await fixture({ secondary: true, reviewModel: true }); await start('filament');
     expect(f.container.querySelector('[role="combobox"][aria-label="Synchronization device"]')).toBeNull();
     expect(f.read.mock.calls.filter(([r]) => r.source === 'device').map(([r]) => r.target.routeId)).toEqual(['second-route']);
     expect(f.container.textContent).toContain('Apply Filament sync');

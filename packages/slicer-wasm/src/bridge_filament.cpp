@@ -2237,6 +2237,23 @@ json device_filament_options_command(const json& request, const Runtime& runtime
     } catch (const FilamentCommandFailure& error) { return command_error(error.code, error.what()); }
 }
 
+bool material_import_requires_review()
+{
+    // SyncAmsInfoDialog checks every plate, independently of selected plate,
+    // printability, slice state and how many filaments exist in the rack.
+    PlateSession::ensure_plate_session_state();
+    for (const auto& instance : PlateSession::instance_membership_json())
+        if (instance.at("member").get<bool>()) return true;
+    const auto& bundle = state().presets;
+    if (bundle.filaments.get_edited_preset().is_dirty) return true;
+    // Neo owns simultaneous preset drafts rather than wx's single edited tab.
+    for (const auto& name : bundle.filament_presets)
+        if ((state().preset_drafts.find(Preset::TYPE_FILAMENT, name) || UserPresets::is_snapshot(Preset::TYPE_FILAMENT, name)) &&
+            UserPresets::modified(Preset::TYPE_FILAMENT, name,
+                PresetDrafts::effective_preset_config(bundle, state().preset_drafts, Preset::TYPE_FILAMENT, name))) return true;
+    return false;
+}
+
 json prepare_material_import_command(const json& request, const Runtime& runtime)
 {
     RuntimeScope scope(runtime);
@@ -2260,7 +2277,8 @@ json prepare_material_import_command(const json& request, const Runtime& runtime
         json project_types = json::array();
         for (size_t slot = 0; slot < State::material_slot_count(bundle.project_config); ++slot)
             project_types.push_back(PresetDrafts::effective_preset_config(bundle, state().preset_drafts, Preset::TYPE_FILAMENT, bundle.filament_presets.at(slot)).opt_string("filament_type", 0u));
-        return {{"ok", true}, {"revision", state().history_revision}, {"sources", sources}, {"projectTypes", project_types}, {"references", material_reference_kinds()}};
+        return {{"ok", true}, {"revision", state().history_revision}, {"requiresReview", material_import_requires_review()},
+            {"sources", sources}, {"projectTypes", project_types}, {"references", material_reference_kinds()}};
     } catch (const FilamentCommandFailure& error) { return command_error(error.code, error.what()); }
 }
 

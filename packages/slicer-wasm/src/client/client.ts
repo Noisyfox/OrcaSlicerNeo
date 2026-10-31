@@ -2742,7 +2742,7 @@ export function createClient(
       // Native eligibility may exclude unconfigured physical supplies. Preserve
       // the requested order/identity without duplicating that policy in JS.
       const sourceIndices = Array.isArray(raw.sources) ? raw.sources.map((s: any) => request.sources.findIndex(r => r.slotId === s?.slotId)) : [];
-      if (!Number.isSafeInteger(raw.revision) || raw.revision !== request.revision || !Array.isArray(raw.sources) ||
+      if (!Number.isSafeInteger(raw.revision) || raw.revision !== request.revision || typeof raw.requiresReview !== 'boolean' || !Array.isArray(raw.sources) ||
         raw.sources.some((s: any, i: number) => !match(s) || sourceIndices[i] < 0 || i > 0 && sourceIndices[i] <= sourceIndices[i - 1] || !Array.isArray(s.matches) || s.matches.length !== raw.projectTypes?.length || !s.matches.every(match)) ||
         !Array.isArray(raw.projectTypes) || raw.projectTypes.some((t: unknown) => typeof t !== 'string') ||
         !Array.isArray(raw.references) || raw.references.length !== raw.projectTypes.length || raw.references.some((r: any, i: number) => r.slot !== i + 1 || !Array.isArray(r.kinds) || r.kinds.some((k: any) => typeof k !== 'string')))

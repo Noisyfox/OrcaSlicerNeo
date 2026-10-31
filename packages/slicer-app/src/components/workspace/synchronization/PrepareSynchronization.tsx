@@ -18,6 +18,8 @@ import { useProjectDialogStore } from '@/stores/useProjectDialogStore';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useNotificationStore } from '@/stores/useNotificationStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { publishRememberedFilamentRack, publishRememberedNozzleCapacities, configurePrinterProjectPreferences } from '@/preferences';
 import { publishPrinterTransition, rememberPrinterTransition } from '../settings/configurationActions';
 import { historyContextForStructure, readProjectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
@@ -84,7 +86,7 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
   const controller = useRef(new AbortController()), initialRevision = useRef<number | null>(null), live = useRef(true);
   const observation = useRef<{ key: string; abort: AbortController } | null>(null);
   const reviewed = useRef({ source, phase }); reviewed.current = { source, phase };
-  const visible = phase !== 'reading' || kind === 'filament';
+  const visible = phase !== 'reading';
   useProjectModal(visible, '[data-testid="prepare-synchronization-dialog"]');
   function failure(cause: unknown) { if (live.current) { setError(cause instanceof Error ? cause.message : String(cause)); setPhase('error'); setBusy(false); } }
   async function projectRevision() {
@@ -93,19 +95,34 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     return status.revision;
   }
   async function prepareFilament(next: SynchronizationSource, preserve = false) {
+    const signal = controller.current.signal;
     const snapshot = await platform.runtime.getFilamentSessionSnapshot();
     if (!snapshot.ok) throw new Error(snapshot.error);
     const result = await platform.runtime.prepareMaterialImport({ version: 1, revision: snapshot.revisions.session,
       identity: next.identity, sources: materialImportSources(next) });
-    if (!live.current) return;
+    if (!live.current || signal.aborted) return;
     if (!result.ok) {
       if (result.errorCode === 'printer_model_mismatch') { setPhase('need-printer'); setError(null); return; }
       throw new Error(result.error);
     }
-    const structure = await platform.runtime.getModelStructure();
-    if (!live.current) return;
+    if (!preserve && !result.requiresReview) {
+      if (!result.sources.length) throw new Error('No eligible device materials to synchronize.');
+      const replacements = snapshot.slots.map(() => null);
+      const needsReplacement = result.references.some((r, i) => i >= result.sources.length && r.kinds.length);
+      if (!needsReplacement) {
+        const applied = await commitFilaments(next, result, { mode: 'rebuild', mapping: [], replacements, appendUnused: false, colourOnly: false }, signal);
+        if (!live.current || signal.aborted) return;
+        if (!applied.ok) throw new Error(applied.error);
+        const warnings = [...new Set(result.sources.flatMap((s, i) => displayedMaterialMatch(result, s.slotId, i)?.warning ?? []))];
+        const outcome = { title: 'Filament synchronized', message: warnings.join('\n') || 'Printer materials imported.', severity: warnings.length ? 'warning' as const : 'info' as const };
+        const notifications = useNotificationStore.getState();
+        const token = notifications.beginOperation({ ...outcome, key: 'filament-sync', plateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? '' });
+        notifications.finishOperation(token, outcome);
+        onClose(); return;
+      }
+    }
     if (!preserve) {
-      setMode(structure.objects.length ? 'mapping' : 'rebuild');
+      setMode(result.requiresReview ? 'mapping' : 'rebuild');
       setMapping(suggestMaterialMapping(next, result, snapshot));
       setReplacements(snapshot.slots.map(() => null));
     } else {
@@ -228,20 +245,27 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     } catch (cause) { if (live.current) setError(String(cause)); }
     finally { if (live.current) setBusy(false); }
   }
+  async function commitFilaments(basis: SynchronizationSource, proposal: PreparedMaterials,
+    options: Pick<MaterialImportApplication, 'mode' | 'mapping' | 'replacements' | 'appendUnused' | 'colourOnly'>, signal: AbortSignal) {
+    const result = await useFilamentSessionStore.getState().run(platform.runtime, async () => {
+      if (signal.aborted) throw new Error('Synchronization cancelled.');
+      const checked = await validateSynchronizationSource(service, basis);
+      if (signal.aborted) throw new Error('Synchronization cancelled.');
+      if (!checked.ok || useDeviceSelectionStore.getState().currentPrinterId !== basis.target.printerId)
+        return { ok: false, version: 1, errorCode: 'stale_context', error: checked.ok ? 'Device selection changed. Cancel and open synchronization again.' : checked.error.message };
+      return platform.runtime.applyMaterialImport({ version: 1, revision: proposal.revision, identity: basis.identity,
+        sources: materialImportSources(basis), ...options });
+    });
+    if (result.ok) await publishRememberedFilamentRack(platform.preferences, useSettingsStore.getState().selectedPrinter, result.result.snapshot);
+    return result;
+  }
   async function apply() {
     if (!source || !prepared || !rack || busy || !ready) return;
     setBusy(true);
     try {
-      const result = await useFilamentSessionStore.getState().run(platform.runtime, async () => {
-        const checked = await validateSynchronizationSource(service, source);
-        if (!checked.ok || useDeviceSelectionStore.getState().currentPrinterId !== source.target.printerId)
-          return { ok: false, version: 1, errorCode: 'stale_context', error: checked.ok ? 'Device selection changed. Cancel and open synchronization again.' : checked.error.message };
-        return platform.runtime.applyMaterialImport({ version: 1, revision: prepared.revision, identity: source.identity,
-          sources: materialImportSources(source), mode, mapping, replacements, appendUnused: appendUnused && !colourOnly, colourOnly });
-      });
+      const result = await commitFilaments(source, prepared, { mode, mapping, replacements, appendUnused: appendUnused && !colourOnly, colourOnly }, controller.current.signal);
       if (!live.current) return;
       if (!result.ok) { setReady(false); setError(result.error); return; }
-      await publishRememberedFilamentRack(platform.preferences, useSettingsStore.getState().selectedPrinter, result.result.snapshot);
       onClose();
     } catch (cause) { if (live.current) setError(String(cause)); }
     finally { if (live.current) setBusy(false); }
@@ -280,7 +304,6 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
       </DialogHeader>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto text-xs/relaxed">
         {error && <Alert variant={phase === 'confirm-printer' ? 'default' : 'destructive'}><AlertDescription>{error}</AlertDescription></Alert>}
-        {phase === 'reading' && <p role="status" className="text-muted-foreground">Reading device materials…</p>}
         {phase === 'choose' && <Field>
           <FieldLabel htmlFor="synchronization-device">Device</FieldLabel>
           <SynchronizationSelect id="synchronization-device" label="Synchronization device" value={choice} disabled={busy}

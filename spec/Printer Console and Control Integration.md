@@ -64,7 +64,8 @@ used when the other one is unavailable.
 **Decision status:** Option B is selected with separate interactions: Printer
 sync executes directly with Orca-style necessary confirmations/configuration
 choices and no generic change-preview dialog; Filament sync uses a modal
-mapping/rebuild dialog. Each accepted project operation applies atomically in
+mapping/rebuild dialog when project use or edited Filament presets require
+review, and directly rebuilds clean empty plates following Orca. Each accepted project operation applies atomically in
 native code. The shared workflow, normalized Bambu observations and native
 transactions are implemented. Development-host H2D + AMS read/import/history
 acceptance passed; mixed physical nozzles and post-sync printing remain
@@ -311,11 +312,24 @@ matches remain visible for review. Empty slots, unknown presence and unavailable
 metadata are distinct states. Candidate inclusion and fallback follow the
 accepted rules below; review must retain each source's actual presence state.
 
-Default to mapping updates when the project has models, and to rebuilding the
-rack from device materials when it has no models. Check the whole project,
-not just the selected Plate. Users can change mode in the preview; both defaults
-still require modal preview and explicit confirmation, including an empty
-project. Color-only updates remain available in either mode, but only update
+Follow Orca's `SyncAmsInfoDialog::is_need_show` and `check_empty_project`:
+when every Plate has no object instances and no active Filament preset has
+unsaved edits, the explicit Sync action directly rebuilds the rack without
+mounting a detail/confirmation dialog. Configured rack entries, slice status
+and the currently selected Plate do not establish project use. Reuse native
+Plate membership and existing Filament draft/baseline dirty detection; Neo's
+simultaneous active preset drafts receive the protection of Orca's edited tab.
+An object on any Plate or a modified active Filament retains the modal, defaulting
+to mapping. Users can choose rebuild there. An empty project that needs explicit
+reference replacement still shows rebuild review under the reference rules
+below. No eligible source or a rejected direct operation shows an error without
+importing; fallback warnings after a successful direct sync use the existing
+workspace notifications. Both paths share the same source/revision validation,
+atomic native application, preference publication and one-entry Undo. Reading
+and direct application do not briefly mount the details dialog. Development
+StrictMode replay must not duplicate the automatic commit.
+
+Color-only updates remain available in the review dialog in either mode, but only update
 existing slots: never change presets, slot count, logical identities or
 references. Rebuild colors follow the eligible source order up to the existing
 rack size; excess sources are ignored and remaining project colors stay as-is.
@@ -498,8 +512,8 @@ and project/history transactions, but does not qualify Orca-equivalent source
 eligibility: its ten-record rebuild included eight AMS materials with their
 PETG-CF/PETG/PC presets and colors and two unknown external-holder records with
 Generic ABS fallback. Unidentified external records must now be displayed but
-excluded under the eligibility rule above. The corrected filtering and
-colors-only rack preservation require a final hardware acceptance rerun;
+excluded under the eligibility rule above. The corrected filtering, colors-only rack preservation and clean-empty
+direct-sync path require a final hardware acceptance rerun;
 software fixtures and WASM tests do not establish that hardware qualification.
 
 The first hardware attempt exposed an observation-ownership defect: entering

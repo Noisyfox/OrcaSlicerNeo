@@ -732,7 +732,9 @@ existing Sync control. The implemented
 reuses this button for Printer sync.
 Printer sync follows Orca's direct action with necessary confirmations or
 configuration choices; it adds no generic before/after preview. Filament Sync
-opens the modal mapping/rebuild dialog owned by that specification.
+directly imports for clean, empty Plates; otherwise it opens the modal
+mapping/rebuild dialog under that specification's native occupancy, draft and
+reference-replacement rules.
 Synchronization uses the existing shared Dialog, form controls, Table and
 material swatch presentation. Device choice and necessary Printer confirmations
 use the standard compact modal; the Filament mapping dialog has a bounded

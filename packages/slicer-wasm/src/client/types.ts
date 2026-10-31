@@ -1541,6 +1541,8 @@ export interface MaterialImportMatch {
 export type MaterialImportPreparation = {
   readonly ok: true;
   readonly revision: number;
+  /** Native all-plate occupancy and active Filament draft guard, following Orca. */
+  readonly requiresReview: boolean;
   /** Native-eligible sources in request order; unidentified supplies are omitted. */
   readonly sources: readonly (MaterialImportMatch & { readonly slotId: string; readonly matches: readonly MaterialImportMatch[] })[];
   readonly projectTypes: readonly string[];

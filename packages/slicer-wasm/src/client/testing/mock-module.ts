@@ -1663,7 +1663,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         ?? candidates('filament').find(p => p.name === previous) ?? candidates('filament')[0];
       return { preset: candidate?.name ?? null, warning: 'Generic or previous compatible preset used.' };
     };
-    return { ok: true, revision: historyRevision, sources: request.sources.filter(hasMaterialIdentity).map((source: any) => ({ slotId: source.slotId,
+    const requiresReview = objectPlateIds.some(plate => plateIds.includes(plate)) || slots.some((slot: any) => Object.keys(presetDraftRegistry.filament[slot.preset.name] ?? {}).length > 0);
+    return { ok: true, revision: historyRevision, requiresReview, sources: request.sources.filter(hasMaterialIdentity).map((source: any) => ({ slotId: source.slotId,
       ...match(source), matches: slots.map((slot: any) => match(source, slot.preset.name)) })),
       projectTypes: slots.map(() => 'PLA'), references: slots.map((slot: any) => ({ slot: slot.slot, kinds: objectMeta.length ? ['Model assignment'] : [] })) };
   }

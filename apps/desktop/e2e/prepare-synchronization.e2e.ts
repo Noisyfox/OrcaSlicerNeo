@@ -58,6 +58,21 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await expect(page.getByTestId('printer-nozzle-row')).toContainText('0.6');
     await expect(page.getByTestId('printer-nozzle-row')).toContainText('0.4');
     await dialog.getByRole('button', { name: 'Continue to Filament sync' }).click();
+    // Orca bypasses details for clean, empty plates even when the rack is seeded.
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByTestId('filament-rack')).toContainText('Material (13)');
+    await page.getByTestId('history-undo').click();
+    await expect(page.getByTestId('filament-rack')).toContainText('Material (1)');
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const bounds = await canvas.boundingBox(); if (!bounds) throw new Error('Missing viewport');
+    await canvas.click({ button: 'right', position: { x: bounds.width - 40, y: 140 } });
+    await expect(page.getByTestId('ctx-menu')).toBeVisible();
+    await page.getByTestId('btn-add-primitive').click();
+    await page.getByTestId('btn-add-cube').click();
+    await page.getByTestId('filament-sync').click();
+    await expect(dialog.getByRole('combobox', { name: 'Filament sync mode' })).toContainText('Update project mapping');
+    await dialog.getByRole('combobox', { name: 'Filament sync mode' }).click();
+    await page.getByRole('option', { name: 'Rebuild from device', exact: true }).click();
     await expect(dialog.getByRole('combobox', { name: 'Filament sync mode' })).toContainText('Rebuild from device');
     await expect(dialog.getByLabel('Device materials')).toContainText('AMS');
     await expect(dialog.getByLabel('Device materials').getByRole('row').filter({ hasText: 'Not eligible for synchronization' })).toHaveCount(1);
