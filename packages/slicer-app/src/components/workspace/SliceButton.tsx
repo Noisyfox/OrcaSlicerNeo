@@ -96,9 +96,9 @@ export function SliceButton({ activeTab = 'home', onNavigateToDevice, onSlice }:
               <DropdownMenuSubContent aria-label="Filament mapping">
                 <DropdownMenuRadioGroup value={String(mapping.snapshot.effective.mode === 3 ? 2 : mapping.snapshot.effective.mode)} onValueChange={value => {
                   setOutputMenuOpen(false);
-                  if (value === '0' || value === '2') void mappingEdit.commit({ kind: 'mode', mode: value === '0' ? 0 : 2 });
+                  if (value === '0' || value === '1' || value === '2') void mappingEdit.commit({ kind: 'mode', mode: Number(value) as 0 | 1 | 2 });
                 }}>
-                {mapping.snapshot.modes.filter(m => m.mode === 0 || m.mode === 2 || m.mode === 1 && mapping.snapshot?.effective.mode === 1).map(m =>
+                {mapping.snapshot.modes.filter(m => m.mode !== 3).map(m =>
                   <DropdownMenuRadioItem key={m.mode} value={String(m.mode)} disabled={mappingEdit.disabled || !m.available} title={m.reason || undefined}>
                     {mappingModeLabel(m.mode)}
                     {!m.available ? ' (unavailable)' : ''}

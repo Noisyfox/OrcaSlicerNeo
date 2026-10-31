@@ -78,9 +78,18 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
     try {
       const result = await service.observations.read({ target, source: 'device', topics: manual as [D.StateTopic, ...D.StateTopic[]] }, { signal: abort.signal });
       if (abort.signal.aborted) return;
-      if (result.ok) { accept(result.value); reportError('manual', null); }
-      else { useDeviceSelectionStore.getState().clearConnection(connectionOwner.current); reportError('manual', 'Unable to refresh. Previously reported readings may be stale.'); }
-    } catch { if (!abort.signal.aborted) { useDeviceSelectionStore.getState().clearConnection(connectionOwner.current); reportError('manual', 'Unable to refresh. Previously reported readings may be stale.'); } }
+      if (result.ok) {
+        if (manual.includes('materials')) useDeviceSelectionStore.getState().publishGrouping(result.value, true);
+        accept(result.value); reportError('manual', null);
+      }
+      else {
+        if (manual.includes('materials')) useDeviceSelectionStore.getState().failGroupingPull(target, route.configurationRevision);
+        useDeviceSelectionStore.getState().clearConnection(connectionOwner.current); reportError('manual', 'Unable to refresh. Previously reported readings may be stale.');
+      }
+    } catch { if (!abort.signal.aborted) {
+      if (manual.includes('materials')) useDeviceSelectionStore.getState().failGroupingPull(target, route.configurationRevision);
+      useDeviceSelectionStore.getState().clearConnection(connectionOwner.current); reportError('manual', 'Unable to refresh. Previously reported readings may be stale.');
+    } }
     finally { reading.current = false; if (!abort.signal.aborted) setRefreshing(false); }
   }
   return { snapshot, capabilities, error, refreshing, refresh, live: stream.length > 0, liveStatus: stream.includes('status'), canRefresh: manual.length > 0 };

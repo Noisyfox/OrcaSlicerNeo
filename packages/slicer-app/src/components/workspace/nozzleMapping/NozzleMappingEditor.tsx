@@ -3,13 +3,13 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
 
-export const mappingModeLabel = (mode: NozzleMappingMode) => mode === 0 ? 'Auto For Flush' : mode === 1 ? 'Auto For Match' : 'Manual';
+export const mappingModeLabel = (mode: NozzleMappingMode) => mode === 0 ? 'Auto For Flush' : mode === 1 ? 'Convenience Mode' : 'Manual';
 
 export function NozzleMappingModeControl({ snapshot, disabled, onChange }: {
   snapshot: NozzleMappingSnapshot; disabled?: boolean; onChange: (mode: NozzleMappingMode) => void;
 }) {
   const current = snapshot.effective.mode;
-  const modes = snapshot.modes.filter(m => m.mode === 0 || m.mode === 2 || m.mode === current && m.mode === 1);
+  const modes = snapshot.modes.filter(m => m.mode !== 3);
   const selected = snapshot.modes.find(m => m.mode === current);
   return <div className="space-y-1">
     <ToggleGroup value={[String(current === 3 ? 2 : current)]} disabled={disabled}
