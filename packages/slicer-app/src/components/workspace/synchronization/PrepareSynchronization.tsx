@@ -24,7 +24,7 @@ import { publishRememberedFilamentRack, publishRememberedNozzleCapacities, confi
 import { publishPrinterTransition, rememberPrinterTransition } from '../settings/configurationActions';
 import { historyContextForStructure, readProjectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { materialImportSources, suggestMaterialMapping, displayedMaterialMatch, pendingMaterialAdditions, type PreparedMaterials } from './materialSynchronization';
+import { materialImportSources, suggestMaterialMapping, displayedMaterialMatch, type PreparedMaterials } from './materialSynchronization';
 
 export const usePrepareSynchronization = create<{ kind: SynchronizationKind | null }>(() => ({ kind: null }));
 export function requestPrepareSynchronization(kind: SynchronizationKind) {
@@ -82,6 +82,7 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
   const [prepared, setPrepared] = useState<PreparedMaterials | null>(null), [rack, setRack] = useState<FilamentSessionSnapshot | null>(null);
   const [mode, setMode] = useState<MaterialImportApplication['mode']>('mapping');
   const [mapping, setMapping] = useState<(string | null)[]>([]), [replacements, setReplacements] = useState<(number | null)[]>([]);
+  const [appendPlan, setAppendPlan] = useState<{ mapping: typeof mapping; source: SynchronizationSource; additions: readonly string[] } | null>(null);
   const [appendUnused, setAppendUnused] = useState(true), [colourOnly, setColourOnly] = useState(false);
   const controller = useRef(new AbortController()), initialRevision = useRef<number | null>(null), live = useRef(true);
   const observation = useRef<{ key: string; abort: AbortController } | null>(null);
@@ -99,7 +100,7 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     const snapshot = await platform.runtime.getFilamentSessionSnapshot();
     if (!snapshot.ok) throw new Error(snapshot.error);
     const result = await platform.runtime.prepareMaterialImport({ version: 1, revision: snapshot.revisions.session,
-      identity: next.identity, sources: materialImportSources(next) });
+      identity: next.identity, sources: materialImportSources(next), mapping: null });
     if (!live.current || signal.aborted) return;
     if (!result.ok) {
       if (result.errorCode === 'printer_model_mismatch') { setPhase('need-printer'); setError(null); return; }
@@ -233,6 +234,19 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
       setReady(false); setError('Device selection changed. Your mapping is retained. Cancel and open synchronization again to use another device.');
     }
   }, [phase, source, currentDevice]);
+  // Native owns append equivalence. Re-query the read-only plan whenever the
+  // mapping changes; an older response must never enable Apply for newer input.
+  useEffect(() => {
+    if (phase !== 'filament' || mode !== 'mapping' || !appendUnused || colourOnly || !source || !prepared) return;
+    let obsolete = false;
+    void platform.runtime.prepareMaterialImport({ version: 1, revision: prepared.revision,
+      identity: source.identity, sources: materialImportSources(source), mapping }).then(result => {
+      if (obsolete || !live.current) return;
+      if (!result.ok) { setReady(false); setError(result.error); return; }
+      setAppendPlan({ mapping, source, additions: result.additions });
+    }).catch(cause => { if (!obsolete && live.current) { setReady(false); setError(String(cause)); } });
+    return () => { obsolete = true; };
+  }, [phase, source, prepared, mapping, mode, appendUnused, colourOnly, platform.runtime]);
   async function refresh() {
     if (!selected || !source) return;
     setBusy(true); setReady(false);
@@ -259,8 +273,9 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     if (result.ok) await publishRememberedFilamentRack(platform.preferences, useSettingsStore.getState().selectedPrinter, result.result.snapshot);
     return result;
   }
+  const planPending = mode === 'mapping' && appendUnused && !colourOnly && (appendPlan?.mapping !== mapping || appendPlan?.source !== source);
   async function apply() {
-    if (!source || !prepared || !rack || busy || !ready) return;
+    if (!source || !prepared || !rack || busy || !ready || planPending) return;
     setBusy(true);
     try {
       const result = await commitFilaments(source, prepared, { mode, mapping, replacements, appendUnused: appendUnused && !colourOnly, colourOnly }, controller.current.signal);
@@ -270,7 +285,7 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     } catch (cause) { if (live.current) setError(String(cause)); }
     finally { if (live.current) setBusy(false); }
   }
-  const sources = prepared?.sources ?? [], additions = source && prepared && rack ? pendingMaterialAdditions(source, prepared, rack, mapping, colourOnly) : [];
+  const sources = prepared?.sources ?? [], additions = appendPlan?.additions ?? [];
   const rebuildSources = colourOnly && rack ? sources.slice(0, rack.slots.length) : sources;
   const invalidReplacement = !colourOnly && mode === 'rebuild' && !!rack && !!prepared && prepared.references.some((r, i) => i >= sources.length && r.kinds.length && (!replacements[i] || replacements[i]! > sources.length));
   const unresolved = !sources.length || (mode === 'rebuild' ? rebuildSources.some((s, i) => !displayedMaterialMatch(prepared!, s.slotId, i)?.preset)
@@ -357,7 +372,7 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
               </TableRow>)}</TableBody>
             </Table></div>
           </section>
-          {mode === 'mapping' && appendUnused && !colourOnly && <p className="text-muted-foreground" data-testid="sync-additions">Additions: {additions.length ? additions.map(label).join(', ') : 'None'}</p>}
+          {mode === 'mapping' && appendUnused && !colourOnly && <p className="text-muted-foreground" data-testid="sync-additions">Additions: {planPending ? 'Calculating…' : additions.length ? additions.map(label).join(', ') : 'None'}</p>}
           {mode === 'rebuild' && !colourOnly && rack.slots.slice(sources.length).map((slot, offset) => {
             const i = offset + sources.length, refs = prepared.references[i]?.kinds ?? [];
             return <Field key={slot.logicalId} className="rounded-md border p-3">
@@ -380,7 +395,7 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
         {phase === 'confirm-printer' && <Button disabled={busy} onClick={() => source && void syncPrinter(source, true)}>Switch Printer and sync</Button>}
         {phase === 'need-printer' && <Button disabled={busy} onClick={() => selected && void (async () => { initialRevision.current = await projectRevision(); await readDevice(selected, 'printer'); })().catch(failure)}>Sync Printer first</Button>}
         {phase === 'continue-filament' && <Button disabled={busy} onClick={() => selected && void readDevice(selected, 'filament').catch(failure)}>Continue to Filament sync</Button>}
-        {phase === 'filament' && <Button disabled={busy || !ready || invalidReplacement || unresolved} onClick={() => void apply()}>Apply Filament sync</Button>}
+        {phase === 'filament' && <Button disabled={busy || !ready || planPending || invalidReplacement || unresolved} onClick={() => void apply()}>Apply Filament sync</Button>}
       </DialogFooter>
     </DialogContent>
   </Dialog>;

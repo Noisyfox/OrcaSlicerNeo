@@ -1,5 +1,5 @@
 import type { SynchronizationSource } from '@orca/printer-control';
-import type { FilamentSessionSnapshot, MaterialImportApplication, MaterialImportPreparation, MaterialImportSource } from '@slicer/client';
+import type { FilamentSessionSnapshot, MaterialImportPreparation, MaterialImportSource } from '@slicer/client';
 
 /** Device-native catalogue associations have already been normalized by the agent. */
 export function materialImportSources(source: SynchronizationSource): MaterialImportSource[] {
@@ -31,29 +31,4 @@ export function suggestMaterialMapping(source: SynchronizationSource, prepared: 
 export function displayedMaterialMatch(prepared: PreparedMaterials, sourceId: string, projectIndex: number) {
   const source = prepared.sources.find(s => s.slotId === sourceId);
   return source?.matches[projectIndex] ?? source;
-}
-/** The same native candidate/color equivalence used for the displayed append list. */
-export function pendingMaterialAdditions(source: SynchronizationSource, prepared: PreparedMaterials, rack: FilamentSessionSnapshot,
-  mapping: MaterialImportApplication['mapping'], colourOnly: boolean): string[] {
-  if (colourOnly) return [];
-  const represented = rack.slots.map((slot, i) => {
-    const device = source.materials.find(s => s.slotId === mapping[i]);
-    const preset = !colourOnly && device ? displayedMaterialMatch(prepared, device.slotId, i)?.preset : slot.preset.name;
-    const colors = device?.metadata?.color;
-    return { preset, color: colors ? colors.kind === 'solid' ? colors.rgba : colors.rgba[0]
-      : slot.colour.effective };
-  });
-  const additions: string[] = [];
-  for (const material of source.materials) {
-    if (mapping.includes(material.slotId)) continue;
-    const match = prepared.sources.find(s => s.slotId === material.slotId);
-    if (!match?.preset) continue;
-    const c = material.metadata?.color;
-    const color = c ? c.kind === 'solid' ? c.rgba : c.rgba[0] : null;
-    // A preserved custom source is already represented by its per-slot native match.
-    if (represented.some((r, i) => (r.preset === match.preset || match.matches[i]?.preset === r.preset)
-      && (color === null || r.color === color))) continue;
-    additions.push(material.slotId); represented.push({ preset: match.preset, color: color ?? '' });
-  }
-  return additions;
 }

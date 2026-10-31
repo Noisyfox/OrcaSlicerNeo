@@ -1664,9 +1664,25 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { preset: candidate?.name ?? null, warning: 'Generic or previous compatible preset used.' };
     };
     const requiresReview = objectPlateIds.some(plate => plateIds.includes(plate)) || slots.some((slot: any) => Object.keys(presetDraftRegistry.filament[slot.preset.name] ?? {}).length > 0);
-    return { ok: true, revision: historyRevision, requiresReview, sources: request.sources.filter(hasMaterialIdentity).map((source: any) => ({ slotId: source.slotId,
+    const prepared = { ok: true, revision: historyRevision, requiresReview, additions: [] as string[], sources: request.sources.filter(hasMaterialIdentity).map((source: any) => ({ slotId: source.slotId,
       ...match(source), matches: slots.map((slot: any) => match(source, slot.preset.name)) })),
       projectTypes: slots.map(() => 'PLA'), references: slots.map((slot: any) => ({ slot: slot.slot, kinds: objectMeta.length ? ['Model assignment'] : [] })) };
+    if (request.mapping) {
+      const represented = slots.map((slot: any, i: number) => {
+        const source = request.sources.find((s: any) => s.slotId === request.mapping[i] && hasMaterialIdentity(s));
+        const colour = source?.colour;
+        return { preset: source ? match(source, slot.preset.name).preset : slot.preset.name,
+          color: colour ? colour.kind === 'solid' ? colour.color : colour.colors[0] : slot.colour.effective };
+      });
+      for (const source of request.sources.filter(hasMaterialIdentity)) {
+        if (request.mapping.includes(source.slotId)) continue;
+        const preset = match(source).preset, colour = source.colour;
+        const color = colour ? colour.kind === 'solid' ? colour.color : colour.colors[0] : null;
+        if (represented.some((r: any) => r.preset === preset && (color === null || color === r.color))) continue;
+        prepared.additions.push(source.slotId); represented.push({ preset, color: color ?? represented.at(-1)?.color });
+      }
+    }
+    return prepared;
   }
   function deviceFilamentOptionsMock(request: any): any {
     const prepared = prepareMaterialImportMock(request);
@@ -1726,11 +1742,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       } else {
         if (request.mapping.length !== next.slots.length) return fail('Incomplete project mapping', 'invalid_command');
         next.slots = next.slots.map((slot: any, i: number) => request.mapping[i] && eligible.some((source: any) => source.slotId === request.mapping[i]) ? apply(request.mapping[i], i, slot) : slot);
-        if (request.appendUnused && !request.colourOnly) for (const source of eligible) {
-          if (request.mapping.includes(source.slotId)) continue;
-          const addition = apply(source.slotId, next.slots.length);
-          if (!next.slots.some((slot: any) => slot.preset.name === addition.preset.name && slot.colour.effective === addition.colour.effective)) next.slots.push(addition);
-        }
+        if (request.appendUnused && !request.colourOnly) for (const id of prepared.additions) next.slots.push(apply(id, next.slots.length));
       }
       if (next.slots.length > 64) return fail('Material rack capacity exceeded', 'capability_rejected');
       const size = next.slots.length;

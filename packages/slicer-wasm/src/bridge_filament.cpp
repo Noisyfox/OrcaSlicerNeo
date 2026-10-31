@@ -277,10 +277,8 @@ bool valid_filament_colour(const std::string& colour)
     });
 }
 
-std::string filament_preset_colour(const PresetBundle& bundle, const std::size_t slot)
+std::string preset_colour(const Preset* preset)
 {
-    if (slot >= bundle.filament_presets.size()) return "#26A69A";
-    const Preset* preset = bundle.filaments.find_preset(bundle.filament_presets[slot], false);
     if (preset != nullptr) {
         if (const auto* colours = preset->config.opt<ConfigOptionStrings>("filament_colour");
             colours != nullptr && !colours->values.empty()) return colours->values.front();
@@ -290,11 +288,23 @@ std::string filament_preset_colour(const PresetBundle& bundle, const std::size_t
     return "#26A69A";
 }
 
+std::string filament_preset_colour(const PresetBundle& bundle, const std::size_t slot)
+{
+    return preset_colour(slot < bundle.filament_presets.size()
+        ? bundle.filaments.find_preset(bundle.filament_presets[slot], false) : nullptr);
+}
+
 struct FilamentColourState {
     std::string representative;
     std::string multi;
     std::string type;
 };
+
+bool is_user_colour_override(const std::string& preset_colour, const FilamentColourState& colour)
+{
+    return colour.representative != preset_colour ||
+        (!colour.multi.empty() && colour.multi != colour.representative) || colour.type != "1";
+}
 
 std::optional<FilamentColourState> user_filament_colour_override(const PresetBundle& bundle, const std::size_t slot)
 {
@@ -308,9 +318,7 @@ std::optional<FilamentColourState> user_filament_colour_override(const PresetBun
         multi != nullptr && slot < multi->values.size() ? multi->values[slot] : std::string{},
         types != nullptr && slot < types->values.size() ? types->values[slot] : std::string{},
     };
-    const bool has_custom_multi = !current.multi.empty() && current.multi != current.representative;
-    if (current.representative == filament_preset_colour(bundle, slot) &&
-        !has_custom_multi && current.type == "1") return std::nullopt;
+    if (!is_user_colour_override(filament_preset_colour(bundle, slot), current)) return std::nullopt;
     return current;
 }
 
@@ -1052,7 +1060,8 @@ json filament_mutation_result(const json& mutation)
 }
 
 template <typename Mutator>
-json run_filament_mutation(const json& request, const char* label, Mutator mutator)
+json run_filament_mutation(const json& request, const char* label, Mutator mutator,
+                           std::map<std::string, bool>* visibility_changes = nullptr)
 {
     const auto before_next_filament_colour_index = state().next_filament_colour_index;
     try {
@@ -1069,7 +1078,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
         const auto expected = request["revision"].get<std::uint64_t>();
         if (expected != before_snapshot["revisions"]["session"].get<std::uint64_t>())
             return command_error("stale_revision", "filament session revision is stale");
-        // The preset catalogue is immutable during a project session.  Never
+        // Preset configurations are immutable; admission may change visibility. Never
         // copy PresetBundle in a history-producing mutation: retain only the
         // exact mutable filament fields which may need atomic rollback.
         const auto before_filament_presets = state().presets.filament_presets;
@@ -1099,6 +1108,8 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
                 history_started = false;
             }
             if (!mutated) return;
+            if (visibility_changes) for (const auto& [name, visible] : *visibility_changes)
+                if (auto* preset = state().presets.filaments.find_preset(name, false, true)) preset->is_visible = visible;
             state().presets.filament_presets = before_filament_presets;
             state().filament_slot_ids = before_slot_ids;
             state().presets.project_config = before_project_config;
@@ -1195,9 +1206,8 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
 }
 
 // Add/delete only touch a small, well-defined part of PresetBundle.  The
-// generic transaction above intentionally stages the complete installed
-// preset graph, which is the right safety boundary for arbitrary commands but
-// makes a single slot edit pay for several deep copies.  Keep the same
+// generic transaction above also captures model and Plate state for commands
+// which can remap references. Avoid that cost for isolated slot edits. Keep the same
 // validation, snapshot, history, and rollback protocol while applying these
 // two mutations in place and retaining only the fields they can change.
 template <typename Mutator>
@@ -1845,7 +1855,8 @@ const Preset* resolve_material_picker_source(PresetBundle& bundle, const json& s
 json select_filament_slot_preset_command(const json& request, const Runtime& runtime)
 {
     RuntimeScope scope(runtime);
-    return run_filament_mutation(request, "Select Filament Preset", [&request](PresetBundle& bundle, Model&, auto&, auto&, std::size_t count) {
+    std::map<std::string, bool> visibility_changes;
+    return run_filament_mutation(request, "Select Filament Preset", [&request, &visibility_changes](PresetBundle& bundle, Model&, auto&, auto&, std::size_t count) {
         std::string error;
         const auto slot = filament_command_slot(request, "slot", count, error);
         if (!slot) throw FilamentCommandFailure("unsupported_reference", error);
@@ -1860,6 +1871,7 @@ json select_filament_slot_preset_command(const json& request, const Runtime& run
             if (!matched || matched->name != name) throw FilamentCommandFailure("unsupported_reference", "Device filament match changed");
             // Orca admits compatible installed materials even when hidden from
             // the ordinary catalogue. Selection owns this visibility change.
+            visibility_changes.emplace(matched->name, matched->is_visible);
             const_cast<Preset*>(matched)->is_visible = true;
         }
         const Preset* preset = bundle.filaments.find_preset(name, false, true);
@@ -1872,12 +1884,11 @@ json select_filament_slot_preset_command(const json& request, const Runtime& run
         }
         auto_recalculate_filament_flush(bundle, -1, false);
         return json{{"kind", "select-preset"}, {"slot", *slot + 1}, {"preset", name}};
-    });
+    }, &visibility_changes);
 }
 
-void apply_slot_colour(PresetBundle& bundle, const std::size_t slot, const json& colour)
+FilamentColourState parse_slot_colour(const json& colour)
 {
-    const auto count = State::material_slot_count(bundle.project_config);
     if (!colour.contains("kind") || !colour["kind"].is_string())
         throw FilamentCommandFailure("native_validation_failure", "native filament colour validation failed");
     const std::string kind = colour["kind"].get<std::string>();
@@ -1903,6 +1914,13 @@ void apply_slot_colour(PresetBundle& bundle, const std::size_t slot, const json&
     } else {
         throw FilamentCommandFailure("native_validation_failure", "native filament colour validation failed");
     }
+    return {representative, multi_colour, colour_type};
+}
+
+void apply_slot_colour(PresetBundle& bundle, const std::size_t slot, const json& colour)
+{
+    const auto count = State::material_slot_count(bundle.project_config);
+    const auto [representative, multi_colour, colour_type] = parse_slot_colour(colour);
     auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour", true);
     colours->values.resize(count, "#26A69A");
     colours->values[slot] = representative;
@@ -2208,16 +2226,7 @@ void validate_material_import(const json& request)
         for (const auto& tool : source.at("toolIndices"))
             if (!tool.is_number_unsigned() || tool.get<size_t>() >= PresetDrafts::effective_printer_config().opt<ConfigOptionFloats>("nozzle_diameter")->size())
                 throw std::runtime_error("Unsupported synchronization material tool path");
-        if (!source.at("colour").is_null()) {
-            // Validate with the same ordinary-edit color parser without changing live state.
-            const auto& colour = source.at("colour");
-            const auto kind = colour.at("kind").get<std::string>();
-            if (kind == "solid") { if (!valid_filament_colour(colour.at("color").get<std::string>())) throw std::runtime_error("Invalid material color"); }
-            else if (kind == "linear-gradient" || kind == "parallel") {
-                if (colour.at("colors").size() < 2 || colour.at("colors").size() > 7) throw std::runtime_error("Invalid material colors");
-                for (const auto& color : colour.at("colors")) if (!valid_filament_colour(color.get<std::string>())) throw std::runtime_error("Invalid material color");
-            } else throw std::runtime_error("Unsupported material color");
-        }
+        if (!source.at("colour").is_null()) parse_slot_colour(source.at("colour"));
     }
 }
 
@@ -2254,6 +2263,78 @@ bool material_import_requires_review()
     return false;
 }
 
+// Prepare and Apply use this same read-only mapping/append plan. Per-slot
+// fallback is a selection result, not evidence of catalogue equivalence.
+std::vector<json> material_append_plan(PresetBundle& bundle, const json& request)
+{
+    const auto& mapping = request.at("mapping");
+    if (mapping.is_null()) return {};
+    const auto count = State::material_slot_count(bundle.project_config);
+    if (!mapping.is_array() || mapping.size() != count) throw std::runtime_error("Mapping must include the whole project rack");
+    const auto eligible = eligible_material_sources(request);
+    std::map<std::string, json> sources;
+    for (const auto& source : request.at("sources")) sources.emplace(source.at("slotId").get<std::string>(), source);
+    struct Entry { const Preset* preset; FilamentColourState colour; };
+    std::vector<Entry> represented;
+    std::set<std::string> used;
+    const auto source_colour = [](const json& source) -> std::optional<FilamentColourState> {
+        return source.at("colour").is_null() ? std::nullopt : std::optional{parse_slot_colour(source.at("colour"))};
+    };
+    const auto replace_preset = [](Entry& entry, const Preset* preset) {
+        const auto& colour = entry.colour;
+        if (entry.preset != preset && !is_user_colour_override(preset_colour(entry.preset), colour)) {
+            const auto value = preset_colour(preset);
+            entry.colour = {value, value, "1"};
+        }
+        entry.preset = preset;
+    };
+    const auto* colours = bundle.project_config.opt<ConfigOptionStrings>("filament_colour");
+    const auto* multi = bundle.project_config.opt<ConfigOptionStrings>("filament_multi_colour");
+    const auto* types = bundle.project_config.opt<ConfigOptionStrings>("filament_colour_type");
+    for (size_t i = 0; i < count; ++i) {
+        Entry entry{bundle.filaments.find_preset(bundle.filament_presets.at(i), false, true),
+            {colours->get_at(i), multi->get_at(i), types->get_at(i)}};
+        if (!mapping[i].is_null()) {
+            const auto id = mapping[i].get<std::string>();
+            const auto& source = sources.at(id);
+            if (has_material_identity(source)) {
+                used.insert(id);
+                const auto match = resolve_material_source(bundle, source, bundle.filament_presets.at(i));
+                if (!match.preset) throw FilamentCommandFailure("unresolved_material", "No compatible Filament preset for this source");
+                replace_preset(entry, match.preset);
+                if (const auto colour = source_colour(source)) entry.colour = *colour;
+            }
+        }
+        represented.push_back(std::move(entry));
+    }
+    std::vector<json> additions;
+    for (const auto& source : eligible) {
+        if (used.count(source.at("slotId").get<std::string>())) continue;
+        const auto match = resolve_material_source(bundle, source, "");
+        if (!match.preset) throw FilamentCommandFailure("unresolved_material", "No compatible Filament preset for an unused material");
+        const auto colour = source_colour(source);
+        const bool duplicate = std::any_of(represented.begin(), represented.end(), [&](const Entry& current) {
+            return current.preset && (current.preset->name == match.preset->name ||
+                (!current.preset->is_system && current.preset->is_compatible && !current.preset->filament_id.empty() &&
+                 current.preset->filament_id == match.preset->filament_id)) &&
+                (!colour || current.colour.representative == colour->representative);
+        });
+        if (duplicate) continue;
+        additions.push_back(source);
+        // Native slot growth repeats the preceding slot's colour. Applying a
+        // different preset retains user overrides and otherwise uses its colour.
+        auto entry = represented.back();
+        entry.colour.multi = entry.colour.representative;
+        // Core may pad the preset vector to tool count before the rack grows.
+        if (represented.size() < bundle.filament_presets.size())
+            entry.preset = bundle.filaments.find_preset(bundle.filament_presets.at(represented.size()), false, true);
+        replace_preset(entry, match.preset);
+        if (colour) entry.colour = *colour;
+        represented.push_back(std::move(entry));
+    }
+    return additions;
+}
+
 json prepare_material_import_command(const json& request, const Runtime& runtime)
 {
     RuntimeScope scope(runtime);
@@ -2277,7 +2358,9 @@ json prepare_material_import_command(const json& request, const Runtime& runtime
         json project_types = json::array();
         for (size_t slot = 0; slot < State::material_slot_count(bundle.project_config); ++slot)
             project_types.push_back(PresetDrafts::effective_preset_config(bundle, state().preset_drafts, Preset::TYPE_FILAMENT, bundle.filament_presets.at(slot)).opt_string("filament_type", 0u));
-        return {{"ok", true}, {"revision", state().history_revision}, {"requiresReview", material_import_requires_review()},
+        json additions = json::array();
+        for (const auto& source : material_append_plan(bundle, request)) additions.push_back(source.at("slotId"));
+        return {{"ok", true}, {"revision", state().history_revision}, {"requiresReview", material_import_requires_review()}, {"additions", additions},
             {"sources", sources}, {"projectTypes", project_types}, {"references", material_reference_kinds()}};
     } catch (const FilamentCommandFailure& error) { return command_error(error.code, error.what()); }
 }
@@ -2296,19 +2379,20 @@ json apply_material_import_command(const json& request, const Runtime& runtime)
         if (eligible.empty())
             throw FilamentCommandFailure("unresolved_material", "No eligible device materials to synchronize");
         std::vector<json> final_sources(count, json());
-        std::set<std::string> used;
         if (mode == "mapping") {
             if (request.at("mapping").size() != count) throw std::runtime_error("Mapping must include the whole project rack");
             for (size_t i = 0; i < count; ++i) if (!request["mapping"][i].is_null()) {
                 const auto id = request["mapping"][i].get<std::string>();
                 const auto& source = sources.at(id);
-                if (has_material_identity(source)) { final_sources[i] = source; used.insert(id); }
+                if (has_material_identity(source)) { final_sources[i] = source; }
             }
         } else {
             final_sources.clear();
             for (const auto& source : eligible) final_sources.push_back(source);
             if (color_only && final_sources.size() > count) final_sources.resize(count);
         }
+        const auto additions = mode == "mapping" && !color_only && request.at("appendUnused").get<bool>()
+            ? material_append_plan(bundle, request) : std::vector<json>{};
         const auto initial_count = count;
         const auto refs = material_reference_kinds();
         if (mode == "rebuild" && !color_only) while (count > final_sources.size()) {
@@ -2344,22 +2428,7 @@ json apply_material_import_command(const json& request, const Runtime& runtime)
             if (i >= count) append();
             if (!final_sources[i].is_null()) apply(i, final_sources[i]);
         }
-        if (mode == "mapping" && !color_only && request.at("appendUnused").get<bool>()) for (const auto& source : eligible) {
-            if (used.count(source["slotId"].get<std::string>())) continue;
-            const auto match = resolve_material_source(bundle, source, "");
-            if (!match.preset) throw FilamentCommandFailure("unresolved_material", "No compatible Filament preset for an unused material");
-            const auto* colors = bundle.project_config.opt<ConfigOptionStrings>("filament_colour");
-            const auto color = source["colour"];
-            bool duplicate = false;
-            for (size_t i = 0; i < count; ++i) {
-                const auto* current = bundle.filaments.find_preset(bundle.filament_presets[i], false, true);
-                const bool same = current && (current->name == match.preset->name || (!current->is_system && current->is_compatible && !current->filament_id.empty() && current->filament_id == match.preset->filament_id));
-                const auto representative = color.is_null() ? json() : color.value("kind", "") == "solid" ? color.at("color") : color.at("colors").at(0);
-                const bool same_color = representative.is_null() || colors->get_at(i) == representative.get<std::string>();
-                if (same && same_color) { duplicate = true; break; }
-            }
-            if (!duplicate) { append(); apply(count - 1, source); }
-        }
+        for (const auto& source : additions) { append(); apply(count - 1, source); }
         if (presets_changed) auto_recalculate_filament_flush(bundle, -1, false);
         return json{{"kind", "synchronize"}};
     });

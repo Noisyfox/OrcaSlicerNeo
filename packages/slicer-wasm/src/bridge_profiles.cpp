@@ -924,14 +924,17 @@ bool device_model_matches(const Preset& preset, const json& identity, const bool
 {
     const auto model = preset.config.opt_string("printer_model");
     if (model.empty()) return false;
-    if (model == identity.value("model", "") && identity.value("manufacturer", "").empty()) return true;
+    // Nullable descriptive fields are unknown; catalogue associations remain usable.
+    const auto device_model = identity.at("model").is_null() ? std::string{} : identity.at("model").get<std::string>();
+    const auto device_manufacturer = identity.at("manufacturer").is_null() ? std::string{} : identity.at("manufacturer").get<std::string>();
+    if (model == device_model && device_manufacturer.empty()) return true;
     const auto refs = identity.value("externalRefs", json::array());
     for (const auto& [vendor_id, vendor] : state().presets.vendors) {
-        const auto manufacturer = normalized_identity(identity.value("manufacturer", ""));
+        const auto manufacturer = normalized_identity(device_manufacturer);
         if (!manufacturer.empty() && manufacturer != normalized_identity(vendor.name) && manufacturer != normalized_identity(vendor_id)) continue;
         for (const auto& definition : vendor.models) {
             if (definition.name != model) continue;
-            if (model == identity.value("model", "")) return true;
+            if (model == device_model) return true;
             for (const auto& ref : refs)
                 if ((ref.value("namespace", "") == "orca-printer-model" || (allow_compatible && ref.value("namespace", "") == "orca-compatible-printer-model")) && ref.value("value", "") == definition.model_id) return true;
         }

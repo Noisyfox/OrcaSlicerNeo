@@ -1988,8 +1988,10 @@ Inventory synchronization updates the device model. It must not silently
 rewrite the open project's native rack, presets, colors or assignments.
 Import into the project is an explicit application workflow. The accepted
 [Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization)
-selects a previewed proposal followed by one atomic native application, with
-Bambu as the initial device integration. It exposes empty slots, missing data
+uses one atomic native application, with Bambu as the initial device
+integration. Clean empty projects import Filament directly after Sync; occupied
+projects, modified active Filaments and necessary reference replacements retain
+the modal mapping/rebuild review. It exposes empty slots, missing data
 and unresolved preset matches, and follows existing native compatibility and
 history rules. That UI specification owns the settled interaction and initial
 capability-based Bambu coverage. A failed or stale proposal cannot partially
@@ -2003,7 +2005,10 @@ Hardware model associations use `orca-printer-model`; agent-declared
 `orca-compatible-printer-model` associations additionally permit Filament import
 into a compatible project model. Printer sync resolves only the device's own
 model. These are catalogue associations, not display-name equality or protocol
-IDs interpreted by the shared UI. Nozzle `flowReporting` explicitly separates
+IDs interpreted by the shared UI. Nullable manufacturer/model descriptions
+remain unknown; the same native model predicate handles them and the catalogue
+associations for Printer sync, Filament sync and installed-material selection.
+Nozzle `flowReporting` explicitly separates
 supported, unsupported and unknown reporting; an absent value with unknown
 support cannot silently select Standard.
 
@@ -2013,8 +2018,8 @@ capacity inputs. The application explicitly captures a source and prepares the
 validated request; native code resolves compatible presets and applies project
 changes directly after the explicit Sync action and any necessary Orca-style
 confirmations/configuration choices. There is no generic Printer before/after
-preview dialog or Printer preview API. Filament import retains its modal
-mapping/rebuild proposal and confirmation workflow.
+preview dialog or Printer preview API. Filament import uses the direct or
+conditional modal workflow described above.
 Keep vendor protocol encodings and model/catalogue normalization in the agent,
 and physical-device slot/tool identities separate from project rack/nozzle
 identities. Hardware requests must also retain their source route/configuration,

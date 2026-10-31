@@ -1532,6 +1532,10 @@ export interface MaterialImportRequest extends FilamentCommandRequest {
   readonly identity: PrinterSynchronizationRequest['identity'];
   readonly sources: readonly MaterialImportSource[];
 }
+export interface MaterialImportPreparationRequest extends MaterialImportRequest {
+  /** Null for initial matching; otherwise the complete mapping to plan unused additions. */
+  readonly mapping: readonly (string | null)[] | null;
+}
 export type DeviceFilamentOptions = { readonly ok: true; readonly revision: number; readonly options: readonly { readonly slotId: string; readonly preset: string; readonly label: string }[] }
   | { readonly ok: false; readonly error: string; readonly errorCode: string };
 export interface MaterialImportMatch {
@@ -1545,6 +1549,8 @@ export type MaterialImportPreparation = {
   readonly requiresReview: boolean;
   /** Native-eligible sources in request order; unidentified supplies are omitted. */
   readonly sources: readonly (MaterialImportMatch & { readonly slotId: string; readonly matches: readonly MaterialImportMatch[] })[];
+  /** Ordered unused sources from the same native append planner used by Apply. */
+  readonly additions: readonly string[];
   readonly projectTypes: readonly string[];
   readonly references: readonly { readonly slot: number; readonly kinds: readonly string[] }[];
 } | { readonly ok: false; readonly error: string; readonly errorCode: string };
@@ -1859,7 +1865,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   ): Promise<PrinterTransitionResult>;
   /** Read installed material choices without changing project or preset visibility. */
   getDeviceFilamentOptions(request: MaterialImportRequest): Promise<DeviceFilamentOptions>;
-  prepareMaterialImport(request: MaterialImportRequest): Promise<MaterialImportPreparation>;
+  prepareMaterialImport(request: MaterialImportPreparationRequest): Promise<MaterialImportPreparation>;
   applyMaterialImport(request: MaterialImportApplication): Promise<FilamentMutationResultOrError>;
   /** Match the complete ordered nozzle vector, or edit only this toolhead's
    * Printer draft. Commits exactly one history entry with an atomic receipt. */

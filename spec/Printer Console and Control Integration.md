@@ -199,10 +199,12 @@ before/after summary, a universal confirm step, or a new Printer preview UI/API.
 Native staging and revision validation remain internal transaction concerns.
 After success, offer the optional Filament continuation.
 
-For Filament sync, prepare a native-validated material proposal, show its source
-device and configuration changes in the modal mapping/rebuild dialog, allow
-mapping and replacement choices, and apply only on confirmation. Canceling
-that dialog does not apply its pending project changes.
+For Filament sync, prepare a native-validated material proposal. With every
+Plate empty and no modified active Filament, import directly after Sync unless
+referenced material removal requires an explicit replacement. Otherwise show
+the source device and configuration changes in the modal mapping/rebuild
+dialog, allow mapping and replacement choices, and apply on confirmation.
+Canceling that dialog does not apply its pending project changes.
 
 Printer sync covers model/preset resolution, nozzle diameter, project flow types
 and available material-slot capacity. Resolve physical tools to slicing
@@ -364,7 +366,16 @@ preserved custom preset for the same filament. Equivalent material already
 represented in the rack is not appended again; several identical unused device
 slots do not require duplicate project slots. This skips redundant additions,
 not a merge of independently existing project slots. Rebuild mode uses the
-eligible device-material list under its separate replacement semantics.
+eligible device-material list under its separate replacement semantics. Native
+preparation and application share one read-only append planner; the UI displays
+its ordered source list and re-queries it after mapping changes. A per-slot
+previous-preset fallback alone does not establish material equivalence.
+Superseded plan responses cannot enable confirmation for a newer mapping.
+
+Selecting an installed device material may admit its compatible hidden Filament
+preset to the ordinary catalogue. If selection fails, restore that visibility
+change together with the native project and history; preset configurations
+remain immutable and admission does not require copying the preset catalogue.
 
 If rebuilding removes a project material that still has references, require
 the user to choose its surviving replacement before allowing confirmation.

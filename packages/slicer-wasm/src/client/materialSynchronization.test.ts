@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createClient } from './client';
 import { createMockModule } from './testing/mock-module';
-import type { MaterialImportApplication, MaterialImportRequest } from './types';
+import type { MaterialImportApplication, MaterialImportPreparationRequest } from './types';
 
 async function fixture() {
   const client = createClient(async () => createMockModule());
   const rack = await client.getFilamentSessionSnapshot();
   if (!rack.ok) throw new Error(rack.error);
-  const request: MaterialImportRequest = { version: 1, revision: rack.revisions.session,
+  const request: MaterialImportPreparationRequest = { mapping: null, version: 1, revision: rack.revisions.session,
     identity: { manufacturer: 'Bambu Lab', model: 'X1 Carbon', externalRefs: [] }, sources: [
       { slotId: 'opaque:unknown-presence', toolIndices: [0], materialType: 'PLA', catalogRefs: [{ namespace: 'fixture', value: 'reported-PLA' }], colour: { kind: 'solid', color: '#123456' } },
       { slotId: 'opaque:empty', toolIndices: [0], materialType: 'PLA', catalogRefs: [{ namespace: 'fixture', value: 'reported-PLA' }], colour: { kind: 'parallel', colors: ['#112233', '#445566'] } },
@@ -17,6 +17,28 @@ async function fixture() {
   return { client, request, apply, rack };
 }
 describe('material synchronization bridge contract', () => {
+  it.each([['unknown'], ['opaque:empty', 'opaque:empty'], ['opaque:empty', 'opaque:unknown-presence']].map(additions => ({ additions })))('rejects malformed or mapped native append plans $additions', async ({ additions }) => {
+    const module = createMockModule(), original = module.ccall;
+    module.ccall = (name, ret, types, args) => {
+      const pointer = original(name, ret, types, args);
+      if (name !== 'orc_prepare_material_import') return pointer;
+      const raw = JSON.parse(module.UTF8ToString(Number(pointer))); module._free(Number(pointer));
+      raw.additions = additions;
+      const bytes = new TextEncoder().encode(JSON.stringify(raw)), next = module._malloc(bytes.length + 1);
+      module.HEAPU8.set(bytes, next); module.HEAPU8[next + bytes.length] = 0; return next;
+    };
+    const { request, apply } = await fixture();
+    const client = createClient(async () => module);
+    expect(await client.prepareMaterialImport({ ...request, mapping: apply.mapping })).toMatchObject({ ok: false, errorCode: 'invalid_response' });
+  });
+  it('returns the ordered native append plan for the current mapping', async () => {
+    const { client, request, apply } = await fixture();
+    const result = await client.prepareMaterialImport({ ...request, mapping: apply.mapping });
+    expect(result).toMatchObject({ ok: true, additions: [request.sources[1].slotId] });
+    const applied = await client.applyMaterialImport(apply);
+    if (!applied.ok) throw new Error(applied.error);
+    expect(applied.result.snapshot.slots).toHaveLength(apply.mapping.length + (result.ok ? result.additions.length : 0));
+  });
   it('excludes unidentified metadata before fallback in both sync preparation and installed choices', async () => {
     const { client, request } = await fixture();
     const unidentified = request.sources.map((s, i) => ({ ...s, slotId: `unidentified/${i}`, materialType: i ? 'PLA' : '', catalogRefs: [{ namespace: 'provider', value: '' }] }));

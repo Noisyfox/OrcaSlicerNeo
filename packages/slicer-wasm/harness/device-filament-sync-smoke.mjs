@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { fixtureProfileOptions } from './profile-installer.mjs';
 import { createNozzleMappingFixture } from './nozzle-mapping-fixtures.mjs';
 const { Module, call, command, ok, context, observe } = await createNozzleMappingFixture(process.argv[2]);
 const rack = () => ok(call('orc_get_filament_session_snapshot'));
@@ -8,7 +9,7 @@ const source = (slotId, color, type = 'PLA', refs = [{ namespace: 'orca-filament
   ({ slotId, catalogRefs: refs, materialType: type, colour: { kind: 'solid', color }, toolIndices: [0, 1] });
 const sources = [source('opaque:left/tray', '#123456'), source('opaque:empty/tray', '#ABCDEF'), source('opaque:duplicate/tray', '#ABCDEF')];
 const request = extra => ({ version: 1, revision: history().revision, identity, sources, ...extra });
-const prepare = extra => command('orc_prepare_material_import', request(extra));
+const prepare = extra => command('orc_prepare_material_import', request({ mapping: null, ...extra }));
 const apply = extra => command('orc_apply_material_import', request({ mode: 'mapping', colourOnly: false, appendUnused: true,
   mapping: rack().slots.map(() => sources[0].slotId), replacements: rack().slots.map(() => null), ...extra }));
 command('orc_history_reset', context);
@@ -80,6 +81,34 @@ const fallback = ok(prepare({ sources: [source('unknown', '#FFFFFF', 'ASA Sparkl
 assert.match(fallback.sources[0].preset, /Generic ASA/);
 assert.ok(fallback.sources[0].warning);
 assert.deepEqual(ok(command('orc_get_device_filament_options', request({ sources: [source('unknown', '#FFFFFF', 'ASA Sparkle', [{ namespace: 'provider-material', value: 'unrecognized' }])] }))).options, [], 'picker retains its narrower matching policy on the same source');
+// Unknown source fallback can retain a previous slot without being equivalent
+// to that slot for append. Preparation and Apply must use the same append plan.
+const unknownSource = source('unknown-base', '#123456', 'Unobtainium', [{ namespace: 'provider', value: 'unrecognized' }]);
+const baseFallback = ok(prepare({ sources: [unknownSource] })).sources[0].preset;
+const alternate = ok(call('orc_get_preset_snapshot')).filament_catalog.find(p => p.name.startsWith('Generic ') && p.name !== baseFallback).name;
+ok(command('orc_select_printer_with_remembered_rack', { printer: ok(call('orc_get_preset_snapshot')).printer.name,
+  remembered_bed_type: null, remembered_rack: { version: 1, slots: [{ preset: alternate, colour: '#123456',
+    native: { representative: '#123456', multi_colour: '#123456', type: '1' } }] }, history_context: context }));
+const unknownBefore = JSON.stringify(observe());
+const unknownPlan = ok(prepare({ sources: [unknownSource], mapping: [null] }));
+assert.equal(unknownPlan.sources[0].matches[0].preset, alternate);
+assert.notEqual(baseFallback, alternate);
+assert.deepEqual(unknownPlan.additions, [unknownSource.slotId]);
+assert.equal(JSON.stringify(observe()), unknownBefore, 'append planning is read-only');
+ok(apply({ sources: [unknownSource], mapping: [null], replacements: [null] }));
+assert.deepEqual(rack().slots.map(s => s.preset.name), [alternate, baseFallback]);
+ok(command('orc_history_undo', context));
+ok(command('orc_history_undo', context));
+assert.deepEqual(rack().slots, before.slots);
+const mapping = before.slots.map(() => sources[0].slotId);
+assert.deepEqual(ok(prepare({ mapping })).additions, [sources[1].slotId], 'duplicate unused sources appear once in the native plan');
+const anonymous = { manufacturer: null, model: null, externalRefs: identity.externalRefs };
+assert.equal(ok(command('orc_get_printer_device_match', anonymous)).matches, true);
+assert.deepEqual(ok(command('orc_get_device_filament_options', request({ identity: anonymous }))).options, menu.options.slice(0, sources.length));
+assert.deepEqual(ok(prepare({ identity: anonymous, mapping })).additions, [sources[1].slotId]);
+ok(apply({ identity: anonymous, mapping }));
+assert.equal(rack().slots.length, before.slots.length + 1);
+ok(command('orc_history_undo', context));
 const mapped = ok(apply());
 assert.equal(mapped.result.mutation.history_entry_delta, 1);
 assert.equal(mapped.result.mutation.kind, 'synchronize');
@@ -130,6 +159,7 @@ ok(command('orc_mutate_preset_draft', { history_context: context, action: 'set',
   key: 'nozzle_temperature', value: '234', expected_revision: history().revision }));
 const customBefore = ok(call('orc_get_preset_draft', ['string', 'string'], ['filament', 'Synced tuned PLA']));
 assert.equal(ok(prepare()).sources[0].matches[0].preset, 'Synced tuned PLA');
+assert.deepEqual(ok(prepare({ sources: [sources[0], { ...sources[0], slotId: 'same-custom-source' }], mapping: [sources[0].slotId] })).additions, [], 'custom preset identity suppresses an equivalent unused source');
 ok(apply({ mapping: [sources[0].slotId], replacements: [null], appendUnused: false }));
 assert.equal(rack().slots[0].preset.name, 'Synced tuned PLA');
 assert.equal(ok(call('orc_get_preset_draft', ['string', 'string'], ['filament', 'Synced tuned PLA'])).effective_values.nozzle_temperature,
@@ -154,4 +184,26 @@ ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Used on another plate']
 const emptySelected = ok(call('orc_add_plate'));
 assert.equal(emptySelected.plates.find(p => p.plate_id === emptySelected.current_plate_id).instance_ids.length, 0);
 assert.equal(ok(prepare()).requiresReview, true, 'all plates participate in the dialog decision');
-console.log('PASS device Filament sync: native exact/fallback matching, mapping identities, append deduplication, explicit Merge replacement, late rollback, Undo/Redo, parallel colors, 3MF, preserved custom drafts and single-material dual-nozzle proposal dimensions');
+// Installed-device selection can admit a compatible hidden preset. Failure
+// after admission must restore catalogue visibility as well as project/history.
+const limited = JSON.parse(fixtureProfileOptions(Module));
+limited.profile_activation.filaments = limited.profile_activation.filaments.filter(name => name.startsWith('Generic PLA') && name.includes('H2D'));
+ok(call('orc_init', ['string'], [JSON.stringify(limited)]));
+ok(call('orc_select_preset', ['string', 'string'], ['printer', 'Bambu Lab H2D 0.4 nozzle']));
+command('orc_history_reset', context);
+const installed = ok(command('orc_get_device_filament_options', request({ sources: [sources[0]] }))).options[0];
+const catalog = () => ok(call('orc_get_preset_snapshot')).filament_catalog;
+assert.ok(installed && !catalog().some(p => p.name === installed.preset));
+const hiddenBefore = JSON.stringify({ owners: observe(), catalog: catalog() });
+for (const stage of ['before-history', 'during-history']) {
+  const rejected = command('orc_select_filament_slot_preset', { version: 1, revision: history().revision, slot: 1,
+    preset: installed.preset, deviceSource: { identity: anonymous, material: sources[0] }, inject_failure_stage: stage });
+  assert.equal(rejected.error_code, 'native_validation_failure');
+  assert.equal(JSON.stringify({ owners: observe(), catalog: catalog() }), hiddenBefore, `${stage} restores hidden admission and every project owner`);
+}
+ok(command('orc_select_filament_slot_preset', { version: 1, revision: history().revision, slot: 1,
+  preset: installed.preset, deviceSource: { identity: anonymous, material: sources[0] } }));
+assert.ok(catalog().some(p => p.name === installed.preset), 'successful selection admits the installed preset');
+assert.equal(rack().slots[0].preset.name, installed.preset);
+assert.equal(history().undoEntries.length, 1);
+console.log('PASS device Filament sync: native exact/fallback matching, mapping identities, append deduplication, explicit Merge replacement, late rollback, Undo/Redo, parallel colors, 3MF, preserved custom drafts and single-material dual-nozzle proposal dimensions, shared append planning, nullable model associations and hidden admission rollback');

@@ -2405,10 +2405,7 @@ export function createClient(
 
     async selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError> {
       const m = await module();
-      const source = request.deviceSource;
-      const transport = source ? { ...request, deviceSource: { ...source, identity: { ...source.identity,
-        manufacturer: source.identity.manufacturer ?? '', model: source.identity.model ?? '' } } } : request;
-      return normalizeFilamentMutationResult(callJson(m, 'orc_select_filament_slot_preset', ['string'], [JSON.stringify(transport)]));
+      return normalizeFilamentMutationResult(callJson(m, 'orc_select_filament_slot_preset', ['string'], [JSON.stringify(request)]));
     },
 
     async setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError> {
@@ -2725,8 +2722,7 @@ export function createClient(
     },
 
     async getDeviceFilamentOptions(request) {
-      const raw = callJson(await module(), 'orc_get_device_filament_options', ['string'], [JSON.stringify({ ...request,
-        identity: { ...request.identity, manufacturer: request.identity.manufacturer ?? '', model: request.identity.model ?? '' } })]);
+      const raw = callJson(await module(), 'orc_get_device_filament_options', ['string'], [JSON.stringify(request)]);
       if (isRecord(raw) && raw.ok === true && raw.revision === request.revision && Array.isArray(raw.options)
         && raw.options.every(o => isRecord(o) && typeof o.slotId === 'string' && request.sources.some(s => s.slotId === o.slotId)
           && typeof o.preset === 'string' && typeof o.label === 'string') && new Set(raw.options.map(o => (o as {slotId: string}).slotId)).size === raw.options.length)
@@ -2744,6 +2740,7 @@ export function createClient(
       const sourceIndices = Array.isArray(raw.sources) ? raw.sources.map((s: any) => request.sources.findIndex(r => r.slotId === s?.slotId)) : [];
       if (!Number.isSafeInteger(raw.revision) || raw.revision !== request.revision || typeof raw.requiresReview !== 'boolean' || !Array.isArray(raw.sources) ||
         raw.sources.some((s: any, i: number) => !match(s) || sourceIndices[i] < 0 || i > 0 && sourceIndices[i] <= sourceIndices[i - 1] || !Array.isArray(s.matches) || s.matches.length !== raw.projectTypes?.length || !s.matches.every(match)) ||
+        !Array.isArray(raw.additions) || raw.additions.some((id: unknown) => typeof id !== 'string' || !raw.sources.some((s: any) => s.slotId === id) || request.mapping?.includes(id)) || new Set(raw.additions).size !== raw.additions.length ||
         !Array.isArray(raw.projectTypes) || raw.projectTypes.some((t: unknown) => typeof t !== 'string') ||
         !Array.isArray(raw.references) || raw.references.length !== raw.projectTypes.length || raw.references.some((r: any, i: number) => r.slot !== i + 1 || !Array.isArray(r.kinds) || r.kinds.some((k: any) => typeof k !== 'string')))
         return { ok: false, error: 'Invalid material import preparation', errorCode: 'invalid_response' };
@@ -2755,7 +2752,7 @@ export function createClient(
 
     async getPrinterDeviceMatch(identity) {
       const raw = callJson(await module(), 'orc_get_printer_device_match', ['string'],
-        [JSON.stringify({ ...identity, manufacturer: identity.manufacturer ?? '', model: identity.model ?? '' })]);
+        [JSON.stringify(identity)]);
       if (isRecord(raw) && raw.ok === true && typeof raw.printer === 'string' && typeof raw.matches === 'boolean')
         return { ok: true, printer: raw.printer, matches: raw.matches };
       return { ok: false, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid printer model match response' };
@@ -2769,7 +2766,7 @@ export function createClient(
       }]));
       return normalizePrinterTransition(callJson(m, 'orc_synchronize_printer', ['string'], [JSON.stringify({
         expected_revision: request.revision,
-        identity: { ...request.identity, manufacturer: request.identity.manufacturer ?? '', model: request.identity.model ?? '' },
+        identity: request.identity,
         tools: request.tools, confirm_model_change: request.confirmModelChange,
         rack_memory: rackMemory, bed_memory: request.bedMemory, history_context: request.context,
       })]), 'synchronize-printer');

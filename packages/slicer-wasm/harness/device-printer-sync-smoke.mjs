@@ -22,7 +22,7 @@ command('orc_history_reset', context);
 const name = profiles().printer.name;
 const before = draft(name).effective_values.nozzle_diameter;
 const revision = history().revision;
-const updated = ok(sync());
+const updated = ok(sync({ identity: { manufacturer: null, model: null, externalRefs: source.externalRefs } }));
 assert.equal(updated.mutation.kind, 'synchronize-printer');
 assert.equal(updated.mutation.history_entry_delta, 1);
 assert.equal(history().revision, revision + 1);

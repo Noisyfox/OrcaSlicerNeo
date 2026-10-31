@@ -105,6 +105,37 @@ async function choose(trigger: HTMLElement, label: string) {
   });
 }
 describe('Prepare synchronization workflow', () => {
+  it('displays native append plans and discards an obsolete mapping response', async () => {
+    const f = await fixture({ reviewModel: true });
+    const prepare = f.runtime.prepareMaterialImport.bind(f.runtime);
+    type Result = Awaited<ReturnType<typeof prepare>>;
+    const pending: { mapping: readonly (string | null)[]; resolve(result: Result): void; result: Result }[] = [];
+    vi.spyOn(f.runtime, 'prepareMaterialImport').mockImplementation(async request => {
+      const result = await prepare(request);
+      if (!request.mapping) return result;
+      return new Promise(resolve => pending.push({ mapping: request.mapping!, resolve, result }));
+    });
+    await start('filament');
+    const button = [...f.container.querySelectorAll('button')].find(b => b.textContent === 'Apply Filament sync')!;
+    expect(button.disabled).toBe(true);
+    const input = f.container.querySelector<HTMLElement>('[aria-label="Source for material 1"]')!;
+    await choose(input, 'Keep unchanged');
+    expect(pending).toHaveLength(2);
+    await act(async () => {
+      const latest = pending[1];
+      if (!latest.result.ok) throw new Error(latest.result.error);
+      latest.resolve({ ...latest.result, additions: ['source/1'] }); await flush();
+    });
+    // The native plan is authoritative even when it differs from a JS guess.
+    expect(f.container.querySelector('[data-testid="sync-additions"]')?.textContent).toBe('Additions: Feeder · Tray 1');
+    expect(button.disabled).toBe(false);
+    await act(async () => {
+      const obsolete = pending[0];
+      if (!obsolete.result.ok) throw new Error(obsolete.result.error);
+      obsolete.resolve({ ...obsolete.result, additions: [] }); await flush();
+    });
+    expect(f.container.querySelector('[data-testid="sync-additions"]')?.textContent).toBe('Additions: Feeder · Tray 1');
+  });
   it('uses shared alpha swatches in source and result previews', async () => {
     const f = await fixture({ reviewModel: true, translucent: true }); await start('filament');
     for (const section of ['Device materials', 'Material synchronization mapping']) {
