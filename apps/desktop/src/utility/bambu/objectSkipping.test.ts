@@ -58,6 +58,31 @@ it('reads an external current-task catalogue independently, without exposing URL
   } finally { await f.close(); }
 });
 
+it('projects an old task snapshot without invalidating the new catalogue or cancelling its read', async () => {
+  const f = fixture();
+  let finish!: () => void;
+  let pending: ReturnType<typeof f.objectSkipping.readCatalogue> | undefined;
+  try {
+    await f.monitor.start(target, 'view'); await f.read();
+    const historical = await f.context();
+    await f.push({ subtask_id: 'next-task', s_obj: [] });
+    const current = await f.read();
+    let signal: AbortSignal | undefined, started!: () => void;
+    const reading = new Promise<void>(resolve => { started = resolve; });
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    f.readResource.mockImplementationOnce(async (_addon, _source, _route, _path, options) => {
+      signal = options?.signal; started(); await gate;
+      return new TextEncoder().encode(metadata());
+    });
+    pending = f.objectSkipping.readCatalogue(target);
+    await reading;
+    expect(f.objectSkipping.snapshotContext(historical)).toBeUndefined();
+    expect(signal?.aborted).toBe(false);
+    finish(); expect(await pending).toMatchObject({ ok: true, value: { value: { contextRef: current.contextRef } } });
+    expect(prepareCommand(await f.context(), f.command(current))).toMatchObject({ ok: true });
+  } finally { finish?.(); await pending; await f.close(); }
+});
+
 it('uses current plate IDs, caches owned maps and rejects foreign context references', async () => {
   const f = fixture(); try {
     const snapshot = await f.read();

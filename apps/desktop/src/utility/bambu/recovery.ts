@@ -7,13 +7,24 @@ import { printErrorResource } from './errorResources';
 export class BambuRecovery {
   private readonly episodes = new Map<string, { key: string; id: string; tokens: Map<string, string> }>();
   decorate(context: BambuDeviceContext): BambuRecoveryContext {
+    return this.project(context, true);
+  }
+  /** Historical observations must not replace the current episode or its action tokens. */
+  snapshotContext(context: BambuDeviceContext): BambuRecoveryContext {
+    return this.project(context, false);
+  }
+  private project(context: BambuDeviceContext, updateEpisode: boolean): BambuRecoveryContext {
     const machine = context.machine, error = machine.printError;
     const task = context.values.status.printStatus.taskId;
     const phase = context.values.status.printStatus.phase;
     const route = context.target.routeId;
     const key = JSON.stringify([context.configurationRevision, machine.toolChangeFailed, error, machine.jobId, machine.subtaskId, task.kind === 'known' ? task.value : null]);
     let episode = this.episodes.get(route);
-    if (!episode || episode.key !== key) { episode = { key, id: randomUUID(), tokens: new Map() }; this.episodes.set(route, episode); }
+    if (!updateEpisode && (!episode || episode.key !== key)) return { ...context, recovery: [] };
+    if (!episode || episode.key !== key) {
+      episode = { key, id: randomUUID(), tokens: new Map() };
+      if (updateEpisode) this.episodes.set(route, episode);
+    } else if (!updateEpisode) episode = { ...episode, tokens: new Map(episode.tokens) };
     const recovery: BambuRecoveryContext['recovery'] = [];
     const action = (key: string, label: string, fields: Record<string, unknown>, qos = 1, section: PreparedCommand['section'] = 'print', keepDialogOpen = false): D.PrinterAction => {
       let token = episode.tokens.get(key);

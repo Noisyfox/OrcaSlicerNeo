@@ -12,7 +12,7 @@ function fixture(timeout: number | 'default' = 1000) {
   const native = Object.fromEntries(methods.map(method => [method, vi.fn(async () => 0)])) as unknown as BambuNative;
   const access = new BambuDeviceAccess(native, { list: async () => ['a', 'b'].map(deviceId => ({ deviceId, name: deviceId, model: 'H2D', routes: [{ channel: 'cloud' as const, revision: 'r1' }] })) },
     { read: async () => ({ version: 1, region: 'Others', clientId: 'test', lan: [] }) }, async () => {}, () => {}, Date.now, 300);
-  const monitor = new BambuMonitor(access, { projectContext: () => undefined, readCatalogue: vi.fn<BambuObjectSkipping['readCatalogue']>() });
+  const monitor = new BambuMonitor(access, { projectContext: () => undefined, snapshotContext: () => undefined, readCatalogue: vi.fn<BambuObjectSkipping['readCatalogue']>() });
   const operations = new BambuOperations(monitor, () => {}, timeout === 'default' ? undefined : timeout);
   const emit = async (event: NativeEvent) => { monitor.onEvent(event); await operations.onEvent(event); };
   const push = async (phase = 'RUNNING', device = 'a', task = 'task') => emit({ type: 'message', args: [device, JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: phase, subtask_id: task } })] });

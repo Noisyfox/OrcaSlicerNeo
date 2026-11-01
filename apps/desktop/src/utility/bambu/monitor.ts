@@ -10,20 +10,24 @@ import { commandCapabilities } from './commands';
 export class BambuMonitor {
   private readonly recovery = new BambuRecovery();
   constructor(private readonly access: BambuDeviceAccess,
-    private readonly objectSkipping: Pick<BambuObjectSkipping, 'projectContext' | 'readCatalogue'>) {}
+    private readonly objectSkipping: Pick<BambuObjectSkipping, 'projectContext' | 'snapshotContext' | 'readCatalogue'>) {}
   private projectContext(base: BambuDeviceContext): CommandContext {
     const context = this.recovery.decorate(base);
     return { ...context, objectSkipping: this.objectSkipping.projectContext(base) };
   }
+  private snapshotContext(base: BambuDeviceContext): CommandContext {
+    const context = this.recovery.snapshotContext(base);
+    return { ...context, objectSkipping: this.objectSkipping.snapshotContext(base) };
+  }
   async context(target: D.PrinterTarget): Promise<D.Result<CommandContext>> {
     const result = await this.access.context(target);
-    return result.ok ? { ok: true, value: this.projectContext(result.value) } : result;
+    return result.ok ? { ok: true, value: this.snapshotContext(result.value) } : result;
   }
   async describe(target: D.PrinterTarget): Promise<D.Result<D.PrinterDescription>> {
     const result = await this.access.read({ target, topics: ['descriptor'], source: 'cache' });
     if (!result.ok) return result;
     return { ok: true, value: { target, configurationRevision: result.value.configurationRevision,
-      capabilities: commandCapabilities(this.projectContext(result.value.context)), descriptor: result.value.values.descriptor } };
+      capabilities: commandCapabilities(this.snapshotContext(result.value.context)), descriptor: result.value.values.descriptor } };
   }
   async read<K extends D.StateTopic>(request: D.ObservationRequest<K> & { source: 'cache' | 'device' }, readId?: string): Promise<D.Result<D.PrinterSnapshot<K>>> {
     if (request.source === 'device' && request.topics.some(topic => topic === 'printObjects')) {
@@ -35,7 +39,7 @@ export class BambuMonitor {
     const result = await this.access.read(request);
     if (!result.ok) return result;
     const { context: base, ...snapshot } = result.value;
-    const context = this.projectContext(base);
+    const context = this.snapshotContext(base);
     const values = Object.fromEntries(request.topics.map(topic => {
       if (topic === 'printObjects') {
         const template = context.values.status.printStatus.phase;

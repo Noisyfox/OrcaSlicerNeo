@@ -1033,6 +1033,12 @@ device-access queue turn that sends the command. Captured device reads retain
 their observation metadata across temporary lease cleanup; private base contexts
 never leave the utility host in public snapshots.
 
+Rendering a captured observation must not advance or roll back current recovery
+episodes, invalidate the current object catalogue, or cancel resource reads.
+Historical errors that no longer match the current recovery episode retain base
+diagnostics without recovery actions or a modal. Current device events and guarded
+command preparation retain ownership of business lifecycle updates.
+
 Protocol field decoding and resource lookup must not depend on telemetry or
 feature implementations. Shared host-private control contracts distinguish base
 device state from recovery and object-skipping projections. Feature projection

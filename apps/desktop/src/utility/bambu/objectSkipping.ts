@@ -86,7 +86,13 @@ export class BambuObjectSkipping {
     const entry = this.entry;
     if (!entry || !sameTarget(entry.contextRef, context.target)) return;
     if (entry.key !== key || entry.contextRef.configurationRevision !== context.configurationRevision || ['idle', 'completed', 'cancelled', 'failed'].includes(phase ?? '')) entry.invalid = true;
-    if (entry.invalid) return;
+    return this.snapshotContext(context);
+  }
+  /** Project a captured observation without invalidating the live catalogue or cancelling reads. */
+  snapshotContext(context: BambuDeviceContext): BambuObjectSkippingContext | undefined {
+    const entry = this.entry, phase = value(context.values.status.printStatus.phase);
+    if (!entry || entry.invalid || !sameTarget(entry.contextRef, context.target) || entry.key !== taskKey(context)
+      || entry.contextRef.configurationRevision !== context.configurationRevision || ['idle', 'completed', 'cancelled', 'failed'].includes(phase ?? '')) return;
     const raw = context.report.s_obj;
     const reported = Array.isArray(raw) && raw.length <= 4096 && raw.every(n => Number.isSafeInteger(n) && n > 0);
     const skipped = reported ? [...entry.labels].filter(([, label]) => raw.includes(label)).map(([objectId]) => objectId) : undefined;
