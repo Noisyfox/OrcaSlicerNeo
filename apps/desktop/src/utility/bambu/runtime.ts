@@ -4,6 +4,7 @@ import type { BambuMediaRequest, BambuMediaAttachment } from '../../shared/bambu
 import type { CameraPort } from './mediaChannel';
 import { readCurrentPrintPreview } from './preview';
 import { BambuOperations } from './operations';
+import { BambuObjects } from './objects';
 import type { BambuControlRequest } from '../../shared/bambuControl';
 import { BambuMonitor } from './monitor';
 import { mkdir } from 'node:fs/promises';
@@ -24,6 +25,7 @@ export class BambuRuntime {
   private monitor: BambuMonitor | null = null;
   private media: BambuMedia | null = null;
   private operations: BambuOperations | null = null;
+  private objects: BambuObjects | null = null;
   private submissions: BambuPrintSubmissions | null = null;
   private account: BambuAccount | null = null;
   private state: AccountState = { status: 'restoring', error: null };
@@ -33,7 +35,7 @@ export class BambuRuntime {
   constructor(private readonly config: BambuHostConfig, private readonly publish: (change: BambuChange) => void,
     private readonly load: typeof loadBambuNative = loadBambuNative) {
     this.repository = new BambuRepository(config.directory);
-    this.devices = new BambuDevices(this.repository, () => { publish('printers'); void this.monitor?.reconcile().catch(() => undefined); void this.media?.reconcile().catch(() => undefined); });
+    this.devices = new BambuDevices(this.repository, () => { publish('printers'); void this.monitor?.reconcile().catch(() => undefined); void this.media?.reconcile().catch(() => undefined); void this.objects?.reconcile().catch(() => undefined); });
     this.ready = this.initialize();
   }
   private async initialize() {
@@ -64,12 +66,15 @@ export class BambuRuntime {
       await ok(agent.installDiscoveryCallbacks());
       await agent.startDiscovery(true, false);
       this.monitor = new BambuMonitor(agent, this.devices, this.repository, () => this.lan!.release(), () => this.publish('control'));
+      this.objects = new BambuObjects(this.config, agent, this.monitor, this.devices, this.repository, () => this.publish('control'));
+      this.monitor.useObjects(this.objects);
       this.media = new BambuMedia(this.config, agent, this.monitor, this.devices, this.repository, () => this.publish('media'));
       this.submissions = new BambuPrintSubmissions(agent, this.monitor, this.devices, this.repository, join(this.config.directory, 'submissions'), () => this.publish('control'));
       this.operations = new BambuOperations(this.monitor, () => this.publish('control'));
       this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
     } catch {
+      await this.objects?.close(); this.objects = null;
       await this.media?.close(); this.media = null;
       await this.monitor?.close(); this.monitor = null;
       await this.lan?.close(); this.lan = null; this.account = null; this.state = unavailableBambuAccount();
@@ -110,7 +115,8 @@ export class BambuRuntime {
     await this.ready;
     if (!this.monitor || !this.operations) return request.method === 'submit' ? { kind: 'rejected' as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } } : { ok: false as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } };
     switch (request.method) {
-      case 'objectMap': return { ok: false as const, error: { code: 'unsupported' as const, message: 'Object maps are not implemented yet.' } };
+      case 'objectMap': return this.objects!.readMap(request.input.contextRef, request.input.readId);
+      case 'cancelObjectRead': this.objects?.cancel(request.input.readId); return { ok: true as const, value: null };
       case 'print.prepare': return this.submissions!.prepare(request.input);
       case 'print.begin': return this.submissions!.begin(request.input);
       case 'print.chunk': return this.submissions!.chunk(request.input);
@@ -123,7 +129,7 @@ export class BambuRuntime {
       case 'operation': return this.operations.get(request.input);
       case 'find': return this.operations.find(request.input);
       case 'describe': return this.monitor.describe(request.input);
-      case 'read': return this.monitor.read(request.input);
+      case 'read': return this.monitor.read(request.input, request.input.readId);
       case 'observe': return this.monitor.start(request.input.target, request.input.token);
       case 'release': return this.monitor.stop(request.input.token);
     }
@@ -137,5 +143,5 @@ export class BambuRuntime {
     if (this.media) this.media.attach(owner, request, port); else port.close();
   }
   async mediaCloseOwner(owner: string) { await this.ready; await this.media?.closeOwner(owner); }
-  async close() { await this.ready; this.operations?.close(); await this.submissions?.close(); await this.media?.close(); await this.monitor?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
+  async close() { await this.ready; this.operations?.close(); await this.submissions?.close(); await this.objects?.close(); await this.media?.close(); await this.monitor?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
 }

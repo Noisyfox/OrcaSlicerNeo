@@ -3,19 +3,21 @@ import { isBambuCommandPayload, isPrintObjectContextRef } from './bambuCommandVa
 /** Renderer-safe domain RPC. Native protocol JSON and credentials have no representation here. */
 import type * as D from '@orca/printer-control/domain';
 export interface BambuControlInputs extends BambuSubmissionInputs {
-  objectMap: D.PrintObjectContextRef;
+  objectMap: { contextRef: D.PrintObjectContextRef; readId: string };
+  cancelObjectRead: { readId: string };
   preview: D.TargetRequest;
   evaluate: { target: D.PrinterTarget; command: D.PrinterCommand };
   submit: D.CommandRequest;
   operation: D.OperationRef;
   find: D.RequestLookup;
   describe: D.PrinterTarget;
-  read: D.ObservationRequest & { source: 'cache' | 'device' };
+  read: D.ObservationRequest & { source: 'cache' | 'device'; readId?: string };
   observe: { target: D.PrinterTarget; token: string };
   release: { token: string };
 }
 export interface BambuControlResults extends BambuSubmissionResults {
   objectMap: D.Result<D.PrintObjectMap>;
+  cancelObjectRead: D.Result<null>;
   preview: D.Result<D.CurrentPrintPreview>;
   evaluate: D.Result<D.CommandEvaluation>;
   submit: D.Submission;
@@ -39,7 +41,8 @@ const topics: readonly D.StateTopic[] = ['descriptor', 'status', 'firmware', 'th
 export function isBambuControlRequest(value: unknown): value is BambuControlRequest {
   if (!object(value) || !exact(value, ['method', 'input']) || !object(value.input)) return false;
   const input = value.input;
-  if (value.method === 'objectMap') return isPrintObjectContextRef(input);
+  if (value.method === 'objectMap') return exact(input, ['contextRef', 'readId']) && isPrintObjectContextRef(input.contextRef) && string(input.readId);
+  if (value.method === 'cancelObjectRead') return exact(input, ['readId']) && string(input.readId);
   if (typeof value.method === 'string' && value.method.startsWith('print.')) return isBambuSubmissionRequest(value.method, input);
   if (value.method === 'evaluate') return exact(input, ['target', 'command']) && isBambuTarget(input.target) && isBambuCommandPayload(input.command);
   if (value.method === 'operation' || value.method === 'find') return exact(input, ['printerId', 'routeId', value.method === 'operation' ? 'id' : 'requestId'])
@@ -52,7 +55,8 @@ export function isBambuControlRequest(value: unknown): value is BambuControlRequ
   if (value.method === 'describe') return isBambuTarget(input);
   if (value.method === 'release') return exact(input, ['token']) && string(input.token);
   if (value.method === 'observe') return exact(input, ['target', 'token']) && isBambuTarget(input.target) && string(input.token);
-  return value.method === 'read' && exact(input, ['target', 'topics', 'source']) && isBambuTarget(input.target)
+  return value.method === 'read' && exact(input, ['target', 'topics', 'source', 'readId']) && isBambuTarget(input.target)
     && (input.source === 'cache' || input.source === 'device') && Array.isArray(input.topics) && input.topics.length > 0 && input.topics.length <= topics.length
-    && input.topics.every(topic => topics.includes(topic)) && new Set(input.topics).size === input.topics.length;
+    && input.topics.every(topic => topics.includes(topic)) && new Set(input.topics).size === input.topics.length
+    && (input.source === 'device' && input.topics.includes('printObjects') ? string(input.readId) : input.readId === undefined);
 }

@@ -73,6 +73,7 @@ function decodeMachineState(p: Report) {
     home: bits(p.fun, 32) === 1,
     jog: bits(p.fun, 38) === 1,
     bedTemperatureCommand: bits(p.fun, 39) === 1,
+    partSkipping: bits(p.fun, 49) === undefined ? undefined : bits(p.fun, 49) === 1,
     localControlOnly: (bits(p.job_attr, 4, 4) ?? 0) > 1,
   });
 }
@@ -172,7 +173,7 @@ export class BambuTelemetry {
     if (update.msg === 1 && !this.baseline) { this.disconnected = true; return 'resync'; }
     // A new task cannot inherit progress/layers from the previous print when its first push omits them.
     if (update.subtask_id !== undefined && update.subtask_id !== this.print.subtask_id || update.gcode_state === 'IDLE' || update.gcode_state === 'READY') {
-      for (const key of ['mc_percent', 'mc_remaining_time', 'layer_num', 'total_layer_num', 'stg_cur', 'subtask_name', 'gcode_file', 'thumbnail_url']) delete this.print[key];
+      for (const key of ['mc_percent', 'mc_remaining_time', 'layer_num', 'total_layer_num', 'stg_cur', 'subtask_name', 'gcode_file', 'thumbnail_url', 's_obj', 'plate_idx', 'print_type']) delete this.print[key];
     }
     this.print = update.msg === 1 ? merge(this.print, update) : merge({}, update);
     this.machine = decodeMachineState(this.print);

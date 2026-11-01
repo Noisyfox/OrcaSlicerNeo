@@ -1075,7 +1075,20 @@ explicit remote resolver, while cancellation and LAN-only access do not trigger
 remote fallback. Returned bytes are owned and errors omit private URLs.
 This wrapper is independent of camera playback and the networking-agent call
 queue; plugin calls already in progress finish before native close resolves.
-Provider integration remains the following increment.
+The Electron Bambu provider now acquires current-task catalogues and picking
+maps through this reader. It parses bounded XML for the reported plate, binds
+opaque references to device/route configuration, task provenance and metadata
+fingerprint, and maps native labels privately. Missing or foreign `s_obj` IDs
+remain unknown. Image failures retain list operation. Resource reads own temporary
+monitor leases, support IPC cancellation and revalidate context after acquisition;
+task changes abort in-flight reads. Device bit 49 controls support, while phase,
+freshness, label enablement and the 64-object limit control applicability.
+Dispatch revalidates selection and explicit stop intent inside the native command
+queue. Independent batches confirm only from matching device state; ACKs alone
+do not alter the reported skipped count. These checks are covered by provider
+fixtures, including external tasks, 63/64/65 objects, stale recovery, task changes,
+configuration changes, cancellation and malformed resources. Physical LAN/remote
+and model qualification remain outstanding.
 
 An unavailable picking image does not invalidate an otherwise reliable object
 catalogue. List-only operation requires confirmed object IDs, names,
@@ -1113,9 +1126,9 @@ topic, `media.readPrintObjectMap` and `jobs.skipObjects`. The command carries a
 availability and a self-contained `Reading` of device-reported skipped IDs;
 `PrintObjectMap` carries on-demand PNG bytes and a colour-ID-to-opaque-object
 palette. The Bambu IPC boundary rejects empty, duplicate, oversized and malformed
-selections and raw protocol fields. The current adapters keep these capabilities
-unsupported until their execution increment is implemented; raw telemetry alone
-does not fabricate a file-backed catalogue.
+selections and raw protocol fields. Electron Bambu implements these capabilities; other adapters retain explicit
+unsupported results. Raw telemetry alone does not fabricate a file-backed
+catalogue.
 
 Catalogue reads must work without a caller-owned observation session, file
 listing, print history lookup or Neo submission record. Provider-internal reads
@@ -1155,8 +1168,8 @@ the two image buffers and depth buffer require about 4 MiB temporarily per
 export, without a renderer GL context or continuous render loop. IDs outside the
 map's 24-bit range omit the image while retaining catalogue data for list-only
 operation. Export-copy identities are normalized to the G-code's per-instance
-label policy without mutating the live model. Provider execution and Monitor
-interaction remain subsequent increments; this producer does not expose a skip
+label policy without mutating the live model. Monitor
+interaction remains a subsequent increment; this producer does not expose a skip
 control by itself. Mobile product support remains deferred under the shared
 application policy.
 

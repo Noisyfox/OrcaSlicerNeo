@@ -6,7 +6,18 @@ const unsupported = async (): Promise<D.Result<never>> => ({ ok: false, error: {
 
 export function bambuMedia(bridge: BambuBridge): D.PrinterMedia {
   return {
-    readPrintObjectMap: contextRef => bridge.control('objectMap', contextRef),
+    readPrintObjectMap: async (contextRef, options) => {
+      const stopped = (): D.Result<never> => ({ ok: false, error: { code: 'cancelled', message: 'Object map reading was cancelled.' } });
+      if (options?.signal?.aborted) return stopped();
+      const readId = crypto.randomUUID();
+      const abort = () => { void bridge.control('cancelObjectRead', { readId }).catch(() => undefined); };
+      options?.signal?.addEventListener('abort', abort, { once: true });
+      try {
+        const result = await bridge.control('objectMap', { contextRef, readId });
+        return options?.signal?.aborted ? stopped() : result;
+      } catch { return { ok: false, error: { code: 'transport', message: 'The object map could not be read.' } }; }
+      finally { options?.signal?.removeEventListener('abort', abort); }
+    },
     readCurrentPrintPreview: target => bridge.control('preview', target),
     open: async (request, options) => {
       const result = await bridge.media('open', request);

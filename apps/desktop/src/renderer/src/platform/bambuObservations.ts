@@ -12,11 +12,15 @@ export function bambuObservations(bridge: BambuBridge): D.PrinterObservations {
   return {
     read: async <K extends D.StateTopic>(request: D.ObservationRequest<K> & { source: 'cache' | 'device' }, options?: D.ReadOptions) => {
       if (options?.signal?.aborted) return { ok: false, error: { code: 'cancelled', message: 'Status read cancelled.' } };
+      const readId = request.source === 'device' && request.topics.some(topic => topic === 'printObjects') ? crypto.randomUUID() : undefined;
+      const abort = () => { if (readId) void bridge.control('cancelObjectRead', { readId }).catch(() => undefined); };
+      if (readId) options?.signal?.addEventListener('abort', abort, { once: true });
       try {
-        const result = await bridge.control('read', request);
+        const result = await bridge.control('read', readId ? { ...request, readId } : request);
         if (options?.signal?.aborted) return { ok: false, error: { code: 'cancelled', message: 'Status read cancelled.' } };
         return result.ok ? { ok: true, value: scoped(result.value, request) } : result;
       } catch { return { ok: false, error: { code: 'transport', message: 'Printer status is unavailable.' } }; }
+      finally { options?.signal?.removeEventListener('abort', abort); }
     },
     watch: async function* <K extends D.StateTopic>(request: D.ObservationRequest<K> & { after?: D.ObservationCursor }, options?: D.ReadOptions): AsyncIterable<D.PrinterEvent<K>> {
       if (options?.signal?.aborted) return;

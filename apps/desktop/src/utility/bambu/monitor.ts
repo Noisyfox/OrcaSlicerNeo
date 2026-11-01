@@ -8,12 +8,15 @@ import type { BambuRepository } from './repository';
 import type { BambuDevice } from '../../shared/bambuDevices';
 import { savedBambuPrinter } from '../../shared/bambuPrinters';
 import { BambuTelemetry } from './telemetry';
+import type { BambuObjects } from './objects';
 
 type Entry = { deviceId: string; device: BambuDevice; account: boolean; reports: { cloud: number; lan: number }; printer: D.SavedPrinter; route: D.PrinterRoute; target: D.PrinterTarget; telemetry: BambuTelemetry };
 const error = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });
 /** One ordinary native selection per Electron instance. Tokens only bind IPC stream cleanup. */
 export class BambuMonitor {
   private readonly recovery = new BambuRecovery();
+  private objects?: BambuObjects;
+  useObjects(objects: BambuObjects) { this.objects = objects; }
   private readonly cache = new Map<string, Entry>();
   private active: Entry | null = null;
   private readonly tokens = new Set<string>();
@@ -51,13 +54,18 @@ export class BambuMonitor {
       descriptor: entry.telemetry.snapshot(target, entry.printer.identity, entry.route.configurationRevision, ['descriptor']).values.descriptor } };
   }
   private contextOf(entry: Entry): CommandContext {
-    return this.recovery.decorate({ ...entry.telemetry.project(entry.target, entry.printer.identity), target: entry.target,
+    const context = this.recovery.decorate({ ...entry.telemetry.project(entry.target, entry.printer.identity), target: entry.target,
       configurationRevision: entry.route.configurationRevision, model: entry.printer.identity.model });
+    return { ...context, objects: this.objects?.project(context) };
   }
   private snapshot<K extends D.StateTopic>(entry: Entry, topics: readonly [K, ...K[]]): D.PrinterSnapshot<K> {
     const snapshot = entry.telemetry.snapshot(entry.target, entry.printer.identity, entry.route.configurationRevision, topics);
     const context = this.contextOf(entry);
     const values = Object.fromEntries(topics.map(topic => {
+      if (topic === 'printObjects') {
+        const template = context.values.status.printStatus.phase;
+        return [topic, context.objects && template.kind === 'known' ? { ...template, value: context.objects.snapshot } : { kind: 'unknown', reason: 'unavailable' }];
+      }
       const reading = snapshot.values[topic];
       return [topic, reading?.kind === 'known' && topic !== 'printObjects' ? { ...reading, value: context.values[topic] } : reading];
     })) as D.ObservationValues<K>;
@@ -135,9 +143,15 @@ export class BambuMonitor {
       return { ok: true, value: null };
     });
   }
-  async read<K extends D.StateTopic>(request: D.ObservationRequest<K> & { source: 'cache' | 'device' }): Promise<D.Result<D.PrinterSnapshot<K>>> {
+  async read<K extends D.StateTopic>(request: D.ObservationRequest<K> & { source: 'cache' | 'device' }, readId?: string): Promise<D.Result<D.PrinterSnapshot<K>>> {
     const entry = await this.resolve(request.target);
     if (!entry) return error('invalid-target', 'This Bambu route is no longer available.');
+    if (request.source === 'device' && request.topics.some(topic => topic === 'printObjects') && this.objects) {
+      const result = await this.objects.read(request.target, readId);
+      if (!result.ok) return result;
+      if (request.topics.length === 1) return { ok: true, value: { target: request.target,
+        configurationRevision: result.value.value.contextRef.configurationRevision, values: Object.fromEntries([['printObjects', result.value]]) as D.ObservationValues<K> } };
+    }
     let snapshot: D.PrinterSnapshot<K> | undefined;
     if (request.source === 'device') {
       const token = randomUUID();

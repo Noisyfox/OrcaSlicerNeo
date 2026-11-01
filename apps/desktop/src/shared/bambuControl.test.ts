@@ -42,8 +42,10 @@ it('bounds object selections and requires an explicit task-scoped cancellation i
   expect(isBambuControlRequest(request(params))).toBe(true);
   expect(isBambuControlRequest(request({ ...params, intent: 'cancel-print' }))).toBe(true);
   expect(isBambuControlRequest(request({ ...params, objectIds: Array.from({ length: 64 }, (_, i) => `object-${i}`) }))).toBe(true);
-  expect(isBambuControlRequest({ method: 'objectMap', input: contextRef })).toBe(true);
-  expect(isBambuControlRequest({ method: 'read', input: { target, topics: ['printObjects'], source: 'device' } })).toBe(true);
+  expect(isBambuControlRequest({ method: 'objectMap', input: { contextRef, readId: 'image-read' } })).toBe(true);
+  expect(isBambuControlRequest({ method: 'cancelObjectRead', input: { readId: 'image-read' } })).toBe(true);
+  expect(isBambuControlRequest({ method: 'read', input: { target, topics: ['printObjects'], source: 'device', readId: 'catalogue-read' } })).toBe(true);
+  expect(isBambuControlRequest({ method: 'read', input: { target, topics: ['printObjects'], source: 'device' } })).toBe(false);
   for (const invalid of [
     { ...params, objectIds: [] }, { ...params, objectIds: ['object-a', 'object-a'] },
     { ...params, objectIds: [1] }, { ...params, objectIds: [''] },
@@ -53,5 +55,5 @@ it('bounds object selections and requires an explicit task-scoped cancellation i
     { ...params, contextRef: { ...contextRef, token: undefined } },
     { ...params, obj_list: [1] },
   ]) expect(isBambuControlRequest(request(invalid))).toBe(false);
-  expect(isBambuControlRequest({ method: 'objectMap', input: { ...contextRef, url: 'bambu:///private' } })).toBe(false);
+  expect(isBambuControlRequest({ method: 'objectMap', input: { contextRef, readId: 'image-read', url: 'bambu:///private' } })).toBe(false);
 });
