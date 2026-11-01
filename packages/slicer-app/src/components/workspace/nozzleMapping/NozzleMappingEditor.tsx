@@ -13,12 +13,7 @@ export function MappingModeAvailabilityTooltip({ mode, children, className }: {
   if (mode.mode !== 1 || mode.available) return children;
   return <Tooltip>
     <TooltipTrigger render={<span className={className} />}>{children}</TooltipTrigger>
-    <TooltipContent nonInteractive>
-      <div className="space-y-1">
-        <p>Connect to and select a printer matching the selected Printer profile to use Convenience Mode.</p>
-        {mode.reason && <p>{mode.reason}</p>}
-      </div>
-    </TooltipContent>
+    <TooltipContent nonInteractive>{mode.reason}</TooltipContent>
   </Tooltip>;
 }
 

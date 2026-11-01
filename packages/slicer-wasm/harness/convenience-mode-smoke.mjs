@@ -79,7 +79,7 @@ assert.equal(ok(projection(plate)).saved.mode, 1);
 set(null);
 assert.equal(ok(projection(plate)).modes[1].available, false);
 const rejected = await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'], ['{}', plate, ok(projection(plate)).revision]);
-assert.match(rejected.error, /Select a device/);
+assert.match(rejected.error, /Connect to and select a printer matching/);
 assert.deepEqual(inputs(), baseline);
 set(source([supply(0, '#0000FF'), supply(1, '#FF0000')]));
 ok(command('orc_mutate_preset_draft', { kind: 'printer', canonical_name: 'Bambu Lab H2D 0.4 nozzle',

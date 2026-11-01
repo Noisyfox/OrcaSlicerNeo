@@ -301,7 +301,7 @@ json projection(const std::string& plate_id)
     const bool match_supported = automatic && match_topology_supported(printer);
     const bool match_available = match_supported && selected_device_matches();
     const std::string match_reason = !match_supported ? "Convenience Mode is unavailable for this printer topology"
-        : !match_available ? "Select a device matching the project Printer to use Convenience Mode" : "";
+        : !match_available ? "Connect to and select a printer matching the selected Printer profile to use Convenience Mode" : "";
     const auto capacities = decode_capacities(project, nozzles);
     const auto count = Filament::State::material_slot_count(project);
     const auto maps = effective_map(plate->settings, project, "filament_map", count, 1);

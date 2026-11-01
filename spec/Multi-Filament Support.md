@@ -1780,9 +1780,10 @@ mapping submenu and Plate Filament Mapping mode control. Both edit the same
 Plate mode. Retain the existing manual confirmation flow; automatic modes gain
 no manual assignment confirmation. Keep the existing output-mode ordering and
 post-slice visibility.
-When Convenience is unavailable, both mode controls expose a hover tooltip
-explaining that the user must first connect to and select a printer matching
-the selected Printer profile, alongside the specific native unavailable reason.
+When Convenience is unavailable, both mode controls expose the specific native
+unavailable reason in a hover tooltip. A missing or non-matching selected device
+uses one message explaining that the user must first connect to and select a
+printer matching the selected Printer profile; no second generic hint is added.
 
 Native topology support and current-device eligibility are separate checks.
 The accepted device gate follows Orca: a selected device matching the selected
