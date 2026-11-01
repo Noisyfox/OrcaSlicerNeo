@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-10-30
+**Updated:** 2026-11-01
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -1022,6 +1022,247 @@ continue to be tracked. The console specification owns these accepted behaviors
 and restoration of the last selected Device printer across all providers.
 Restoring a Moonraker selection does not authorize background observation.
 
+The provider owns one shared device-access layer for native connection selection,
+normalized base state, access leases and the serialized command queue. LAN
+access-code authorization uses that same connection owner. Resource readers,
+camera access and print submission depend on this base layer; it must not call
+back into monitoring or feature projections. Monitoring composes recovery alerts
+and current-task object state above it, with required dependencies supplied at
+construction. Command validation and business-context assembly remain inside the
+device-access queue turn that sends the command. Captured device reads retain
+their observation metadata across temporary lease cleanup; private base contexts
+never leave the utility host in public snapshots.
+
+Rendering a captured observation must not advance or roll back current recovery
+episodes, invalidate the current object catalogue, or cancel resource reads.
+Historical errors that no longer match the current recovery episode retain base
+diagnostics without recovery actions or a modal. Current device events and guarded
+command preparation retain ownership of business lifecycle updates.
+
+Protocol field decoding and resource lookup must not depend on telemetry or
+feature implementations. Shared host-private control contracts distinguish base
+device state from recovery and object-skipping projections. Feature projection
+inputs use base state; command dispatch consumes the assembled context. These
+contracts must not import their implementation owners, including through type-only
+back-references. Both runtime and type-only local imports must remain acyclic.
+
+#### Object skipping follow-up
+
+**Decision status:** Design accepted; implementation authorized in independently
+accepted and committed increments. This follow-up
+supersedes the original control increment's object-skipping exclusion only for
+the scope recorded here. Software acceptance is recorded below; no physical-printer or real-remote
+qualification is claimed.
+
+Use option B: the provider obtains the printer's current task object resources,
+independently of the active Neo workspace or a Neo-originated print submission.
+The first delivery includes Electron Bambu LAN and Cloud remote access; remote
+object-resource acquisition is part of that delivery, not a deferred enhancement.
+LAN access does not require the printer to run in LAN-only mode. Static-Web
+Bambu access, a browser gateway and Moonraker/Klipper execution are outside this
+first delivery. Shared contracts and presentation remain provider-neutral.
+
+For object-resource acquisition, follow Orca's local-first strategy: try local
+TCP using valid existing device authorization, then fall back to the remote
+tunnel for non-LAN-only printers when local acquisition fails. LAN-only printers
+remain local. This resource-read strategy does not change the selected command
+target or control route; skipping commands retain that route's authorization
+and validation.
+
+Enable support by provider-normalized device capabilities and valid current-task
+object information, without an H2D-only model allowlist. H2D is the first
+physical acceptance target; its acceptance does not qualify other models.
+Record model and access-path qualification separately.
+
+**Design assumption:** Treat the networking plugin as supporting the required
+local and remote control-stream resource reads, and design the Orca-compatible
+tunnel path on that assumption. Do not pursue an HTTPS project/task-resource
+replacement as part of this work. The pinned `open-bamboo-networking v2.2.0`
+[camera-URL implementation](https://github.com/ClusterM/open-bamboo-networking/blob/v2.2.0/src/abi_camera.cpp)
+does not implement TUTK/Agora remote tunnels. It returns a LAN URL when device
+IP and authorization are known, otherwise an empty URL. This known runtime
+limitation does not narrow the accepted remote scope or block completion of this
+design discussion. It remains separate from the assumed plugin capability;
+Cloud MQTT and exported local stream symbols do not qualify remote resource
+reads. No plugin change, replacement or remote hardware acceptance is claimed.
+
+The native resource-read increment is implemented in `@orca/bambu-native`.
+`ControlStream` owns a separate source-library/thread lifetime, starts CTRL
+stream type `0x3001`, and bounds both outgoing requests and owned incoming
+packets. Close is idempotent and joins off the JavaScript thread before releasing
+the tunnel/library. `readBambuProjectResource` permits only current-project
+object metadata and indexed picking PNGs, issues Orca's `get_project_file` /
+`mem:/16` request, excludes parameter metadata from file bytes, validates chunk
+offsets/lengths and final MD5, and bounds metadata/image sizes and read deadlines.
+Local success does not resolve a remote ticket; local failure may invoke the
+explicit remote resolver, while cancellation and LAN-only access do not trigger
+remote fallback. Returned bytes are owned and errors omit private URLs.
+This wrapper is independent of camera playback and the networking-agent call
+queue; plugin calls already in progress finish before native close resolves.
+The Electron Bambu provider now acquires current-task catalogues and picking
+maps through this reader. It parses bounded XML for the reported plate, binds
+opaque references to device/route configuration, task provenance and metadata
+fingerprint, and maps native labels privately. Missing or foreign `s_obj` IDs
+remain unknown. Image failures retain list operation. Resource reads own temporary
+monitor leases, support IPC cancellation and revalidate context after acquisition;
+task changes abort in-flight reads. Task, job, plate and file transitions clear
+previous object-skip reports until the device supplies current state. Device bit
+49 controls support, while phase,
+freshness, label enablement and the 64-object limit control applicability.
+Dispatch revalidates selection and explicit stop intent inside the native command
+queue. Independent batches confirm only from matching device state; ACKs alone
+do not alter the reported skipped count. These checks are covered by provider
+fixtures, including external tasks, 63/64/65 objects, stale recovery, task changes,
+configuration changes, cancellation and malformed resources. Physical LAN/remote
+and model qualification remain outstanding.
+
+An unavailable picking image does not invalidate an otherwise reliable object
+catalogue. List-only operation requires confirmed object IDs, names,
+object-skipping support and current-task provenance. If the catalogue or its
+task association cannot be established, object skipping is unavailable.
+The [console specification](Printer%20Console%20and%20Control%20Integration.md#object-skipping)
+owns degraded presentation and selection lifetime during task changes,
+disconnection and concurrent skipping by other clients.
+
+Task identity is part of object-command validity: revalidate it before dispatch
+and reject an operation prepared for an earlier task. Stale or disconnected
+state cannot authorize object skipping. Recovery requires fresh evidence that
+the task is unchanged. Concurrent object-state changes must not silently
+convert a partial skip request into whole-print cancellation.
+Do not require a previous batch's device confirmation before admitting another
+batch. Track operation outcomes independently without adding a global lock for
+pending or uncertain prior skipping operations. Preserve current-task validation
+and the existing prohibition on automatically replaying uncertain commands.
+
+The shared domain needs a typed current-task object catalogue/resource boundary
+and a typed batch skip command. A catalogue carries provider-issued task/object
+references, object names, skipping availability and reported skipped state;
+image bytes are obtained on demand rather than repeated in status updates.
+References bind printer, route/configuration and current task/catalogue context.
+The provider validates them independently at dispatch, including selected object
+membership and whether the requested partial skip is still applicable. Names,
+array positions, filenames and the current Neo scene are not object authority.
+An object reference addresses a printed instance, not a child volume of a
+multipart model. Already skipped instances have no restore operation.
+
+The shared contract increment is implemented as the `printObjects` observation
+topic, `media.readPrintObjectMap` and `jobs.skipObjects`. The command carries a
+`PrintObjectContextRef`, a non-empty opaque object-ID array and explicit
+`skip-selected` or `cancel-print` intent. `PrintObjectSnapshot` carries names,
+availability and a self-contained `Reading` of device-reported skipped IDs;
+`PrintObjectMap` carries on-demand PNG bytes and a colour-ID-to-opaque-object
+palette. The Bambu IPC boundary rejects empty, duplicate, oversized and malformed
+selections and raw protocol fields. Electron Bambu implements these capabilities; other adapters retain explicit
+unsupported results. Raw telemetry alone does not fabricate a file-backed
+catalogue.
+
+Catalogue reads must work without a caller-owned observation session, file
+listing, print history lookup or Neo submission record. Provider-internal reads
+and leases may obtain current device evidence. Check context before and after
+asynchronous acquisition and again at dispatch; discard late resources for a
+different task/target. If reliable task association cannot be established, return
+unavailability rather than invent identity from the filename. These local checks
+do not establish atomic task validation inside firmware: Orca's skip wire command
+carries object IDs, not a firmware-enforced expected-task guard.
+
+Keep Bambu normalization, credentials, URLs, XML interpretation and stream
+ownership inside the utility/native provider boundary. Use the existing
+black-box plugin and control-stream ABI rather than porting wxWidgets
+`PrinterFileSystem` or introducing a renderer network client. Extend the native
+wrapper for bounded, cancellable task-resource reads; ensure its lifetime does
+not block telemetry or depend on camera playback. Shared React consumes typed
+resources only. The adapter maps batch instance references to Orca's
+`print.command=skip_objects`, `obj_list` and QoS 1, derives device support from
+the normalized part-skip capability (`fun` bit 49), and normalizes `s_obj`
+without treating an absent report as an empty skipped set.
+
+For Neo-originated printing, complete the existing
+[print-package bridge](../packages/slicer-wasm/src/bridge_print_submission.cpp)
+so the retained slice's instance catalogue and picking resources are included
+using Orca's archive conventions. G-code labels, `identify_id` and picking-image
+IDs must agree, including imported/loaded identities and the submitted archive's
+single-plate index normalization. Rendering and packaging must refer to the
+same valid slice receipt, not a subsequently edited live scene. Direct WASM
+access remains behind the typed client/runtime boundary. This does not expand
+project-input persistence into saving generated slicing results.
+
+The print-package producer increment is implemented. Both dispatch archives
+contain the sliced-instance catalogue and `Metadata/pick_1.png` /
+`Metadata/top_1.png`, generated from the retained model on its Worker. Picking
+uses a lossless 512-square orthographic raster with zero reserved for background;
+the two image buffers and depth buffer require about 4 MiB temporarily per
+export, without a renderer GL context or continuous render loop. IDs outside the
+map's 24-bit range omit the image while retaining catalogue data for list-only
+operation. Export-copy identities are normalized to the G-code's per-instance
+label policy without mutating the live model. The shared Monitor consumes these
+resources through the typed provider workflow. Mobile product support remains deferred under the shared
+application policy.
+
+Verification must cover real packaged object metadata and picking IDs, multiple
+instances, multipart objects, plate normalization, stale slice receipts, malformed
+resources, task changes during read/confirmation/dispatch, transport recovery,
+concurrent skipping and independent consecutive operations. Exercise Orca's
+object-count limit, including 63/64/65 instances: the reference UI permits 64
+but the encoder asserts fewer than 64, so inclusive-boundary compatibility needs
+explicit validation. Protocol fixtures must check exact skip/stop payloads and
+device-derived `s_obj` state. Update contracts, producers, consumers, IPC
+validation, mocks and compile fixtures together; use affected-package checks,
+focused Electron journeys and applicable WASM builds/smokes under
+[testing guidance](../doc/testing_guidelines.md).
+
+Software acceptance covers the real serial WASM producer through the Bambu
+catalogue/map consumer: two independent instances, imported H2D loaded IDs and
+63/64/65-instance plates. The harness inflates the actual PNGs, checks every
+catalogue/pixel/G-code identity, and verifies all 63 or 64 distinct bits in the
+emitted eight-byte `M624` masks. The provider accepts up to 64 and rejects a
+65-object catalogue for skipping. This boundary evidence is from the existing
+Release WASM artifacts; the upstream encoder's strict `< 64` debug assertion is
+unchanged and debug-boundary qualification is not claimed.
+
+To reproduce the producer-to-consumer check from the repository root:
+
+```sh
+node packages/slicer-wasm/harness/print-submission-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js /tmp/orca-object-resources
+ORCA_OBJECT_RESOURCES=/tmp/orca-object-resources pnpm --filter @orca/desktop exec vitest run src/utility/bambu/objectSkipping.test.ts
+```
+
+The output directory is a generated local test artifact. Ordinary unit runs skip
+this opt-in case when it is absent; the acceptance run explicitly supplies it.
+The reader's source transport is injected for this check, while the native
+packet/cleanup fixtures and Electron IPC/selection journey qualify their own
+boundaries. This combination does not establish a real plugin-to-printer path.
+
+The implementation handoff gate passed repository tests (with the generated
+resource case explicitly enabled), repository typechecks, the four focused
+Electron object/control/submission journeys, renderer CSS/import guards and
+`git diff --check`. The native wrapper's 28 fixtures and the desktop provider's
+418 tests passed. Existing serial and threaded WASM trees were quick-built;
+serial passed the comprehensive bridge, slicing, DRC and STEP smokes, and threaded
+passed startup/threaded slicing. The ordinary conditional WASM/runtime skips
+remain outside this feature's acceptance. Full Web/release matrices, six-target
+native packaging and physical skips were not run for this development handoff.
+
+Physical acceptance starts with H2D and separately exercises LAN and genuinely
+remote access, including a print started by another client, partial skipping,
+consecutive batches, paused-print behavior and explicitly confirmed whole-print
+cancellation. Confirm that remaining objects continue printing. Fixtures, plugin
+symbols and successful command submission do not replace physical acceptance;
+the assumed remote capability must be verified against the actual execution
+plugin when remote acceptance is performed.
+
+Implementation follows these dependency-ordered acceptance increments. Complete
+the affected checks and commit each increment before starting the next; shared
+contract changes must keep every producer, consumer and fixture buildable.
+
+| Increment | Independently accepted result | Acceptance boundary |
+| --- | --- | --- |
+| Print-package object resources | Retained-slice instance catalogue and lossless picking resources in both dispatch archives | Real WASM package/PNG/G-code identity checks, affected WASM package tests/typecheck and quick build |
+| Shared object contracts | Typed resources, batch commands, capabilities and validation with unsupported adapters kept coherent | Domain compile fixtures, affected adapter/IPC checks and package tests/typecheck |
+| Native task-resource reads | Bounded, cancellable local/remote control-stream acquisition with deterministic cleanup | Native fixtures for transport selection, fragments, limits, cancellation and lifetime; native ABI/build checks |
+| Bambu object execution | Current-task catalogue/state, guarded batch skipping and explicit whole-print cancellation | Exact protocol, stale-task/concurrency/recovery and independent-operation tests; provider IPC integration |
+| Monitor interaction | Capability-gated modal picking/list flow and all accepted selection/confirmation/count behavior | Component tests and focused Electron journeys, including image-unavailable fallback |
+| Integrated acceptance | Producer-to-consumer software regression with qualification limits stated | Repository tests/typecheck, affected host/WASM checks and separately recorded physical acceptance |
+
 #### Contract extension boundaries
 
 The current typed contract includes `jobs.setSpeed` with discoverable mode IDs
@@ -1062,7 +1303,9 @@ The following gaps need coordinated contract/specification/consumer updates:
 
 Do not add calibration-start, print-detection configuration, camera recording,
 timelapse/resolution settings, object-skipping, material-metadata editing, manual
-RFID re-read, drying-control or AMS behavior-settings executors for this delivery.
+RFID re-read, drying-control or AMS behavior-settings executors for the original
+control increment. Object skipping has a separately accepted
+[follow-up design](#object-skipping-follow-up), with implementation unstarted.
 Drying/environment observations remain included. These restrictions do not remove
 load/unload/switch, contextual recovery or supported nozzle re-identification.
 Their exclusion from this implementation does not remove existing general domain

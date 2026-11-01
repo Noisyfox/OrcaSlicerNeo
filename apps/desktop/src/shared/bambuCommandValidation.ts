@@ -3,10 +3,16 @@ const object = (value: unknown): value is Record<string, unknown> => !!value && 
 const text = (value: unknown) => typeof value === 'string' && value.length > 0 && value.length < 1024;
 const finite = (value: unknown) => typeof value === 'number' && Number.isFinite(value);
 const exact = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).every(key => keys.includes(key)) && keys.every(key => key in value);
+export function isPrintObjectContextRef(value: unknown): value is D.PrintObjectContextRef {
+  return object(value) && exact(value, ['printerId', 'routeId', 'configurationRevision', 'taskId', 'token']) && Object.values(value).every(text);
+}
 export function isBambuCommandPayload(value: unknown): value is D.PrinterCommand {
   if (!object(value) || !exact(value, ['type', 'params']) || !object(value.params)) return false;
   const p = value.params;
   switch (value.type) {
+    case 'jobs.skipObjects': return exact(p, ['contextRef', 'objectIds', 'intent']) && isPrintObjectContextRef(p.contextRef)
+      && Array.isArray(p.objectIds) && p.objectIds.length > 0 && p.objectIds.length <= 64 && p.objectIds.every(text)
+      && new Set(p.objectIds).size === p.objectIds.length && ['skip-selected', 'cancel-print'].includes(String(p.intent));
     case 'jobs.pause': case 'jobs.resume': case 'jobs.cancel': case 'hardware.refreshNozzles': return exact(p, []);
     case 'jobs.setSpeed': return exact(p, ['modeId']) && text(p.modeId);
     case 'thermal.setTarget': return exact(p, ['heaterId', 'targetC']) && text(p.heaterId) && finite(p.targetC);

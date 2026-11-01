@@ -6,6 +6,7 @@ export type * from './common';
 export type * from './printer';
 export type * from './materials';
 export type * from './sensors';
+export type * from './objects';
 export type * from './files';
 export type * from './media';
 export type * from './control';

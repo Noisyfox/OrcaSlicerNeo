@@ -16,7 +16,7 @@ import m14 from '../../../../../packages/slicer-wasm/cpp/resources/printers/O1S.
 import ids from '../../../../../packages/slicer-wasm/cpp/resources/printers/bambu_filament_ids.json';
 import blacklist from '../../../../../packages/slicer-wasm/cpp/resources/printers/filaments_blacklist.json';
 import nozzleInfo from '../../../../../packages/slicer-wasm/cpp/resources/info/nozzle_info.json';
-import { record, type Report } from './telemetry';
+import { record, type Report } from './protocol';
 const models: Record<string, unknown> = {'BL-P001': m0, 'BL-P002': m1, 'C11': m2, 'C12': m3, 'C13': m4, 'N1': m5, 'N2S': m6, 'N6': m7, 'N7': m8, 'N9': m9, 'O1C': m10, 'O1C2': m11, 'O1D': m12, 'O1E': m13, 'O1S': m14};
 function merge(base: Report, patch: Report): Report {
   const result = { ...base };

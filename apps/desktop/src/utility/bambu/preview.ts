@@ -1,7 +1,7 @@
 import type { BambuNative } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
-import type { BambuMonitor } from './monitor';
-import { number, record, records } from './telemetry';
+import type { BambuDeviceAccess } from './deviceAccess';
+import { number, record, records } from './protocol';
 const failure = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });
 /** Only provider-owned CDN URLs are fetched, with no caller URLs, cookies or auth headers. */
 function previewUrl(value: unknown): URL | null {
@@ -13,11 +13,11 @@ function previewUrl(value: unknown): URL | null {
   } catch { return null; }
 }
 /** Resolve the current task independently. No file-list, history, camera or active UI watch is needed. */
-export async function readCurrentPrintPreview(monitor: Pick<BambuMonitor, 'acquire' | 'context' | 'stop'>, native: Pick<BambuNative, 'getSubtaskInfo'>,
+export async function readCurrentPrintPreview(access: Pick<BambuDeviceAccess, 'acquire' | 'context' | 'stop'>, native: Pick<BambuNative, 'getSubtaskInfo'>,
   target: D.TargetRequest, fetchImage: typeof fetch = fetch): Promise<D.Result<D.CurrentPrintPreview>> {
-  const lease = await monitor.acquire(target); if (!lease.ok) return lease;
+  const lease = await access.acquire(target); if (!lease.ok) return lease;
   try {
-    const before = await monitor.context(target); if (!before.ok) return before;
+    const before = await access.context(target); if (!before.ok) return before;
     const context = before.value, task = context.values.status.printStatus.taskId;
     if (!context.fresh) return failure('offline', 'Wait for fresh printer status.');
     if (target.expectedConfigurationRevision !== undefined && target.expectedConfigurationRevision !== context.configurationRevision) return failure('stale-context', 'Printer configuration changed.');
@@ -48,10 +48,10 @@ export async function readCurrentPrintPreview(monitor: Pick<BambuMonitor, 'acqui
     const bytes = Buffer.concat(chunks, size);
     const valid = mimeType === 'image/png' ? bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
     if (!valid) return failure('preview-unavailable', 'The current task preview is unavailable.');
-    const after = await monitor.context(target);
+    const after = await access.context(target);
     if (!after.ok || !after.value.fresh || after.value.configurationRevision !== context.configurationRevision
       || after.value.values.status.printStatus.taskId.kind !== 'known' || after.value.values.status.printStatus.taskId.value !== task.value) return failure('stale-context', 'The active task changed while loading its preview.');
     return { ok: true, value: { printerId: target.printerId, routeId: target.routeId, configurationRevision: context.configurationRevision, taskId: task.value, mimeType, bytes: new Uint8Array(bytes) } };
   } catch { return failure('transport', 'The current task preview could not be loaded.'); }
-  finally { await monitor.stop(lease.value).catch(() => undefined); }
+  finally { await access.stop(lease.value).catch(() => undefined); }
 }

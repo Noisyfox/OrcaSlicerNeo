@@ -6,6 +6,7 @@ import type { FileCapabilities } from './files';
 import type { TimelapseMode, CameraMediaCapability } from './media';
 import type { CommandCapabilities, PrinterAction } from './control';
 import type { WebInterfaceCapability } from './web-interface';
+import type { PrintObjectSnapshot } from './objects';
 export interface PrinterIdentity {
   id: Id<'printer'>;
   displayName: string;
@@ -216,6 +217,8 @@ export interface PrinterCapabilities {
 }
 /** Topic-scoped data avoids requiring a complete printer snapshot for a single read. */
 export interface PrinterObservationMap {
+  /** Device reads obtain the current catalogue independently; cache/watch never initiate file reads. */
+  printObjects: PrintObjectSnapshot;
   descriptor: PrinterDescriptor;
   status: Pick<PrinterState, 'operationalState' | 'activeToolIds' | 'printStatus' | 'actions'>;
   thermal: PrinterState['heaters'];

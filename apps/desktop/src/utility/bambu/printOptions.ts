@@ -1,5 +1,6 @@
 import type * as D from '@orca/printer-control/domain';
-import { number, record, type BambuMachineState, type Report } from './telemetry';
+import type { BambuMachineState } from './telemetry';
+import { number, record, type Report } from './protocol';
 import { printerFilamentId } from './printResources';
 export function printOptions(request: D.PrintPreparationRequest, p: Report, profile: Report, multipleExternal: boolean, device: BambuMachineState) {
   const options: D.PrintOptions = {}, descriptors: D.PrintOptionDescriptor[] = [], issues: D.PrintIssue[] = [];

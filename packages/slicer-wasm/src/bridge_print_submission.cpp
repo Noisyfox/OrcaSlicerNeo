@@ -3,7 +3,10 @@
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "slic3r/Utils/ASCIIFolding.hpp"
 #include <tbb/task_arena.h>
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <limits>
 #include <set>
 #include <stdexcept>
 
@@ -58,12 +61,93 @@ void populate(PlateData& plate, PlateRuntimeRegistry::Entry& entry)
     plate.optimal_assignment = result.optimal_assignment;
     plate.warnings = result.warnings;
     plate.parse_filament_info(entry.gcode_result.get());
+    // PrintObject grouping can split one model object into several PrintObjects.
+    // Archive membership is the unique set of instances actually sliced.
+    std::set<std::size_t> instances;
+    for (const auto* object : print.objects())
+        for (const auto& instance : object->instances())
+            instances.insert(instance.model_instance->id().id);
+    const auto& model = print.model();
+    for (std::size_t o = 0; o < model.objects.size(); ++o)
+        for (std::size_t i = 0; i < model.objects[o]->instances.size(); ++i)
+            if (instances.count(model.objects[o]->instances[i]->id().id))
+                plate.objects_and_instances.emplace_back(static_cast<int>(o), static_cast<int>(i));
     for (auto& material : plate.slice_filaments_info) {
         std::string display_type;
         material.type = plate.config.get_filament_type(display_type, material.id);
         material.color = text(config, "filament_colour", material.id);
         material.filament_id = text(config, "filament_ids", material.id);
     }
+}
+
+// Worker-side orthographic rasterization uses the retained slice model. No live
+// scene, GL context, antialiasing or colour conversion can change picking IDs.
+ThumbnailData picking_image(const Model& model, const PlateData& plate)
+{
+    constexpr int size = 512;
+    ThumbnailData image;
+    BoundingBoxf3 bounds;
+    for (const auto& [o, i] : plate.objects_and_instances) {
+        const auto* object = model.objects[o];
+        const auto* instance = object->instances[i];
+        if (instance->get_labeled_id() == 0 || instance->get_labeled_id() > 0xffffff)
+            return image; // The catalogue remains usable without a 24-bit map.
+        for (const auto* volume : object->volumes) if (volume->is_model_part()) {
+            const auto box = volume->mesh().bounding_box();
+            const Transform3d matrix = instance->get_matrix() * volume->get_matrix();
+            for (int c = 0; c < 8; ++c)
+                bounds.merge(matrix * Vec3d(c & 1 ? box.max.x() : box.min.x(),
+                    c & 2 ? box.max.y() : box.min.y(), c & 4 ? box.max.z() : box.min.z()));
+        }
+    }
+    if (!bounds.defined) return image;
+    const double extent = std::max({bounds.size().x(), bounds.size().y(), 0.01}) * 1.06;
+    const double scale = (size - 1) / extent;
+    const Vec3d centre = bounds.center();
+    image.set(size, size);
+    std::fill(image.pixels.begin(), image.pixels.end(), 0);
+    std::vector<double> depth(size * size, -std::numeric_limits<double>::infinity());
+    for (std::size_t p = 3; p < image.pixels.size(); p += 4) image.pixels[p] = 255;
+    const auto edge = [](const Vec3d& a, const Vec3d& b, double x, double y) {
+        return (b.x() - a.x()) * (y - a.y()) - (b.y() - a.y()) * (x - a.x());
+    };
+    for (const auto& [o, i] : plate.objects_and_instances) {
+        const auto* object = model.objects[o];
+        const auto* instance = object->instances[i];
+        const auto id = instance->get_labeled_id();
+        for (const auto* volume : object->volumes) if (volume->is_model_part()) {
+            const auto& mesh = volume->mesh().its;
+            const Transform3d matrix = instance->get_matrix() * volume->get_matrix();
+            for (const auto& face : mesh.indices) {
+                Vec3d p[3];
+                for (int v = 0; v < 3; ++v) {
+                    p[v] = matrix * mesh.vertices[face[v]].cast<double>();
+                    p[v].x() = (p[v].x() - centre.x()) * scale + (size - 1) * 0.5;
+                    p[v].y() = (p[v].y() - centre.y()) * scale + (size - 1) * 0.5;
+                }
+                const double area = edge(p[0], p[1], p[2].x(), p[2].y());
+                if (std::abs(area) < 1e-12) continue;
+                const int x0 = std::max(0, static_cast<int>(std::floor(std::min({p[0].x(), p[1].x(), p[2].x()}))));
+                const int x1 = std::min(size - 1, static_cast<int>(std::ceil(std::max({p[0].x(), p[1].x(), p[2].x()}))));
+                const int y0 = std::max(0, static_cast<int>(std::floor(std::min({p[0].y(), p[1].y(), p[2].y()}))));
+                const int y1 = std::min(size - 1, static_cast<int>(std::ceil(std::max({p[0].y(), p[1].y(), p[2].y()}))));
+                for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x) {
+                    const double a = edge(p[1], p[2], x + 0.5, y + 0.5) / area;
+                    const double b = edge(p[2], p[0], x + 0.5, y + 0.5) / area;
+                    const double c = 1 - a - b;
+                    if (a < 0 || b < 0 || c < 0) continue;
+                    const double z = a * p[0].z() + b * p[1].z() + c * p[2].z();
+                    const auto index = y * size + x;
+                    if (z < depth[index]) continue;
+                    depth[index] = z;
+                    image.pixels[index * 4] = id & 255;
+                    image.pixels[index * 4 + 1] = (id >> 8) & 255;
+                    image.pixels[index * 4 + 2] = (id >> 16) & 255;
+                }
+            }
+        }
+    }
+    return image;
 }
 }
 
@@ -128,6 +212,23 @@ json export_package(PlateRuntimeRegistry::Entry& entry, const std::string& filen
     // SkipModel is Orca's normal dispatch contract. The writer still reads
     // model metadata; provide the retained native snapshot, not the live scene.
     Model model(entry.print->model());
+    // The archive writer's UseLoadedId switch is global, while G-code labels
+    // follow each instance's policy. Normalize only this export copy to the
+    // exact IDs used by the retained G-code.
+    for (auto* object : model.objects) for (auto* instance : object->instances) {
+        instance->loaded_id = instance->get_labeled_id();
+        instance->use_loaded_id_for_label = true;
+    }
+    auto pick = picking_image(model, plate);
+    auto top = pick;
+    if (pick.is_valid()) {
+        plate.pick_file = "Metadata/pick_1.png";
+        plate.top_file = "Metadata/top_1.png";
+        for (std::size_t p = 0; p < top.pixels.size(); p += 4)
+            if (top.pixels[p] || top.pixels[p + 1] || top.pixels[p + 2]) {
+                top.pixels[p] = 170; top.pixels[p + 1] = 180; top.pixels[p + 2] = 190;
+            }
+    }
     const std::string print_path = entry.gcode_path + ".print.3mf";
     const std::string config_path = entry.gcode_path + ".config.3mf";
     try {
@@ -136,10 +237,14 @@ json export_package(PlateRuntimeRegistry::Entry& entry, const std::string& filen
         params.config = &config;
         params.plate_data_list = {&plate};
         params.export_plate_idx = 0;
+        if (pick.is_valid()) {
+            params.pick_thumbnail_data = {&pick};
+            params.top_thumbnail_data = {&top};
+        }
         tbb::task_arena arena(1);
         for (const bool with_gcode : {true, false}) {
             params.path = with_gcode ? print_path : config_path;
-            params.strategy = SaveStrategy::Silence | SaveStrategy::SkipModel |
+            params.strategy = SaveStrategy::Silence | SaveStrategy::SkipModel | SaveStrategy::UseLoadedId |
                 SaveStrategy::SkipAuxiliary | SaveStrategy::Zip64 |
                 (with_gcode ? SaveStrategy::WithGcode : SaveStrategy::WithSliceInfo);
             bool stored = false;

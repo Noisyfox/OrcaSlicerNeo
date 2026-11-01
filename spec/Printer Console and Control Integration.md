@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-10-30
+**Updated:** 2026-11-01
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
@@ -719,7 +719,7 @@ The accepted feature envelope is:
 
 | Area | Accepted coverage |
 | --- | --- |
-| Current print | Name, phase, progress, remaining time, detailed stage and layer counts; pause, resume, cancel and speed selection. Display a current-task thumbnail when obtainable, otherwise a placeholder. The typed contract includes task previews, detailed observations and speed modes. Object skipping is excluded. |
+| Current print | Name, phase, progress, remaining time, detailed stage and layer counts; pause, resume, cancel and speed selection. Display a current-task thumbnail when obtainable, otherwise a placeholder. The typed contract includes task previews, detailed observations and speed modes. Object skipping has a separately accepted [follow-up design](#object-skipping), not delivered behavior. |
 | Thermal and actuators | Separately identified nozzle/tool temperatures, bed and supported chamber control, fans and lights; unknown limits must not become unrestricted inputs. |
 | Motion and tools | Homing, jogging, extrusion/retraction and supported tool selection, with explicit targets and device/state-dependent availability. |
 | Materials | Dynamically reported AMS units, external holders, slots, read-only metadata/remaining material and paths to tools; load, unload and switch. No metadata editing or manual RFID re-read. |
@@ -740,6 +740,107 @@ remain representable, but H2D acceptance is not qualification for every Bambu mo
 Upload/Send & Print, firmware upgrades and importing device materials into the
 project are not automatically added to this control scope. Filament-calibration
 workflows are also outside this delivery.
+
+#### Object skipping
+
+**Decision status:** Design accepted; implementation authorized in independently
+accepted and committed increments under the domain specification's sequence.
+
+The first delivery targets Electron Bambu printers over both LAN and Cloud
+remote access. Obtain objects from the printer's current task, including prints
+started by another client; do not require the active Neo workspace to contain
+the printed model. Availability follows device support and valid task-object
+information rather than an H2D-only model allowlist. H2D is the first physical
+acceptance target, with other models' qualification recorded separately.
+The [domain specification](Printer%20Domain%20and%20Control%20Architecture.md#object-skipping-follow-up)
+owns provider execution and access boundaries.
+
+Place the Skip Objects entry alongside Monitor's current-print controls. Hide
+it for a device that does not support skipping; for a supported device with an
+inapplicable task or unavailable current conditions, keep it visible but disabled
+and explain the reason. Normalized unknown support does not authorize commands.
+
+Allow list-only selection when the object catalogue and current-task association
+are reliable but the picking image is unavailable. Explain that the graphical
+view is unavailable and preserve object names and reported skipped state in the
+list. Duplicate names can be ambiguous without the image; the user may abandon
+selection. Missing or untrusted object identities, task association or skipping
+support must disable the operation rather than substitute workspace objects.
+
+Open object selection in a modal dialog from Monitor. The dialog blocks
+interaction with the underlying application without automatically pausing the
+print, and continues receiving relevant printer state while open.
+Present a top-down picking view with a synchronized multi-select object list;
+the list remains usable in the accepted image-unavailable fallback. Already
+skipped objects are marked and cannot be selected for restoration.
+
+Allow skipping during ordinary running or paused prints, without requiring a
+pause or automatically resuming afterward. Downloading, queued/cloud-slicing,
+completed and system/calibration tasks do not enable skipping.
+
+Every batch requires a second confirmation before dispatch. For a partial skip,
+identify the printer, selected objects and their count, and explain that skipping
+cannot be undone. Allow selecting all remaining objects, counting previously
+skipped objects when determining whether any would remain. In that case,
+explicitly confirm that the entire print will stop, then issue print cancellation
+rather than an all-object skip command.
+
+Close the selection dialog after the operation submission is recorded and show
+subsequent operation feedback on Monitor. An immediately rejected submission
+keeps the dialog open with the rejection reason. Closing the dialog does not
+establish successful device execution. Follow Orca's consecutive-batch behavior:
+the user may reopen selection and submit another batch without waiting for the
+previous batch's device confirmation. A pending or uncertain earlier batch does
+not by itself impose a global submission lock. Reported object state remains
+device-derived. Existing unknown-outcome feedback and no-automatic-replay rules
+still apply; pending-operation tracking must not introduce a forced confirmation
+barrier between batches.
+
+The displayed skipped-object count includes only device-reported skipped
+objects. Monitor shows the count only when a known report contains at least one
+skipped object; merely loading and closing selection must not add a zero/unknown
+count beside the action. The selection dialog retains its zero-count statistics.
+Do not optimistically increment it after submission. Pending, rejected
+or uncertain operations use ordinary Monitor feedback independently of that
+count, and do not block another batch merely because an earlier result is
+pending or uncertain. This intentionally differs from Orca's temporary local
+count prediction; a recorded submission or send acknowledgement is not evidence
+that an object was skipped.
+
+A change of current print task closes selection and any pending confirmation,
+discards the selection, and explains that the task changed. Reopening obtains
+the current task's object information. An old-task operation that has not yet
+been dispatched must be rejected rather than retargeted.
+
+Temporary disconnection or stale status retains the selection dialog and local
+selection but disables submission and invalidates any pending confirmation.
+Explain the unavailable state. Restore operation only after fresh information
+establishes that the task is unchanged; the user must confirm again. A detected
+task change follows the close-and-discard rule above.
+
+When another client skips selected objects, mark them skipped and remove them
+from the pending submission set, preserving the remaining selection. Update
+the count and explain the change. Dismiss an open confirmation and require a
+new confirmation. Concurrent object-state changes must not silently convert a
+partial skip into cancellation of the entire print.
+
+Orca's [reference dialog](../packages/slicer-wasm/cpp/src/slic3r/GUI/PartSkipDialog.cpp)
+loads picking and configuration resources as a group and shows a retry page
+when acquisition fails. Its modal selection dialog confirms partial skipping or
+stopping all objects, then closes after invoking the command without waiting for
+reported object state. Neo retains this interaction shape while distinguishing
+submission from successful execution. List-only operation is an intentional
+Neo extension.
+
+The shared Monitor implementation now includes this modal workflow, an on-demand
+catalogue read, synchronized canvas picking/list selection and image-decoding
+fallback. The modal keeps existing observations alive and tracks submitted
+operations independently; it adds no pending-batch lock. Component checks cover
+confirmation invalidation, stale recovery, external skipping, immediate rejection,
+explicit stop intent and cancellation of undispatched evaluation on unmount.
+The Electron fixture journey covers actual PNG decoding/pixel selection, modal
+isolation, list fallback, count semantics and consecutive submissions. These
+software checks do not establish physical-printer or remote-tunnel acceptance.
 
 #### Accepted task, hardware and recovery scope
 

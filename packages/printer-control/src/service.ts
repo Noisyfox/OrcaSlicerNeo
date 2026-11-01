@@ -111,7 +111,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
       revision: 'moonraker-domain-2', submission: unsupported,
       commands: {
         'jobs.start': supported({ sources: [{ storageId, versionCheck: 'unavailable' }], formats: ['gcode'], materialMapping: 'none', jobTimelapse: [] }),
-        'jobs.pause': supported({}), 'jobs.resume': supported({}), 'jobs.cancel': supported({}), 'jobs.setSpeed': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
+        'jobs.pause': supported({}), 'jobs.resume': supported({}), 'jobs.cancel': supported({}), 'jobs.setSpeed': unsupported, 'jobs.skipObjects': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
         'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported,
         'motion.home': unsupported, 'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
         'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,
@@ -126,7 +126,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
       },
       observations: {
         descriptor: supported({ delivery: ['on-demand'] }), firmware: supported({ delivery: ['on-demand'] }), status: supported({ delivery: ['on-demand'] }),
-        thermal: unsupported, motion: unsupported, actuators: unsupported, materials: unsupported, cameras: unsupported, sensors: unsupported, alerts: unsupported,
+        thermal: unsupported, motion: unsupported, actuators: unsupported, materials: unsupported, cameras: unsupported, sensors: unsupported, alerts: unsupported, printObjects: unsupported,
       },
     };
   }
@@ -341,7 +341,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   const service: D.PrinterService = {
     submissions: unsupportedSubmissions,
     operations: operations.api, controls, files, observations,
-    media: { readStream: unsupportedStream, readCurrentPrintPreview: async () => rejected(), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },
+    media: { readPrintObjectMap: async () => rejected(), readStream: unsupportedStream, readCurrentPrintPreview: async () => rejected(), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },
     listProviders: async () => ({ ok: true, value: [{ id: providerId, name: 'Moonraker', hosts: [{ ...options.host, discovery: unsupported }] }] }),
     listTypes: async () => ({ ok: true, value: [{ id: typeId, providerId, name: 'Moonraker', description: 'Request-based Moonraker HTTP and native Web interface' }] }),
     listSaved: () => safe(async () => (await withConfiguration(loadConfiguration)).printers.map(saved)),

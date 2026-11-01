@@ -3,6 +3,8 @@ import { createRequire } from 'node:module';
 import { isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { NativePrintParameters, NativePrintResult } from './print.js';
+export { loadBambuControlStream, readBambuProjectResource, BambuResourceError } from './control.js';
+export type { NativeControlStream, BambuResourceSource, BambuResourceReadOptions } from './control.js';
 export type { NativePrintParameters, NativePrintResult } from './print.js';
 
 export interface NativeHttpResult { result: number; httpCode: number; body: string }

@@ -1,6 +1,7 @@
 /** Deterministic print fixtures; no network or physical-device acceptance implied. */
 import type * as D from '@orca/printer-control/domain';
-import { BambuTelemetry, id } from './telemetry';
+import { BambuTelemetry } from './telemetry';
+import { id } from './protocol';
 export const printTarget: D.PrinterTarget = { printerId: id('bambu:fixture'), routeId: id('bambu:fixture:agent') };
 export const printRequirements: D.PrintRequirements = {
   contentId: 'plate-1:revision-1:generation-1', plateId: 'plate-1', printerModel: 'Bambu Lab H2D', printerModelId: 'O1D',

@@ -1,8 +1,8 @@
+import type { BambuDeviceContext } from './controlContext';
 import type * as D from '@orca/printer-control/domain';
-import type { CommandContext } from './commands';
 import { printerFilamentId } from './printResources';
 /** Non-blocking Orca pre-print diagnostics for fixed-nozzle jobs. */
-export function printAdvisories(request: D.PrintPreparationRequest, context: CommandContext, options: D.PrintOptions, used: readonly D.MaterialPath[], external: (path: D.MaterialPath) => boolean): D.PrintIssue[] {
+export function printAdvisories(request: D.PrintPreparationRequest, context: BambuDeviceContext, options: D.PrintOptions, used: readonly D.MaterialPath[], external: (path: D.MaterialPath) => boolean): D.PrintIssue[] {
   const issues: D.PrintIssue[] = [], device = context.machine;
   const warn = (id: string, message: string) => issues.push({ id, message, severity: 'warning' });
   if (used.some(path => external(path) && used.some(other => other.toolId === path.toolId && !external(other)))) warn('mixed-source-handling', 'This tool uses both AMS and external material. Follow the printer instructions when changing supply sources.');

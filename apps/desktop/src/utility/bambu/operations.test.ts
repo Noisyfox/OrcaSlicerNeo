@@ -2,20 +2,23 @@ import { expect, it, vi } from 'vitest';
 import type { BambuNative, NativeEvent } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
 import { BambuMonitor } from './monitor';
+import { BambuDeviceAccess } from './deviceAccess';
+import type { BambuObjectSkipping } from './objectSkipping';
 import { BambuOperations } from './operations';
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 const request = (extra: Omit<Partial<D.CommandRequest>, 'command'> & { command?: D.PrinterCommand } = {}): D.CommandRequest => ({ target, requestId: 'request' as D.Id<'request'>, command: { type: 'jobs.pause', params: {} }, ...extra } as D.CommandRequest);
 function fixture(timeout: number | 'default' = 1000) {
   const methods = ['setSelectedMachine', 'startSubscribe', 'stopSubscribe', 'sendMessage', 'sendMessageToPrinter', 'disconnectPrinter', 'connectPrinter'];
   const native = Object.fromEntries(methods.map(method => [method, vi.fn(async () => 0)])) as unknown as BambuNative;
-  const monitor = new BambuMonitor(native, { list: async () => ['a', 'b'].map(deviceId => ({ deviceId, name: deviceId, model: 'H2D', routes: [{ channel: 'cloud' as const, revision: 'r1' }] })) },
+  const access = new BambuDeviceAccess(native, { list: async () => ['a', 'b'].map(deviceId => ({ deviceId, name: deviceId, model: 'H2D', routes: [{ channel: 'cloud' as const, revision: 'r1' }] })) },
     { read: async () => ({ version: 1, region: 'Others', clientId: 'test', lan: [] }) }, async () => {}, () => {}, Date.now, 300);
+  const monitor = new BambuMonitor(access, { projectContext: () => undefined, snapshotContext: () => undefined, readCatalogue: vi.fn<BambuObjectSkipping['readCatalogue']>() });
   const operations = new BambuOperations(monitor, () => {}, timeout === 'default' ? undefined : timeout);
   const emit = async (event: NativeEvent) => { monitor.onEvent(event); await operations.onEvent(event); };
   const push = async (phase = 'RUNNING', device = 'a', task = 'task') => emit({ type: 'message', args: [device, JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: phase, subtask_id: task } })] });
   vi.mocked(native.sendMessage).mockImplementation(async (device, payload) => { if (JSON.parse(payload).pushing) setImmediate(() => { void push('RUNNING', device); }); return 0; });
   const commands = () => vi.mocked(native.sendMessage).mock.calls.map(call => JSON.parse(call[1])).filter(payload => payload.print).map(payload => payload.print);
-  return { monitor, operations, native, emit, push, commands, close: async () => { operations.close(); await monitor.close(); } };
+  return { monitor, operations, native, emit, push, commands, close: async () => { operations.close(); await access.close(); } };
 }
 it('submits without observe/evaluate, deduplicates request IDs, and treats ACK separately from completion', async () => {
   const f = fixture(); try {

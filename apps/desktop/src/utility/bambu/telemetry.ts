@@ -4,17 +4,8 @@ import n6 from '../../../../../packages/slicer-wasm/cpp/resources/printers/N6.js
 import n7 from '../../../../../packages/slicer-wasm/cpp/resources/printers/N7.json';
 import type * as D from '@orca/printer-control/domain';
 import { materialCatalogRefs, modelCatalogRefs } from './printResources';
+import { id, identifier, number, record, records, text, unknown, type Report } from './protocol';
 
-export type Report = Record<string, unknown>;
-export const record = (value: unknown): Report => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Report : {};
-export const records = (value: unknown): Report[] => Array.isArray(value) ? value.map(record) : [];
-export const number = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value
-  : typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value) && Number.isFinite(Number(value)) ? Number(value) : undefined;
-export const text = (value: unknown): string | undefined => typeof value === 'string' ? value : undefined;
-export const identifier = (value: unknown): string | undefined => typeof value === 'string' && /^\d+$/.test(value) ? value
-  : typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? String(value) : undefined;
-export const id = <K extends string>(value: string) => value as D.Id<K>;
-export const unknown = { kind: 'unknown', reason: 'not-reported' } as const;
 function bits(value: unknown, offset: number, width = 1): number | undefined {
   try {
     const raw = typeof value === 'string' && /^[a-fA-F0-9]+$/.test(value) ? BigInt(`0x${value}`)
@@ -73,6 +64,7 @@ function decodeMachineState(p: Report) {
     home: bits(p.fun, 32) === 1,
     jog: bits(p.fun, 38) === 1,
     bedTemperatureCommand: bits(p.fun, 39) === 1,
+    partSkipping: bits(p.fun, 49) === undefined ? undefined : bits(p.fun, 49) === 1,
     localControlOnly: (bits(p.job_attr, 4, 4) ?? 0) > 1,
   });
 }
@@ -129,7 +121,8 @@ export type BambuMachineState = ReturnType<typeof decodeMachineState>;
 
 export interface TelemetryProjection {
   machine: BambuMachineState;
-  values: D.PrinterObservationMap;
+  /** File-backed catalogues belong to the object-resource owner, not raw telemetry. */
+  values: Omit<D.PrinterObservationMap, 'printObjects'> & { printObjects?: never };
   /** Private normalized source needed by the command adapter; never sent over IPC. */
   report: Report;
   fresh: boolean;
@@ -170,8 +163,9 @@ export class BambuTelemetry {
     if (update.msg !== undefined && update.msg !== 0 && update.msg !== 1) return 'resync';
     if (update.msg === 1 && !this.baseline) { this.disconnected = true; return 'resync'; }
     // A new task cannot inherit progress/layers from the previous print when its first push omits them.
-    if (update.subtask_id !== undefined && update.subtask_id !== this.print.subtask_id || update.gcode_state === 'IDLE' || update.gcode_state === 'READY') {
-      for (const key of ['mc_percent', 'mc_remaining_time', 'layer_num', 'total_layer_num', 'stg_cur', 'subtask_name', 'gcode_file', 'thumbnail_url']) delete this.print[key];
+    const taskChanged = ['subtask_id', 'job_id', 'plate_idx', 'gcode_file'].some(key => update[key] !== undefined && update[key] !== this.print[key]);
+    if (taskChanged || update.gcode_state === 'IDLE' || update.gcode_state === 'READY') {
+      for (const key of ['mc_percent', 'mc_remaining_time', 'layer_num', 'total_layer_num', 'stg_cur', 'subtask_name', 'gcode_file', 'thumbnail_url', 's_obj', 'plate_idx', 'print_type']) delete this.print[key];
     }
     this.print = update.msg === 1 ? merge(this.print, update) : merge({}, update);
     this.machine = decodeMachineState(this.print);
@@ -297,7 +291,7 @@ export class BambuTelemetry {
   }
   snapshot<K extends D.StateTopic>(target: D.PrinterTarget, identity: D.PrinterIdentity, revision: string, topics: readonly [K, ...K[]]): D.PrinterSnapshot<K> {
     const projection = this.project(target, identity);
-    const values = Object.fromEntries(topics.map(topic => [topic, this.receivedAt === null ? unknown : {
+    const values = Object.fromEntries(topics.map(topic => [topic, topic === 'printObjects' || this.receivedAt === null ? unknown : {
       kind: 'known', value: projection.values[topic], freshness: projection.fresh ? 'fresh' : 'stale', sourceRouteId: target.routeId, receivedAtMs: this.receivedAt, observedAtMs: null,
     }])) as D.ObservationValues<K>;
     return { target, configurationRevision: revision, values };

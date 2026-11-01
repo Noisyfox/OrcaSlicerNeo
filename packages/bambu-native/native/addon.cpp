@@ -208,5 +208,6 @@ CallWorker::CallWorker(Napi::Env env, AgentWrap* owner, std::function<Output()> 
 void CallWorker::OnOK() { owner_->Complete(printing_); deferred_.Resolve(output_value(Env(), result_)); }
 void CallWorker::OnError(const Napi::Error& error) { owner_->Complete(printing_); deferred_.Reject(error.Value()); }
 Napi::Object InitCamera(Napi::Env env, Napi::Object exports);
-static Napi::Object Init(Napi::Env env, Napi::Object exports) { return InitCamera(env, AgentWrap::Init(env, exports)); }
+Napi::Object InitControlStream(Napi::Env env, Napi::Object exports);
+static Napi::Object Init(Napi::Env env, Napi::Object exports) { return InitControlStream(env, InitCamera(env, AgentWrap::Init(env, exports))); }
 NODE_API_MODULE(bambu, Init)

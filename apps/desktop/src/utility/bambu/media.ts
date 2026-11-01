@@ -5,7 +5,7 @@ import { loadBambuCamera, type BambuNative, type NativeCamera } from '@orca/bamb
 import type * as D from '@orca/printer-control/domain';
 import type { BambuHostConfig } from '../../shared/bambu';
 import type { BambuMediaAttachment, BambuMediaRequest, BambuMediaStatus } from '../../shared/bambuMedia';
-import type { BambuMonitor } from './monitor';
+import type { BambuDeviceAccess } from './deviceAccess';
 import type { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';
 import { savedBambuPrinter } from '../../shared/bambuPrinters';
@@ -31,7 +31,7 @@ export class BambuMedia {
   private readonly timer: ReturnType<typeof setInterval>;
   private closing = false;
   constructor(private readonly config: BambuHostConfig, private readonly native: BambuNative,
-    private readonly monitor: { acquire: BambuMonitor['acquire']; stop: BambuMonitor['stop']; context(target: D.PrinterTarget): Promise<D.Result<{ report: Record<string, unknown> }>> },
+    private readonly access: { acquire: BambuDeviceAccess['acquire']; stop: BambuDeviceAccess['stop']; context(target: D.PrinterTarget): Promise<D.Result<{ report: Record<string, unknown> }>> },
     private readonly devices: Pick<BambuDevices, 'list'>, private readonly repository: Pick<BambuRepository, 'read'>,
     private readonly changed: () => void, private readonly load: typeof loadBambuCamera = loadBambuCamera) {
     this.timer = setInterval(() => {
@@ -97,11 +97,11 @@ export class BambuMedia {
     if (!connection) return reject(error('invalid-target', 'This printer route is unavailable.'));
     if (request.target.expectedConfigurationRevision !== undefined && request.target.expectedConfigurationRevision !== connection.route.configurationRevision) return reject(error('stale-context', 'Printer configuration changed.'));
     r.connectionKey = connection.key; r.accountDependent = !connection.lan;
-    const lease = await this.monitor.acquire(request.target);
+    const lease = await this.access.acquire(request.target);
     if (!lease.ok) return reject(lease.error);
-    if (signal.aborted) { await this.monitor.stop(lease.value); return reject(error('cancelled', 'Camera viewing stopped.')); }
+    if (signal.aborted) { await this.access.stop(lease.value); return reject(error('cancelled', 'Camera viewing stopped.')); }
     r.token = lease.value;
-    const context = await this.monitor.context(request.target);
+    const context = await this.access.context(request.target);
     if (!context.ok) return reject(context.error);
     const protocol = cameraProtocol(context.value.report);
     if (protocol === 'disabled') return reject(error('precondition-failed', 'LAN live view is disabled on the printer.'));
@@ -157,7 +157,7 @@ export class BambuMedia {
       finally {
         rejectReady(new Error('Camera stopped before initialization')); r.channel.close(r.error ?? undefined);
         await r.camera?.close();
-        if (r.token) { const token = r.token; r.token = undefined; await this.monitor.stop(token); }
+        if (r.token) { const token = r.token; r.token = undefined; await this.access.stop(token); }
         if (this.active === r) this.active = null;
       }
     })();
@@ -177,7 +177,7 @@ export class BambuMedia {
     r.controller.abort(); r.channel.close(r.error ?? undefined); this.changed();
     r.close = (async () => {
       await r.task;
-      if (!r.task) { await r.camera?.close(); if (r.token) { const token = r.token; r.token = undefined; await this.monitor.stop(token); } }
+      if (!r.task) { await r.camera?.close(); if (r.token) { const token = r.token; r.token = undefined; await this.access.stop(token); } }
       if (this.active === r) this.active = null;
     })();
     return r.close;
