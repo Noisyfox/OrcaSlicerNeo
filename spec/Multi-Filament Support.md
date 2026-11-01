@@ -1847,13 +1847,14 @@ its installed copy; later observations update the session list for subsequent
 Print updates, not the active Print. No per-slice device proposal or inventory
 confirmation workflow is added.
 
-Compare the actual grouping-relevant input with the last input installed on
-each reusable Print. A changed color/type/support/extruder/supply-classification
-must invalidate the necessary native grouping and downstream steps before the
-next explicit slice; unrelated telemetry must not trigger recomputation.
-The existing setter only assigns data and is not evidence that this invalidation
-already happens. Ordinary observation changes do not auto-slice or discard an
-existing artifact merely because the physical inventory later changes.
+Accept Orca's existing cache limitation: the setter only assigns the device list,
+so changing device materials alone may leave completed grouping and downstream
+steps cached on a reusable Print, including on the next explicit slice. Fresh
+grouping consumes the installed list when ordinary model/configuration changes
+invalidate those steps or a new Print is created. Do not add candidate-driven
+invalidation in the Orca submodule or Neo bridge. Ordinary observation changes
+do not auto-slice or discard an existing artifact merely because the physical
+inventory later changes.
 
 #### Accepted automatic mapping ownership and persistence
 
@@ -1900,9 +1901,10 @@ when no eligible source exists; no new provider, gateway or saved device-list
 mode is introduced. Mobile remains outside the supported product baseline;
 retain compact shared controls and no hover-only required action.
 
-Real-WASM evidence must show that swapping only the device's left/right
-materials changes subsequent native mapping and actual extruding G-code tools
-without changing the model or importing project Filaments. Cover raw candidates
+Real-WASM evidence must show that different device left/right materials change
+fresh native mapping and actual extruding G-code tools after ordinary slicing
+configuration invalidation, without importing project Filaments. Device-only
+updates on a completed Print do not guarantee recomputation. Cover raw candidates
 without catalogue IDs, presence/placeholder metadata, AMS/external fallback,
 empty candidates, native relaxation and source replacement. Verify continued
 use after same-source passive expiry, withdrawal after a failed explicit pull,
@@ -1934,9 +1936,11 @@ withdraws the prior native context even when a replacement publication failed.
 The [native bridge](../packages/slicer-wasm/src/bridge_nozzle_mapping.cpp)
 validates raw context atomically, checks native topology and selected-model
 eligibility, and installs candidate configs on the target Print before slicing.
-Changed candidates invalidate both wipe-tower and skirt/brim processing because
-by-layer and by-object grouping run in different passes. Observations remain
-outside history roots, editable mapping inputs and project archives.
+It uses the unchanged Orca setter and accepts the cache limitation above for
+both by-layer and by-object grouping. The submodule remains at the behavior
+reference revision; no candidate-driven invalidation is added in the bridge.
+Observations remain outside history roots, editable mapping inputs and project
+archives.
 
 Acceptance on macOS ARM64 includes:
 
@@ -1945,8 +1949,9 @@ Acceptance on macOS ARM64 includes:
 - Serial and threaded quick builds and the real-WASM
   [Convenience harness](../packages/slicer-wasm/harness/convenience-mode-smoke.mjs):
   selected identity before inventory, model mismatch, raw supplies without IDs,
-  left/right color swaps on reused Prints in both print sequences, native type
-  relaxation, external supplies, empty-list fallback, mixed diameters/flows,
+  left/right color swaps after ordinary slicing-configuration invalidation on
+  reused Prints in both print sequences, native type relaxation, external
+  supplies, empty-list fallback, mixed diameters/flows,
   unchanged input/history/manual maps and standard 3MF save/reopen/recompute.
   Physical-tool placeholders expose actual extruding tools; ordinary Bambu
   logical `T` identifiers alone are not treated as physical-tool evidence.
@@ -2005,6 +2010,9 @@ saved manual map still assigned Nozzle 1. Local ignored evidence, including the
 3MF baselines, three G-code exports and deidentified result summaries, is under
 `.vitest/convenience-lan/`. The staged threaded WASM matched the built artifact
 (`b4e42e85c47201d6d781df74730fa8cee53e063528fccbf42ad723279e105b56`).
+This hardware run predates restoring the unchanged Orca setter. It exercised
+project edits and reopening, not device-only updates on a completed Print, and
+does not establish recomputation for that accepted cache limitation.
 
 This acceptance performed device reads and local slicing/export only. It sent
 no files, invoked no Send/Send & Print action, and performed no heating, motion,

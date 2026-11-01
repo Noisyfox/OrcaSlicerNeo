@@ -38,10 +38,14 @@ assert.equal(ok(projection(plate)).modes[1].available, true, 'model selection su
 assert.deepEqual(inputs(), baseline, 'device list is outside project/history inputs');
 assert.equal(command('orc_set_device_material_context', source([{ ...supply(0, '#FF0000'), toolIndex: 3 }])).ok, false);
 assert.equal(ok(projection(plate)).modes[1].available, true, 'invalid publication leaves the previous context intact');
-async function slice(expected, sequence = 'by layer') {
+let layerHeight = 0.3;
+async function slice(expected, sequence = 'by layer', reuseSettings = false) {
+  // Device-list changes alone do not invalidate Orca's cached grouping. Use a
+  // normal slicing-config change when proving fresh grouping on a reused Print.
+  if (!reuseSettings) layerHeight = layerHeight === 0.3 ? 0.29 : 0.3;
   const before = inputs();
   const result = ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'],
-    [JSON.stringify({ enable_prime_tower: false, layer_height: 0.3, initial_layer_print_height: 0.3, sparse_infill_density: '5%', print_sequence: sequence }), plate, ok(projection(plate)).revision]));
+    [JSON.stringify({ enable_prime_tower: false, layer_height: layerHeight, initial_layer_print_height: 0.3, sparse_infill_density: '5%', print_sequence: sequence }), plate, ok(projection(plate)).revision]));
   const exported = ok(exportGcode(call, { receipt: result.receipt, filenameBase: '' }));
   const gcode = Module.FS.readFile(exported.path, { encoding: 'utf8' });
   writeFileSync('/tmp/neo-convenience.gcode', gcode);
@@ -55,7 +59,9 @@ async function slice(expected, sequence = 'by layer') {
 }
 await slice(1);
 set(source([supply(0, '#FF0000'), supply(1, '#0000FF')]));
-await slice(0); // Same model, Plate revision and Print; only the device colors changed.
+const materialOnlyUpdate = await slice(undefined, 'by layer', true);
+console.log(`Device-only update on cached Print produced nozzle ${materialOnlyUpdate.filamentMap[0]}; fresh grouping is not guaranteed.`);
+await slice(0); // Normal config invalidation makes grouping consume the new colors.
 set(source([supply(0, '#0000FF'), supply(1, '#FF0000')]));
 await slice(1);
 set(source([supply(0, '#0000FF'), supply(1, '#FF0000')].map(s => ({ ...s, materialType: 'Unreported family' }))));
@@ -96,5 +102,5 @@ assert.deepEqual(ok(projection(plate)).saved.filamentMap, [1, 1], 'archive retai
 assert.equal(ok(projection(plate)).modes[1].available, false);
 set(source([supply(0, '#FF0000'), supply(1, '#0000FF')]));
 await slice(0); // Reopened project derives a new result from the current source.
-console.log('PASS Convenience native grouping, reused-Print invalidation, external supply, empty fallback and input/history isolation');
+console.log('PASS Convenience native grouping after normal config invalidation, external supply, empty fallback and input/history isolation');
 Module.PThread?.terminateAllThreads?.();
