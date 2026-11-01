@@ -172,7 +172,8 @@ export class BambuTelemetry {
     if (update.msg !== undefined && update.msg !== 0 && update.msg !== 1) return 'resync';
     if (update.msg === 1 && !this.baseline) { this.disconnected = true; return 'resync'; }
     // A new task cannot inherit progress/layers from the previous print when its first push omits them.
-    if (update.subtask_id !== undefined && update.subtask_id !== this.print.subtask_id || update.gcode_state === 'IDLE' || update.gcode_state === 'READY') {
+    const taskChanged = ['subtask_id', 'job_id', 'plate_idx', 'gcode_file'].some(key => update[key] !== undefined && update[key] !== this.print[key]);
+    if (taskChanged || update.gcode_state === 'IDLE' || update.gcode_state === 'READY') {
       for (const key of ['mc_percent', 'mc_remaining_time', 'layer_num', 'total_layer_num', 'stg_cur', 'subtask_name', 'gcode_file', 'thumbnail_url', 's_obj', 'plate_idx', 'print_type']) delete this.print[key];
     }
     this.print = update.msg === 1 ? merge(this.print, update) : merge({}, update);

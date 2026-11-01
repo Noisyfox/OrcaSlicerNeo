@@ -1,6 +1,7 @@
 // Inspect real dispatch archives, material identities and retained-result guards.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { inflateSync } from 'node:zlib';
 import { fixtureProfileOptions, createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
@@ -65,7 +66,14 @@ function verifyObjects(entries, gcodePath, count, positioned = false) {
   }
 }
 
-if (!process.argv[2]) throw new Error('usage: node print-submission-smoke.mjs <module>');
+async function saveObjectResources(entries, count, name) {
+  if (!process.argv[3]) return;
+  const directory = resolve(process.argv[3], name); await mkdir(directory, { recursive: true });
+  await writeFile(resolve(directory, 'case.json'), JSON.stringify({ count }));
+  for (const path of ['Metadata/slice_info.config', 'Metadata/pick_1.png']) await writeFile(resolve(directory, path.split('/').at(-1)), entries.get(path));
+}
+
+if (!process.argv[2]) throw new Error('usage: node print-submission-smoke.mjs <module> [object-resource-output-directory]');
 const modulePath = resolve(process.argv[2]);
 const Module = await (await loadModuleFactory(modulePath))({ noInitialRun: true, print: () => {}, printErr: () => {} });
 await installProfilePackages(Module, createNodeProfileSource(resolve(import.meta.dirname, '../../profile-resources/dist')));
@@ -116,6 +124,7 @@ assert.ok(configuration.has('Metadata/slice_info.config'));
 assert.deepEqual(archive.get('Metadata/slice_info.config'), configuration.get('Metadata/slice_info.config'));
 verifyObjects(archive, packaged.gcode_path, 2, true);
 verifyObjects(configuration, null, 2, true);
+await saveObjectResources(archive, 2, 'two-instances');
 assert.deepEqual(archive.get('Metadata/pick_1.png'), configuration.get('Metadata/pick_1.png'));
 assert.equal(manifest.nozzleFlowTypes.length, manifest.nozzleDiameters.length);
 assert.ok(manifest.layerCount > 0);
@@ -130,6 +139,28 @@ ok(await slice());
 assert.equal(describe(first.receipt).status, 'stale');
 assert.equal(exported(first.receipt).status, 'stale');
 console.log(JSON.stringify({ ok: true, modulePath, manifest, entries: [...archive.keys()] }));
+// Exercise inclusive 64-bit masks with actual sliced instances; 65 remains
+// catalogued for visibility but cannot authorize a provider skip command.
+let instanceCount = 2;
+for (const count of [63, 64, 65]) {
+  while (instanceCount < count) { ok(call('orc_add_instance', ['number'], [object.id])); instanceCount++; }
+  for (let i = 0; i < count; i++) ok(call('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'],
+    [0, 0, i, JSON.stringify({ offset: [origin[0] + 40 + i % 9 * 10, origin[1] + 40 + Math.floor(i / 9) * 10, restZ * 0.1], rotation: [0, 0, 0], scale: [0.1, 0.1, 0.1], mirror: [1, 1, 1] }), JSON.stringify(volumeTransform)]));
+  const boundary = ok(exported(ok(await slice()).receipt));
+  const entries = new Map(readZipEntries(Module.FS.readFile(boundary.path)).map(e => [e.name, e.content]));
+  verifyObjects(entries, boundary.gcode_path, count);
+  if (count <= 64) {
+    const gcode = new TextDecoder().decode(entries.get(boundary.gcode_path)); let mask = 0n;
+    for (const match of gcode.matchAll(/^M624 ([A-Za-z0-9+/=]+)$/gm)) {
+      const encoded = Buffer.from(match[1], 'base64'); assert.equal(encoded.length, 8); mask |= encoded.readBigUInt64LE();
+    }
+    assert.equal(mask, (1n << BigInt(count)) - 1n, `all ${count} distinct instance bits are encoded without truncation`);
+  }
+  await saveObjectResources(entries, count, `boundary-${count}`);
+  Module.FS.unlink(boundary.path); Module.FS.unlink(boundary.config_path);
+  console.log(JSON.stringify({ ok: true, objectCount: count, inclusiveMaskVerified: count <= 64 }));
+}
+
 // Fixed H2D tools must keep native material indices and nozzle assignments.
 const dual = await createNozzleMappingFixture(modulePath);
 dual.configure({ plate_settings: { [dual.plateId]: { filament_map_mode: 'Manual', filament_map: '2,1' } } });
@@ -147,6 +178,7 @@ const dualObjectCount = dual.ok(dual.call('orc_get_model_structure')).objects
   .reduce((count, object) => count + object.instances.filter(instance => instance.printable).length, 0);
 assert.ok(dualObjectCount > 0);
 verifyObjects(dualEntries, dualOutput.gcode_path, dualObjectCount);
+await saveObjectResources(dualEntries, dualObjectCount, 'loaded-h2d');
 const dualGcode = new TextDecoder().decode(dualEntries.get(dualOutput.gcode_path));
 // Fixed H2D nozzle assignments must not request a Filament Track Switch.
 assert.match(dualGcode, /^M620 S\d+A H-1(?:[ ;]|$)/m);

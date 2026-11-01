@@ -1027,8 +1027,8 @@ Restoring a Moonraker selection does not authorize background observation.
 **Decision status:** Design accepted; implementation authorized in independently
 accepted and committed increments. This follow-up
 supersedes the original control increment's object-skipping exclusion only for
-the scope recorded here. No object-skipping runtime or hardware qualification
-is claimed.
+the scope recorded here. Software acceptance is recorded below; no physical-printer or real-remote
+qualification is claimed.
 
 Use option B: the provider obtains the printer's current task object resources,
 independently of the active Neo workspace or a Neo-originated print submission.
@@ -1081,7 +1081,9 @@ opaque references to device/route configuration, task provenance and metadata
 fingerprint, and maps native labels privately. Missing or foreign `s_obj` IDs
 remain unknown. Image failures retain list operation. Resource reads own temporary
 monitor leases, support IPC cancellation and revalidate context after acquisition;
-task changes abort in-flight reads. Device bit 49 controls support, while phase,
+task changes abort in-flight reads. Task, job, plate and file transitions clear
+previous object-skip reports until the device supplies current state. Device bit
+49 controls support, while phase,
 freshness, label enablement and the 64-object limit control applicability.
 Dispatch revalidates selection and explicit stop intent inside the native command
 queue. Independent batches confirm only from matching device state; ACKs alone
@@ -1183,6 +1185,38 @@ device-derived `s_obj` state. Update contracts, producers, consumers, IPC
 validation, mocks and compile fixtures together; use affected-package checks,
 focused Electron journeys and applicable WASM builds/smokes under
 [testing guidance](../doc/testing_guidelines.md).
+
+Software acceptance covers the real serial WASM producer through the Bambu
+catalogue/map consumer: two independent instances, imported H2D loaded IDs and
+63/64/65-instance plates. The harness inflates the actual PNGs, checks every
+catalogue/pixel/G-code identity, and verifies all 63 or 64 distinct bits in the
+emitted eight-byte `M624` masks. The provider accepts up to 64 and rejects a
+65-object catalogue for skipping. This boundary evidence is from the existing
+Release WASM artifacts; the upstream encoder's strict `< 64` debug assertion is
+unchanged and debug-boundary qualification is not claimed.
+
+To reproduce the producer-to-consumer check from the repository root:
+
+```sh
+node packages/slicer-wasm/harness/print-submission-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js /tmp/orca-object-resources
+ORCA_OBJECT_RESOURCES=/tmp/orca-object-resources pnpm --filter @orca/desktop exec vitest run src/utility/bambu/objects.test.ts
+```
+
+The output directory is a generated local test artifact. Ordinary unit runs skip
+this opt-in case when it is absent; the acceptance run explicitly supplies it.
+The reader's source transport is injected for this check, while the native
+packet/cleanup fixtures and Electron IPC/selection journey qualify their own
+boundaries. This combination does not establish a real plugin-to-printer path.
+
+The implementation handoff gate passed repository tests (with the generated
+resource case explicitly enabled), repository typechecks, the four focused
+Electron object/control/submission journeys, renderer CSS/import guards and
+`git diff --check`. The native wrapper's 28 fixtures and the desktop provider's
+418 tests passed. Existing serial and threaded WASM trees were quick-built;
+serial passed the comprehensive bridge, slicing, DRC and STEP smokes, and threaded
+passed startup/threaded slicing. The ordinary conditional WASM/runtime skips
+remain outside this feature's acceptance. Full Web/release matrices, six-target
+native packaging and physical skips were not run for this development handoff.
 
 Physical acceptance starts with H2D and separately exercises LAN and genuinely
 remote access, including a print started by another client, partial skipping,
