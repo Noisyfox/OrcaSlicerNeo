@@ -8,7 +8,7 @@ export function bambuCapabilities(): D.PrinterCapabilities {
   return {
     revision: 'bambu-submission-1', submission: { kind: 'supported', constraints: { formats: ['print-3mf'] } },
     commands: {
-      'jobs.start': unsupported, 'jobs.pause': unsupported, 'jobs.resume': unsupported, 'jobs.cancel': unsupported, 'jobs.setSpeed': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
+      'jobs.start': unsupported, 'jobs.pause': unsupported, 'jobs.resume': unsupported, 'jobs.cancel': unsupported, 'jobs.setSpeed': unsupported, 'jobs.skipObjects': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
       'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported, 'motion.home': unsupported,
       'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
       'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,
@@ -17,7 +17,7 @@ export function bambuCapabilities(): D.PrinterCapabilities {
     },
     cameras: [], currentPrintPreview: unsupported, webInterface: unsupported,
     files: { upload: unsupported, list: unsupported, stat: unsupported, download: unsupported, preview: unsupported, changes: unsupported },
-    observations: { descriptor: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, status: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, firmware: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, thermal: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, motion: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } },
+    observations: { printObjects: unsupported, descriptor: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, status: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, firmware: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, thermal: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, motion: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } },
       actuators: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, materials: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, cameras: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, sensors: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, alerts: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } } },
   };
 }

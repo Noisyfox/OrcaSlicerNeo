@@ -110,6 +110,7 @@ export class BambuRuntime {
     await this.ready;
     if (!this.monitor || !this.operations) return request.method === 'submit' ? { kind: 'rejected' as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } } : { ok: false as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } };
     switch (request.method) {
+      case 'objectMap': return { ok: false as const, error: { code: 'unsupported' as const, message: 'Object maps are not implemented yet.' } };
       case 'print.prepare': return this.submissions!.prepare(request.input);
       case 'print.begin': return this.submissions!.begin(request.input);
       case 'print.chunk': return this.submissions!.chunk(request.input);

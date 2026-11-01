@@ -3,6 +3,7 @@ import type { Id, Revision, UnixMs, Axis, Range, PrinterError, Result, ReadOptio
 import type { MaterialMetadata, MaterialMetadataPatch, PrintMaterialBinding } from './materials';
 import type { PrintFormatId, FileSelection, VersionCheck, RemoteFile, UploadProgress } from './files';
 import type { TimelapseSetting } from './media';
+import type { PrintObjectContextRef } from './objects';
 export interface CommandSpec<P, C extends object, R = null> {
   params: P;
   constraints: C;
@@ -48,6 +49,13 @@ export interface PrinterCommandSpecs {
   'jobs.pause': CommandSpec<NoConstraints, NoConstraints>;
   'jobs.resume': CommandSpec<NoConstraints, NoConstraints>;
   'jobs.cancel': CommandSpec<NoConstraints, NoConstraints>;
+  /** Object selection is scoped to a provider-issued current-task catalogue. */
+  'jobs.skipObjects': CommandSpec<{
+    contextRef: PrintObjectContextRef;
+    objectIds: NonEmptyReadonlyArray<Id<'print-object'>>;
+    /** Whole-print cancellation requires this explicit intent; never infer it at dispatch. */
+    intent: 'skip-selected' | 'cancel-print';
+  }, { maxObjects: number }>;
   'jobs.setSpeed': CommandSpec<{ modeId: string }, { modes: NonEmptyReadonlyArray<{ id: string; label: string }> }>;
   /** Explicit device re-identification; does not edit nozzle configuration. */
   'hardware.refreshNozzles': CommandSpec<NoConstraints, NoConstraints>;
@@ -177,7 +185,7 @@ export interface ControlBasis {
   expectedTaskId?: Id<'device-task'>;
 }
 export type InventoryCommand = 'jobs.start' | 'materials.load' | 'materials.unload' | 'materials.switch' | 'materials.writeMetadata' | 'materials.refreshTag';
-export type CommandGuard<K extends CommandName> = ControlBasis & (K extends 'files.delete' | 'jobs.pause' | 'jobs.resume' | 'jobs.cancel' | 'actions.invoke' ? {} : {
+export type CommandGuard<K extends CommandName> = ControlBasis & (K extends 'files.delete' | 'jobs.pause' | 'jobs.resume' | 'jobs.cancel' | 'jobs.skipObjects' | 'actions.invoke' ? {} : {
   topologyRevision?: Revision;
 }) & (K extends InventoryCommand ? {
   inventoryRevision?: Revision;

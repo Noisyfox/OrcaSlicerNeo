@@ -1091,6 +1091,17 @@ array positions, filenames and the current Neo scene are not object authority.
 An object reference addresses a printed instance, not a child volume of a
 multipart model. Already skipped instances have no restore operation.
 
+The shared contract increment is implemented as the `printObjects` observation
+topic, `media.readPrintObjectMap` and `jobs.skipObjects`. The command carries a
+`PrintObjectContextRef`, a non-empty opaque object-ID array and explicit
+`skip-selected` or `cancel-print` intent. `PrintObjectSnapshot` carries names,
+availability and a self-contained `Reading` of device-reported skipped IDs;
+`PrintObjectMap` carries on-demand PNG bytes and a colour-ID-to-opaque-object
+palette. The Bambu IPC boundary rejects empty, duplicate, oversized and malformed
+selections and raw protocol fields. The current adapters keep these capabilities
+unsupported until their execution increment is implemented; raw telemetry alone
+does not fabricate a file-backed catalogue.
+
 Catalogue reads must work without a caller-owned observation session, file
 listing, print history lookup or Neo submission record. Provider-internal reads
 and leases may obtain current device evidence. Check context before and after

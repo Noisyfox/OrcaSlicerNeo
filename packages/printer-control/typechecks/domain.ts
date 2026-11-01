@@ -448,7 +448,7 @@ capabilities.showMonitorTab;
 // Compile-only type profiles, not concrete agents or claims of device qualification.
 const unknown = { kind: 'unknown', reason: 'Not established by this type or device' } as const;
 const unknownCommands = {
-  'jobs.start': unknown, 'jobs.pause': unknown, 'jobs.resume': unknown, 'jobs.cancel': unknown, 'jobs.setSpeed': unknown, 'hardware.refreshNozzles': unknown, 'actions.invoke': unknown,
+  'jobs.start': unknown, 'jobs.pause': unknown, 'jobs.resume': unknown, 'jobs.cancel': unknown, 'jobs.setSpeed': unknown, 'jobs.skipObjects': unknown, 'hardware.refreshNozzles': unknown, 'actions.invoke': unknown,
   'thermal.setTarget': unknown, 'fans.setSpeed': unknown, 'lights.set': unknown,
   'motion.home': unknown, 'motion.jog': unknown, 'extrusion.move': unknown, 'tools.select': unknown,
   'materials.load': unknown, 'materials.unload': unknown, 'materials.switch': unknown,
@@ -470,7 +470,7 @@ export const moonrakerCapabilities: PrinterCapabilities = {
   observations: {
     descriptor: unknown, status: unknown, thermal: unknown, motion: unknown,
     actuators: unknown, materials: unknown, cameras: unknown, sensors: unknown,
-    alerts: unknown, firmware: unknown,
+    alerts: unknown, firmware: unknown, printObjects: unknown,
   },
 };
 export const moonrakerRoute: PrinterRoute = {
@@ -990,3 +990,25 @@ async function consumeCamera(descriptor: import('@orca/printer-control/domain').
 service.media.readStream({ media: mediaRef, streamId: 'stream' });
 // @ts-expect-error A binary stream has no remote URL.
 const invalidBinary: import('@orca/printer-control/domain').VideoDelivery = { transport: 'jpeg-frames', url: 'https://example.org' };
+
+// Current-print object references carry task context, never native instance IDs.
+declare const objectContext: import('@orca/printer-control/domain').PrintObjectContextRef;
+const skipObjects: CommandOf<'jobs.skipObjects'> = {
+  type: 'jobs.skipObjects', params: { contextRef: objectContext, objectIds: [id<'print-object'>('part-a')], intent: 'skip-selected' },
+};
+const stopRemainingObjects: CommandOf<'jobs.skipObjects'> = {
+  ...skipObjects, params: { ...skipObjects.params, intent: 'cancel-print' },
+};
+// @ts-expect-error An empty batch is not a skip request.
+const emptyObjects: CommandOf<'jobs.skipObjects'>['params'] = { contextRef: objectContext, objectIds: [], intent: 'skip-selected' };
+// @ts-expect-error Native numeric IDs do not cross the shared command boundary.
+const nativeObjects: CommandOf<'jobs.skipObjects'>['params'] = { contextRef: objectContext, objectIds: [1], intent: 'skip-selected' };
+// @ts-expect-error A task ID alone is not a provider-issued catalogue context.
+const taskOnlyObjects: CommandOf<'jobs.skipObjects'>['params'] = { contextRef: { taskId: objectContext.taskId }, objectIds: [id<'print-object'>('a')], intent: 'skip-selected' };
+service.observations.read({ target, topics: ['printObjects'], source: 'device' });
+service.media.readPrintObjectMap(objectContext).then(result => {
+  if (result.ok) {
+    const bytes: Uint8Array = result.value.bytes;
+    const objectId: Id<'print-object'> | undefined = result.value.palette[0]?.objectId;
+  }
+});

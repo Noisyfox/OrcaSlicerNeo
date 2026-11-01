@@ -59,7 +59,7 @@ export class BambuMonitor {
     const context = this.contextOf(entry);
     const values = Object.fromEntries(topics.map(topic => {
       const reading = snapshot.values[topic];
-      return [topic, reading?.kind === 'known' ? { ...reading, value: context.values[topic] } : reading];
+      return [topic, reading?.kind === 'known' && topic !== 'printObjects' ? { ...reading, value: context.values[topic] } : reading];
     })) as D.ObservationValues<K>;
     return { ...snapshot, values };
   }

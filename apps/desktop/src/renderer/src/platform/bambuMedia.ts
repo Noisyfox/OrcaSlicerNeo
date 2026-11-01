@@ -6,6 +6,7 @@ const unsupported = async (): Promise<D.Result<never>> => ({ ok: false, error: {
 
 export function bambuMedia(bridge: BambuBridge): D.PrinterMedia {
   return {
+    readPrintObjectMap: contextRef => bridge.control('objectMap', contextRef),
     readCurrentPrintPreview: target => bridge.control('preview', target),
     open: async (request, options) => {
       const result = await bridge.media('open', request);

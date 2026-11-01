@@ -1,6 +1,7 @@
 /** Managed camera and remote-file presentation. Temporary delivery credentials are not persistent DTOs. */
 import type { Id, Revision, UnixMs, PrinterError, Result, ReadOptions, Capability, PrinterTarget, TargetRequest, NonEmptyReadonlyArray } from './common';
 import type { FileSelection, ByteRange, BinaryRead } from './files';
+import type { PrintObjectContextRef, PrintObjectMap } from './objects';
 export type TimelapseMode = 'off' | 'traditional' | 'smooth';
 export interface TimelapseSetting {
   cameraId: Id<'camera'>;
@@ -168,6 +169,8 @@ export interface CurrentPrintPreview extends PrinterTarget {
   bytes: Uint8Array;
 }
 export interface PrinterMedia {
+  /** Fetch a bounded picking map for this exact catalogue; unavailable images permit list-only UI. */
+  readPrintObjectMap(contextRef: PrintObjectContextRef, options?: ReadOptions): Promise<Result<PrintObjectMap>>;
   /** Resolve the current task independently; requires no watch, history or file listing. */
   readCurrentPrintPreview(target: TargetRequest, options?: ReadOptions): Promise<Result<CurrentPrintPreview>>;
   /** Same request ID must not allocate duplicate viewers within the advertised retention lifetime. */

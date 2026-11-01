@@ -129,7 +129,8 @@ export type BambuMachineState = ReturnType<typeof decodeMachineState>;
 
 export interface TelemetryProjection {
   machine: BambuMachineState;
-  values: D.PrinterObservationMap;
+  /** File-backed catalogues belong to the object-resource owner, not raw telemetry. */
+  values: Omit<D.PrinterObservationMap, 'printObjects'> & { printObjects?: never };
   /** Private normalized source needed by the command adapter; never sent over IPC. */
   report: Report;
   fresh: boolean;
@@ -297,7 +298,7 @@ export class BambuTelemetry {
   }
   snapshot<K extends D.StateTopic>(target: D.PrinterTarget, identity: D.PrinterIdentity, revision: string, topics: readonly [K, ...K[]]): D.PrinterSnapshot<K> {
     const projection = this.project(target, identity);
-    const values = Object.fromEntries(topics.map(topic => [topic, this.receivedAt === null ? unknown : {
+    const values = Object.fromEntries(topics.map(topic => [topic, topic === 'printObjects' || this.receivedAt === null ? unknown : {
       kind: 'known', value: projection.values[topic], freshness: projection.fresh ? 'fresh' : 'stale', sourceRouteId: target.routeId, receivedAtMs: this.receivedAt, observedAtMs: null,
     }])) as D.ObservationValues<K>;
     return { target, configurationRevision: revision, values };

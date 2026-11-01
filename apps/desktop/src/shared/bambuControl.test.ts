@@ -33,3 +33,25 @@ it('rejects command injection and malformed guards before native dispatch', () =
   expect(isBambuControlRequest({ method: 'submit', input: { ...input, command: { type: 'fans.setSpeed', params: { fanId: 'fan:1', speedFraction: Infinity } } } })).toBe(false);
   expect(isBambuControlRequest({ method: 'submit', input: { ...input, command: { type: 'motion.jog', params: { motionGroupId: 'gantry', axis: 'x', kind: 'step', stepId: 'small', direction: 'up' } } } })).toBe(false);
 });
+
+it('bounds object selections and requires an explicit task-scoped cancellation intent', () => {
+  const target = { printerId: 'bambu:a', routeId: 'bambu:a:agent' };
+  const contextRef = { ...target, configurationRevision: 'r1', taskId: 'task-1', token: 'catalogue-1' };
+  const params = { contextRef, objectIds: ['object-a'], intent: 'skip-selected' };
+  const request = (value: unknown) => ({ method: 'submit', input: { target, requestId: 'r', command: { type: 'jobs.skipObjects', params: value } } });
+  expect(isBambuControlRequest(request(params))).toBe(true);
+  expect(isBambuControlRequest(request({ ...params, intent: 'cancel-print' }))).toBe(true);
+  expect(isBambuControlRequest(request({ ...params, objectIds: Array.from({ length: 64 }, (_, i) => `object-${i}`) }))).toBe(true);
+  expect(isBambuControlRequest({ method: 'objectMap', input: contextRef })).toBe(true);
+  expect(isBambuControlRequest({ method: 'read', input: { target, topics: ['printObjects'], source: 'device' } })).toBe(true);
+  for (const invalid of [
+    { ...params, objectIds: [] }, { ...params, objectIds: ['object-a', 'object-a'] },
+    { ...params, objectIds: [1] }, { ...params, objectIds: [''] },
+    { ...params, objectIds: Array.from({ length: 65 }, (_, i) => `object-${i}`) },
+    { ...params, intent: 'auto' }, { contextRef, objectIds: ['object-a'] },
+    { ...params, contextRef: { ...contextRef, taskId: '' } },
+    { ...params, contextRef: { ...contextRef, token: undefined } },
+    { ...params, obj_list: [1] },
+  ]) expect(isBambuControlRequest(request(invalid))).toBe(false);
+  expect(isBambuControlRequest({ method: 'objectMap', input: { ...contextRef, url: 'bambu:///private' } })).toBe(false);
+});

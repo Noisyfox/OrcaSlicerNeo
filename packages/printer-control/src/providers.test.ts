@@ -104,6 +104,22 @@ describe('provider composition', () => {
     expect(device.request).not.toHaveBeenCalled();
   });
 
+  it('routes catalogue-bound picking bytes and cancellation through the owning provider', async () => {
+    const device = await fixture('bambu', 'device');
+    const saved = device.get()[0];
+    const contextRef = { printerId: saved.identity.id, routeId: saved.routes[0].id, configurationRevision: 'r',
+      taskId: 'task' as Id<'device-task'>, token: 'catalogue' as Id<'print-object-context'> };
+    const result = { ok: true as const, value: { contextRef, mimeType: 'image/png' as const,
+      bytes: new Uint8Array([1]), palette: [{ colourId: 123, objectId: 'part' as Id<'print-object'> }] } };
+    const read = vi.spyOn(device.provider.printers.media, 'readPrintObjectMap').mockResolvedValue(result);
+    const service = createPrinterService([device.provider]);
+    const options = { signal: new AbortController().signal };
+    expect(await service.media.readPrintObjectMap(contextRef, options)).toEqual(result);
+    expect(read).toHaveBeenCalledWith(contextRef, options);
+    expect(device.request).not.toHaveBeenCalled();
+    expect(await service.media.readPrintObjectMap({ ...contextRef, routeId: 'foreign' as Id<'route'> })).toMatchObject({ ok: false, error: { code: 'invalid-target' } });
+  });
+
 });
 
 it('routes binary media by retained route ownership and forwards abort without a state subscription', async () => {
