@@ -1,26 +1,40 @@
 import type { FilamentSessionSlot, NozzleMappingMode, NozzleMappingSnapshot } from '@slicer/client';
+import type { ReactElement } from 'react';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { colorSwatchForeground, colorSwatchStyle } from '@/components/ui/color-swatch';
 
-export const mappingModeLabel = (mode: NozzleMappingMode) => mode === 0 ? 'Auto For Flush' : mode === 1 ? 'Auto For Match' : 'Manual';
+export const mappingModeLabel = (mode: NozzleMappingMode) => mode === 0 ? 'Auto For Flush' : mode === 1 ? 'Convenience Mode' : 'Manual';
+
+export function MappingModeAvailabilityTooltip({ mode, children, className }: {
+  mode: NozzleMappingSnapshot['modes'][number]; children: ReactElement; className?: string;
+}) {
+  if (mode.mode !== 1 || mode.available) return children;
+  return <Tooltip>
+    <TooltipTrigger render={<span className={className} />}>{children}</TooltipTrigger>
+    <TooltipContent nonInteractive>{mode.reason}</TooltipContent>
+  </Tooltip>;
+}
 
 export function NozzleMappingModeControl({ snapshot, disabled, onChange }: {
   snapshot: NozzleMappingSnapshot; disabled?: boolean; onChange: (mode: NozzleMappingMode) => void;
 }) {
   const current = snapshot.effective.mode;
-  const modes = snapshot.modes.filter(m => m.mode === 0 || m.mode === 2 || m.mode === current && m.mode === 1);
+  const modes = snapshot.modes.filter(m => m.mode !== 3);
   const selected = snapshot.modes.find(m => m.mode === current);
   return <div className="space-y-1">
     <ToggleGroup value={[String(current === 3 ? 2 : current)]} disabled={disabled}
       aria-label="Filament mapping mode" data-testid="mapping-mode" spacing={1}
       className="w-full rounded-sm bg-control-background p-0.5"
       onValueChange={values => { if (values[0]) onChange(Number(values[0]) as NozzleMappingMode); }}>
-      {modes.map(m => <ToggleGroupItem key={m.mode} value={String(m.mode)} disabled={!m.available}
-        data-testid={`mapping-mode-${m.mode}`} title={m.reason || mappingModeLabel(m.mode)}
-        className="h-6 min-w-0 flex-1 rounded-sm px-1 text-xs text-muted-foreground aria-pressed:bg-secondary aria-pressed:text-foreground">
-        <span className="truncate">{mappingModeLabel(m.mode)}</span>
-      </ToggleGroupItem>)}
+      {modes.map(m => <MappingModeAvailabilityTooltip key={m.mode} mode={m} className="inline-flex min-w-0 flex-1">
+        <ToggleGroupItem value={String(m.mode)} disabled={!m.available}
+          data-testid={`mapping-mode-${m.mode}`} title={m.reason || mappingModeLabel(m.mode)}
+          className="h-6 min-w-0 flex-1 rounded-sm px-1 text-xs text-muted-foreground aria-pressed:bg-secondary aria-pressed:text-foreground">
+          <span className="truncate">{mappingModeLabel(m.mode)}</span>
+        </ToggleGroupItem>
+      </MappingModeAvailabilityTooltip>)}
     </ToggleGroup>
     {selected && !selected.available && <p role="alert" className="text-xs text-destructive">{selected.reason}</p>}
   </div>;

@@ -5,6 +5,8 @@
 #include "libslic3r/PrintConfig.hpp"
 #include "nlohmann/json.hpp"
 
+namespace Slic3r { class Print; }
+
 namespace Slic3r::Neo::Bridge::NozzleMapping {
 
 // Capacity is a total, never an identity or decomposition of real feeders.
@@ -17,5 +19,7 @@ void validate_slice(const std::string& plate_id);
 void initialize_plate(DynamicPrintConfig& settings);
 nlohmann::json mutate(const nlohmann::json& request);
 nlohmann::json projection(const std::string& plate_id);
+nlohmann::json set_device_material_context(const nlohmann::json& context);
+void apply_device_materials(Print& print);
 
 } // namespace Slic3r::Neo::Bridge::NozzleMapping

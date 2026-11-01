@@ -75,7 +75,10 @@ export function synchronizationSource(
 }
 export async function readSynchronizationSource(
   service: D.PrinterService, printer: D.SavedPrinter, route: D.PrinterRoute, kind: SynchronizationKind,
-  options: D.ReadOptions & { refresh?: boolean } = {},
+  options: D.ReadOptions & { refresh?: boolean;
+    /** Observe this acquisition directly; advisory consumers must not reread an older cache. */
+    onRead?: (result: D.Result<D.PrinterSnapshot<'materials' | 'descriptor'>>, source: 'cache' | 'device') => void;
+  } = {},
 ): Promise<D.Result<SynchronizationSource>> {
   if (route.printerId !== printer.identity.id) return failure('invalid-target', 'Synchronization route does not belong to this printer.');
   const topics: ['materials', ...('descriptor' | 'materials')[]] = ['materials'];
@@ -98,13 +101,16 @@ export async function readSynchronizationSource(
   if (!options.refresh && liveCache) {
     const cached = await service.observations.read({ target, topics, source: 'cache' }, { signal: options.signal });
     if (options.signal?.aborted) return failure('cancelled', 'Synchronization read cancelled.');
+    options.onRead?.(cached, 'cache');
     if (cached.ok) {
       const source = normalize(cached.value);
       if (source.ok) return source;
     } else if (cached.error.code === 'cancelled') return cached;
   }
-  const result = await service.observations.read({ target, topics, source: 'device' }, { signal: options.signal });
+  const result = await service.observations.read({ target, topics, source: 'device' }, { signal: options.signal })
+    .catch((error: unknown) => failure('transport', error instanceof Error ? error.message : 'Device acquisition failed.'));
   if (options.signal?.aborted) return failure('cancelled', 'Synchronization read cancelled.');
+  options.onRead?.(result, 'device');
   return result.ok ? normalize(result.value) : result;
 }
 /** Confirmation checks local catalogue/cache only; never starts another device read or connection. */

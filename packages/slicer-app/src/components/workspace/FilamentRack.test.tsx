@@ -108,7 +108,7 @@ describe('FilamentRack runtime interaction', () => {
       materials: [{ slotId: id('spool'), label: 'Holder · Spool', unitKind: 'manual-holder', toolIndices: [0], presence: 'unknown',
         metadata: { materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [{ namespace: 'provider', value: 'material' }],
           color: mode === 'solid' ? { kind: 'solid', rgba: '#00000000' }
-            : { kind: 'multiple', rgba: ['#00000000', '#ff000080'], appearance: mode === 'gradient' ? 'gradient' : 'parallel' } } }],
+            : { kind: 'multiple', rgba: ['#00000000', '#ff000080'], representativeRgba: '#00000000', appearance: mode === 'gradient' ? 'gradient' : 'parallel' } } }],
     };
     useDeviceSelectionStore.setState({ currentPrinterId: 'printer', materials: source });
     const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot),

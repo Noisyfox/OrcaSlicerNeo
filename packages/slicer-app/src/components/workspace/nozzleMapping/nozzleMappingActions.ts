@@ -9,6 +9,7 @@ import { historyContextForStructure, projectHistoryStatus, runProjectMutationOpe
 import { enqueueConfigurationMutation, invalidateAfterSharedConfigurationMutation } from '../settings/configurationActions';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
 import { publishNozzleMappingSnapshot } from './useNozzleMapping';
+import { synchronizeDeviceMaterials } from './deviceMaterials';
 
 /** Capture both revisions in the editor; queueing never silently retargets an
  * edit to newer inputs or a different selected Plate. */
@@ -19,6 +20,7 @@ export function commitNozzleMapping(
   return enqueueConfigurationMutation(() => runProjectMutationOperation(async () => {
     if (!paintingCommandAllowed()) throw new Error('Finish the current editing operation first');
     const printer = useSettingsStore.getState().selectedPrinter;
+    await synchronizeDeviceMaterials(platform.runtime);
     const result = await platform.runtime.mutateNozzleMapping({
       plateId: snapshot.plateId, plateRevision: snapshot.revision, revision, change,
     }, historyContextForStructure());

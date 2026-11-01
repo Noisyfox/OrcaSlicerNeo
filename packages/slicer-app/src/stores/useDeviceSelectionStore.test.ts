@@ -17,7 +17,85 @@ function materialSnapshot(): D.PrinterSnapshot<'descriptor' | 'materials'> {
       state: { inventoryRevision: 'inventory', slots: [], tools: [], dryers: [] } } };
   return next;
 }
-afterEach(() => store.setState({ connection: null, connectionOwner: null, materials: null }));
+afterEach(() => store.setState({ connection: null, connectionOwner: null, materials: null, currentPrinterId: null,
+  groupingSource: null, groupingContext: null, groupingVersion: 0, groupingReading: null, groupingFailedReading: null, groupingPullFailed: false }));
+
+function groupingFixture() {
+  const s = materialSnapshot();
+  if (s.values.descriptor?.kind !== 'known' || s.values.materials?.kind !== 'known') throw new Error('fixture');
+  const tool = id<'tool'>('opaque:tool');
+  s.values.descriptor.value.topology.tools = [{ id: tool, name: 'Tool', extruderId: id('e'), nozzleId: id('n'), motionGroupId: id('m') }];
+  const inventory = s.values.materials.value;
+  inventory.toolIds = [tool];
+  inventory.topology = { units: [{ id: id('unit'), name: 'Unit', kind: 'automatic-feeder', sensorIds: [] }],
+    slots: [{ id: id('slot'), unitId: id('unit'), name: 'Slot' }], paths: [{ id: id('path'), slotId: id('slot'), toolId: tool, loading: 'automatic' }], dryers: [] };
+  inventory.state.slots = [{ slotId: id('slot'), presence: { kind: 'unknown', reason: 'not-reported' }, remaining: { kind: 'unknown', reason: 'not-reported' }, spoolIdentity: { kind: 'unknown', reason: 'not-reported' },
+    material: { kind: 'known', freshness: 'stale', sourceRouteId: s.target.routeId, receivedAtMs: 1, observedAtMs: null,
+      value: { materialType: 'PLA', manufacturer: null, diameterMm: null, color: { kind: 'solid', rgba: '#FF0000' }, catalogRefs: [] } } }];
+  const route = { id: s.target.routeId, configurationRevision: s.configurationRevision,
+    capabilities: { observations: { materials: { kind: 'supported', constraints: { delivery: ['on-demand'] } } } } } as unknown as D.PrinterRoute;
+  const printer: D.SavedPrinter = { identity: s.values.descriptor.value.identity, routes: [route] };
+  store.getState().selectGroupingSource(printer, route);
+  return { s, printer, route };
+}
+
+describe('advisory grouping session independent of live Sync evidence', () => {
+  it('retains the selected identity without reported observation capabilities or a route', () => {
+    const { printer } = groupingFixture();
+    store.getState().selectGroupingSource(printer, null);
+    expect(store.getState().groupingContext).toEqual({ identity: printer.identity, toolCount: 0, materials: [] });
+    const version = store.getState().groupingVersion;
+    store.getState().selectGroupingSource(printer, null);
+    expect(store.getState().groupingVersion).toBe(version);
+    store.getState().selectGroupingSource(null, null);
+    expect(store.getState().groupingContext).toBeNull();
+  });
+  it('keeps stale materials and selected identity through observation loss without relaxing Sync evidence', () => {
+    const { s } = groupingFixture(), owner = {};
+    store.getState().publishConnection(owner, s);
+    const previous = store.getState().groupingContext;
+    expect(previous?.materials).toHaveLength(1);
+    if (s.values.descriptor?.kind !== 'known' || s.values.materials?.kind !== 'known') throw new Error('fixture');
+    s.values.descriptor.freshness = 'stale'; s.values.materials.freshness = 'stale';
+    store.getState().publishConnection(owner, s);
+    expect(store.getState().connection).toBeNull();
+    expect(store.getState().groupingContext).toEqual(previous);
+    store.getState().clearConnection({});
+    expect(store.getState().groupingContext).toEqual(previous);
+  });
+  it('withdraws after explicit pull failure and does not revive the failed cached reading', () => {
+    const { s } = groupingFixture(); store.getState().publishGrouping(s);
+    store.getState().failGroupingPull(s.target, s.configurationRevision);
+    expect(store.getState().groupingContext?.materials).toEqual([]);
+    store.getState().publishGrouping(s);
+    expect(store.getState().groupingContext?.materials).toEqual([]);
+    if (s.values.materials?.kind !== 'known') throw new Error('fixture');
+    s.values.materials.receivedAtMs = 2;
+    store.getState().publishGrouping(s);
+    expect(store.getState().groupingContext?.materials).toHaveLength(1);
+  });
+  it('withdraws an old configuration immediately and rejects late updates and failures', () => {
+    const { s, printer, route } = groupingFixture(); store.getState().publishGrouping(s);
+    store.getState().selectGroupingSource(printer, { ...route, configurationRevision: 'new' });
+    expect(store.getState().groupingContext?.materials).toEqual([]);
+    store.getState().publishGrouping(s);
+    store.getState().failGroupingPull(s.target, s.configurationRevision);
+    expect(store.getState().groupingContext?.materials).toEqual([]);
+    store.getState().setCurrent('another');
+    expect(store.getState().groupingContext).toBeNull();
+  });
+  it('requires a successful acquisition after failure before the first cached reading', () => {
+    const { s } = groupingFixture();
+    store.getState().failGroupingPull(s.target, s.configurationRevision);
+    store.getState().publishGrouping(s);
+    expect(store.getState().groupingContext?.materials).toEqual([]);
+    store.getState().publishGrouping(s, true);
+    expect(store.getState().groupingContext?.materials).toHaveLength(1);
+    store.getState().failGroupingPull(s.target, s.configurationRevision);
+    store.getState().publishGrouping(s, true);
+    expect(store.getState().groupingContext?.materials).toHaveLength(1);
+  });
+});
 describe('observed Device connection projection', () => {
   it('retains stable material observations and replaces them when the inventory changes', () => {
     const owner = {}, next = materialSnapshot();

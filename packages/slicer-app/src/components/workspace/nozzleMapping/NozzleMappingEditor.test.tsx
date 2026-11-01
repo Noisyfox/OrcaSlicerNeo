@@ -67,6 +67,23 @@ it('shows an imported unavailable mode and hides the entire editor outside nativ
   expect(document.body.textContent).toBe('');
 });
 
+it('selects Convenience Mode without exposing manual rows or changing the saved map', async () => {
+  const original = snapshot();
+  const base = { ...original, modes: original.modes.map(m => m.mode === 1 ? { ...m, available: true, reason: '' } : m) };
+  const onMapping = vi.fn();
+  function Editor() {
+    const [value, setValue] = useState(base);
+    return <NozzleMappingEditor snapshot={value} onMapping={onMapping}
+      onMode={mode => setValue({ ...value, effective: { ...value.effective, mode } })} />;
+  }
+  await render(<Editor />);
+  await act(async () => (document.querySelector('[data-testid="mapping-mode-1"]') as HTMLButtonElement).click());
+  expect(document.querySelector('[data-testid="mapping-mode-1"]')?.textContent).toBe('Convenience Mode');
+  expect(document.querySelector('[data-testid="mapping-materials"]')).toBeNull();
+  expect(onMapping).not.toHaveBeenCalled();
+  expect(base.saved.filamentMap).toEqual([1, 2, 1]);
+});
+
 it('shows numbered rack colours and aliases with canonical preset names in tooltips', async () => {
   const slots: FilamentSessionSlot[] = [1, 3].map(slot => ({
     logicalId: `filament-${slot}`, slot,

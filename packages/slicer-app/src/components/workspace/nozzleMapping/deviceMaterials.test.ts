@@ -1,0 +1,44 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import type { PlatformCapabilities } from '@orca/platform-contract';
+import type { DeviceMaterialContext } from '@slicer/client';
+import { useDeviceSelectionStore as store } from '@/stores/useDeviceSelectionStore';
+import { synchronizeDeviceMaterials } from './deviceMaterials';
+const context = (model: string): DeviceMaterialContext => ({ identity: { model, manufacturer: null, externalRefs: [] }, toolCount: 0, materials: [] });
+afterEach(() => store.setState({ groupingContext: null, groupingSource: null, groupingVersion: 0 }));
+it('orders publications and waits for a newer selection before allowing a dependent operation', async () => {
+  let release!: () => void;
+  const wait = new Promise<void>(resolve => { release = resolve; });
+  const setter = vi.fn(async (value: DeviceMaterialContext | null) => { if (value?.identity.model === 'first') await wait; return { ok: true as const }; });
+  const runtime = { setDeviceMaterialContext: setter } as unknown as PlatformCapabilities['runtime'];
+  store.setState({ groupingContext: context('first'), groupingVersion: 1 });
+  const first = synchronizeDeviceMaterials(runtime);
+  await Promise.resolve();
+  store.setState({ groupingContext: context('second'), groupingVersion: 2 });
+  const second = synchronizeDeviceMaterials(runtime);
+  release(); await Promise.all([first, second]);
+  expect(setter.mock.calls.map(([value]) => value?.identity.model)).toEqual(['first', 'second']);
+  await synchronizeDeviceMaterials(runtime);
+  expect(setter).toHaveBeenCalledTimes(2);
+  store.setState({ groupingContext: null, groupingVersion: 3 });
+  await synchronizeDeviceMaterials(runtime);
+  expect(setter).toHaveBeenLastCalledWith(null);
+});
+it('retries a rejected publication instead of treating it as installed', async () => {
+  const setter = vi.fn().mockResolvedValueOnce({ ok: false, error: 'rejected' }).mockResolvedValue({ ok: true });
+  const runtime = { setDeviceMaterialContext: setter } as unknown as PlatformCapabilities['runtime'];
+  store.setState({ groupingContext: context('device'), groupingVersion: 1 });
+  await expect(synchronizeDeviceMaterials(runtime)).rejects.toThrow('rejected');
+  await synchronizeDeviceMaterials(runtime);
+  expect(setter).toHaveBeenCalledTimes(2);
+});
+it('withdraws an installed context after a failed replacement followed by deselection', async () => {
+  const setter = vi.fn().mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: false, error: 'rejected' }).mockResolvedValue({ ok: true });
+  const runtime = { setDeviceMaterialContext: setter } as unknown as PlatformCapabilities['runtime'];
+  store.setState({ groupingContext: context('first'), groupingVersion: 1 });
+  await synchronizeDeviceMaterials(runtime);
+  store.setState({ groupingContext: context('second'), groupingVersion: 2 });
+  await expect(synchronizeDeviceMaterials(runtime)).rejects.toThrow('rejected');
+  store.setState({ groupingContext: null, groupingVersion: 3 });
+  await synchronizeDeviceMaterials(runtime);
+  expect(setter).toHaveBeenLastCalledWith(null);
+});

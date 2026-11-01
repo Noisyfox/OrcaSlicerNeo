@@ -265,6 +265,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   const consoleRoute = selectedPrinter?.routes.find(route => route.capabilities.webInterface.kind === 'supported');
 
   const monitorRoute = selectedPrinter?.routes.find(route => supportsMonitor(route.capabilities));
+  useEffect(() => { useDeviceSelectionStore.getState().selectGroupingSource(selectedPrinter, monitorRoute ?? selectedPrinter?.routes[0] ?? null); }, [selectedPrinter, monitorRoute]);
   const activePage = selectedPage === 'web' && consoleRoute ? 'web' : selectedPage === 'monitor' && monitorRoute ? 'monitor' : consoleRoute ? 'web' : monitorRoute ? 'monitor' : null;
 
   // Mount without a URL first, register the fixed built-in script, then load

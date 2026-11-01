@@ -149,8 +149,17 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     const route = synchronizationRoute(printer, operation);
     if (!route) throw new Error('This printer does not provide the observations required for synchronization.');
     setBusy(true); setError(null); setSelected(printer);
+    useDeviceSelectionStore.getState().selectGroupingSource(printer, route);
     await retainSourceObservation(printer, route);
-    const result = await readSynchronizationSource(service, printer, route, operation, { signal: controller.current.signal, refresh: preserve });
+    const result = await readSynchronizationSource(service, printer, route, operation, {
+      signal: controller.current.signal, refresh: preserve,
+      onRead: (reading, source) => {
+        if (!live.current || controller.current.signal.aborted) return;
+        const selection = useDeviceSelectionStore.getState();
+        if (reading.ok) selection.publishGrouping(reading.value, source === 'device');
+        else if (source === 'device') selection.failGroupingPull({ printerId: printer.identity.id, routeId: route.id }, route.configurationRevision);
+      },
+    });
     if (!live.current || controller.current.signal.aborted) return;
     if (!result.ok) throw new Error(result.error.message);
     setSource(result.value);
@@ -199,6 +208,9 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     const signal = controller.current.signal, abort = () => lease.abort.abort();
     signal.addEventListener('abort', abort, { once: true });
     const accept = (event: D.PrinterEvent<'materials'>) => {
+      if (live.current && !lease.abort.signal.aborted)
+        useDeviceSelectionStore.getState().publishGrouping(event.type === 'snapshot' ? event.snapshot
+          : { target: event.target, configurationRevision: event.configurationRevision, values: event.values });
       const { source: basis, phase: reviewing } = reviewed.current;
       if (!live.current || lease.abort.signal.aborted || !basis || reviewing !== 'filament') return;
       const reading = event.type === 'snapshot' ? event.snapshot.values.materials : event.values.materials;

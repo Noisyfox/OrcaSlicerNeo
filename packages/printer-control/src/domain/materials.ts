@@ -35,6 +35,8 @@ export type MaterialColor = {
 } | {
   kind: 'multiple';
   rgba: readonly string[];
+  /** Device-reported representative color; independent of the displayed color list. */
+  representativeRgba: string | null;
   appearance: 'gradient' | 'parallel' | 'unknown';
 };
 export interface MaterialMetadata {

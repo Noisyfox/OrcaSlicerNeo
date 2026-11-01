@@ -1956,6 +1956,22 @@ installed-material dropdown share source conversion, native eligibility and
 native matching, with their different fallback ranges owned by the
 [Prepare synchronization rules](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization).
 
+The accepted [Convenience Mode extension](Multi-Filament%20Support.md#147-convenience-mode-extension)
+distinguishes raw observed supplies used as advisory native grouping inputs
+from eligible project-import sources. Its native candidate rules must not be
+implemented by weakening the existing Sync/picker eligibility contract. The
+design also requires retaining a device-reported representative color separately
+from a multi-color list. The feature specification accepts advisory reuse of
+same-source stale metadata, existing-only pull acquisition, candidate withdrawal
+after failed explicit pulls and native candidate filtering/relaxation/fallback.
+These grouping policies do not relax project-import or command freshness rules.
+The accepted design adds no slice-time hardware-sync prompt and covers existing
+native-supported fixed-dual SEMM configurations, including mixed diameters and
+flows. The contract extension and feature are implemented with software fixture
+and LAN-only H2D read/group/local-slice acceptance. Physical printing remains
+unqualified. The feature topic owner records the native, host and hardware-backed
+read-only evidence.
+
 Printer and material sync are shared application workflows that future agents
 must be able to reuse. Normalized observations and independent capabilities
 select the applicable workflow; provider/model identity does not select a

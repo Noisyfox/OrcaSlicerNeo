@@ -13,6 +13,16 @@ const report = () => ({ msg: 0, gcode_state: 'RUNNING', subtask_id: 'external-ta
     { id: '1', info: '103', temp: '40.2', humidity: '2', humidity_raw: '25', dry_time: 65, tray: [{ id: '3', tray_type: 'PETG' }] }] } });
 
 describe('Bambu telemetry normalization', () => {
+  it.each(['FF0000FF', undefined])('retains the independently reported multi-color representative %s', tray_color => {
+    const { telemetry } = model();
+    telemetry.accept(push({ ...report(), ams: { ams: [{ id: '0', info: '1', tray: [
+      { id: '0', tray_type: 'PLA', tray_color, cols: ['00FF00FF', '0000FFFF'] },
+    ] }] } }));
+    expect(telemetry.project(target, identity).values.materials.state.slots[0].material).toMatchObject({
+      kind: 'known', value: { color: { kind: 'multiple', rgba: ['#00FF00FF', '#0000FFFF'],
+        representativeRgba: tray_color ? '#FF0000FF' : null } },
+    });
+  });
   it.each([
     ['FAILED', 0x0300400c, 'cancelled', 'ready', 'info'],
     ['FAILED', 0x03004001, 'failed', 'error', 'error'],

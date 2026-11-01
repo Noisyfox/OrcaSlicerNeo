@@ -108,6 +108,8 @@ struct BridgeState {
     // WASM session; renderer projection epochs remain separate UI-only tokens.
     std::uint64_t next_async_task_id = 1;
     std::uint64_t history_revision = 0;
+    // Selected-device grouping observations are independent of project/history roots.
+    nlohmann::json device_material_context = nullptr;
     // Test-visible counter makes the no-PresetBundle history boundary
     // executable: history restores must use the minimal mutable frame below.
     std::uint64_t history_minimal_mutable_restore_count = 0;

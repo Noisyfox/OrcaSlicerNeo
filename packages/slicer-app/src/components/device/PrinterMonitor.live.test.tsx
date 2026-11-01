@@ -7,6 +7,7 @@ import { createMoonrakerService } from '@orca/printer-control';
 import type * as D from '@orca/printer-control/domain';
 import { PrinterMonitor } from './PrinterMonitor';
 import { TemperatureInput } from './PrinterControlCards';
+import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 const unknown = { kind: 'unknown', reason: 'not-reported' } as const;
 async function fixture() {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -40,7 +41,7 @@ async function fixture() {
     snapshot = { ...snapshot, values: { ...snapshot.values, status: reading } }; wake?.(); await Promise.resolve();
   });
   const click = async (label: string) => act(async () => { [...element.querySelectorAll('button')].find(button => (button.getAttribute('aria-label') ?? button.textContent) === label)!.click(); });
-  return { service, snapshot, known, material, element, render, update, click, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
+  return { service, printer, route, snapshot, known, material, element, render, update, click, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
 }
 it('shares one icon-only pause/resume control beside progress and respects state and capabilities', async () => {
   const f = await fixture(); try {
@@ -194,6 +195,26 @@ it('keeps stream and manual refresh errors independent across updates and hidden
   } finally { await f.close(); }
 });
 
+it('withdraws advisory candidates after explicit material pull failure and recovers on successful acquisition', async () => {
+  const f = await fixture(); try {
+    f.caps.observations.materials = { kind: 'supported', constraints: { delivery: ['on-demand'] } };
+    const state = useDeviceSelectionStore.getState(); state.selectGroupingSource(f.printer, f.route);
+    const read = vi.fn<D.PrinterService['observations']['read']>().mockResolvedValue({ ok: true, value: f.snapshot });
+    f.service.observations.read = read as D.PrinterService['observations']['read'];
+    await f.render(); expect(read).not.toHaveBeenCalled();
+    await f.click('Refresh');
+    expect(useDeviceSelectionStore.getState().groupingReading).not.toBeNull();
+    read.mockRejectedValueOnce(new Error('Disconnected'));
+    await f.click('Refresh');
+    expect(useDeviceSelectionStore.getState().groupingPullFailed).toBe(true);
+    await f.update('Unrelated stream update');
+    expect(useDeviceSelectionStore.getState().groupingPullFailed).toBe(true);
+    await f.click('Refresh');
+    expect(useDeviceSelectionStore.getState().groupingPullFailed).toBe(false);
+    expect(read).toHaveBeenCalledTimes(3);
+  } finally { await f.close(); useDeviceSelectionStore.getState().selectGroupingSource(null, null); }
+});
+
 it('uses reported tool names while keeping material and nozzle IDs opaque', async () => {
   const f = await fixture(); try {
     const tool = 'opaque-head' as D.Id<'tool'>, nozzle = 'opaque-tip' as D.Id<'nozzle'>, slot = 'opaque-slot' as D.Id<'slot'>, path = 'opaque-path' as D.Id<'path'>;
@@ -220,7 +241,7 @@ it.each(['solid', 'parallel', 'gradient'] as const)('uses the shared translucent
     f.material.state.slots = [{ slotId: slot, presence: f.known('present'), spoolIdentity: unknown, remaining: unknown,
       material: f.known({ materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [],
         color: appearance === 'solid' ? { kind: 'solid', rgba: '#ffffff00' }
-          : { kind: 'multiple', rgba: ['#ffffff00', '#ff0000'], appearance } }),
+          : { kind: 'multiple', rgba: ['#ffffff00', '#ff0000'], representativeRgba: '#ffffff00', appearance } }),
     }];
     await f.render();
     const swatch = f.element.querySelector<HTMLElement>('[aria-label="Material color"]')!;
