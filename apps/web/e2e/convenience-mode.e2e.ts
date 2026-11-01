@@ -33,9 +33,15 @@ test('Web retains imported Convenience Mode without a device and requires an exp
   await expect(page.getByTestId('mapping-mode-1')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('mapping-mode-1')).toBeDisabled();
   await expect(page.getByTestId('nozzle-mapping-editor')).toContainText('Select a device matching');
+  await page.getByTestId('mapping-mode-1').locator('..').hover();
+  await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toBeVisible();
+  await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toContainText('Connect to and select a printer matching the selected Printer profile');
   await page.getByTestId('output-mode-select').click();
   await page.getByRole('menuitem', { name: 'Filament mapping', exact: true }).click();
   await expect(page.getByRole('menuitemradio', { name: 'Convenience Mode (unavailable)', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('menuitemradio', { name: 'Convenience Mode (unavailable)', exact: true }).locator('..').hover();
+  await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toBeVisible();
+  await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toContainText('Connect to and select a printer matching the selected Printer profile');
   await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Error');

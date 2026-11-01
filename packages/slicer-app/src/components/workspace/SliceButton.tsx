@@ -1,6 +1,6 @@
 import { useNozzleMapping } from './nozzleMapping/useNozzleMapping';
 import { useMappingCommit } from './nozzleMapping/NozzleMappingControls';
-import { mappingModeLabel } from './nozzleMapping/NozzleMappingEditor';
+import { MappingModeAvailabilityTooltip, mappingModeLabel } from './nozzleMapping/NozzleMappingEditor';
 // packages/slicer-app/src/components/workspace/SliceButton.tsx
 import { useEffect, useState } from 'react';
 import { ChevronDown, Download, Send as SendIcon, Printer, LoaderCircle, X } from 'lucide-react';
@@ -99,10 +99,12 @@ export function SliceButton({ activeTab = 'home', onNavigateToDevice, onSlice }:
                   if (value === '0' || value === '1' || value === '2') void mappingEdit.commit({ kind: 'mode', mode: Number(value) as 0 | 1 | 2 });
                 }}>
                 {mapping.snapshot.modes.filter(m => m.mode !== 3).map(m =>
-                  <DropdownMenuRadioItem key={m.mode} value={String(m.mode)} disabled={mappingEdit.disabled || !m.available} title={m.reason || undefined}>
-                    {mappingModeLabel(m.mode)}
-                    {!m.available ? ' (unavailable)' : ''}
-                  </DropdownMenuRadioItem>)}
+                  <MappingModeAvailabilityTooltip key={m.mode} mode={m} className="block">
+                    <DropdownMenuRadioItem value={String(m.mode)} disabled={mappingEdit.disabled || !m.available} title={m.reason || undefined}>
+                      {mappingModeLabel(m.mode)}
+                      {!m.available ? ' (unavailable)' : ''}
+                    </DropdownMenuRadioItem>
+                  </MappingModeAvailabilityTooltip>)}
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuSub>}
