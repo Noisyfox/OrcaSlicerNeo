@@ -1024,8 +1024,8 @@ Restoring a Moonraker selection does not authorize background observation.
 
 #### Object skipping follow-up
 
-**Decision status:** Design accepted; implementation remains unstarted.
-Implementation is not authorized by this design discussion. This follow-up
+**Decision status:** Design accepted; implementation authorized in independently
+accepted and committed increments. This follow-up
 supersedes the original control increment's object-skipping exclusion only for
 the scope recorded here. No object-skipping runtime or hardware qualification
 is claimed.
@@ -1121,6 +1121,19 @@ same valid slice receipt, not a subsequently edited live scene. Direct WASM
 access remains behind the typed client/runtime boundary. This does not expand
 project-input persistence into saving generated slicing results.
 
+The print-package producer increment is implemented. Both dispatch archives
+contain the sliced-instance catalogue and `Metadata/pick_1.png` /
+`Metadata/top_1.png`, generated from the retained model on its Worker. Picking
+uses a lossless 512-square orthographic raster with zero reserved for background;
+the two image buffers and depth buffer require about 4 MiB temporarily per
+export, without a renderer GL context or continuous render loop. IDs outside the
+map's 24-bit range omit the image while retaining catalogue data for list-only
+operation. Export-copy identities are normalized to the G-code's per-instance
+label policy without mutating the live model. Provider execution and Monitor
+interaction remain subsequent increments; this producer does not expose a skip
+control by itself. Mobile product support remains deferred under the shared
+application policy.
+
 Verification must cover real packaged object metadata and picking IDs, multiple
 instances, multipart objects, plate normalization, stale slice receipts, malformed
 resources, task changes during read/confirmation/dispatch, transport recovery,
@@ -1140,6 +1153,19 @@ cancellation. Confirm that remaining objects continue printing. Fixtures, plugin
 symbols and successful command submission do not replace physical acceptance;
 the assumed remote capability must be verified against the actual execution
 plugin when remote acceptance is performed.
+
+Implementation follows these dependency-ordered acceptance increments. Complete
+the affected checks and commit each increment before starting the next; shared
+contract changes must keep every producer, consumer and fixture buildable.
+
+| Increment | Independently accepted result | Acceptance boundary |
+| --- | --- | --- |
+| Print-package object resources | Retained-slice instance catalogue and lossless picking resources in both dispatch archives | Real WASM package/PNG/G-code identity checks, affected WASM package tests/typecheck and quick build |
+| Shared object contracts | Typed resources, batch commands, capabilities and validation with unsupported adapters kept coherent | Domain compile fixtures, affected adapter/IPC checks and package tests/typecheck |
+| Native task-resource reads | Bounded, cancellable local/remote control-stream acquisition with deterministic cleanup | Native fixtures for transport selection, fragments, limits, cancellation and lifetime; native ABI/build checks |
+| Bambu object execution | Current-task catalogue/state, guarded batch skipping and explicit whole-print cancellation | Exact protocol, stale-task/concurrency/recovery and independent-operation tests; provider IPC integration |
+| Monitor interaction | Capability-gated modal picking/list flow and all accepted selection/confirmation/count behavior | Component tests and focused Electron journeys, including image-unavailable fallback |
+| Integrated acceptance | Producer-to-consumer software regression with qualification limits stated | Repository tests/typecheck, affected host/WASM checks and separately recorded physical acceptance |
 
 #### Contract extension boundaries
 

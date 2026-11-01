@@ -743,8 +743,8 @@ workflows are also outside this delivery.
 
 #### Object skipping
 
-**Decision status:** Design accepted; implementation remains unstarted.
-This discussion authorizes documentation, not feature implementation.
+**Decision status:** Design accepted; implementation authorized in independently
+accepted and committed increments under the domain specification's sequence.
 
 The first delivery targets Electron Bambu printers over both LAN and Cloud
 remote access. Obtain objects from the printer's current task, including prints
