@@ -34,7 +34,8 @@
         "native/addon.cpp",
         "native/plugin_agent.cpp",
         "native/camera.cpp",
-        "native/plugin_print.cpp"
+        "native/plugin_print.cpp",
+        "native/control.cpp"
       ],
       "conditions": [
         [
@@ -116,6 +117,42 @@
       "type": "shared_library",
       "sources": [
         "test/fixture_camera.cpp"
+      ],
+      "product_prefix": ""
+    },
+    {
+      "include_dirs": [
+        "<!@(node -p \"require('node-addon-api').include\")"
+      ],
+      "defines": [
+        "NAPI_VERSION=8",
+        "NAPI_CPP_EXCEPTIONS"
+      ],
+      "cflags_cc!": [
+        "-fno-exceptions"
+      ],
+      "cflags_cc": [
+        "-std=c++17",
+        "-fexceptions"
+      ],
+      "xcode_settings": {
+        "CLANG_CXX_LANGUAGE_STANDARD": "c++17",
+        "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
+        "MACOSX_DEPLOYMENT_TARGET": "12.0"
+      },
+      "msvs_settings": {
+        "VCCLCompilerTool": {
+          "ExceptionHandling": 1,
+          "AdditionalOptions": [
+            "/std:c++17",
+            "/utf-8"
+          ]
+        }
+      },
+      "target_name": "fixture_control",
+      "type": "shared_library",
+      "sources": [
+        "test/fixture_control.cpp"
       ],
       "product_prefix": ""
     }

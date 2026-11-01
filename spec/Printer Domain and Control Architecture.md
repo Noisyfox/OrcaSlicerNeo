@@ -1062,6 +1062,21 @@ design discussion. It remains separate from the assumed plugin capability;
 Cloud MQTT and exported local stream symbols do not qualify remote resource
 reads. No plugin change, replacement or remote hardware acceptance is claimed.
 
+The native resource-read increment is implemented in `@orca/bambu-native`.
+`ControlStream` owns a separate source-library/thread lifetime, starts CTRL
+stream type `0x3001`, and bounds both outgoing requests and owned incoming
+packets. Close is idempotent and joins off the JavaScript thread before releasing
+the tunnel/library. `readBambuProjectResource` permits only current-project
+object metadata and indexed picking PNGs, issues Orca's `get_project_file` /
+`mem:/16` request, excludes parameter metadata from file bytes, validates chunk
+offsets/lengths and final MD5, and bounds metadata/image sizes and read deadlines.
+Local success does not resolve a remote ticket; local failure may invoke the
+explicit remote resolver, while cancellation and LAN-only access do not trigger
+remote fallback. Returned bytes are owned and errors omit private URLs.
+This wrapper is independent of camera playback and the networking-agent call
+queue; plugin calls already in progress finish before native close resolves.
+Provider integration remains the following increment.
+
 An unavailable picking image does not invalidate an otherwise reliable object
 catalogue. List-only operation requires confirmed object IDs, names,
 object-skipping support and current-task provenance. If the catalogue or its
