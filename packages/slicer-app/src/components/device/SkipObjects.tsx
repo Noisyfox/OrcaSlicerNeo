@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { SkipForward } from 'lucide-react';
 import type * as D from '@orca/printer-control/domain';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from '@/components/ui/dialog';
@@ -114,7 +113,17 @@ export function SkipObjects({ service, target, printerName, capability, capabili
   const entryReason = !fresh ? 'Wait for fresh printer status.' : capability.kind !== 'supported' ? 'Object skipping support has not been reported.' : !['printing', 'paused'].includes(phase ?? '') || !taskId ? 'Object skipping is unavailable for this task.' : currentObserved ? reason(currentObserved.availability) : null;
   return <>
     <span title={entryReason ?? 'Skip Objects'} className="inline-flex items-center gap-1">
-      <Button size="icon-lg" variant="ghost" aria-label="Skip Objects" disabled={!!entryReason} onClick={() => { openedTask.current = taskId; setLoaded(null); setMap(null); setSelected([]); setOpen(true); void load(); }}><SkipForward className="size-4" /></Button>
+      <Button size="icon-lg" variant="ghost" aria-label="Skip Objects" disabled={!!entryReason} onClick={() => { openedTask.current = taskId; setLoaded(null); setMap(null); setSelected([]); setOpen(true); void load(); }}>
+        {/* Orca resources/images/print_control_partskip.svg, inheriting the theme colour. */}
+        <svg className="size-4 text-muted-foreground" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M14.5,2.96v2.54h-2.54" />
+          <rect x=".5" y="8.5" width="3" height="3" rx="1.5" ry="1.5" />
+          <rect x="12.5" y="8.5" width="3" height="3" rx="1.5" ry="1.5" />
+          <path d="M6.5,8.5l3,3M9.5,8.5l-3,3" className="group-hover/button:stroke-[#ed1c24]" />
+          <line x1=".5" y1="14.5" x2="15.5" y2="14.5" />
+          <path d="M14.14,5.5c-.9-2-2.76-3.53-5.09-3.91-3.09-.51-6.03,1.16-7.27,3.88" />
+        </svg>
+      </Button>
       {reportedSkippedCount > 0 && <span className="text-xs text-muted-foreground" aria-label="Skipped objects">{reportedSkippedCount} skipped</span>}
       {entryReason && <span className="sr-only">{entryReason}</span>}
     </span>
