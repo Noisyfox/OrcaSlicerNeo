@@ -27,10 +27,10 @@ interface Catalogue {
   key: string; fingerprint: string; plate: number; labelled: boolean; invalid: boolean; imageFailed: boolean;
   contextRef: D.PrintObjectContextRef; objects: D.PrintObjectSnapshot['objects']; labels: Map<D.Id<'print-object'>, number>; image?: Uint8Array;
 }
-export interface BambuObjectContext { snapshot: D.PrintObjectSnapshot; labels: ReadonlyMap<D.Id<'print-object'>, number> }
+export interface BambuObjectSkippingContext { snapshot: D.PrintObjectSnapshot; labels: ReadonlyMap<D.Id<'print-object'>, number> }
 interface ReadJob { target: D.PrinterTarget; key: string | null; revision?: string; controller: AbortController; done: Promise<void>; finish: () => void }
 
-function catalogue(bytes: Uint8Array, plateIndex: number): { labelled: boolean; labels: number[]; names: string[] } {
+function parseCatalogue(bytes: Uint8Array, plateIndex: number): { labelled: boolean; labels: number[]; names: string[] } {
   if (bytes.length > 2 * 1024 * 1024) throw new Error('Invalid object metadata');
   const parser = new SaxesParser(), stack: string[] = [];
   type ParsedPlate = { index?: number; labelled: boolean; labels: number[]; names: string[] };
@@ -77,9 +77,9 @@ export class BambuObjectSkipping {
   constructor(private readonly config: BambuHostConfig, private readonly native: Pick<BambuNative, 'getCameraUrl' | 'getVersion' | 'installDeviceCertificate'>,
     private readonly monitor: Pick<BambuMonitor, 'acquire' | 'context' | 'stop'>, private readonly devices: Pick<BambuDevices, 'list'>,
     private readonly repository: Pick<BambuRepository, 'read'>, private readonly changed: () => void,
-    private readonly readResource: typeof readBambuProjectResource = readBambuProjectResource) {}
+    private readonly readProjectResource: typeof readBambuProjectResource = readBambuProjectResource) {}
 
-  project(context: CommandContext): BambuObjectContext | undefined {
+  projectContext(context: CommandContext): BambuObjectSkippingContext | undefined {
     const key = taskKey(context), phase = value(context.values.status.printStatus.phase);
     for (const job of this.reads.values()) if (sameTarget(job.target, context.target) && job.key !== null
       && (!context.fresh || job.key !== key || job.revision !== context.configurationRevision)) job.controller.abort();
@@ -108,11 +108,11 @@ export class BambuObjectSkipping {
       pickingImage: canMap ? { kind: 'supported', constraints: { mimeType: 'image/png' } } : { kind: 'unsupported', layer: 'route', reason: 'The graphical object view is unavailable. Use the object list.' } } };
   }
 
-  cancel(readId: string) {
+  cancelRead(readId: string) {
     this.reads.get(readId)?.controller.abort(); this.cancelled.add(readId);
     while (this.cancelled.size > 128) this.cancelled.delete(this.cancelled.values().next().value!);
   }
-  private async source(context: CommandContext) {
+  private async resolveResourceSource(context: CommandContext) {
     const device = (await this.devices.list()).find(d => `bambu:${encodeURIComponent(d.deviceId)}` === context.target.printerId);
     if (!device) throw new Error('Unavailable device');
     const settings = await this.repository.read(), route = device.routes.find(r => r.channel === 'lan');
@@ -136,7 +136,7 @@ export class BambuObjectSkipping {
       } : null,
     };
   }
-  private async withRead<T>(target: D.PrinterTarget, readId: string, work: (context: CommandContext, signal: AbortSignal) => Promise<T>): Promise<D.Result<{ context: CommandContext; data: T }>> {
+  private async withResourceRead<T>(target: D.PrinterTarget, readId: string, work: (context: CommandContext, signal: AbortSignal) => Promise<T>): Promise<D.Result<{ context: CommandContext; data: T }>> {
     if (this.closed || this.cancelled.has(readId)) return failure('cancelled', 'Object information reading was cancelled.');
     if (this.reads.has(readId)) return failure('invalid-request', 'This read ID is already in use.');
     let finish!: () => void;
@@ -165,15 +165,15 @@ export class BambuObjectSkipping {
       return failure(error instanceof BambuResourceError && error.code === 'out-of-range' ? 'out-of-range' : 'transport', 'Current task object information could not be loaded.');
     } finally { if (token) await this.monitor.stop(token).catch(() => undefined); this.reads.delete(readId); job.finish(); }
   }
-  private async resource(context: CommandContext, path: string, signal: AbortSignal) {
+  private async readResourceBytes(context: CommandContext, path: string, signal: AbortSignal) {
     const source = join(dirname(this.config.pluginPath), process.platform === 'win32' ? 'BambuSource.dll' : process.platform === 'darwin' ? 'libBambuSource.dylib' : 'libBambuSource.so');
-    return this.readResource(this.config.addonPath, source, await this.source(context), path, { signal });
+    return this.readProjectResource(this.config.addonPath, source, await this.resolveResourceSource(context), path, { signal });
   }
-  async read(target: D.PrinterTarget, readId: string = randomUUID()): Promise<D.Result<Extract<D.Reading<D.PrintObjectSnapshot>, { kind: 'known' }>>> {
-    const loaded = await this.withRead(target, readId, async (context, signal) => {
+  async readCatalogue(target: D.PrinterTarget, readId: string = randomUUID()): Promise<D.Result<Extract<D.Reading<D.PrintObjectSnapshot>, { kind: 'known' }>>> {
+    const loaded = await this.withResourceRead(target, readId, async (context, signal) => {
       const plate = Math.max(1, number(context.report.plate_idx) ?? 1);
-      const bytes = await this.resource(context, 'Metadata/slice_info.config', signal);
-      return { plate, parsed: catalogue(bytes, plate), fingerprint: createHash('sha256').update(bytes).digest('hex') };
+      const bytes = await this.readResourceBytes(context, 'Metadata/slice_info.config', signal);
+      return { plate, parsed: parseCatalogue(bytes, plate), fingerprint: createHash('sha256').update(bytes).digest('hex') };
     });
     if (!loaded.ok) return loaded;
     const { context, data } = loaded.value, key = taskKey(context)!;
@@ -185,16 +185,16 @@ export class BambuObjectSkipping {
         labels, objects: data.parsed.labels.map((label, i) => ({ id: id(`object:${label}`), name: data.parsed.names[i] })) };
     }
     this.entry.imageFailed = false;
-    const projected = this.project(context), template = context.values.status.printStatus.phase;
+    const projected = this.projectContext(context), template = context.values.status.printStatus.phase;
     if (!projected || template.kind !== 'known') return failure('stale-context', 'The current task changed.');
     this.changed(); return { ok: true, value: { ...template, value: projected.snapshot } };
   }
-  async readMap(ref: D.PrintObjectContextRef, readId: string = randomUUID()): Promise<D.Result<D.PrintObjectMap>> {
+  async readPickingMap(ref: D.PrintObjectContextRef, readId: string = randomUUID()): Promise<D.Result<D.PrintObjectMap>> {
     const entry = this.entry;
     if (!entry || entry.invalid || !sameReference(entry.contextRef, ref)) return failure('stale-context', 'This object map is no longer current.');
-    const result = await this.withRead(ref, readId, async (context, signal) => {
+    const result = await this.withResourceRead(ref, readId, async (context, signal) => {
       if (taskKey(context) !== entry.key || context.configurationRevision !== ref.configurationRevision || entry.invalid) throw new Error('Changed object context');
-      const bytes = entry.image ?? await this.resource(context, `Metadata/pick_${entry.plate}.png`, signal);
+      const bytes = entry.image ?? await this.readResourceBytes(context, `Metadata/pick_${entry.plate}.png`, signal);
       const png = Buffer.from(bytes);
       if (png.length < 33 || !png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || png.toString('ascii', 12, 16) !== 'IHDR'
         || png.readUInt32BE(16) < 1 || png.readUInt32BE(16) > 2048 || png.readUInt32BE(20) < 1 || png.readUInt32BE(20) > 2048
@@ -210,15 +210,15 @@ export class BambuObjectSkipping {
     return { ok: true, value: { contextRef: { ...ref }, bytes: entry.image.slice(), mimeType: 'image/png',
       palette: [...entry.labels].map(([objectId, colourId]) => ({ objectId, colourId })) } };
   }
-  async reconcile() {
-    if (this.entry) { const context = await this.monitor.context(this.entry.contextRef); if (!context.ok) this.entry.invalid = true; else this.project(context.value); }
-    for (const [readId, job] of this.reads) { const context = await this.monitor.context(job.target); if (!context.ok || job.revision && context.value.configurationRevision !== job.revision) this.cancel(readId); }
+  async reconcileContext() {
+    if (this.entry) { const context = await this.monitor.context(this.entry.contextRef); if (!context.ok) this.entry.invalid = true; else this.projectContext(context.value); }
+    for (const [readId, job] of this.reads) { const context = await this.monitor.context(job.target); if (!context.ok || job.revision && context.value.configurationRevision !== job.revision) this.cancelRead(readId); }
   }
   async close() { this.closed = true; this.entry = null; const jobs = [...this.reads.values()]; for (const job of jobs) job.controller.abort(); await Promise.allSettled(jobs.map(job => job.done)); }
 }
 
-export function prepareObjectCommand(context: CommandContext, params: D.PrinterCommandSpecs['jobs.skipObjects']['params']): D.Result<PreparedCommand> {
-  const current = context.objects;
+export function prepareObjectSkippingCommand(context: CommandContext, params: D.PrinterCommandSpecs['jobs.skipObjects']['params']): D.Result<PreparedCommand> {
+  const current = context.objectSkipping;
   if (!current || !sameReference(current.snapshot.contextRef, params.contextRef)) return failure('stale-context', 'This object selection is no longer current.');
   const snapshot = current.snapshot;
   if (snapshot.availability.kind !== 'available') return failure(snapshot.availability.kind === 'blocked' ? snapshot.availability.reasons[0]?.code ?? 'precondition-failed' : 'precondition-failed', snapshot.availability.kind === 'blocked'

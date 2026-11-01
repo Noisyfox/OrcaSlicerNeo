@@ -15,8 +15,8 @@ const error = (code: D.ErrorCode, message: string) => ({ ok: false as const, err
 /** One ordinary native selection per Electron instance. Tokens only bind IPC stream cleanup. */
 export class BambuMonitor {
   private readonly recovery = new BambuRecovery();
-  private objects?: BambuObjectSkipping;
-  useObjects(objects: BambuObjectSkipping) { this.objects = objects; }
+  private objectSkipping?: BambuObjectSkipping;
+  useObjectSkipping(objectSkipping: BambuObjectSkipping) { this.objectSkipping = objectSkipping; }
   private readonly cache = new Map<string, Entry>();
   private active: Entry | null = null;
   private readonly tokens = new Set<string>();
@@ -56,7 +56,7 @@ export class BambuMonitor {
   private contextOf(entry: Entry): CommandContext {
     const context = this.recovery.decorate({ ...entry.telemetry.project(entry.target, entry.printer.identity), target: entry.target,
       configurationRevision: entry.route.configurationRevision, model: entry.printer.identity.model });
-    return { ...context, objects: this.objects?.project(context) };
+    return { ...context, objectSkipping: this.objectSkipping?.projectContext(context) };
   }
   private snapshot<K extends D.StateTopic>(entry: Entry, topics: readonly [K, ...K[]]): D.PrinterSnapshot<K> {
     const snapshot = entry.telemetry.snapshot(entry.target, entry.printer.identity, entry.route.configurationRevision, topics);
@@ -64,7 +64,7 @@ export class BambuMonitor {
     const values = Object.fromEntries(topics.map(topic => {
       if (topic === 'printObjects') {
         const template = context.values.status.printStatus.phase;
-        return [topic, context.objects && template.kind === 'known' ? { ...template, value: context.objects.snapshot } : { kind: 'unknown', reason: 'unavailable' }];
+        return [topic, context.objectSkipping && template.kind === 'known' ? { ...template, value: context.objectSkipping.snapshot } : { kind: 'unknown', reason: 'unavailable' }];
       }
       const reading = snapshot.values[topic];
       return [topic, reading?.kind === 'known' && topic !== 'printObjects' ? { ...reading, value: context.values[topic] } : reading];
@@ -146,8 +146,8 @@ export class BambuMonitor {
   async read<K extends D.StateTopic>(request: D.ObservationRequest<K> & { source: 'cache' | 'device' }, readId?: string): Promise<D.Result<D.PrinterSnapshot<K>>> {
     const entry = await this.resolve(request.target);
     if (!entry) return error('invalid-target', 'This Bambu route is no longer available.');
-    if (request.source === 'device' && request.topics.some(topic => topic === 'printObjects') && this.objects) {
-      const result = await this.objects.read(request.target, readId);
+    if (request.source === 'device' && request.topics.some(topic => topic === 'printObjects') && this.objectSkipping) {
+      const result = await this.objectSkipping.readCatalogue(request.target, readId);
       if (!result.ok) return result;
       if (request.topics.length === 1) return { ok: true, value: { target: request.target,
         configurationRevision: result.value.value.contextRef.configurationRevision, values: Object.fromEntries([['printObjects', result.value]]) as D.ObservationValues<K> } };

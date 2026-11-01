@@ -3,7 +3,7 @@ import type * as D from '@orca/printer-control/domain';
 import { bambuCapabilities } from '../../shared/bambuPrinters';
 import { cameraProtocol, id, number, record, records, type Report, type TelemetryProjection } from './telemetry';
 import { protocolReport } from './protocol';
-import { prepareObjectCommand, type BambuObjectContext } from './objectSkipping';
+import { prepareObjectSkippingCommand, type BambuObjectSkippingContext } from './objectSkipping';
 const known = <T>(value: D.Reading<T>): T | undefined => value.kind === 'known' && value.freshness === 'fresh' ? value.value : undefined;
 const fail = (code: D.ErrorCode, message: string): D.PrinterError => ({ code, message });
 const supported = <T extends object>(constraints: T): D.Capability<T> => ({ kind: 'supported', constraints });
@@ -12,7 +12,7 @@ function range(value: unknown): D.Range {
   const values = Array.isArray(value) ? value.map(number) : [];
   return { min: values[0] ?? null, max: values[1] ?? null, step: 1 };
 }
-export interface CommandContext extends TelemetryProjection { target: D.PrinterTarget; configurationRevision: string; model: string | null; objects?: BambuObjectContext; recovery?: { action: D.PrinterAction; command: PreparedCommand }[] }
+export interface CommandContext extends TelemetryProjection { target: D.PrinterTarget; configurationRevision: string; model: string | null; objectSkipping?: BambuObjectSkippingContext; recovery?: { action: D.PrinterAction; command: PreparedCommand }[] }
 export interface PreparedCommand {
   section: 'print' | 'system'; fields: Report; qos: number;
   /** Orca's legacy error acknowledgement also closes the printer's error UI. */
@@ -92,7 +92,7 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
     && (!idle && phase !== 'paused' || busyMaterial)) return reject('busy', 'The printer is busy. Wait until movement or material changing is available.');
   if (context.machine.localControlOnly && command.type !== 'jobs.cancel' && command.type !== 'lights.set' && command.type !== 'actions.invoke') return reject('precondition-failed', 'This processing task must be controlled on the printer.');
   switch (command.type) {
-    case 'jobs.skipObjects': return prepareObjectCommand(context, command.params);
+    case 'jobs.skipObjects': return prepareObjectSkippingCommand(context, command.params);
     case 'jobs.pause':
       if (phase !== 'printing') return reject('precondition-failed', 'Only a running print can be paused.');
       return prepared({ command: 'pause', param: '' }, next => sameTask(next) && known(next.values.status.printStatus.phase) === 'paused');

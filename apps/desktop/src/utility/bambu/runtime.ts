@@ -25,7 +25,7 @@ export class BambuRuntime {
   private monitor: BambuMonitor | null = null;
   private media: BambuMedia | null = null;
   private operations: BambuOperations | null = null;
-  private objects: BambuObjectSkipping | null = null;
+  private objectSkipping: BambuObjectSkipping | null = null;
   private submissions: BambuPrintSubmissions | null = null;
   private account: BambuAccount | null = null;
   private state: AccountState = { status: 'restoring', error: null };
@@ -35,7 +35,7 @@ export class BambuRuntime {
   constructor(private readonly config: BambuHostConfig, private readonly publish: (change: BambuChange) => void,
     private readonly load: typeof loadBambuNative = loadBambuNative) {
     this.repository = new BambuRepository(config.directory);
-    this.devices = new BambuDevices(this.repository, () => { publish('printers'); void this.monitor?.reconcile().catch(() => undefined); void this.media?.reconcile().catch(() => undefined); void this.objects?.reconcile().catch(() => undefined); });
+    this.devices = new BambuDevices(this.repository, () => { publish('printers'); void this.monitor?.reconcile().catch(() => undefined); void this.media?.reconcile().catch(() => undefined); void this.objectSkipping?.reconcileContext().catch(() => undefined); });
     this.ready = this.initialize();
   }
   private async initialize() {
@@ -66,15 +66,15 @@ export class BambuRuntime {
       await ok(agent.installDiscoveryCallbacks());
       await agent.startDiscovery(true, false);
       this.monitor = new BambuMonitor(agent, this.devices, this.repository, () => this.lan!.release(), () => this.publish('control'));
-      this.objects = new BambuObjectSkipping(this.config, agent, this.monitor, this.devices, this.repository, () => this.publish('control'));
-      this.monitor.useObjects(this.objects);
+      this.objectSkipping = new BambuObjectSkipping(this.config, agent, this.monitor, this.devices, this.repository, () => this.publish('control'));
+      this.monitor.useObjectSkipping(this.objectSkipping);
       this.media = new BambuMedia(this.config, agent, this.monitor, this.devices, this.repository, () => this.publish('media'));
       this.submissions = new BambuPrintSubmissions(agent, this.monitor, this.devices, this.repository, join(this.config.directory, 'submissions'), () => this.publish('control'));
       this.operations = new BambuOperations(this.monitor, () => this.publish('control'));
       this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
     } catch {
-      await this.objects?.close(); this.objects = null;
+      await this.objectSkipping?.close(); this.objectSkipping = null;
       await this.media?.close(); this.media = null;
       await this.monitor?.close(); this.monitor = null;
       await this.lan?.close(); this.lan = null; this.account = null; this.state = unavailableBambuAccount();
@@ -115,8 +115,8 @@ export class BambuRuntime {
     await this.ready;
     if (!this.monitor || !this.operations) return request.method === 'submit' ? { kind: 'rejected' as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } } : { ok: false as const, error: { code: 'transport' as const, message: 'Bambu networking is unavailable.' } };
     switch (request.method) {
-      case 'objectMap': return this.objects!.readMap(request.input.contextRef, request.input.readId);
-      case 'cancelObjectRead': this.objects?.cancel(request.input.readId); return { ok: true as const, value: null };
+      case 'objectMap': return this.objectSkipping!.readPickingMap(request.input.contextRef, request.input.readId);
+      case 'cancelObjectRead': this.objectSkipping?.cancelRead(request.input.readId); return { ok: true as const, value: null };
       case 'print.prepare': return this.submissions!.prepare(request.input);
       case 'print.begin': return this.submissions!.begin(request.input);
       case 'print.chunk': return this.submissions!.chunk(request.input);
@@ -143,5 +143,5 @@ export class BambuRuntime {
     if (this.media) this.media.attach(owner, request, port); else port.close();
   }
   async mediaCloseOwner(owner: string) { await this.ready; await this.media?.closeOwner(owner); }
-  async close() { await this.ready; this.operations?.close(); await this.submissions?.close(); await this.objects?.close(); await this.media?.close(); await this.monitor?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
+  async close() { await this.ready; this.operations?.close(); await this.submissions?.close(); await this.objectSkipping?.close(); await this.media?.close(); await this.monitor?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
 }
