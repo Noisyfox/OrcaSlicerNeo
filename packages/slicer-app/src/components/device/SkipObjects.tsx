@@ -21,6 +21,7 @@ export function SkipObjects({ service, target, printerName, capability, capabili
   const [map, setMap] = useState<D.PrintObjectMap | null>(null), [mapFailed, setMapFailed] = useState(false);
   const reader = useRef<AbortController | null>(null), operationReaders = useRef(new Set<AbortController>()), sending = useRef(false), alive = useRef(true);
   const currentObserved = known(observed);
+  const reportedSkippedCount = known(currentObserved?.skippedObjectIds)?.length ?? 0;
   const snapshot = loaded && currentObserved && referenceKey(currentObserved.contextRef) === referenceKey(loaded.contextRef) ? currentObserved : loaded;
   const skipped = known(snapshot?.skippedObjectIds) ?? [];
   const skippedKey = JSON.stringify(skipped.slice().sort());
@@ -114,7 +115,7 @@ export function SkipObjects({ service, target, printerName, capability, capabili
   return <>
     <span title={entryReason ?? 'Skip Objects'} className="inline-flex items-center gap-1">
       <Button size="icon-lg" variant="ghost" aria-label="Skip Objects" disabled={!!entryReason} onClick={() => { openedTask.current = taskId; setLoaded(null); setMap(null); setSelected([]); setOpen(true); void load(); }}><SkipForward className="size-4" /></Button>
-      {currentObserved && <span className="text-xs text-muted-foreground" aria-label="Skipped objects">{currentObserved.skippedObjectIds.kind === 'known' ? currentObserved.skippedObjectIds.value.length : '—'} skipped</span>}
+      {reportedSkippedCount > 0 && <span className="text-xs text-muted-foreground" aria-label="Skipped objects">{reportedSkippedCount} skipped</span>}
       {entryReason && <span className="sr-only">{entryReason}</span>}
     </span>
     <Dialog open={open} onOpenChange={next => { if (!next && !submitting) { reader.current?.abort(); setOpen(false); setConfirmation(null); } }}>

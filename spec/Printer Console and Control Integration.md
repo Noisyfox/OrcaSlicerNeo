@@ -797,7 +797,10 @@ still apply; pending-operation tracking must not introduce a forced confirmation
 barrier between batches.
 
 The displayed skipped-object count includes only device-reported skipped
-objects. Do not optimistically increment it after submission. Pending, rejected
+objects. Monitor shows the count only when a known report contains at least one
+skipped object; merely loading and closing selection must not add a zero/unknown
+count beside the action. The selection dialog retains its zero-count statistics.
+Do not optimistically increment it after submission. Pending, rejected
 or uncertain operations use ordinary Monitor feedback independently of that
 count, and do not block another batch merely because an earlier result is
 pending or uncertain. This intentionally differs from Orca's temporary local

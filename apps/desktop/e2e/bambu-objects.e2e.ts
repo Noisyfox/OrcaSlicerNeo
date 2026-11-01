@@ -16,6 +16,12 @@ test('current-task objects synchronize map/list, guard confirmations and allow i
     const entry = page.getByRole('button', { name: 'Skip Objects', exact: true });
     await expect(entry).toBeEnabled(); await entry.click();
     const dialog = page.getByRole('dialog'); await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('checkbox', { name: 'Part 7', exact: true })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByLabel('Skipped objects')).toHaveCount(0);
+    expect(await app.evaluate(() => globalThis.bambuControlFixture.commands)).toHaveLength(0);
+    await entry.click(); await expect(dialog).toBeVisible();
     expect(await page.getByTestId('device-printer-select').evaluate(element => !!element.closest('[inert]') || !!element.closest('[aria-hidden="true"]'))).toBe(true);
     const map = dialog.getByRole('img'); await expect(map).toBeVisible();
     await expect.poll(() => map.evaluate(node => (node as HTMLCanvasElement).width)).toBe(3);
@@ -31,7 +37,7 @@ test('current-task objects synchronize map/list, guard confirmations and allow i
     await expect(dialog).toContainText('Skipping cannot be undone'); await expect(dialog).toContainText('Workshop A');
     await dialog.getByRole('button', { name: 'Confirm skip', exact: true }).click();
     await expect(dialog).toBeHidden(); await expect.poll(commands).toHaveLength(1);
-    await expect(page.getByLabel('Skipped objects')).toHaveText('0 skipped');
+    await expect(page.getByLabel('Skipped objects')).toHaveCount(0);
     await entry.click(); await dialog.getByRole('checkbox', { name: 'Part 9', exact: true }).check();
     await dialog.getByRole('button', { name: 'Review selection', exact: true }).click();
     const publish = async (fresh: boolean, skipped: string[], task?: string) => app.evaluate(({ BrowserWindow }, { channel, fresh, skipped, task }) => {

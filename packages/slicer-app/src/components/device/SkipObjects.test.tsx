@@ -38,9 +38,28 @@ it('requires a second confirmation, closes on recording and admits a second batc
     await f.click('Confirm skip'); expect(f.dialog()).toBeNull();
     expect(f.evaluate).toHaveBeenCalledWith({ printerId: target.printerId, routeId: target.routeId }, expect.anything());
     expect(f.submit).toHaveBeenCalledWith(expect.objectContaining({ command: { type: 'jobs.skipObjects', params: { contextRef: initial.contextRef, objectIds: ['o1'], intent: 'skip-selected' } } }));
-    expect(document.body.textContent).toContain('0 skipped');
+    expect(document.querySelector('[aria-label="Skipped objects"]')).toBeNull();
     await f.click('Skip Objects'); await f.select(2); await f.click('Review selection'); await f.click('Confirm skip');
     expect(f.submit).toHaveBeenCalledTimes(2); expect(f.read).toHaveBeenCalledTimes(2);
+  } finally { await f.close(); }
+});
+it('keeps Monitor free of a count after loading and closing without skipping, and shows only reported positive counts', async () => {
+  const f = await fixture(); try {
+    await f.render({ observed: { kind: 'unknown', reason: 'not-reported' } });
+    expect(document.querySelector('[aria-label="Skipped objects"]')).toBeNull();
+    await f.click('Skip Objects');
+    await f.render({ observed: known(initial) });
+    expect(f.dialog()?.textContent).toContain('0 skipped · 0 selected');
+    await f.click('Close');
+    expect(f.dialog()).toBeNull();
+    expect(document.querySelector('[aria-label="Skipped objects"]')).toBeNull();
+    expect(f.submit).not.toHaveBeenCalled();
+    await f.render({ observed: known({ ...initial, skippedObjectIds: known(['o1' as D.Id<'print-object'>]) }) });
+    expect(document.querySelector('[aria-label="Skipped objects"]')?.textContent).toBe('1 skipped');
+    await f.render({ observed: known({ ...initial, skippedObjectIds: { kind: 'unknown', reason: 'unavailable' } }) });
+    expect(document.querySelector('[aria-label="Skipped objects"]')).toBeNull();
+    await f.render({ observed: known(initial) });
+    expect(document.querySelector('[aria-label="Skipped objects"]')).toBeNull();
   } finally { await f.close(); }
 });
 it('keeps rejected submissions open and sends explicit stop intent for all remaining objects', async () => {
