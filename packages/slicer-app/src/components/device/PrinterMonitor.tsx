@@ -9,6 +9,7 @@ import { usePrinterObservation } from './usePrinterObservation';
 import { ActuatorCard, ControlCard, display, MotionCard, ThermalCard, valueOf } from './PrinterControlCards';
 import { CameraCard } from './media/CameraCard';
 import { MaterialControlCard } from './MaterialControlCard';
+import { SkipObjects } from './SkipObjects';
 import { PrinterAlerts } from './PrinterAlerts';
 
 const monitoringTopics = ['status', 'thermal', 'motion', 'actuators', 'materials', 'sensors'] as const;
@@ -63,6 +64,9 @@ export function PrinterMonitor({ printer, route, visible = true, observeWhileHid
       disabled={controls.disabled} feedback={feedback} onInvoke={action => void send({ type: 'actions.invoke', params: { actionRef: action.actionRef } })} />
     </>}
     progress={<PrintProgressCard preview={preview} status={status?.printStatus} progressActions={<>
+        <SkipObjects key={`${target.printerId}:${target.routeId}:${route.configurationRevision}`} service={service} target={target} printerName={printer.identity.displayName}
+          capability={capabilities.commands['jobs.skipObjects']} capabilityRevision={capabilities.revision} phase={phase} taskId={taskId} fresh={!!fresh}
+          observed={snapshot?.values.printObjects} onFeedback={setFeedback} />
         {(capabilities.commands['jobs.pause'].kind === 'supported' || capabilities.commands['jobs.resume'].kind === 'supported') && <Button size="icon-lg" variant="ghost" className="text-muted-foreground" aria-label={pauseResumeLabel} title={pauseResumeLabel} disabled={controls.disabled || capabilities.commands[pauseResumeCommand].kind !== 'supported' || liveStatus && phase !== (paused ? 'paused' : 'printing')} onClick={() => void send({ type: pauseResumeCommand, params: {} })}><PauseResumeIcon className="size-4" fill="currentColor" strokeWidth={0} /></Button>}
         {capabilities.commands['jobs.cancel'].kind === 'supported' && <Button size="icon-lg" variant="ghost" className="text-muted-foreground" aria-label="Cancel print" title="Cancel print" disabled={controls.disabled || liveStatus && !['printing', 'paused', 'preparing'].includes(phase ?? '')} onClick={() => { if (liveStatus || taskId) setCancel({ name: valueOf(status?.printStatus.name) ?? 'Current task', taskId: taskId ?? undefined }); else void send({ type: 'jobs.cancel', params: {} }); }}><Square className="size-4" fill="currentColor" strokeWidth={0} /></Button>}
       </>} details={<><dt>State</dt><dd>{display(status?.operationalState)}</dd><dt>Stage</dt><dd>{display(status?.printStatus.stage, stage => stage?.label ?? '—')}</dd><dt>Layer</dt><dd>{display(status?.printStatus.currentLayer)} / {display(status?.printStatus.totalLayers)}</dd></>}

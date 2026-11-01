@@ -1168,9 +1168,8 @@ the two image buffers and depth buffer require about 4 MiB temporarily per
 export, without a renderer GL context or continuous render loop. IDs outside the
 map's 24-bit range omit the image while retaining catalogue data for list-only
 operation. Export-copy identities are normalized to the G-code's per-instance
-label policy without mutating the live model. Monitor
-interaction remains a subsequent increment; this producer does not expose a skip
-control by itself. Mobile product support remains deferred under the shared
+label policy without mutating the live model. The shared Monitor consumes these
+resources through the typed provider workflow. Mobile product support remains deferred under the shared
 application policy.
 
 Verification must cover real packaged object metadata and picking IDs, multiple

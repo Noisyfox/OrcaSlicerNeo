@@ -1,0 +1,72 @@
+import { _electron, desktopLaunchOptions } from './electron-fixture';
+import { expect, test } from '@playwright/test';
+import { installControlFixture } from './bambu-control-fixture';
+import { isBambuControlRequest } from '../src/shared/bambuControl';
+import { Ipc } from '../src/shared/ipc';
+import type * as D from '@orca/printer-control/domain';
+
+test('current-task objects synchronize map/list, guard confirmations and allow independent consecutive batches', async () => {
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
+  try {
+    const page = await app.firstWindow(); await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await installControlFixture(app, false, true);
+    await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
+    const entry = page.getByRole('button', { name: 'Skip Objects', exact: true });
+    await expect(entry).toBeEnabled(); await entry.click();
+    const dialog = page.getByRole('dialog'); await expect(dialog).toBeVisible();
+    expect(await page.getByTestId('device-printer-select').evaluate(element => !!element.closest('[inert]') || !!element.closest('[aria-hidden="true"]'))).toBe(true);
+    const map = dialog.getByRole('img'); await expect(map).toBeVisible();
+    await expect.poll(() => map.evaluate(node => (node as HTMLCanvasElement).width)).toBe(3);
+    const bounds = await map.boundingBox();
+    await map.click({ position: { x: bounds!.width / 6, y: bounds!.height / 2 } });
+    await expect(dialog.getByRole('checkbox', { name: 'Part 7', exact: true })).toBeChecked();
+    const selectedPixel = await map.evaluate(node => [...(node as HTMLCanvasElement).getContext('2d')!.getImageData(0, 0, 1, 1).data]);
+    expect(selectedPixel).toEqual([20, 184, 166, 255]);
+    await dialog.evaluate(async node => { await Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))); });
+    await page.screenshot({ path: '/tmp/orca-skip-objects-selection.png' });
+    const commands = () => app.evaluate(() => globalThis.bambuControlFixture.commands);
+    await dialog.getByRole('button', { name: 'Review selection', exact: true }).click();
+    await expect(dialog).toContainText('Skipping cannot be undone'); await expect(dialog).toContainText('Workshop A');
+    await dialog.getByRole('button', { name: 'Confirm skip', exact: true }).click();
+    await expect(dialog).toBeHidden(); await expect.poll(commands).toHaveLength(1);
+    await expect(page.getByLabel('Skipped objects')).toHaveText('0 skipped');
+    await entry.click(); await dialog.getByRole('checkbox', { name: 'Part 9', exact: true }).check();
+    await dialog.getByRole('button', { name: 'Review selection', exact: true }).click();
+    const publish = async (fresh: boolean, skipped: string[], task?: string) => app.evaluate(({ BrowserWindow }, { channel, fresh, skipped, task }) => {
+      const data = globalThis.bambuControlFixture.data['bambu:a'];
+      for (const topic of ['status', 'printObjects'] as const) {
+        const reading = data.snapshot.values[topic]; if (reading?.kind === 'known') reading.freshness = fresh ? 'fresh' : 'stale';
+      }
+      const objects = data.snapshot.values.printObjects, status = data.snapshot.values.status;
+      if (objects?.kind === 'known') objects.value.skippedObjectIds = { ...objects, freshness: fresh ? 'fresh' : 'stale', value: skipped as D.Id<'print-object'>[] };
+      if (task && status?.kind === 'known') status.value.printStatus.taskId = { ...status, value: task as D.Id<'device-task'> };
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, 'control');
+    }, { channel: Ipc.bambuChanged, fresh, skipped, task });
+    await publish(false, []); await expect(dialog.getByRole('button', { name: 'Review selection', exact: true })).toBeDisabled();
+    await expect(dialog.getByRole('checkbox', { name: 'Part 9', exact: true })).toBeChecked();
+    await publish(true, ['object:7']); await expect(dialog.getByRole('button', { name: 'Review selection', exact: true })).toBeEnabled();
+    await expect(dialog.getByRole('checkbox', { name: 'Part 7 (Skipped)', exact: true })).toBeDisabled();
+    await expect(page.getByLabel('Skipped objects')).toHaveText('1 skipped');
+    await app.evaluate(() => { globalThis.bambuControlFixture.rejectNext = true; });
+    await dialog.getByRole('button', { name: 'Review selection', exact: true }).click(); await dialog.getByRole('button', { name: 'Confirm skip', exact: true }).click();
+    await expect(dialog).toContainText('Fixture immediate rejection');
+    await dialog.getByRole('button', { name: 'Review selection', exact: true }).click(); await dialog.getByRole('button', { name: 'Confirm skip', exact: true }).click();
+    await expect.poll(commands).toHaveLength(2); await expect(dialog).toBeHidden();
+    expect((await commands()).map(c => c.command)).toMatchObject([{ type: 'jobs.skipObjects', params: { objectIds: ['object:7'], intent: 'skip-selected' } }, { type: 'jobs.skipObjects', params: { objectIds: ['object:9'], intent: 'skip-selected' } }]);
+    await entry.click(); await dialog.getByRole('button', { name: 'Select all remaining', exact: true }).click(); await dialog.getByRole('button', { name: 'Review selection', exact: true }).click();
+    await expect(dialog).toContainText('stop the entire print');
+    await dialog.evaluate(async node => { await Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))); });
+    await page.screenshot({ path: '/tmp/orca-skip-objects-confirmation.png' });
+    await dialog.getByRole('button', { name: 'Confirm stop print', exact: true }).click(); await expect.poll(commands).toHaveLength(3);
+    expect((await commands())[2].command).toMatchObject({ params: { intent: 'cancel-print', objectIds: ['object:9', 'object:11'] } });
+    await app.evaluate(() => { globalThis.bambuControlFixture.objectMaps['bambu:a'].bytes = new Uint8Array([1, 2, 3]); });
+    await entry.click(); await expect(dialog).toContainText('The graphical view is unavailable. Use the object list.');
+    await expect(dialog.getByRole('checkbox', { name: 'Part 9', exact: true })).toBeEnabled();
+    await publish(true, [], 'replacement-task');
+    await expect(dialog).toBeHidden(); await expect(page.getByRole('status').filter({ hasText: 'selection was discarded' })).toBeVisible();
+    const requests = await app.evaluate(() => globalThis.bambuControlFixture.requests);
+    for (const request of requests) expect(isBambuControlRequest(request), JSON.stringify(request)).toBe(true);
+  } finally { await app.close(); }
+});

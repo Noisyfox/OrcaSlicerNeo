@@ -829,6 +829,16 @@ reported object state. Neo retains this interaction shape while distinguishing
 submission from successful execution. List-only operation is an intentional
 Neo extension.
 
+The shared Monitor implementation now includes this modal workflow, an on-demand
+catalogue read, synchronized canvas picking/list selection and image-decoding
+fallback. The modal keeps existing observations alive and tracks submitted
+operations independently; it adds no pending-batch lock. Component checks cover
+confirmation invalidation, stale recovery, external skipping, immediate rejection,
+explicit stop intent and cancellation of undispatched evaluation on unmount.
+The Electron fixture journey covers actual PNG decoding/pixel selection, modal
+isolation, list fallback, count semantics and consecutive submissions. These
+software checks do not establish physical-printer or remote-tunnel acceptance.
+
 #### Accepted task, hardware and recovery scope
 
 Current-task thumbnails are independent of file-browser UI. Display an available

@@ -17,15 +17,27 @@ export function controlSnapshot(device: string, task = 'External task', fresh = 
     vir_slot: [{ id: '254', tray_type: 'PETG' }, { id: '255', tray_type: 'PLA' }],
   } }));
   if (!fresh) telemetry.invalidate();
-  const snapshot = telemetry.snapshot(target, printer.identity, printer.routes[0].configurationRevision, ['descriptor', 'status', 'thermal', 'motion', 'actuators', 'materials', 'sensors', 'alerts', 'firmware', 'cameras']);
+  const snapshot: D.PrinterSnapshot = telemetry.snapshot(target, printer.identity, printer.routes[0].configurationRevision, ['descriptor', 'status', 'thermal', 'motion', 'actuators', 'materials', 'sensors', 'alerts', 'firmware', 'cameras']);
   const capabilities = commandCapabilities({ ...telemetry.project(target, printer.identity), target, configurationRevision: printer.routes[0].configurationRevision, model: 'H2D' });
   return { snapshot, description: { target, configurationRevision: printer.routes[0].configurationRevision, descriptor: snapshot.values.descriptor, capabilities } };
 }
-interface FixtureState { requests: unknown[]; data: Record<string, ReturnType<typeof controlSnapshot>>; commands: D.CommandRequest[]; tokens: string[]; operations: Record<string, D.CommandOperation> }
+interface FixtureState { requests: unknown[]; data: Record<string, ReturnType<typeof controlSnapshot>>; commands: D.CommandRequest[]; tokens: string[]; operations: Record<string, D.CommandOperation>; objectMaps: Record<string, D.PrintObjectMap>; rejectNext?: boolean }
 declare global { var bambuControlFixture: FixtureState; }
-export async function installControlFixture(app: ElectronApplication, camera = false) {
-  await app.evaluate(({ ipcMain, BrowserWindow }, { channels, devices, data, regionChoices }) => {
-    globalThis.bambuControlFixture = { data, requests: [], commands: [], tokens: [], operations: {} };
+export async function installControlFixture(app: ElectronApplication, camera = false, objects = false) {
+  await app.evaluate(({ ipcMain, BrowserWindow }, { channels, devices, data, regionChoices, objects }) => {
+    globalThis.bambuControlFixture = { data, requests: [], commands: [], tokens: [], operations: {}, objectMaps: {} };
+    if (objects) for (const [printerId, current] of Object.entries(data)) {
+      current.description.capabilities.commands['jobs.skipObjects'] = { kind: 'supported', constraints: { maxObjects: 64 } };
+      current.description.capabilities.observations.printObjects = { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } };
+      const taskId = current.snapshot.values.status;
+      if (taskId?.kind !== 'known' || taskId.value.printStatus.taskId.kind !== 'known' || !taskId.value.printStatus.taskId.value) throw new Error('Missing fixture task');
+      const ref: D.PrintObjectContextRef = { ...current.snapshot.target, configurationRevision: current.snapshot.configurationRevision, taskId: taskId.value.printStatus.taskId.value, token: `objects:${printerId}` as D.Id<'print-object-context'> };
+      const catalogue: D.PrintObjectSnapshot = { contextRef: ref, objects: [7, 9, 11].map(id => ({ id: `object:${id}` as D.Id<'print-object'>, name: `Part ${id}` })),
+        availability: { kind: 'available' }, skippedObjectIds: { ...taskId, value: [] }, pickingImage: { kind: 'supported', constraints: { mimeType: 'image/png' } } };
+      current.snapshot.values.printObjects = { ...taskId, value: catalogue };
+      globalThis.bambuControlFixture.objectMaps[printerId] = { contextRef: ref, mimeType: 'image/png', palette: [7, 9, 11].map(colourId => ({ colourId, objectId: `object:${colourId}` as D.Id<'print-object'> })),
+        bytes: new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAMAAAABCAIAAACUgoPjAAAAEklEQVR4nGNgZ2DgZGDgZmAAAACgAByNA9yjAAAAAElFTkSuQmCC', 'base64')) };
+    }
     ipcMain.removeHandler(channels.bambuRead);
     ipcMain.handle(channels.bambuRead, (_event, kind) => kind === 'printers.saved' ? { ok: true, value: devices }
       : kind === 'account.state' ? { status: 'signed-out', error: null }
@@ -34,8 +46,10 @@ export async function installControlFixture(app: ElectronApplication, camera = f
     ipcMain.handle(channels.bambuControl, (_event, request) => {
       const fixture = globalThis.bambuControlFixture, { method, input } = request;
       fixture.requests.push(request);
-      const target = input.target ?? input;
+      const target = input.target ?? input.contextRef ?? input;
       const current = fixture.data[target.printerId];
+      if (method === 'objectMap') return { ok: true, value: fixture.objectMaps[target.printerId] };
+      if (method === 'cancelObjectRead') return { ok: true, value: null };
       if (method === 'describe') return { ok: true, value: current.description };
       if (method === 'read') return { ok: true, value: current.snapshot };
       if (method === 'observe') { fixture.tokens.push(input.token); return { ok: true, value: null }; }
@@ -43,16 +57,17 @@ export async function installControlFixture(app: ElectronApplication, camera = f
       if (method === 'preview') return { ok: false, error: { code: 'preview-unavailable', message: 'No fixture image.' } };
       if (method === 'evaluate') return { ok: true, value: { basis: { capabilityRevision: current.description.capabilities.revision }, availability: { kind: 'available' } } };
       if (method === 'submit') {
+        if (fixture.rejectNext) { fixture.rejectNext = false; return { kind: 'rejected', error: { code: 'stale-context', message: 'Fixture immediate rejection' } }; }
         fixture.commands.push(input);
         const ref = { printerId: target.printerId, routeId: target.routeId, id: `operation-${fixture.commands.length}` };
-        fixture.operations[ref.id] = { kind: 'command', ref: ref as D.OperationRef, commandType: input.command.type, requestId: input.requestId, configurationRevision: current.description.configurationRevision, revision: 1, updatedAtMs: Date.now(), phase: input.command.type === 'motion.jog' ? { kind: 'accepted' } : { kind: 'completed', result: null, confirmation: 'observed-state' } };
+        fixture.operations[ref.id] = { kind: 'command', ref: ref as D.OperationRef, commandType: input.command.type, requestId: input.requestId, configurationRevision: current.description.configurationRevision, revision: 1, updatedAtMs: Date.now(), phase: input.command.type === 'jobs.skipObjects' ? { kind: 'sent' } : input.command.type === 'motion.jog' ? { kind: 'accepted' } : { kind: 'completed', result: null, confirmation: 'observed-state' } };
         return { kind: 'recorded', operation: ref };
       }
       if (method === 'operation') return { ok: true, value: { kind: 'found', operation: fixture.operations[input.id] } };
       throw new Error('Unexpected fixture call');
     });
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channels.bambuChanged, 'printers');
-  }, { channels: Ipc, devices, regionChoices: bambuRegionChoices, data: { 'bambu:a': controlSnapshot('a', 'External task', true, camera), 'bambu:b': controlSnapshot('b', 'Second task', true, camera) } });
+  }, { channels: Ipc, devices, objects, regionChoices: bambuRegionChoices, data: { 'bambu:a': controlSnapshot('a', 'External task', true, camera), 'bambu:b': controlSnapshot('b', 'Second task', true, camera) } });
 }
 export async function publishControlSnapshot(app: ElectronApplication, device: string, task: string, fresh = true) {
   await app.evaluate(({ BrowserWindow }, { id, data, channel }) => {
