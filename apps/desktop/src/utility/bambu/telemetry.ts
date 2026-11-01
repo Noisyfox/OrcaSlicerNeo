@@ -4,17 +4,8 @@ import n6 from '../../../../../packages/slicer-wasm/cpp/resources/printers/N6.js
 import n7 from '../../../../../packages/slicer-wasm/cpp/resources/printers/N7.json';
 import type * as D from '@orca/printer-control/domain';
 import { materialCatalogRefs, modelCatalogRefs } from './printResources';
+import { id, identifier, number, record, records, text, unknown, type Report } from './protocol';
 
-export type Report = Record<string, unknown>;
-export const record = (value: unknown): Report => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Report : {};
-export const records = (value: unknown): Report[] => Array.isArray(value) ? value.map(record) : [];
-export const number = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value
-  : typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value) && Number.isFinite(Number(value)) ? Number(value) : undefined;
-export const text = (value: unknown): string | undefined => typeof value === 'string' ? value : undefined;
-export const identifier = (value: unknown): string | undefined => typeof value === 'string' && /^\d+$/.test(value) ? value
-  : typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? String(value) : undefined;
-export const id = <K extends string>(value: string) => value as D.Id<K>;
-export const unknown = { kind: 'unknown', reason: 'not-reported' } as const;
 function bits(value: unknown, offset: number, width = 1): number | undefined {
   try {
     const raw = typeof value === 'string' && /^[a-fA-F0-9]+$/.test(value) ? BigInt(`0x${value}`)

@@ -1,3 +1,4 @@
+import type { BambuDeviceContext } from './controlContext';
 import { randomUUID } from 'node:crypto';
 import type { BambuNative, NativeEvent } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
@@ -5,9 +6,8 @@ import type { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';
 import type { BambuDevice } from '../../shared/bambuDevices';
 import { savedBambuPrinter } from '../../shared/bambuPrinters';
-import { BambuTelemetry, type TelemetryProjection } from './telemetry';
+import { BambuTelemetry } from './telemetry';
 
-export interface BambuDeviceContext extends TelemetryProjection { target: D.PrinterTarget; configurationRevision: string; model: string | null }
 /** Host-private context captured with the readings, before temporary lease cleanup. */
 type DeviceSnapshot<K extends D.StateTopic> = D.PrinterSnapshot<K> & { context: BambuDeviceContext };
 

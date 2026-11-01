@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { prepareBambuPrint } from './printValidation';
 import { printParameters } from './printParameters';
 import { printContext, printRequest } from './printFixtures';
-import { id } from './telemetry';
+import { id } from './protocol';
 const blocks = (p: ReturnType<typeof prepareBambuPrint>) => p.issues.filter(i => i.severity === 'block');
 it('reports only the stale-state prerequisite until current telemetry can validate hardware and materials', () => {
   const request = printRequest(), context = printContext({ gcode_state: 'RUNNING', aux: '0' });

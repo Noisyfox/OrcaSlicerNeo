@@ -1,3 +1,4 @@
+import type { BambuDeviceContext, BambuObjectSkippingContext, CommandContext, PreparedCommand } from './controlContext';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { SaxesParser } from 'saxes';
@@ -6,9 +7,9 @@ import type * as D from '@orca/printer-control/domain';
 import type { BambuHostConfig } from '../../shared/bambu';
 import type { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';
-import type { BambuDeviceAccess, BambuDeviceContext } from './deviceAccess';
-import type { CommandContext, PreparedCommand } from './commands';
-import { id, number, record, unknown, type TelemetryProjection } from './telemetry';
+import type { BambuDeviceAccess } from './deviceAccess';
+import type { TelemetryProjection } from './telemetry';
+import { id, number, unknown } from './protocol';
 
 const value = <T>(reading: D.Reading<T>) => reading.kind === 'known' ? reading.value : undefined;
 const failure = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });
@@ -27,7 +28,6 @@ interface Catalogue {
   key: string; fingerprint: string; plate: number; labelled: boolean; invalid: boolean; imageFailed: boolean;
   contextRef: D.PrintObjectContextRef; objects: D.PrintObjectSnapshot['objects']; labels: Map<D.Id<'print-object'>, number>; image?: Uint8Array;
 }
-export interface BambuObjectSkippingContext { snapshot: D.PrintObjectSnapshot; labels: ReadonlyMap<D.Id<'print-object'>, number> }
 interface ReadJob { target: D.PrinterTarget; key: string | null; revision?: string; controller: AbortController; done: Promise<void>; finish: () => void }
 
 function parseCatalogue(bytes: Uint8Array, plateIndex: number): { labelled: boolean; labels: number[]; names: string[] } {

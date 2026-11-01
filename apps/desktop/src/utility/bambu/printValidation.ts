@@ -1,12 +1,12 @@
+import type { BambuDeviceContext } from './controlContext';
 import type * as D from '@orca/printer-control/domain';
-import type { CommandContext } from './commands';
 import { nozzleFlowType } from './telemetry';
 import { known, mapMaterials, physicalTool } from './printMapping';
 import { filamentCatalog, filamentRules, nozzleHardness, printerFilamentId, printerPrintProfile } from './printResources';
 import { printAdvisories } from './printAdvisories';
 import { printOptions } from './printOptions';
 
-export function prepareBambuPrint(request: D.PrintPreparationRequest, context: CommandContext, route: 'lan' | 'cloud' | null): D.PrintPreparation {
+export function prepareBambuPrint(request: D.PrintPreparationRequest, context: BambuDeviceContext, route: 'lan' | 'cloud' | null): D.PrintPreparation {
   const { requirements: r } = request, p = context.report, device = context.machine;
   const profile = printerPrintProfile(context.model, context.values.firmware.find(f => f.name === 'ota')?.version);
   const topology = context.values.descriptor.topology;

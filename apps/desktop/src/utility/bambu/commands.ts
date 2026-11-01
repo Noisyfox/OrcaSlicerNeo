@@ -1,9 +1,10 @@
+import type { CommandContext, PreparedCommand } from './controlContext';
 import { createHash } from 'node:crypto';
 import type * as D from '@orca/printer-control/domain';
 import { bambuCapabilities } from '../../shared/bambuPrinters';
-import { cameraProtocol, id, number, record, records, type Report, type TelemetryProjection } from './telemetry';
-import { protocolReport } from './protocol';
-import { prepareObjectSkippingCommand, type BambuObjectSkippingContext } from './objectSkipping';
+import { cameraProtocol, type TelemetryProjection } from './telemetry';
+import { protocolReport, id, number, record, records, type Report } from './protocol';
+import { prepareObjectSkippingCommand } from './objectSkipping';
 const known = <T>(value: D.Reading<T>): T | undefined => value.kind === 'known' && value.freshness === 'fresh' ? value.value : undefined;
 const fail = (code: D.ErrorCode, message: string): D.PrinterError => ({ code, message });
 const supported = <T extends object>(constraints: T): D.Capability<T> => ({ kind: 'supported', constraints });
@@ -11,14 +12,6 @@ const nonempty = <T>(values: T[]) => values.length ? values as [T, ...T[]] : nul
 function range(value: unknown): D.Range {
   const values = Array.isArray(value) ? value.map(number) : [];
   return { min: values[0] ?? null, max: values[1] ?? null, step: 1 };
-}
-export interface CommandContext extends TelemetryProjection { target: D.PrinterTarget; configurationRevision: string; model: string | null; objectSkipping?: BambuObjectSkippingContext; recovery?: { action: D.PrinterAction; command: PreparedCommand }[] }
-export interface PreparedCommand {
-  section: 'print' | 'system'; fields: Report; qos: number;
-  /** Orca's legacy error acknowledgement also closes the printer's error UI. */
-  followUp?: Pick<PreparedCommand, 'section' | 'fields' | 'qos'>;
-  /** Only explicit report predicates confirm completion; without one, ACK ends tracking as accepted. */
-  confirmed?: (next: TelemetryProjection) => boolean;
 }
 export function commandCapabilities(context: CommandContext): D.PrinterCapabilities {
   const result = bambuCapabilities(); result.currentPrintPreview = supported({ mimeTypes: ['image/jpeg', 'image/png'] as const }); const c = result.commands;

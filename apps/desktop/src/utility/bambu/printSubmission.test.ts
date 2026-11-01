@@ -10,7 +10,7 @@ import type { BambuRepository } from './repository';
 import { BambuPrintSubmissions } from './printSubmission';
 import { printContext, printRequest, printTarget } from './printFixtures';
 import { prepareBambuPrint } from './printValidation';
-import { id } from './telemetry';
+import { id } from './protocol';
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 async function fixture(cloud = false, timelapse = false, recordingSpaceAction?: D.PrintSubmissionRequest['recordingSpaceAction'], initial?: { context: ReturnType<typeof printContext>; input: D.PrintPreparationRequest }) {

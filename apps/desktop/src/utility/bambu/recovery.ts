@@ -1,12 +1,12 @@
+import type { BambuDeviceContext, BambuRecoveryContext, PreparedCommand } from './controlContext';
 import { randomUUID } from 'node:crypto';
 import type * as D from '@orca/printer-control/domain';
-import type { CommandContext, PreparedCommand } from './commands';
 import { printErrorResource } from './errorResources';
 
 /** Recovery references belong to the current error/task episode; callers never supply protocol fields. */
 export class BambuRecovery {
   private readonly episodes = new Map<string, { key: string; id: string; tokens: Map<string, string> }>();
-  decorate(context: CommandContext): CommandContext {
+  decorate(context: BambuDeviceContext): BambuRecoveryContext {
     const machine = context.machine, error = machine.printError;
     const task = context.values.status.printStatus.taskId;
     const phase = context.values.status.printStatus.phase;
@@ -14,7 +14,7 @@ export class BambuRecovery {
     const key = JSON.stringify([context.configurationRevision, machine.toolChangeFailed, error, machine.jobId, machine.subtaskId, task.kind === 'known' ? task.value : null]);
     let episode = this.episodes.get(route);
     if (!episode || episode.key !== key) { episode = { key, id: randomUUID(), tokens: new Map() }; this.episodes.set(route, episode); }
-    const recovery: NonNullable<CommandContext['recovery']> = [];
+    const recovery: BambuRecoveryContext['recovery'] = [];
     const action = (key: string, label: string, fields: Record<string, unknown>, qos = 1, section: PreparedCommand['section'] = 'print', keepDialogOpen = false): D.PrinterAction => {
       let token = episode.tokens.get(key);
       if (!token) { token = randomUUID(); episode.tokens.set(key, token); }

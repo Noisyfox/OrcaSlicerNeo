@@ -1,7 +1,7 @@
 import type { BambuNative } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
 import type { BambuDeviceAccess } from './deviceAccess';
-import { number, record, records } from './telemetry';
+import { number, record, records } from './protocol';
 const failure = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });
 /** Only provider-owned CDN URLs are fetched, with no caller URLs, cookies or auth headers. */
 function previewUrl(value: unknown): URL | null {

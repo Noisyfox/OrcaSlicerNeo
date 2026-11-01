@@ -1,9 +1,10 @@
+import type { BambuDeviceContext, CommandContext } from './controlContext';
 import type { NativeEvent } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
-import type { BambuDeviceAccess, BambuDeviceContext } from './deviceAccess';
+import type { BambuDeviceAccess } from './deviceAccess';
 import type { BambuObjectSkipping } from './objectSkipping';
 import { BambuRecovery } from './recovery';
-import { commandCapabilities, type CommandContext } from './commands';
+import { commandCapabilities } from './commands';
 
 /** Assembles business projections over the shared device-access owner. */
 export class BambuMonitor {

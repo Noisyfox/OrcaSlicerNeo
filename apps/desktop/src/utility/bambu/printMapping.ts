@@ -1,5 +1,5 @@
 import type * as D from '@orca/printer-control/domain';
-import { id } from './telemetry';
+import { id } from './protocol';
 /** Slice indices are left-to-right; Bambu's physical main tool is on the right. */
 export const physicalTool = (index: number, count: number) => count === 2 ? 1 - index : index;
 export const known = <T>(reading: D.Reading<T>) => reading.kind === 'known' && reading.freshness === 'fresh' ? reading.value : undefined;

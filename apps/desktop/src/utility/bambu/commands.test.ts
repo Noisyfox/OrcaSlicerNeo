@@ -1,7 +1,8 @@
+import type { CommandContext } from './controlContext';
 import { expect, it } from 'vitest';
 import type * as D from '@orca/printer-control/domain';
 import { BambuTelemetry } from './telemetry';
-import { commandCapabilities, prepareCommand, type CommandContext } from './commands';
+import { commandCapabilities, prepareCommand } from './commands';
 import { BambuRecovery } from './recovery';
 import { printErrorResource } from './errorResources';
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };

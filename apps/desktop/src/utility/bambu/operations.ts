@@ -1,9 +1,10 @@
+import type { PreparedCommand } from './controlContext';
 import { randomUUID } from 'node:crypto';
 import type { NativeEvent } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
-import { commandBasis, prepareCommand, type PreparedCommand } from './commands';
+import { commandBasis, prepareCommand } from './commands';
 import { BambuMonitor } from './monitor';
-import { record, text } from './telemetry';
+import { record, text } from './protocol';
 interface Tracked {
   operation: D.CommandOperation; request: D.CommandRequest; prepared: PreparedCommand;
   generation: number; sequence: string; token: string; timer: ReturnType<typeof setTimeout>;

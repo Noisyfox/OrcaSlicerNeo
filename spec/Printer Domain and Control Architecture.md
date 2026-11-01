@@ -1033,6 +1033,13 @@ device-access queue turn that sends the command. Captured device reads retain
 their observation metadata across temporary lease cleanup; private base contexts
 never leave the utility host in public snapshots.
 
+Protocol field decoding and resource lookup must not depend on telemetry or
+feature implementations. Shared host-private control contracts distinguish base
+device state from recovery and object-skipping projections. Feature projection
+inputs use base state; command dispatch consumes the assembled context. These
+contracts must not import their implementation owners, including through type-only
+back-references. Both runtime and type-only local imports must remain acyclic.
+
 #### Object skipping follow-up
 
 **Decision status:** Design accepted; implementation authorized in independently
