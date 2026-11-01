@@ -6,7 +6,7 @@ import type * as D from '@orca/printer-control/domain';
 import type { BambuHostConfig } from '../../shared/bambu';
 import type { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';
-import type { BambuMonitor } from './monitor';
+import type { BambuDeviceAccess, BambuDeviceContext } from './deviceAccess';
 import type { CommandContext, PreparedCommand } from './commands';
 import { id, number, record, unknown, type TelemetryProjection } from './telemetry';
 
@@ -75,11 +75,11 @@ export class BambuObjectSkipping {
   private readonly cancelled = new Set<string>();
   private closed = false;
   constructor(private readonly config: BambuHostConfig, private readonly native: Pick<BambuNative, 'getCameraUrl' | 'getVersion' | 'installDeviceCertificate'>,
-    private readonly monitor: Pick<BambuMonitor, 'acquire' | 'context' | 'stop'>, private readonly devices: Pick<BambuDevices, 'list'>,
+    private readonly access: Pick<BambuDeviceAccess, 'acquire' | 'context' | 'stop'>, private readonly devices: Pick<BambuDevices, 'list'>,
     private readonly repository: Pick<BambuRepository, 'read'>, private readonly changed: () => void,
     private readonly readProjectResource: typeof readBambuProjectResource = readBambuProjectResource) {}
 
-  projectContext(context: CommandContext): BambuObjectSkippingContext | undefined {
+  projectContext(context: BambuDeviceContext): BambuObjectSkippingContext | undefined {
     const key = taskKey(context), phase = value(context.values.status.printStatus.phase);
     for (const job of this.reads.values()) if (sameTarget(job.target, context.target) && job.key !== null
       && (!context.fresh || job.key !== key || job.revision !== context.configurationRevision)) job.controller.abort();
@@ -112,7 +112,7 @@ export class BambuObjectSkipping {
     this.reads.get(readId)?.controller.abort(); this.cancelled.add(readId);
     while (this.cancelled.size > 128) this.cancelled.delete(this.cancelled.values().next().value!);
   }
-  private async resolveResourceSource(context: CommandContext) {
+  private async resolveResourceSource(context: BambuDeviceContext) {
     const device = (await this.devices.list()).find(d => `bambu:${encodeURIComponent(d.deviceId)}` === context.target.printerId);
     if (!device) throw new Error('Unavailable device');
     const settings = await this.repository.read(), route = device.routes.find(r => r.channel === 'lan');
@@ -136,7 +136,7 @@ export class BambuObjectSkipping {
       } : null,
     };
   }
-  private async withResourceRead<T>(target: D.PrinterTarget, readId: string, work: (context: CommandContext, signal: AbortSignal) => Promise<T>): Promise<D.Result<{ context: CommandContext; data: T }>> {
+  private async withResourceRead<T>(target: D.PrinterTarget, readId: string, work: (context: BambuDeviceContext, signal: AbortSignal) => Promise<T>): Promise<D.Result<{ context: BambuDeviceContext; data: T }>> {
     if (this.closed || this.cancelled.has(readId)) return failure('cancelled', 'Object information reading was cancelled.');
     if (this.reads.has(readId)) return failure('invalid-request', 'This read ID is already in use.');
     let finish!: () => void;
@@ -144,8 +144,8 @@ export class BambuObjectSkipping {
     const job: ReadJob = { target, key: null, controller: new AbortController(), done, finish }; this.reads.set(readId, job);
     let token: string | undefined;
     try {
-      const lease = await this.monitor.acquire(target); if (!lease.ok) return lease; token = lease.value;
-      const before = await this.monitor.context(target); if (!before.ok) return before;
+      const lease = await this.access.acquire(target); if (!lease.ok) return lease; token = lease.value;
+      const before = await this.access.context(target); if (!before.ok) return before;
       const context = before.value, key = taskKey(context);
       if (!context.fresh) return failure('offline', 'Wait for fresh printer status.');
       if (!context.machine.partSkipping) return failure('unsupported', 'This device has not reported object-skipping support.');
@@ -155,7 +155,7 @@ export class BambuObjectSkipping {
       job.key = key; job.revision = context.configurationRevision;
       if (job.controller.signal.aborted) return failure('cancelled', 'Object information reading was cancelled.');
       const data = await work(context, job.controller.signal);
-      const after = await this.monitor.context(target); if (!after.ok) return after;
+      const after = await this.access.context(target); if (!after.ok) return after;
       if (!after.value.fresh || taskKey(after.value) !== key || after.value.configurationRevision !== context.configurationRevision)
         return failure('stale-context', 'The task or printer configuration changed while loading object information.');
       if (job.controller.signal.aborted) return failure('cancelled', 'Object information reading was cancelled.');
@@ -163,9 +163,9 @@ export class BambuObjectSkipping {
     } catch (error) {
       if (job.controller.signal.aborted || error instanceof BambuResourceError && error.code === 'cancelled') return failure('cancelled', 'Object information reading was cancelled.');
       return failure(error instanceof BambuResourceError && error.code === 'out-of-range' ? 'out-of-range' : 'transport', 'Current task object information could not be loaded.');
-    } finally { if (token) await this.monitor.stop(token).catch(() => undefined); this.reads.delete(readId); job.finish(); }
+    } finally { if (token) await this.access.stop(token).catch(() => undefined); this.reads.delete(readId); job.finish(); }
   }
-  private async readResourceBytes(context: CommandContext, path: string, signal: AbortSignal) {
+  private async readResourceBytes(context: BambuDeviceContext, path: string, signal: AbortSignal) {
     const source = join(dirname(this.config.pluginPath), process.platform === 'win32' ? 'BambuSource.dll' : process.platform === 'darwin' ? 'libBambuSource.dylib' : 'libBambuSource.so');
     return this.readProjectResource(this.config.addonPath, source, await this.resolveResourceSource(context), path, { signal });
   }
@@ -211,8 +211,8 @@ export class BambuObjectSkipping {
       palette: [...entry.labels].map(([objectId, colourId]) => ({ objectId, colourId })) } };
   }
   async reconcileContext() {
-    if (this.entry) { const context = await this.monitor.context(this.entry.contextRef); if (!context.ok) this.entry.invalid = true; else this.projectContext(context.value); }
-    for (const [readId, job] of this.reads) { const context = await this.monitor.context(job.target); if (!context.ok || job.revision && context.value.configurationRevision !== job.revision) this.cancelRead(readId); }
+    if (this.entry) { const context = await this.access.context(this.entry.contextRef); if (!context.ok) this.entry.invalid = true; else this.projectContext(context.value); }
+    for (const [readId, job] of this.reads) { const context = await this.access.context(job.target); if (!context.ok || job.revision && context.value.configurationRevision !== job.revision) this.cancelRead(readId); }
   }
   async close() { this.closed = true; this.entry = null; const jobs = [...this.reads.values()]; for (const job of jobs) job.controller.abort(); await Promise.allSettled(jobs.map(job => job.done)); }
 }

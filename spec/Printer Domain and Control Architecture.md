@@ -1022,6 +1022,17 @@ continue to be tracked. The console specification owns these accepted behaviors
 and restoration of the last selected Device printer across all providers.
 Restoring a Moonraker selection does not authorize background observation.
 
+The provider owns one shared device-access layer for native connection selection,
+normalized base state, access leases and the serialized command queue. LAN
+access-code authorization uses that same connection owner. Resource readers,
+camera access and print submission depend on this base layer; it must not call
+back into monitoring or feature projections. Monitoring composes recovery alerts
+and current-task object state above it, with required dependencies supplied at
+construction. Command validation and business-context assembly remain inside the
+device-access queue turn that sends the command. Captured device reads retain
+their observation metadata across temporary lease cleanup; private base contexts
+never leave the utility host in public snapshots.
+
 #### Object skipping follow-up
 
 **Decision status:** Design accepted; implementation authorized in independently

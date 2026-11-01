@@ -4,10 +4,9 @@ import { join } from 'node:path';
 import type { BambuNative, NativeEvent } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
 import type { BambuSubmissionInputs } from '../../shared/bambuSubmission';
-import type { BambuMonitor } from './monitor';
+import type { BambuDeviceAccess, BambuDeviceContext } from './deviceAccess';
 import type { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';
-import type { CommandContext } from './commands';
 import { record, text } from './telemetry';
 import { prepareBambuPrint } from './printValidation';
 import { printParameters } from './printParameters';
@@ -23,11 +22,11 @@ export class BambuPrintSubmissions {
   private active: Job | null = null;
   private sequence = 800000;
   private queries = new Map<string, { deviceId: string; resolve(value: Record<string, unknown> | null): void }>();
-  constructor(private readonly native: BambuNative, private readonly monitor: BambuMonitor,
+  constructor(private readonly native: BambuNative, private readonly access: BambuDeviceAccess,
     private readonly devices: Pick<BambuDevices, 'list'>, private readonly repository: Pick<BambuRepository, 'read'>,
     private readonly directory: string, private readonly changed: () => void) {}
   private serialize<T>(fn: () => Promise<T>): Promise<T> { const next = this.queue.then(fn); this.queue = next.catch(() => undefined); return next; }
-  private async delivery(target: D.PrinterTarget, context: CommandContext, allowAbnormal = false) {
+  private async delivery(target: D.PrinterTarget, context: BambuDeviceContext, allowAbnormal = false) {
     const device = (await this.devices.list()).find(d => `bambu:${encodeURIComponent(d.deviceId)}` === target.printerId);
     const lan = device && (await this.repository.read()).lan.find(l => l.deviceId === device.deviceId && device.routes.some(r => r.channel === 'lan' && r.revision === l.revision));
     const cloud = !!device?.routes.some(r => r.channel === 'cloud');
@@ -39,16 +38,16 @@ export class BambuPrintSubmissions {
     return { device, lan, cloud, route: qualifiedLan || lan && !cloud ? 'lan' as const : cloud ? 'cloud' as const : null };
   }
   async prepare(request: D.PrintPreparationRequest): Promise<D.Result<D.PrintPreparation>> {
-    const context = await this.monitor.context(request.target);
+    const context = await this.access.context(request.target);
     if (!context.ok) return context;
     const delivery = await this.delivery(request.target, context.value, request.allowAbnormalStorage);
     const value = prepareBambuPrint(request, context.value, delivery.route);
     if (this.active && !final(this.active.state.phase)) value.issues = [...value.issues, { id: 'submission-busy', severity: 'block', message: 'Another print submission is still active.' }];
     if (request.checkRecording && value.options.timelapse && context.value.machine.internalRecording && !value.issues.some(i => i.severity === 'block')) {
-      const token = await this.monitor.acquire(request.target);
+      const token = await this.access.acquire(request.target);
       if (!token.ok) return token;
       try { value.recordingSpace = await this.recording(request.target, value.options.timelapseStorage ?? 'internal', request.requirements.layerCount); }
-      finally { await this.monitor.stop(token.value); }
+      finally { await this.access.stop(token.value); }
       if (value.recordingSpace.status === 'unknown') value.issues = [...value.issues, { id: 'recording-space-unknown', severity: 'notice', message: 'Recording space could not be checked. The timelapse might not be saved.' }];
     }
     return { ok: true, value };
@@ -59,7 +58,7 @@ export class BambuPrintSubmissions {
       const timer = setTimeout(() => { this.queries.delete(sequence); resolve(null); }, 5000);
       this.queries.set(sequence, { deviceId, resolve: value => { clearTimeout(timer); this.queries.delete(sequence); resolve(value); } });
     });
-    const sent = await this.monitor.dispatch(target, async (_c, send) => {
+    const sent = await this.access.dispatch(target, async (_c, send) => {
       const code = await send('camera', { sequence_id: sequence, command: 'ipcam_get_media_info', sub_command: 'is_timelapse_storage_enough', storage, total_layer: layers }, 1);
       return code === 0 ? { ok: true as const, value: null } : error('Recording space request failed');
     }).catch(() => error('Recording space request failed'));
@@ -74,11 +73,11 @@ export class BambuPrintSubmissions {
       const previous = [...this.jobs.values()].find(j => j.request.requestId === r.requestId && j.state.ref.printerId === r.target.printerId && j.state.ref.routeId === r.target.routeId);
       if (previous) return previous.signature === signature ? { ok: true, value: { ref: previous.state.ref, created: false } } : error('Request ID was already used for different print content.', 'invalid-request');
       if (this.active) return error('Another print submission is still active.', 'busy');
-      const token = await this.monitor.acquire(r.target); if (!token.ok) return token;
+      const token = await this.access.acquire(r.target); if (!token.ok) return token;
       let directory: string | null = null;
       const files = new Map<string, File>();
       try {
-        const context = await this.monitor.context(r.target); if (!context.ok) return context;
+        const context = await this.access.context(r.target); if (!context.ok) return context;
         const delivery = await this.delivery(r.target, context.value, r.allowAbnormalStorage);
         const prepared = prepareBambuPrint({ ...r, suggest: false }, context.value, delivery.route);
         const issue = prepared.issues.find(i => i.severity === 'block' || i.severity === 'warning' && !r.acknowledgedIssues.includes(i.id));
@@ -99,7 +98,7 @@ export class BambuPrintSubmissions {
         this.changed();
         return { ok: true, value: { ref, created: true } };
       } catch { return error('Print artifacts could not be prepared.', 'transport'); }
-      finally { if (this.active?.token !== token.value) { await Promise.allSettled([...files.values()].map(f => f.handle.close())); if (directory) await rm(directory, { recursive: true, force: true }); await this.monitor.stop(token.value); } }
+      finally { if (this.active?.token !== token.value) { await Promise.allSettled([...files.values()].map(f => f.handle.close())); if (directory) await rm(directory, { recursive: true, force: true }); await this.access.stop(token.value); } }
     });
   }
   private job(ref: D.PrintSubmissionRef) { const job = this.jobs.get(ref.id); return job?.state.ref.printerId === ref.printerId && job.state.ref.routeId === ref.routeId ? job : undefined; }
@@ -129,7 +128,7 @@ export class BambuPrintSubmissions {
   private async send(job: Job) {
     let nativeInvoked = false;
     try {
-      const context = await this.monitor.context(job.state.ref); if (!context.ok) throw new Error('Printer unavailable');
+      const context = await this.access.context(job.state.ref); if (!context.ok) throw new Error('Printer unavailable');
       const delivery = await this.delivery(job.state.ref, context.value, job.request.allowAbnormalStorage);
       const prepared = prepareBambuPrint({ ...job.request, suggest: false }, context.value, delivery.route);
       const issue = prepared.issues.find(i => i.severity === 'block' || i.severity === 'warning' && !job.request.acknowledgedIssues.includes(i.id));
@@ -138,7 +137,7 @@ export class BambuPrintSubmissions {
       if (job.request.recordingSpaceAction === 'disable-timelapse') prepared.options.timelapse = false;
       if (prepared.options.timelapse && context.value.machine.internalRecording && job.request.recordingSpaceAction === 'clean-oldest') {
         const storage = prepared.options.timelapseStorage ?? 'internal';
-        const cleanup = await this.monitor.dispatch(job.state.ref, async (_c, send) => {
+        const cleanup = await this.access.dispatch(job.state.ref, async (_c, send) => {
           if (cancelling(job)) return error('Sending cancelled.', 'cancelled');
           return await send('camera', { command: 'ipcam_delete_oldest_timelapse', sequence_id: String(++this.sequence), storage, total_layer: job.request.requirements.layerCount }, 1) === 0 ? { ok: true, value: null } : error('Recording cleanup failed.');
         });
@@ -186,7 +185,7 @@ export class BambuPrintSubmissions {
     await Promise.allSettled([...job.files.values()].map(f => f.handle.close()));
     await rm(job.directory, { recursive: true, force: true });
     if (this.active === job) this.active = null;
-    await this.monitor.stop(job.token).catch(() => undefined);
+    await this.access.stop(job.token).catch(() => undefined);
   }
   async onEvent(event: NativeEvent) {
     const job = this.active;

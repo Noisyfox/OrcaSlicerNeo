@@ -7,6 +7,7 @@ import type { BambuHostConfig } from '../../shared/bambu';
 import type { BambuDevice } from '../../shared/bambuDevices';
 import { BambuObjectSkipping } from './objectSkipping';
 import { BambuMonitor } from './monitor';
+import { BambuDeviceAccess } from './deviceAccess';
 import { BambuOperations } from './operations';
 import { commandCapabilities, prepareCommand } from './commands';
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
@@ -22,11 +23,11 @@ function fixture() {
   native.getVersion = vi.fn(async () => '02.08.01.99');
   const repository = { read: async () => ({ version: 1 as const, region: 'Others' as const, clientId: 'client', lan: [{ deviceId: 'a', name: 'Printer', model: 'H2D', ip: '192.0.2.1', accessCode: 'SECRET', revision: 'l1' }] }) };
   const catalogueChanged = vi.fn();
-  const monitor = new BambuMonitor(native, { list: async () => devices }, repository, async () => {}, () => {}, () => now, 100);
+  const access = new BambuDeviceAccess(native, { list: async () => devices }, repository, async () => {}, () => {}, () => now, 100);
   const readResource = vi.fn<typeof readBambuProjectResource>(async (_addon, _source, _route, path, _options) => path.endsWith('.png') ? png.slice() : new TextEncoder().encode(xml));
   const objectSkipping = new BambuObjectSkipping({ addonPath: '/addon', pluginPath: '/plugin/lib', directory: '/private', certificateDirectory: '/cert', osType: 'macos', osVersion: '1' } as BambuHostConfig,
-    native, monitor, { list: async () => devices }, repository, catalogueChanged, readResource);
-  monitor.useObjectSkipping(objectSkipping);
+    native, access, { list: async () => devices }, repository, catalogueChanged, readResource);
+  const monitor = new BambuMonitor(access, objectSkipping);
   const operations = new BambuOperations(monitor, () => {}, 1000, () => now);
   const push = (patch: Record<string, unknown> = {}, delta = false) => {
     report = { ...report, ...patch };
@@ -41,7 +42,7 @@ function fixture() {
   });
   return { objectSkipping, monitor, operations, native, readResource, catalogueChanged, read, push, context, command,
     setXml: (next: string) => { xml = next; }, setDevices: (next: BambuDevice[]) => { devices = next; }, advance: (ms: number) => { now += ms; },
-    close: async () => { operations.close(); await objectSkipping.close(); await monitor.close(); } };
+    close: async () => { operations.close(); await objectSkipping.close(); await access.close(); } };
 }
 
 it('reads an external current-task catalogue independently, without exposing URLs or credentials', async () => {

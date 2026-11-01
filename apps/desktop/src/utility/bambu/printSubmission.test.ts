@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type * as D from '@orca/printer-control/domain';
 import type { BambuNative, NativePrintResult, NativePrintParameters } from '@orca/bambu-native';
-import type { BambuMonitor } from './monitor';
+import type { BambuDeviceAccess } from './deviceAccess';
 import type { BambuDevices } from './devices';
 import type { BambuRepository } from './repository';
 import { BambuPrintSubmissions } from './printSubmission';
@@ -24,7 +24,7 @@ async function fixture(cloud = false, timelapse = false, recordingSpaceAction?: 
     dispatch: vi.fn(async (_target, fn) => fn(context, commands)) };
   const devices = { list: vi.fn(async () => [{ deviceId: 'fixture', name: 'H2D', routes: [{ channel: 'lan', revision: 'r1' }, ...(cloud ? [{ channel: 'cloud', revision: 'c1' }] : [])] }]) };
   const repository = { read: vi.fn(async () => ({ lan: [{ deviceId: 'fixture', revision: 'r1', ip: '127.0.0.1', accessCode: 'fixture-only' }] })) };
-  const service = new BambuPrintSubmissions(native as unknown as BambuNative, monitor as unknown as BambuMonitor, devices as unknown as BambuDevices, repository as unknown as BambuRepository, directory, vi.fn());
+  const service = new BambuPrintSubmissions(native as unknown as BambuNative, monitor as unknown as BambuDeviceAccess, devices as unknown as BambuDevices, repository as unknown as BambuRepository, directory, vi.fn());
   cleanups.push(async () => { complete?.({ code: -18, mayHaveStarted: false, cancelRequested: true }); await service.close(); await rm(directory, { recursive: true, force: true }); });
   const input = initial?.input ?? printRequest(); input.options.timelapse = timelapse;
   const prepared = prepareBambuPrint(input, context, 'lan');
