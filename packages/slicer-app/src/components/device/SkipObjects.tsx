@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type * as D from '@orca/printer-control/domain';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from '@/components/ui/dialog';
 
 const known = <T,>(reading?: D.Reading<T>) => reading?.kind === 'known' ? reading.value : undefined;
@@ -14,6 +16,7 @@ export function SkipObjects({ service, target, printerName, capability, capabili
   phase: D.PrintPhase | undefined; taskId: D.Id<'device-task'> | null | undefined; fresh: boolean;
   observed?: D.Reading<D.PrintObjectSnapshot>; onFeedback: (message: string | null) => void;
 }) {
+  const checkboxId = useId();
   const [open, setOpen] = useState(false), [loaded, setLoaded] = useState<D.PrintObjectSnapshot | null>(null);
   const [selected, setSelected] = useState<D.Id<'print-object'>[]>([]), [confirmation, setConfirmation] = useState<string | null>(null);
   const [loading, setLoading] = useState(false), [submitting, setSubmitting] = useState(false), [message, setMessage] = useState<string | null>(null);
@@ -140,7 +143,10 @@ export function SkipObjects({ service, target, printerName, capability, capabili
           </> : <>
             {map && !mapFailed ? <ObjectPickingMap map={map} selected={validSelection} skipped={skipped} onToggle={toggle} onFailure={() => setMapFailed(true)} /> : <p className="text-sm text-muted-foreground">{mapFailed || loaded.pickingImage.kind !== 'supported' ? 'The graphical view is unavailable. Use the object list.' : 'Loading graphical view… The object list is available.'}</p>}
             <div className="flex justify-between text-sm"><span>{skipped.length} skipped · {validSelection.length} selected</span><Button size="sm" variant="ghost" disabled={submitting} onClick={() => setSelected(snapshot!.objects.filter(o => !skipped.includes(o.id)).map(o => o.id))}>Select all remaining</Button></div>
-            <div className="max-h-60 overflow-y-auto space-y-2 rounded border p-3">{snapshot!.objects.map(object => <label key={object.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={validSelection.includes(object.id)} disabled={skipped.includes(object.id) || submitting} onChange={() => toggle(object.id)} />{object.name}{skipped.includes(object.id) && <span className="text-muted-foreground">(Skipped)</span>}</label>)}</div>
+            <div className="max-h-60 overflow-y-auto space-y-2 rounded border p-3">{snapshot!.objects.map(object => <div key={object.id} className="flex items-center gap-2 py-1">
+              <Checkbox id={`${checkboxId}-${object.id}`} checked={validSelection.includes(object.id)} disabled={skipped.includes(object.id) || submitting} onCheckedChange={() => toggle(object.id)} />
+              <Label htmlFor={`${checkboxId}-${object.id}`} className="flex-1">{object.name}{skipped.includes(object.id) && <span className="text-muted-foreground">(Skipped)</span>}</Label>
+            </div>)}</div>
           </>}
         </>}
         <DialogFooter>

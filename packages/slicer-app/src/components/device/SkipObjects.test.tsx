@@ -24,7 +24,7 @@ async function fixture() {
   const render = async (patch: Partial<typeof props> = {}) => { props = { ...props, ...patch }; await act(async () => root.render(<SkipObjects {...props} />)); };
   const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === text || b.getAttribute('aria-label') === text)!;
   const click = async (text: string) => act(async () => button(text).click());
-  const select = async (n: number) => act(async () => { [...document.querySelectorAll('label')].find(l => l.textContent?.includes(`Part ${n}`))!.querySelector<HTMLInputElement>('input')!.click(); });
+  const select = async (n: number) => act(async () => { [...document.querySelectorAll('label')].find(l => l.textContent?.includes(`Part ${n}`))!.click(); });
   const dialog = () => document.querySelector('[role="dialog"]');
   await render();
   return { render, click, select, button, dialog, submit, evaluate, read, feedback, close: async () => { await act(async () => root.unmount()); element.remove(); } };
@@ -81,7 +81,7 @@ it('retains selection across stale recovery and removes externally skipped objec
     await f.render({ observed: known({ ...initial, skippedObjectIds: known(['o1' as D.Id<'print-object'>]) }) });
     expect(f.dialog()?.textContent).toContain('1 skipped · 1 selected');
     expect(f.button('Confirm skip')).toBeUndefined();
-    expect([...document.querySelectorAll<HTMLInputElement>('input')].filter(i => i.checked)).toHaveLength(1);
+    expect(document.querySelectorAll('[role="checkbox"][aria-checked="true"]')).toHaveLength(1);
     await f.click('Review selection'); await f.click('Confirm skip');
     expect(f.submit.mock.calls[0][0].command).toMatchObject({ params: { objectIds: ['o2'], intent: 'skip-selected' } });
   } finally { await f.close(); }

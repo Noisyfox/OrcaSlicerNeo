@@ -22,6 +22,11 @@ test('current-task objects synchronize map/list, guard confirmations and allow i
     await expect(page.getByLabel('Skipped objects')).toHaveCount(0);
     expect(await app.evaluate(() => globalThis.bambuControlFixture.commands)).toHaveLength(0);
     await entry.click(); await expect(dialog).toBeVisible();
+    const part9 = dialog.getByRole('checkbox', { name: 'Part 9', exact: true });
+    await part9.focus(); await part9.press('Space'); await expect(part9).toBeChecked();
+    await part9.press('Space'); await expect(part9).not.toBeChecked();
+    await dialog.getByText('Part 9', { exact: true }).click(); await expect(part9).toBeChecked();
+    await part9.uncheck();
     expect(await page.getByTestId('device-printer-select').evaluate(element => !!element.closest('[inert]') || !!element.closest('[aria-hidden="true"]'))).toBe(true);
     const map = dialog.getByRole('img'); await expect(map).toBeVisible();
     await expect.poll(() => map.evaluate(node => (node as HTMLCanvasElement).width)).toBe(3);
