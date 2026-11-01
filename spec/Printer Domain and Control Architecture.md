@@ -1199,7 +1199,7 @@ To reproduce the producer-to-consumer check from the repository root:
 
 ```sh
 node packages/slicer-wasm/harness/print-submission-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js /tmp/orca-object-resources
-ORCA_OBJECT_RESOURCES=/tmp/orca-object-resources pnpm --filter @orca/desktop exec vitest run src/utility/bambu/objects.test.ts
+ORCA_OBJECT_RESOURCES=/tmp/orca-object-resources pnpm --filter @orca/desktop exec vitest run src/utility/bambu/objectSkipping.test.ts
 ```
 
 The output directory is a generated local test artifact. Ordinary unit runs skip

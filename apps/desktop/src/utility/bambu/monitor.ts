@@ -8,15 +8,15 @@ import type { BambuRepository } from './repository';
 import type { BambuDevice } from '../../shared/bambuDevices';
 import { savedBambuPrinter } from '../../shared/bambuPrinters';
 import { BambuTelemetry } from './telemetry';
-import type { BambuObjects } from './objects';
+import type { BambuObjectSkipping } from './objectSkipping';
 
 type Entry = { deviceId: string; device: BambuDevice; account: boolean; reports: { cloud: number; lan: number }; printer: D.SavedPrinter; route: D.PrinterRoute; target: D.PrinterTarget; telemetry: BambuTelemetry };
 const error = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });
 /** One ordinary native selection per Electron instance. Tokens only bind IPC stream cleanup. */
 export class BambuMonitor {
   private readonly recovery = new BambuRecovery();
-  private objects?: BambuObjects;
-  useObjects(objects: BambuObjects) { this.objects = objects; }
+  private objects?: BambuObjectSkipping;
+  useObjects(objects: BambuObjectSkipping) { this.objects = objects; }
   private readonly cache = new Map<string, Entry>();
   private active: Entry | null = null;
   private readonly tokens = new Set<string>();

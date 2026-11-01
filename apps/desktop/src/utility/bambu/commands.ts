@@ -3,7 +3,7 @@ import type * as D from '@orca/printer-control/domain';
 import { bambuCapabilities } from '../../shared/bambuPrinters';
 import { cameraProtocol, id, number, record, records, type Report, type TelemetryProjection } from './telemetry';
 import { protocolReport } from './protocol';
-import { prepareObjectCommand, type BambuObjectContext } from './objects';
+import { prepareObjectCommand, type BambuObjectContext } from './objectSkipping';
 const known = <T>(value: D.Reading<T>): T | undefined => value.kind === 'known' && value.freshness === 'fresh' ? value.value : undefined;
 const fail = (code: D.ErrorCode, message: string): D.PrinterError => ({ code, message });
 const supported = <T extends object>(constraints: T): D.Capability<T> => ({ kind: 'supported', constraints });

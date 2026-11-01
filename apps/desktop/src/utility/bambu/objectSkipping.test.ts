@@ -5,7 +5,7 @@ import type { readBambuProjectResource, BambuNative } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
 import type { BambuHostConfig } from '../../shared/bambu';
 import type { BambuDevice } from '../../shared/bambuDevices';
-import { BambuObjects } from './objects';
+import { BambuObjectSkipping } from './objectSkipping';
 import { BambuMonitor } from './monitor';
 import { BambuOperations } from './operations';
 import { commandCapabilities, prepareCommand } from './commands';
@@ -24,7 +24,7 @@ function fixture() {
   const catalogueChanged = vi.fn();
   const monitor = new BambuMonitor(native, { list: async () => devices }, repository, async () => {}, () => {}, () => now, 100);
   const readResource = vi.fn<typeof readBambuProjectResource>(async (_addon, _source, _route, path, _options) => path.endsWith('.png') ? png.slice() : new TextEncoder().encode(xml));
-  const objects = new BambuObjects({ addonPath: '/addon', pluginPath: '/plugin/lib', directory: '/private', certificateDirectory: '/cert', osType: 'macos', osVersion: '1' } as BambuHostConfig,
+  const objects = new BambuObjectSkipping({ addonPath: '/addon', pluginPath: '/plugin/lib', directory: '/private', certificateDirectory: '/cert', osType: 'macos', osVersion: '1' } as BambuHostConfig,
     native, monitor, { list: async () => devices }, repository, catalogueChanged, readResource);
   monitor.useObjects(objects);
   const operations = new BambuOperations(monitor, () => {}, 1000, () => now);

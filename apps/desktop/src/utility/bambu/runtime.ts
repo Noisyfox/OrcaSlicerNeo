@@ -4,7 +4,7 @@ import type { BambuMediaRequest, BambuMediaAttachment } from '../../shared/bambu
 import type { CameraPort } from './mediaChannel';
 import { readCurrentPrintPreview } from './preview';
 import { BambuOperations } from './operations';
-import { BambuObjects } from './objects';
+import { BambuObjectSkipping } from './objectSkipping';
 import type { BambuControlRequest } from '../../shared/bambuControl';
 import { BambuMonitor } from './monitor';
 import { mkdir } from 'node:fs/promises';
@@ -25,7 +25,7 @@ export class BambuRuntime {
   private monitor: BambuMonitor | null = null;
   private media: BambuMedia | null = null;
   private operations: BambuOperations | null = null;
-  private objects: BambuObjects | null = null;
+  private objects: BambuObjectSkipping | null = null;
   private submissions: BambuPrintSubmissions | null = null;
   private account: BambuAccount | null = null;
   private state: AccountState = { status: 'restoring', error: null };
@@ -66,7 +66,7 @@ export class BambuRuntime {
       await ok(agent.installDiscoveryCallbacks());
       await agent.startDiscovery(true, false);
       this.monitor = new BambuMonitor(agent, this.devices, this.repository, () => this.lan!.release(), () => this.publish('control'));
-      this.objects = new BambuObjects(this.config, agent, this.monitor, this.devices, this.repository, () => this.publish('control'));
+      this.objects = new BambuObjectSkipping(this.config, agent, this.monitor, this.devices, this.repository, () => this.publish('control'));
       this.monitor.useObjects(this.objects);
       this.media = new BambuMedia(this.config, agent, this.monitor, this.devices, this.repository, () => this.publish('media'));
       this.submissions = new BambuPrintSubmissions(agent, this.monitor, this.devices, this.repository, join(this.config.directory, 'submissions'), () => this.publish('control'));

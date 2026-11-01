@@ -69,7 +69,7 @@ function catalogue(bytes: Uint8Array, plateIndex: number): { labelled: boolean; 
 }
 
 /** Owns one current catalogue/map; command admission only uses its validated references. */
-export class BambuObjects {
+export class BambuObjectSkipping {
   private entry: Catalogue | null = null;
   private readonly reads = new Map<string, ReadJob>();
   private readonly cancelled = new Set<string>();
