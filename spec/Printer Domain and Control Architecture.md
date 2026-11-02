@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-11-01
+**Updated:** 2026-11-02
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -1263,6 +1263,90 @@ contract changes must keep every producer, consumer and fixture buildable.
 | Monitor interaction | Capability-gated modal picking/list flow and all accepted selection/confirmation/count behavior | Component tests and focused Electron journeys, including image-unavailable fallback |
 | Integrated acceptance | Producer-to-consumer software regression with qualification limits stated | Repository tests/typecheck, affected host/WASM checks and separately recorded physical acceptance |
 
+#### Material information configuration follow-up
+
+**Decision status:** Design accepted; Orca is the selected behavioral reference.
+Product behavior and accepted interaction decisions are owned by the
+[console design](Printer%20Console%20and%20Control%20Integration.md#material-information-configuration).
+This follow-up does not authorize implementation or claim device qualification.
+
+Keep the existing shared material-unit, slot, path and tool model. AMS and
+external holders use the same normalized information-editing flow; vendor
+addresses, catalogue translation, firmware flags and RFID classification belong
+to the Bambu provider. Shared components do not parse virtual holder IDs or
+construct protocol payloads. Preserve existing printer/route/configuration
+provenance and command checks; the selected Orca-aligned design adds no separate
+material-version conflict interaction.
+
+**Native catalogue boundary:** Add a typed read-only query through the existing
+client/runtime/Worker boundary. Reuse
+[PresetBundle](../packages/slicer-wasm/cpp/src/libslic3r/PresetBundle.cpp)'s
+device-oriented candidate and variant helpers and reproduce the relevant
+[dialog](../packages/slicer-wasm/cpp/src/slic3r/GUI/AMSMaterialsSetting.cpp)
+selection and ordering rules without building wxWidgets for WASM. The existing
+project-compatible filament catalogue cannot stand in for that query. Native
+code owns profile inheritance, candidate compatibility, identities and resolved
+temperature values. Querying must not switch or mutate the active project,
+edited presets, visibility or history. No Orca core/submodule change is currently
+identified as necessary; discovering one requires reassessing that boundary.
+Candidate sources are the system and saved user libraries, subject to Orca's
+existing native eligibility checks. Project-embedded presets, unsaved overlays
+and retained snapshots do not become independent candidates or supply their
+temporary effective values to device writes. Preserve the saved/root identity
+when resolving project-use ordering.
+
+**Material contract boundary:** Extend the single current normalized contract
+to represent the applicable nozzle-temperature range, selected material's
+preset association and typed slot-scoped Confirm/Reset intent. Model writable
+information separately from action availability: RFID-derived information can
+remain read-only while Confirm/Reset perform automatic calibration operations.
+Do not fabricate a metadata patch to execute a calibration-only action. Direct
+K/N editing, user-selected calibration results and calibration launch remain
+outside this follow-up; its automatic calibration effects are explicitly in
+scope. Keep material catalogue identity distinct from a preset setting identity,
+and distinguish information clearing from physical filament presence. Use the
+saved-library eligibility above. Exact normalized fields are implementation
+details within these boundaries. Update producers, consumers, adapters, mocks
+and compile fixtures together. Do not introduce a parallel Bambu-only editor
+contract or arbitrary vendor payload escape hatch.
+
+**Provider execution boundary:** Reuse existing native networking and operation
+tracking. Follow
+[MachineObject::command_ams_filament_settings](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.cpp)
+for setting fields, clear values and AMS/external address conversion, including
+the independently reported dual-tool external holders. Preserve Orca's
+device/protocol-specific automatic calibration writes and result-association
+selection/reset on Confirm/Reset, in the reference order after any applicable
+material-information write. An RFID-only action omits the information write.
+Derive internal calibration state/defaults from the reference rules and device
+context, without adding calibration editing controls or asking shared React to
+construct protocol commands. Keep Orca/Bambu filament identity translation
+inside the agent. All protocol steps retain the original target and
+configuration provenance and require separately correlated outcomes. Preserve
+the reference's independent ordered dispatch: attempt the later calibration
+step even after an earlier information-write send failure, without waiting for
+the earlier step's acknowledgement. Continuation does not permit retargeting
+or bypassing existing access/configuration checks. Track the sequence as one
+user intent with separate step outcomes; no early acknowledgement or successful
+step may mask another step's failure or unknown outcome. This is not an atomic
+transaction and has no automatic rollback or retry.
+
+Add corresponding setting-reply/cache handling as well as status-report updates;
+current telemetry primarily consumes push status. Distinguish device acceptance
+from state confirmed by applicable device reports, and do not promote an outgoing
+request to observed inventory. The dialog closes after successful provider
+submission, independently of outcome tracking, as specified by the console
+owner. Transport dispatch success alone is not proof of confirmed physical
+state. Late replies remain bound to the original operation, target and
+configuration even after the editor closes or device selection changes.
+
+Verification must distinguish native query purity and catalogue parity, typed
+contract coherence, exact provider requests and responses, and shared interaction
+from real printer writes. Both existing LAN and Cloud execution paths are in
+scope; initial physical qualification is H2D over LAN, with Cloud covered by
+software verification only. No software fixture or existing read-only material
+acceptance establishes configuration-write qualification.
+
 #### Contract extension boundaries
 
 The current typed contract includes `jobs.setSpeed` with discoverable mode IDs
@@ -1306,6 +1390,9 @@ timelapse/resolution settings, object-skipping, material-metadata editing, manua
 RFID re-read, drying-control or AMS behavior-settings executors for the original
 control increment. Object skipping has a separately accepted
 [follow-up design](#object-skipping-follow-up), with implementation unstarted.
+Material information configuration has a separate
+[documentation-stage follow-up](#material-information-configuration-follow-up);
+its executor remains outside the original control increment.
 Drying/environment observations remain included. These restrictions do not remove
 load/unload/switch, contextual recovery or supported nozzle re-identification.
 Their exclusion from this implementation does not remove existing general domain

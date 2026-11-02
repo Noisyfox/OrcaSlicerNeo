@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-11-01
+**Updated:** 2026-11-02
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
@@ -715,7 +715,7 @@ freshness feedback remain visible. Narrow content areas stack the sections
 without horizontal overflow; mobile support remains deferred. Selection
 persistence is defined under Console selection and behavior below.
 
-The accepted feature envelope is:
+The original Bambu control increment's accepted feature envelope is:
 
 | Area | Accepted coverage |
 | --- | --- |
@@ -1042,8 +1042,11 @@ explain why the operation is unavailable. Keep protocol-specific values private.
 See the load/unload handlers above and the declaration in
 [DeviceManager](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.hpp).
 
-Material metadata is read-only. Exclude material-preset, color, temperature-range
-and K/N/calibration-result editing; do not import or modify project presets.
+Material metadata is read-only in the original control increment. Its
+material-preset, color and temperature-range exclusions have a separately scoped
+[configuration design](#material-information-configuration) below; that design
+is not delivered behavior. Direct K/N/calibration-result editing remains excluded;
+do not import or modify project presets through device controls.
 No manual RFID re-read is offered; identification results update from device
 reports. These exclusions do not remove load, unload, switch or supported inline
 recovery actions. Nozzle hardware re-identification remains a separate accepted
@@ -1060,6 +1063,129 @@ remaining capacity. Orca provides a broader set of controls in
 [AMSDryControl](../packages/slicer-wasm/cpp/src/slic3r/GUI/AMSDryControl.cpp)
 and [AMSSetting](../packages/slicer-wasm/cpp/src/slic3r/GUI/AMSSetting.cpp);
 those controls are intentionally outside this delivery.
+
+#### Material information configuration
+
+**Decision status:** Design accepted after grouped clarification, using Orca as
+the behavioral reference. Only documentation work is authorized. No material
+configuration executor or editor is implemented or authorized by this record.
+The [domain follow-up](Printer%20Domain%20and%20Control%20Architecture.md#material-information-configuration-follow-up)
+owns execution, native query and command-contract boundaries.
+
+The accepted feature scope is configuring the material identity, color and
+associated nozzle-temperature range of AMS slots and external holders. Follow
+Orca's existing information-setting workflow rather than designing alternative
+material filtering, temperature overrides or material-version conflict dialogs.
+Direct K/N editing, a calibration-result selector and calibration launch remain
+separate follow-up work. Confirm/Reset retain Orca's automatic calibration
+parameter/association updates even though those editing controls are absent.
+Manual RFID re-read, drying control and AMS behavior settings are outside this
+scope.
+
+Use Orca's current
+[AMSMaterialsSetting](../packages/slicer-wasm/cpp/src/slic3r/GUI/AMSMaterialsSetting.cpp)
+and the AMS/external edit handlers in
+[StatusPanel](../packages/slicer-wasm/cpp/src/slic3r/GUI/StatusPanel.cpp)
+as the behavioral reference:
+
+- AMS slots and external holders expose a per-slot action opening the same
+  modal information dialog, populated from the selected physical slot. Preserve
+  device/tool labels and identities, including in read-only presentations.
+- Build compatible candidates for the connected machine through Orca's native
+  preset rules, including its root-preset eligibility, firmware user-preset
+  support check, filament-identity deduplication and alias display. Preserve
+  the reference nozzle-information fallback and selection behavior.
+- Preserve the reference order: materials used by the project are promoted,
+  followed by vendor, material type and name ordering. The current Prepare
+  picker is not a replacement for this device-oriented catalogue. Keep Orca's
+  single ordered list; this device-material catalogue does not adopt the
+  project/library preset selectors' section grouping.
+- Selecting a material supplies its type, preset association and applicable
+  temperature-range variant. The temperature range is displayed read-only;
+  it is not a heater target or a free-form override. Color editing follows
+  the reference picker behavior and slot restrictions.
+- Preserve the reference material checks before dispatch, including applicable
+  device, slot and nozzle restrictions. Prohibitions block the operation;
+  warnings are presented using the reference interaction. Vendor-rule
+  evaluation belongs to the provider rather than shared React.
+- Preserve RFID-derived material information as read-only and follow the
+  reference's printing/resumable-task restrictions and firmware support flag.
+  Non-FDM processing modes remain view-only.
+- Retain the reference information-clear confirmation, metadata-clearing
+  behavior and automatic calibration coupling. Confirm performs the applicable
+  reference calibration write/selection; Reset also resets calibration
+  parameters or their result association as required by the device/protocol.
+  This is not a calibration measurement or an additional calibration editor.
+- RFID-identified slots retain Confirm/Reset subject to the reference's device,
+  task-state and data requirements. These actions skip material-information
+  writes but still perform the applicable calibration operations. Explain this
+  effect in the dialog and in Reset confirmation: they cannot clear RFID-derived
+  material information. Read-only information does not imply that every action
+  in the dialog is read-only.
+
+Device configuration and project material synchronization remain separate.
+Reading candidates and editing a physical slot do not select project presets,
+rebuild the project rack or add a project Undo/Redo operation. Existing explicit
+Prepare synchronization retains its own rules.
+
+Catalogue candidates come from the system library and saved user library only,
+and still have to satisfy Orca's native root-preset, device-compatibility and
+firmware user-preset rules. This does not offer every saved user preset.
+Project-embedded presets, unsaved edits and retained history snapshots are not
+independent device-material candidates. Use saved definitions rather than
+temporary effective project values; project-use promotion must not introduce
+those temporary identities into the device catalogue.
+
+The shared React presentation must use normalized capabilities, observations,
+the slicer runtime and printer service. Initial Bambu execution uses the existing
+Electron provider; this design adds no browser Bambu transport or gateway.
+Mobile interaction remains deferred under the shared architecture. The native
+query stays on the existing slicer Worker and returns bounded catalogue data;
+this feature requires no additional renderer-side profile parser or background
+polling loop.
+
+Both existing Bambu LAN and Cloud command paths are in the functional scope.
+The first physical acceptance target is H2D with AMS and independently addressed
+external holders over LAN. Cloud receives software verification in this initial
+round and remains explicitly unqualified on real hardware. Neither that
+software coverage nor H2D LAN acceptance qualifies other devices or firmware.
+
+After local validation and provider submission have succeeded, Confirm/Reset
+close the dialog without waiting for printer acknowledgement or final state,
+following Orca. A local validation or submission rejection keeps the dialog open
+with its explanation. Closing does not mean the device confirmed the change.
+The Monitor owns later failure, partial-result and unknown-outcome feedback;
+dialog lifetime must not cancel a submitted physical operation or its tracking.
+
+Retain Orca's ordered, independent dispatch of the applicable information write
+and automatic calibration commands. Even if an earlier step returns an explicit
+send failure, still attempt the later calibration step on the original target.
+Do not add a preceding-step acknowledgement barrier or turn the workflow into
+an atomic transaction. Record each step's result separately and explain partial
+effects. A late failure cannot retract a command already dispatched. Never
+automatically retry or roll back the sequence, and do not report whole-operation
+success merely because one step succeeded or the transport returned success.
+
+Opening the modal binds its printer, route, configuration and physical slot;
+it cannot follow a later selection to a different target. If that context becomes
+unusable before submission, invalidate the editor and require reopening it from
+the current device. Once submitted, the existing target-bound operation rules
+apply: switching printers or closing the dialog does not reassign, repeat or
+cancel its commands. Late responses update only the original operation and
+applicable device cache. Existing freshness, permission and configuration checks
+remain in force, without adding a material-version conflict dialog.
+
+Acceptance must cover native candidate/temperature parity, RFID and task-state
+restrictions, AMS and independently addressed external holders, information
+clear, automatic calibration effects including RFID-only actions, writeback
+feedback, and absence of project mutation. Physical acceptance must retain and
+restore the original material and calibration settings changed by the tests.
+Cover ordered dispatch after an earlier send failure, partial results, missing
+or late acknowledgements, dialog closure and target changes independently.
+Software tests do not establish device write permission, firmware acceptance or
+physical qualification. Follow the repository
+[testing guidelines](../doc/testing_guidelines.md); keep LAN/Cloud and
+device-specific acceptance limits explicit.
 
 #### Accepted observation and access behavior
 
