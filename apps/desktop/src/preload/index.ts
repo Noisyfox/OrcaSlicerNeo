@@ -152,6 +152,7 @@ const bridge: ElectronBridge = {
 
   externalLinks: {
     openSource: () => ipcRenderer.invoke(Ipc.openSource) as Promise<void>,
+    openHttps: (url: string) => ipcRenderer.invoke(Ipc.openHttps, url) as Promise<void>,
   },
 
   // Used by the renderer to clear the macOS traffic-light zone in the

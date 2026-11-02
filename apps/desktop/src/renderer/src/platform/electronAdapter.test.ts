@@ -14,7 +14,7 @@ function setup(overrides: Record<string, unknown> = {}) {
       onCommand: vi.fn(() => () => {}),
       executeHostCommand: vi.fn(async () => {}),
     };
-    const externalLinks = { openSource: vi.fn(async () => {}) };
+    const externalLinks = { openSource: vi.fn(async () => {}), openHttps: vi.fn(async () => {}) };
     const configurationLoad = vi.fn<() => Promise<PrinterConfigurationDocument>>(async () => ({ version: 1, printers: [] }));
     const configurationSave = vi.fn(async () => {});
     const transport = {

@@ -10,6 +10,10 @@ import { BambuMonitor } from './monitor';
 import { BambuDeviceAccess } from './deviceAccess';
 import { BambuOperations } from './operations';
 import { commandCapabilities, prepareCommand } from './commands';
+function prepareStep(...args: Parameters<typeof prepareCommand>) {
+  const result = prepareCommand(...args);
+  return result.ok ? { ok: true as const, value: result.value.commands[0] } : result;
+}
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 const metadata = (count = 3, enabled = true) => `<config><plate><metadata key="index" value="1"/><object identify_id="99" name="Other plate"/></plate><plate><metadata key="index" value="2"/><metadata key="label_object_enabled" value="${enabled}"/>${Array.from({ length: count }, (_, i) => `<object identify_id="${7 + i * 2}" name="Part ${i}"/>`).join('')}</plate></config>`;
 function fixture() {
@@ -79,7 +83,7 @@ it('projects an old task snapshot without invalidating the new catalogue or canc
     expect(f.objectSkipping.snapshotContext(historical)).toBeUndefined();
     expect(signal?.aborted).toBe(false);
     finish(); expect(await pending).toMatchObject({ ok: true, value: { value: { contextRef: current.contextRef } } });
-    expect(prepareCommand(await f.context(), f.command(current))).toMatchObject({ ok: true });
+    expect(prepareStep(await f.context(), f.command(current))).toMatchObject({ ok: true });
   } finally { finish?.(); await pending; await f.close(); }
 });
 
@@ -104,7 +108,7 @@ it('falls back to the list after an image error while preserving a valid catalog
     f.readResource.mockRejectedValueOnce(new Error('PRIVATE URL SECRET'));
     expect(await f.objectSkipping.readPickingMap(snapshot.contextRef)).toMatchObject({ ok: false, error: { message: 'Current task object information could not be loaded.' } });
     expect((await f.context()).objectSkipping?.snapshot).toMatchObject({ contextRef: snapshot.contextRef, availability: { kind: 'available' }, pickingImage: { kind: 'unsupported' } });
-    expect(prepareCommand(await f.context(), f.command(snapshot))).toMatchObject({ ok: true, value: { fields: { command: 'skip_objects', obj_list: [7] }, qos: 1 } });
+    expect(prepareStep(await f.context(), f.command(snapshot))).toMatchObject({ ok: true, value: { fields: { command: 'skip_objects', obj_list: [7] }, qos: 1 } });
   } finally { await f.close(); }
 });
 
@@ -112,12 +116,12 @@ it('updates only device-reported skipped IDs, invalidates selected skipped objec
   const f = fixture(); try {
     await f.monitor.start(target, 'view'); const snapshot = await f.read();
     const ordinary = f.command(snapshot, [0, 1]);
-    expect(prepareCommand(await f.context(), ordinary)).toMatchObject({ ok: true, value: { fields: { command: 'skip_objects', obj_list: [7, 9] } } });
+    expect(prepareStep(await f.context(), ordinary)).toMatchObject({ ok: true, value: { fields: { command: 'skip_objects', obj_list: [7, 9] } } });
     await f.push({ s_obj: [11] }, true);
-    expect(prepareCommand(await f.context(), ordinary)).toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
-    expect(prepareCommand(await f.context(), f.command(snapshot, [0, 1], 'cancel-print'))).toMatchObject({ ok: true, value: { fields: { command: 'stop', param: '' } } });
+    expect(prepareStep(await f.context(), ordinary)).toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
+    expect(prepareStep(await f.context(), f.command(snapshot, [0, 1], 'cancel-print'))).toMatchObject({ ok: true, value: { fields: { command: 'stop', param: '' } } });
     await f.push({ s_obj: [7, 11] }, true);
-    expect(prepareCommand(await f.context(), ordinary)).toMatchObject({ ok: false, error: { code: 'stale-context' } });
+    expect(prepareStep(await f.context(), ordinary)).toMatchObject({ ok: false, error: { code: 'stale-context' } });
     expect((await f.context()).objectSkipping?.snapshot.skippedObjectIds).toMatchObject({ kind: 'known', value: [snapshot.objects[0].id, snapshot.objects[2].id] });
   } finally { await f.close(); }
 });
@@ -142,10 +146,10 @@ it('preserves same-task context through stale status but rejects a changed task/
   const f = fixture(); try {
     await f.monitor.start(target, 'view'); const snapshot = await f.read();
     f.advance(16_000);
-    expect(prepareCommand(await f.context(), f.command(snapshot))).toMatchObject({ ok: false, error: { code: 'offline' } });
+    expect(prepareStep(await f.context(), f.command(snapshot))).toMatchObject({ ok: false, error: { code: 'offline' } });
     await f.push(); expect((await f.context()).objectSkipping?.snapshot.contextRef).toEqual(snapshot.contextRef);
     await f.push({ subtask_id: 'new-task' }, true);
-    expect(prepareCommand(await f.context(), f.command(snapshot))).toMatchObject({ ok: false, error: { code: 'stale-context' } });
+    expect(prepareStep(await f.context(), f.command(snapshot))).toMatchObject({ ok: false, error: { code: 'stale-context' } });
     expect(await f.objectSkipping.readPickingMap(snapshot.contextRef)).toMatchObject({ ok: false, error: { code: 'stale-context' } });
   } finally { await f.close(); }
 });
@@ -173,7 +177,7 @@ it('does not turn missing skipped state into an empty set, and enforces label an
     expect((await f.context()).objectSkipping?.snapshot.skippedObjectIds.kind).toBe('unknown');
     f.setXml(metadata(3, false)); const disabled = await f.read();
     expect(disabled.availability).toMatchObject({ kind: 'blocked', reasons: [{ message: expect.stringContaining('not sliced') }] });
-    expect(prepareCommand(await f.context(), f.command(snapshot))).toMatchObject({ ok: false });
+    expect(prepareStep(await f.context(), f.command(snapshot))).toMatchObject({ ok: false });
   } finally { await f.close(); }
 });
 
@@ -211,7 +215,7 @@ it('invalidates configuration revisions and cancels in-flight resources when the
     await f.monitor.start(target, 'view'); const snapshot = await f.read();
     f.setDevices([{ deviceId: 'a', name: 'Printer', model: 'H2D', routes: [{ channel: 'cloud', revision: 'c2' }] }]);
     await f.objectSkipping.reconcileContext();
-    expect(prepareCommand(await f.context(), f.command(snapshot)).ok).toBe(false);
+    expect(prepareStep(await f.context(), f.command(snapshot)).ok).toBe(false);
   } finally { await f.close(); }
   const g = fixture(); try {
     await g.monitor.start(target, 'view');
@@ -253,10 +257,10 @@ it.skipIf(!process.env.ORCA_OBJECT_RESOURCES)('consumes real WASM object package
       expect(image.ok && image.value.bytes).toEqual(new Uint8Array(png));
       if (count > 64) {
         expect(snapshot.availability).toMatchObject({ kind: 'blocked' });
-        expect(prepareCommand(await f.context(), f.command(snapshot))).toMatchObject({ ok: false, error: { code: 'out-of-range' } });
+        expect(prepareStep(await f.context(), f.command(snapshot))).toMatchObject({ ok: false, error: { code: 'out-of-range' } });
       } else {
         expect(snapshot.availability).toEqual({ kind: 'available' });
-        const command = prepareCommand(await f.context(), f.command(snapshot, Array.from({ length: count - 1 }, (_, i) => i)));
+        const command = prepareStep(await f.context(), f.command(snapshot, Array.from({ length: count - 1 }, (_, i) => i)));
         expect(command.ok).toBe(true);
         if (!command.ok || !image.ok) throw new Error('Missing integration result');
         expect(command.value.fields.obj_list).toEqual(image.value.palette.slice(0, -1).map(p => p.colourId));
@@ -274,7 +278,7 @@ it('does not inherit a previous object skip report across job, plate or file tra
       await f.push({ s_obj: [7] }, true);
       await f.push({ ...patch, plate_idx: 'plate_idx' in patch ? patch.plate_idx : 2 }, true);
       if ('plate_idx' in patch) f.setXml(metadata().replace('value="2"', 'value="3"'));
-      expect(prepareCommand(await f.context(), f.command(previous))).toMatchObject({ ok: false });
+      expect(prepareStep(await f.context(), f.command(previous))).toMatchObject({ ok: false });
       const next = await f.read();
       expect(next.skippedObjectIds).toMatchObject({ kind: 'unknown' });
       expect(next.availability).toMatchObject({ kind: 'blocked' });

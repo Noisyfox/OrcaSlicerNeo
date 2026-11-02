@@ -145,5 +145,5 @@ export class BambuRuntime {
     if (this.media) this.media.attach(owner, request, port); else port.close();
   }
   async mediaCloseOwner(owner: string) { await this.ready; await this.media?.closeOwner(owner); }
-  async close() { await this.ready; this.operations?.close(); await this.submissions?.close(); await this.objectSkipping?.close(); await this.media?.close(); await this.access?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
+  async close() { await this.ready; this.operations?.close(); this.monitor?.close(); await this.submissions?.close(); await this.objectSkipping?.close(); await this.media?.close(); await this.access?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
 }

@@ -11,6 +11,8 @@ async function launch(mode: string, browser: 'picked' | 'failed' | 'missing' = '
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
   const page = await app.firstWindow();
+  // Let the initial utility-process connection finish before reloading to install the browser fixture.
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30000 });
   await page.addInitScript(mode => {
     const state = window as typeof window & { __browserSamples?: number };
     state.__browserSamples = 0;

@@ -141,12 +141,15 @@ describe('browser adapter', () => {
     expect(anchor.download).toBe('Untitled.3MF');
   });
 
-  it('supplies browser menu mode and opens only the fixed source URL', () => {
+  it('supplies browser menu mode and validates external documentation URLs', () => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null);
     const adapter = createBrowserAdapter({} as never);
     expect(adapter.chrome.menuMode).toBe('browser');
     expect(adapter.menu.syncModel({ version: 1, menuMode: 'browser', menus: [] })).toBeUndefined();
     adapter.externalLinks.openSource();
+    adapter.externalLinks.openHttps('https://wiki.bambulab.com/');
+    expect(open).toHaveBeenCalledWith('https://wiki.bambulab.com/', '_blank', 'noopener,noreferrer');
+    expect(() => adapter.externalLinks.openHttps('file:///tmp/a')).toThrow();
     expect(open).toHaveBeenCalledWith(SOURCE_URL, '_blank', 'noopener,noreferrer');
   });
 

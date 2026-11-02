@@ -1,12 +1,12 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-11-01
+**Updated:** 2026-11-02
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
-regression cover software behavior; physical H2D + AMS acceptance remains last,
-Account-backed automatic networking followed by LAN-only access. No complete
-hardware or six-target control qualification is claimed.
+regression cover software behavior. Physical qualification is limited to the
+development-host H2D cases recorded below; no complete hardware or six-target
+control qualification is claimed.
 Local-artifact print preparation/submission is implemented and initially enabled
 only by the Bambu agent. Development-host LAN qualification includes two completed
 H2D fixed-right-nozzle prints using AMS B1 and a completed fixed-dual-nozzle PETG
@@ -715,7 +715,7 @@ freshness feedback remain visible. Narrow content areas stack the sections
 without horizontal overflow; mobile support remains deferred. Selection
 persistence is defined under Console selection and behavior below.
 
-The accepted feature envelope is:
+The original Bambu control increment's accepted feature envelope is:
 
 | Area | Accepted coverage |
 | --- | --- |
@@ -1042,8 +1042,11 @@ explain why the operation is unavailable. Keep protocol-specific values private.
 See the load/unload handlers above and the declaration in
 [DeviceManager](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.hpp).
 
-Material metadata is read-only. Exclude material-preset, color, temperature-range
-and K/N/calibration-result editing; do not import or modify project presets.
+Material metadata is read-only in the original control increment. Its
+material-preset, color and temperature-range exclusions have a separately scoped
+[configuration design](#material-information-configuration) below; that design
+is not delivered behavior. Direct K/N/calibration-result editing remains excluded;
+do not import or modify project presets through device controls.
 No manual RFID re-read is offered; identification results update from device
 reports. These exclusions do not remove load, unload, switch or supported inline
 recovery actions. Nozzle hardware re-identification remains a separate accepted
@@ -1060,6 +1063,246 @@ remaining capacity. Orca provides a broader set of controls in
 [AMSDryControl](../packages/slicer-wasm/cpp/src/slic3r/GUI/AMSDryControl.cpp)
 and [AMSSetting](../packages/slicer-wasm/cpp/src/slic3r/GUI/AMSSetting.cpp);
 those controls are intentionally outside this delivery.
+
+#### Material information configuration
+
+**Delivery status:** Implemented in independently verified increments, using
+Orca as the behavioral reference. The shared editor, native catalogue and Bambu
+executor are delivered. Development-host H2D LAN acceptance is recorded below;
+Cloud has software coverage only.
+The [domain follow-up](Printer%20Domain%20and%20Control%20Architecture.md#material-information-configuration-follow-up)
+owns execution, native query and command-contract boundaries.
+
+The accepted feature scope is configuring the material identity, color and
+associated nozzle-temperature range of AMS slots and external holders. Follow
+Orca's existing information-setting workflow rather than designing alternative
+material filtering, temperature overrides or material-version conflict dialogs.
+Direct K/N editing, a calibration-result selector and calibration launch remain
+separate follow-up work. Confirm/Reset retain Orca's automatic calibration
+parameter/association updates even though those editing controls are absent.
+Manual RFID re-read, drying control and AMS behavior settings are outside this
+scope.
+
+Use Orca's current
+[AMSMaterialsSetting](../packages/slicer-wasm/cpp/src/slic3r/GUI/AMSMaterialsSetting.cpp)
+and the AMS/external edit handlers in
+[StatusPanel](../packages/slicer-wasm/cpp/src/slic3r/GUI/StatusPanel.cpp)
+as the behavioral reference:
+
+- AMS slots and external holders expose a per-slot action opening the same
+  modal information dialog, populated from the selected physical slot. Preserve
+  device/tool labels and identities, including in read-only presentations.
+- Build compatible candidates for the connected machine through Orca's native
+  preset rules, including its root-preset eligibility, firmware user-preset
+  support check, filament-identity deduplication and alias display. Preserve
+  the reference nozzle-information fallback and selection behavior.
+- Preserve the reference order: materials used by the project are promoted,
+  followed by vendor, material type and name ordering. The current Prepare
+  picker is not a replacement for this device-oriented catalogue. Keep Orca's
+  single ordered list; this device-material catalogue does not adopt the
+  project/library preset selectors' section grouping.
+- Selecting a material supplies its type, preset association and applicable
+  temperature-range variant. The temperature range is displayed read-only;
+  it is not a heater target or a free-form override. Color editing follows
+  the reference picker behavior and slot restrictions.
+- Following [Orca #16538](https://github.com/OrcaSlicer/OrcaSlicer/pull/16538)
+  and [upstream main 06bccd5](https://github.com/OrcaSlicer/OrcaSlicer/tree/06bccd5570c979df6c5fd2d835519773c014fa76),
+  allow alpha in every solid color. Offer 2–4 ordered gradient colors, each with
+  independent alpha, only when the device reports manual-multicolor support.
+  Reuse the shared color picker with a caller-specific four-color limit; project
+  editing and saved favorites keep their seven-color contract. Preserve an
+  existing partitioned or oversized group on Cancel or unchanged Confirm;
+  show its first color as the fallback picker seed with a preservation notice.
+  Material selection alone does not replace colors. Preview the full reported
+  group and transparency in both the dialog and Monitor.
+- Preserve the reference material checks before dispatch, including applicable
+  device, slot and nozzle restrictions. Prohibitions block the operation;
+  warnings are presented using the reference interaction. Vendor-rule
+  evaluation belongs to the provider rather than shared React.
+- Preserve RFID-derived material information as read-only and follow the
+  reference's printing/resumable-task restrictions and firmware support flag.
+  Non-FDM processing modes remain view-only.
+- Retain the reference information-clear confirmation, metadata-clearing
+  behavior and automatic calibration coupling. Confirm performs the applicable
+  reference calibration write/selection; Reset also resets calibration
+  parameters or their result association as required by the device/protocol.
+  This is not a calibration measurement or an additional calibration editor.
+- RFID-identified slots retain Confirm/Reset subject to the reference's device,
+  task-state and data requirements. These actions skip material-information
+  writes but still perform the applicable calibration operations. Explain this
+  effect in the dialog and in Reset confirmation: they cannot clear RFID-derived
+  material information. Read-only information does not imply that every action
+  in the dialog is read-only.
+
+Device configuration and project material synchronization remain separate.
+Reading candidates and editing a physical slot do not select project presets,
+rebuild the project rack or add a project Undo/Redo operation. Existing explicit
+Prepare synchronization retains its own rules.
+
+Catalogue candidates come from the system library and saved user library only,
+and still have to satisfy Orca's native root-preset, device-compatibility and
+firmware user-preset rules. This does not offer every saved user preset.
+Project-embedded presets, unsaved edits and retained history snapshots are not
+independent device-material candidates. Use saved definitions rather than
+temporary effective project values; project-use promotion must not introduce
+those temporary identities into the device catalogue.
+
+The shared React presentation must use normalized capabilities, observations,
+the slicer runtime and printer service. Initial Bambu execution uses the existing
+Electron provider; this design adds no browser Bambu transport or gateway.
+Mobile interaction remains deferred under the shared architecture. The native
+query stays on the existing slicer Worker and returns bounded catalogue data;
+this feature requires no additional renderer-side profile parser or background
+polling loop.
+
+Both existing Bambu LAN and Cloud command paths are in the functional scope.
+The first physical acceptance target is H2D with AMS and independently addressed
+external holders over LAN. Cloud receives software verification in this initial
+round and remains explicitly unqualified on real hardware. Neither that
+software coverage nor H2D LAN acceptance qualifies other devices or firmware.
+
+After local validation and provider submission have succeeded, Confirm/Reset
+close the dialog without waiting for printer acknowledgement or final state,
+following Orca. A local validation or submission rejection keeps the dialog open
+with its explanation. Closing does not mean the device confirmed the change.
+The Monitor owns later failure, partial-result and unknown-outcome feedback;
+dialog lifetime must not cancel a submitted physical operation or its tracking.
+
+Retain Orca's ordered, independent dispatch of the applicable information write
+and automatic calibration commands. Even if an earlier step returns an explicit
+send failure, still attempt the later calibration step on the original target.
+Do not add a preceding-step acknowledgement barrier or turn the workflow into
+an atomic transaction. Record each step's result separately and explain partial
+effects. A late failure cannot retract a command already dispatched. Never
+automatically retry or roll back the sequence, and do not report whole-operation
+success merely because one step succeeded or the transport returned success.
+
+Opening the modal binds its printer, route, configuration and physical slot;
+it cannot follow a later selection to a different target. If that context becomes
+unusable before submission, invalidate the editor and require reopening it from
+the current device. Once submitted, the existing target-bound operation rules
+apply: switching printers or closing the dialog does not reassign, repeat or
+cancel its commands. Late responses update only the original operation and
+applicable device cache. Existing freshness, permission and configuration checks
+remain in force, without adding a material-version conflict dialog.
+
+Acceptance must cover native candidate/temperature parity, RFID and task-state
+restrictions, AMS and independently addressed external holders, information
+clear, automatic calibration effects including RFID-only actions, writeback
+feedback, and absence of project mutation. Physical acceptance must retain and
+restore the original material and calibration settings changed by the tests.
+Cover ordered dispatch after an earlier send failure, partial results, missing
+or late acknowledgements, dialog closure and target changes independently.
+Software tests do not establish device write permission, firmware acceptance or
+physical qualification. Follow the repository
+[testing guidelines](../doc/testing_guidelines.md); keep LAN/Cloud and
+device-specific acceptance limits explicit.
+
+##### Material configuration verification and LAN acceptance
+
+The implementation uses the shared
+[material dialog](../packages/slicer-app/src/components/device/MaterialInformationDialog.tsx),
+[native catalogue bridge](../packages/slicer-wasm/src/bridge_profiles.cpp), and
+[Bambu configuration owner](../apps/desktop/src/utility/bambu/materialSettings.ts).
+The editor queries with the device descriptor's normalized model associations,
+not the saved printer's descriptive model alone. Each slot entry and dialog
+retain the reported unit and tool labels, including the two external holders.
+
+Software verification on 2026-11-02 passed repository `pnpm test` and
+`pnpm typecheck`, the platform import guard, both WASM quick builds, comprehensive
+threaded bridge smoke and the targeted native catalogue smoke on threaded and
+serial variants. The catalogue smoke checks device identity/nozzle variants,
+identity deduplication, saved-root eligibility, independence from the selected
+project printer, and unchanged project/draft/history owners. Affected shared UI
+checks and all three focused `bambu-control.e2e.ts` desktop journeys passed after
+the LAN-discovered model-association and compact-slot-entry corrections, plus
+the late-receipt/remounted-Monitor regression. Renderer
+CSS smoke passed. One initial native camera fixture run timed out awaiting its
+first sample; the isolated rerun and subsequent complete repository run passed.
+No camera implementation was changed and the timeout has no established cause.
+A later UI-suite run overlapped desktop bundling and three existing Preset Editor
+cases reached their five-second deadline; the final standalone UI-suite run
+passed all 1,579 tests without changing those tests or their timeouts. These
+reruns do not establish a root cause for either transient failure. Existing
+real-resource/performance test gates remain conditional skips.
+
+Commands used for the round are below. `<variant>` was run separately as
+`threaded` and `serial`; affected package checks were also run before each
+implementation commit. After the final UI correction, the shared application
+suite (1,579 tests), affected typechecks and focused Electron journeys passed
+again; no native bridge source changed after its two-variant verification.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Repository regression | `pnpm test` and `pnpm typecheck` | Passed; five existing conditional test skips |
+| Shared host boundary | `pnpm --filter @orca/platform-contract test:import-guard` | Passed |
+| WASM builds | `bash scripts/build.sh quick --variant <variant> -j 8` | Both passed |
+| Comprehensive bridge | `node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js packages/slicer-wasm/fixtures/cube.stl` | Passed |
+| Native material catalogue | `node packages/slicer-wasm/harness/device-material-catalogue-smoke.mjs packages/slicer-wasm/out/<variant>/orca_slice.js` | Both passed |
+| Final shared UI suite | `pnpm --filter @orca/slicer-app test` | 1,579 passed |
+| Final affected types | `pnpm --filter @orca/slicer-app --filter @orca/desktop typecheck` | Passed |
+| Desktop interaction | `pnpm --filter @orca/desktop exec playwright test e2e/bambu-control.e2e.ts` after `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` | Three passed |
+| Production build | `VITE_USE_MOCK=0 pnpm --filter @orca/desktop build` | Passed |
+| Renderer styles | `pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs` | Passed |
+| Documentation | `git diff --check` plus changed local-link/heading and command validation | Passed |
+
+The production Electron build, with real WASM and the real pinned native plugin,
+was exercised on the macOS ARM64 development host using the existing independent
+LAN profile, a signed-out account and no E2E fixture handlers. A pass-through IPC
+observer captured production request/operation receipts without replacing their
+execution. H2D reported two 0.4 mm standard-flow nozzles, AMS 0 and AMS 2 Pro 1,
+external holders 255/254, and calibration version 0. Its prior task was completed;
+no print, load/unload, heating or motion operation was started by this round.
+
+Seven user actions covered AMS slot 0:1 color configuration, information Reset
+and restoration; independent holder 255 material/RGBA configuration and Reset;
+and holder 254 material/RGBA configuration and restoration. Temperature ranges
+came from Generic PETG (220–270 °C) and Generic PLA (190–240 °C), with no editable
+temperature override. Confirm/Reset closed after provider submission. Every
+operation eventually completed with independently recorded material-information
+and calibration steps; direct device replies and newer matching status reports
+were distinguished. Status can initially lag a successful setting reply, so
+writeback assertions waited for a newer matching status. Clearing AMS metadata
+preserved its reported physical presence.
+
+The baseline and final read-only acquisition compared all ten reported slot
+snapshots, including material/setting identities, RGBA, temperature bounds,
+calibration index, RFID and color-representation fields. They matched exactly;
+calibration version and nozzle snapshots were unchanged. The private single-color
+representation flag normalized by a manual external-holder color write was also
+restored from the baseline. Restoration does not expose arbitrary protocol
+fields in the shared configuration contract.
+Credentials are absent from the ignored local evidence under
+`.vitest/material-settings/`.
+
+All reported calibration indices were already Default (-1), and no RFID-tagged
+spool was present. Retaining a non-default PA association, legacy K behavior and
+RFID calibration-only actions have software coverage and remain unqualified on
+physical hardware. Cloud was exercised through provider/IPC software fixtures;
+no Cloud physical write was attempted. This round does not qualify other devices,
+firmware, hosts, external filament feeding or a release matrix.
+
+The alpha/gradient extension was verified against upstream main `06bccd5` and
+Orca #16538 on 2026-11-02. Repository `pnpm test` and `pnpm typecheck` passed,
+including 1,587 shared application tests and 449 desktop tests; five existing
+conditional skips remain. The platform import guard, all four mock Electron
+control journeys, both focused real-WASM material-configuration journeys, the
+production desktop build and renderer CSS smoke passed. Coverage includes
+firmware gating, full ordered RGBA protocol confirmation, repeated colors,
+the caller-specific four-color limit, seven-color project/favorite retention,
+and Cancel/unchanged Confirm preservation for unsupported groups. No native
+bridge or core source changed, so this extension required no WASM rebuild.
+
+Additional production-build H2D LAN acceptance used external holder 254, whose
+firmware reported manual-multicolor support. Four UI submissions covered a
+two-color gradient, a four-color gradient with a repeated stop and independent
+`00`/`80`/`FE` alpha, a single color with `40` alpha, and restoration. Every
+information/calibration step completed, and subsequent device status matched
+the complete selected color group. An independent final read-only acquisition
+matched all ten slots' baseline material, temperature, calibration, RFID and
+raw color-representation fields exactly; nozzles and calibration version were
+unchanged. Cloud, solid-only firmware and other physical supply paths retain
+software coverage without new physical qualification.
 
 #### Accepted observation and access behavior
 

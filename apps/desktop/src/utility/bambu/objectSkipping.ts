@@ -238,14 +238,14 @@ export function prepareObjectSkippingCommand(context: CommandContext, params: D.
   const all = remaining.length === params.objectIds.length && remaining.every(o => params.objectIds.includes(o.id));
   if (params.intent === 'cancel-print') {
     if (!all) return failure('stale-context', 'The remaining objects changed. Confirm the current selection again.');
-    return { ok: true, value: { section: 'print', qos: 1, fields: { command: 'stop', param: '' }, confirmed: next => {
+    return { ok: true, value: { warnings: [], continueOnFailure: false, commands: [{ label: 'Stop print', section: 'print', qos: 1, fields: { command: 'stop', param: '' }, confirmed: next => {
       const task = value(next.values.status.printStatus.taskId);
       return ['idle', 'cancelled', 'failed'].includes(value(next.values.status.printStatus.phase) ?? '') && (task === null || task === params.contextRef.taskId);
-    } } };
+    } }] } };
   }
   if (all) return failure('precondition-failed', 'Skipping every remaining object requires confirmation to stop the print.');
   const labels = params.objectIds.map(objectId => current.labels.get(objectId)!);
   const expected = taskKey(context);
-  return { ok: true, value: { section: 'print', qos: 1, fields: { command: 'skip_objects', obj_list: labels }, confirmed: next =>
-    taskKey(next) === expected && Array.isArray(next.report.s_obj) && labels.every(label => (next.report.s_obj as unknown[]).includes(label)) } };
+  return { ok: true, value: { warnings: [], continueOnFailure: false, commands: [{ label: 'Skip objects', section: 'print', qos: 1, fields: { command: 'skip_objects', obj_list: labels }, confirmed: next =>
+    taskKey(next) === expected && Array.isArray(next.report.s_obj) && labels.every(label => (next.report.s_obj as unknown[]).includes(label)) }] } };
 }

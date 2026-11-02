@@ -1,4 +1,4 @@
-import { createBrowserScreenColorSampler } from '@orca/platform-contract';
+import { createBrowserScreenColorSampler, externalHttpsUrl } from '@orca/platform-contract';
 import { createPrinterService } from '@orca/printer-control';
 import {
   MODEL_FILE_ACCEPT,
@@ -174,6 +174,7 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
     chrome: { kind: 'web', platform: navigator.platform, menuMode: 'browser' },
     menu: browserMenu,
     externalLinks: {
+      openHttps(url) { window.open(externalHttpsUrl(url), '_blank', 'noopener,noreferrer'); },
       openSource() {
         window.open(SOURCE_URL, '_blank', 'noopener,noreferrer');
       },

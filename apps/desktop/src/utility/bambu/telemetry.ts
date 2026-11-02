@@ -38,6 +38,7 @@ function decodeMachineState(p: Report) {
     externalSpools: Object.freeze(records(p.vir_slot).map(tray => Object.freeze({ id: String(tray.id), manualPressureAdvance: typeof tray.cali_idx === 'number' && tray.cali_idx >= 0 }))),
     storage: storage === undefined ? undefined : (['missing', 'normal', 'abnormal', 'read-only'] as const)[storage],
     flowCalibration: flowCalibration === undefined ? undefined : flowCalibration === 1,
+    manualMultiColor: bits(p.fun2, 23) === 1,
     sharedPressureAdvance: bits(p.fun2, 3) === 1,
     internalRecording: bits(p.fun, 28) === 1,
     externalChangeAssist: bits(p.fun, 48) === 1 || bits(p.flag3, 16) === 1,
@@ -66,6 +67,9 @@ function decodeMachineState(p: Report) {
     bedTemperatureCommand: bits(p.fun, 39) === 1,
     partSkipping: bits(p.fun, 49) === undefined ? undefined : bits(p.fun, 49) === 1,
     localControlOnly: (bits(p.job_attr, 4, 4) ?? 0) > 1,
+    calibrationVersion: number(p.cali_version) ?? -1,
+    materialEditingDuringPrint: bits(p.flag3, 3) === 1,
+    userPresets: typeof p.support_user_preset === 'boolean' ? p.support_user_preset : (bits(p.fun, 11) ?? bits(p.home_flag, 22)) === 1,
   });
 }
 export function nozzleFlowType(value: string | null): string | undefined {
@@ -159,7 +163,7 @@ export class BambuTelemetry {
     const info = record(root.info);
     if (info.command === 'get_version' || info.command === 'get_capabilities') { this.info = merge(this.info, info); ++this.revision; }
     const update = record(root.print);
-    if (update.command !== 'push_status') return Object.keys(info).length ? 'updated' : 'ignored';
+    if (update.command !== 'push_status') return this.applyMaterialReply(update) || Object.keys(info).length ? 'updated' : 'ignored';
     if (update.msg !== undefined && update.msg !== 0 && update.msg !== 1) return 'resync';
     if (update.msg === 1 && !this.baseline) { this.disconnected = true; return 'resync'; }
     // A new task cannot inherit progress/layers from the previous print when its first push omits them.
@@ -173,6 +177,44 @@ export class BambuTelemetry {
     ++this.generation;
     this.baseline = true; this.disconnected = false; this.receivedAt = this.now();
     return 'updated';
+  }
+  private applyMaterialReply(reply: Report): boolean {
+    if (!this.baseline || !['ams_filament_setting', 'extrusion_cali_sel', 'extrusion_cali_set'].includes(String(reply.command))
+      || ['fail', 'failed', 'error'].includes(text(reply.result)?.toLowerCase() ?? '')) return false;
+    let unit = number(reply.ams_id), slot = number(reply.slot_id);
+    const packed = number(reply.tray_id);
+    if (unit === undefined && packed !== undefined) {
+      if (packed === 254 || packed === 255) { unit = this.machine.newNozzleProtocol ? packed : 255; slot = 0; }
+      else { unit = Math.floor(packed / 4); slot = packed % 4; }
+    }
+    if (unit === undefined || slot === undefined) return false;
+    const next = structuredClone(this.print);
+    const tray = unit === 254 || unit === 255 ? Array.isArray(next.vir_slot)
+      ? records(next.vir_slot).find(tray => identifier(tray.id) === String(unit)) : unit === 255 ? record(next.vt_tray) : undefined
+      : records(records(record(next.ams).ams).find(ams => identifier(ams.id) === String(unit))?.tray).find(tray => identifier(tray.id) === String(slot));
+    if (!tray || !Object.keys(tray).length) return false;
+    let changed = false;
+    if (reply.command === 'ams_filament_setting') {
+      for (const key of ['tray_info_idx', 'setting_id', 'tray_color', 'tray_type'])
+        if (typeof reply[key] === 'string') { tray[key] = reply[key]; changed = true; }
+      for (const key of ['nozzle_temp_min', 'nozzle_temp_max'])
+        if (number(reply[key]) !== undefined) { tray[key] = number(reply[key]); changed = true; }
+      // An information clear is unrelated to the hardware presence bitmap.
+      if (Array.isArray(reply.cols) && reply.cols.every(color => typeof color === 'string' && /^[\da-fA-F]{8}$/.test(color)) && [0, 1, 2].includes(number(reply.ctype) ?? -1)) {
+        tray.cols = [...reply.cols]; tray.ctype = number(reply.ctype); changed = true;
+      } else if (typeof reply.tray_color === 'string' && (!this.machine.manualMultiColor || reply.tray_info_idx === '' && reply.tray_color.toUpperCase() === 'FFFFFF00')) {
+        // A capable firmware's partial reply cannot describe the rest of its color group.
+        delete tray.cols; delete tray.ctype;
+      }
+    } else if (reply.command === 'extrusion_cali_sel' && number(reply.cali_idx) !== undefined) {
+      tray.cali_idx = number(reply.cali_idx); changed = true;
+    } else if (reply.command === 'extrusion_cali_set' && number(reply.k_value) !== undefined) {
+      tray.k = number(reply.k_value); changed = true;
+    }
+    if (!changed) return false;
+    this.print = next; this.machine = decodeMachineState(next); ++this.revision;
+    // A setting reply updates only those fields. It cannot refresh status or satisfy a push-status read.
+    return true;
   }
   project(target: D.PrinterTarget, identity: D.PrinterIdentity): TelemetryProjection {
     const key = JSON.stringify([this.revision, target, identity]);
@@ -315,8 +357,11 @@ function materialInventory(p: Report, extruders: Report[], toolIds: D.Id<'tool'>
     for (const tool of bindings) if (toolIds.includes(id(`tool:${tool}`))) paths.push({ id: pathKey(unit, slot, tool), slotId, toolId: id(`tool:${tool}`), loading: 'automatic' });
     const rawColor = text(tray.tray_color), rgba = rawColor && /^[\da-fA-F]{8}$/.test(rawColor) ? `#${rawColor}` : null;
     const colors = Array.isArray(tray.cols) ? tray.cols.filter((color): color is string => typeof color === 'string' && /^[\da-fA-F]{8}$/.test(color)).map(color => `#${color}`) : [];
+    const low = number(tray.nozzle_temp_min), high = number(tray.nozzle_temp_max), setting = text(tray.setting_id);
     const material: D.MaterialMetadata = { materialType: text(tray.tray_type) ?? null, manufacturer: text(tray.tray_sub_brands) ?? null,
-      color: colors.length > 1 ? { kind: 'multiple', rgba: colors, representativeRgba: rgba, appearance: 'unknown' } : rgba ? { kind: 'solid', rgba } : null,
+      nozzleTemperatureRangeC: low !== undefined && high !== undefined && low > 0 && high >= low ? { min: low, max: high } : null,
+      presetRef: setting ? { namespace: 'orca-filament-setting', value: setting } : null,
+      color: colors.length > 1 ? { kind: 'multiple', rgba: colors, representativeRgba: rgba, appearance: number(tray.ctype) === 0 ? 'gradient' : number(tray.ctype) === 1 ? 'parallel' : 'unknown' } : rgba ? { kind: 'solid', rgba } : null,
       diameterMm: number(tray.tray_diameter) ?? null, catalogRefs: materialCatalogRefs(text(tray.tray_info_idx)) };
     const tag = text(tray.tray_uuid) || text(tray.tag_uid);
     // Presence is a hardware bitmap, never inferred from metadata (which may be stale).

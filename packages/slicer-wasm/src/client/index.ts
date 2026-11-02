@@ -90,3 +90,4 @@ export type * from './nozzleMapping';
 export { installProfileArchive, linkProfileVendors, safeProfilePath } from './profileFilesystem';
 
 export { configVectorElementAt } from './configElements';
+export type { DeviceMaterialCatalogueRequest, DeviceMaterialCatalogue, DeviceMaterialPreset } from './deviceMaterials';

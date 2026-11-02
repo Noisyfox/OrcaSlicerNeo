@@ -5,19 +5,21 @@ import type { BambuDeviceAccess } from './deviceAccess';
 import type { BambuObjectSkipping } from './objectSkipping';
 import { BambuRecovery } from './recovery';
 import { commandCapabilities } from './commands';
+import { BambuMaterialSettings } from './materialSettings';
 
 /** Assembles business projections over the shared device-access owner. */
 export class BambuMonitor {
   private readonly recovery = new BambuRecovery();
+  private readonly materials: BambuMaterialSettings;
   constructor(private readonly access: BambuDeviceAccess,
-    private readonly objectSkipping: Pick<BambuObjectSkipping, 'projectContext' | 'snapshotContext' | 'readCatalogue'>) {}
+    private readonly objectSkipping: Pick<BambuObjectSkipping, 'projectContext' | 'snapshotContext' | 'readCatalogue'>) { this.materials = new BambuMaterialSettings(access); }
   private projectContext(base: BambuDeviceContext): CommandContext {
     const context = this.recovery.decorate(base);
-    return { ...context, objectSkipping: this.objectSkipping.projectContext(base) };
+    return { ...context, objectSkipping: this.objectSkipping.projectContext(base), calibrationHistory: this.materials.history(base) };
   }
   private snapshotContext(base: BambuDeviceContext): CommandContext {
     const context = this.recovery.snapshotContext(base);
-    return { ...context, objectSkipping: this.objectSkipping.snapshotContext(base) };
+    return { ...context, objectSkipping: this.objectSkipping.snapshotContext(base), calibrationHistory: this.materials.history(base) };
   }
   async context(target: D.PrinterTarget): Promise<D.Result<CommandContext>> {
     const result = await this.access.context(target);
@@ -51,6 +53,11 @@ export class BambuMonitor {
     return { ok: true, value: { ...snapshot, values } };
   }
   acquire(target: D.PrinterTarget) { return this.access.acquire(target); }
+  async prepareMaterials(target: D.PrinterTarget, params: D.PrinterCommandSpecs['materials.configure']['params']) {
+    await this.materials.prepare(target, params);
+    return this.context(target);
+  }
+  close() { this.materials.close(); }
   start(target: D.PrinterTarget, token: string) { return this.access.start(target, token); }
   stop(token: string) { return this.access.stop(token); }
   dispatch<T>(target: D.PrinterTarget, work: (context: CommandContext, send: (section: string, fields: Record<string, unknown>, qos: number) => Promise<number>) => Promise<D.Result<T>>): Promise<D.Result<T>> {
@@ -58,6 +65,7 @@ export class BambuMonitor {
   }
   onEvent(event: NativeEvent) {
     const context = this.access.onEvent(event);
+    this.materials.onEvent(event);
     if (context) this.projectContext(context);
   }
 }

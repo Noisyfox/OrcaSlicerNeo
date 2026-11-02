@@ -41,6 +41,11 @@ color and alpha. Gradient stops are evenly spaced; angles and stop positions
 are not editable. New gradients and added colors use Orca's 75-degree hue
 shift and lightness contrast calculation, retaining the source alpha byte.
 
+`maxGradientColors` may lower the editing limit for a caller; its default is
+seven. It applies to adding colors, mode restoration, selectable palette entries
+and visible favorites. Unsupported favorites remain saved and available to
+other callers; a lower limit never truncates persisted color groups.
+
 The layout and interactions follow [OrcaSlicer commit 26f5fd6](https://github.com/OrcaSlicer/OrcaSlicer/commit/26f5fd6251de6a7b4ae6280d550dae7045b0026a).
 A collapsible palette sidebar places its selector below the independently
 scrollable color list. Search swaps the selector for a name/HEX filter, with
@@ -173,6 +178,18 @@ as `#RRGGBBAA`; both formats are accepted by the typed client and bridge.
 The first gradient color is the representative; all colors are serialized in
 order into Orca's space-separated `filament_multi_colour` with type `0`.
 Disabled states and errors remain controlled by the runtime.
+
+AMS/external-holder material settings follow
+[Orca #16538](https://github.com/OrcaSlicer/OrcaSlicer/pull/16538), checked against
+[upstream main 06bccd5](https://github.com/OrcaSlicer/OrcaSlicer/tree/06bccd5570c979df6c5fd2d835519773c014fa76).
+Solid alpha is always enabled; the provider exposes a four-color editing limit
+only when the printer supports manual multicolor. Editable gradients retain
+their entire ordered sequence and independent alpha. Partitions, longer groups
+and gradients on solid-only firmware open from the first reported color with a
+preservation notice. Cancel and unchanged Confirm retain the full reported
+tuple; only a changed selection replaces it. These device writes do not mutate
+project colors or history. Both the dialog and Monitor use the shared alpha
+checkerboard and distinguish gradients from partitioned groups.
 
 Translucent filament swatches display the colour over the same checkerboard
 used by the picker: fixed white and light-grey squares, independent of the

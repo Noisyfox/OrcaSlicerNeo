@@ -58,11 +58,13 @@ describe('Electron preload bridge', () => {
     bridge.menu.syncState(snapshot);
     await bridge.menu.executeHostCommand('quit');
     await bridge.externalLinks.openSource();
+    await bridge.externalLinks.openHttps('https://wiki.bambulab.com/');
 
     expect(electronMocks.send).toHaveBeenNthCalledWith(1, Ipc.syncMenuModel, model);
     expect(electronMocks.send).toHaveBeenNthCalledWith(2, Ipc.syncMenuState, snapshot);
     expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.executeHostCommand, 'quit');
     expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.openSource);
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.openHttps, 'https://wiki.bambulab.com/');
     expect(bridge).not.toHaveProperty('ipcRenderer');
     expect(bridge).not.toHaveProperty('shell');
     expect(bridge).not.toHaveProperty('invoke');

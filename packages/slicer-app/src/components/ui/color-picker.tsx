@@ -25,6 +25,8 @@ export interface ColorPickerProps {
   favoritesReady?: boolean;
   enableAlpha?: boolean;
   enableGradient?: boolean;
+  /** Per-use editing limit; saved favorites retain the global seven-color contract. */
+  maxGradientColors?: number;
   onValidityChange?: (valid: boolean) => void;
   uiState?: ColorPickerUiState;
   onUiStateChange?: (ui: ColorPickerUiState) => void;
@@ -116,7 +118,7 @@ function ColorSpectrum({ color, onChange, disabled }: { color: HslaColor; onChan
 /** Controlled, host-free editor. Business commands and persistence stay outside. */
 export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES, favorites = [],
   onFavoriteAdd, onFavoriteRemove, favoritesReady = true, enableAlpha = false, enableGradient = false,
-  onValidityChange, uiState, onUiStateChange, notice, actions, disabled: externallyDisabled = false,
+  maxGradientColors = MAX_GRADIENT_COLORS, onValidityChange, uiState, onUiStateChange, notice, actions, disabled: externallyDisabled = false,
   screenColorSampler, onSamplingChange, className }: ColorPickerProps) {
   const [sampling, setSampling] = useState(false);
   const pendingSample = useRef<AbortController | null>(null);
@@ -126,6 +128,7 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
   const disabled = externallyDisabled || sampling;
   const [localUi, setLocalUi] = useState(DEFAULT_COLOR_PICKER_UI);
   const ui = uiState ?? localUi;
+  const gradientLimit = Math.min(MAX_GRADIENT_COLORS, maxGradientColors);
   const updateUi = (next: ColorPickerUiState) => { setLocalUi(next); onUiStateChange?.(next); };
   const [endpoint, setEndpoint] = useState(0);
   const isGradient = enableGradient && value.kind === 'linear-gradient';
@@ -134,7 +137,7 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
     if (!pendingSample.current) return;
     pendingSample.current.abort(); pendingSample.current = null;
     setSampling(false); samplingChanged.current?.(false);
-  }, [value, active, enableAlpha, enableGradient, externallyDisabled, screenColorSampler]);
+  }, [value, active, enableAlpha, enableGradient, maxGradientColors, externallyDisabled, screenColorSampler]);
   useEffect(() => () => {
     pendingSample.current?.abort(); pendingSample.current = null;
     samplingChanged.current?.(false);
@@ -171,7 +174,7 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
   }, [hex, colorKey, enableAlpha]);
   const clearEditors = () => { setReset(n => n + 1); setInvalidChannels({}); };
   const apply = (next: ColorValue) => {
-    if (!colorValueSupported(next, true, enableGradient)) return;
+    if (!colorValueSupported(next, true, enableGradient, gradientLimit)) return;
     const formatted = format(next);
     const activeHex = formatted.kind === 'solid' ? formatted.color : formatted.colors[Math.min(endpoint, formatted.colors.length - 1)];
     clearEditors(); setColor(rgbaToHsla(hexToRgba(activeHex)!, memories.current[colorKey])); setHexText(activeHex.slice(1));
@@ -224,19 +227,20 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
   const rgba = hslaToRgba(color);
   const current = format(value);
   const allFavorites = normalizeColorFavorites(favorites);
-  const visibleFavorites = allFavorites.filter(item => colorValueSupported(item, true, enableGradient));
+  const visibleFavorites = allFavorites.filter(item => colorValueSupported(item, true, enableGradient, gradientLimit));
   const alreadySaved = allFavorites.some(item => colorValueKey(item) === colorValueKey(current));
-  const availablePalettes = palettes.filter(item => item.colors.some(color => colorValueSupported(color.value, enableAlpha, enableGradient)));
+  const availablePalettes = palettes.filter(item => item.colors.some(color => colorValueSupported(color.value, enableAlpha, enableGradient, gradientLimit)));
   const palette = availablePalettes.find(item => item.id === ui.paletteId) ?? availablePalettes.find(item => item.id === 'basic') ?? availablePalettes[0];
   const query = filter.trim().toLowerCase();
   const paletteColors = palette?.colors.filter(item => {
-    if (!colorValueSupported(item.value, enableAlpha, enableGradient)) return false;
+    if (!colorValueSupported(item.value, enableAlpha, enableGradient, gradientLimit)) return false;
     const text = `${item.name} ${item.value.kind === 'solid' ? item.value.color : item.value.colors.join(' ')}`.toLowerCase();
     return !query || query.split(/\s+/).every(word => text.includes(word.replace(/^#/, '')));
   }) ?? [];
   const parsedHex = hexToRgba(hexText);
   const hexInvalid = !parsedHex || (!enableAlpha && parsedHex.a !== 1);
-  const valid = !hexInvalid && !Object.entries(invalidChannels).some(([label, invalid]) => invalid && (label !== 'Alpha' || enableAlpha));
+  const valid = colorValueSupported(current, enableAlpha, enableGradient, gradientLimit) && !hexInvalid
+    && !Object.entries(invalidChannels).some(([label, invalid]) => invalid && (label !== 'Alpha' || enableAlpha));
   useEffect(() => onValidityChange?.(valid), [valid, onValidityChange]);
   useEffect(() => { if (filterOpen) filterInput.current?.focus(); }, [filterOpen]);
   useWheelValue(saturationSlider, color.s, 100, 5, disabled, next => { clearEditors(); publish({ ...color, s: next }); });
@@ -247,7 +251,8 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
     if (isGradient) lastGradient.current = value; else lastSolid.current = current;
     if (next === 'gradient') {
       setEndpoint(0);
-      apply(lastGradient.current ?? { kind: 'linear-gradient', colors: [hex, nextGradientColor(hex)] });
+      apply(lastGradient.current && colorValueSupported(lastGradient.current, true, true, gradientLimit)
+        ? lastGradient.current : { kind: 'linear-gradient', colors: [hex, nextGradientColor(hex)] });
     } else apply(lastSolid.current);
   };
   return <div data-slot="color-picker" className={cn('flex w-max max-w-full min-h-0 gap-3', className)}
@@ -331,9 +336,9 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
                 {value.colors.length > 2 && <Button variant="settings" size="icon-xs" aria-label="Remove color" disabled={disabled} onClick={() => {
                   const colors = value.colors.filter((_, index) => index !== active); setEndpoint(Math.min(active, colors.length - 1)); memories.current = {}; apply({ kind: 'linear-gradient', colors });
                 }}><MinusIcon /></Button>}
-                <TooltipFor disabled={disabled || value.colors.length >= MAX_GRADIENT_COLORS} content={value.colors.length >= MAX_GRADIENT_COLORS ? `Up to ${MAX_GRADIENT_COLORS} colors supported.` : 'Add color'}>
-                  <Button variant="settings" size="icon-xs" aria-label="Add color" disabled={disabled || value.colors.length >= MAX_GRADIENT_COLORS} onClick={() => {
-                    if (disabled || value.colors.length >= MAX_GRADIENT_COLORS) return;
+                <TooltipFor disabled={disabled || value.colors.length >= gradientLimit} content={value.colors.length >= gradientLimit ? `Up to ${gradientLimit} colors supported.` : 'Add color'}>
+                  <Button variant="settings" size="icon-xs" aria-label="Add color" disabled={disabled || value.colors.length >= gradientLimit} onClick={() => {
+                    if (disabled || value.colors.length >= gradientLimit) return;
                     const colors = [...value.colors]; colors.splice(active + 1, 0, nextGradientColor(hex)); setEndpoint(active + 1); memories.current = {}; apply({ kind: 'linear-gradient', colors });
                   }}><PlusIcon /></Button>
                 </TooltipFor>

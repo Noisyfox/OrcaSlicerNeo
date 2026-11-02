@@ -5,8 +5,15 @@ import { BambuMonitor } from './monitor';
 import { BambuDeviceAccess } from './deviceAccess';
 import type { BambuObjectSkipping } from './objectSkipping';
 import { BambuOperations } from './operations';
+import * as commandModule from './commands';
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 const request = (extra: Omit<Partial<D.CommandRequest>, 'command'> & { command?: D.PrinterCommand } = {}): D.CommandRequest => ({ target, requestId: 'request' as D.Id<'request'>, command: { type: 'jobs.pause', params: {} }, ...extra } as D.CommandRequest);
+function prepareSequence(continueOnFailure = true) {
+  return vi.spyOn(commandModule, 'prepareCommand').mockReturnValueOnce({ ok: true, value: { warnings: [], continueOnFailure, commands: [
+    { label: 'Material information', section: 'print', fields: { command: 'first' }, qos: 1 },
+    { label: 'Calibration', section: 'print', fields: { command: 'second' }, qos: 1 },
+  ] } });
+}
 function fixture(timeout: number | 'default' = 1000) {
   const methods = ['setSelectedMachine', 'startSubscribe', 'stopSubscribe', 'sendMessage', 'sendMessageToPrinter', 'disconnectPrinter', 'connectPrinter'];
   const native = Object.fromEntries(methods.map(method => [method, vi.fn(async () => 0)])) as unknown as BambuNative;
@@ -67,6 +74,90 @@ it('sanitizes device rejection and never exposes raw error bodies', async () => 
     await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: sent.command, sequence_id: sent.sequence_id, result: 'fail', reason: 'PRIVATE_TOKEN' } })] });
     expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'failed', error: { code: 'device-rejected' } } } } });
     expect(JSON.stringify(f.operations.get(result.operation))).not.toContain('PRIVATE_TOKEN');
+  } finally { await f.close(); }
+});
+it('correlates every ordered step and does not let an early acknowledgement hide a later rejection', async () => {
+  const f = fixture(), prepared = prepareSequence();
+  try {
+    const result = await f.operations.submit(request()); if (result.kind !== 'recorded') throw new Error('Not recorded');
+    const [first, second] = f.commands();
+    expect(first.sequence_id).not.toBe(second.sequence_id);
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...first, result: 'SUCCESS' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'sent' }, steps: [{ phase: { kind: 'accepted' } }, { phase: { kind: 'sent' } }] } } });
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...second, result: 'fail', reason: 'PRIVATE_TOKEN' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'failed' }, steps: [{ phase: { kind: 'accepted' } }, { label: 'Calibration', phase: { kind: 'failed' } }] } } });
+    expect(JSON.stringify(f.operations.get(result.operation))).not.toContain('PRIVATE_TOKEN');
+  } finally { prepared.mockRestore(); await f.close(); }
+});
+it.each([true, false])('keeps separate delivery outcomes with continueOnFailure=%s and never retries', async continueOnFailure => {
+  const f = fixture(), prepared = prepareSequence(continueOnFailure);
+  const send = vi.mocked(f.native.sendMessage).getMockImplementation()!;
+  vi.mocked(f.native.sendMessage).mockImplementation(async (...args) => JSON.parse(args[1]).print?.command === 'first' ? -1 : send(...args));
+  try {
+    const result = await f.operations.submit(request()); if (result.kind !== 'recorded') throw new Error('Not recorded');
+    expect(f.commands().map(command => command.command)).toEqual(continueOnFailure ? ['first', 'second'] : ['first']);
+    if (continueOnFailure) await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...f.commands()[1], result: 'success' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'outcome-unknown' }, steps: [
+      { phase: { kind: 'outcome-unknown' } }, { phase: { kind: continueOnFailure ? 'accepted' : 'not-sent' } },
+    ] } } });
+    expect(await f.operations.submit(request())).toEqual(result);
+    expect(f.commands()).toHaveLength(continueOnFailure ? 2 : 1);
+  } finally { prepared.mockRestore(); await f.close(); }
+});
+it('retains an acknowledged step when the other step times out', async () => {
+  const f = fixture(30), prepared = prepareSequence();
+  try {
+    const result = await f.operations.submit(request()); if (result.kind !== 'recorded') throw new Error('Not recorded');
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...f.commands()[0], result: 'success' } })] });
+    await new Promise(resolve => setTimeout(resolve, 45));
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'outcome-unknown' }, steps: [
+      { phase: { kind: 'accepted' } }, { phase: { kind: 'outcome-unknown' } },
+    ] } } });
+  } finally { prepared.mockRestore(); await f.close(); }
+});
+it('dispatches a real material workflow after a send failure and preserves its independent calibration result', async () => {
+  const f = fixture();
+  try {
+    await prepareIdle(f);
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 1, cali_version: 1,
+      cfg: '0', fun: '0', aux: '0', stat: '0', device: { type: 1, nozzle: { info: [{ id: 0, type: 'HS00', diameter: .4 }] } } } })] });
+    const send = vi.mocked(f.native.sendMessage).getMockImplementation()!;
+    vi.mocked(f.native.sendMessage).mockImplementation(async (...args) => JSON.parse(args[1]).print?.command === 'ams_filament_setting' ? -1 : send(...args));
+    const command: D.PrinterCommand = { type: 'materials.configure', params: { slotId: 'slot:0:0' as D.Id<'slot'>, intent: 'confirm',
+      color: { kind: 'solid', rgba: '#AABBCC80' }, acknowledgedWarningIds: [], preset: { key: 'Generic PLA', label: 'Generic PLA', materialType: 'PLA', manufacturer: 'Generic',
+        catalogRefs: [{ namespace: 'bambu-filament', value: 'GFA00' }], presetRef: null, nozzleTemperatureRangeC: { min: 190, max: 230 } } } };
+    const result = await f.operations.submit(request({ command })); if (result.kind !== 'recorded') throw new Error(JSON.stringify(result));
+    const [information, calibration] = f.commands();
+    expect(information.command).toBe('ams_filament_setting'); expect(calibration.command).toBe('extrusion_cali_sel');
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...calibration, result: 'success' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'outcome-unknown', reason: expect.stringContaining('Calibration: Confirmed.') },
+      steps: [{ label: 'Material information', phase: { kind: 'outcome-unknown' } }, { label: 'Calibration', phase: { kind: 'completed', confirmation: 'device-result' } }] } } });
+    expect(await f.operations.submit(request({ command }))).toEqual(result);
+    expect(f.commands()).toHaveLength(2);
+  } finally { await f.close(); }
+});
+it('confirms a Cloud gradient only after the complete ordered RGBA tuple is received', async () => {
+  const f = fixture(); try {
+    await prepareIdle(f);
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 1, cali_version: 1, fun2: '800000' } })] });
+    const colors = ['#12345600', '#ABCDEF80', '#12345600'];
+    const command: D.PrinterCommand = { type: 'materials.configure', params: {
+      slotId: 'slot:0:0' as D.Id<'slot'>, intent: 'confirm' as const, color: { kind: 'gradient' as const, rgba: colors }, acknowledgedWarningIds: [],
+      preset: { key: 'Generic PLA', label: 'Generic PLA', materialType: 'PLA', manufacturer: 'Generic', catalogRefs: [{ namespace: 'bambu-filament', value: 'GFA00' }],
+        presetRef: null, nozzleTemperatureRangeC: { min: 190, max: 230 } },
+    } };
+    const result = await f.operations.submit(request({ command })); if (result.kind !== 'recorded') throw new Error(JSON.stringify(result));
+    const [information, calibration] = f.commands();
+    expect(information).toMatchObject({ tray_color: '12345600', cols: colors.map(color => color.slice(1)), ctype: 0 });
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...information, cols: ['12345600', 'ABCDEFFF', '12345600'], result: 'success' } })] });
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...calibration, result: 'success' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { steps: [
+      { phase: { kind: 'acknowledged' } }, { phase: { kind: 'completed' } },
+    ] } } });
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...information, result: 'success' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'completed', confirmation: 'device-result' } } } });
+    expect(f.commands()).toHaveLength(2);
+    expect(f.native.sendMessageToPrinter).not.toHaveBeenCalled();
   } finally { await f.close(); }
 });
 it('does not mistake an ignored report for fresh completion evidence', async () => {

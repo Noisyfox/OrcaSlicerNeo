@@ -1,3 +1,4 @@
+import { normalizeDeviceMaterialCatalogue } from './deviceMaterials';
 import { linkProfileVendors } from './profileFilesystem';
 import type { FilamentOverrideContext } from './types';
 import { installUserPresets, validateUserPresetPath } from './userPresets';
@@ -2728,6 +2729,9 @@ export function createClient(
         [JSON.stringify({ index, flow, expected_revision: expectedRevision, history_context: context })]), 'set-project-flow');
     },
 
+    async getDeviceMaterialCatalogue(request) {
+      return normalizeDeviceMaterialCatalogue(callJson(await module(), 'orc_get_device_material_catalogue', ['string'], [JSON.stringify(request)]));
+    },
     async getDeviceFilamentOptions(request) {
       const raw = callJson(await module(), 'orc_get_device_filament_options', ['string'], [JSON.stringify(request)]);
       if (isRecord(raw) && raw.ok === true && raw.revision === request.revision && Array.isArray(raw.options)

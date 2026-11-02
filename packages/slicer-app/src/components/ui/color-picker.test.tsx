@@ -125,6 +125,29 @@ it('preserves RGB at zero alpha and independently edits gradient endpoints', asy
   await fill(container, 'Alpha value', '100');
   expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', colors: ['#FF0000FF', '#0000FF80'] });
 });
+it('applies a caller four-color limit to editing, palettes and favorites while retaining seven-color defaults elsewhere', async () => {
+  const long: ColorValue = { kind: 'linear-gradient', colors: ['#00000000', '#11223380', '#00000000', '#FFFFFF', '#FF0000', '#FFFF00', '#00FFFF'] };
+  const short: ColorValue = { kind: 'linear-gradient', colors: ['#00000000', '#11223380'] };
+  const changed = vi.fn();
+  function Picker() {
+    const [value, setValue] = useState(short);
+    return <ColorPicker value={value} enableAlpha enableGradient maxGradientColors={4} favorites={[long, short]}
+      palettes={[{ id: 'custom', name: 'Custom', colors: [{ name: 'Seven colors', value: long }, { name: 'Two colors', value: short }] }]}
+      uiState={{ sidebarOpen: true, paletteId: 'custom' }} onChange={next => { setValue(next); changed(next); }} />;
+  }
+  const limited = await mount(<Picker />);
+  expect(limited.querySelectorAll('button[aria-label^="Favorite "]')).toHaveLength(1);
+  expect(limited.querySelector('[aria-label="Preset colors"]')!.textContent).toContain('Two colors');
+  expect(limited.querySelector('[aria-label="Preset colors"]')!.textContent).not.toContain('Seven colors');
+  await act(async () => button(limited, 'Add color').click());
+  await act(async () => button(limited, 'Add color').click());
+  expect(button(limited, 'Add color').disabled).toBe(true);
+  expect(changed.mock.calls.at(-1)![0].colors).toHaveLength(4);
+  const unrestricted = await mount(<ColorPicker value={long} enableAlpha enableGradient onChange={() => undefined} favorites={[long, short]} />);
+  expect(unrestricted.querySelectorAll('button[aria-label^="Gradient color "]')).toHaveLength(7);
+  expect(unrestricted.querySelectorAll('button[aria-label^="Favorite "]')).toHaveLength(2);
+  expect(long.colors).toHaveLength(7);
+});
 
 it('hides unsupported gradients, shows stored alpha swatches and rejects transparent HEX when alpha is disabled', async () => {
   const favorites: ColorValue[] = [{ kind: 'solid', color: '#11223380' }, { kind: 'linear-gradient', colors: ['#000000', '#FFFFFF'] }];
@@ -359,10 +382,11 @@ it('captures only primary title-bar drags and releases capture on cancel and unm
 it('samples only the active gradient RGB, preserves alpha, and commits only on Confirm', async () => {
   const confirm = vi.fn();
   const sample = vi.fn(async () => ({ status: 'picked' as const, color: '#12ABEF' }));
-  await mount(<ColorPickerPopover value={{ kind: 'linear-gradient', colors: ['#11223380', '#44556640'] }} enableAlpha enableGradient
+  await mount(<ColorPickerPopover value={{ kind: 'linear-gradient', colors: ['#11223380', '#44556640', '#77889920', '#AABBCC10'] }} enableAlpha enableGradient maxGradientColors={4}
     open onOpenChange={() => {}} onConfirm={confirm} trigger={<Button>Open</Button>}
     screenColorSources={{ native: null, browser: { pick: sample } }} />);
   const picker = document.body;
+  expect(button(picker, 'Add color').disabled).toBe(true);
   const stops = picker.querySelectorAll<HTMLButtonElement>('[role="tab"]');
   const stop = [...stops].find(item => item.getAttribute('aria-label')?.includes('2'));
   expect(stop).toBeDefined();
@@ -370,8 +394,9 @@ it('samples only the active gradient RGB, preserves alpha, and commits only on C
   await act(async () => button(picker, 'Pick color from screen').click());
   expect(picker.querySelector<HTMLInputElement>('[aria-label="HEX color"]')!.value).toBe('12ABEF40');
   expect(confirm).not.toHaveBeenCalled();
+  expect(button(picker, 'Add color').disabled).toBe(true);
   await act(async () => [...picker.querySelectorAll('button')].find(item => item.textContent === 'Confirm')!.click());
-  expect(confirm).toHaveBeenCalledWith({ kind: 'linear-gradient', colors: ['#11223380', '#12ABEF40'] });
+  expect(confirm).toHaveBeenCalledWith({ kind: 'linear-gradient', colors: ['#11223380', '#12ABEF40', '#77889920', '#AABBCC10'] });
 });
 
 it('hides unsupported eyedroppers and ignores duplicate clicks and late results after closing', async () => {

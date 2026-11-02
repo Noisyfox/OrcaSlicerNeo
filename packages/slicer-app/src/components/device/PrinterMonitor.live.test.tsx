@@ -41,7 +41,7 @@ async function fixture() {
     snapshot = { ...snapshot, values: { ...snapshot.values, status: reading } }; wake?.(); await Promise.resolve();
   });
   const click = async (label: string) => act(async () => { [...element.querySelectorAll('button')].find(button => (button.getAttribute('aria-label') ?? button.textContent) === label)!.click(); });
-  return { service, printer, route, snapshot, known, material, element, render, update, click, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
+  return { platform, service, printer, route, snapshot, known, material, element, render, update, click, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
 }
 it('shares one icon-only pause/resume control beside progress and respects state and capabilities', async () => {
   const f = await fixture(); try {
@@ -239,7 +239,7 @@ it.each(['solid', 'parallel', 'gradient'] as const)('uses the shared translucent
     const slot = 'spool' as D.Id<'slot'>;
     f.material.topology.slots = [{ id: slot, unitId: f.material.topology.units[0].id, name: 'Spool' }];
     f.material.state.slots = [{ slotId: slot, presence: f.known('present'), spoolIdentity: unknown, remaining: unknown,
-      material: f.known({ materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [],
+      material: f.known({ nozzleTemperatureRangeC: null, presetRef: null, materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [],
         color: appearance === 'solid' ? { kind: 'solid', rgba: '#ffffff00' }
           : { kind: 'multiple', rgba: ['#ffffff00', '#ff0000'], representativeRgba: '#ffffff00', appearance } }),
     }];
@@ -313,7 +313,7 @@ it.each(['accepted', 'completed'] as const)('silently releases controls on %s an
   let phase: D.CommandOperation['phase'] = kind === 'accepted' ? { kind } : { kind, result: null, confirmation: 'observed-state' };
   f.service.operations.watch = async function* (ref) {
     try {
-      yield { kind: 'command', commandType: 'motion.jog', ref, requestId: 'request' as D.Id<'request'>, configurationRevision: 'r1', revision: 1, updatedAtMs: 0, phase };
+      yield { kind: 'command', steps: [], commandType: 'motion.jog', ref, requestId: 'request' as D.Id<'request'>, configurationRevision: 'r1', revision: 1, updatedAtMs: 0, phase };
       await new Promise<void>(resolve => { release = resolve; });
     } finally { closed++; }
   };
@@ -368,5 +368,25 @@ it('starts an explicitly selected device while hidden and retains the same obser
     await f.render(false, true); expect(f.watch).toHaveBeenCalledOnce();
     await f.render(true); expect(f.watch).toHaveBeenCalledOnce();
     expect(f.element.textContent).toContain('External task');
+  } finally { await f.close(); }
+});
+
+
+it('queries with the reported catalogue model association and identifies the physical unit and tool in the editor', async () => {
+  const f = await fixture(); try {
+    const slot = 'opaque-slot' as D.Id<'slot'>, tool = 'opaque-head' as D.Id<'tool'>;
+    f.material.topology.slots = [{ id: slot, unitId: f.material.topology.units[0].id, name: 'Bay 2' }];
+    f.material.topology.paths = [{ id: 'opaque-path' as D.Id<'path'>, slotId: slot, toolId: tool, loading: 'automatic' }];
+    f.topology.tools = [{ id: tool, name: 'Left head', extruderId: 'drive' as never, nozzleId: 'tip' as never, motionGroupId: 'gantry' as never }];
+    const identity = { ...f.printer.identity, model: 'device-code', externalRefs: [{ namespace: 'orca-printer-model', value: 'library-model' }] };
+    if (f.snapshot.values.descriptor?.kind === 'known') f.snapshot.values.descriptor.value.identity = identity;
+    const query = vi.fn(async () => ({ ok: true, presets: [] }));
+    f.platform.runtime = { getDeviceMaterialCatalogue: query } as never;
+    f.platform.preferences = { load: async () => ({ colorPicker: {} }) } as never;
+    f.caps.commands['materials.configure'] = { kind: 'supported', constraints: [{ slotId: slot, informationWritable: true, maxGradientColors: null, actions: ['confirm', 'reset'], restriction: null,
+      catalogue: { mainNozzleDiameterMm: .4, toolIndex: 0, nozzleFlowType: 'Standard', supportsUserPresets: true } }] };
+    await f.render(); await f.click('Material information for AMS 0 · Bay 2');
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ identity: { manufacturer: identity.manufacturer, model: 'device-code', externalRefs: identity.externalRefs } }));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('AMS 0 · Bay 2 · Left head');
   } finally { await f.close(); }
 });

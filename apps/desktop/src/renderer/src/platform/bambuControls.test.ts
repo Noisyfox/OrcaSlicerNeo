@@ -6,7 +6,7 @@ import { bambuOperations } from './bambuControls';
 it.each(['accepted', 'acknowledged'] as const)('ends accepted streams but keeps %s evidence distinct from completion', async kind => {
   const listeners = new Set<(change: BambuChange) => void>();
   const ref = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'>, id: 'op' as D.Id<'operation'> };
-  let operation: D.CommandOperation = { kind: 'command', commandType: 'motion.jog', ref, requestId: 'request' as D.Id<'request'>,
+  let operation: D.CommandOperation = { kind: 'command', steps: [], commandType: 'motion.jog', ref, requestId: 'request' as D.Id<'request'>,
     configurationRevision: 'r1', revision: 1, updatedAtMs: 0, phase: { kind } };
   const control = vi.fn(async () => ({ ok: true, value: { kind: 'found', operation } }));
   const bridge = { control, onChanged: (listener: (change: BambuChange) => void) => {

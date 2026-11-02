@@ -13,3 +13,5 @@ export type {
   RestoreResult, HistoryRuntimeMethods, MockHistoryRuntime,
 } from '@slicer/client';
 export * from './screenColor';
+
+export { externalHttpsUrl } from './externalLinks';
