@@ -452,7 +452,7 @@ const unknownCommands = {
   'thermal.setTarget': unknown, 'fans.setSpeed': unknown, 'lights.set': unknown,
   'motion.home': unknown, 'motion.jog': unknown, 'extrusion.move': unknown, 'tools.select': unknown,
   'materials.load': unknown, 'materials.unload': unknown, 'materials.switch': unknown,
-  'materials.writeMetadata': unknown, 'materials.refreshTag': unknown,
+  'materials.writeMetadata': unknown, 'materials.configure': unknown, 'materials.refreshTag': unknown,
   'drying.start': unknown, 'drying.stop': unknown,
   'camera.setEnabled': unknown, 'camera.setDeviceTimelapse': unknown, 'files.delete': unknown,
 } satisfies CommandCapabilities;

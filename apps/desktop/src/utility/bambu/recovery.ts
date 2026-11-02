@@ -33,7 +33,7 @@ export class BambuRecovery {
       const value: D.PrinterAction = { actionRef: { ...context.target, configurationRevision: context.configurationRevision, token: token as D.Id<'action-context'> },
         label, description: null, expiresAtMs: null, ...(keepDialogOpen ? { keepDialogOpen: true } : {}),
         availability: context.fresh && !localResume ? { kind: 'available' } : { kind: 'blocked', reasons: [{ code: context.fresh ? 'precondition-failed' : 'offline', message: context.fresh ? 'This task must be resumed on the printer.' : 'Wait for fresh printer status.' }] } };
-      recovery.push({ action: value, command: { commands: [{ label, section, fields, qos }], continueOnFailure: false } });
+      recovery.push({ action: value, command: { commands: [{ label, section, fields, qos }], warnings: [], continueOnFailure: false } });
       return value;
     };
     let alerts = context.values.alerts;

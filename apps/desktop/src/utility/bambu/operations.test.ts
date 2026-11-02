@@ -9,7 +9,7 @@ import * as commandModule from './commands';
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 const request = (extra: Omit<Partial<D.CommandRequest>, 'command'> & { command?: D.PrinterCommand } = {}): D.CommandRequest => ({ target, requestId: 'request' as D.Id<'request'>, command: { type: 'jobs.pause', params: {} }, ...extra } as D.CommandRequest);
 function prepareSequence(continueOnFailure = true) {
-  return vi.spyOn(commandModule, 'prepareCommand').mockReturnValueOnce({ ok: true, value: { continueOnFailure, commands: [
+  return vi.spyOn(commandModule, 'prepareCommand').mockReturnValueOnce({ ok: true, value: { warnings: [], continueOnFailure, commands: [
     { label: 'Material information', section: 'print', fields: { command: 'first' }, qos: 1 },
     { label: 'Calibration', section: 'print', fields: { command: 'second' }, qos: 1 },
   ] } });
@@ -114,6 +114,27 @@ it('retains an acknowledged step when the other step times out', async () => {
       { phase: { kind: 'accepted' } }, { phase: { kind: 'outcome-unknown' } },
     ] } } });
   } finally { prepared.mockRestore(); await f.close(); }
+});
+it('dispatches a real material workflow after a send failure and preserves its independent calibration result', async () => {
+  const f = fixture();
+  try {
+    await prepareIdle(f);
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 1, cali_version: 1,
+      cfg: '0', fun: '0', aux: '0', stat: '0', device: { type: 1, nozzle: { info: [{ id: 0, type: 'HS00', diameter: .4 }] } } } })] });
+    const send = vi.mocked(f.native.sendMessage).getMockImplementation()!;
+    vi.mocked(f.native.sendMessage).mockImplementation(async (...args) => JSON.parse(args[1]).print?.command === 'ams_filament_setting' ? -1 : send(...args));
+    const command: D.PrinterCommand = { type: 'materials.configure', params: { slotId: 'slot:0:0' as D.Id<'slot'>, intent: 'confirm',
+      colorRgba: '#AABBCC80', acknowledgedWarningIds: [], preset: { key: 'Generic PLA', label: 'Generic PLA', materialType: 'PLA', manufacturer: 'Generic',
+        catalogRefs: [{ namespace: 'bambu-filament', value: 'GFA00' }], presetRef: null, nozzleTemperatureRangeC: { min: 190, max: 230 } } } };
+    const result = await f.operations.submit(request({ command })); if (result.kind !== 'recorded') throw new Error(JSON.stringify(result));
+    const [information, calibration] = f.commands();
+    expect(information.command).toBe('ams_filament_setting'); expect(calibration.command).toBe('extrusion_cali_sel');
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...calibration, result: 'success' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'outcome-unknown', reason: expect.stringContaining('Calibration: Confirmed.') },
+      steps: [{ label: 'Material information', phase: { kind: 'outcome-unknown' } }, { label: 'Calibration', phase: { kind: 'completed', confirmation: 'device-result' } }] } } });
+    expect(await f.operations.submit(request({ command }))).toEqual(result);
+    expect(f.commands()).toHaveLength(2);
+  } finally { await f.close(); }
 });
 it('does not mistake an ignored report for fresh completion evidence', async () => {
   const f = fixture(); try {

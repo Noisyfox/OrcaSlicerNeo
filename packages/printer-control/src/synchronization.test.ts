@@ -18,7 +18,7 @@ function snapshot(): D.PrinterSnapshot<'materials' | 'descriptor'> {
   const inventory: D.MaterialInventory = { topologyRevision: 'topology', topology, toolIds,
     state: { inventoryRevision: 'inventory', slots: topology.slots.map((slot, i) => ({ slotId: slot.id,
       presence: i === 0 ? known('empty' as const) : unknown,
-      material: i === 4 ? unknown : known({ materialType: 'PLA', manufacturer: null, diameterMm: null,
+      material: i === 4 ? unknown : known({ nozzleTemperatureRangeC: null, presetRef: null, materialType: 'PLA', manufacturer: null, diameterMm: null,
         color: { kind: 'solid', rgba: '#AA0000FF' }, catalogRefs: [] }), spoolIdentity: unknown, remaining: unknown })), tools: [], dryers: [] } };
   const hardware: D.PrinterTopology = { revision: 'topology', completeness: 'complete', materials: topology, motionGroups: [], extruders: [],
     tools: toolIds.map((toolId, i) => ({ id: toolId, name: `Configured ${i}`, extruderId: id(`e${i}`), nozzleId: id(`n${i}`), motionGroupId: id('motion') })),
@@ -104,8 +104,8 @@ describe('project synchronization source boundary', () => {
   it('retains arbitrary tool order and five-slot topology, counts distinct physical slots and includes retained empty/unknown metadata', () => {
     const result = synchronizationSource(snapshot(), identity, 'printer'); if (!result.ok) throw new Error(result.error.message);
     expect(result.value.tools.map(t => [t.id, t.diameterMm, t.capacity])).toEqual([['opaque:C', 0.4, 2], ['opaque:A', 0.6, 2], ['opaque:Z', 0.4, 1]]);
-    expect(result.value.materials[0]).toMatchObject({ presence: 'empty', toolIndices: [0], metadata: { materialType: 'PLA' } });
-    expect(result.value.materials[1]).toMatchObject({ presence: 'unknown', toolIndices: [1], metadata: { materialType: 'PLA' } });
+    expect(result.value.materials[0]).toMatchObject({ presence: 'empty', toolIndices: [0], metadata: { nozzleTemperatureRangeC: null, presetRef: null, materialType: 'PLA' } });
+    expect(result.value.materials[1]).toMatchObject({ presence: 'unknown', toolIndices: [1], metadata: { nozzleTemperatureRangeC: null, presetRef: null, materialType: 'PLA' } });
     expect(result.value.materials[4].metadata).toBeNull();
   });
   it('rejects stale/cross-route observations, mismatched topology and dangling paths without mutating inputs', () => {

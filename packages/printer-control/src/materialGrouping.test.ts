@@ -12,7 +12,7 @@ function fixture(): D.PrinterSnapshot<'materials'> {
       slots: [{ id: id('supply'), unitId: id('holder'), name: 'Supply' }],
       paths: [0, 1].map(i => ({ id: id(`path/${i}`), slotId: id('supply'), toolId: id(i ? 'opaque:left' : 'opaque:right'), loading: 'manual' })), dryers: [] },
     state: { inventoryRevision: 'inventory', slots: [{ slotId: id('supply'), presence: known('empty' as const), remaining: unknown, spoolIdentity: unknown,
-      material: known({ materialType: 'PLA', diameterMm: null, manufacturer: null, catalogRefs: [],
+      material: known({ nozzleTemperatureRangeC: null, presetRef: null, materialType: 'PLA', diameterMm: null, manufacturer: null, catalogRefs: [],
         color: { kind: 'multiple', rgba: ['#00FF00FF', '#0000FFFF'], representativeRgba: '#ff0000ff', appearance: 'parallel' as const } }) }], tools: [], dryers: [] } }) } };
 }
 describe('advisory native grouping materials', () => {

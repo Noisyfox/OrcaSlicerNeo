@@ -6,13 +6,15 @@ import type { Report } from './protocol';
 export interface BambuDeviceContext extends TelemetryProjection { target: D.PrinterTarget; configurationRevision: string; model: string | null }
 export interface BambuObjectSkippingContext { snapshot: D.PrintObjectSnapshot; labels: ReadonlyMap<D.Id<'print-object'>, number> }
 export interface BambuRecoveryContext extends BambuDeviceContext { recovery: { action: D.PrinterAction; command: PreparedCommand }[] }
-export interface CommandContext extends BambuDeviceContext { objectSkipping?: BambuObjectSkippingContext; recovery?: BambuRecoveryContext['recovery'] }
+export interface CommandContext extends BambuDeviceContext { objectSkipping?: BambuObjectSkippingContext; recovery?: BambuRecoveryContext['recovery']; calibrationHistory?: readonly Report[] }
 export interface PreparedProtocolCommand {
   label: string; section: 'print' | 'system'; fields: Report; qos: number;
   /** Only explicit report predicates confirm completion; without one, ACK ends tracking as accepted. */
   confirmed?: (next: TelemetryProjection) => boolean;
+  responseConfirmed?: (reply: Report) => boolean;
 }
 export interface PreparedCommand {
   commands: readonly [PreparedProtocolCommand, ...PreparedProtocolCommand[]];
   continueOnFailure: boolean;
+  warnings: readonly D.CommandWarning[];
 }

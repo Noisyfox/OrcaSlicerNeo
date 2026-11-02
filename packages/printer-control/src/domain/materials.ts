@@ -46,6 +46,25 @@ export interface MaterialMetadata {
   diameterMm: number | null;
   /** Namespaced identities of the same catalogue material, including provider-normalized library associations. */
   catalogRefs: readonly ExternalRef[];
+  /** Stored material recommendation, never an active heater target. */
+  nozzleTemperatureRangeC: { min: number; max: number } | null;
+  presetRef: ExternalRef | null;
+}
+export interface MaterialPresetConfiguration {
+  key: string;
+  label: string;
+  materialType: string;
+  manufacturer: string | null;
+  catalogRefs: readonly ExternalRef[];
+  presetRef: ExternalRef | null;
+  nozzleTemperatureRangeC: { min: number; max: number } | null;
+}
+export interface MaterialConfigurationTarget {
+  slotId: Id<'slot'>;
+  informationWritable: boolean;
+  actions: readonly ('confirm' | 'reset')[];
+  restriction: string | null;
+  catalogue: { mainNozzleDiameterMm: number | null; toolIndex: number; nozzleFlowType: string | null; supportsUserPresets: boolean };
 }
 export type MaterialMetadataPatch = AtLeastOne<MaterialMetadata>;
 export type RemainingMaterial = {

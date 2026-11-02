@@ -1,6 +1,6 @@
 /** Typed commands, capability constraints and asynchronous outcomes. This module defines no executor. */
 import type { Id, Revision, UnixMs, Axis, Range, PrinterError, Result, ReadOptions, Capability, Availability, NonEmptyReadonlyArray, NoConstraints, PrinterTarget, TargetRequest } from './common';
-import type { MaterialMetadata, MaterialMetadataPatch, PrintMaterialBinding } from './materials';
+import type { MaterialMetadata, MaterialMetadataPatch, PrintMaterialBinding, MaterialPresetConfiguration, MaterialConfigurationTarget } from './materials';
 import type { PrintFormatId, FileSelection, VersionCheck, RemoteFile, UploadProgress } from './files';
 import type { TimelapseSetting } from './media';
 import type { PrintObjectContextRef } from './objects';
@@ -137,6 +137,11 @@ export interface PrinterCommandSpecs {
     slotId: Id<'slot'>;
     writableFields: NonEmptyReadonlyArray<keyof MaterialMetadata>;
   }>>;
+  'materials.configure': CommandSpec<{
+    slotId: Id<'slot'>;
+    acknowledgedWarningIds: readonly string[];
+  } & ({ intent: 'confirm'; preset: MaterialPresetConfiguration | null; colorRgba: string | null } | { intent: 'reset' }),
+    NonEmptyReadonlyArray<MaterialConfigurationTarget>>;
   'materials.refreshTag': CommandSpec<{
     slotId: Id<'slot'>;
   }, {
@@ -184,7 +189,7 @@ export interface ControlBasis {
   /** Optional device task identity check; never a prerequisite for current-print controls. */
   expectedTaskId?: Id<'device-task'>;
 }
-export type InventoryCommand = 'jobs.start' | 'materials.load' | 'materials.unload' | 'materials.switch' | 'materials.writeMetadata' | 'materials.refreshTag';
+export type InventoryCommand = 'jobs.start' | 'materials.load' | 'materials.unload' | 'materials.switch' | 'materials.writeMetadata' | 'materials.configure' | 'materials.refreshTag';
 export type CommandGuard<K extends CommandName> = ControlBasis & (K extends 'files.delete' | 'jobs.pause' | 'jobs.resume' | 'jobs.cancel' | 'jobs.skipObjects' | 'actions.invoke' ? {} : {
   topologyRevision?: Revision;
 }) & (K extends InventoryCommand ? {
@@ -198,12 +203,14 @@ export type CommandRequest = { [K in CommandName]: {
 } }[CommandName];
 export interface CommandEvaluation {
   availability: Availability;
+  warnings: readonly CommandWarning[];
   /** Only known, relevant conditions are supplied. Submit never requires evaluate first. */
   basis: ControlBasis & {
     topologyRevision?: Revision;
     inventoryRevision?: Revision;
   };
 }
+export interface CommandWarning { id: string; message: string; helpUrl: string | null }
 export interface OperationRef {
   id: Id<'operation'>;
   printerId: Id<'printer'>;

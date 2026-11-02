@@ -31,7 +31,7 @@ function groupingFixture() {
     slots: [{ id: id('slot'), unitId: id('unit'), name: 'Slot' }], paths: [{ id: id('path'), slotId: id('slot'), toolId: tool, loading: 'automatic' }], dryers: [] };
   inventory.state.slots = [{ slotId: id('slot'), presence: { kind: 'unknown', reason: 'not-reported' }, remaining: { kind: 'unknown', reason: 'not-reported' }, spoolIdentity: { kind: 'unknown', reason: 'not-reported' },
     material: { kind: 'known', freshness: 'stale', sourceRouteId: s.target.routeId, receivedAtMs: 1, observedAtMs: null,
-      value: { materialType: 'PLA', manufacturer: null, diameterMm: null, color: { kind: 'solid', rgba: '#FF0000' }, catalogRefs: [] } } }];
+      value: { nozzleTemperatureRangeC: null, presetRef: null, materialType: 'PLA', manufacturer: null, diameterMm: null, color: { kind: 'solid', rgba: '#FF0000' }, catalogRefs: [] } } }];
   const route = { id: s.target.routeId, configurationRevision: s.configurationRevision,
     capabilities: { observations: { materials: { kind: 'supported', constraints: { delivery: ['on-demand'] } } } } } as unknown as D.PrinterRoute;
   const printer: D.SavedPrinter = { identity: s.values.descriptor.value.identity, routes: [route] };

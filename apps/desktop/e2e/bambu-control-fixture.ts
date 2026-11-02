@@ -55,7 +55,7 @@ export async function installControlFixture(app: ElectronApplication, camera = f
       if (method === 'observe') { fixture.tokens.push(input.token); return { ok: true, value: null }; }
       if (method === 'release') { fixture.tokens = fixture.tokens.filter(token => token !== input.token); return { ok: true, value: null }; }
       if (method === 'preview') return { ok: false, error: { code: 'preview-unavailable', message: 'No fixture image.' } };
-      if (method === 'evaluate') return { ok: true, value: { basis: { capabilityRevision: current.description.capabilities.revision }, availability: { kind: 'available' } } };
+      if (method === 'evaluate') return { ok: true, value: { basis: { capabilityRevision: current.description.capabilities.revision }, warnings: [], availability: { kind: 'available' } } };
       if (method === 'submit') {
         if (fixture.rejectNext) { fixture.rejectNext = false; return { kind: 'rejected', error: { code: 'stale-context', message: 'Fixture immediate rejection' } }; }
         fixture.commands.push(input);

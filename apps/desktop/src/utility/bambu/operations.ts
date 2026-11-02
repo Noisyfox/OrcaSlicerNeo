@@ -22,9 +22,9 @@ export class BambuOperations {
   constructor(private readonly monitor: BambuMonitor, private readonly changed: () => void,
     private readonly timeoutMs: number | ((command: D.PrinterCommand) => number) = completionTimeout, private readonly now = () => Date.now()) {}
   async evaluate(target: D.PrinterTarget, command: D.PrinterCommand): Promise<D.Result<D.CommandEvaluation>> {
-    const context = await this.monitor.context(target); if (!context.ok) return context;
+    const context = command.type === 'materials.configure' ? await this.monitor.prepareMaterials(target, command.params) : await this.monitor.context(target); if (!context.ok) return context;
     const result = prepareCommand(context.value, command);
-    return { ok: true, value: { basis: commandBasis(context.value), availability: result.ok ? { kind: 'available' } : { kind: 'blocked', reasons: [result.error] } } };
+    return { ok: true, value: { basis: commandBasis(context.value), warnings: result.ok ? result.value.warnings : [], availability: result.ok ? { kind: 'available' } : { kind: 'blocked', reasons: [result.error] } } };
   }
   submit(request: D.CommandRequest): Promise<D.Submission> {
     const key = JSON.stringify([request.target.printerId, request.target.routeId, request.requestId]);
@@ -37,15 +37,22 @@ export class BambuOperations {
     if (!lease.ok) return { kind: 'rejected', error: lease.error };
     let tracked: Tracked | undefined;
     try {
+      if (request.command.type === 'materials.configure') {
+        const ready = await this.monitor.prepareMaterials(request.target, request.command.params);
+        if (!ready.ok) return { kind: 'rejected', error: ready.error };
+      }
       const result = await this.monitor.dispatch(request.target, async (context, send) => {
         if (request.target.expectedConfigurationRevision !== undefined && request.target.expectedConfigurationRevision !== context.configurationRevision) return failure('stale-context', 'Printer configuration changed.');
         const basis = commandBasis(context);
         for (const [key, expected] of Object.entries(request.guard ?? {})) if (expected !== undefined && expected !== basis[key as keyof typeof basis]) return failure('stale-context', 'Printer, task, or material context changed. Review the current state.');
         const prepared = prepareCommand(context, request.command); if (!prepared.ok) return prepared;
-        const sequences = prepared.value.commands.map(() => String(++this.sequence)), operation: D.CommandOperation = { kind: 'command', commandType: request.command.type,
+        const acknowledged = request.command.type === 'materials.configure' ? request.command.params.acknowledgedWarningIds : [];
+        if (prepared.value.warnings.some(warning => !acknowledged.includes(warning.id)))
+          return failure('precondition-failed', 'Review and acknowledge the current material warnings before applying.');
+        const sequences = prepared.value.commands.map(() => String(++this.sequence)), operation = { kind: 'command', commandType: request.command.type,
           ref: { ...context.target, id: randomUUID() as D.Id<'operation'> }, requestId: request.requestId,
           configurationRevision: context.configurationRevision, revision: 1, updatedAtMs: this.now(), phase: { kind: 'sent' },
-          steps: prepared.value.commands.map(command => ({ label: command.label, phase: { kind: 'queued' } })) };
+          steps: prepared.value.commands.map(command => ({ label: command.label, phase: { kind: 'queued' } })) } as D.CommandOperation;
         const timeout = typeof this.timeoutMs === 'number' ? this.timeoutMs : this.timeoutMs(request.command);
         const timer = setTimeout(() => { if (tracked) this.endUnconfirmed(tracked, 'The printer did not confirm completion. Check its current state before issuing another command.'); }, timeout); timer.unref();
         tracked = { generation: context.generation, operation, request, prepared: prepared.value, sequences, dispatching: true, token: lease.value, timer };
@@ -85,11 +92,12 @@ export class BambuOperations {
     if (!tracked.dispatching && steps.every(step => terminal(step.phase))) {
       const failed = steps.find(step => step.phase.kind === 'failed');
       const uncertain = steps.find(step => step.phase.kind === 'outcome-unknown' || step.phase.kind === 'not-sent');
-      const details = steps.filter(step => step.phase.kind === 'failed' || step.phase.kind === 'outcome-unknown' || step.phase.kind === 'not-sent')
-        .map(step => `${step.label}: ${step.phase.kind === 'failed' ? step.phase.error.message : 'reason' in step.phase ? step.phase.reason : ''}`).join(' ');
+      const details = steps.map(step => `${step.label}: ${step.phase.kind === 'failed' ? step.phase.error.message
+        : 'reason' in step.phase ? step.phase.reason : step.phase.kind === 'completed' ? 'Confirmed.' : 'Accepted; state not confirmed.'}`).join(' ');
       phase = failed?.phase.kind === 'failed' ? { kind: 'failed', error: { ...failed.phase.error, message: details } }
         : uncertain ? { kind: 'outcome-unknown', reason: details }
-        : steps.every(step => step.phase.kind === 'completed') ? { kind: 'completed', result: null, confirmation: 'observed-state' }
+        : steps.every(step => step.phase.kind === 'completed') ? { kind: 'completed', result: null,
+          confirmation: steps.every(step => step.phase.kind === 'completed' && step.phase.confirmation === 'device-result') ? 'device-result' : 'observed-state' }
         : { kind: 'accepted' };
     }
     tracked.operation = { ...tracked.operation, phase, revision: tracked.operation.revision + 1, updatedAtMs: this.now() };
@@ -117,6 +125,7 @@ export class BambuOperations {
         if (text(response.sequence_id) === tracked.sequences[index] && response.command === command.fields.command) {
           const result = text(response.result)?.toLowerCase();
           if (result === 'fail' || result === 'failed' || result === 'error') this.step(tracked, index, { kind: 'failed', error: { code: 'device-rejected', message: 'The printer rejected this command. Check the printer status.' } });
+          else if (command.responseConfirmed?.(response)) this.step(tracked, index, { kind: 'completed', result: null, confirmation: 'device-result' });
           else if (result === 'success') this.step(tracked, index, { kind: command.confirmed ? 'acknowledged' : 'accepted' });
         }
         if (record(root.print).command === 'push_status' && command.confirmed) {

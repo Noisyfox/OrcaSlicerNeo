@@ -239,7 +239,7 @@ it.each(['solid', 'parallel', 'gradient'] as const)('uses the shared translucent
     const slot = 'spool' as D.Id<'slot'>;
     f.material.topology.slots = [{ id: slot, unitId: f.material.topology.units[0].id, name: 'Spool' }];
     f.material.state.slots = [{ slotId: slot, presence: f.known('present'), spoolIdentity: unknown, remaining: unknown,
-      material: f.known({ materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [],
+      material: f.known({ nozzleTemperatureRangeC: null, presetRef: null, materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [],
         color: appearance === 'solid' ? { kind: 'solid', rgba: '#ffffff00' }
           : { kind: 'multiple', rgba: ['#ffffff00', '#ff0000'], representativeRgba: '#ffffff00', appearance } }),
     }];
