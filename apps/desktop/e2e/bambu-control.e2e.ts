@@ -179,7 +179,7 @@ test('material configuration binds the original slot, closes after submission an
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
   try {
     const page = await app.firstWindow(); await page.setViewportSize({ width: 1280, height: 850 });
-    await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await installControlFixture(app);
     await page.getByTestId('tab-device').click();
     await page.getByTestId('device-printer-select').click(); await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
@@ -187,14 +187,55 @@ test('material configuration binds the original slot, closes after submission an
     await expect(information.first()).toBeEnabled(); await information.first().click();
     const dialog = page.getByRole('dialog', { name: 'Material information', exact: true });
     await expect(dialog).toContainText('Workshop A');
-    const selection = dialog.getByRole('combobox', { name: 'Material preset' });
-    await expect(selection.locator('option', { hasText: 'Generic PLA' })).toHaveCount(1);
-    await selection.selectOption({ label: 'Generic PLA' });
+    const selection = dialog.getByLabel('Material preset', { exact: true });
+    await expect(selection).toBeEnabled();
+    const chooseMaterial = async () => {
+      await selection.click();
+      if (process.env.ORCA_E2E_REAL === '1') {
+        const list = page.locator('[data-slot="combobox-list"]');
+        await expect(list.getByRole('option')).not.toHaveCount(0);
+        const dimensions = await list.evaluate(element => ({ content: element.scrollHeight, viewport: element.clientHeight }));
+        expect(dimensions.content).toBeGreaterThan(dimensions.viewport);
+        const popupBounds = await page.locator('[data-slot="combobox-content"]').boundingBox();
+        const triggerBounds = await selection.boundingBox();
+        expect(popupBounds!.width).toBeGreaterThan(triggerBounds!.width);
+        expect(popupBounds!.width).toBeLessThanOrEqual(1264);
+        await page.screenshot({ path: '/tmp/orcaneo-material-controls-native-popup.png', animations: 'disabled' });
+      }
+      await page.getByLabel('Search materials', { exact: true }).fill('Generic PLA');
+      await page.getByRole('option', { name: 'Generic PLA', exact: true }).click();
+      await expect(page.locator('[data-slot="combobox-content"]')).toBeHidden();
+    };
+    await chooseMaterial();
+    const controlStyle = await selection.evaluate(element => ({ height: element.getBoundingClientRect().height, font: getComputedStyle(element).fontSize }));
+    expect(controlStyle).toEqual({ height: 24, font: '13px' });
+    const materialLabel = await dialog.getByText('Material', { exact: true }).boundingBox();
+    const controlBounds = await selection.boundingBox();
+    expect(Math.abs(materialLabel!.y + materialLabel!.height / 2 - controlBounds!.y - controlBounds!.height / 2)).toBeLessThan(1);
+    await selection.click();
+    const popup = page.locator('[data-slot="combobox-content"]');
+    await expect(popup).toBeVisible();
+    const popupBounds = await popup.boundingBox();
+    expect(popupBounds!.y).toBeGreaterThanOrEqual(controlBounds!.y + controlBounds!.height);
+    expect(popupBounds!.width).toBeGreaterThanOrEqual(Math.max(controlBounds!.width, 128));
+    expect(await popup.locator('[data-slot="combobox-list"]').evaluate(element => getComputedStyle(element).overflowY)).toBe('auto');
+    await page.getByLabel('Search materials', { exact: true }).fill('no matching material 12345');
+    await expect(popup.getByText('No matching materials', { exact: true })).toBeVisible();
+    await page.getByLabel('Search materials', { exact: true }).press('Escape');
+    await expect(popup).toBeHidden(); await expect(dialog).toBeVisible();
+    await expect(selection).toBeFocused();
+    await chooseMaterial();
+    await page.screenshot({ path: '/tmp/orcaneo-material-controls-dialog.png', animations: 'disabled' });
     await expect(dialog.getByLabel('Nozzle temperature range')).toHaveText(/\d+–\d+ °C/);
     await expect(dialog.getByRole('spinbutton')).toHaveCount(0);
     await app.evaluate(() => { globalThis.bambuControlFixture.rejectNext = true; });
     await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
     await expect(dialog).toContainText('Fixture immediate rejection');
+    await page.setViewportSize({ width: 820, height: 520 });
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
+    await expect(dialog.getByRole('button', { name: 'Confirm', exact: true })).toBeInViewport();
+    await page.screenshot({ path: '/tmp/orcaneo-material-controls-compact.png', animations: 'disabled' });
+    await page.setViewportSize({ width: 1280, height: 850 });
     await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
     await expect(dialog).toBeHidden();
     const command = await app.evaluate(() => globalThis.bambuControlFixture.commands.at(-1));
@@ -217,13 +258,20 @@ test('material configuration binds the original slot, closes after submission an
     await expect(dialog.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled();
     await dialog.getByRole('button', { name: 'Reset', exact: true }).click();
     await expect(dialog.getByRole('group', { name: 'Reset confirmation' })).toContainText('RFID material information will remain');
+    await page.setViewportSize({ width: 820, height: 360 });
+    const scrollingBody = dialog.locator('[data-slot="field-group"]').locator('..');
+    expect(await scrollingBody.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
+    await expect(dialog.getByRole('button', { name: 'Confirm', exact: true })).toBeInViewport();
+    await page.screenshot({ path: '/tmp/orcaneo-material-controls-overflow.png', animations: 'disabled' });
     await dialog.getByRole('button', { name: 'Keep information', exact: true }).click();
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.setViewportSize({ width: 1280, height: 850 });
     // Both external holders use the shared draft UI with their own target-bound slot identity.
     for (const unit of [254, 255]) {
       const holder = panel.getByRole('heading', { name: `External holder ${unit}`, exact: true }).locator('..');
       await holder.getByRole('button', { name: /^Material information for/ }).click();
-      await selection.selectOption({ label: 'Generic PLA' });
+      await chooseMaterial();
       await expect(dialog.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled();
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     }

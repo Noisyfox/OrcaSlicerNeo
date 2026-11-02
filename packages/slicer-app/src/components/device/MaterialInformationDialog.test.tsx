@@ -7,6 +7,7 @@ import type * as D from '@orca/printer-control/domain';
 import { MaterialInformationDialog } from './MaterialInformationDialog';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
 const target: D.TargetRequest = { printerId: 'physical' as never, routeId: 'route' as never, expectedConfigurationRevision: 'cfg' };
 const slot: D.MaterialSlot = { id: 'opaque-slot' as never, unitId: 'holder' as never, name: 'External left' };
 const presets: D.MaterialPresetConfiguration[] = [
@@ -29,16 +30,17 @@ async function fixture({ rfid = false, restricted = false } = {}) {
   await act(async () => root.render(<PlatformProvider value={platform}><MaterialInformationDialog {...props} /></PlatformProvider>));
   const click = async (label: string) => act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === label)!.click(); });
   return { query, evaluate, submit, props, onClose, onSubmitted, openHttps, click,
-    select: () => document.querySelector<HTMLSelectElement>('[aria-label="Material preset"]')!,
+    select: () => document.querySelector<HTMLButtonElement>('[aria-label="Material preset"]')!,
     close: async () => { await act(async () => root.unmount()); element.remove(); } };
 }
 it('uses the physical-device native catalogue, derives temperature and preserves RGBA independently of material choice', async () => {
   const f = await fixture(); try {
     expect(f.query).toHaveBeenCalledExactlyOnceWith({ identity: { manufacturer: 'Vendor', model: 'Physical Model', externalRefs: [{ namespace: 'model', value: 'physical' }] }, ...f.props.configuration.catalogue });
-    expect(f.select().value).toBe('saved-root');
+    expect(f.select().textContent).toBe('Generic PLA');
     expect(document.querySelector('output')?.textContent).toBe('190–230 °C');
     expect(document.querySelector('input[type="number"]')).toBeNull();
-    await act(async () => { f.select().value = 'saved-petg'; f.select().dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => f.select().click());
+    await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent === 'Saved PETG')!.click());
     expect(document.querySelector('output')?.textContent).toBe('220–260 °C');
     await f.click('Confirm');
     expect(f.submit).toHaveBeenCalledOnce();
@@ -99,4 +101,32 @@ it('hands a submitted operation to its original Monitor even if the editor unmou
   await f.click('Confirm'); await f.close();
   await act(async () => finish({ kind: 'recorded', operation: { ...target, id: 'old-operation' as never } }));
   expect(f.onSubmitted).toHaveBeenCalledOnce(); expect(f.onClose).not.toHaveBeenCalled();
+});
+
+
+it('searches the native flat list, preserves selection while filtering and clears the search after dismissal', async () => {
+  const f = await fixture();
+  const options = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].map(item => item.textContent);
+  const search = () => document.querySelector<HTMLInputElement>('[aria-label="Search materials"]')!;
+  const fill = async (value: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search(), value);
+    search().dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  try {
+    await act(async () => f.select().click());
+    expect(options()).toEqual(['Generic PLA', 'Saved PETG']);
+    await fill('petg'); expect(options()).toEqual(['Saved PETG']);
+    expect(f.select().textContent).toBe('Generic PLA');
+    await fill('not a material'); expect(options()).toEqual([]);
+    expect(document.body.textContent).toContain('No matching materials');
+    expect(f.submit).not.toHaveBeenCalled();
+    await act(async () => search().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(f.onClose).not.toHaveBeenCalled();
+    await act(async () => f.select().click());
+    expect(search().value).toBe(''); expect(options()).toEqual(['Generic PLA', 'Saved PETG']);
+    await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')][1].click());
+    expect(f.select().textContent).toBe('Saved PETG');
+    expect(document.querySelector('output')?.textContent).toBe('220–260 °C');
+    expect(f.query).toHaveBeenCalledOnce();
+  } finally { await f.close(); }
 });
