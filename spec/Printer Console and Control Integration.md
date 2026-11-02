@@ -1105,6 +1105,16 @@ as the behavioral reference:
   temperature-range variant. The temperature range is displayed read-only;
   it is not a heater target or a free-form override. Color editing follows
   the reference picker behavior and slot restrictions.
+- Following [Orca #16538](https://github.com/OrcaSlicer/OrcaSlicer/pull/16538)
+  and [upstream main 06bccd5](https://github.com/OrcaSlicer/OrcaSlicer/tree/06bccd5570c979df6c5fd2d835519773c014fa76),
+  allow alpha in every solid color. Offer 2–4 ordered gradient colors, each with
+  independent alpha, only when the device reports manual-multicolor support.
+  Reuse the shared color picker with a caller-specific four-color limit; project
+  editing and saved favorites keep their seven-color contract. Preserve an
+  existing partitioned or oversized group on Cancel or unchanged Confirm;
+  show its first color as the fallback picker seed with a preservation notice.
+  Material selection alone does not replace colors. Preview the full reported
+  group and transparency in both the dialog and Monitor.
 - Preserve the reference material checks before dispatch, including applicable
   device, slot and nozzle restrictions. Prohibitions block the operation;
   warnings are presented using the reference interaction. Vendor-rule
@@ -1260,8 +1270,8 @@ snapshots, including material/setting identities, RGBA, temperature bounds,
 calibration index, RFID and color-representation fields. They matched exactly;
 calibration version and nozzle snapshots were unchanged. The private single-color
 representation flag normalized by a manual external-holder color write was also
-restored from the baseline. This acceptance restoration does not add arbitrary
-protocol fields or a multicolor editor to the shared configuration contract.
+restored from the baseline. Restoration does not expose arbitrary protocol
+fields in the shared configuration contract.
 Credentials are absent from the ignored local evidence under
 `.vitest/material-settings/`.
 
@@ -1271,6 +1281,28 @@ RFID calibration-only actions have software coverage and remain unqualified on
 physical hardware. Cloud was exercised through provider/IPC software fixtures;
 no Cloud physical write was attempted. This round does not qualify other devices,
 firmware, hosts, external filament feeding or a release matrix.
+
+The alpha/gradient extension was verified against upstream main `06bccd5` and
+Orca #16538 on 2026-11-02. Repository `pnpm test` and `pnpm typecheck` passed,
+including 1,587 shared application tests and 449 desktop tests; five existing
+conditional skips remain. The platform import guard, all four mock Electron
+control journeys, both focused real-WASM material-configuration journeys, the
+production desktop build and renderer CSS smoke passed. Coverage includes
+firmware gating, full ordered RGBA protocol confirmation, repeated colors,
+the caller-specific four-color limit, seven-color project/favorite retention,
+and Cancel/unchanged Confirm preservation for unsupported groups. No native
+bridge or core source changed, so this extension required no WASM rebuild.
+
+Additional production-build H2D LAN acceptance used external holder 254, whose
+firmware reported manual-multicolor support. Four UI submissions covered a
+two-color gradient, a four-color gradient with a repeated stop and independent
+`00`/`80`/`FE` alpha, a single color with `40` alpha, and restoration. Every
+information/calibration step completed, and subsequent device status matched
+the complete selected color group. An independent final read-only acquisition
+matched all ten slots' baseline material, temperature, calibration, RFID and
+raw color-representation fields exactly; nozzles and calibration version were
+unchanged. Cloud, solid-only firmware and other physical supply paths retain
+software coverage without new physical qualification.
 
 #### Accepted observation and access behavior
 

@@ -48,7 +48,7 @@ export function materialConfigurationTargets(context: BambuDeviceContext): D.Mat
   const blocked = restriction(context);
   return context.values.materials.topology.slots.flatMap(slot => {
     const target = materialTray(context, slot.id);
-    return target ? [{ slotId: slot.id, informationWritable: target.informationWritable,
+    return target ? [{ slotId: slot.id, informationWritable: target.informationWritable, maxGradientColors: context.machine.manualMultiColor ? 4 : null,
       actions: blocked ? [] : ['confirm', 'reset'], restriction: blocked?.message ?? null,
       catalogue: { mainNozzleDiameterMm: target.mainDiameter, toolIndex: target.toolIndex, nozzleFlowType: target.flow,
         supportsUserPresets: context.machine.userPresets || profile.support_user_preset === true } }] : [];
@@ -96,8 +96,7 @@ export function prepareMaterialConfiguration(context: CommandContext, params: Pa
   if (target.informationWritable && !reset) {
     const range = preset?.nozzleTemperatureRangeC;
     const ref = preset?.catalogRefs.find(ref => ref.namespace === 'orca-filament' || ref.namespace === 'bambu-filament');
-    if (!preset || !ref?.value || !preset.materialType || !range || !Number.isInteger(range.min) || !Number.isInteger(range.max) || range.min <= 0 || range.max < range.min
-      || params.intent !== 'confirm' || !params.colorRgba || !/^#[\da-fA-F]{8}$/.test(params.colorRgba))
+    if (!preset || !ref?.value || !preset.materialType || !range || !Number.isInteger(range.min) || !Number.isInteger(range.max) || range.min <= 0 || range.max < range.min)
       return fail('invalid-request', 'Select a material with a valid temperature range and color.');
     if (preset.presetRef !== null && preset.presetRef.namespace !== 'orca-filament-setting') return fail('invalid-request', 'Unsupported material preset association.');
     materialId = printerFilamentId(ref.value);
@@ -106,17 +105,32 @@ export function prepareMaterialConfiguration(context: CommandContext, params: Pa
     warnings = issues.warnings;
   }
   if (target.informationWritable) {
+    const selected = params.intent === 'confirm' ? params.color : null;
+    const hex = (value: unknown): value is string => typeof value === 'string' && /^#[\da-fA-F]{8}$/.test(value);
+    if (selected !== null && (selected.kind === 'solid' ? !hex(selected.rgba)
+      : selected.kind !== 'gradient' || !Array.isArray(selected.rgba) || selected.rgba.length < 2 || selected.rgba.length > 4 || !selected.rgba.every(hex)))
+      return fail('invalid-request', 'Select a valid RGBA solid or a gradient of two to four colors.');
+    if (selected?.kind === 'gradient' && !context.machine.manualMultiColor)
+      return fail('precondition-failed', 'This printer does not support manual gradient colors.');
+    const reported = Array.isArray(target.value.cols) ? target.value.cols.filter((color): color is string => typeof color === 'string' && /^[\da-fA-F]{8}$/.test(color)) : [];
+    const primary = selected?.kind === 'solid' ? selected.rgba.slice(1) : selected?.kind === 'gradient' ? selected.rgba[0].slice(1)
+      : typeof target.value.tray_color === 'string' && /^[\da-fA-F]{8}$/.test(target.value.tray_color) ? target.value.tray_color : reported[0] ?? 'FFFFFFFF';
+    const colors = selected ? (selected.kind === 'solid' ? [selected.rgba.slice(1)] : selected.rgba.map(color => color.slice(1))) : reported.length ? reported : [primary];
+    const colorType = colors.length > 1 ? selected?.kind === 'gradient' ? 0 : number(target.value.ctype) ?? 2 : 2;
+    const tuple = !reset && context.machine.manualMultiColor ? { cols: colors.map(color => color.toUpperCase()), ctype: colorType } : null;
+    const colorMatches = (tray: Report) => tuple === null || number(tray.ctype) === tuple.ctype && Array.isArray(tray.cols)
+      && tray.cols.length === tuple.cols.length && tray.cols.every((color, index) => String(color).toUpperCase() === tuple.cols[index]);
     const fields = { command: 'ams_filament_setting', ams_id: target.unit, slot_id: target.tray, tray_id: target.external ? 254 : target.tray,
       tray_info_idx: reset ? '' : materialId, setting_id: reset ? '' : preset?.presetRef?.value ?? '',
-      tray_color: reset ? 'FFFFFF00' : (params.intent === 'confirm' ? params.colorRgba! : '').slice(1).toUpperCase(),
+      tray_color: reset ? 'FFFFFF00' : primary.toUpperCase(), ...tuple,
       tray_type: reset ? '' : preset!.materialType, nozzle_temp_min: reset ? 0 : preset!.nozzleTemperatureRangeC!.min,
       nozzle_temp_max: reset ? 0 : preset!.nozzleTemperatureRangeC!.max };
     commands.push({ label: 'Material information', section: 'print', qos: 0, fields,
       responseConfirmed: reply => ['ams_id', 'slot_id', 'tray_info_idx', 'setting_id', 'tray_color', 'tray_type', 'nozzle_temp_min', 'nozzle_temp_max'].every(key =>
-        String(reply[key] ?? '').toUpperCase() === String(fields[key as keyof typeof fields]).toUpperCase()),
+        String(reply[key] ?? '').toUpperCase() === String(fields[key as keyof typeof fields]).toUpperCase()) && colorMatches(reply),
       confirmed: next => {
         const tray = materialTray({ ...context, ...next }, params.slotId)?.value;
-        return !!tray && ['tray_info_idx', 'setting_id', 'tray_color', 'tray_type', 'nozzle_temp_min', 'nozzle_temp_max'].every(key =>
+        return !!tray && colorMatches(tray) && ['tray_info_idx', 'setting_id', 'tray_color', 'tray_type', 'nozzle_temp_min', 'nozzle_temp_max'].every(key =>
           typeof fields[key as keyof typeof fields] === 'string' ? String(tray[key] ?? '').toUpperCase() === String(fields[key as keyof typeof fields]).toUpperCase()
             : number(tray[key]) === fields[key as keyof typeof fields]);
       } });

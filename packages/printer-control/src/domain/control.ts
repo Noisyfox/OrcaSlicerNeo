@@ -1,6 +1,6 @@
 /** Typed commands, capability constraints and asynchronous outcomes. This module defines no executor. */
 import type { Id, Revision, UnixMs, Axis, Range, PrinterError, Result, ReadOptions, Capability, Availability, NonEmptyReadonlyArray, NoConstraints, PrinterTarget, TargetRequest } from './common';
-import type { MaterialMetadata, MaterialMetadataPatch, PrintMaterialBinding, MaterialPresetConfiguration, MaterialConfigurationTarget } from './materials';
+import type { MaterialMetadata, MaterialMetadataPatch, PrintMaterialBinding, MaterialColorConfiguration, MaterialPresetConfiguration, MaterialConfigurationTarget } from './materials';
 import type { PrintFormatId, FileSelection, VersionCheck, RemoteFile, UploadProgress } from './files';
 import type { TimelapseSetting } from './media';
 import type { PrintObjectContextRef } from './objects';
@@ -140,7 +140,7 @@ export interface PrinterCommandSpecs {
   'materials.configure': CommandSpec<{
     slotId: Id<'slot'>;
     acknowledgedWarningIds: readonly string[];
-  } & ({ intent: 'confirm'; preset: MaterialPresetConfiguration | null; colorRgba: string | null } | { intent: 'reset' }),
+  } & ({ intent: 'confirm'; preset: MaterialPresetConfiguration | null; color: MaterialColorConfiguration | null } | { intent: 'reset' }),
     NonEmptyReadonlyArray<MaterialConfigurationTarget>>;
   'materials.refreshTag': CommandSpec<{
     slotId: Id<'slot'>;

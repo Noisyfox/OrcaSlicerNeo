@@ -4,6 +4,7 @@ import { colorSwatchStyle } from '@/components/ui/color-swatch';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { ControlCard, display, valueOf, type CardControls } from './PrinterControlCards';
+import { materialColorSwatch } from './material-color';
 /** Reported hardware topology owns unit count, display names and tool routing. */
 export function MaterialControlCard({ snapshot, capabilities, disabled, send, onEdit }: CardControls & { onEdit?: (slot: D.MaterialSlot, material: D.MaterialMetadata | undefined) => void }) {
   const inventory = valueOf(snapshot?.values.materials), sensors = valueOf(snapshot?.values.sensors);
@@ -19,8 +20,7 @@ export function MaterialControlCard({ snapshot, capabilities, disabled, send, on
     <div className="printer-material-slots">{inventory.topology.slots.filter(slot => slot.unitId === unit.id).map(slot => {
       const state = inventory.state.slots.find(item => item.slotId === slot.id), material = valueOf(state?.material), color = material?.color;
       return <div className="printer-material-slot" key={slot.id}>
-        <div className="flex items-center justify-between gap-1"><span className="flex min-w-0 items-center gap-1">{color && <span aria-label="Material color" className="printer-material-color" style={colorSwatchStyle(color.kind === 'solid' ? { mode: 'solid', colors: [color.rgba] }
-          : { mode: color.appearance === 'parallel' ? 'multicolor' : 'gradient', colors: color.rgba })} />}<strong>{slot.name}</strong></span>
+        <div className="flex items-center justify-between gap-1"><span className="flex min-w-0 items-center gap-1">{color && <span aria-label="Material color" className="printer-material-color" style={colorSwatchStyle(materialColorSwatch(color))} />}<strong>{slot.name}</strong></span>
         {configure.kind === 'supported' && configure.constraints.some(target => target.slotId === slot.id) && <TooltipFor content="Material information" disabled={disabled} nonInteractive><Button size="icon-xs" variant="ghost" className="shrink-0" aria-label={`Material information for ${unit.name} · ${slot.name}`} disabled={disabled} onClick={() => onEdit?.(slot, material ?? undefined)}><Pencil className="size-3" /></Button></TooltipFor>}</div>
         <p className="printer-slot-material">{material?.materialType || 'Unknown material'}</p>
         <details className="printer-slot-details"><summary>Details</summary>

@@ -4,6 +4,82 @@ import { expect, test } from '@playwright/test';
 import { installControlFixture, publishControlSnapshot } from './bambu-control-fixture';
 import { Ipc } from '../src/shared/ipc';
 import type * as D from '@orca/printer-control/domain';
+test('material configuration supports alpha and four-stop gradients while preserving unsupported reported color groups', async () => {
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
+  try {
+    const page = await app.firstWindow(); await page.setViewportSize({ width: 1280, height: 850 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await installControlFixture(app);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click(); await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
+    const panel = page.locator('#device-content'), dialog = page.getByRole('dialog', { name: 'Material information', exact: true });
+    const picker = page.locator('[data-slot="popover-content"]').filter({ has: page.locator('[data-slot="color-picker"]') });
+    const chooseMaterial = async () => {
+      await dialog.getByLabel('Material preset', { exact: true }).click();
+      await page.getByLabel('Search materials', { exact: true }).fill('Generic PLA');
+      await page.getByRole('option', { name: 'Generic PLA', exact: true }).click();
+    };
+    const completeConfiguration = async () => app.evaluate(({ BrowserWindow }, channel) => {
+      for (const operation of Object.values(globalThis.bambuControlFixture.operations)) {
+        operation.phase = { kind: 'completed', result: null, confirmation: 'device-result' };
+        operation.steps = operation.steps.map(step => ({ ...step, phase: { kind: 'completed', result: null, confirmation: 'device-result' } }));
+        operation.revision++;
+      }
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, 'control');
+    }, Ipc.bambuChanged);
+    const openHolder = async (unit: number) => panel.getByRole('heading', { name: `External holder ${unit}`, exact: true })
+      .locator('..').getByRole('button', { name: /^Material information for/ }).click();
+    await openHolder(254); await chooseMaterial();
+    await dialog.getByRole('button', { name: 'Change material color', exact: true }).click();
+    await expect(picker.getByRole('tab', { name: 'Gradient', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(picker.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('FF000000');
+    await picker.getByRole('tab', { name: 'Gradient color 2', exact: true }).click();
+    await picker.getByRole('textbox', { name: 'HEX color', exact: true }).fill('ABCDEF01');
+    await picker.getByRole('button', { name: 'Add color', exact: true }).click();
+    await picker.getByRole('textbox', { name: 'HEX color', exact: true }).fill('12121200');
+    await expect(picker.getByRole('button', { name: 'Add color', exact: true })).toBeDisabled();
+    await picker.getByRole('tab', { name: 'Gradient color 1', exact: true }).click();
+    await picker.getByRole('textbox', { name: 'HEX color', exact: true }).fill('123456FE');
+    await page.screenshot({ path: '/tmp/orcaneo-material-gradient-picker.png', animations: 'disabled' });
+    await picker.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: 'Change material color', exact: true })).toContainText('4 colors');
+    await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    expect(await app.evaluate(() => globalThis.bambuControlFixture.commands.at(-1)?.command)).toMatchObject({ type: 'materials.configure',
+      params: { slotId: 'slot:254:0', color: { kind: 'gradient', rgba: ['#123456FE', '#ABCDEF01', '#12121200', '#FF000000'] } } });
+    await completeConfiguration();
+
+    await openHolder(255); await chooseMaterial();
+    await dialog.getByRole('button', { name: 'Change material color', exact: true }).click();
+    await expect(picker).toContainText('will be preserved unless you change');
+    await picker.getByRole('textbox', { name: 'HEX color', exact: true }).fill('0000FF00');
+    await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Change material color', exact: true }).click();
+    await expect(picker.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('FF000000');
+    await picker.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: 'Change material color', exact: true })).toContainText('7 colors');
+    await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    expect(await app.evaluate(() => globalThis.bambuControlFixture.commands.at(-1)?.command)).toMatchObject({ params: { slotId: 'slot:255:0', color: null } });
+    await completeConfiguration();
+
+    await app.evaluate(({ BrowserWindow }, channel) => {
+      const caps = globalThis.bambuControlFixture.data['bambu:a'].description.capabilities;
+      if (caps.commands['materials.configure'].kind === 'supported')
+        for (const target of caps.commands['materials.configure'].constraints) target.maxGradientColors = null;
+      caps.revision = `${caps.revision}:solid`;
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, 'control');
+    }, Ipc.bambuChanged);
+    await panel.getByRole('button', { name: /^Material information for/ }).first().click(); await chooseMaterial();
+    await dialog.getByRole('button', { name: 'Change material color', exact: true }).click();
+    await expect(picker.getByRole('tab', { name: 'Gradient', exact: true })).toHaveCount(0);
+    await picker.getByRole('textbox', { name: 'HEX color', exact: true }).fill('11223300');
+    await picker.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Confirm', exact: true }).click(); await expect(dialog).toBeHidden();
+    expect(await app.evaluate(() => globalThis.bambuControlFixture.commands.at(-1)?.command)).toMatchObject({ params: { color: { kind: 'solid', rgba: '#11223300' } } });
+    for (const request of await app.evaluate(() => globalThis.bambuControlFixture.requests)) expect(isBambuControlRequest(request)).toBe(true);
+  } finally { await app.close(); }
+});
 test('Bambu control cards retain selection, bind edits and cancellation, and disable stale controls', async () => {
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
   try {
@@ -239,7 +315,7 @@ test('material configuration binds the original slot, closes after submission an
     await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
     await expect(dialog).toBeHidden();
     const command = await app.evaluate(() => globalThis.bambuControlFixture.commands.at(-1));
-    expect(command).toMatchObject({ target: { printerId: 'bambu:a' }, command: { type: 'materials.configure', params: { slotId: 'slot:0:0', intent: 'confirm', colorRgba: '#333333FF' } } });
+    expect(command).toMatchObject({ target: { printerId: 'bambu:a' }, command: { type: 'materials.configure', params: { slotId: 'slot:0:0', intent: 'confirm', color: null } } });
     // Selection stays available while the original operation is waiting for the device.
     await page.getByTestId('device-printer-select').click(); await page.getByRole('option', { name: 'Workshop B', exact: true }).click();
     await expect(panel.getByText('Second task', { exact: true })).toBeVisible();

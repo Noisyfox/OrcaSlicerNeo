@@ -11,10 +11,11 @@ const devices: BambuDevice[] = ['a', 'b'].map(deviceId => ({ deviceId, name: `Wo
 export function controlSnapshot(device: string, task = 'External task', fresh = true, camera = false) {
   const printer = savedBambuPrinter(devices.find(value => value.deviceId === device)!);
   const target = { printerId: printer.identity.id, routeId: printer.routes[0].id }, telemetry = new BambuTelemetry();
-  telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 0, ...(camera ? { ipcam: { ipcam_dev: '1', liveview: { local: 'local' } } } : {}), gcode_state: 'RUNNING', cali_version: 1, flag3: '8', subtask_id: task, subtask_name: task, stg_cur: 0, home_flag: 7, fun: ((1n << 32n) | (1n << 38n)).toString(16), spd_lvl: 2, mc_percent: 42, mc_remaining_time: 15, layer_num: 42, total_layer_num: 100,
+  telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 0, ...(camera ? { ipcam: { ipcam_dev: '1', liveview: { local: 'local' } } } : {}), gcode_state: 'RUNNING', cali_version: 1, flag3: '8', fun2: '800000', subtask_id: task, subtask_name: task, stg_cur: 0, home_flag: 7, fun: ((1n << 32n) | (1n << 38n)).toString(16), spd_lvl: 2, mc_percent: 42, mc_remaining_time: 15, layer_num: 42, total_layer_num: 100,
     device: { airduct: { modeCur: 0, parts: [1, 2, 3, 6].map(index => ({ id: index << 4, state: index === 1 ? 50 : 0, range: 100 << 16 })) }, extruder: { state: 2, info: [{ id: 0, temp: (220 << 16) | 215 }, { id: 1, temp: 25 }] }, bed_temp: (60 << 16) | 60 },
     ams: { ams: [0, 4, 128].map(id => ({ id, info: '3', tray: [0, 1, 2, 3].map(slot => ({ id: slot, tag_uid: slot === 1 ? '000123' : '000000', cali_idx: -1, nozzle_temp_min: 190, nozzle_temp_max: 240, tray_info_idx: 'GFA00', tray_type: ['PETG-CF', 'PETG', 'PC', 'PLA'][slot], tray_color: ['333333FF', '33AAFFFF', 'EEEEEEFF', '33AA66FF'][slot] })) })) }, lights_report: [{ node: 'chamber_light', mode: 'on' }], cooling_fan_speed: 8,
-    vir_slot: [{ id: '254', tray_type: 'PETG', tray_color: 'AABBCC80' }, { id: '255', tray_type: 'PLA', tray_color: '112233FF' }],
+    vir_slot: [{ id: '254', tray_type: 'PETG', tray_color: 'AABBCC80', cols: ['FF000000', '00FF0080', 'FF000000'], ctype: 0 },
+      { id: '255', tray_type: 'PLA', tray_color: '112233FF', cols: ['FF000000', '00FF0080', 'FF000000', '0000FFFF', 'FFFFFF01', '12345678', 'ABCDEF80'], ctype: 1 }],
   } }));
   if (!fresh) telemetry.invalidate();
   const snapshot: D.PrinterSnapshot = telemetry.snapshot(target, printer.identity, printer.routes[0].configurationRevision, ['descriptor', 'status', 'thermal', 'motion', 'actuators', 'materials', 'sensors', 'alerts', 'firmware', 'cameras']);

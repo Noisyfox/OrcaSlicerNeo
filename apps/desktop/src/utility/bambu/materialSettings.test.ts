@@ -21,11 +21,11 @@ function fixture(patch: Record<string, unknown> = {}, model = 'H2D') {
     target, model, configurationRevision: 'r1' });
   return { telemetry, context };
 }
-const confirm = (slotId = 'slot:0:0'): D.PrinterCommandSpecs['materials.configure']['params'] =>
-  ({ slotId: slotId as D.Id<'slot'>, intent: 'confirm', preset, colorRgba: '#AABBCC80', acknowledgedWarningIds: [] });
+const confirm = (slotId = 'slot:0:0'): Extract<D.PrinterCommandSpecs['materials.configure']['params'], { intent: 'confirm' }> =>
+  ({ slotId: slotId as D.Id<'slot'>, intent: 'confirm', preset, color: { kind: 'solid', rgba: '#AABBCC80' }, acknowledgedWarningIds: [] });
 const reset = (slotId = 'slot:0:0'): D.PrinterCommandSpecs['materials.configure']['params'] =>
   ({ slotId: slotId as D.Id<'slot'>, intent: 'reset', acknowledgedWarningIds: [] });
-function prepared(context: CommandContext, params = confirm()) {
+function prepared(context: CommandContext, params: D.PrinterCommandSpecs['materials.configure']['params'] = confirm()) {
   const result = prepareMaterialConfiguration(context, params);
   if (!result.ok) throw new Error(result.error.message);
   return result.value;
@@ -60,7 +60,7 @@ it('retains only an existing matching material/tool/flow calibration association
   expect(prepared({ ...context, calibrationHistory: [{ ...context.calibrationHistory[0], extruder_id: 1 }] }, confirm('slot:255:0')).commands[1].fields.cali_idx).toBe(-1);
   expect(prepared({ ...context, calibrationHistory: [{ ...context.calibrationHistory[0], nozzle_id: 'HH00-0.4' }] }, confirm('slot:255:0')).commands[1].fields.cali_idx).toBe(-1);
   const other = { ...preset, catalogRefs: [{ namespace: 'bambu-filament', value: 'other-material' }] };
-  expect(prepared(context, { ...confirm('slot:255:0'), intent: 'confirm', preset: other, colorRgba: '#FFFFFFFF' }).commands[1].fields.cali_idx).toBe(-1);
+  expect(prepared(context, { ...confirm('slot:255:0'), intent: 'confirm', preset: other, color: { kind: 'solid', rgba: '#FFFFFFFF' } }).commands[1].fields.cali_idx).toBe(-1);
 });
 it('follows legacy K writes, reference validation and the external sentinel', () => {
   const f = fixture({ cali_version: -1, cfg: undefined }, 'C12');
@@ -78,8 +78,8 @@ it('enforces processing and in-print firmware restrictions without inventing a b
 it('distinguishes blocking material rules from warnings which need explicit acknowledgement', () => {
   const context = fixture().context();
   const tpu = { ...preset, key: 'Generic TPU', label: 'Generic TPU', materialType: 'TPU', manufacturer: 'Generic', catalogRefs: [{ namespace: 'bambu-filament', value: 'GFU00' }] };
-  expect(prepareMaterialConfiguration(context, { ...confirm(), intent: 'confirm', preset: tpu, colorRgba: '#FFFFFFFF' })).toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
-  expect(prepared(context, { ...confirm('slot:255:0'), intent: 'confirm', preset: tpu, colorRgba: '#FFFFFFFF' }).warnings).toEqual([
+  expect(prepareMaterialConfiguration(context, { ...confirm(), intent: 'confirm', preset: tpu, color: { kind: 'solid', rgba: '#FFFFFFFF' } })).toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
+  expect(prepared(context, { ...confirm('slot:255:0'), intent: 'confirm', preset: tpu, color: { kind: 'solid', rgba: '#FFFFFFFF' } }).warnings).toEqual([
     expect.objectContaining({ id: expect.any(String), message: expect.stringContaining('cold pull') }),
     expect.objectContaining({ id: expect.any(String), message: 'How to feed TPU filament.', helpUrl: expect.stringMatching(/^https:\/\//) }),
   ]);
@@ -98,6 +98,61 @@ it('updates only the addressed reply fields and never refreshes status or infers
   const before = JSON.stringify(f.context().values.materials);
   f.telemetry.accept(JSON.stringify({ print: { command: 'ams_filament_setting', result: 'fail', ams_id: 255, slot_id: 0, tray_color: '000000FF' } }));
   expect(JSON.stringify(f.context().values.materials)).toBe(before);
+});
+it.each(['slot:0:0', 'slot:254:0', 'slot:255:0'])('writes ordered alpha gradients for capable firmware at %s and requires the full tuple to confirm', slotId => {
+  const f = fixture({ fun2: '800000' });
+  expect(materialConfigurationTargets(f.context()).find(slot => slot.slotId === slotId)?.maxGradientColors).toBe(4);
+  const colors = ['#12345600', '#ABCDEF80', '#12345600', '#FFFFFFFE'];
+  const command = prepared(f.context(), { ...confirm(slotId), color: { kind: 'gradient', rgba: colors } }).commands[0];
+  expect(command.fields).toMatchObject({ tray_color: '12345600', cols: colors.map(color => color.slice(1)), ctype: 0 });
+  expect(command.responseConfirmed?.({ ...command.fields })).toBe(true);
+  for (const mismatch of [{ cols: undefined }, { cols: ['12345600', 'ABCDEF80'] }, { ctype: 1 },
+    { cols: ['12345600', '12345600', 'ABCDEF80', 'FFFFFFFE'] }, { cols: ['12345600', 'ABCDEFFF', '12345600', 'FFFFFFFE'] }]) {
+    expect(command.responseConfirmed?.({ ...command.fields, ...mismatch })).toBe(false);
+  }
+  f.telemetry.accept(JSON.stringify({ print: command.fields }));
+  expect(command.confirmed?.(f.context())).toBe(true);
+  const state = f.context().values.materials.state.slots.find(slot => slot.slotId === slotId)?.material;
+  expect(state).toMatchObject({ kind: 'known', value: { color: { kind: 'multiple', rgba: colors, representativeRgba: colors[0], appearance: 'gradient' } } });
+});
+it('keeps solid alpha available without the capability, emits singleton tuples only with it and omits tuples on reset', () => {
+  const legacy = fixture(), capable = fixture({ fun2: '800000' });
+  expect(materialConfigurationTargets(legacy.context())[0].maxGradientColors).toBeNull();
+  expect(prepared(legacy.context()).commands[0].fields).toMatchObject({ tray_color: 'AABBCC80' });
+  expect(prepared(legacy.context()).commands[0].fields).not.toHaveProperty('cols');
+  expect(prepared(capable.context()).commands[0].fields).toMatchObject({ cols: ['AABBCC80'], ctype: 2 });
+  for (const f of [legacy, capable]) {
+    expect(prepared(f.context(), reset()).commands[0].fields).not.toHaveProperty('cols');
+    expect(prepared(f.context(), reset()).commands[0].fields).not.toHaveProperty('ctype');
+  }
+  expect(prepareMaterialConfiguration(legacy.context(), { ...confirm(), color: { kind: 'gradient', rgba: ['#00000000', '#FFFFFFFF'] } }))
+    .toMatchObject({ ok: false, error: { code: 'precondition-failed' } });
+});
+it.each([0, 1])('retains an unedited reported seven-color tuple and its type %s without truncation or deduplication', ctype => {
+  const cols = ['12345600', 'ABCDEF80', '12345600', 'FFFFFFFE', '000000FF', '11223344', 'ABCDEF80'];
+  const f = fixture({ fun2: '800000', vir_slot: [{ id: 254, tray_color: 'FF00FF40', cols, ctype, cali_idx: -1 }] });
+  const command = prepared(f.context(), { ...confirm('slot:254:0'), color: null }).commands[0];
+  expect(command.fields).toMatchObject({ tray_color: 'FF00FF40', cols, ctype });
+  f.telemetry.accept(JSON.stringify({ print: { command: 'ams_filament_setting', ams_id: 254, slot_id: 0, tray_type: 'PETG' } }));
+  expect(prepared(f.context(), { ...confirm('slot:254:0'), color: null }).commands[0].fields).toMatchObject({ tray_color: 'FF00FF40', cols, ctype });
+  f.telemetry.accept(JSON.stringify({ print: { command: 'ams_filament_setting', ams_id: 254, slot_id: 0, tray_color: 'FF00FF40' } }));
+  expect(prepared(f.context(), { ...confirm('slot:254:0'), color: null }).commands[0].fields).toMatchObject({ tray_color: 'FF00FF40', cols, ctype });
+  f.telemetry.accept(JSON.stringify({ print: command.fields }));
+  expect(f.context().values.materials.state.slots.find(slot => slot.slotId === 'slot:254:0')?.material)
+    .toMatchObject({ kind: 'known', value: { color: { rgba: cols.map(color => `#${color}`), appearance: ctype === 0 ? 'gradient' : 'parallel' } } });
+});
+it('validates explicit color shape at IPC and provider boundaries without accepting legacy payloads or oversized new gradients', () => {
+  const context = fixture({ fun2: '800000' }).context();
+  for (const color of [{ kind: 'gradient', rgba: ['#000000FF'] }, { kind: 'gradient', rgba: Array(5).fill('#000000FF') },
+    { kind: 'gradient', rgba: ['#000000FF', '#FFFFFF'] }, { kind: 'parallel', rgba: ['#000000FF', '#FFFFFFFF'] }]) {
+    const params = { ...confirm(), color };
+    expect(isBambuCommandPayload({ type: 'materials.configure', params })).toBe(false);
+    expect(prepareMaterialConfiguration(context, params as ReturnType<typeof confirm>)).toMatchObject({ ok: false, error: { code: 'invalid-request' } });
+  }
+  for (const color of [null, { kind: 'solid', rgba: '#12345600' }, { kind: 'gradient', rgba: ['#12345600', '#ABCDEF80'] }])
+    expect(isBambuCommandPayload({ type: 'materials.configure', params: { ...confirm(), color } })).toBe(true);
+  const { color: _color, ...rest } = confirm();
+  expect(isBambuCommandPayload({ type: 'materials.configure', params: { ...rest, colorRgba: '#FFFFFFFF' } })).toBe(false);
 });
 it('reads the current calibration table once per configuration/version and keeps it host-private', async () => {
   const f = fixture({ vir_slot: [{ id: 255, tray_info_idx: material.bambu_id, cali_idx: 7 }] });

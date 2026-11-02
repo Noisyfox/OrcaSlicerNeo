@@ -24,6 +24,10 @@ it('filters capabilities without mutating stored values', () => {
   expect(colorValueSupported(transparent, true)).toBe(true);
   expect(colorValueSupported(gradient, true)).toBe(false);
   expect(colorValueSupported(gradient, false, true)).toBe(true);
+  const long = { kind: 'linear-gradient', colors: ['#00000000', '#11223380', '#00000000', '#FFFFFF', '#FF0000'] } as const;
+  expect(colorValueSupported(long, true, true, 4)).toBe(false);
+  expect(colorValueSupported(long, true, true)).toBe(true);
+  expect(normalizeColorFavorites([long])).toEqual([long]);
 });
 
 it('keeps old preference documents compatible and filters corrupt favorites independently', () => {

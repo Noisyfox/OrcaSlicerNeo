@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { usePlatform } from '@orca/platform-contract';
+import { colorValueKey, usePlatform } from '@orca/platform-contract';
 import type * as D from '@orca/printer-control/domain';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -7,6 +7,7 @@ import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopove
 import { colorSwatchStyle } from '@/components/ui/color-swatch';
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxTrigger, ComboboxValue } from '@/components/ui/combobox';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { materialColorConfiguration, materialColorPickerSeed, materialColorSwatch } from './material-color';
 
 interface Props {
   service: D.PrinterService;
@@ -22,7 +23,6 @@ interface Props {
   onSubmitted(result: Exclude<D.Submission, { kind: 'rejected' }>): void;
 }
 type Params = D.PrinterCommandSpecs['materials.configure']['params'];
-const rgba = (value: string | null | undefined) => value && /^#[\da-f]{6}([\da-f]{2})?$/i.test(value) ? `${value}${value.length === 7 ? 'FF' : ''}`.toUpperCase() : '#FFFFFFFF';
 const matches = (preset: D.MaterialPresetConfiguration, material: D.MaterialMetadata | undefined) => preset.catalogRefs.some(ref =>
   material?.catalogRefs.some(current => current.namespace === ref.namespace && current.value === ref.value));
 
@@ -32,7 +32,7 @@ export function MaterialInformationDialog({ service, target, printer, slot, slot
   const [search, setSearch] = useState('');
   const [presets, setPresets] = useState<readonly D.MaterialPresetConfiguration[]>([]), [selected, setSelected] = useState('');
   const [loading, setLoading] = useState(true), [catalogueError, setCatalogueError] = useState<string | null>(null);
-  const [color, setColor] = useState(() => rgba(material?.color?.kind === 'solid' ? material.color.rgba : material?.color?.representativeRgba));
+  const [color, setColor] = useState<D.MaterialColorConfiguration | null>(null);
   const [colorOpen, setColorOpen] = useState(false), [reset, setReset] = useState(false);
   const [review, setReview] = useState<{ params: Params; warnings: readonly D.CommandWarning[] } | null>(null);
   const [message, setMessage] = useState<string | null>(null), [submitting, setSubmitting] = useState(false);
@@ -40,6 +40,8 @@ export function MaterialInformationDialog({ service, target, printer, slot, slot
   const writable = configuration.informationWritable && configuration.actions.length > 0;
   const preset = presets.find(preset => preset.key === selected);
   const range = writable && preset ? preset.nozzleTemperatureRangeC : material?.nozzleTemperatureRangeC;
+  const displayedColor = color ?? material?.color ?? { kind: 'solid' as const, rgba: '#FFFFFFFF' };
+  const picker = materialColorPickerSeed(displayedColor, configuration.maxGradientColors);
   useEffect(() => {
     alive.current = true;
     let cancelled = false;
@@ -83,7 +85,7 @@ export function MaterialInformationDialog({ service, target, printer, slot, slot
   function confirm() {
     if (configuration.informationWritable && (!preset?.nozzleTemperatureRangeC || loading)) { setMessage('Select a compatible material with a temperature range.'); return; }
     void apply({ slotId: slot.id, intent: 'confirm', preset: configuration.informationWritable ? preset ?? null : null,
-      colorRgba: configuration.informationWritable ? color : null, acknowledgedWarningIds: [] });
+      color: configuration.informationWritable ? color : null, acknowledgedWarningIds: [] });
   }
   return <Dialog open onOpenChange={open => { if (!open && !sending.current) onClose(); }} disablePointerDismissal={submitting}>
     <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] max-w-lg flex-col">
@@ -111,9 +113,12 @@ export function MaterialInformationDialog({ service, target, printer, slot, slot
           {catalogueError && <p role="alert" className="text-sm text-destructive">{catalogueError}</p>}
           <Field orientation="horizontal" className="justify-between gap-3">
             <FieldLabel htmlFor={`${selectId}-color`}>Color</FieldLabel>
-            <UserColorPickerPopover open={colorOpen} onOpenChange={setColorOpen} value={{ kind: 'solid', color }} enableAlpha enableGradient={false}
-              disabled={!writable || submitting || !!review} onConfirm={value => { if (value.kind === 'solid') setColor(rgba(value.color)); }}
-              trigger={<Button id={`${selectId}-color`} variant="input" size="sm" className="font-normal" aria-label="Change material color"><span className="size-4 rounded-sm border" style={colorSwatchStyle({ mode: 'solid', colors: [color] })} />{color}</Button>} />
+            <UserColorPickerPopover open={colorOpen} onOpenChange={setColorOpen} value={picker.value} enableAlpha enableGradient={configuration.maxGradientColors !== null}
+              maxGradientColors={configuration.maxGradientColors ?? undefined} notice={picker.notice}
+              disabled={!writable || submitting || !!review} onConfirm={value => {
+                if (colorValueKey(value) !== colorValueKey(picker.value)) { setColor(materialColorConfiguration(value)); setMessage(null); }
+              }}
+              trigger={<Button id={`${selectId}-color`} variant="input" size="sm" className="font-normal" aria-label="Change material color"><span className="size-4 rounded-sm border" style={colorSwatchStyle(materialColorSwatch(displayedColor))} />{displayedColor.kind === 'solid' ? displayedColor.rgba : `${displayedColor.rgba.length} colors`}</Button>} />
           </Field>
           <Field orientation="horizontal" className="justify-between gap-3">
             <FieldLabel htmlFor={`${selectId}-temperature`}>Nozzle temperature range</FieldLabel>

@@ -13,8 +13,11 @@ export function isBambuCommandPayload(value: unknown): value is D.PrinterCommand
     case 'materials.configure': {
       if (!text(p.slotId) || !Array.isArray(p.acknowledgedWarningIds) || p.acknowledgedWarningIds.length > 128 || !p.acknowledgedWarningIds.every(text)) return false;
       if (p.intent === 'reset') return exact(p, ['slotId', 'intent', 'acknowledgedWarningIds']);
-      if (p.intent !== 'confirm' || !exact(p, ['slotId', 'intent', 'preset', 'colorRgba', 'acknowledgedWarningIds'])
-        || !(p.colorRgba === null || typeof p.colorRgba === 'string' && /^#[\da-fA-F]{8}$/.test(p.colorRgba))) return false;
+      if (p.intent !== 'confirm' || !exact(p, ['slotId', 'intent', 'preset', 'color', 'acknowledgedWarningIds'])
+        || !(p.color === null || object(p.color) && exact(p.color, ['kind', 'rgba']) &&
+          (p.color.kind === 'solid' && typeof p.color.rgba === 'string' && /^#[\da-fA-F]{8}$/.test(p.color.rgba)
+            || p.color.kind === 'gradient' && Array.isArray(p.color.rgba) && p.color.rgba.length >= 2 && p.color.rgba.length <= 4
+              && p.color.rgba.every((color: unknown) => typeof color === 'string' && /^#[\da-fA-F]{8}$/.test(color))))) return false;
       if (p.preset === null) return true;
       const preset = p.preset;
       const ref = (value: unknown) => object(value) && exact(value, ['namespace', 'value']) && text(value.namespace) && text(value.value);

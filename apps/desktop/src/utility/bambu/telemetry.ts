@@ -38,6 +38,7 @@ function decodeMachineState(p: Report) {
     externalSpools: Object.freeze(records(p.vir_slot).map(tray => Object.freeze({ id: String(tray.id), manualPressureAdvance: typeof tray.cali_idx === 'number' && tray.cali_idx >= 0 }))),
     storage: storage === undefined ? undefined : (['missing', 'normal', 'abnormal', 'read-only'] as const)[storage],
     flowCalibration: flowCalibration === undefined ? undefined : flowCalibration === 1,
+    manualMultiColor: bits(p.fun2, 23) === 1,
     sharedPressureAdvance: bits(p.fun2, 3) === 1,
     internalRecording: bits(p.fun, 28) === 1,
     externalChangeAssist: bits(p.fun, 48) === 1 || bits(p.flag3, 16) === 1,
@@ -199,7 +200,12 @@ export class BambuTelemetry {
       for (const key of ['nozzle_temp_min', 'nozzle_temp_max'])
         if (number(reply[key]) !== undefined) { tray[key] = number(reply[key]); changed = true; }
       // An information clear is unrelated to the hardware presence bitmap.
-      if (changed) { delete tray.cols; delete tray.ctype; }
+      if (Array.isArray(reply.cols) && reply.cols.every(color => typeof color === 'string' && /^[\da-fA-F]{8}$/.test(color)) && [0, 1, 2].includes(number(reply.ctype) ?? -1)) {
+        tray.cols = [...reply.cols]; tray.ctype = number(reply.ctype); changed = true;
+      } else if (typeof reply.tray_color === 'string' && (!this.machine.manualMultiColor || reply.tray_info_idx === '' && reply.tray_color.toUpperCase() === 'FFFFFF00')) {
+        // A capable firmware's partial reply cannot describe the rest of its color group.
+        delete tray.cols; delete tray.ctype;
+      }
     } else if (reply.command === 'extrusion_cali_sel' && number(reply.cali_idx) !== undefined) {
       tray.cali_idx = number(reply.cali_idx); changed = true;
     } else if (reply.command === 'extrusion_cali_set' && number(reply.k_value) !== undefined) {
@@ -355,7 +361,7 @@ function materialInventory(p: Report, extruders: Report[], toolIds: D.Id<'tool'>
     const material: D.MaterialMetadata = { materialType: text(tray.tray_type) ?? null, manufacturer: text(tray.tray_sub_brands) ?? null,
       nozzleTemperatureRangeC: low !== undefined && high !== undefined && low > 0 && high >= low ? { min: low, max: high } : null,
       presetRef: setting ? { namespace: 'orca-filament-setting', value: setting } : null,
-      color: colors.length > 1 ? { kind: 'multiple', rgba: colors, representativeRgba: rgba, appearance: 'unknown' } : rgba ? { kind: 'solid', rgba } : null,
+      color: colors.length > 1 ? { kind: 'multiple', rgba: colors, representativeRgba: rgba, appearance: number(tray.ctype) === 0 ? 'gradient' : number(tray.ctype) === 1 ? 'parallel' : 'unknown' } : rgba ? { kind: 'solid', rgba } : null,
       diameterMm: number(tray.tray_diameter) ?? null, catalogRefs: materialCatalogRefs(text(tray.tray_info_idx)) };
     const tag = text(tray.tray_uuid) || text(tray.tag_uid);
     // Presence is a hardware bitmap, never inferred from metadata (which may be stale).

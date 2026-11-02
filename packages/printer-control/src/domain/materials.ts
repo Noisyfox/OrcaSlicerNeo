@@ -39,6 +39,8 @@ export type MaterialColor = {
   representativeRgba: string | null;
   appearance: 'gradient' | 'parallel' | 'unknown';
 };
+/** Explicit #RRGGBBAA edits; null in a configure command retains the reported color tuple. */
+export type MaterialColorConfiguration = { kind: 'solid'; rgba: string } | { kind: 'gradient'; rgba: readonly string[] };
 export interface MaterialMetadata {
   materialType: string | null;
   manufacturer: string | null;
@@ -62,6 +64,8 @@ export interface MaterialPresetConfiguration {
 export interface MaterialConfigurationTarget {
   slotId: Id<'slot'>;
   informationWritable: boolean;
+  /** Null means solid-only. Alpha is supported in either mode. */
+  maxGradientColors: number | null;
   actions: readonly ('confirm' | 'reset')[];
   restriction: string | null;
   catalogue: { mainNozzleDiameterMm: number | null; toolIndex: number; nozzleFlowType: string | null; supportsUserPresets: boolean };

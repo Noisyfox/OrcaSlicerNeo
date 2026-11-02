@@ -124,7 +124,7 @@ it('dispatches a real material workflow after a send failure and preserves its i
     const send = vi.mocked(f.native.sendMessage).getMockImplementation()!;
     vi.mocked(f.native.sendMessage).mockImplementation(async (...args) => JSON.parse(args[1]).print?.command === 'ams_filament_setting' ? -1 : send(...args));
     const command: D.PrinterCommand = { type: 'materials.configure', params: { slotId: 'slot:0:0' as D.Id<'slot'>, intent: 'confirm',
-      colorRgba: '#AABBCC80', acknowledgedWarningIds: [], preset: { key: 'Generic PLA', label: 'Generic PLA', materialType: 'PLA', manufacturer: 'Generic',
+      color: { kind: 'solid', rgba: '#AABBCC80' }, acknowledgedWarningIds: [], preset: { key: 'Generic PLA', label: 'Generic PLA', materialType: 'PLA', manufacturer: 'Generic',
         catalogRefs: [{ namespace: 'bambu-filament', value: 'GFA00' }], presetRef: null, nozzleTemperatureRangeC: { min: 190, max: 230 } } } };
     const result = await f.operations.submit(request({ command })); if (result.kind !== 'recorded') throw new Error(JSON.stringify(result));
     const [information, calibration] = f.commands();
@@ -134,6 +134,30 @@ it('dispatches a real material workflow after a send failure and preserves its i
       steps: [{ label: 'Material information', phase: { kind: 'outcome-unknown' } }, { label: 'Calibration', phase: { kind: 'completed', confirmation: 'device-result' } }] } } });
     expect(await f.operations.submit(request({ command }))).toEqual(result);
     expect(f.commands()).toHaveLength(2);
+  } finally { await f.close(); }
+});
+it('confirms a Cloud gradient only after the complete ordered RGBA tuple is received', async () => {
+  const f = fixture(); try {
+    await prepareIdle(f);
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { command: 'push_status', msg: 1, cali_version: 1, fun2: '800000' } })] });
+    const colors = ['#12345600', '#ABCDEF80', '#12345600'];
+    const command: D.PrinterCommand = { type: 'materials.configure', params: {
+      slotId: 'slot:0:0' as D.Id<'slot'>, intent: 'confirm' as const, color: { kind: 'gradient' as const, rgba: colors }, acknowledgedWarningIds: [],
+      preset: { key: 'Generic PLA', label: 'Generic PLA', materialType: 'PLA', manufacturer: 'Generic', catalogRefs: [{ namespace: 'bambu-filament', value: 'GFA00' }],
+        presetRef: null, nozzleTemperatureRangeC: { min: 190, max: 230 } },
+    } };
+    const result = await f.operations.submit(request({ command })); if (result.kind !== 'recorded') throw new Error(JSON.stringify(result));
+    const [information, calibration] = f.commands();
+    expect(information).toMatchObject({ tray_color: '12345600', cols: colors.map(color => color.slice(1)), ctype: 0 });
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...information, cols: ['12345600', 'ABCDEFFF', '12345600'], result: 'success' } })] });
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...calibration, result: 'success' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { steps: [
+      { phase: { kind: 'acknowledged' } }, { phase: { kind: 'completed' } },
+    ] } } });
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...information, result: 'success' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'completed', confirmation: 'device-result' } } } });
+    expect(f.commands()).toHaveLength(2);
+    expect(f.native.sendMessageToPrinter).not.toHaveBeenCalled();
   } finally { await f.close(); }
 });
 it('does not mistake an ignored report for fresh completion evidence', async () => {

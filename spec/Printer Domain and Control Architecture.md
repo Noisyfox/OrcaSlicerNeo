@@ -1314,6 +1314,23 @@ details within these boundaries. Update producers, consumers, adapters, mocks
 and compile fixtures together. Do not introduce a parallel Bambu-only editor
 contract or arbitrary vendor payload escape hatch.
 
+**Device color boundary:** Confirm accepts one typed solid RGBA edit, an ordered
+gradient edit, or `null` to retain the target's currently reported color tuple.
+The last form preserves existing partitions and groups beyond the editing limit
+without accepting arbitrary vendor fields from the renderer. Alpha is the last
+HEX byte. Following Orca #16538, the Bambu provider reads `fun2` bit 23 and exposes
+`maxGradientColors: 4` or `null` (solid-only). Explicit new gradients require that
+capability and 2–4 colors. For capable firmware, information writes send `cols`
+and `ctype` alongside `tray_color`: a new gradient uses ordered RGBA entries,
+type `0` and its first color as representative; a new solid uses one entry and
+type `2`. Unedited reported groups retain their ordering, repeats, alpha, type
+and independent representative. Without the flag, omit `cols`/`ctype` as Orca
+does; Reset also omits them. A gradient write requires a matching full tuple in
+the receipt or later status before completion can be confirmed. Received
+setting replies may update only their actual fields and never refresh general
+status; a partial representative on capable firmware does not erase its group.
+No outgoing command is projected optimistically as device state.
+
 **Provider execution boundary:** Reuse existing native networking and operation
 tracking. Follow
 [MachineObject::command_ams_filament_settings](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.cpp)

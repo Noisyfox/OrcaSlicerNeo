@@ -383,7 +383,7 @@ it('queries with the reported catalogue model association and identifies the phy
     const query = vi.fn(async () => ({ ok: true, presets: [] }));
     f.platform.runtime = { getDeviceMaterialCatalogue: query } as never;
     f.platform.preferences = { load: async () => ({ colorPicker: {} }) } as never;
-    f.caps.commands['materials.configure'] = { kind: 'supported', constraints: [{ slotId: slot, informationWritable: true, actions: ['confirm', 'reset'], restriction: null,
+    f.caps.commands['materials.configure'] = { kind: 'supported', constraints: [{ slotId: slot, informationWritable: true, maxGradientColors: null, actions: ['confirm', 'reset'], restriction: null,
       catalogue: { mainNozzleDiameterMm: .4, toolIndex: 0, nozzleFlowType: 'Standard', supportsUserPresets: true } }] };
     await f.render(); await f.click('Material information for AMS 0 · Bay 2');
     expect(query).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ identity: { manufacturer: identity.manufacturer, model: 'device-code', externalRefs: identity.externalRefs } }));
