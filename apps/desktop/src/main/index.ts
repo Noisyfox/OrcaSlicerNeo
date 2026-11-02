@@ -1,3 +1,4 @@
+import { externalHttpsUrl } from '../../../../packages/platform-contract/src/externalLinks';
 import { BambuMediaIpc } from './bambuMediaIpc';
 import { compareAndSwapPreferences, savePreferences } from './preferencePersistence';
 import { withFileLock } from './fileLock';
@@ -508,6 +509,11 @@ function registerIpc(): void {
         throw new Error(error);
       }
     });
+  });
+
+  ipcMain.handle(Ipc.openHttps, async (event, url: unknown): Promise<void> => {
+    if (!isCurrentRenderer(event.sender)) return;
+    await shell.openExternal(externalHttpsUrl(url));
   });
 
   ipcMain.handle(Ipc.openSource, async (event): Promise<void> => {

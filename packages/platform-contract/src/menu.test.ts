@@ -58,8 +58,8 @@ describe('platform menu contract', () => {
     expect(commands).toEqual(['open-source', 'quit']);
   });
 
-  it('keeps external navigation fixed to the source operation', () => {
-    const links: ExternalLinks = { openSource() {} };
+  it('keeps source navigation available as a distinct menu operation', () => {
+    const links: ExternalLinks = { openSource() {}, openHttps() {} };
     expect(links.openSource).toBeTypeOf('function');
     const command: MenuCommandId = 'open-source';
     expect(command).toBe('open-source');

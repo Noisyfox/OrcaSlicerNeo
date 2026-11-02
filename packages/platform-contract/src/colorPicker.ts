@@ -57,9 +57,9 @@ export function normalizeColorFavorites(value: unknown): ColorValue[] {
   return result;
 }
 
-export function colorValueSupported(value: ColorValue, alpha = false, gradient = false): boolean {
+export function colorValueSupported(value: ColorValue, alpha = false, gradient = false, maxGradientColors = MAX_GRADIENT_COLORS): boolean {
   if (value.kind === 'linear-gradient' && !gradient) return false;
-  if (value.kind === 'linear-gradient' && (value.colors.length < 2 || value.colors.length > MAX_GRADIENT_COLORS)) return false;
+  if (value.kind === 'linear-gradient' && (value.colors.length < 2 || value.colors.length > Math.min(maxGradientColors, MAX_GRADIENT_COLORS))) return false;
   const colors = value.kind === 'solid' ? [value.color] : value.colors;
   return colors.every(hex => {
     const normalized = normalizeHexColor(hex);

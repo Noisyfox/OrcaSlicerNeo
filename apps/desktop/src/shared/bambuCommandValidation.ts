@@ -10,6 +10,23 @@ export function isBambuCommandPayload(value: unknown): value is D.PrinterCommand
   if (!object(value) || !exact(value, ['type', 'params']) || !object(value.params)) return false;
   const p = value.params;
   switch (value.type) {
+    case 'materials.configure': {
+      if (!text(p.slotId) || !Array.isArray(p.acknowledgedWarningIds) || p.acknowledgedWarningIds.length > 128 || !p.acknowledgedWarningIds.every(text)) return false;
+      if (p.intent === 'reset') return exact(p, ['slotId', 'intent', 'acknowledgedWarningIds']);
+      if (p.intent !== 'confirm' || !exact(p, ['slotId', 'intent', 'preset', 'color', 'acknowledgedWarningIds'])
+        || !(p.color === null || object(p.color) && exact(p.color, ['kind', 'rgba']) &&
+          (p.color.kind === 'solid' && typeof p.color.rgba === 'string' && /^#[\da-fA-F]{8}$/.test(p.color.rgba)
+            || p.color.kind === 'gradient' && Array.isArray(p.color.rgba) && p.color.rgba.length >= 2 && p.color.rgba.length <= 4
+              && p.color.rgba.every((color: unknown) => typeof color === 'string' && /^#[\da-fA-F]{8}$/.test(color))))) return false;
+      if (p.preset === null) return true;
+      const preset = p.preset;
+      const ref = (value: unknown) => object(value) && exact(value, ['namespace', 'value']) && text(value.namespace) && text(value.value);
+      return object(preset) && exact(preset, ['key', 'label', 'materialType', 'manufacturer', 'catalogRefs', 'presetRef', 'nozzleTemperatureRangeC'])
+        && text(preset.key) && text(preset.label) && text(preset.materialType) && (preset.manufacturer === null || text(preset.manufacturer))
+        && Array.isArray(preset.catalogRefs) && preset.catalogRefs.length > 0 && preset.catalogRefs.length <= 16 && preset.catalogRefs.every(ref)
+        && (preset.presetRef === null || ref(preset.presetRef)) && (preset.nozzleTemperatureRangeC === null || object(preset.nozzleTemperatureRangeC)
+          && exact(preset.nozzleTemperatureRangeC, ['min', 'max']) && finite(preset.nozzleTemperatureRangeC.min) && finite(preset.nozzleTemperatureRangeC.max));
+    }
     case 'jobs.skipObjects': return exact(p, ['contextRef', 'objectIds', 'intent']) && isPrintObjectContextRef(p.contextRef)
       && Array.isArray(p.objectIds) && p.objectIds.length > 0 && p.objectIds.length <= 64 && p.objectIds.every(text)
       && new Set(p.objectIds).size === p.objectIds.length && ['skip-selected', 'cancel-print'].includes(String(p.intent));

@@ -51,5 +51,5 @@ export const fakeCapabilities: PlatformCapabilities = {
     onCommand() { return () => {}; },
     execute(_command: MenuCommandId) {},
   } satisfies PlatformMenu,
-  externalLinks: { openSource() {} } satisfies ExternalLinks,
+  externalLinks: { openSource() {}, openHttps() {} } satisfies ExternalLinks,
 };

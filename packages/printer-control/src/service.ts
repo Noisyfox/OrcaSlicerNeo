@@ -115,7 +115,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
         'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported,
         'motion.home': unsupported, 'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
         'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,
-        'materials.writeMetadata': unsupported, 'materials.refreshTag': unsupported,
+        'materials.writeMetadata': unsupported, 'materials.configure': unsupported, 'materials.refreshTag': unsupported,
         'drying.start': unsupported, 'drying.stop': unsupported, 'camera.setEnabled': unsupported,
         'camera.setDeviceTimelapse': unsupported, 'files.delete': unsupported,
       },
@@ -233,8 +233,8 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   }
   const controls: D.PrinterControls = {
     evaluate: (target, command) => safe(async () => {
-      try { await validateCommand(target, command); return { availability: { kind: 'available' }, basis: { capabilityRevision: capabilities().revision } } as D.CommandEvaluation; }
-      catch (error) { return { availability: { kind: 'blocked', reasons: [publicError(error)] }, basis: {} } as D.CommandEvaluation; }
+      try { await validateCommand(target, command); return { availability: { kind: 'available' }, warnings: [], basis: { capabilityRevision: capabilities().revision } } as D.CommandEvaluation; }
+      catch (error) { return { availability: { kind: 'blocked', reasons: [publicError(error)] }, warnings: [], basis: {} } as D.CommandEvaluation; }
     }),
     submit: async request => {
       try {
@@ -246,7 +246,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
         const repeated = operations.existing({ ...request.target, requestId: request.requestId }, signature);
         if (repeated) return repeated;
         const ref: D.OperationRef = { ...targetFor(printer.id), id: newId<'operation'>() };
-        const operation = { ref, requestId: request.requestId, configurationRevision: entry.revision, revision: 0, updatedAtMs: Date.now(), kind: 'command', commandType: request.command.type, phase: { kind: 'queued' } } as D.CommandOperation;
+        const operation = { ref, requestId: request.requestId, configurationRevision: entry.revision, revision: 0, updatedAtMs: Date.now(), kind: 'command', steps: [], commandType: request.command.type, phase: { kind: 'queued' } } as D.CommandOperation;
         const submission = operations.register(operation, signature);
         const command = copy(request.command);
         void (async () => {

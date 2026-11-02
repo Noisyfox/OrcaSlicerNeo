@@ -303,6 +303,6 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
         if (command === 'quit' || command === 'open-configuration-folder') return host.menu.executeHostCommand(command);
       },
     } satisfies PlatformMenu,
-    externalLinks: { openSource: () => host.externalLinks.openSource() },
+    externalLinks: { openSource: () => host.externalLinks.openSource(), openHttps: url => host.externalLinks.openHttps(url) },
   };
 }

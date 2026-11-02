@@ -2631,6 +2631,12 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         saved: { mode: null, filamentMap: null, volumeMap: null, nozzleMap: null },
         effective: { mode: 0, filamentMap: [1], volumeMap: [0], nozzleMap: [0] }, diagnostics: [] };
     },
+    orc_get_device_material_catalogue(requestJson: string) {
+      const request = JSON.parse(requestJson);
+      if (!request.identity || !Number.isInteger(request.toolIndex) || request.toolIndex < 0) return { ok: false, error: 'Invalid device material catalogue context' };
+      return { ok: true, presets: [{ key: 'Generic PLA', label: 'Generic PLA', materialType: 'PLA', manufacturer: 'Generic',
+        catalogRefs: [{ namespace: 'orca-filament', value: 'OFZGmLwF' }], presetRef: null, nozzleTemperatureRangeC: { min: 190, max: 240 } }] };
+    },
     orc_get_device_filament_options(requestJson: string) { return deviceFilamentOptionsMock(JSON.parse(requestJson)); },
     orc_prepare_material_import(requestJson: string) { return prepareMaterialImportMock(JSON.parse(requestJson)); },
     orc_apply_material_import(requestJson: string) { return filamentMutation(requestJson, 'synchronize'); },
@@ -4180,6 +4186,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_assign_filament: { ret: 'number', args: ['string'] },
     orc_set_filament_routing: { ret: 'number', args: ['string'] },
     orc_prepare_material_import: { ret: 'number', args: ['string'] },
+    orc_get_device_material_catalogue: { ret: 'number', args: ['string'] },
     orc_get_device_filament_options: { ret: 'number', args: ['string'] },
     orc_apply_material_import: { ret: 'number', args: ['string'] },
     orc_get_flushing_volumes: { ret: 'number', args: ['string'] },

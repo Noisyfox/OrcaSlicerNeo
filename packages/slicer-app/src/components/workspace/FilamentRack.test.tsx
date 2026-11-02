@@ -106,7 +106,7 @@ describe('FilamentRack runtime interaction', () => {
       identity: { id: id('printer'), displayName: 'Device', manufacturer: 'Vendor', model: 'Model', serialNumber: null, externalRefs: [] },
       tools: [{ id: id('tool'), name: 'Tool', diameterMm: .4, flowType: null, flowReporting: 'unknown', capacity: 1 }],
       materials: [{ slotId: id('spool'), label: 'Holder · Spool', unitKind: 'manual-holder', toolIndices: [0], presence: 'unknown',
-        metadata: { materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [{ namespace: 'provider', value: 'material' }],
+        metadata: { nozzleTemperatureRangeC: null, presetRef: null, materialType: 'PLA', manufacturer: null, diameterMm: null, catalogRefs: [{ namespace: 'provider', value: 'material' }],
           color: mode === 'solid' ? { kind: 'solid', rgba: '#00000000' }
             : { kind: 'multiple', rgba: ['#00000000', '#ff000080'], representativeRgba: '#00000000', appearance: mode === 'gradient' ? 'gradient' : 'parallel' } } }],
     };

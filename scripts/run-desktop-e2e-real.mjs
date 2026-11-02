@@ -25,6 +25,7 @@ const env = {
 // substituting its small fixture into unrelated 20 mm STL regressions.
 const functionalTestRuns = [
   ['e2e/preset-editor.e2e.ts', '-g', 'filament setting overrides'],
+  ['e2e/bambu-control.e2e.ts', '-g', 'material configuration'],
   ['e2e/user-presets.e2e.ts'],
   ['e2e/plate-list.e2e.ts'],
   ['e2e/app.e2e.ts', '-g', 'real DRC flow'],

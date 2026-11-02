@@ -1,13 +1,14 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-11-01
+**Updated:** 2026-11-02
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
 Device Web entry and Send use the stateless service in both hosts. Electron
 Bambu integration follows section 2.1; section 2.2 distinguishes delivered
 foundations, account flow, Cloud device enumeration and LAN access. LAN
-real-device qualification is deferred and does not block packaging work.
+real-device qualification is limited to explicitly recorded development-host
+cases; broader qualification does not block packaging work.
 Section 2.3 records the accepted Bambu monitoring/control scope and interactions,
 with implementation authorized in independently verified increments and physical
 qualification deferred until software verification is complete. The gateway remains deferred.
@@ -1263,6 +1264,133 @@ contract changes must keep every producer, consumer and fixture buildable.
 | Monitor interaction | Capability-gated modal picking/list flow and all accepted selection/confirmation/count behavior | Component tests and focused Electron journeys, including image-unavailable fallback |
 | Integrated acceptance | Producer-to-consumer software regression with qualification limits stated | Repository tests/typecheck, affected host/WASM checks and separately recorded physical acceptance |
 
+#### Material information configuration follow-up
+
+**Delivery status:** Implemented; Orca is the selected behavioral reference.
+Product behavior and accepted interaction decisions are owned by the
+[console design](Printer%20Console%20and%20Control%20Integration.md#material-information-configuration).
+Its [verification record](Printer%20Console%20and%20Control%20Integration.md#material-configuration-verification-and-lan-acceptance)
+limits physical acceptance to the recorded development-host H2D LAN cases.
+Cloud, RFID actions and non-default/legacy calibration behavior have software
+coverage without physical qualification.
+
+Keep the existing shared material-unit, slot, path and tool model. AMS and
+external holders use the same normalized information-editing flow; vendor
+addresses, catalogue translation, firmware flags and RFID classification belong
+to the Bambu provider. Shared components do not parse virtual holder IDs or
+construct protocol payloads. Preserve existing printer/route/configuration
+provenance and command checks; the selected Orca-aligned design adds no separate
+material-version conflict interaction.
+
+**Native catalogue boundary:** Add a typed read-only query through the existing
+client/runtime/Worker boundary. Reuse
+[PresetBundle](../packages/slicer-wasm/cpp/src/libslic3r/PresetBundle.cpp)'s
+device-oriented candidate and variant helpers and reproduce the relevant
+[dialog](../packages/slicer-wasm/cpp/src/slic3r/GUI/AMSMaterialsSetting.cpp)
+selection and ordering rules without building wxWidgets for WASM. The existing
+project-compatible filament catalogue cannot stand in for that query. Native
+code owns profile inheritance, candidate compatibility, identities and resolved
+temperature values. Querying must not switch or mutate the active project,
+edited presets, visibility or history. No Orca core/submodule change is currently
+identified as necessary; discovering one requires reassessing that boundary.
+Candidate sources are the system and saved user libraries, subject to Orca's
+existing native eligibility checks. Project-embedded presets, unsaved overlays
+and retained snapshots do not become independent candidates or supply their
+temporary effective values to device writes. Preserve the saved/root identity
+when resolving project-use ordering.
+
+**Material contract boundary:** Extend the single current normalized contract
+to represent the applicable nozzle-temperature range, selected material's
+preset association and typed slot-scoped Confirm/Reset intent. Model writable
+information separately from action availability: RFID-derived information can
+remain read-only while Confirm/Reset perform automatic calibration operations.
+Do not fabricate a metadata patch to execute a calibration-only action. Direct
+K/N editing, user-selected calibration results and calibration launch remain
+outside this follow-up; its automatic calibration effects are explicitly in
+scope. Keep material catalogue identity distinct from a preset setting identity,
+and distinguish information clearing from physical filament presence. Use the
+saved-library eligibility above. Exact normalized fields are implementation
+details within these boundaries. Update producers, consumers, adapters, mocks
+and compile fixtures together. Do not introduce a parallel Bambu-only editor
+contract or arbitrary vendor payload escape hatch.
+
+**Device color boundary:** Confirm accepts one typed solid RGBA edit, an ordered
+gradient edit, or `null` to retain the target's currently reported color tuple.
+The last form preserves existing partitions and groups beyond the editing limit
+without accepting arbitrary vendor fields from the renderer. Alpha is the last
+HEX byte. Following Orca #16538, the Bambu provider reads `fun2` bit 23 and exposes
+`maxGradientColors: 4` or `null` (solid-only). Explicit new gradients require that
+capability and 2–4 colors. For capable firmware, information writes send `cols`
+and `ctype` alongside `tray_color`: a new gradient uses ordered RGBA entries,
+type `0` and its first color as representative; a new solid uses one entry and
+type `2`. Unedited reported groups retain their ordering, repeats, alpha, type
+and independent representative. Without the flag, omit `cols`/`ctype` as Orca
+does; Reset also omits them. A gradient write requires a matching full tuple in
+the receipt or later status before completion can be confirmed. Received
+setting replies may update only their actual fields and never refresh general
+status; a partial representative on capable firmware does not erase its group.
+No outgoing command is projected optimistically as device state.
+
+**Provider execution boundary:** Reuse existing native networking and operation
+tracking. Follow
+[MachineObject::command_ams_filament_settings](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.cpp)
+for setting fields, clear values and AMS/external address conversion, including
+the independently reported dual-tool external holders. Preserve Orca's
+device/protocol-specific automatic calibration writes and result-association
+selection/reset on Confirm/Reset, in the reference order after any applicable
+material-information write. An RFID-only action omits the information write.
+Derive internal calibration state/defaults from the reference rules and device
+context, without adding calibration editing controls or asking shared React to
+construct protocol commands. Keep Orca/Bambu filament identity translation
+inside the agent. All protocol steps retain the original target and
+configuration provenance and require separately correlated outcomes. Preserve
+the reference's independent ordered dispatch: attempt the later calibration
+step even after an earlier information-write send failure, without waiting for
+the earlier step's acknowledgement. Continuation does not permit retargeting
+or bypassing existing access/configuration checks. Track the sequence as one
+user intent with separate step outcomes; no early acknowledgement or successful
+step may mask another step's failure or unknown outcome. This is not an atomic
+transaction and has no automatic rollback or retry.
+
+Add corresponding setting-reply/cache handling as well as status-report updates;
+current telemetry primarily consumes push status. Distinguish device acceptance
+from state confirmed by applicable device reports, and do not promote an outgoing
+request to observed inventory. The dialog closes after successful provider
+submission, independently of outcome tracking, as specified by the console
+owner. Transport dispatch success alone is not proof of confirmed physical
+state. Late replies remain bound to the original operation, target and
+configuration even after the editor closes or device selection changes.
+
+Verification must distinguish native query purity and catalogue parity, typed
+contract coherence, exact provider requests and responses, and shared interaction
+from real printer writes. Both existing LAN and Cloud execution paths are in
+scope; initial physical qualification is H2D over LAN, with Cloud covered by
+software verification only. No software fixture or existing read-only material
+acceptance establishes configuration-write qualification.
+
+The delivered contracts expose `materials.configure` with a fixed slot,
+Confirm/Reset intent and explicit warning acknowledgements. Capability targets
+separate `informationWritable`, allowed actions and a normalized restriction;
+they also supply the native nozzle/tool catalogue context. Material observations
+retain nullable temperature bounds and a separate preset-setting association.
+The read-only `getDeviceMaterialCatalogue` client/runtime operation returns saved
+material identities, labels and resolved temperature variants. It uses the
+normalized descriptor identity, including catalogue model references, rather than
+requiring the renderer to translate a vendor model code.
+
+The [Bambu owner](../apps/desktop/src/utility/bambu/materialSettings.ts) performs
+applicable one-shot calibration-history reads, evaluates pinned material rules,
+and prepares a nonempty ordered command array. The
+[operation owner](../apps/desktop/src/utility/bambu/operations.ts) correlates each
+step independently and applies the explicit continuation policy. No legacy
+`followUp` payload shape remains. Setting replies update only existing addressed
+tray fields; they do not refresh status freshness or infer physical removal.
+The shared Monitor retains operation references for the original target across
+editor closure and selection changes. A receipt arriving after the original
+Monitor remounts notifies that target's current reader. It only reconciles uncertain submissions
+through lookup, never by resending a mutation. Warning help links use the
+host-injected external-link capability with HTTPS validation at the host boundary.
+
 #### Contract extension boundaries
 
 The current typed contract includes `jobs.setSpeed` with discoverable mode IDs
@@ -1306,6 +1434,9 @@ timelapse/resolution settings, object-skipping, material-metadata editing, manua
 RFID re-read, drying-control or AMS behavior-settings executors for the original
 control increment. Object skipping has a separately accepted
 [follow-up design](#object-skipping-follow-up), with implementation unstarted.
+Material information configuration has a separate
+[delivered follow-up](#material-information-configuration-follow-up);
+its executor remains separate from the original control increment.
 Drying/environment observations remain included. These restrictions do not remove
 load/unload/switch, contextual recovery or supported nozzle re-identification.
 Their exclusion from this implementation does not remove existing general domain
