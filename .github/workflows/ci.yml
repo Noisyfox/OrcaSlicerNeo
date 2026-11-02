@@ -449,6 +449,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Linux screen-color addon dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libglib2.0-dev pkg-config dbus
       - run: pnpm -r test
       - run: pnpm -r typecheck
       - name: Verify wasm32 build scaffold and host/Pages artifact boundaries
@@ -500,6 +503,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Linux screen-color addon dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libglib2.0-dev pkg-config dbus
       - uses: actions/download-artifact@v8
         with:
           name: orca-slice-threaded
@@ -645,6 +651,11 @@ jobs:
           architecture: ${{ matrix.arch }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Linux screen-color addon dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libglib2.0-dev pkg-config dbus
+      - name: Native screen-color contract tests
+        run: pnpm --filter @orca/color-sampler-native test
       - uses: actions/download-artifact@v8
         with:
           name: orca-slice-threaded
@@ -665,12 +676,12 @@ jobs:
         if: runner.os != 'Linux'
         env:
           ORCA_E2E_PACKAGED_ROOT: ${{ matrix.unpacked }}
-        run: pnpm --filter @orca/desktop exec playwright test e2e/bambu-packaged.e2e.ts e2e/bambu-account.e2e.ts
+        run: pnpm --filter @orca/desktop exec playwright test e2e/bambu-packaged.e2e.ts e2e/bambu-account.e2e.ts e2e/screen-color-packaged.e2e.ts
       - name: Packaged native provider and login-window seams (Linux)
         if: runner.os == 'Linux'
         env:
           ORCA_E2E_PACKAGED_ROOT: ${{ matrix.unpacked }}
-        run: xvfb-run -a pnpm --filter @orca/desktop exec playwright test e2e/bambu-packaged.e2e.ts e2e/bambu-account.e2e.ts
+        run: xvfb-run -a pnpm --filter @orca/desktop exec playwright test e2e/bambu-packaged.e2e.ts e2e/bambu-account.e2e.ts e2e/screen-color-packaged.e2e.ts
       - name: Upload packaged probe failures
         if: failure()
         uses: actions/upload-artifact@v7

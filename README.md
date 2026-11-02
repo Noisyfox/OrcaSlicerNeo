@@ -76,6 +76,12 @@ See the [WASM build reference](doc/2026-08-12-wasm-build-notes.md).
   `fetch-deps.bat` prefers `cl.exe`, falling back to MinGW gcc / clang.
   Run the build from a **Visual Studio Developer prompt** (or run
   `vcvars64.bat` first) so `cl.exe` is on PATH.
+- **Electron native addons:** a host C++ compiler (Xcode Command Line Tools on
+  macOS, MSVC on Windows, GCC/Clang on Linux), Python and the existing Node.js
+  toolchain. The screen-color addon additionally requires `pkg-config` and
+  GIO development headers on Linux (`libglib2.0-dev` on Debian/Ubuntu).
+  Its private-bus contract tests require `dbus-daemon`; they do not open a
+  desktop picker. Build/test with `pnpm --filter @orca/color-sampler-native test`.
 - **~50 GB free disk space** for the dependency build (Boost source + wasm64
   archives, Eigen, cereal)
 

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { cn } from 'cn';
 import { colorSwatchStyle } from '@/components/ui/color-swatch';
-import { MinusIcon, PanelLeftIcon, PlusIcon, RotateCcwIcon, SearchIcon, StarIcon, XIcon } from 'lucide-react';
+import { PipetteIcon, MinusIcon, PanelLeftIcon, PlusIcon, RotateCcwIcon, SearchIcon, StarIcon, XIcon } from 'lucide-react';
+import type { ScreenColorSampler } from '@orca/platform-contract';
 import { colorValueKey, colorValueSupported, DEFAULT_COLOR_PICKER_UI, MAX_COLOR_FAVORITES, MAX_GRADIENT_COLORS, normalizeColorFavorites, type ColorPickerUiState, type ColorValue } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
@@ -32,6 +33,8 @@ export interface ColorPickerProps {
   notice?: string;
   actions?: ReactNode;
   disabled?: boolean;
+  screenColorSampler?: ScreenColorSampler | null;
+  onSamplingChange?: (sampling: boolean) => void;
   className?: string;
 }
 
@@ -115,7 +118,14 @@ function ColorSpectrum({ color, onChange, disabled }: { color: HslaColor; onChan
 /** Controlled, host-free editor. Business commands and persistence stay outside. */
 export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES, favorites = [],
   onFavoriteAdd, onFavoriteRemove, favoritesReady = true, enableAlpha = false, enableGradient = false,
-  maxGradientColors = MAX_GRADIENT_COLORS, onValidityChange, uiState, onUiStateChange, notice, actions, disabled = false, className }: ColorPickerProps) {
+  maxGradientColors = MAX_GRADIENT_COLORS, onValidityChange, uiState, onUiStateChange, notice, actions, disabled: externallyDisabled = false,
+  screenColorSampler, onSamplingChange, className }: ColorPickerProps) {
+  const [sampling, setSampling] = useState(false);
+  const pendingSample = useRef<AbortController | null>(null);
+  const sampleButton = useRef<HTMLButtonElement>(null);
+  const samplingChanged = useRef(onSamplingChange);
+  samplingChanged.current = onSamplingChange;
+  const disabled = externallyDisabled || sampling;
   const [localUi, setLocalUi] = useState(DEFAULT_COLOR_PICKER_UI);
   const ui = uiState ?? localUi;
   const gradientLimit = Math.min(MAX_GRADIENT_COLORS, maxGradientColors);
@@ -123,6 +133,15 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
   const [endpoint, setEndpoint] = useState(0);
   const isGradient = enableGradient && value.kind === 'linear-gradient';
   const active = isGradient ? Math.min(endpoint, value.colors.length - 1) : 0;
+  useEffect(() => {
+    if (!pendingSample.current) return;
+    pendingSample.current.abort(); pendingSample.current = null;
+    setSampling(false); samplingChanged.current?.(false);
+  }, [value, active, enableAlpha, enableGradient, maxGradientColors, externallyDisabled, screenColorSampler]);
+  useEffect(() => () => {
+    pendingSample.current?.abort(); pendingSample.current = null;
+    samplingChanged.current?.(false);
+  }, []);
   const hex = value.kind === 'solid' ? value.color : value.colors[active];
   const [color, setColor] = useState(() => rgbaToHsla(hexToRgba(hex)!));
   const emitted = useRef<string | null>(null);
@@ -180,6 +199,30 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
     const rgba = hexToRgba(next.color)!;
     if (enableAlpha) rgba.a = color.a;
     publish(rgbaToHsla(rgba, color));
+  };
+  const sampleScreen = async () => {
+    if (disabled || pendingSample.current || !screenColorSampler) return;
+    const request = new AbortController();
+    pendingSample.current = request;
+    setOpacityOpen(false); setSampling(true); samplingChanged.current?.(true);
+    try {
+      const result = await screenColorSampler.pick(request.signal);
+      if (pendingSample.current !== request || request.signal.aborted || result.status !== 'picked') return;
+      const rgb = /^#[\da-f]{6}$/i.test(result.color) ? hexToRgba(result.color) : null;
+      if (!rgb) return;
+      clearEditors();
+      publish(rgbaToHsla({ ...rgb, a: color.a }, color));
+    } catch {
+      // A failed screen operation never changes the editor's valid draft.
+    } finally {
+      if (pendingSample.current === request) {
+        pendingSample.current = null; setSampling(false); samplingChanged.current?.(false);
+        requestAnimationFrame(() => {
+          const button = sampleButton.current;
+          if (button?.isConnected && !pendingSample.current && button.ownerDocument.hasFocus()) button.focus({ preventScroll: true });
+        });
+      }
+    }
   };
   const rgba = hslaToRgba(color);
   const current = format(value);
@@ -336,6 +379,8 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
       </div>
       <div className="flex shrink-0 items-center gap-2 pt-1">
         <Button variant="settings" size="icon" aria-label="Palettes" aria-expanded={ui.sidebarOpen} aria-controls={palettePanelId} disabled={disabled || !favoritesReady} onClick={() => updateUi({ ...ui, sidebarOpen: !ui.sidebarOpen })}><PanelLeftIcon /></Button>
+        {screenColorSampler && <TooltipFor content="Pick color from screen"><Button ref={sampleButton} variant="settings" size="icon" aria-label="Pick color from screen"
+          aria-pressed={sampling} disabled={disabled} onClick={() => { void sampleScreen(); }}><PipetteIcon /></Button></TooltipFor>}
         <div className="flex-1" />{actions}
       </div>
     </div>

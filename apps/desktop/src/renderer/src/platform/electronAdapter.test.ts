@@ -37,7 +37,7 @@ function setup(overrides: Record<string, unknown> = {}) {
     const preferences = host.preferences as { load: typeof load; save: (value: unknown) => Promise<void>; compareAndSwap?: unknown };
     preferences.compareAndSwap ??= async (_base: unknown, next: unknown) => { await preferences.save(next); return { updated: true, current: normalizeUserPreferences(next) }; };
     vi.stubGlobal('window', { orca: host });
-    return { host, adapter: createElectronAdapter({} as never), load, save, menu, externalLinks, configurationLoad, configurationSave, transport };
+    return { host, adapter: createElectronAdapter({} as never, false), load, save, menu, externalLinks, configurationLoad, configurationSave, transport };
 }
 
 describe('Electron adapter', () => {

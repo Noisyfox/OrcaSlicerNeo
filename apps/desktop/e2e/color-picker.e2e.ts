@@ -8,7 +8,7 @@ const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
 async function launch(preferences: string, modelPath?: string) {
-  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: preferences,
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_SCREEN_COLOR: 'unavailable', ORCA_E2E_PREFERENCES: preferences,
     ...(modelPath ? { ORCA_E2E_MODEL: modelPath } : {}) } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
@@ -671,5 +671,28 @@ test('gradient nodes keep their centers while held down and match the reference 
     await track.click({ position: { x: 10 + (trackRect.width - 20) * 0.24, y: trackRect.height / 2 } });
     await expect(node(2)).toHaveAttribute('aria-selected', 'true');
     await popup.screenshot({ path: test.info().outputPath('gradient-nodes-seven.png') });
+  } finally { await app.close(); }
+});
+
+test('browser screen sampling updates only the local draft until confirmation', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-screen-color-'));
+  const preferences = join(dir, 'preferences.json');
+  const { app, page } = await launch(preferences);
+  try {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'EyeDropper', { configurable: true, value: class {
+        async open() { return { sRGBHex: '#12ABEF' }; }
+      } });
+    });
+    await page.reload();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    await page.locator('#app-tab-prepare').click();
+    const trigger = page.getByTestId('filament-colour-1');
+    const before = await trigger.getAttribute('style');
+    await trigger.click();
+    await page.getByRole('button', { name: 'Pick color from screen', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('12ABEFFF');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(trigger).toHaveAttribute('style', before!);
   } finally { await app.close(); }
 });

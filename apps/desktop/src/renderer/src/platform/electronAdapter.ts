@@ -1,3 +1,4 @@
+import { createElectronScreenColorSources } from './screenColor';
 import { createBambuProvider } from './bambuProvider';
 import { createPrinterService } from '@orca/printer-control';
 import {
@@ -48,7 +49,7 @@ function projectName(name: string): string {
 }
 
 /** The only renderer module allowed to know about the Electron preload API. */
-export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilities {
+export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorAvailable: boolean): PlatformCapabilities {
   const host = window.orca;
   // Keep the native path in this adapter only. The shared application receives
   // displayName and bytes, while this map remains available for future reload
@@ -177,6 +178,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     },
   };
   return {
+    screenColor: createElectronScreenColorSources(host.screenColor, nativeScreenColorAvailable),
     models: {
       async pick() {
         const { path } = await host.openFileDialog(MODEL_FILTERS);

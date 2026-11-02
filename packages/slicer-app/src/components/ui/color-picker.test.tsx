@@ -378,3 +378,66 @@ it('captures only primary title-bar drags and releases capture on cancel and unm
   expect(header.releasePointerCapture).toHaveBeenCalledTimes(2);
   expect(confirm).not.toHaveBeenCalled();
 });
+
+it('samples only the active gradient RGB, preserves alpha, and commits only on Confirm', async () => {
+  const confirm = vi.fn();
+  const sample = vi.fn(async () => ({ status: 'picked' as const, color: '#12ABEF' }));
+  await mount(<ColorPickerPopover value={{ kind: 'linear-gradient', colors: ['#11223380', '#44556640', '#77889920', '#AABBCC10'] }} enableAlpha enableGradient maxGradientColors={4}
+    open onOpenChange={() => {}} onConfirm={confirm} trigger={<Button>Open</Button>}
+    screenColorSources={{ native: null, browser: { pick: sample } }} />);
+  const picker = document.body;
+  expect(button(picker, 'Add color').disabled).toBe(true);
+  const stops = picker.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+  const stop = [...stops].find(item => item.getAttribute('aria-label')?.includes('2'));
+  expect(stop).toBeDefined();
+  await act(async () => stop!.click());
+  await act(async () => button(picker, 'Pick color from screen').click());
+  expect(picker.querySelector<HTMLInputElement>('[aria-label="HEX color"]')!.value).toBe('12ABEF40');
+  expect(confirm).not.toHaveBeenCalled();
+  expect(button(picker, 'Add color').disabled).toBe(true);
+  await act(async () => [...picker.querySelectorAll('button')].find(item => item.textContent === 'Confirm')!.click());
+  expect(confirm).toHaveBeenCalledWith({ kind: 'linear-gradient', colors: ['#11223380', '#12ABEF40', '#77889920', '#AABBCC10'] });
+});
+
+it('hides unsupported eyedroppers and ignores duplicate clicks and late results after closing', async () => {
+  const changed = vi.fn();
+  const container = await mount(<ColorPicker value={{ kind: 'solid', color: '#112233' }} onChange={changed} />);
+  expect(button(container, 'Pick color from screen')).toBeNull();
+  let resolve!: (result: { status: 'picked'; color: string }) => void;
+  let aborted = false;
+  const sample = vi.fn((signal: AbortSignal) => {
+    signal.addEventListener('abort', () => { aborted = true; });
+    return new Promise<{ status: 'picked'; color: string }>(done => { resolve = done; });
+  });
+  function Picker() {
+    const [open, setOpen] = useState(true);
+    return <ColorPickerPopover value={{ kind: 'solid', color: '#112233' }} open={open} onOpenChange={setOpen}
+      onConfirm={changed} trigger={<Button>Open</Button>} screenColorSources={{ native: { pick: sample }, browser: null }} />;
+  }
+  await mount(<Picker />);
+  await act(async () => { button(document.body, 'Pick color from screen').click(); button(document.body, 'Pick color from screen').click(); });
+  expect(sample).toHaveBeenCalledTimes(1);
+  expect([...document.body.querySelectorAll('button')].find(item => item.textContent === 'Confirm')!.disabled).toBe(true);
+  await act(async () => [...document.body.querySelectorAll('button')].find(item => item.textContent === 'Cancel')!.click());
+  expect(aborted).toBe(true);
+  await act(async () => resolve({ status: 'picked', color: '#ABCDEF' }));
+  expect(changed).not.toHaveBeenCalled();
+});
+
+it('keeps native failures local to one opening and retries native after reopening', async () => {
+  const native = { pick: vi.fn(async () => ({ status: 'failed' as const })) };
+  const browser = { pick: vi.fn(async () => ({ status: 'picked' as const, color: '#ABCDEF' })) };
+  function Picker() {
+    const [open, setOpen] = useState(true);
+    return <ColorPickerPopover value={{ kind: 'solid', color: '#112233' }} open={open} onOpenChange={setOpen}
+      onConfirm={() => {}} trigger={<Button>Open again</Button>} screenColorSources={{ native, browser }} />;
+  }
+  await mount(<Picker />);
+  for (let i = 0; i < 2; i++) await act(async () => button(document.body, 'Pick color from screen').click());
+  expect(native.pick).toHaveBeenCalledTimes(1);
+  expect(browser.pick).toHaveBeenCalledTimes(2);
+  await act(async () => [...document.body.querySelectorAll('button')].find(item => item.textContent === 'Cancel')!.click());
+  await act(async () => [...document.body.querySelectorAll('button')].find(item => item.textContent === 'Open again')!.click());
+  await act(async () => button(document.body, 'Pick color from screen').click());
+  expect(native.pick).toHaveBeenCalledTimes(2);
+});

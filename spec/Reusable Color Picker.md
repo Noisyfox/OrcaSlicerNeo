@@ -90,6 +90,48 @@ shrink while the palette list scrolls independently. Preset palettes are
 replaceable data; the built-in gradients include all 2-to-7-color upstream
 entries, and RAL colors are display approximations.
 
+## Screen sampling
+
+Screen sampling follows [Orca #16587](https://github.com/OrcaSlicer/OrcaSlicer/pull/16587).
+The application injects screen-color sources through the platform contract;
+the controlled editor receives a sampler without accessing host globals.
+Web uses the browser EyeDropper API in a secure context, invoked directly from
+the button click. Electron prefers its native sampler and uses that same browser
+API as a fallback. The button is hidden when neither source is available.
+
+The Electron addon is independent of the slicer and Bambu provider. macOS uses
+AppKit NSColorSampler and converts its result to sRGB; Windows uses the upstream
+Win32/GDI snapshot overlay with a magnifier, mixed-DPI positioning and Shift
+precision movement; Linux calls XDG Screenshot portal PickColor from a private
+native thread/GLib context. Only local module/API loading determines startup
+availability. Portal cancellation, missing services and service loss finish the
+request without blocking Electron main. macOS has no public sampler-dismiss
+API: cancellation invalidates delivery while AppKit retains the system picker
+until its selection handler completes.
+
+Each popup opening owns an independent sampling session. A native failure
+immediately attempts the browser API, even if transient user activation may
+have expired. Further clicks in that opening use the browser directly; closing
+and reopening retries native. Cancellation does not count as failure or start
+a fallback. Failures retain the draft and allow another attempt; the failure
+state is neither global nor persisted. Linux does not probe portal support in
+advance or disable sampling after a failed request.
+
+A picked sRGB value replaces only the active color's RGB, preserving its alpha
+and every other gradient color. It clears invalid channel text and still needs
+Confirm to commit. While sampling, editing and confirmation are disabled;
+Cancel remains available. Native focus transitions must not dismiss this popup
+or its enclosing dialog. Closing, unmounting, disabling, or changing the edit
+target invalidates the outstanding result. Sampling cancellation and failure
+never commit a color or create history.
+
+Desktop sampling remains subject to the host API and desktop session. Browser
+API presence and addon loading do not qualify successful screen capture on all
+platforms. Native UI, focus, multiple displays and mixed DPI require desktop
+acceptance in addition to mocked integration checks. Mobile support remains
+deferred. Windows snapshots temporarily use memory proportional to virtual
+screen pixel count; the renderer receives only the selected color.
+
 ## Favorites and configuration
 
 Favorites are global user preferences, independent of printers and projects.

@@ -451,6 +451,7 @@ export interface PlatformMemory {
 }
 
 export interface PlatformCapabilities {
+  screenColor: import('./screenColor').ScreenColorSources;
   /** Account capabilities available on this host; independent of printers. */
   accounts: readonly AccountProvider[];
   models: ModelImporter;

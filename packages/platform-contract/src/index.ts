@@ -12,5 +12,6 @@ export type {
   HistoryEditingSessionId, HistoryEditingSession, HistorySessionOpenResult, HistoryStatus, HistoryErrorCode, HistoryError, RestoreSuccess, RestoreFailure,
   RestoreResult, HistoryRuntimeMethods, MockHistoryRuntime,
 } from '@slicer/client';
+export * from './screenColor';
 
 export { externalHttpsUrl } from './externalLinks';
