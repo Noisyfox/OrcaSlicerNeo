@@ -11,6 +11,7 @@ interface Props {
   target: D.TargetRequest;
   printer: D.PrinterIdentity;
   slot: D.MaterialSlot;
+  slotLabel: string;
   material: D.MaterialMetadata | undefined;
   configuration: D.MaterialConfigurationTarget;
   capabilityRevision: string;
@@ -24,7 +25,7 @@ const matches = (preset: D.MaterialPresetConfiguration, material: D.MaterialMeta
   material?.catalogRefs.some(current => current.namespace === ref.namespace && current.value === ref.value));
 
 /** Its keyed lifetime owns one physical slot's draft, never a project preset mutation. */
-export function MaterialInformationDialog({ service, target, printer, slot, material, configuration, capabilityRevision, disabled, onClose, onSubmitted }: Props) {
+export function MaterialInformationDialog({ service, target, printer, slot, slotLabel, material, configuration, capabilityRevision, disabled, onClose, onSubmitted }: Props) {
   const platform = usePlatform(), selectId = useId();
   const [presets, setPresets] = useState<readonly D.MaterialPresetConfiguration[]>([]), [selected, setSelected] = useState('');
   const [loading, setLoading] = useState(true), [catalogueError, setCatalogueError] = useState<string | null>(null);
@@ -84,7 +85,7 @@ export function MaterialInformationDialog({ service, target, printer, slot, mate
   return <Dialog open onOpenChange={open => { if (!open && !sending.current) onClose(); }} disablePointerDismissal={submitting}>
     <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
       <DialogTitle>Material information</DialogTitle>
-      <DialogDescription>{printer.displayName} · {slot.name}</DialogDescription>
+      <DialogDescription>{printer.displayName} · {slotLabel}</DialogDescription>
       {!configuration.informationWritable && <p className="text-sm">RFID material information is read-only. Confirm applies the automatic calibration association; Reset resets calibration only. These actions cannot clear RFID material information.</p>}
       {configuration.restriction && <p role="status" className="text-sm">{configuration.restriction}</p>}
       <div className="space-y-3 text-sm">

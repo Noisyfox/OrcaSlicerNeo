@@ -22,7 +22,7 @@ async function fixture({ rfid = false, restricted = false } = {}) {
   const platform = { runtime: { getDeviceMaterialCatalogue: query }, preferences: { load: async () => DEFAULT_USER_PREFERENCES }, externalLinks: { openHttps } } as unknown as PlatformCapabilities;
   const configuration: D.MaterialConfigurationTarget = { slotId: slot.id, informationWritable: !rfid, actions: restricted ? [] : ['confirm', 'reset'], restriction: restricted ? 'Processing mode is read-only.' : null,
     catalogue: { mainNozzleDiameterMm: .6, toolIndex: 1, nozzleFlowType: 'Standard', supportsUserPresets: true } };
-  const props = { service, target, printer: { id: target.printerId, displayName: 'Workshop', manufacturer: 'Vendor', model: 'Physical Model', serialNumber: null, externalRefs: [{ namespace: 'model', value: 'physical' }] }, slot,
+  const props = { service, target, printer: { id: target.printerId, displayName: 'Workshop', manufacturer: 'Vendor', model: 'Physical Model', serialNumber: null, externalRefs: [{ namespace: 'model', value: 'physical' }] }, slot, slotLabel: 'External holder · External left · Left head',
     material: { materialType: 'PLA', manufacturer: 'Generic', color: { kind: 'solid', rgba: '#ABCDEF80' }, catalogRefs: presets[0].catalogRefs, diameterMm: null, presetRef: null, nozzleTemperatureRangeC: { min: 195, max: 225 } } as D.MaterialMetadata,
     configuration, capabilityRevision: 'cap', disabled: false, onClose, onSubmitted };
   const element = document.createElement('div'); document.body.append(element); const root = createRoot(element);

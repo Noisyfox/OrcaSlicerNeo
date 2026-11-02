@@ -1,3 +1,4 @@
+import { Pencil } from 'lucide-react';
 import type * as D from '@orca/printer-control/domain';
 import { colorSwatchStyle } from '@/components/ui/color-swatch';
 import { Button } from '@/components/ui/button';
@@ -17,9 +18,9 @@ export function MaterialControlCard({ snapshot, capabilities, disabled, send, on
     <div className="printer-material-slots">{inventory.topology.slots.filter(slot => slot.unitId === unit.id).map(slot => {
       const state = inventory.state.slots.find(item => item.slotId === slot.id), material = valueOf(state?.material), color = material?.color;
       return <div className="printer-material-slot" key={slot.id}>
-        <div className="flex items-center gap-2">{color && <span aria-label="Material color" className="printer-material-color" style={colorSwatchStyle(color.kind === 'solid' ? { mode: 'solid', colors: [color.rgba] }
-          : { mode: color.appearance === 'parallel' ? 'multicolor' : 'gradient', colors: color.rgba })} />}<strong>{slot.name}</strong></div>
-        {configure.kind === 'supported' && configure.constraints.some(target => target.slotId === slot.id) && <Button size="sm" variant="outline" aria-label={`Material information for ${slot.name}`} disabled={disabled} onClick={() => onEdit?.(slot, material ?? undefined)}>Material information</Button>}
+        <div className="flex items-center justify-between gap-1"><span className="flex min-w-0 items-center gap-1">{color && <span aria-label="Material color" className="printer-material-color" style={colorSwatchStyle(color.kind === 'solid' ? { mode: 'solid', colors: [color.rgba] }
+          : { mode: color.appearance === 'parallel' ? 'multicolor' : 'gradient', colors: color.rgba })} />}<strong>{slot.name}</strong></span>
+        {configure.kind === 'supported' && configure.constraints.some(target => target.slotId === slot.id) && <Button size="icon-xs" variant="ghost" className="shrink-0" aria-label={`Material information for ${unit.name} · ${slot.name}`} title="Material information" disabled={disabled} onClick={() => onEdit?.(slot, material ?? undefined)}><Pencil className="size-3" /></Button>}</div>
         <p className="printer-slot-material">{material?.materialType || 'Unknown material'}</p>
         <details className="printer-slot-details"><summary>Details</summary>
           <p>Presence: {display(state?.presence)}</p>
