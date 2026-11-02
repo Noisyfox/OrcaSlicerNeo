@@ -17,6 +17,7 @@
 #include <boost/filesystem.hpp>
 #include <map>
 #include <sstream>
+#include <iomanip>
 #include <set>
 #include <string>
 #include <vector>
@@ -940,6 +941,91 @@ bool device_model_matches(const Preset& preset, const json& identity, const bool
         }
     }
     return false;
+}
+
+// Orca AMSMaterialsSetting::Popup/on_select_filament, projected without changing
+// collection selections, installed visibility, drafts or project history.
+json device_material_catalogue_json(const json& request)
+{
+    const auto& identity = request.at("identity");
+    if (!request.at("toolIndex").is_number_integer()) throw std::runtime_error("Invalid device tool index");
+    const int tool = request.at("toolIndex").get<int>();
+    if (!identity.is_object() || tool < 0 || !request.at("supportsUserPresets").is_boolean())
+        throw std::runtime_error("Invalid device material catalogue context");
+    auto& bundle = state().presets;
+    double diameter = request.at("mainNozzleDiameterMm").is_null() ? 0. : request.at("mainNozzleDiameterMm").get<double>();
+    if (!std::isfinite(diameter) || diameter < 0.) throw std::runtime_error("Invalid device nozzle diameter");
+    if (diameter == 0.) {
+        const auto* selected = bundle.printers.get_selected_preset().config.opt<ConfigOptionFloats>("nozzle_diameter");
+        if (selected && !selected->values.empty()) diameter = selected->values.front();
+    }
+    std::ostringstream text;
+    text << std::fixed << std::setprecision(1) << diameter;
+    const std::string diameter_text = diameter == 0. ? "0.4" : text.str();
+    const Preset* machine = nullptr;
+    for (const auto& preset : bundle.printers) {
+        if (!preset.is_system || !device_model_matches(preset, identity) || preset.name.find(diameter_text) == std::string::npos) continue;
+        if (machine) throw std::runtime_error("Device model and nozzle do not identify one system printer preset");
+        machine = &preset;
+    }
+    if (!machine) throw std::runtime_error("No system printer preset matches the device model and nozzle");
+    const auto* nozzles = machine->config.opt<ConfigOptionFloats>("nozzle_diameter");
+    if (!nozzles || size_t(tool) >= nozzles->values.size()) throw std::runtime_error("Device tool does not match the printer preset");
+    auto lower = [](std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+        return value;
+    };
+    const std::string flow = request.at("nozzleFlowType").is_null() ? "" : lower(request.at("nozzleFlowType").get<std::string>());
+    const auto volume = flow == "high flow" ? nvtHighFlow : flow == "tpu high flow" ? nvtTPUHighFlow
+        : flow == "e3d high flow" ? nvtE3DHighFlow : nvtStandard;
+    std::map<std::string, int> promoted;
+    for (size_t index = bundle.filament_presets.size(); index-- > 0;) {
+        const Preset* current = bundle.filaments.find_preset(bundle.filament_presets[index], false, true);
+        if (current && UserPresets::is_snapshot(current->type, current->name)) current = UserPresets::baseline(current->type, current->name);
+        std::set<std::string> visited;
+        while (current && visited.insert(current->name).second) {
+            const Preset* parent = bundle.filaments.get_preset_parent(*current);
+            if (!parent) break;
+            current = parent;
+        }
+        if (current) promoted[current->filament_id] = -int(bundle.filament_presets.size() - index);
+    }
+    struct Entry { json value; std::string vendor, type, label; int rank; };
+    std::vector<Entry> entries;
+    std::set<std::string> seen;
+    for (const Preset* preset : bundle.get_filament_presets_for_machine(machine->config.opt_string("printer_model"),
+             diameter_text, request.at("supportsUserPresets").get<bool>())) {
+        if (preset->is_project_embedded || UserPresets::is_snapshot(preset->type, preset->name)
+            || (!preset->is_system && preset->file.empty()) || preset->filament_id.empty()) continue;
+        Preset display = *preset; // get_preset_alias fills an empty alias; a read must not modify the saved head.
+        const std::string label = bundle.filaments.get_preset_alias(display, true);
+        if (label.empty() || !seen.insert(preset->filament_id).second) continue;
+        const std::string vendor = preset->config.get_filament_vendor(), type = preset->config.get_filament_type();
+        if (type.empty()) continue;
+        const int variant = PresetBundle::get_filament_variant_index(preset->config, machine->config, tool, volume);
+        const auto* low = preset->config.opt<ConfigOptionInts>("nozzle_temperature_range_low");
+        const auto* high = preset->config.opt<ConfigOptionInts>("nozzle_temperature_range_high");
+        json range = nullptr;
+        if (low && high && !low->values.empty() && !high->values.empty() && low->get_at(variant) > 0 && high->get_at(variant) >= low->get_at(variant))
+            range = {{"min", low->get_at(variant)}, {"max", high->get_at(variant)}};
+        json setting = preset->setting_id.empty() ? json(nullptr) : json{{"namespace", "orca-filament-setting"}, {"value", preset->setting_id}};
+        entries.push_back({{{"key", preset->name}, {"label", label}, {"materialType", type},
+            {"manufacturer", vendor.empty() ? json(nullptr) : json(vendor)},
+            {"catalogRefs", json::array({{{"namespace", "orca-filament"}, {"value", preset->filament_id}}})},
+            {"presetRef", setting}, {"nozzleTemperatureRangeC", range}}, lower(vendor), lower(type), lower(label),
+            promoted.count(preset->filament_id) ? promoted.at(preset->filament_id) : std::numeric_limits<int>::max()});
+    }
+    auto type_rank = [](const std::string& type) {
+        const std::vector<std::string> order{"pla", "petg", "abs", "tpu"};
+        return std::find(order.begin(), order.end(), type) - order.begin();
+    };
+    std::sort(entries.begin(), entries.end(), [&](const Entry& a, const Entry& b) {
+        return std::make_tuple(a.rank, a.vendor != "generic", a.vendor, type_rank(a.type), a.type, a.label, a.value.at("label").get<std::string>())
+             < std::make_tuple(b.rank, b.vendor != "generic", b.vendor, type_rank(b.type), b.type, b.label, b.value.at("label").get<std::string>());
+    });
+    json presets = json::array();
+    for (auto& entry : entries) presets.push_back(std::move(entry.value));
+    return {{"ok", true}, {"presets", std::move(presets)}};
 }
 
 void apply_synchronized_hardware(const json& tools)
@@ -1989,4 +2075,11 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_printer_device_match(const c
         return Profiles::duplicate_json(json{{"ok", true}, {"printer", printer.name},
             {"matches", Profiles::device_model_matches(printer, identity)}}.dump());
     } catch (const std::exception& error) { return Profiles::error_json(error.what()); }
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_device_material_catalogue(const char* request)
+{
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    try { return duplicate_json(device_material_catalogue_json(json::parse(request ? request : "")).dump()); }
+    catch (const std::exception& error) { return duplicate_json(json{{"ok", false}, {"error", error.what()}}.dump()); }
 }
