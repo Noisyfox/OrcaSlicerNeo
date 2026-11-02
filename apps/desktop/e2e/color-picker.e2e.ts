@@ -673,3 +673,26 @@ test('gradient nodes keep their centers while held down and match the reference 
     await popup.screenshot({ path: test.info().outputPath('gradient-nodes-seven.png') });
   } finally { await app.close(); }
 });
+
+test('browser screen sampling updates only the local draft until confirmation', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-screen-color-'));
+  const preferences = join(dir, 'preferences.json');
+  const { app, page } = await launch(preferences);
+  try {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'EyeDropper', { configurable: true, value: class {
+        async open() { return { sRGBHex: '#12ABEF' }; }
+      } });
+    });
+    await page.reload();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    await page.locator('#app-tab-prepare').click();
+    const trigger = page.getByTestId('filament-colour-1');
+    const before = await trigger.getAttribute('style');
+    await trigger.click();
+    await page.getByRole('button', { name: 'Pick color from screen', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('12ABEFFF');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(trigger).toHaveAttribute('style', before!);
+  } finally { await app.close(); }
+});

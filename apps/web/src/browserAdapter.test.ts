@@ -226,3 +226,14 @@ it('retains physical print preferences in Web storage even without that printer 
   await createBrowserPrinterConfigurationRepository().save(value);
   expect(await createBrowserPrinterConfigurationRepository().load()).toEqual(value);
 });
+
+it('exposes the secure browser eyedropper without a native source', async () => {
+  const open = vi.fn(async () => ({ sRGBHex: '#123abc' }));
+  vi.stubGlobal('isSecureContext', true);
+  vi.stubGlobal('EyeDropper', class { open = open; });
+  try {
+    const sources = createBrowserAdapter({} as never).screenColor;
+    expect(sources.native).toBeNull();
+    expect(await sources.browser!.pick(new AbortController().signal)).toEqual({ status: 'picked', color: '#123ABC' });
+  } finally { vi.unstubAllGlobals(); }
+});

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type ReactElement } from 'react';
-import type { ColorValue } from '@orca/platform-contract';
+import { createScreenColorSession, NO_SCREEN_COLOR, type ColorValue, type ScreenColorSources } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@/components/ui/popover';
 import { ColorPicker, type ColorPickerProps } from '@/components/ui/color-picker';
 import { formatColorValue } from './color-picker-model';
 
-export interface ColorPickerPopoverProps extends Omit<ColorPickerProps, 'onChange' | 'onValidityChange' | 'className'> {
+export interface ColorPickerPopoverProps extends Omit<ColorPickerProps, 'onChange' | 'onValidityChange' | 'className' | 'screenColorSampler' | 'onSamplingChange'> {
+  screenColorSources?: ScreenColorSources;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (value: ColorValue) => void;
@@ -14,7 +15,11 @@ export interface ColorPickerPopoverProps extends Omit<ColorPickerProps, 'onChang
 }
 
 /** Mounted only while open: reopening always starts from the authoritative value. */
-function DraftEditor({ value, onConfirm, onOpenChange, title = 'Choose color', ...props }: Omit<ColorPickerPopoverProps, 'open' | 'trigger'>) {
+function DraftEditor({ value, onConfirm, onOpenChange, title = 'Choose color', screenColorSources = NO_SCREEN_COLOR,
+  onSamplingChange, ...props }: Omit<ColorPickerPopoverProps, 'open' | 'trigger'> & { onSamplingChange: (sampling: boolean) => void }) {
+  const [sampler] = useState(() => createScreenColorSession(screenColorSources));
+  const [sampling, setSampling] = useState(false);
+  const samplingChange = useCallback((active: boolean) => { setSampling(active); onSamplingChange(active); }, [onSamplingChange]);
   const [draft, setDraft] = useState(() => formatColorValue(value, props.enableAlpha, props.enableGradient));
   const [valid, setValid] = useState(true);
   const popup = useRef<HTMLDivElement>(null);
@@ -30,7 +35,7 @@ function DraftEditor({ value, onConfirm, onOpenChange, title = 'Choose color', .
   }, []);
   useEffect(() => endDrag, [endDrag]);
   const startDrag = (event: PointerEvent<HTMLElement>) => {
-    if (event.button !== 0 || gesture.current || !popup.current) return;
+    if (event.button !== 0 || gesture.current || !popup.current || sampling) return;
     const rect = popup.current.getBoundingClientRect();
     gesture.current = { pointerId: event.pointerId, target: event.currentTarget, startX: event.clientX, startY: event.clientY, left: rect.left, top: rect.top };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -52,7 +57,7 @@ function DraftEditor({ value, onConfirm, onOpenChange, title = 'Choose color', .
     onKeyDown={event => {
       if (event.key === 'Enter' && event.target instanceof HTMLInputElement && ['text', 'number'].includes(event.target.type)) {
         event.preventDefault();
-        if (valid && !props.disabled) { onConfirm(formatColorValue(draft, props.enableAlpha, props.enableGradient)); onOpenChange(false); }
+        if (valid && !props.disabled && !sampling) { onConfirm(formatColorValue(draft, props.enableAlpha, props.enableGradient)); onOpenChange(false); }
       }
     }}
     className="max-h-[min(90vh,var(--available-height))] w-auto max-w-[calc(100vw-24px)] gap-2 p-3">
@@ -63,16 +68,24 @@ function DraftEditor({ value, onConfirm, onOpenChange, title = 'Choose color', .
       onLostPointerCapture={event => { if (gesture.current?.pointerId === event.pointerId) gesture.current = null; }}>
       <PopoverTitle>{title}</PopoverTitle>
     </div>
-    <ColorPicker {...props} className="min-h-0 flex-1" value={draft} onChange={setDraft} onValidityChange={setValid} actions={<>
+    <ColorPicker {...props} className="min-h-0 flex-1" value={draft} onChange={setDraft} onValidityChange={setValid}
+      screenColorSampler={sampler} onSamplingChange={samplingChange} actions={<>
       <Button variant="settings" onClick={() => onOpenChange(false)}>Cancel</Button>
-      <Button disabled={props.disabled || !valid} onClick={() => { onConfirm(formatColorValue(draft, props.enableAlpha, props.enableGradient)); onOpenChange(false); }}>Confirm</Button>
+      <Button disabled={props.disabled || !valid || sampling} onClick={() => { onConfirm(formatColorValue(draft, props.enableAlpha, props.enableGradient)); onOpenChange(false); }}>Confirm</Button>
     </>} />
   </PopoverContent>;
 }
 
 export function ColorPickerPopover({ open, onOpenChange, trigger, ...props }: ColorPickerPopoverProps) {
-  return <Popover open={open} onOpenChange={onOpenChange}>
+  const sampling = useRef(false);
+  const samplingChange = useCallback((active: boolean) => { sampling.current = active; }, []);
+  return <Popover open={open} onOpenChange={(next, details) => {
+    if (!next && sampling.current && ['focus-out', 'outside-press', 'escape-key'].includes(details.reason)) {
+      details.cancel(); return;
+    }
+    onOpenChange(next);
+  }}>
     <PopoverTrigger render={trigger} disabled={props.disabled} />
-    {open && <DraftEditor {...props} onOpenChange={onOpenChange} />}
+    {open && <DraftEditor {...props} onOpenChange={onOpenChange} onSamplingChange={samplingChange} />}
   </Popover>;
 }

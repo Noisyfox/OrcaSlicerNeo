@@ -1,3 +1,4 @@
+import { createBrowserScreenColorSampler } from '@orca/platform-contract';
 import { createBambuProvider } from './bambuProvider';
 import { createPrinterService } from '@orca/printer-control';
 import {
@@ -177,6 +178,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     },
   };
   return {
+    screenColor: { native: null, browser: createBrowserScreenColorSampler() },
     models: {
       async pick() {
         const { path } = await host.openFileDialog(MODEL_FILTERS);

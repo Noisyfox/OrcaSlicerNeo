@@ -1,3 +1,4 @@
+import { createBrowserScreenColorSampler } from '@orca/platform-contract';
 import { createPrinterService } from '@orca/printer-control';
 import {
   MODEL_FILE_ACCEPT,
@@ -132,6 +133,7 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
     },
   };
   return {
+    screenColor: { native: null, browser: createBrowserScreenColorSampler() },
     models: { pick: pickModel },
     exports: { save: downloadGcode },
     downloads: { download: downloadFile },
