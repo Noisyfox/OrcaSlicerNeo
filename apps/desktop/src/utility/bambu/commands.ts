@@ -1,4 +1,4 @@
-import type { CommandContext, PreparedCommand } from './controlContext';
+import type { CommandContext, PreparedCommand, PreparedProtocolCommand } from './controlContext';
 import { createHash } from 'node:crypto';
 import type * as D from '@orca/printer-control/domain';
 import { bambuCapabilities } from '../../shared/bambuPrinters';
@@ -79,7 +79,8 @@ export function prepareCommand(context: CommandContext, command: D.PrinterComman
   const idle = phase === 'idle' || phase === 'completed' || phase === 'cancelled' || phase === 'failed';
   const task = known(state.status.printStatus.taskId);
   const sameTask = (next: TelemetryProjection) => task === undefined || known(next.values.status.printStatus.taskId) === task;
-  const prepared = (fields: Report, confirmed?: PreparedCommand['confirmed'], section: 'print' | 'system' = 'print', qos = 1): D.Result<PreparedCommand> => ({ ok: true, value: { section, fields, qos, confirmed } });
+  const prepared = (fields: Report, confirmed?: PreparedProtocolCommand['confirmed'], section: 'print' | 'system' = 'print', qos = 1): D.Result<PreparedCommand> =>
+    ({ ok: true, value: { commands: [{ label: 'Printer command', section, fields, qos, confirmed }], continueOnFailure: false } });
   const busyMaterial = state.materials.state.tools.some(tool => { const activity = known(tool.activity); return activity !== undefined && activity !== 'idle'; });
   if (['motion.home', 'motion.jog', 'extrusion.move', 'tools.select', 'materials.load', 'materials.unload', 'materials.switch', 'hardware.refreshNozzles'].includes(command.type)
     && (!idle && phase !== 'paused' || busyMaterial)) return reject('busy', 'The printer is busy. Wait until movement or material changing is available.');

@@ -247,9 +247,13 @@ export interface OperationBase {
   revision: number;
   updatedAtMs: UnixMs;
 }
+export type CommandStepPhase = OperationPhase<null> | { kind: 'accepted' } | { kind: 'not-sent'; reason: string };
+export interface CommandStepOutcome { label: string; phase: CommandStepPhase }
 export type CommandOperation = { [K in CommandName]: OperationBase & {
   kind: 'command';
   commandType: K;
+  /** Independently correlated effects; a successful step does not mask another step's failure. */
+  steps: readonly CommandStepOutcome[];
   phase: OperationPhase<PrinterCommandSpecs[K]['result']> | {
     /** Terminal device acknowledgement when physical completion cannot be observed. */
     kind: 'accepted';

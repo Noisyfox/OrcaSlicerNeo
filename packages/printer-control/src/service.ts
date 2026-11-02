@@ -246,7 +246,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
         const repeated = operations.existing({ ...request.target, requestId: request.requestId }, signature);
         if (repeated) return repeated;
         const ref: D.OperationRef = { ...targetFor(printer.id), id: newId<'operation'>() };
-        const operation = { ref, requestId: request.requestId, configurationRevision: entry.revision, revision: 0, updatedAtMs: Date.now(), kind: 'command', commandType: request.command.type, phase: { kind: 'queued' } } as D.CommandOperation;
+        const operation = { ref, requestId: request.requestId, configurationRevision: entry.revision, revision: 0, updatedAtMs: Date.now(), kind: 'command', steps: [], commandType: request.command.type, phase: { kind: 'queued' } } as D.CommandOperation;
         const submission = operations.register(operation, signature);
         const command = copy(request.command);
         void (async () => {

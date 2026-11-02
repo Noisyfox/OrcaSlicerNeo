@@ -1,4 +1,4 @@
-import type { BambuDeviceContext, BambuRecoveryContext, PreparedCommand } from './controlContext';
+import type { BambuDeviceContext, BambuRecoveryContext, PreparedProtocolCommand } from './controlContext';
 import { randomUUID } from 'node:crypto';
 import type * as D from '@orca/printer-control/domain';
 import { printErrorResource } from './errorResources';
@@ -26,14 +26,14 @@ export class BambuRecovery {
       if (updateEpisode) this.episodes.set(route, episode);
     } else if (!updateEpisode) episode = { ...episode, tokens: new Map(episode.tokens) };
     const recovery: BambuRecoveryContext['recovery'] = [];
-    const action = (key: string, label: string, fields: Record<string, unknown>, qos = 1, section: PreparedCommand['section'] = 'print', keepDialogOpen = false): D.PrinterAction => {
+    const action = (key: string, label: string, fields: Record<string, unknown>, qos = 1, section: PreparedProtocolCommand['section'] = 'print', keepDialogOpen = false): D.PrinterAction => {
       let token = episode.tokens.get(key);
       if (!token) { token = randomUUID(); episode.tokens.set(key, token); }
       const localResume = machine.localControlOnly && (['resume', 'ignore', 'idle_ignore'].includes(String(fields.command)) || fields.command === 'ams_control' && fields.param === 'resume');
       const value: D.PrinterAction = { actionRef: { ...context.target, configurationRevision: context.configurationRevision, token: token as D.Id<'action-context'> },
         label, description: null, expiresAtMs: null, ...(keepDialogOpen ? { keepDialogOpen: true } : {}),
         availability: context.fresh && !localResume ? { kind: 'available' } : { kind: 'blocked', reasons: [{ code: context.fresh ? 'precondition-failed' : 'offline', message: context.fresh ? 'This task must be resumed on the printer.' : 'Wait for fresh printer status.' }] } };
-      recovery.push({ action: value, command: { section, fields, qos } });
+      recovery.push({ action: value, command: { commands: [{ label, section, fields, qos }], continueOnFailure: false } });
       return value;
     };
     let alerts = context.values.alerts;
@@ -47,7 +47,7 @@ export class BambuRecovery {
         const actions: D.PrinterAction[] = [];
         // DeviceErrorDialog::on_button_click. IDs without an implemented command (e.g. HMS-page navigation) stay absent.
         const legacyRetry = [0x07018004, 0x07018005, 0x07018007, 0x07018012, 0x07028012, 0x07038012, 0x07ff8012, 0x07ff8013].includes(error);
-        const closeCommand = { section: 'system' as const, fields: { command: 'uiop', name: 'print_error', action: 'close', source: 1, type: 'dialog', err: code }, qos: 0 };
+        const closeCommand = { label: 'Close error dialog', section: 'system' as const, fields: { command: 'uiop', name: 'print_error', action: 'close', source: 1, type: 'dialog', err: code }, qos: 0 };
         for (const id of new Set(legacyRetry ? [10002, 10004] : resource?.actions ?? [])) {
           const hms = (command: string) => ({ command, err: String(error), param: 'reserve', job_id: machine.jobId });
           const ams = (param: string) => ({ command: 'ams_control', param });
@@ -67,7 +67,8 @@ export class BambuRecovery {
           else if (id === 10002) actions.push(action('10002', 'Retry', ams('resume'), 0));
           else if (id === 10004) {
             actions.push(action('10004', 'Confirm', { command: 'clean_print_error', subtask_id: machine.subtaskId, print_error: error }, 0));
-            recovery[recovery.length - 1].command.followUp = closeCommand;
+            const prepared = recovery[recovery.length - 1].command;
+            prepared.commands = [...prepared.commands, closeCommand];
           }
         }
         const dismissible = !resource?.actions.includes(39);

@@ -1268,7 +1268,8 @@ contract changes must keep every producer, consumer and fixture buildable.
 **Decision status:** Design accepted; Orca is the selected behavioral reference.
 Product behavior and accepted interaction decisions are owned by the
 [console design](Printer%20Console%20and%20Control%20Integration.md#material-information-configuration).
-This follow-up does not authorize implementation or claim device qualification.
+Implementation is authorized in independently verified increments; this design
+does not claim device qualification.
 
 Keep the existing shared material-unit, slot, path and tool model. AMS and
 external holders use the same normalized information-editing flow; vendor

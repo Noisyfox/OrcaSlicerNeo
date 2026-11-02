@@ -1067,8 +1067,8 @@ those controls are intentionally outside this delivery.
 #### Material information configuration
 
 **Decision status:** Design accepted after grouped clarification, using Orca as
-the behavioral reference. Only documentation work is authorized. No material
-configuration executor or editor is implemented or authorized by this record.
+the behavioral reference. Implementation is authorized in independently verified
+increments; the material configuration executor and editor are not yet delivered.
 The [domain follow-up](Printer%20Domain%20and%20Control%20Architecture.md#material-information-configuration-follow-up)
 owns execution, native query and command-contract boundaries.
 

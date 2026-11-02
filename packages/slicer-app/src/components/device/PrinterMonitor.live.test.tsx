@@ -313,7 +313,7 @@ it.each(['accepted', 'completed'] as const)('silently releases controls on %s an
   let phase: D.CommandOperation['phase'] = kind === 'accepted' ? { kind } : { kind, result: null, confirmation: 'observed-state' };
   f.service.operations.watch = async function* (ref) {
     try {
-      yield { kind: 'command', commandType: 'motion.jog', ref, requestId: 'request' as D.Id<'request'>, configurationRevision: 'r1', revision: 1, updatedAtMs: 0, phase };
+      yield { kind: 'command', steps: [], commandType: 'motion.jog', ref, requestId: 'request' as D.Id<'request'>, configurationRevision: 'r1', revision: 1, updatedAtMs: 0, phase };
       await new Promise<void>(resolve => { release = resolve; });
     } finally { closed++; }
   };

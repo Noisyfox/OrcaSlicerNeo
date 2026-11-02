@@ -5,8 +5,15 @@ import { BambuMonitor } from './monitor';
 import { BambuDeviceAccess } from './deviceAccess';
 import type { BambuObjectSkipping } from './objectSkipping';
 import { BambuOperations } from './operations';
+import * as commandModule from './commands';
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 const request = (extra: Omit<Partial<D.CommandRequest>, 'command'> & { command?: D.PrinterCommand } = {}): D.CommandRequest => ({ target, requestId: 'request' as D.Id<'request'>, command: { type: 'jobs.pause', params: {} }, ...extra } as D.CommandRequest);
+function prepareSequence(continueOnFailure = true) {
+  return vi.spyOn(commandModule, 'prepareCommand').mockReturnValueOnce({ ok: true, value: { continueOnFailure, commands: [
+    { label: 'Material information', section: 'print', fields: { command: 'first' }, qos: 1 },
+    { label: 'Calibration', section: 'print', fields: { command: 'second' }, qos: 1 },
+  ] } });
+}
 function fixture(timeout: number | 'default' = 1000) {
   const methods = ['setSelectedMachine', 'startSubscribe', 'stopSubscribe', 'sendMessage', 'sendMessageToPrinter', 'disconnectPrinter', 'connectPrinter'];
   const native = Object.fromEntries(methods.map(method => [method, vi.fn(async () => 0)])) as unknown as BambuNative;
@@ -68,6 +75,45 @@ it('sanitizes device rejection and never exposes raw error bodies', async () => 
     expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'failed', error: { code: 'device-rejected' } } } } });
     expect(JSON.stringify(f.operations.get(result.operation))).not.toContain('PRIVATE_TOKEN');
   } finally { await f.close(); }
+});
+it('correlates every ordered step and does not let an early acknowledgement hide a later rejection', async () => {
+  const f = fixture(), prepared = prepareSequence();
+  try {
+    const result = await f.operations.submit(request()); if (result.kind !== 'recorded') throw new Error('Not recorded');
+    const [first, second] = f.commands();
+    expect(first.sequence_id).not.toBe(second.sequence_id);
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...first, result: 'SUCCESS' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'sent' }, steps: [{ phase: { kind: 'accepted' } }, { phase: { kind: 'sent' } }] } } });
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...second, result: 'fail', reason: 'PRIVATE_TOKEN' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'failed' }, steps: [{ phase: { kind: 'accepted' } }, { label: 'Calibration', phase: { kind: 'failed' } }] } } });
+    expect(JSON.stringify(f.operations.get(result.operation))).not.toContain('PRIVATE_TOKEN');
+  } finally { prepared.mockRestore(); await f.close(); }
+});
+it.each([true, false])('keeps separate delivery outcomes with continueOnFailure=%s and never retries', async continueOnFailure => {
+  const f = fixture(), prepared = prepareSequence(continueOnFailure);
+  const send = vi.mocked(f.native.sendMessage).getMockImplementation()!;
+  vi.mocked(f.native.sendMessage).mockImplementation(async (...args) => JSON.parse(args[1]).print?.command === 'first' ? -1 : send(...args));
+  try {
+    const result = await f.operations.submit(request()); if (result.kind !== 'recorded') throw new Error('Not recorded');
+    expect(f.commands().map(command => command.command)).toEqual(continueOnFailure ? ['first', 'second'] : ['first']);
+    if (continueOnFailure) await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...f.commands()[1], result: 'success' } })] });
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'outcome-unknown' }, steps: [
+      { phase: { kind: 'outcome-unknown' } }, { phase: { kind: continueOnFailure ? 'accepted' : 'not-sent' } },
+    ] } } });
+    expect(await f.operations.submit(request())).toEqual(result);
+    expect(f.commands()).toHaveLength(continueOnFailure ? 2 : 1);
+  } finally { prepared.mockRestore(); await f.close(); }
+});
+it('retains an acknowledged step when the other step times out', async () => {
+  const f = fixture(30), prepared = prepareSequence();
+  try {
+    const result = await f.operations.submit(request()); if (result.kind !== 'recorded') throw new Error('Not recorded');
+    await f.emit({ type: 'message', args: ['a', JSON.stringify({ print: { ...f.commands()[0], result: 'success' } })] });
+    await new Promise(resolve => setTimeout(resolve, 45));
+    expect(f.operations.get(result.operation)).toMatchObject({ value: { operation: { phase: { kind: 'outcome-unknown' }, steps: [
+      { phase: { kind: 'accepted' } }, { phase: { kind: 'outcome-unknown' } },
+    ] } } });
+  } finally { prepared.mockRestore(); await f.close(); }
 });
 it('does not mistake an ignored report for fresh completion evidence', async () => {
   const f = fixture(); try {
