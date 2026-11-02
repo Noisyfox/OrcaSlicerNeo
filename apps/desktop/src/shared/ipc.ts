@@ -53,6 +53,7 @@ export const Ipc = {
   nativeMenuCommand: 'menu:command',
   executeHostCommand: 'host:executeCommand',
   openSource: 'external:openSource',
+  openHttps: 'external:openHttps',
   windowCloseRequest: 'window:closeRequest',
   windowCloseDecision: 'window:closeDecision',
   memorySample: 'memory:sample',
@@ -139,6 +140,7 @@ export interface ElectronBridge {
   };
   externalLinks: {
     openSource(): Promise<void>;
+    openHttps(url: string): Promise<void>;
   };
   platform: string;
 }

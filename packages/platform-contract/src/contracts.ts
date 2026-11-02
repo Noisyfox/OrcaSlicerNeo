@@ -13,6 +13,8 @@ export type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, Titleba
 export interface ExternalLinks {
   /** Opens the fixed AGPL-3.0 source page; arbitrary URLs are not accepted. */
   openSource(): Promise<void> | void;
+  /** Opens a user-invoked HTTPS documentation link in the system browser. */
+  openHttps(url: string): Promise<void> | void;
 }
 
 /** A model selected by a host. Host paths must never cross this boundary. */

@@ -174,3 +174,62 @@ test('Bambu error dialogs invoke opaque actions, stay dismissed across refreshes
     await expect.poll(() => app.evaluate(() => globalThis.bambuControlFixture.commands.at(-1)?.command)).toMatchObject({ params: { actionRef: { token: 'episode-3:Problem Solved and Resume' } } });
   } finally { await app.close(); }
 });
+
+test('material configuration binds the original slot, closes after submission and keeps late partial results on its printer', async () => {
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
+  try {
+    const page = await app.firstWindow(); await page.setViewportSize({ width: 1280, height: 850 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    await installControlFixture(app);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click(); await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
+    const panel = page.locator('#device-content'), information = panel.getByRole('button', { name: /^Material information for/ });
+    await expect(information.first()).toBeEnabled(); await information.first().click();
+    const dialog = page.getByRole('dialog', { name: 'Material information', exact: true });
+    await expect(dialog).toContainText('Workshop A');
+    const selection = dialog.getByRole('combobox', { name: 'Material preset' });
+    await expect(selection.locator('option', { hasText: 'Generic PLA' })).toHaveCount(1);
+    await selection.selectOption({ label: 'Generic PLA' });
+    await expect(dialog.getByLabel('Nozzle temperature range')).toHaveText(/\d+–\d+ °C/);
+    await expect(dialog.getByRole('spinbutton')).toHaveCount(0);
+    await app.evaluate(() => { globalThis.bambuControlFixture.rejectNext = true; });
+    await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(dialog).toContainText('Fixture immediate rejection');
+    await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const command = await app.evaluate(() => globalThis.bambuControlFixture.commands.at(-1));
+    expect(command).toMatchObject({ target: { printerId: 'bambu:a' }, command: { type: 'materials.configure', params: { slotId: 'slot:0:0', intent: 'confirm', colorRgba: '#333333FF' } } });
+    // Selection stays available while the original operation is waiting for the device.
+    await page.getByTestId('device-printer-select').click(); await page.getByRole('option', { name: 'Workshop B', exact: true }).click();
+    await expect(panel.getByText('Second task', { exact: true })).toBeVisible();
+    await app.evaluate(({ BrowserWindow }, channel) => {
+      const operation = Object.values(globalThis.bambuControlFixture.operations).find(operation => operation.commandType === 'materials.configure')!;
+      operation.steps = [{ label: 'Material information', phase: { kind: 'failed', error: { code: 'device-rejected', message: 'Material rejected.' } } }, { label: 'Calibration', phase: { kind: 'completed', result: null, confirmation: 'device-result' } }];
+      operation.phase = { kind: 'failed', error: { code: 'device-rejected', message: 'Material information: Material rejected. Calibration: Confirmed.' } }; operation.revision++;
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, 'control');
+    }, Ipc.bambuChanged);
+    await expect(panel.getByText('Material information: Material rejected. Calibration: Confirmed.', { exact: true })).toHaveCount(0);
+    await page.getByTestId('device-printer-select').click(); await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
+    await expect(panel.getByText('Material information: Material rejected. Calibration: Confirmed.', { exact: true })).toBeVisible();
+    // RFID preserves the same entry point and explains its remaining calibration-only actions.
+    await information.nth(1).click();
+    await expect(dialog).toContainText('RFID material information is read-only'); await expect(selection).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Reset', exact: true }).click();
+    await expect(dialog.getByRole('group', { name: 'Reset confirmation' })).toContainText('RFID material information will remain');
+    await dialog.getByRole('button', { name: 'Keep information', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    // Both external holders use the shared draft UI with their own target-bound slot identity.
+    for (const unit of [254, 255]) {
+      const holder = panel.getByRole('heading', { name: `External holder ${unit}`, exact: true }).locator('..');
+      await holder.getByRole('button', { name: /^Material information for/ }).click();
+      await selection.selectOption({ label: 'Generic PLA' });
+      await expect(dialog.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled();
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    }
+    const requests = await app.evaluate(() => globalThis.bambuControlFixture.requests);
+    for (const request of requests) expect(isBambuControlRequest(request), JSON.stringify(request)).toBe(true);
+    expect(await app.evaluate(() => globalThis.bambuControlFixture.commands.length)).toBe(1);
+    await page.screenshot({ path: '/tmp/orcaneo-material-monitor.png' });
+  } finally { await app.close(); }
+});

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pause, Play, Square } from 'lucide-react';
 import { PrinterMonitorLayout, PrintProgressCard } from './PrinterMonitorLayout';
 import { usePlatform } from '@orca/platform-contract';
@@ -9,6 +9,7 @@ import { usePrinterObservation } from './usePrinterObservation';
 import { ActuatorCard, ControlCard, display, MotionCard, ThermalCard, valueOf } from './PrinterControlCards';
 import { CameraCard } from './media/CameraCard';
 import { MaterialControlCard } from './MaterialControlCard';
+import { MaterialInformationDialog } from './MaterialInformationDialog';
 import { SkipObjects } from './SkipObjects';
 import { PrinterAlerts } from './PrinterAlerts';
 
@@ -24,7 +25,14 @@ export function PrinterMonitor({ printer, route, visible = true, observeWhileHid
   const { printers: { service } } = usePlatform();
   const { snapshot, capabilities, error, refreshing, refresh, live, liveStatus, canRefresh } = usePrinterObservation(service, printer, route, visible, observeWhileHidden);
   const target = { printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision };
-  const { send: submit, feedback, pending, setFeedback } = usePrinterCommands(service, target, capabilities.revision);
+  const { send: submit, feedback, pending, setFeedback, acceptSubmission } = usePrinterCommands(service, target, capabilities.revision);
+  const [editor, setEditor] = useState<{ target: D.TargetRequest; slot: D.MaterialSlot; material: D.MaterialMetadata | undefined } | null>(null);
+  const inventory = valueOf(snapshot?.values.materials), configure = capabilities.commands['materials.configure'];
+  const editing = editor && editor.target.printerId === target.printerId && editor.target.routeId === target.routeId
+    && editor.target.expectedConfigurationRevision === target.expectedConfigurationRevision
+    && inventory?.topology.slots.some(slot => slot.id === editor.slot.id)
+    && configure.kind === 'supported' ? configure.constraints.find(item => item.slotId === editor.slot.id) : undefined;
+  useEffect(() => { if (editor && (!editing || !visible)) setEditor(null); }, [editor, editing, visible]);
   const [cancel, setCancel] = useState<{ name: string; taskId?: D.Id<'device-task'> } | null>(null);
   const status = valueOf(snapshot?.values.status), topology = valueOf(snapshot?.values.descriptor)?.topology;
   const fresh = snapshot?.values.status?.kind === 'known' && snapshot.values.status.freshness === 'fresh' && !error;
@@ -79,12 +87,15 @@ export function PrinterMonitor({ printer, route, visible = true, observeWhileHid
       {speeds.kind === 'supported' && <div className="printer-print-actions"><label className="printer-print-speed"><span>Print speed</span><select aria-label="Print speed" className="rounded border bg-background p-1 text-sm" value={valueOf(status?.printStatus.speedModeId) ?? ''} disabled={controls.disabled || !['printing', 'paused'].includes(phase ?? '')} onChange={event => void send({ type: 'jobs.setSpeed', params: { modeId: event.target.value } })}><option value="" disabled>Print speed</option>{speeds.constraints.modes.map(mode => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select></label></div>}
       {!hasThermal && !hasSensors && !hasActuators && !hasMotion && <p className="text-sm text-muted-foreground">Temperature and sensor readings are not available on this route.</p>}
     </div>{hasMotion && <MotionCard {...controls} />}</div></ControlCard>}
-    materials={capabilities.observations.materials.kind === 'supported' && <MaterialControlCard {...controls} />}
+    materials={capabilities.observations.materials.kind === 'supported' && <MaterialControlCard {...controls} onEdit={(slot, material) => setEditor({ target, slot, material })} />}
     hardware={(!!topology?.nozzles.length || capabilities.commands['hardware.refreshNozzles'].kind === 'supported') && <details className="printer-hardware-details"><summary>Nozzle hardware</summary>
     <ControlCard title="Nozzles"><div className="flex flex-wrap gap-4">{topology?.nozzles.map(nozzle => <div key={nozzle.id} className="text-sm"><strong>{topology.tools.find(tool => tool.nozzleId === nozzle.id)?.name ?? 'Unknown tool'} · Nozzle</strong><p>{nozzle.diameterMm === null ? 'Diameter not reported' : `${nozzle.diameterMm} mm`} · {nozzle.constructionMaterial ?? 'Material not reported'}</p><p className="text-xs text-muted-foreground">{nozzle.flowType ?? 'Flow type not reported'}{nozzle.type ? ` · ${nozzle.type}` : ''}</p></div>)}</div>
       {capabilities.commands['hardware.refreshNozzles'].kind === 'supported' && <Button size="sm" variant="secondary" disabled={controls.disabled} onClick={() => void send({ type: 'hardware.refreshNozzles', params: {} })}>Refresh nozzle identification</Button>}
     </ControlCard></details>}
   />
+    {editor && editing && visible && <MaterialInformationDialog key={`${editor.target.printerId}:${editor.target.routeId}:${editor.target.expectedConfigurationRevision}:${editor.slot.id}`}
+      service={service} target={editor.target} printer={printer.identity} slot={editor.slot} material={editor.material} configuration={editing}
+      capabilityRevision={capabilities.revision} disabled={controls.disabled} onClose={() => setEditor(null)} onSubmitted={acceptSubmission} />}
     {cancel && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="alertdialog" aria-modal="true" aria-labelledby="cancel-print-title"><div className="w-full max-w-sm space-y-4 rounded-lg border bg-card p-5 shadow-lg"><h2 id="cancel-print-title" className="font-semibold">Cancel print?</h2><p className="text-sm">Stop “{cancel.name}” on “{printer.identity.displayName}”?</p><div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setCancel(null)}>Keep printing</Button><Button variant="destructive" disabled={controls.disabled} onClick={() => void send({ type: 'jobs.cancel', params: {} }, cancel.taskId)}>Confirm cancellation</Button></div></div></div>}
   </>;
 }
