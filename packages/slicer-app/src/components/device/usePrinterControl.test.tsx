@@ -56,3 +56,26 @@ it('reconciles an unknown submission once without retrying the mutation', async 
     expect(element.textContent).toContain('Command outcome unknown');
   } finally { await act(async () => root.unmount()); element.remove(); }
 });
+
+it('delivers a late submission receipt to the original printer even after its Monitor was remounted first', async () => {
+  const first: D.TargetRequest = { printerId: 'first' as never, routeId: 'route' as never, expectedConfigurationRevision: 'cfg' };
+  const second: D.TargetRequest = { printerId: 'second' as never, routeId: 'other-route' as never };
+  const watch = vi.fn<D.PrinterOperations['watch']>(async function* (ref) {
+    yield { kind: 'command', commandType: 'materials.configure', ref, requestId: 'request' as never, configurationRevision: 'cfg', revision: 2, updatedAtMs: 1, steps: [],
+      phase: { kind: 'failed', error: { code: 'device-rejected', message: 'Original material update was rejected.' } } };
+  });
+  const service = { operations: { watch } } as unknown as D.PrinterService;
+  let hook!: ReturnType<typeof usePrinterCommands>;
+  function Monitor({ target }: { target: D.TargetRequest }) { hook = usePrinterCommands(service, target, 'cap'); return <p>{hook.feedback}</p>; }
+  const element = document.createElement('div'); document.body.append(element); const root = createRoot(element);
+  try {
+    await act(async () => root.render(<Monitor key="old" target={first} />));
+    const originalAccept = hook.acceptSubmission;
+    await act(async () => root.render(<Monitor key="other" target={second} />));
+    await act(async () => root.render(<Monitor key="returned" target={first} />));
+    expect(watch).not.toHaveBeenCalled();
+    await act(async () => originalAccept({ kind: 'recorded', operation: { ...first, id: 'late-receipt' as never } }));
+    expect(watch).toHaveBeenCalledOnce(); expect(element.textContent).toBe('Original material update was rejected.');
+    expect(hook.pending).toBe(false);
+  } finally { await act(async () => root.unmount()); element.remove(); }
+});

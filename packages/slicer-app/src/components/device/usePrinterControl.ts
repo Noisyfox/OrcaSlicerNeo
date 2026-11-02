@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type * as D from '@orca/printer-control/domain';
 
 type AcceptedSubmission = Exclude<D.Submission, { kind: 'rejected' }>;
-const remembered = new WeakMap<D.PrinterService, Map<string, AcceptedSubmission>>();
+const remembered = new WeakMap<D.PrinterService, { records: Map<string, AcceptedSubmission>; listeners: Map<string, Set<(result: AcceptedSubmission) => void>> }>();
 const unknownOutcome = 'Command outcome unknown. Check the printer before trying again.';
 
 /** UI readers may leave a device; the provider retains the original physical operation. */
@@ -12,8 +12,8 @@ export function usePrinterCommands(service: D.PrinterService, target: D.TargetRe
   const key = JSON.stringify([target.printerId, target.routeId, target.expectedConfigurationRevision]);
   const current = useRef({ key, service }), alive = useRef(false); current.current = { key, service };
   let saved = remembered.get(service);
-  if (!saved) { saved = new Map(); remembered.set(service, saved); }
-  const records = saved;
+  if (!saved) { saved = { records: new Map(), listeners: new Map() }; remembered.set(service, saved); }
+  const { records, listeners } = saved;
   const active = (abort: AbortController) => alive.current && !abort.signal.aborted && current.current.key === key && current.current.service === service;
   async function track(result: AcceptedSubmission, abort: AbortController) {
     try {
@@ -35,8 +35,11 @@ export function usePrinterCommands(service: D.PrinterService, target: D.TargetRe
     finally { if (active(abort)) { busy.current = false; setPending(false); } }
   }
   function acceptSubmission(result: AcceptedSubmission) {
-    // Remember even if selection changed during IPC; only the original Monitor may observe it.
+    // A late receipt must also reach a newly mounted Monitor for this same target.
     records.set(key, result);
+    for (const listener of listeners.get(key) ?? []) listener(result);
+  }
+  function observeSubmission(result: AcceptedSubmission) {
     if (!alive.current || current.current.key !== key || current.current.service !== service) return;
     controller.current?.abort();
     const abort = new AbortController(); controller.current = abort;
@@ -45,9 +48,15 @@ export function usePrinterCommands(service: D.PrinterService, target: D.TargetRe
   }
   useEffect(() => {
     alive.current = true; controller.current?.abort(); busy.current = false; setPending(false); setFeedback(null);
+    let subscribers = listeners.get(key);
+    if (!subscribers) { subscribers = new Set(); listeners.set(key, subscribers); }
+    subscribers.add(observeSubmission);
     const result = records.get(key);
-    if (result) acceptSubmission(result);
-    return () => { alive.current = false; controller.current?.abort(); };
+    if (result) observeSubmission(result);
+    return () => {
+      subscribers.delete(observeSubmission); if (!subscribers.size) listeners.delete(key);
+      alive.current = false; controller.current?.abort();
+    };
   }, [service, key]);
   async function send(command: D.PrinterCommand, expectedTaskId?: D.Id<'device-task'>) {
     if (busy.current) return;

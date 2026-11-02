@@ -86,7 +86,7 @@ export function MaterialInformationDialog({ service, target, printer, slot, slot
     <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
       <DialogTitle>Material information</DialogTitle>
       <DialogDescription>{printer.displayName} · {slotLabel}</DialogDescription>
-      {!configuration.informationWritable && <p className="text-sm">RFID material information is read-only. Confirm applies the automatic calibration association; Reset resets calibration only. These actions cannot clear RFID material information.</p>}
+      {!configuration.informationWritable && <p className="text-sm">RFID material information is read-only. Confirm applies the automatic calibration parameters or association; Reset resets calibration only. These actions cannot clear RFID material information.</p>}
       {configuration.restriction && <p role="status" className="text-sm">{configuration.restriction}</p>}
       <div className="space-y-3 text-sm">
         <label className="grid gap-1" htmlFor={selectId}>Material
