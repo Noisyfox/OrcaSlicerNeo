@@ -56,7 +56,6 @@ Napi::Value Start(const Napi::CallbackInfo& info) {
     napi_value resource = Napi::String::New(env, "screen color selection");
     if (napi_create_threadsafe_function(env, info[1], nullptr, resource, 1, 1, nullptr, nullptr, nullptr, Deliver, &request->callback) != napi_ok)
         throw Napi::Error::New(env, "Could not create screen color callback");
-    napi_unref_threadsafe_function(env, request->callback); // An abandoned picker must never keep a process alive.
     binding->active = request;
     try {
         screen_color::Start([request](screen_color::Result result) { request->Complete(result); });

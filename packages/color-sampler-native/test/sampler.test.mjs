@@ -76,6 +76,7 @@ test('environment teardown safely drains queued callbacks and cancels abandoned 
       const binding = createRequire(import.meta.url)('./build/Release/screen_color_fixture.node');
       binding.start(1, () => {});
       ${complete ? "binding.completeFixture('picked');" : ''}
+      process.exit(0);
     `], { encoding: 'utf8', timeout: 5000 });
     assert.equal(child.status, 0, child.stderr);
   }
@@ -93,4 +94,16 @@ test('runtime staging excludes fixture binaries and rejects a mismatched packagi
   await stageRuntime();
   assert.deepEqual(await readdir(new URL('../out/runtime/', import.meta.url)), ['screen_color.node']);
   await assert.rejects(prepareRuntime('wrong-platform'), /matching native runner/);
+});
+
+
+test('completion is delivered even when it is the only live Node handle', () => {
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import { createRequire } from 'node:module';
+    const binding = createRequire(import.meta.url)('./build/Release/screen_color_fixture.node');
+    binding.start(1, result => console.log(result.status));
+    binding.completeFixture('picked');
+  `], { encoding: 'utf8', timeout: 5000 });
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.stdout.trim(), 'picked');
 });

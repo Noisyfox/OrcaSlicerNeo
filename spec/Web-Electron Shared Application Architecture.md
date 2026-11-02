@@ -176,6 +176,16 @@ interface PlatformCapabilities {
   direct `window.orca` read. Its visual component remains common, while
   Electron-only drag behavior stays in the Electron host.
 
+Screen-color sampling is a separate injected host capability, described in
+[Reusable Color Picker](Reusable%20Color%20Picker.md#screen-sampling). Electron
+loads its independent Node-API addon in main and exposes only local availability,
+selected sRGB values and request cancellation through validated main-frame IPC.
+It does not use the slicing or Bambu utilities. Web and Electron's renderer
+fallback share the browser EyeDropper adapter. Failure routing belongs to the
+current popup opening; Linux portal support is not pre-probed or cached as a
+global session failure. Native binaries are staged and packaged outside asar,
+with a matching native runner for every target architecture.
+
 ### 4.1 Shared menus
 
 The platform contract carries a versioned menu model, complete state snapshot

@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => {
   return {
     main: {
       define: {
+        __ORCA_E2E__: JSON.stringify(mode === 'e2e' || env.VITE_E2E === '1'),
         'import.meta.env': JSON.stringify({
           ...Object.fromEntries(Object.entries(env).filter(([key]) => key.startsWith('VITE_'))),
           DEV: mode === 'development',
@@ -27,7 +28,7 @@ export default defineConfig(({ mode }) => {
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       } },
-      build: { externalizeDeps: { exclude: ['yauzl', 'saxes', 'proper-lockfile', 'mp4box', '@orca/bambu-native'] }, rollupOptions: { input: {
+      build: { externalizeDeps: { exclude: ['yauzl', 'saxes', 'proper-lockfile', 'mp4box', '@orca/bambu-native', '@orca/color-sampler-native'] }, rollupOptions: { input: {
         index: resolve('src/main/index.ts'),
         'slicer-host': resolve('src/utility/slicer-host.ts'),
         'bambu-host': resolve('src/utility/bambu-host.ts'),

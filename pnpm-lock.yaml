@@ -16,6 +16,9 @@ importers:
       '@orca/bambu-native':
         specifier: workspace:*
         version: link:../../packages/bambu-native
+      '@orca/color-sampler-native':
+        specifier: workspace:*
+        version: link:../../packages/color-sampler-native
       '@orca/platform-contract':
         specifier: workspace:*
         version: link:../../packages/platform-contract

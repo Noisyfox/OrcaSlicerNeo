@@ -114,3 +114,28 @@ test('Web converts imported multicolour to edited gradient across local storage 
   await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgba\(34, 68, 102, [\d.]+\), rgb\(171, 205, 239\), rgba\(119, 136, 153, [\d.]+\)\)/);
   expect(await native()).toEqual({ representative: '#22446680', multiColour: '#22446680 #abcdef #77889940', type: '0' });
 });
+
+test('Web screen sampling preserves alpha and capability absence hides the icon', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'EyeDropper', { configurable: true, value: class {
+      async open() { return { sRGBHex: '#12ABEF' }; }
+    } });
+  });
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120000 });
+  await page.locator('#app-tab-prepare').click();
+  const trigger = page.getByTestId('filament-colour-1');
+  const original = await trigger.getAttribute('value');
+  await trigger.click();
+  const hex = page.getByRole('textbox', { name: 'HEX color', exact: true });
+  await hex.fill('#11223380');
+  await page.getByRole('button', { name: 'Pick color from screen', exact: true }).click();
+  await expect(hex).toHaveValue('12ABEF80');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(trigger).toHaveAttribute('value', original!);
+  await page.addInitScript(() => { Object.defineProperty(window, 'EyeDropper', { configurable: true, value: undefined }); });
+  await page.reload();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120000 });
+  await page.locator('#app-tab-prepare').click(); await trigger.click();
+  await expect(page.getByRole('button', { name: 'Pick color from screen', exact: true })).toHaveCount(0);
+});

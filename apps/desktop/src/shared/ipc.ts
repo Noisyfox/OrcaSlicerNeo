@@ -13,6 +13,9 @@ import type { PrinterTransportBody } from '../../../../packages/printer-control/
 export type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
 
 export const Ipc = {
+  screenColorAvailable: 'screen-color:available',
+  screenColorPick: 'screen-color:pick',
+  screenColorCancel: 'screen-color:cancel',
   slicerConnect: 'slicer:connect',
   slicerPort: 'slicer:port',
   slicerFailed: 'slicer:failed',
@@ -82,6 +85,11 @@ export function isMenuCommandId(value: unknown): value is MenuCommandId {
 export type HostCommandId = 'quit' | 'open-configuration-folder';
 
 export interface ElectronBridge {
+  screenColor: {
+    available(): Promise<boolean>;
+    pick(requestId: string): Promise<import('../../../../packages/platform-contract/src/screenColor').ScreenColorResult>;
+    cancel(requestId: string): Promise<void>;
+  };
   bambu: import('./bambu').BambuBridge;
   connectSlicerRuntime(): void;
   version: string;

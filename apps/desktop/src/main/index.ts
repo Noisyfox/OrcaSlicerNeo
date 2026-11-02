@@ -1,3 +1,6 @@
+import { loadNativeScreenColorSampler } from '@orca/color-sampler-native';
+import { createScreenColorIpc } from './screenColorIpc';
+import { createScreenColorFixture } from './testing/screenColorFixture';
 import { BambuMediaIpc } from './bambuMediaIpc';
 import { compareAndSwapPreferences, savePreferences } from './preferencePersistence';
 import { withFileLock } from './fileLock';
@@ -31,6 +34,8 @@ import { RecentThumbnailWorker } from './recentThumbnailWorker';
 import { summarizeElectronMemory } from './memoryIpc';
 import { attachSlicerUtility, stopSlicerUtilities } from './slicerUtility';
 import { rendererIsolationHeaders } from './sessionHeaders';
+
+declare const __ORCA_E2E__: boolean;
 
 // Chromium documents this as a preference for a discrete GPU when multiple
 // adapters are available. It does not name or require a particular GPU; the
@@ -121,6 +126,7 @@ const preferencesPersisted = (): boolean =>
 const printerConfigurationPath = (): string =>
   process.env.ORCA_E2E_PRINTER_CONFIG ?? join(app.getPath('userData'), 'printer-config.json');
 
+let screenColorIpc: ReturnType<typeof createScreenColorIpc>;
 let rendererPort = 0;
 let rendererServer: Server | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -240,6 +246,18 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  const addonPath = app.isPackaged ? join(process.resourcesPath, 'screen-color/screen_color.node')
+    : join(__dirname, '../../../../packages/color-sampler-native/out/runtime/screen_color.node');
+  const nativeSampler = __ORCA_E2E__ && process.env.ORCA_E2E_SCREEN_COLOR
+    ? createScreenColorFixture(process.env.ORCA_E2E_SCREEN_COLOR) : loadNativeScreenColorSampler(addonPath);
+  screenColorIpc = createScreenColorIpc({
+    native: nativeSampler,
+    authorized: event => isCurrentRenderer(event.sender) && event.senderFrame === event.sender.mainFrame,
+    restoreFocus: sender => { if (mainWindow?.isFocused()) sender.focus(); },
+  });
+  ipcMain.handle(Ipc.screenColorAvailable, event => screenColorIpc.available(event));
+  ipcMain.handle(Ipc.screenColorPick, (event, id: unknown) => screenColorIpc.pick(event, id));
+  ipcMain.handle(Ipc.screenColorCancel, (event, id: unknown) => screenColorIpc.cancel(event, id));
   ipcMain.handle(Ipc.openFileDialog, async (event, filters: FileDialogFilter[]) => {
     if (e2eOpenPath !== null) return { canceled: false, path: e2eOpenPath };
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -656,6 +674,7 @@ app.on('before-quit', () => {
 });
 
 app.on('will-quit', (event) => {
+  screenColorIpc?.close();
   if (!bambuStopped && bambuUtility) {
     event.preventDefault();
     bambuLogin?.dispose();

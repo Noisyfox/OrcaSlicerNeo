@@ -20,6 +20,8 @@ files:
   - "!**/node_modules/**"
 beforePack: ./scripts/prepare-bambu.cjs
 extraResources:
+  - from: ../../packages/color-sampler-native/out/runtime
+    to: screen-color
   - from: ../../packages/bambu-native/out/runtime
     to: bambu
 # The .data preload bundle is ~70 MB and read on app start; unpacking skips

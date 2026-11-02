@@ -14,9 +14,10 @@ async function mount() {
   const slicerClient = import.meta.env.VITE_E2E === '1' && import.meta.env.VITE_RUNTIME_BASELINE === '1'
     ? (await import('../../../../../packages/slicer-runtime/src/slicer/slicerClient')).slicerClient
     : createElectronRuntime();
+  const nativeScreenColorAvailable = await window.orca.screenColor.available();
   createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <PlatformProvider value={createElectronAdapter(slicerClient)}>
+      <PlatformProvider value={createElectronAdapter(slicerClient, nativeScreenColorAvailable)}>
         <App />
       </PlatformProvider>
     </React.StrictMode>

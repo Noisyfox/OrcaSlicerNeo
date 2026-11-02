@@ -19,6 +19,11 @@ import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocumen
 // The renderer's only window to native features (design §Electron App).
 // All IO goes through main; no node builtins leak into the renderer.
 const bridge: ElectronBridge = {
+  screenColor: {
+    available: () => ipcRenderer.invoke(Ipc.screenColorAvailable),
+    pick: (id) => ipcRenderer.invoke(Ipc.screenColorPick, id),
+    cancel: (id) => ipcRenderer.invoke(Ipc.screenColorCancel, id),
+  },
   connectSlicerRuntime: () => ipcRenderer.send(Ipc.slicerConnect),
   version: '0.0.0-m2-shell',
 

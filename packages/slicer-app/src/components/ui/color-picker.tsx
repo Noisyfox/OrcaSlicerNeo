@@ -120,6 +120,7 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
   screenColorSampler, onSamplingChange, className }: ColorPickerProps) {
   const [sampling, setSampling] = useState(false);
   const pendingSample = useRef<AbortController | null>(null);
+  const sampleButton = useRef<HTMLButtonElement>(null);
   const samplingChanged = useRef(onSamplingChange);
   samplingChanged.current = onSamplingChange;
   const disabled = externallyDisabled || sampling;
@@ -213,6 +214,10 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
     } finally {
       if (pendingSample.current === request) {
         pendingSample.current = null; setSampling(false); samplingChanged.current?.(false);
+        requestAnimationFrame(() => {
+          const button = sampleButton.current;
+          if (button?.isConnected && !pendingSample.current && button.ownerDocument.hasFocus()) button.focus({ preventScroll: true });
+        });
       }
     }
   };
@@ -369,7 +374,7 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
       </div>
       <div className="flex shrink-0 items-center gap-2 pt-1">
         <Button variant="settings" size="icon" aria-label="Palettes" aria-expanded={ui.sidebarOpen} aria-controls={palettePanelId} disabled={disabled || !favoritesReady} onClick={() => updateUi({ ...ui, sidebarOpen: !ui.sidebarOpen })}><PanelLeftIcon /></Button>
-        {screenColorSampler && <TooltipFor content="Pick color from screen"><Button variant="settings" size="icon" aria-label="Pick color from screen"
+        {screenColorSampler && <TooltipFor content="Pick color from screen"><Button ref={sampleButton} variant="settings" size="icon" aria-label="Pick color from screen"
           aria-pressed={sampling} disabled={disabled} onClick={() => { void sampleScreen(); }}><PipetteIcon /></Button></TooltipFor>}
         <div className="flex-1" />{actions}
       </div>

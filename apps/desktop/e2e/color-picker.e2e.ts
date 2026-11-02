@@ -8,7 +8,7 @@ const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
 async function launch(preferences: string, modelPath?: string) {
-  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: preferences,
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_SCREEN_COLOR: 'unavailable', ORCA_E2E_PREFERENCES: preferences,
     ...(modelPath ? { ORCA_E2E_MODEL: modelPath } : {}) } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });

@@ -155,3 +155,12 @@ describe('Electron preload bridge', () => {
     expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.windowCloseDecision, false);
   });
 });
+
+it('exposes screen sampling only through the typed main IPC channels', async () => {
+  await bridge.screenColor.available();
+  await bridge.screenColor.pick('request-1');
+  await bridge.screenColor.cancel('request-1');
+  expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.screenColorAvailable);
+  expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.screenColorPick, 'request-1');
+  expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.screenColorCancel, 'request-1');
+});
