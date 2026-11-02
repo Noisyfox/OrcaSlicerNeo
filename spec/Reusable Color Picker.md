@@ -94,6 +94,16 @@ Web uses the browser EyeDropper API in a secure context, invoked directly from
 the button click. Electron prefers its native sampler and uses that same browser
 API as a fallback. The button is hidden when neither source is available.
 
+The Electron addon is independent of the slicer and Bambu provider. macOS uses
+AppKit NSColorSampler and converts its result to sRGB; Windows uses the upstream
+Win32/GDI snapshot overlay with a magnifier, mixed-DPI positioning and Shift
+precision movement; Linux calls XDG Screenshot portal PickColor from a private
+native thread/GLib context. Only local module/API loading determines startup
+availability. Portal cancellation, missing services and service loss finish the
+request without blocking Electron main. macOS has no public sampler-dismiss
+API: cancellation invalidates delivery while AppKit retains the system picker
+until its selection handler completes.
+
 Each popup opening owns an independent sampling session. A native failure
 immediately attempts the browser API, even if transient user activation may
 have expired. Further clicks in that opening use the browser directly; closing

@@ -193,6 +193,21 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  packages/color-sampler-native:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.3
+        version: 24.13.3
+      node-addon-api:
+        specifier: 8.9.2
+        version: 8.9.2
+      node-gyp:
+        specifier: 12.4.0
+        version: 12.4.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   packages/platform-contract:
     dependencies:
       '@orca/printer-control':

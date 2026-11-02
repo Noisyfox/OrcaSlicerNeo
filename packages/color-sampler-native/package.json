@@ -1,0 +1,21 @@
+{
+  "name": "@orca/color-sampler-native",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "install": "node -e \"\"",
+    "build": "node scripts/stage.mjs --build-only",
+    "stage:runtime": "node scripts/stage.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "pnpm build && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "node-addon-api": "8.9.2",
+    "node-gyp": "12.4.0",
+    "typescript": "^7.0.2"
+  }
+}
