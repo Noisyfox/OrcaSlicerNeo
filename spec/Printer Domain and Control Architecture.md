@@ -7,7 +7,8 @@ TypeScript domain contracts and the existing Moonraker subset are implemented.
 Device Web entry and Send use the stateless service in both hosts. Electron
 Bambu integration follows section 2.1; section 2.2 distinguishes delivered
 foundations, account flow, Cloud device enumeration and LAN access. LAN
-real-device qualification is deferred and does not block packaging work.
+real-device qualification is limited to explicitly recorded development-host
+cases; broader qualification does not block packaging work.
 Section 2.3 records the accepted Bambu monitoring/control scope and interactions,
 with implementation authorized in independently verified increments and physical
 qualification deferred until software verification is complete. The gateway remains deferred.
@@ -1265,11 +1266,13 @@ contract changes must keep every producer, consumer and fixture buildable.
 
 #### Material information configuration follow-up
 
-**Decision status:** Design accepted; Orca is the selected behavioral reference.
+**Delivery status:** Implemented; Orca is the selected behavioral reference.
 Product behavior and accepted interaction decisions are owned by the
 [console design](Printer%20Console%20and%20Control%20Integration.md#material-information-configuration).
-Implementation is authorized in independently verified increments; this design
-does not claim device qualification.
+Its [verification record](Printer%20Console%20and%20Control%20Integration.md#material-configuration-verification-and-lan-acceptance)
+limits physical acceptance to the recorded development-host H2D LAN cases.
+Cloud, RFID actions and non-default/legacy calibration behavior have software
+coverage without physical qualification.
 
 Keep the existing shared material-unit, slot, path and tool model. AMS and
 external holders use the same normalized information-editing flow; vendor
@@ -1348,6 +1351,29 @@ scope; initial physical qualification is H2D over LAN, with Cloud covered by
 software verification only. No software fixture or existing read-only material
 acceptance establishes configuration-write qualification.
 
+The delivered contracts expose `materials.configure` with a fixed slot,
+Confirm/Reset intent and explicit warning acknowledgements. Capability targets
+separate `informationWritable`, allowed actions and a normalized restriction;
+they also supply the native nozzle/tool catalogue context. Material observations
+retain nullable temperature bounds and a separate preset-setting association.
+The read-only `getDeviceMaterialCatalogue` client/runtime operation returns saved
+material identities, labels and resolved temperature variants. It uses the
+normalized descriptor identity, including catalogue model references, rather than
+requiring the renderer to translate a vendor model code.
+
+The [Bambu owner](../apps/desktop/src/utility/bambu/materialSettings.ts) performs
+applicable one-shot calibration-history reads, evaluates pinned material rules,
+and prepares a nonempty ordered command array. The
+[operation owner](../apps/desktop/src/utility/bambu/operations.ts) correlates each
+step independently and applies the explicit continuation policy. No legacy
+`followUp` payload shape remains. Setting replies update only existing addressed
+tray fields; they do not refresh status freshness or infer physical removal.
+The shared Monitor retains operation references for the original target across
+editor closure and selection changes. A receipt arriving after the original
+Monitor remounts notifies that target's current reader. It only reconciles uncertain submissions
+through lookup, never by resending a mutation. Warning help links use the
+host-injected external-link capability with HTTPS validation at the host boundary.
+
 #### Contract extension boundaries
 
 The current typed contract includes `jobs.setSpeed` with discoverable mode IDs
@@ -1392,8 +1418,8 @@ RFID re-read, drying-control or AMS behavior-settings executors for the original
 control increment. Object skipping has a separately accepted
 [follow-up design](#object-skipping-follow-up), with implementation unstarted.
 Material information configuration has a separate
-[documentation-stage follow-up](#material-information-configuration-follow-up);
-its executor remains outside the original control increment.
+[delivered follow-up](#material-information-configuration-follow-up);
+its executor remains separate from the original control increment.
 Drying/environment observations remain included. These restrictions do not remove
 load/unload/switch, contextual recovery or supported nozzle re-identification.
 Their exclusion from this implementation does not remove existing general domain

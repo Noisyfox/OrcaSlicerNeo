@@ -4,9 +4,9 @@
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
-regression cover software behavior; physical H2D + AMS acceptance remains last,
-Account-backed automatic networking followed by LAN-only access. No complete
-hardware or six-target control qualification is claimed.
+regression cover software behavior. Physical qualification is limited to the
+development-host H2D cases recorded below; no complete hardware or six-target
+control qualification is claimed.
 Local-artifact print preparation/submission is implemented and initially enabled
 only by the Bambu agent. Development-host LAN qualification includes two completed
 H2D fixed-right-nozzle prints using AMS B1 and a completed fixed-dual-nozzle PETG
@@ -1066,9 +1066,10 @@ those controls are intentionally outside this delivery.
 
 #### Material information configuration
 
-**Decision status:** Design accepted after grouped clarification, using Orca as
-the behavioral reference. Implementation is authorized in independently verified
-increments; the material configuration executor and editor are not yet delivered.
+**Delivery status:** Implemented in independently verified increments, using
+Orca as the behavioral reference. The shared editor, native catalogue and Bambu
+executor are delivered. Development-host H2D LAN acceptance is recorded below;
+Cloud has software coverage only.
 The [domain follow-up](Printer%20Domain%20and%20Control%20Architecture.md#material-information-configuration-follow-up)
 owns execution, native query and command-contract boundaries.
 
@@ -1186,6 +1187,90 @@ Software tests do not establish device write permission, firmware acceptance or
 physical qualification. Follow the repository
 [testing guidelines](../doc/testing_guidelines.md); keep LAN/Cloud and
 device-specific acceptance limits explicit.
+
+##### Material configuration verification and LAN acceptance
+
+The implementation uses the shared
+[material dialog](../packages/slicer-app/src/components/device/MaterialInformationDialog.tsx),
+[native catalogue bridge](../packages/slicer-wasm/src/bridge_profiles.cpp), and
+[Bambu configuration owner](../apps/desktop/src/utility/bambu/materialSettings.ts).
+The editor queries with the device descriptor's normalized model associations,
+not the saved printer's descriptive model alone. Each slot entry and dialog
+retain the reported unit and tool labels, including the two external holders.
+
+Software verification on 2026-11-02 passed repository `pnpm test` and
+`pnpm typecheck`, the platform import guard, both WASM quick builds, comprehensive
+threaded bridge smoke and the targeted native catalogue smoke on threaded and
+serial variants. The catalogue smoke checks device identity/nozzle variants,
+identity deduplication, saved-root eligibility, independence from the selected
+project printer, and unchanged project/draft/history owners. Affected shared UI
+checks and all three focused `bambu-control.e2e.ts` desktop journeys passed after
+the LAN-discovered model-association and compact-slot-entry corrections, plus
+the late-receipt/remounted-Monitor regression. Renderer
+CSS smoke passed. One initial native camera fixture run timed out awaiting its
+first sample; the isolated rerun and subsequent complete repository run passed.
+No camera implementation was changed and the timeout has no established cause.
+A later UI-suite run overlapped desktop bundling and three existing Preset Editor
+cases reached their five-second deadline; the final standalone UI-suite run
+passed all 1,579 tests without changing those tests or their timeouts. These
+reruns do not establish a root cause for either transient failure. Existing
+real-resource/performance test gates remain conditional skips.
+
+Commands used for the round are below. `<variant>` was run separately as
+`threaded` and `serial`; affected package checks were also run before each
+implementation commit. After the final UI correction, the shared application
+suite (1,579 tests), affected typechecks and focused Electron journeys passed
+again; no native bridge source changed after its two-variant verification.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Repository regression | `pnpm test` and `pnpm typecheck` | Passed; five existing conditional test skips |
+| Shared host boundary | `pnpm --filter @orca/platform-contract test:import-guard` | Passed |
+| WASM builds | `bash scripts/build.sh quick --variant <variant> -j 8` | Both passed |
+| Comprehensive bridge | `node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js packages/slicer-wasm/fixtures/cube.stl` | Passed |
+| Native material catalogue | `node packages/slicer-wasm/harness/device-material-catalogue-smoke.mjs packages/slicer-wasm/out/<variant>/orca_slice.js` | Both passed |
+| Final shared UI suite | `pnpm --filter @orca/slicer-app test` | 1,579 passed |
+| Final affected types | `pnpm --filter @orca/slicer-app --filter @orca/desktop typecheck` | Passed |
+| Desktop interaction | `pnpm --filter @orca/desktop exec playwright test e2e/bambu-control.e2e.ts` after `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` | Three passed |
+| Production build | `VITE_USE_MOCK=0 pnpm --filter @orca/desktop build` | Passed |
+| Renderer styles | `pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs` | Passed |
+| Documentation | `git diff --check` plus changed local-link/heading and command validation | Passed |
+
+The production Electron build, with real WASM and the real pinned native plugin,
+was exercised on the macOS ARM64 development host using the existing independent
+LAN profile, a signed-out account and no E2E fixture handlers. A pass-through IPC
+observer captured production request/operation receipts without replacing their
+execution. H2D reported two 0.4 mm standard-flow nozzles, AMS 0 and AMS 2 Pro 1,
+external holders 255/254, and calibration version 0. Its prior task was completed;
+no print, load/unload, heating or motion operation was started by this round.
+
+Seven user actions covered AMS slot 0:1 color configuration, information Reset
+and restoration; independent holder 255 material/RGBA configuration and Reset;
+and holder 254 material/RGBA configuration and restoration. Temperature ranges
+came from Generic PETG (220–270 °C) and Generic PLA (190–240 °C), with no editable
+temperature override. Confirm/Reset closed after provider submission. Every
+operation eventually completed with independently recorded material-information
+and calibration steps; direct device replies and newer matching status reports
+were distinguished. Status can initially lag a successful setting reply, so
+writeback assertions waited for a newer matching status. Clearing AMS metadata
+preserved its reported physical presence.
+
+The baseline and final read-only acquisition compared all ten reported slot
+snapshots, including material/setting identities, RGBA, temperature bounds,
+calibration index, RFID and color-representation fields. They matched exactly;
+calibration version and nozzle snapshots were unchanged. The private single-color
+representation flag normalized by a manual external-holder color write was also
+restored from the baseline. This acceptance restoration does not add arbitrary
+protocol fields or a multicolor editor to the shared configuration contract.
+Credentials are absent from the ignored local evidence under
+`.vitest/material-settings/`.
+
+All reported calibration indices were already Default (-1), and no RFID-tagged
+spool was present. Retaining a non-default PA association, legacy K behavior and
+RFID calibration-only actions have software coverage and remain unqualified on
+physical hardware. Cloud was exercised through provider/IPC software fixtures;
+no Cloud physical write was attempted. This round does not qualify other devices,
+firmware, hosts, external filament feeding or a release matrix.
 
 #### Accepted observation and access behavior
 
