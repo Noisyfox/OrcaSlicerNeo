@@ -8,6 +8,7 @@ export type * from './materials';
 export type * from './sensors';
 export type * from './objects';
 export type * from './files';
+export type * from './downloadTasks';
 export type * from './media';
 export type * from './control';
 export type * from './service';

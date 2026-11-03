@@ -3014,6 +3014,12 @@ reader bound, cancellation that joins the executor, and explicit retry/continuat
 of a blocked head. Different routes must resolve to the same physical key in the
 host. Download and media executors still need registration with that single queue;
 the unit-tested scheduler alone does not establish cross-process admission.
+The [managed task engine](../packages/printer-control/src/downloadTasks.ts) now
+tracks batch/task identity, attempt-scoped progress, private saved receipts,
+isolated failure continuation and blocked-head retry/acknowledgment. Its public
+[task contract](../packages/printer-control/src/domain/downloadTasks.ts) contains
+no destination paths and distinguishes managed saving from browser handoff.
+Host dialog, execution, progress and shutdown bindings remain integration work.
 The desktop [filesystem sink](../apps/desktop/src/utility/downloadFiles.ts) is also
 implemented and tested with actual filesystem writes and process-exit recovery.
 It writes to a same-directory temporary file, publishes confirmed replacements

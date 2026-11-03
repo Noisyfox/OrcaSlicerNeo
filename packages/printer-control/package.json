@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./domain": "./src/domain/index.ts",
     "./downloads": "./src/downloads.ts",
+    "./download-tasks": "./src/downloadTasks.ts",
     "./transfer-queue": "./src/transferQueue.ts"
   },
   "scripts": {
