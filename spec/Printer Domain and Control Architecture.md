@@ -3005,7 +3005,16 @@ is implemented independently of host IPC and filesystem bindings: it consumes
 one owned chunk at a time, waits for each sink write and terminal reader checks,
 then publishes. It joins cleanup on failures/cancellation and reports the actual
 publication outcome when cancellation races finalization. This does not yet
-deliver the task queue, desktop sink, Bambu reader or Storage UI.
+deliver the task queue, Bambu reader or Storage UI.
+The desktop [filesystem sink](../apps/desktop/src/utility/downloadFiles.ts) is also
+implemented and tested with actual filesystem writes and process-exit recovery.
+It writes to a same-directory temporary file, publishes confirmed replacements
+with rename, and uses exclusive hard-link publication for ordinary downloads.
+Filesystems without hard-link support currently fail publication explicitly;
+support for such destinations needs a separate no-replace publication mechanism.
+The app-owned journal identifies orphan output for cold-start cleanup. Calling
+recovery before new transfers and after old executors exit remains a host-lifecycle
+integration requirement; neither this adapter nor its tests establish that wiring.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the feature envelope and user-facing decisions.
 
@@ -3069,8 +3078,9 @@ host owns collision resolution, including conflicts between concurrent tasks;
 the agent does not generate local destination paths. Failed or canceled initial
 delivery downloads clean up temporary output, and retries begin at byte zero.
 Interrupted-download resume is deferred; media range reads do not imply it.
-Publication and cleanup follow the ownership rules below; platform-specific
-filesystem operations and recovery bookkeeping remain implementation work.
+Publication and cleanup follow the ownership rules below; the desktop filesystem
+adapter implements these operations, while host routing and recovery lifecycle
+integration remain implementation work.
 
 Batch results distinguish successful, failed and canceled items and support
 retrying failed items. Continue past isolated file failures; pause the affected
