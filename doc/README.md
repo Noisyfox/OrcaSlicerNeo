@@ -52,8 +52,11 @@ the first agent. Implementation is authorized in verified increments; the direct
 scoped-file contract and initial shared browser are delivered with fixture coverage.
 Host-neutral streaming/FIFO, desktop managed saving, confirmed deletion, independent
 device-file print preparation and progressive stored-video playback are integrated
-with fixture acceptance. Same-printer LAN authorization recovery is integrated;
-physical qualification remains open.
+with fixture acceptance. Same-printer LAN authorization recovery is integrated.
+Read-only H2D USB browsing, sampled thumbnails, managed downloads and system-player
+video fallback have physical acceptance; internal storage and embedded playback
+remain unqualified, and deletion/printing were excluded from that round. See the
+[qualification boundary](../spec/Printer%20Domain%20and%20Control%20Architecture.md#initial-qualification-boundary).
 
 ## Engineering references
 

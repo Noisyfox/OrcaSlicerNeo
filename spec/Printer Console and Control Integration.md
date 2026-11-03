@@ -671,8 +671,16 @@ acceptance exercises real Electron decoding, seeking and utility cleanup; compon
 tests cover unsupported-format fallback and cancellation of late opens.
 LAN authorization recovery now reuses scoped discovery and masked access input
 for the existing physical printer. Component and Electron fixture acceptance cover
-identity filtering and the successful return to Storage. Physical acceptance
-remains pending; the complete initial delivery is not yet qualified.
+identity filtering and the successful return to Storage. Read-only H2D + AMS
+acceptance now covers USB listing, sampled thumbnails, managed downloads including
+a 240 MiB recording, cancellation cleanup, and downloaded-video playback/seeking
+in QuickTime. Real timelapse/recording samples have a tail-positioned MP4 index,
+so they show the explicit download alternative; embedded progressive playback
+is not physically qualified. Advertised internal storage returns unavailable on
+the tested firmware. Deletion and actual printing were excluded by the user.
+The [physical qualification boundary](Printer%20Domain%20and%20Control%20Architecture.md#initial-qualification-boundary)
+records the device/firmware and exact limits; the complete initial delivery is
+not yet qualified.
 
 The [printer-domain Storage design](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)
 owns provider contracts, binary transport, host save ownership, the pinned Bambu

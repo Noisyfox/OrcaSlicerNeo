@@ -3598,6 +3598,45 @@ and the Web frontend build pass. Existing skipped tests remain skipped; this is
 not the dual-host/dual-WASM release matrix or packaged-platform qualification.
 The Web host still reports Bambu managed Storage operations unavailable.
 
+The 2026-11-03 read-only H2D + AMS acceptance used macOS 15.7.7 arm64,
+Electron 43.4.0, the pinned networking plugin v2.2.0 (series 02.08.01), printer
+firmware 01.04.00.00 and AMS firmware 01.00.07.00. No remote deletion, print
+submission or material operation was executed. The production desktop build
+and real LAN transport established the following narrower results:
+
+- USB browsing returned 35 print files, 25 timelapses and 88 recordings.
+  Visible samples decoded real 512-by-512 print thumbnails and 480-by-480
+  timelapse/recording thumbnails; this does not assert every file has a preview.
+- Discovery IDs and list selectors differ on this firmware: advertised `udisk`
+  returns error 17 when sent literally to `LIST_INFO`. The adapter now follows
+  Orca: omit the selector for external `udisk`/`sdcard`, and translate `emmc`
+  to `internal`. Preserve the discovered ID in domain references. The advertised
+  internal device still returned error 17 with `internal`; internal browsing
+  remains unqualified, and the UI presents it as Internal storage.
+- Three existing 3MF files (including Chinese names) and three MP4 files saved
+  successfully through the host task path and native terminal length/MD5 checks.
+  All three 3MF ZIP CRC checks passed. The largest recording was 251,759,820
+  bytes; its local streaming write lasted approximately 42 seconds. Cancelling
+  a second transfer at about 74 MiB eventually reached `cancelled`, removed its
+  partial file and preserved the completed original. Native teardown kept the
+  task in `Finishing` temporarily; cancellation latency was not precisely measured.
+- Two real video opens correctly offered the explicit download fallback. All
+  three downloaded videos contained AVC `avc1.64c028` at 1680-by-1080 with
+  `moov` after `mdat`, outside the selected fast-start progressive subset.
+  Downloads opened through the app in QuickTime: the timelapse decoded to its
+  3.459-second end, and the 258.876-second recording sought to 120 seconds and
+  continued playing. **This establishes system-player fallback, not real H2D
+  embedded progressive playback or cached-range seeking.** Closing the failed
+  viewers left no video resource cache. No format conversion or silent full-file
+  buffering was added to make the acceptance pass.
+
+Sparse normal-speed process measurements do not establish a plugin-to-host
+memory bound. Slow consumers, stopped progress, fault injection, mixed playback
+admission, immediate native cancellation and other storage/host variants remain
+unqualified. The real tail-index video format is a concrete remaining gap for
+the first-delivery embedded-player requirement; expanding that format boundary
+requires a separately agreed design.
+
 H2D + AMS is the first delivery's physical acceptance target. Cover the storage
 and media capabilities it actually exposes, including SD/internal storage where
 supported, file management, a physical device-file print with plate/material
