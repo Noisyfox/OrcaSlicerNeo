@@ -76,7 +76,7 @@ export class BambuStorageFiles {
         name: name === 'internal' ? 'Internal storage' : name === 'sdcard' ? 'SD card' : name === 'udisk' ? 'USB storage' : name,
         kind: name === 'internal' ? 'internal' : name === 'sdcard' || name === 'udisk' ? 'removable' : 'other',
         availability: { kind: 'available' }, capacityBytes: null, freeBytes: null,
-        browsing: { kind: 'supported', constraints: { kind: 'collections', collections: [first, ...rest] } },
+        browsing: { kind: 'supported', constraints: { kind: 'collections', collections: name === 'internal' ? [first] : [first, ...rest] } },
       })) };
     } catch (error) { return { ok: false, error: storageFailure(error) }; }
   }

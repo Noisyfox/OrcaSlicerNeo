@@ -646,8 +646,12 @@ outcomes never cause an automatic retry. Video remains outside this delivery.
 its first agent is selected for initial Electron delivery. The host-owned download
 boundary and feature behavior below are selected; detailed contract implementation
 and qualification proceed in independently verified increments. Implementation
-is authorized; this is not a statement that Storage is delivered. The delivered Web Interface/Monitor behavior above
-continues to describe current code.
+is authorized. The initial shared Storage browser is implemented with explicit
+capability resolution, collection/storage switching, loaded-file filtering and date
+grouping, manual refresh, snapshot pagination and scoped selection. Shared UI tests
+and Electron renderer/preload/main fixture E2E pass. Thumbnails, host download-task
+integration, delete/print actions, stored-media playback and physical acceptance
+remain pending; the complete initial delivery is not yet qualified.
 
 The [printer-domain Storage design](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)
 owns provider contracts, binary transport, host save ownership, the pinned Bambu

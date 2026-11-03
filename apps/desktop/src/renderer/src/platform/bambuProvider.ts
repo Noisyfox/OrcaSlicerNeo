@@ -1,5 +1,6 @@
 import { bambuSubmissions } from './bambuSubmissions';
 import { bambuMedia } from './bambuMedia';
+import { bambuFiles } from './bambuFiles';
 import { bambuControls, bambuOperations } from './bambuControls';
 import { bambuObservations } from './bambuObservations';
 import { bambuCapabilities, savedBambuPrinter } from '../../../shared/bambuPrinters';
@@ -98,7 +99,7 @@ export function createBambuProvider(bridge: BambuBridge): AccountProvider & D.Pr
     },
     observations: bambuObservations(bridge), controls: bambuControls(bridge),
     operations: bambuOperations(bridge),
-    files: { listStorages: reject, list: reject, stat: reject, listPreviews: reject, download: reject, upload: submission, watchChanges: stream },
+    files: bambuFiles(bridge),
     media: bambuMedia(bridge),
     webInterfaces: { describe: reject, resolve: reject },
   };

@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BambuNative, NativeEvent } from '@orca/bambu-native';
 import { BambuRuntime } from './runtime';
 import { BambuRepository } from './repository';
+import { storageNative } from './storageSessions';
+import type * as D from '@orca/printer-control/domain';
 
 async function fixture(work: (directory: string) => Promise<void>) {
   const directory = await mkdtemp(join(tmpdir(), 'neo-bambu-runtime-'));
@@ -24,6 +26,24 @@ function nativeFixture() {
 }
 
 describe('Bambu utility runtime', () => {
+  it('routes explicit Storage metadata reads without acquiring MQTT and honors early cancellation', async () => fixture(async directory => {
+    const repository = new BambuRepository(directory);
+    await repository.update(state => ({ ...state, lan: [{ deviceId: 'a', name: 'A', model: 'H2D', ip: '192.0.2.1', accessCode: 'private', revision: 'r1' }] }));
+    const { native } = nativeFixture(); native.installDeviceCertificate = vi.fn(async () => {});
+    const io: typeof storageNative = { ...storageNative, discover: vi.fn(async () => ['sdcard']),
+      list: vi.fn(async () => [{ name: 'part.gcode.3mf', path: '/part.gcode.3mf', sizeBytes: 3, modifiedAtSeconds: 10 }]) };
+    const runtime = new BambuRuntime({ directory, addonPath: '/addon', pluginPath: '/plugin', certificateDirectory: '/cert', osType: 'macos', osVersion: 'test' }, () => {}, () => native, io);
+    const target = { printerId: 'bambu:a', routeId: 'bambu:a:agent' } as D.PrinterTarget;
+    await runtime.read('printers.saved'); expect(io.discover).not.toHaveBeenCalled(); expect(io.list).not.toHaveBeenCalled();
+    await runtime.control({ method: 'storage.cancel', input: { readId: 'cancel-first' } });
+    expect(await runtime.control({ method: 'storage.storages', input: { target, readId: 'cancel-first' } })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+    expect(io.discover).not.toHaveBeenCalled();
+    expect(await runtime.control({ method: 'storage.storages', input: { target, readId: 'discover' } })).toMatchObject({ ok: true, value: [{ name: 'SD card' }] });
+    expect(await runtime.control({ method: 'storage.list', input: { readId: 'list', request: { target,
+      storageId: 'sdcard' as D.Id<'storage'>,
+      location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } } } })).toMatchObject({ ok: true, value: { files: [{ name: 'part.gcode.3mf' }] } });
+    expect(native.installDeviceCertificate).toHaveBeenCalledWith('a', true); await runtime.close();
+  }));
   it('uses Orca startup ordering, Neo-owned configuration and public-only invalidations', async () => fixture(async directory => {
     const { native, calls } = nativeFixture(); const changes = vi.fn(); let emit!: (event: NativeEvent) => void;
     const runtime = new BambuRuntime({ directory, addonPath: '/addon', pluginPath: '/plugin', certificateDirectory: '/cert', osType: 'macos', osVersion: '15.6.0' }, changes,

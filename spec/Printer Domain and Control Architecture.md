@@ -2182,7 +2182,7 @@ page-opening implementation or credential migration.
 The application derives page eligibility from semantic capabilities and the
 viewing host environment. Agents do not supply page names, visibility flags,
 tab order or default selection. The Device UI applies one application policy for
-its Web Interface and Monitor tabs; other pages remain future work.
+its Web Interface, Monitor and Storage tabs; other pages remain future work.
 Locally established capabilities are sufficient for eligibility; no connected
 snapshot is required. Eligibility does not authorize automatic device reads.
 In particular, selecting a request-based printer must not start capability
@@ -2193,7 +2193,7 @@ connecting screen. A configured Moonraker Web entry opens normally.
 | Page | Eligibility | Conditions that do not remove eligibility |
 | --- | --- | --- |
 | Monitor | At least one supported observation suitable for monitoring (status, thermal, motion, actuators, materials or sensors), camera viewing/snapshot capture, or basic control. A standalone material-import action is insufficient. | No active job, no camera, a temporarily unavailable camera, or readings not yet reported. |
-| File browser | File listing is supported for at least one storage scope. | An empty directory, temporarily missing removable storage, or unavailable download/delete actions. |
+| Storage | File listing is supported or explicitly unknown and resolvable on entry. Unknown support does not trigger a probe until Storage is opened. | An empty collection/directory, temporarily missing removable storage, or unavailable download/delete actions. |
 | Warnings | Device alert observation is supported. | Zero current warnings or no unread warnings. |
 | Firmware | Firmware version inventory observation is supported. | No available update, no upgrade capability, or an upgrade blocked during printing. |
 | Web Interface | A native Web entry is known to be supported. | Missing Neo control capabilities, a failed control connection, or embedding being unavailable. |
@@ -2996,16 +2996,18 @@ agent to implement this feature. The initial delivery includes file management,
 device-file printing, in-app playback while downloading, and completed-file
 opening with the system application. Product and architecture choices below are
 selected and implementation is authorized in independently verified increments.
-The scoped-file contract migration is implemented; the remaining execution, UI
-and physical qualification work is not yet delivered.
-The existing TypeScript file contracts and provider dispatch are implemented,
-but Bambu file browsing, registered download execution and the Storage UI are not delivered.
+The scoped-file contract migration and initial shared Storage browser are
+implemented. The browser resolves storage on explicit entry, loads snapshot pages,
+filters/groups loaded entries, and maintains explicit scope-bound selection.
+Renderer/preload/main fixture E2E passes; utility routing/session and native
+protocol fixtures are tested separately. Registered download-task execution,
+delete/print/media UI, thumbnails and physical qualification remain pending.
 The host-neutral [managed stream executor](../packages/printer-control/src/downloads.ts)
 is implemented independently of host IPC and filesystem bindings: it consumes
 one owned chunk at a time, waits for each sink write and terminal reader checks,
 then publishes. It joins cleanup on failures/cancellation and reports the actual
 publication outcome when cancellation races finalization. This does not yet
-deliver the download-task facade, registered provider reader or Storage UI.
+deliver the download-task facade or registered download execution.
 The host-neutral [transfer admission queue](../packages/printer-control/src/transferQueue.ts)
 implements FIFO per host-resolved physical printer, a configurable global active
 reader bound, cancellation that joins the executor, and explicit retry/continuation
@@ -3064,8 +3066,14 @@ deletion invalidates affected paging snapshots. The
 [session binding](../apps/desktop/src/utility/bambu/storageSessions.ts) resolves only
 same-device authorized LAN credentials, bounds outstanding native requests, and
 joins stream return on cancellation, authorization changes and shutdown. It does
-not acquire the single selected MQTT monitor lease. IPC registration and shared
-Storage UI remain pending; this module increment is not a delivered Storage page.
+not acquire the single selected MQTT monitor lease. The runtime and renderer
+provider now register metadata-only Storage RPC, including read cancellation.
+The [shared browser](../packages/slicer-app/src/components/device/PrinterStorage.tsx)
+uses that provider through the normal printer dispatcher. The
+[Electron browser fixture](../apps/desktop/e2e/bambu-storage.e2e.ts) verifies entry-only
+discovery, filtered loaded selection, pagination and storage switching through real
+renderer/preload/main IPC; it does not run a physical printer or qualify the native
+utility transport. Full Storage delivery remains incomplete.
 
 Browsing refresh is request-driven: load on entry or scope changes, allow manual
 refresh and update after mutations, without periodic list polling. Bulk selection

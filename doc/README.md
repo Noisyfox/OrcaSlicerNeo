@@ -49,8 +49,10 @@ Device Storage selected design: [interaction and scope](../spec/Printer%20Consol
 and [agent streams / host-owned downloads](../spec/Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads).
 The product and cross-host architecture decisions are recorded, with Bambu as
 the first agent. Implementation is authorized in verified increments; the direct
-scoped-file contract is delivered, while Storage execution/UI and physical
-qualification remain in progress.
+scoped-file contract and initial shared browser are delivered with fixture coverage.
+Host-neutral streaming/FIFO, desktop file saving and native Bambu file operations
+are implemented as separately tested modules. Task/action/media integration and
+physical qualification remain in progress.
 
 ## Engineering references
 
