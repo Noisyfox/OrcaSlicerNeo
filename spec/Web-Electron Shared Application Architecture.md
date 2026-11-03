@@ -158,6 +158,22 @@ interface PlatformCapabilities {
 
 - The Electron adapter uses native dialogs and main/preload IPC.
 - The Web adapter uses browser file selection and a normal Blob download.
+- Device Storage's selected design adds a provider-neutral host download service:
+  an environment-independent task engine consumes provider file readers through
+  host save adapters. Shared UI receives opaque task references and progress/results.
+  Electron runs the reusable executor and file sink in utility execution, with
+  main coordinating dialogs, host routing, scheduling and shutdown. Provider
+  reads receive no local destination paths. Co-location is a desktop optimization,
+  not a shared requirement. A future Web host supports browser-direct readers or
+  a native-agent gateway and advertises actual save guarantees: managed streaming
+  completion differs from browser download handoff. A remote gateway finishing
+  its read does not establish local save completion. Desktop destination, external
+  player and close-window behavior are not unconditional Web guarantees, and the
+  existing Blob export path is not an unlimited large-file fallback. This Storage
+  capability is not implemented yet; Electron is the initial delivery target,
+  with Web save adapters and gateway deferred. Exact execution contracts remain
+  under refinement. See the
+  [Storage boundary](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads).
 - The shared model state contains only a display name and model data. Electron
   retains an absolute source path in its host-private, in-memory session data
   for a future seamless model-reload feature; it is neither rendered by the

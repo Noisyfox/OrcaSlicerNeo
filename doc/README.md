@@ -45,6 +45,12 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Electron utility, temporary files and proposed Python | [Native Python Plugin Architecture](../spec/Native%20Python%20Plugin%20Architecture.md) (host work delivered; Python remains design work) |
 | Live camera playback and remote media URLs | [Camera architecture and acceptance sequence](../spec/Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback), [Camera UI](../spec/Printer%20Console%20and%20Control%20Integration.md#camera-live-view) (v2.2.0 LAN reader/remux, binary transport and shared Camera card delivered with fixture acceptance; H2D H.264 LAN accepted on the development host; JPEG hardware/six-platform playback qualification pending, TUTK excluded) |
 
+Device Storage selected design: [interaction and scope](../spec/Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
+and [agent streams / host-owned downloads](../spec/Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads).
+The product and cross-host architecture decisions are recorded, with Bambu as
+the first agent. Contract implementation and device qualification remain future
+work; this design increment does not authorize implementation.
+
 ## Engineering references
 
 | Topic | Reference |

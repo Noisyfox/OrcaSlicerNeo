@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-11-02
+**Updated:** 2026-11-03
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -98,7 +98,7 @@ In particular, the following choices remain reviewable:
 | Operation tracking | Service-scoped tracking and request lookup; ownership, storage and retention are not prescribed. |
 | Sensor representation | Typed readings, common sensor storage and references from heaters/material units; extension registration and lookup/indexing are open. |
 | Media | Explicit media resources for live and stored content, and WebRTC signaling when selected; concrete transports and resource reuse rules are open. |
-| Remote-file consistency | Explicit strict/best-effort version modes and route-scoped references; provider support and the exact request model need validation. |
+| Remote-file identity | The selected Storage design retains printer/route/configuration-scoped references and removes file-content version checks and strict/best-effort modes; current versioned TypeScript contracts still need to be migrated. |
 | Transfers | Paged listings, streamed reads, invalidation notifications and reject/rename/overwrite upload policies; no exact wire API or universal provider support is assumed. |
 | Credentials | Opaque credential references; Bambu session storage/refresh is delegated to the black-box plugin in section 2.1. Other credential migration and host storage remain open. |
 | Project material import | The accepted [Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization) provides implemented modal material mapping/rebuild and atomic native application; physical qualification remains separate. |
@@ -127,8 +127,9 @@ representative printer shapes without implementing an agent.
 
 The interface selects typed topic reads, replacement events with opaque cursors,
 a typed command map, explicit media resource references and file consistency
-modes from the proposals above. Those are current contract choices,
-not evidence that the user mandated a particular transport or permanent schema.
+modes. The selected Storage design in section 9 removes those file-content
+consistency modes in a future contract migration. Current types are not evidence
+that the user mandated a particular transport or permanent schema.
 Future refinements update the single contract and its consumers together.
 No gateway wire format or credential persistence migration is defined. The bounded
 Moonraker runtime migration is described below.
@@ -2933,13 +2934,13 @@ required when remote content is integrated.
 Preview support includes an independent option query from an explicit file
 selection, even when file-stat support is unavailable. This query is the single
 owner of preview options; general file metadata does not duplicate them. Its
-result carries the assessed file identity/version and available options; an
+result carries the assessed file identity and available options; an
 empty option list means the file has no preview, while query failures remain
 explicit errors. Opening uses that file selection and option identity, with
-client media negotiation, and revalidates them at execution time. Option IDs
-are scoped to the file/configuration/content, not a prior query session; a
-fresh service reference can use them without hidden caller state. Strict and
-best-effort consistency rules apply to both option queries and media opening.
+client media negotiation, and revalidates access and option support at execution
+time. Option IDs are scoped to the file and configuration, not a prior query
+session; a fresh service reference can use them without hidden caller state.
+They do not assert that the remote file's contents remain unchanged.
 
 Download, delete, preview and print are independent operations. Only supported
 printable artifacts can be started; timelapse playback does not confer print
@@ -2947,16 +2948,23 @@ eligibility. Reprint uses the same start-job semantics as starting a newly
 uploaded file, with current material bindings, job options and preconditions.
 Do not introduce a parallel reprint command with weaker checks.
 
-The current proposal gives version-sensitive requests explicit strict and
-best-effort modes. Whether every operation exposes these modes and how an
-adapter establishes content identity remain open. If strict matching is
-offered, it requires a known content revision and an adapter that can enforce
-the check atomically with the operation; otherwise reject it.
-Never silently downgrade strict matching. Best effort still rejects a known
-revision mismatch, while honestly retaining any race that the device protocol
-cannot eliminate. Whatever request model is selected, communicate its actual
-consistency guarantee for reads, previews, deletion and print start; a provider
-without atomic version checks is not thereby excluded from all file operations.
+The selected Storage design abandons remote-file content version checking.
+Download, delete, preview and print act on the currently addressed remote file;
+replacement at the same path does not produce a client-side version-conflict
+veto. Do not add pre-operation stat, timestamp, size or hash comparisons solely
+to detect such replacement. Existing metadata reads needed for browsing or print
+preparation remain, but do not provide an unchanged-content guarantee.
+
+The current TypeScript contract still has `contentRevision`, `VersionCheck` and
+strict/best-effort `FileSelection` branches. Implementation must remove this
+file-content version contract and update producers, consumers, adapters, mocks
+and tests together, rather than silently redefining the old modes or retaining
+parallel legacy payloads. This is a documented target change, not delivered code.
+Retain printer, storage, route, configuration and authorization checks so an old
+reference cannot target a different device after configuration edits. Retain
+transfer-length and protocol integrity checks to detect incomplete/corrupt reads;
+those checks do not compare the file against an earlier listing version. Normal
+missing-file, access and format errors remain explicit.
 
 Upload can address an adapter-defined default destination from local type/configuration,
 without first listing storage or directories. Explicit directory selection
@@ -2973,11 +2981,419 @@ Overwrite is a normal capability, not an alias for reject/rename or an implicit
 fallback. An uncertain result must be reconciled before retrying.
 Cancellation or an uncertain outcome must not claim that remote data was cleaned up.
 
-Large transfers need bounded resource use. Streaming with backpressure is the
-proposed mechanism; exact chunk transport and small-payload handling are open.
+Large transfers need bounded resource use. Downloads use the streaming and
+host-save boundary selected below; exact chunk transport and small-payload
+handling remain implementation work.
 Report actual ranges and byte counts; unsupported range requests must not masquerade
 as successful partial responses. Temporary preview URLs/content handles have
 managed lifetimes rather than permanent configuration ownership.
+
+### 9.1 Device Storage and host-owned downloads
+
+**Decision status:** The provider-neutral Storage architecture and separation of
+agent file reads from host download/save tasks are selected. Bambu is the first
+agent to implement this feature. The initial delivery includes file management,
+device-file printing, in-app playback while downloading, and completed-file
+opening with the system application. Product and architecture choices below are
+selected; contract implementation and qualification remain future work. This
+increment authorizes documentation only.
+The existing TypeScript file contracts and provider dispatch are implemented,
+but Bambu file browsing/download execution and the Storage UI are not delivered.
+The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
+owns the feature envelope and user-facing decisions.
+
+#### Selected ownership boundary
+
+Shared Storage components use the existing printer service and its capability
+model. Storage names, file kinds, optional directories and supported actions are
+provider data. Future agents implement the same contracts and register with the
+dispatcher; they do not require separate Storage pages or save implementations.
+Bambu protocol details do not enter shared React components.
+
+The selected cross-host architecture separates an environment-independent task
+engine, provider file readers and host save adapters. Utility processes, Node
+filesystem handles and Electron IPC are execution bindings, not shared-domain
+requirements. First delivery implements Electron execution; browser save adapters
+and a Web-to-native gateway are future work, not implicit deliverables.
+
+Model browsing capabilities per storage: supported content kinds and actions,
+and collection-based or hierarchical browsing. The shared contract must support
+both browsing modes without inventing a directory tree for Bambu or flattening
+future agents' real directories. Bambu collection browsing is the initial UI;
+directory navigation is delivered with the first agent that requires it. Exact
+capability record shapes remain to be finalized. Both removable SD storage and
+internal storage are in the initial Bambu scope where supported by the device.
+
+Resolve unknown Storage capabilities on explicit page entry through one bounded,
+agent-owned attempt when needed, then list supported resources. Failure exposes
+manual retry without background probe loops. Do not collapse unknown capability
+into unsupported, and do not initiate this work during startup or passive printer
+enumeration. Exact discovery request/response shapes remain to be specified.
+
+Browsing refresh is request-driven: load on entry or scope changes, allow manual
+refresh and update after mutations, without periodic list polling. Bulk selection
+contains explicit file references from the loaded, currently filtered results,
+including offscreen rows. It must not enumerate additional pages, select future
+page results implicitly or recurse into other directories. Changing printer,
+storage, collection or directory clears selection but does not cancel admitted
+download tasks. The contract boundaries below define cursor scoping and
+refresh-time reconciliation; concrete cursor encoding remains adapter-owned.
+
+The [file domain](../packages/printer-control/src/domain/files.ts) owns remote
+selection, metadata and binary reads. Keep `PrinterFiles.download` as a read
+operation returning `DownloadedFile`/`BinaryRead`, including actual byte counts,
+range information and an asynchronous sequence of owned byte chunks. The agent
+owns protocol decoding, protocol-specific integrity validation and cancellation
+of its read. An integrity or transport failure after admission terminates the
+stream with an explicit domain error. A destination filesystem path is not an
+agent input. File references retain their printer, route, storage and
+configuration context independently of the active UI selection.
+
+A host-injected, provider-neutral download service owns saving a remote file.
+It resolves the source provider, chooses the destination through host facilities,
+consumes the agent stream, manages temporary output, and exposes task progress,
+results and cancellation to shared UI. Only successful stream completion and
+successful file publication establish a completed desktop download. Destination
+paths and file handles remain host-private. Desktop ordinary downloads use the
+configured default directory, preserving existing files through numeric filename suffixes.
+Save As selects one file destination or one batch directory; replacement of an
+existing explicitly selected destination requires overwrite confirmation. The
+host owns collision resolution, including conflicts between concurrent tasks;
+the agent does not generate local destination paths. Failed or canceled initial
+delivery downloads clean up temporary output, and retries begin at byte zero.
+Interrupted-download resume is deferred; media range reads do not imply it.
+Publication and cleanup follow the ownership rules below; platform-specific
+filesystem operations and recovery bookkeeping remain implementation work.
+
+Batch results distinguish successful, failed and canceled items and support
+retrying failed items. Continue past isolated file failures; pause the affected
+queue for shared source/destination failures such as disconnection or disk
+exhaustion, with explicit recovery feedback before user continuation. Do not
+report an incomplete batch as successful or equate queue continuation with
+resuming a file from a byte offset. Error classification and exact task state
+transitions still need specification.
+
+Initial scheduling serializes explicit file downloads per physical printer and
+shares that printer's transfer slot with stored-media reads. Admission is strict
+FIFO across explicit download and playback requests, with no playback priority
+over earlier queued downloads. Canceling a request removes that request without
+reordering the remaining queue. A second request waits without automatic
+preemption; the user may explicitly cancel earlier tasks. Cancel queued playback
+when its viewing context closes. Active playback holds the slot while it may still read remote data, including buffering
+or awaiting a seek; playback entirely from completed local cache needs no remote
+slot. Different printers may progress independently subject to host resource
+bounds. Key this scheduling to physical printer identity, not the currently
+selected route, so multiple routes do not bypass the limit. Provider-specific
+parallel transfer capability is deferred. Queue continuation and small-request
+coordination follow the contract boundaries below; adapter transport scheduling
+and measured global resource bounds remain implementation work.
+
+Admitted download tasks belong to the host rather than a mounted Storage page
+or active printer selection. Leaving the page or switching printers does not
+cancel them. Task management is exposed within Storage, with completion/failure
+notifications outside it, rather than a global download panel. Closing the last
+desktop window or explicitly quitting with unfinished tasks prompts for returning
+to wait or canceling and closing. The host cancels reads and cleans temporary output
+for confirmed normal closure; it does not remain headless solely to finish
+downloads. Unsuccessful cleanup must be surfaced. Shutdown coordination and
+crash recovery remain execution-design work, not a promise of durable resume.
+
+The proposed UI facade has start, observe and cancel operations on opaque task
+references. Exact method and serialized state names are finalized with the
+contract implementation; the required task semantics are recorded below.
+This facade orchestrates `PrinterFiles.download`; it does not introduce a second
+vendor-specific download protocol or replace the remote-file domain. The existing
+whole-buffer export/save interface remains a separate capability for its callers.
+
+```text
+Shared Storage UI -> injected download service -> common task engine
+                                                  |            |
+                                           provider reader   host save adapter
+                                                  |            ^
+                                                  +-- chunks --+
+```
+
+Electron hosts the reusable download executor and filesystem sink in utility
+execution. Main owns destination dialogs, trusted host routing, cross-window task
+coordination, physical-printer transfer admission and shutdown coordination;
+shared UI receives task state rather than file contents. Instantiate actual
+provider readers in their execution host. The current renderer-side provider
+registry contains proxies and is not implicitly available in main or utility.
+Reuse the public read contract and protocol implementation through explicit host
+registration rather than attempting to send provider objects over IPC.
+
+Initially the common executor can be composed into the existing Bambu utility
+alongside its native reader. Future agents register readers and execution hosts
+and reuse the same executor module; compatible agents may share a host, while
+native dependencies may require isolation. Neither one process per agent nor a
+single universal utility process is required. Co-locating reading and writing
+avoids unnecessary byte transfer on desktop but is an optimization, not a domain
+invariant. Local destination access belongs to the save adapter, never the agent
+reader. No slicing runtime is required for listing, downloading or deletion.
+
+`AsyncIterable` and `AbortSignal` describe the local SDK, not IPC messages.
+An out-of-process reader needs an explicit binary transport binding, ownership,
+flow control, cancellation and termination semantics. An in-process HTTP reader
+can supply the same stream directly. Exact IPC framing and resource ownership
+still need specification. Native reader backpressure must be qualified even when
+reading and writing are co-located; process placement alone does not bound plugin
+queues.
+
+Agent execution location and user save destination are independent. A future
+browser-direct HTTP agent runs only where browser networking and authentication
+permit it. Bambu's native reader requires a native execution host, exposed to Web
+through a future local helper or remote gateway using the same domain semantics.
+A browser-side proxy converts network delivery into the local read contract;
+neither `AsyncIterable` nor a native filesystem handle is a network DTO. Completion
+of a gateway read or server-side staging is not completion of saving on the user's
+computer. The executing agent host owns applicable transfer admission; the shared
+engine cannot rely on Electron main to exist in every deployment.
+
+Save adapters advertise their actual guarantees. Managed streaming save reports
+completion only after successful read and destination finalization. Browser
+download handoff reports a distinct handed-off result, without claiming verified
+local completion or equivalent cancellation/collision/cleanup control. Exact
+state names remain open. Destination selection, overwrite handling, external
+player launch and window-close coordination are host capabilities: the selected
+desktop UX is not an unconditional browser requirement. Do not turn the current
+whole-buffer export API into an unlimited-memory fallback for large or unknown-
+size remote files. Browser streaming save, browser-managed download delivery and
+unsupported/limited cases need explicit capability handling. Mobile remains
+deferred.
+
+#### Initial Bambu direction and reference behavior
+
+Use the existing pinned `open-bamboo-networking` v2.2.0 artifacts and extend
+`@orca/bambu-native`'s BambuSource CTRL integration. Orca's
+[PrinterFileSystem](../packages/slicer-wasm/cpp/src/slic3r/GUI/Printer/PrinterFileSystem.cpp)
+and [MediaFilePanel](../packages/slicer-wasm/cpp/src/slic3r/GUI/MediaFilePanel.cpp)
+are the reference for file operations and interaction. The pinned plugin's
+[capability account](https://github.com/ClusterM/open-bamboo-networking/blob/v2.2.0/STATUS.md#printerfilesystem-mediafilepanel)
+records list, subfile/thumbnail, download, delete, storage discovery and task
+cancellation primitives. Its actual execution is LAN-based, including eligible
+cloud-paired printers with usable LAN access. True remote cloud file browsing
+is not provided by this pin. On explicit Storage entry, reuse existing authorized
+LAN address and credential information belonging to the same physical printer,
+without requiring the user to add a separate LAN connection. Prompt for missing
+access information. This does not authorize credential reuse across devices or
+retarget existing file references; reads retain their resolved route and
+configuration context. Account login or Cloud enumeration alone does not prove
+access. Exact unavailable-route messages and recovery remain to be specified.
+
+Orca receives download chunks on a C++ worker thread, writes them synchronously
+to an output stream and accumulates MD5, then reports progress to its UI. Its
+file-browser download queue advances one file at a time. This path writes the
+destination filename directly; temporary-file publication is a Neo design
+decision, not an existing Orca guarantee. Orca's receive loop has no equivalent
+of Neo's current short resource reader's 20-second total lifetime.
+
+Storage downloads have separate connection-establishment and no-effective-progress
+timeouts, not a total per-file deadline while valid data continues to advance.
+Do not treat keepalives or repeated non-advancing responses as file progress.
+User cancellation remains available. Distinguish deliberate downstream flow-control
+pauses from source inactivity, and report sink stalls separately rather than
+misclassifying them as printer disconnection. Exact timeout values and stalled-sink
+handling require slow-link and device qualification. Preserve the existing bounded
+current-project reader's purpose instead of globally removing its limits.
+
+The current [native CTRL reader](../packages/bambu-native/native/control.cpp)
+and [current-project resource adapter](../packages/bambu-native/src/control.ts)
+are bounded, short-lived resource readers. Storage execution needs an appropriate
+long-transfer lifetime and streaming behavior while preserving the current-task
+resource access boundary. The pinned plugin's internal response queue has no
+explicit capacity limit in its
+[implementation](https://github.com/ClusterM/open-bamboo-networking/blob/v2.2.0/stubs/BambuSource.cpp).
+Host-side flow control alone therefore does not establish end-to-end bounded
+memory. Large-file, slow-sink and cancellation behavior need qualification;
+these source findings are not evidence of an observed device failure or approval
+to upgrade the plugin.
+
+Deletion uses the existing `controls.submit(files.delete)` operation and scoped
+file selections. Confirm single and batch actions in the UI, then submit without
+an additional client-side in-use veto based on downloads, playback or known
+printing activity. Device execution decides whether the file may be deleted;
+do not synthesize an in-use rejection solely from those local observations or
+automatically stop reads/printing to make deletion possible. Preserve ordinary
+capability, authorization and reference validation. Concurrent reader failures
+are independent task outcomes. This selects Orca-like submission behavior, not
+its error-reporting semantics. Preserve uncertain deletion outcomes explicitly:
+retain affected entries with an unconfirmed result and wait for user-initiated
+refresh, without an automatic verification read or mutation retry. This overrides
+the ordinary post-mutation list update rule for uncertain deletion outcomes.
+
+Continue a deletion batch after isolated, explicit per-file failures, but pause
+remaining work on disconnection or uncertain results. Distinguish confirmed
+success, explicit failure, unconfirmed outcome and not-executed items, without
+rollback of confirmed deletions. Normalize only the certainty available from
+the provider response; an ambiguous aggregate response cannot establish each
+file's outcome. Manual refresh reports current presence, not retrospective proof
+that a particular deletion request succeeded. Exact aggregate-result mapping and
+user-continuation mechanics remain to be specified.
+
+#### Contract implementation boundaries
+
+The product decisions above are selected. The following contract work makes
+those decisions executable; existing source types remain authoritative for what
+is implemented today. Change each internal producer, consumer, adapter and test
+together, with no compatibility aliases or parallel old/new payloads.
+
+| Boundary | Required contract behavior |
+| --- | --- |
+| Storage discovery | Represent each storage's browsing mode, supported collections/content kinds and available operations. Capability resolution is an explicit bounded read; local description and saved-device enumeration must remain free of network probes. Unknown support and unavailable media are not empty successful listings. |
+| Listing and selection | Opaque cursors belong to a printer/configuration/storage/query scope and identify snapshot versus best-effort enumeration. Invalidate incompatible cursors instead of mixing pages from different scopes. Preserve deterministic ordering within a listing and use stable file identities for deduplication. Bulk selection is an explicit set of loaded filtered references, never an implicit all-pages predicate. |
+| Remote-file identity | Remove content-version fields, comparison capabilities and strict/best-effort file-selection modes, including those in preview, upload results and start/delete commands. Retain device, route, storage and configuration provenance. Content integrity of a transfer is a separate concern. |
+| Download service | Expose destination intent, opaque task/batch references, current snapshots, observation and cancellation. Snapshots carry source display metadata, byte progress with unknown totals allowed, waiting/running/finalizing/terminal state, actionable errors and actual cancellation ability. Host paths and credentials are not shared UI task fields. |
+| Host registration | Resolve a validated printer/provider reference to an execution host and a reader factory; inject credential access, parser service and save facilities through their owning boundaries. Do not use a renderer proxy registry or a filename extension to choose executable provider code. |
+| Print preparation | Generalize the source of preparation requirements to distinguish a retained local slice from an agent-inspected remote file/print target. Remote inspection returns target-scoped normalized metadata and supported actions, with absent information explicit. Reuse material/options validation without fabricating a local slice receipt or requiring all agents to expose Bambu-specific metadata. |
+| Print start and deletion | Extend the single existing command contract as needed for a selected print target and shared print options. Continue through `jobs.start` and `files.delete`, using their operation tracking and current-device guards, rather than new vendor-specific mutation paths. Do not add an in-use veto for deletion. |
+| Stored media | Reuse independent preview-option and managed-media boundaries; negotiate actual codecs, progressive playback and playable seek ranges. Browser/desktop media delivery bindings may differ. Neither a video extension nor remote byte-range support alone establishes playability. |
+
+Task cancellation ends the read and destination ownership for that task, not a
+physical print job. Cleanup is part of task termination; retain an actionable
+failure when cleanup cannot finish rather than reporting clean cancellation.
+Waiting work has not acquired a remote read. A retry creates a new attempt from
+byte zero with current device/configuration validation; it does not resume old
+bytes, silently retarget a device or automatically repeat an uncertain mutation.
+Track attempt identity so late progress or callbacks cannot modify a replacement
+task. Batch completion summarizes actual per-item states instead of hiding
+partial failure behind one success flag.
+
+A paused per-printer queue does not advance later work around its blocked head;
+user continuation or cancellation resolves that head before strict FIFO resumes.
+An interrupted download may be retried from the start. Uncertain deletion results
+remain unconfirmed until user handling/manual refresh and are not auto-retried.
+Small listing/metadata/control requests do not consume a full-file transfer slot
+by default: the adapter still serializes or bounds its actual protocol as needed.
+In particular the download queue must not introduce a local in-use deletion veto.
+
+Refresh-time reconciliation uses device/configuration and file identity, not file
+content versions. Removed identities leave the selection; surviving identities
+can remain selected. Late results from a previous printer, storage or query scope
+are ignored. Sort/filter/group presentation must not imply that unloaded pages
+have been searched or selected. Exact layout and query field names can be chosen
+during implementation without changing these selection and paging guarantees.
+
+Remote printing uses the existing start-job semantics with current
+material bindings and preconditions. Its source is an independent remote-file
+context; the current slice-based preparation hook is not an implementation of
+that context. Initial delivery acceptance includes a physical device-file print.
+
+The agent owns supported-format and individual-file printability decisions and
+provides normalized print targets, preparation metadata and unavailability
+reasons. Shared UI cannot infer printability from file extensions or vendor IDs.
+The initial Bambu implementation supports sliced `.gcode.3mf` printing and defers
+ordinary `.gcode` printing; this is an agent-specific scope, not a shared format
+restriction. Other agents may support direct printing of other formats.
+
+Initial submission selects exactly one print target. A multi-plate artifact
+exposes selectable plates with target-scoped metadata; an agent without plates
+exposes one target. Keep vendor plate numbering and physical start parameters
+inside the adapter. Consecutive/multi-target printing is deferred. Initial
+inspection includes thumbnails and available preparation metadata, not full
+G-code toolpath rendering. Bambu reuses Orca's C++ sliced-3MF parsing logic through
+an injected runtime inspection service with an isolated Worker/context. This
+service is separate from the active project's mutable runtime state; inspection
+must not import into that project or replace its retained slice result. Keep
+Emscripten access inside the existing slicer client/runtime boundary and printer
+networking outside it. The agent fetches relevant remote resources, invokes the
+parser and normalizes results; shared UI never interprets vendor archive layouts.
+Other agents may use their own parsers and need not depend on slicing WASM. The
+same service boundary permits an independent Web Worker later. Exact parser API,
+normalized metadata, initialization/lifetime and resource limits remain open.
+
+Stored-media playback consumes an agent-provided read through host-owned media
+delivery. The host exposes actual playback/seek capabilities to the shared
+player: unrestricted timeline seeking with buffering when both source access
+and media indexing support it, otherwise seeking within downloaded playable
+ranges. This does not assert range support for the pinned Bambu adapter. Keep
+remote download range support, locally cached byte ranges and playable time
+ranges distinct. The host owns temporary playback disk cache and media-read
+lifetime. Closing the player, leaving Storage or changing printers cancels media
+reads and cleans this cache, without canceling independent save tasks or deleting
+explicit downloads. Persistent reusable cache and a floating player are outside
+the initial scope. Media that cannot progressively play falls back, by user
+choice, to explicit download and opening with the system application, not a
+full-download-then-in-app attempt. Decoder incompatibility also exposes the
+external-player action. Exact media descriptors, transport, format qualification,
+cache limits and crash cleanup remain open; the
+[Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
+owns the selected user behavior.
+
+#### Execution and delivery dependencies
+
+Implement the contract migration and deterministic provider fixtures before
+wiring UI actions. The host streaming path must then establish owned byte chunks,
+bounded application queues, cancellation and destination finalization before
+large-file browsing/download integration is treated as complete. Bambu storage
+execution extends CTRL alongside the existing current-job resource reader, whose
+allowlist and small-resource limits remain scoped to that use case. No slicing
+runtime is needed for ordinary file management.
+
+Use explicit stream identity, sequence/offset validation, terminal status and
+credit or acknowledgement flow control wherever bytes cross a process boundary.
+Credits are reclaimed after downstream consumption rather than merely receipt
+of a message. Validate actual response lengths and protocol integrity, distinguish
+unknown totals from zero bytes, and release native sessions, IPC endpoints and
+file handles on every terminal path. Main and shared React must not accumulate
+file-sized buffers. Fixed queue/cache budgets and chunk sizes belong to validated
+host configuration; do not invent acceptance values before measuring the pinned
+native path under slow consumers.
+
+Desktop saving writes to a uniquely owned temporary file in the destination
+filesystem and publishes only after successful stream completion and writer
+finalization. Reserve collision-safe names across concurrent tasks and recheck
+publication conflicts; an unconfirmed late collision must never silently overwrite
+a file. Confirmed Save As replacement preserves the original until publication.
+Cleanup removes only files owned by that attempt. Crash recovery identifies and
+cleans owned orphan temporary files; it does not restore download tasks or claim
+interrupted-download resume. Disk exhaustion, failed publication and cleanup
+errors remain visible results.
+
+Remote print preparation depends on the isolated runtime parser and agent
+normalization, then on the existing device/material validation and job-start
+execution. Keep a disposable inspection context independent of the user's project;
+bound archive expansion, metadata sizes and Worker lifetime. The adapter maps
+opaque print-target identities to device plate numbering. Submit one target,
+revalidate current device/material conditions and reuse explicit warning
+acknowledgements; a submitted command is not proof that the physical print has
+completed. Do not auto-retry an uncertain print start.
+
+Stored-media delivery depends on qualified file reads and the host media binding.
+Use bounded disk cache and a bounded player buffer; cleanup revokes access and
+releases reads as well as deleting owned cache. Cache exhaustion is a visible
+playback failure with the explicit download alternative, not permission for
+unlimited memory buffering. Establish supported formats through actual demuxing/
+decoding and seek tests. Keep format qualification separate from Bambu protocol
+read support, and do not silently count external-player fallback as proof that
+first-delivery in-app progressive playback works.
+
+The browser implementation later binds the same semantic contracts to browser
+networking, Worker execution and save/media capabilities. It must not require
+Electron main, load native Bambu libraries into a browser, or treat a gateway's
+filesystem as the user's save destination. No gateway delivery, plugin upgrade
+or change to the current project's mutable runtime is authorized by this design.
+
+#### Initial qualification boundary
+
+H2D + AMS is the first delivery's physical acceptance target. Cover the storage
+and media capabilities it actually exposes, including SD/internal storage where
+supported, file management, a physical device-file print with plate/material
+preparation, qualified progressive playback and seeking/fallback behavior, large
+downloads, and cancellation/failure cleanup. Capability-based availability on
+other Bambu models does not establish that those models were physically tested;
+report the distinction explicitly.
+
+Qualification includes long transfers beyond the current small-resource deadline,
+slow consumers, stopped progress, queue cancellation, disk/publication errors and
+memory behavior across the plugin/native/host chain. Mocks or IPC backpressure
+alone do not qualify the pinned plugin's internal buffering. Record actual device,
+firmware, plugin and host platform for results. Physical acceptance is a future
+implementation gate; no hardware testing or feature delivery is claimed by this
+documentation work. Exact reproducible cases and resource thresholds remain to
+be specified, without requiring all Bambu model families for first acceptance.
+Use the [testing guidelines](../doc/testing_guidelines.md) for the affected-package,
+host and WASM verification scope; passing fixtures cannot replace these physical
+and native-resource qualification gates.
 
 ## 10. Data, credentials and host contracts
 
@@ -3056,8 +3472,10 @@ configuration change, including when topology/inventory tokens are unchanged,
 without project mutation or automatic device access.
 Preview fixtures must construct an option query and media-open request when
 preview is supported but stat is unsupported, including empty options and
-file/version provenance. Future adapters must validate stale options and file
-changes without relying on a prior query session.
+file/device/configuration provenance. Future adapters must validate access and
+option support without relying on a prior query session. Storage removes the
+earlier file-content version preconditions; corresponding fixtures must migrate
+with that contract while retaining rejection of stale device/configuration context.
 Observation fixtures must cover single-topic access, widened/dynamic selections,
 explicit union type arguments, and both subscription snapshots and replacements.
 They must reject unchecked access to possibly absent topics and empty payloads.
