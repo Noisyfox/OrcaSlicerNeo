@@ -1,3 +1,5 @@
+import { DownloadExecutor } from '../downloadExecutor';
+import type { DownloadProgress } from '@orca/printer-control/downloads';
 import { BambuPrintSubmissions } from './printSubmission';
 import type * as D from '@orca/printer-control/domain';
 import { BambuStorageFiles } from './storageFiles';
@@ -24,6 +26,7 @@ import { BambuRepository } from './repository';
 
 /** Native agent lifecycle and local state are application-owned, never window-owned. */
 export class BambuRuntime {
+  private readonly downloads: DownloadExecutor;
   private native: BambuNative | null = null;
   private lan: BambuLan | null = null;
   private access: BambuDeviceAccess | null = null;
@@ -43,7 +46,8 @@ export class BambuRuntime {
   private readonly repository: BambuRepository;
   private readonly devices: BambuDevices;
   constructor(private readonly config: BambuHostConfig, private readonly publish: (change: BambuChange) => void,
-    private readonly load: typeof loadBambuNative = loadBambuNative, private readonly storageIo = storageNative) {
+    private readonly load: typeof loadBambuNative = loadBambuNative, private readonly storageIo = storageNative, progress: (id: string, value: DownloadProgress) => void = () => {}) {
+    this.downloads = new DownloadExecutor((request, options) => this.storageFiles ? this.storageFiles.download(request, options) : Promise.resolve({ ok: false, error: { code: 'transport', message: 'Storage is unavailable.' } }), 4 * 1024 * 1024, progress);
     this.repository = new BambuRepository(config.directory);
     this.devices = new BambuDevices(this.repository, () => { publish('printers'); void this.access?.reconcile().catch(() => undefined); void this.media?.reconcile().catch(() => undefined); void this.objectSkipping?.reconcileContext().catch(() => undefined); void this.storageSessions?.reconcile().catch(() => undefined); });
     this.ready = this.initialize();
@@ -116,6 +120,9 @@ export class BambuRuntime {
   }
   async host(request: BambuHostRequest) {
     await this.ready;
+    if (request.method === 'download.initialize') return this.downloads.initialize(request.input.root, request.input.parentPid);
+    if (request.method === 'download.run') return this.downloads.run(request.input.id, request.input.file, request.input.destination);
+    if (request.method === 'download.cancel') { this.downloads.cancel(request.input.id); return null; }
     if (request.method === 'lan.authorize' || request.method === 'lan.forget') {
       if (!this.lan || !this.access) throw new Error('Unavailable');
       const lan = this.lan;
@@ -175,6 +182,7 @@ export class BambuRuntime {
   async mediaCloseOwner(owner: string) { await this.ready; await this.media?.closeOwner(owner); }
   async close() { await this.ready; this.closing = true;
     for (const read of this.storageReads.values()) read.controller.abort();
+    await this.downloads.close();
     await this.storageSessions?.close(); await Promise.all([...this.storageReads.values()].map(read => read.done));
     this.operations?.close(); this.monitor?.close(); await this.submissions?.close(); await this.objectSkipping?.close(); await this.media?.close(); await this.access?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
 }

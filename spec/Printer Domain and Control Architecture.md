@@ -3019,7 +3019,8 @@ tracks batch/task identity, attempt-scoped progress, private saved receipts,
 isolated failure continuation and blocked-head retry/acknowledgment. Its public
 [task contract](../packages/printer-control/src/domain/downloadTasks.ts) contains
 no destination paths and distinguishes managed saving from browser handoff.
-Host dialog, execution, progress and shutdown bindings remain integration work.
+The utility execution binding and private progress protocol are implemented;
+host admission/dialogs, public task IPC and application shutdown integration remain pending.
 The desktop [filesystem sink](../apps/desktop/src/utility/downloadFiles.ts) is also
 implemented and tested with actual filesystem writes and process-exit recovery.
 It writes to a same-directory temporary file, publishes confirmed replacements
@@ -3027,8 +3028,11 @@ with rename, and uses exclusive hard-link publication for ordinary downloads.
 Filesystems without hard-link support currently fail publication explicitly;
 support for such destinations needs a separate no-replace publication mechanism.
 The app-owned journal identifies orphan output for cold-start cleanup. Calling
-recovery before new transfers and after old executors exit remains a host-lifecycle
-integration requirement; neither this adapter nor its tests establish that wiring.
+recovery through the utility execution initializer checks both recorded parent and
+worker PIDs before cleaning an old session, preserving other live app instances.
+The utility joins active cancellation and file cleanup before closing its journal.
+The main-process startup/shutdown binding still needs integration. Unexpected
+utility exits now reject pending calls instead of leaving tasks waiting forever.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the feature envelope and user-facing decisions.
 

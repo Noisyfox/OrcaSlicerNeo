@@ -1,3 +1,5 @@
+import { isDownloadProgress } from '../shared/downloadExecution';
+import type { DownloadProgress } from '@orca/printer-control/downloads';
 import type { BambuMediaRequest, BambuMediaAttachment } from '../shared/bambuMedia';
 import type { MessagePortMain } from 'electron';
 import { isBambuControlRequest, type BambuControlInputs, type BambuControlMethod, type BambuControlResults } from '../shared/bambuControl';
@@ -17,6 +19,8 @@ export class BambuUtility {
   private readonly ready: Promise<void>;
   private readonly exited: Promise<void>;
   private sequence = 0;
+  private dead = false;
+  private readonly downloadListeners = new Set<(id: string, progress: DownloadProgress) => void>();
   private closing: Promise<void> | null = null;
   private readonly listeners = new Set<(change: BambuChange) => void>();
   private readonly pending = new Map<number, { kind: BambuRead | null; resolve(value: unknown): void; reject(error: Error): void }>();
@@ -24,13 +28,24 @@ export class BambuUtility {
     serviceName: 'Orca Bambu Provider', stdio: 'ignore', allowLoadingUnsignedLibraries: true,
   }) as UtilityProcess) {
     this.child = fork(modulePath);
-    let ready!: () => void;
-    this.ready = new Promise(resolve => { ready = resolve; });
-    this.exited = new Promise(resolve => { this.child.once('exit', () => resolve()); });
+    let ready!: () => void, rejectReady!: (error: Error) => void;
+    this.ready = new Promise((resolve, reject) => { ready = resolve; rejectReady = reject; });
+    void this.ready.catch(() => undefined); // A startup exit may precede the first caller.
+    this.exited = new Promise(resolve => { this.child.once('exit', () => {
+      this.dead = true;
+      const error = new Error('Bambu provider exited before completing the request.');
+      rejectReady(error);
+      for (const request of this.pending.values()) request.reject(error);
+      this.pending.clear(); this.listeners.clear(); this.downloadListeners.clear(); resolve();
+    }); });
     this.child.on('message', message => {
       if (!message || typeof message !== 'object') return;
       const value = message as Record<string, unknown>;
+      if (this.dead) return;
       if (value.type === 'ready') ready();
+      else if (value.type === 'download-progress' && typeof value.id === 'string' && value.id.length <= 512 && isDownloadProgress(value.progress)) {
+        for (const listener of this.downloadListeners) { try { listener(value.id, { ...value.progress }); } catch { /* Isolate observers. */ } }
+      }
       else if (value.type === 'changed' && isBambuChange(value.change)) {
         for (const listener of this.listeners) { try { listener(value.change); } catch { /* A view cannot stop publication to other windows. */ } }
       } else if (value.type === 'reply' && typeof value.id === 'number') {
@@ -44,9 +59,9 @@ export class BambuUtility {
     this.child.postMessage({ type: 'init', config });
   }
   async read<K extends BambuRead>(request: K): Promise<BambuReadResults[K]> {
-    if (!isBambuRead(request) || this.closing) throw new Error('Bambu provider request unavailable');
+    if (!isBambuRead(request) || this.closing || this.dead) throw new Error('Bambu provider request unavailable');
     await this.ready;
-    if (this.closing) throw new Error('Bambu provider is closing');
+    if (this.closing || this.dead) throw new Error('Bambu provider is closing');
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { kind: request, resolve: value => resolve(value as BambuReadResults[K]), reject });
@@ -57,7 +72,7 @@ export class BambuUtility {
   /** Private host operations: only the login controller and trusted IPC handlers call this. */
   async host<K extends BambuHostMethod>(method: K, input: BambuHostInputs[K]): Promise<BambuHostResults[K]> {
     await this.ready;
-    if (this.closing) throw new Error('Bambu provider is closing');
+    if (this.closing || this.dead) throw new Error('Bambu provider is closing');
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { kind: null, resolve: value => resolve(value as BambuHostResults[K]), reject });
@@ -68,7 +83,7 @@ export class BambuUtility {
   async control<K extends BambuControlMethod>(method: K, input: BambuControlInputs[K]): Promise<BambuControlResults[K]> {
     if (!isBambuControlRequest({ method, input })) throw new Error('Bambu IPC request rejected');
     await this.ready;
-    if (this.closing) throw new Error('Bambu provider is closing');
+    if (this.closing || this.dead) throw new Error('Bambu provider is closing');
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { kind: null, resolve: value => resolve(value as BambuControlResults[K]), reject });
@@ -78,7 +93,7 @@ export class BambuUtility {
   }
   async media(owner: string, request: BambuMediaRequest): Promise<unknown> {
     await this.ready;
-    if (this.closing) throw new Error('Bambu provider is closing');
+    if (this.closing || this.dead) throw new Error('Bambu provider is closing');
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { kind: null, resolve, reject });
@@ -88,17 +103,21 @@ export class BambuUtility {
   }
   async connectMedia(owner: string, request: BambuMediaAttachment, port: MessagePortMain) {
     await this.ready;
-    if (this.closing) { port.close(); return; }
+    if (this.closing || this.dead) { port.close(); return; }
     this.child.postMessage({ type: 'media-port', owner, request }, [port]);
   }
-  closeMediaOwner(owner: string) { this.child.postMessage({ type: 'media-owner-close', owner }); }
+  closeMediaOwner(owner: string) { if (!this.dead && !this.closing) this.child.postMessage({ type: 'media-owner-close', owner }); }
+  onDownloadProgress(listener: (id: string, progress: DownloadProgress) => void) { this.downloadListeners.add(listener); return () => { this.downloadListeners.delete(listener); }; }
   onChanged(listener: (change: BambuChange) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   close(): Promise<void> {
-    if (!this.closing) this.closing = this.ready.then(async () => {
-      this.listeners.clear();
+    if (!this.closing) this.closing = (async () => {
+      await this.ready.catch(() => undefined);
+      this.listeners.clear(); this.downloadListeners.clear();
       for (const request of this.pending.values()) request.reject(new Error('Bambu provider is closing'));
-      this.pending.clear(); this.child.postMessage({ type: 'shutdown' }); await this.exited;
-    });
+      this.pending.clear();
+      if (!this.dead) this.child.postMessage({ type: 'shutdown' });
+      await this.exited;
+    })();
     return this.closing;
   }
 }

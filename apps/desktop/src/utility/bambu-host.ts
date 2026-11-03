@@ -20,7 +20,8 @@ process.parentPort.on('message', event => {
   const data = message as Record<string, unknown>;
   if (data.type === 'init' && !initialized && validConfig(data.config)) {
     initialized = true;
-    runtime = new BambuRuntime(data.config, change => process.parentPort.postMessage({ type: 'changed', change }));
+    runtime = new BambuRuntime(data.config, change => process.parentPort.postMessage({ type: 'changed', change }), undefined, undefined,
+      (id, progress) => process.parentPort.postMessage({ type: 'download-progress', id, progress }));
     process.parentPort.postMessage({ type: 'ready' });
   } else if (data.type === 'read' && Number.isSafeInteger(data.id) && isBambuRead(data.request) && runtime) {
     const id = data.id;

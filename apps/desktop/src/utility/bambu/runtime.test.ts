@@ -44,6 +44,26 @@ describe('Bambu utility runtime', () => {
       location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } } } })).toMatchObject({ ok: true, value: { files: [{ name: 'part.gcode.3mf' }] } });
     expect(native.installDeviceCertificate).toHaveBeenCalledWith('a', true); await runtime.close();
   }));
+  it('executes a host-private download into a file without transferring bytes through public control', async () => fixture(async directory => {
+    const repository = new BambuRepository(directory);
+    await repository.update(state => ({ ...state, lan: [{ deviceId: 'a', name: 'A', model: 'H2D', ip: '192.0.2.1', accessCode: 'private', revision: 'r1' }] }));
+    const { native } = nativeFixture(); native.installDeviceCertificate = vi.fn(async () => {});
+    const io: typeof storageNative = { ...storageNative,
+      list: vi.fn(async () => [{ name: 'part.gcode.3mf', path: '/part.gcode.3mf', sizeBytes: 3, modifiedAtSeconds: 10 }]),
+      download: vi.fn(async () => ({ totalBytes: 3, chunks: { async *[Symbol.asyncIterator]() { yield new Uint8Array([1, 2, 3]); } } })) };
+    const progress = vi.fn();
+    const runtime = new BambuRuntime({ directory, addonPath: '/addon', pluginPath: '/plugin', certificateDirectory: '/cert', osType: 'macos', osVersion: 'test' }, () => {}, () => native, io, progress);
+    const page = await runtime.control({ method: 'storage.list', input: { readId: 'page', request: {
+      target: { printerId: 'bambu:a', routeId: 'bambu:a:agent' } as D.PrinterTarget,
+      storageId: 'sdcard' as D.Id<'storage'>, location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } } } }) as D.Result<D.RemoteFilePage>;
+    expect(page.ok).toBe(true); if (!page.ok) throw new Error('No fixture file');
+    await runtime.host({ method: 'download.initialize', input: { root: join(directory, 'journal'), parentPid: process.pid } });
+    const result = await runtime.host({ method: 'download.run', input: { id: 'download', file: page.value.files[0].ref,
+      destination: { kind: 'directory', directory: join(directory, 'saved') } } });
+    expect(result).toMatchObject({ status: 'saved', writtenBytes: 3 });
+    expect(await readFile(join(directory, 'saved/part.gcode.3mf'))).toEqual(Buffer.from([1, 2, 3]));
+    expect(progress).toHaveBeenCalled(); expect(io.download).toHaveBeenCalledOnce(); await runtime.close();
+  }));
   it('uses Orca startup ordering, Neo-owned configuration and public-only invalidations', async () => fixture(async directory => {
     const { native, calls } = nativeFixture(); const changes = vi.fn(); let emit!: (event: NativeEvent) => void;
     const runtime = new BambuRuntime({ directory, addonPath: '/addon', pluginPath: '/plugin', certificateDirectory: '/cert', osType: 'macos', osVersion: '15.6.0' }, changes,

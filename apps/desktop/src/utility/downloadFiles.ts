@@ -1,7 +1,7 @@
 /** Utility-host filesystem binding. Paths and the recovery journal never cross into agents/UI. */
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { link, mkdir, open, readFile, readdir, rename, unlink, type FileHandle } from 'node:fs/promises';
+import { link, mkdir, open, readFile, readdir, rename, unlink, rmdir, lstat, writeFile, type FileHandle } from 'node:fs/promises';
 import type { DownloadSink } from '@orca/printer-control/downloads';
 
 export type DownloadDestination = { kind: 'directory'; directory: string; fileName: string }
@@ -134,6 +134,8 @@ export async function recoverInterruptedDownloads(journalDirectory: string): Pro
     if (!name.endsWith('.json') || !validId.test(id)) { result.ignored++; continue; }
     const journal = join(journalDirectory, name);
     try {
+      const metadata = await lstat(journal);
+      if (!metadata.isFile() || metadata.size > 32768) { result.ignored++; continue; }
       const value: unknown = JSON.parse(await readFile(journal, 'utf8'));
       if (!value || typeof value !== 'object' || !('id' in value) || value.id !== id ||
         !('temporary' in value) || typeof value.temporary !== 'string' || !isAbsolute(value.temporary) ||
@@ -142,4 +144,52 @@ export async function recoverInterruptedDownloads(journalDirectory: string): Pro
     } catch { result.failed++; }
   }
   return result;
+}
+
+export interface DownloadJournal {
+  directory: string;
+  recovery: DownloadRecovery;
+  /** Remove an empty owned session; retain records after failed cleanup for a later startup. */
+  close(): Promise<void>;
+}
+function processAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return code(error) !== 'ESRCH'; } // Permission/unknown errors must never authorize scavenging.
+}
+/** Other app instances may share userData. Scavenge only when both recorded owners are gone. */
+export async function openDownloadJournal(root: string, parentPid: number, alive: (pid: number) => boolean = processAlive): Promise<DownloadJournal> {
+  if (!isAbsolute(root) || !Number.isSafeInteger(parentPid) || parentPid < 1) throw publicError('Invalid download journal configuration.');
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  const recovery: DownloadRecovery = { cleaned: 0, failed: 0, ignored: 0 };
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !validId.test(entry.name)) { recovery.ignored++; continue; }
+    const folder = join(root, entry.name), ownerPath = join(folder, 'owner.json');
+    try {
+      const metadata = await lstat(ownerPath);
+      if (!metadata.isFile() || metadata.size > 4096) { recovery.ignored++; continue; }
+      const owner: unknown = JSON.parse(await readFile(ownerPath, 'utf8'));
+      if (!owner || typeof owner !== 'object' || !('parentPid' in owner) || !('workerPid' in owner) ||
+        !Number.isSafeInteger(owner.parentPid) || Number(owner.parentPid) < 1 || !Number.isSafeInteger(owner.workerPid) || Number(owner.workerPid) < 1) {
+        recovery.ignored++; continue;
+      }
+      if (alive(Number(owner.parentPid)) || alive(Number(owner.workerPid))) continue;
+      const records = join(folder, 'records'), result = await recoverInterruptedDownloads(records);
+      recovery.cleaned += result.cleaned; recovery.failed += result.failed; recovery.ignored += result.ignored;
+      if (!result.failed && !result.ignored) {
+        try { await rmdir(records); } catch (error) { if (code(error) !== 'ENOENT') throw error; }
+        await remove(ownerPath); await rmdir(folder);
+      }
+    } catch { recovery.failed++; }
+  }
+  const folder = join(root, randomUUID()), directory = join(folder, 'records');
+  await mkdir(folder, { mode: 0o700 });
+  await writeFile(join(folder, 'owner.json'), JSON.stringify({ parentPid, workerPid: process.pid }), { flag: 'wx', mode: 0o600 });
+  await mkdir(directory, { mode: 0o700 });
+  return { directory, recovery, close: async () => {
+    // rmdir cannot remove live/failed task records. Never recursively delete an owned session.
+    try { await rmdir(directory); }
+    catch (error) { if (code(error) === 'ENOTEMPTY' || code(error) === 'EEXIST') return; if (code(error) !== 'ENOENT') throw error; }
+    await remove(join(folder, 'owner.json'));
+    try { await rmdir(folder); } catch (error) { if (code(error) !== 'ENOENT') throw error; }
+  } };
 }

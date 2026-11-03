@@ -59,3 +59,27 @@ it('accepts only the public account and settings data', () => {
   expect(isBambuReadResult('account.settings', [{ key: 'region', label: 'Region', value: 'Others', choices: bambuRegionChoices }])).toBe(true);
   expect(isBambuReadResult('account.settings', [{ key: 'region', label: 'Region', value: 'Others', choices: [], accessCode: 'private' }])).toBe(false);
 });
+
+it('rejects in-flight and future calls when the execution host exits', async () => {
+  const child = new Child(), host = new BambuUtility('/host', config, () => child);
+  const pending = host.host('download.cancel', { id: 'task' });
+  const rejected = expect(pending).rejects.toThrow('exited');
+  await Promise.resolve(); await Promise.resolve(); child.emit('exit', 1);
+  await rejected; await expect(host.read('printers.saved')).rejects.toThrow('unavailable'); await host.close();
+});
+it('settles initialization waiters after an early utility exit', async () => {
+  const child = new Child(); child.postMessage = message => { child.messages.push(message); };
+  const host = new BambuUtility('/host', config, () => child);
+  const pending = expect(host.read('printers.saved')).rejects.toThrow('exited');
+  child.emit('exit', 1); await pending; await host.close();
+});
+it('isolates progress listeners and rejects extra private fields and inconsistent progress', async () => {
+  const child = new Child(), host = new BambuUtility('/host', config, () => child), listener = vi.fn();
+  host.onDownloadProgress(() => { throw new Error('view failed'); }); const stop = host.onDownloadProgress(listener);
+  const progress = { phase: 'transferring', writtenBytes: 1, totalBytes: 3, canCancel: true };
+  child.emit('message', { type: 'download-progress', id: 'task', progress: { ...progress, path: '/private' } });
+  child.emit('message', { type: 'download-progress', id: 'task', progress: { ...progress, writtenBytes: 4 } });
+  expect(listener).not.toHaveBeenCalled();
+  child.emit('message', { type: 'download-progress', id: 'task', progress }); expect(listener).toHaveBeenCalledWith('task', progress);
+  stop(); child.emit('message', { type: 'download-progress', id: 'task', progress }); expect(listener).toHaveBeenCalledOnce(); await host.close();
+});
