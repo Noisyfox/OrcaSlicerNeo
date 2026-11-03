@@ -3206,6 +3206,14 @@ results and cancellation to shared UI. Only successful stream completion and
 successful file publication establish a completed desktop download. Destination
 paths and file handles remain host-private. Desktop ordinary downloads use the
 configured default directory, preserving existing files through numeric filename suffixes.
+This is one application-wide host preference shared by every agent, exposed under
+Preferences → Downloads. The desktop host retains the existing private
+`downloads/download-directory.json` setting, so moving the UI preserves previously
+chosen directories. A successful chooser saves immediately; cancellation preserves
+the prior setting. No default destination is stored in per-printer configuration,
+agent credentials or renderer-visible user preferences. The shared Preferences UI
+uses the provider-neutral download service and explains browser-managed saving on
+hosts without managed-download support.
 Save As selects one file destination or one batch directory; replacement of an
 existing explicitly selected destination requires overwrite confirmation. The
 host owns collision resolution, including conflicts between concurrent tasks;

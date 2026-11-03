@@ -28,7 +28,8 @@ export interface PrinterDownloads {
   /** Acknowledge a blocked file failure and permit later queued work. */
   continue(id: DownloadTaskId): Promise<Result<null>>;
   open(id: DownloadTaskId): Promise<Result<null>>;
-  /** Display label only. The configured filesystem location stays host-private. */
+  /** Application-wide setting shared by all agents, presented in Preferences.
+   * Display label only; the configured filesystem location stays host-private. */
   directory(): Promise<Result<{ label: string }>>;
   chooseDirectory(): Promise<Result<{ status: 'selected'; label: string } | { status: 'cancelled' }>>;
 }

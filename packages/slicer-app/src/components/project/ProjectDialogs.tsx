@@ -1,3 +1,4 @@
+import { DownloadPreferences } from './DownloadPreferences';
 import { PrinterStoragePreferences } from './PrinterStoragePreferences';
 import { AccountSettings } from '@/components/accounts/AccountControls';
 import { useEffect, useState } from 'react';
@@ -181,6 +182,7 @@ export function ProjectPreferencesDialog({
         </Select>
         <FieldDescription>All recalculates after colour or material changes; Color recalculates after colour changes; None preserves manual values. Adding a material initializes its new pairs in every mode.</FieldDescription>
       </Field></FieldGroup>
+      <DownloadPreferences />
       <AccountSettings />
       <PrinterStoragePreferences />
       <div className="flex justify-end gap-2">

@@ -22,6 +22,16 @@ it('defaults to the OS downloads folder and persists a chosen directory privatel
   expect(await host.chooseDirectory()).toEqual({ status: 'selected', label: 'chosen' });
   expect(await host.destination(files, false)).toEqual({ kind: 'directory', directory: join(root, 'chosen') });
   expect(JSON.parse(await readFile(join(root, 'download-directory.json'), 'utf8')).directory).toBe(join(root, 'chosen'));
+  // Reopening Preferences/the application and changing the source agent share the same host preference.
+  const reopened = downloadDestinationHost(root, () => ({} as BrowserWindow));
+  for (const provider of ['bambu', 'future-agent']) {
+    const selection = [{ name: 'file.bin', file: { printerId: `${provider}:printer`, routeId: `${provider}:route` } }] as DownloadSelection[];
+    expect(await reopened.destination(selection, false)).toEqual({ kind: 'directory', directory: join(root, 'chosen') });
+  }
+  electron.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
+  expect(await reopened.chooseDirectory()).toEqual({ status: 'cancelled' });
+  expect(await reopened.directory()).toEqual({ label: 'chosen' });
+
 });
 it('sanitizes a suggested name and explicitly confirms replacement before admitting it', async () => {
   const { root, host } = await fixture(), path = join(root, 'video.mp4'); await writeFile(path, 'original');

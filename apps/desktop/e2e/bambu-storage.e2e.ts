@@ -100,10 +100,12 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     }, Ipc.bambuControl);
     await app.evaluate(({ ipcMain }, channels) => {
       const tasks: any[] = [];
+      let folder = 'Fixture downloads';
       ipcMain.removeHandler(channels.request);
       ipcMain.handle(channels.request, (event, { method, args }) => {
         if (method === 'list') return { ok: true, value: tasks };
-        if (method === 'directory') return { ok: true, value: { label: 'Fixture downloads' } };
+        if (method === 'directory') return { ok: true, value: { label: folder } };
+        if (method === 'chooseDirectory') { folder = 'Shared downloads'; return { ok: true, value: { status: 'selected', label: folder } }; }
         if (method === 'start') {
           for (const [index, file] of args[0].files.entries()) tasks.push({ ...file, id: `task-${index}`, batchId: 'batch', attempt: 1,
             state: 'running', phase: 'transferring', writtenBytes: 1024, totalBytes: 4096, canCancel: true, canRetry: false, error: null, warning: null });
@@ -126,11 +128,27 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     }, Ipc.bambuMedia);
     const calls = () => app.evaluate(() => globalThis.bambuControlFixture.requests.filter(request =>
       (request as { method: string }).method.startsWith('storage.')) as { method: string }[]);
+    const openPreferences = async () => {
+      if (process.platform === 'darwin') await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById('file-preferences')!.click());
+      else { await page.getByTestId('titlebar-menu-trigger').click(); await page.getByTestId('menu-file-trigger').hover(); await page.getByTestId('file-preferences').click(); }
+      return page.getByTestId('project-preferences-dialog');
+    };
+    const preferences = await openPreferences();
+    await expect(preferences.getByLabel('Default download folder', { exact: true })).toHaveText('Fixture downloads');
+    await preferences.getByRole('button', { name: 'Change…', exact: true }).click();
+    await expect(preferences.getByLabel('Default download folder', { exact: true })).toHaveText('Shared downloads');
+    await preferences.getByTestId('project-preferences-cancel').click();
+    await openPreferences();
+    await expect(preferences.getByLabel('Default download folder', { exact: true })).toHaveText('Shared downloads');
+    await preferences.screenshot({ path: test.info().outputPath('download-preferences.png') });
+    await preferences.getByTestId('project-preferences-cancel').click();
+
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
     await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
     expect(await calls()).toEqual([]);
     await page.getByRole('tab', { name: 'Storage', exact: true }).click();
     const storage = page.getByTestId('printer-storage');
+    await expect(storage.getByRole('button', { name: /^Folder:/ })).toHaveCount(0);
     await expect(storage.getByRole('checkbox')).toHaveCount(100);
     await expect.poll(() => storage.getByAltText('Thumbnail of external-part-000.gcode.3mf').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
     await storage.getByLabel('Filter loaded files').fill('part-00');

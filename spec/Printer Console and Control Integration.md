@@ -807,8 +807,12 @@ set; loading another page does not automatically select newly loaded items.
 
 Saving uses the injected host download service, exposing task progress and
 results without exposing private destination paths or Bambu protocol payloads.
-Ordinary downloads use a configurable default download directory without a
-destination prompt. A separate Save As action chooses a file destination for a
+Ordinary downloads use an application-wide default download directory without a
+destination prompt. Configure it under Preferences → Downloads; it is shared by
+all printer agents and saved immediately when the folder chooser succeeds.
+Cancelling the chooser retains the previous location. Storage has no default-folder
+configuration action. The initial desktop location is the OS Downloads folder;
+Web explains that browser facilities manage the location. A separate Save As action chooses a file destination for a
 single item or one destination folder for a batch. Ordinary downloads preserve
 existing files by adding a numeric suffix on name collisions. Save As requires
 overwrite confirmation when the chosen destination already exists.

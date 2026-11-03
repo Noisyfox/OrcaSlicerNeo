@@ -22,7 +22,6 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const { service, downloads } = usePlatform().printers;
   const [queuing, setQueuing] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [folder, setFolder] = useState('Download folder');
   const [deleting, setDeleting] = useState<readonly RemoteFile[] | null>(null);
   const [printing, setPrinting] = useState<RemoteFile | null>(null);
   const [playing, setPlaying] = useState<RemoteFile | null>(null);
@@ -104,11 +103,6 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   }, [scope, service, target]);
   useEffect(() => { void load(); return () => listing.current?.abort(); }, [scope, service, target, discoveryRevision]);
 
-  useEffect(() => {
-    let alive = true;
-    if (downloads.capability.kind === 'supported') void downloads.directory().then(result => { if (alive && result.ok) setFolder(result.value.label); }).catch(() => {});
-    return () => { alive = false; };
-  }, [downloads]);
   const download = async (destination: 'default' | 'choose') => {
     setQueuing(true); setDownloadError(null);
     try {
@@ -116,12 +110,6 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
       if (!result.ok) setDownloadError(result.error.message);
     } catch { setDownloadError('The download could not be queued.'); }
     finally { setQueuing(false); }
-  };
-  const chooseFolder = async () => {
-    try { const result = await downloads.chooseDirectory();
-      if (result.ok && result.value.status === 'selected') setFolder(result.value.label);
-      else if (!result.ok) setDownloadError(result.error.message);
-    } catch { setDownloadError('The download folder could not be changed.'); }
   };
   const allLoadedSelected = filtered.length > 0 && filtered.every(file => selected.has(file.ref.fileId));
   const toggle = (id: string) => setSelected(previous => {
@@ -176,7 +164,6 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
         {category.actions.includes('download') && downloads.capability.kind === 'supported' && <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" disabled={!selected.size || queuing || loading} onClick={() => void download('default')}>Download selected</Button>
           <Button size="sm" variant="outline" disabled={!selected.size || queuing || loading} onClick={() => void download('choose')}>Save as…</Button>
-          <Button size="sm" variant="ghost" disabled={queuing} onClick={() => void chooseFolder()}>Folder: {folder}</Button>
         </div>}
         {category.actions.includes('delete') && <Button size="sm" variant="destructive" disabled={!selected.size || loading || queuing}
           onClick={() => setDeleting(files.filter(file => selected.has(file.ref.fileId)))}>Delete selected</Button>}
