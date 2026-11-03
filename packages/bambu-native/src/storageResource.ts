@@ -1,29 +1,67 @@
-/** Small optional resources; full-file downloads retain their separate streaming contract. */
-import { openStorageChannel, storageInteger, invalidStorageReply, type BambuStorageReadOptions } from './storageChannel.js';
+/** Bounded optional SUB_FILE batches. No full-file fallback or archive extraction. */
+import { openStorageChannel, storageInteger, invalidStorageReply, type BambuStorageReadOptions, type StorageChannel } from './storageChannel.js';
 export interface BambuStorageResourceRequest { path: string; resource: string; maxBytes: number }
-export async function readBambuStorageResource(addonPath: string, sourcePath: string, privateUrl: string,
-  request: BambuStorageResourceRequest, options: BambuStorageReadOptions): Promise<Uint8Array | null> {
-  const { path, resource, maxBytes } = request;
-  if (!path || path.startsWith('mem:') || /[\x00-\x1f#]/.test(path) || path.split(/[\\/]/).includes('..') ||
-    !resource || /[\x00-\x1f#\\]/.test(resource) || resource.startsWith('/') || resource.split('/').some(part => !part || part === '..') ||
-    !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 4 * 1024 * 1024) throw invalidStorageReply();
-  const requested = `${path}#${resource}`;
-  const channel = await openStorageChannel(addonPath, sourcePath, privateUrl, 2, { paths: [requested] }, options);
-  const chunks: Uint8Array[] = []; let size = 0, total: number | undefined;
+export interface BambuStorageResourceReader { read(requests: readonly BambuStorageResourceRequest[]): Promise<readonly (Uint8Array | null)[]>; close(): Promise<void> }
+export async function openBambuStorageResourceReader(addonPath: string, sourcePath: string, privateUrl: string,
+  options: BambuStorageReadOptions): Promise<BambuStorageResourceReader> {
+  const channel = await openStorageChannel(addonPath, sourcePath, privateUrl, 2, undefined, options);
+  return { read: requests => readBatch(channel, requests), close: () => channel.close() };
+}
+function resourceStates(requests: readonly BambuStorageResourceRequest[]) {
+  if (!requests.length || requests.length > 8) throw invalidStorageReply();
+  const states = requests.map(({ path, resource, maxBytes }) => {
+    if (!path || path.startsWith('mem:') || /[\x00-\x1f#]/.test(path) || path.split(/[\\/]/).includes('..') ||
+      !resource || /[\x00-\x1f#\\]/.test(resource) || resource.startsWith('/') || resource.split('/').some(part => !part || part === '..') ||
+      !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 4 * 1024 * 1024) throw invalidStorageReply();
+    return { requested: `${path}#${resource}`, maxBytes, chunks: [] as Uint8Array[], size: 0, total: undefined as number | undefined, done: false };
+  });
+  const paths = states.map(state => state.requested);
+  if (new Set(paths).size !== paths.length) throw invalidStorageReply();
+  return states;
+}
+async function readBatch(channel: StorageChannel, requests: readonly BambuStorageResourceRequest[]): Promise<readonly (Uint8Array | null)[]> {
+  const states = resourceStates(requests);
+  channel.send(2, { paths: states.map(state => state.requested) });
+  let bytes = 0, packets = 0;
   try {
     for (;;) {
       const { result, reply, body } = await channel.read();
-      if (reply.path !== requested || !storageInteger(reply.size) || reply.size !== body.byteLength ||
-        reply.offset !== undefined && reply.offset !== size || reply.continue !== undefined && typeof reply.continue !== 'boolean' ||
-        reply.total !== undefined && (!storageInteger(reply.total) || total !== undefined && total !== reply.total)) throw invalidStorageReply();
-      if (reply.total !== undefined) total = Number(reply.total);
-      if (size + body.byteLength > maxBytes || total !== undefined && (total > maxBytes || size + body.byteLength > total) || chunks.length >= 4096) throw invalidStorageReply();
-      size += body.byteLength; chunks.push(new Uint8Array(body));
-      if (result === 0) {
-        if (reply.continue === true || total !== undefined && size !== total) throw invalidStorageReply();
-        return size ? new Uint8Array(Buffer.concat(chunks, size)) : null;
+      const state = states.find(state => state.requested === reply.path);
+      if (result > 1) {
+        // A per-file error terminates the command on H2D. Preserve completed
+        // entries, keep this file optional, and request only untouched entries.
+        if (!state || state.done || body.byteLength || reply.size !== 0) throw invalidStorageReply();
+        state.done = true; state.size = 0; state.chunks = [];
+        const remaining = states.filter(state => !state.done);
+        if (remaining.some(state => state.size !== 0)) throw invalidStorageReply();
+        if (!remaining.length) return states.map(state => state.size ? new Uint8Array(Buffer.concat(state.chunks, state.size)) : null);
+        channel.send(2, { paths: remaining.map(state => state.requested) }); continue;
       }
-      if (!body.byteLength || reply.continue === false) throw invalidStorageReply();
+      if (!state || state.done || !storageInteger(reply.size) || reply.size !== body.byteLength ||
+        reply.offset !== undefined && reply.offset !== state.size || reply.continue !== undefined && typeof reply.continue !== 'boolean' ||
+        reply.total !== undefined && (!storageInteger(reply.total) || state.total !== undefined && state.total !== reply.total)) throw invalidStorageReply();
+      if (reply.total !== undefined) state.total = Number(reply.total);
+      if (state.size + body.byteLength > state.maxBytes || state.total !== undefined && (state.total > state.maxBytes || state.size + body.byteLength > state.total) ||
+        (bytes += body.byteLength) > 16 * 1024 * 1024 || ++packets > 4096) throw invalidStorageReply();
+      state.size += body.byteLength; state.chunks.push(new Uint8Array(body));
+      if (reply.continue !== true) {
+        if (state.total !== undefined && state.size !== state.total) throw invalidStorageReply();
+        state.done = true;
+      } else if (!body.byteLength) throw invalidStorageReply();
+      if (result === 0) {
+        if (states.some(state => !state.done)) throw invalidStorageReply();
+        return states.map(state => state.size ? new Uint8Array(Buffer.concat(state.chunks, state.size)) : null);
+      }
     }
-  } finally { await channel.close(); }
+  } catch (error) { await channel.close(); throw error; }
+}
+export async function readBambuStorageResources(addonPath: string, sourcePath: string, privateUrl: string,
+  requests: readonly BambuStorageResourceRequest[], options: BambuStorageReadOptions): Promise<readonly (Uint8Array | null)[]> {
+  resourceStates(requests);
+  const reader = await openBambuStorageResourceReader(addonPath, sourcePath, privateUrl, options);
+  try { return await reader.read(requests); } finally { await reader.close(); }
+}
+export async function readBambuStorageResource(addonPath: string, sourcePath: string, privateUrl: string,
+  request: BambuStorageResourceRequest, options: BambuStorageReadOptions): Promise<Uint8Array | null> {
+  return (await readBambuStorageResources(addonPath, sourcePath, privateUrl, [request], options))[0];
 }

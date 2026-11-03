@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { getEventListeners } from 'node:events';
-import { readBambuStorageResource, loadBambuControlStream, readBambuStorageFile, discoverBambuStorage, listBambuStorageFiles, deleteBambuStorageFile } from '../dist/index.js';
+import { readBambuStorageResource, readBambuStorageResources, openBambuStorageResourceReader, loadBambuControlStream, readBambuStorageFile, discoverBambuStorage, listBambuStorageFiles, deleteBambuStorageFile } from '../dist/index.js';
 
 const addon = fileURLToPath(new URL('../build/Release/bambu.node', import.meta.url));
 const source = fileURLToPath(new URL(`../build/Release/fixture_control.${process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so'}`, import.meta.url));
@@ -134,4 +134,22 @@ test('reads bounded optional storage resources and preserves unavailable thumbna
   const controller = new AbortController();
   const pending = readBambuStorageResource(addon, source, 'bambu:///local/silent', request, { ...options, signal: controller.signal });
   const rejected = assert.rejects(pending, error => error.code === 'cancelled'); controller.abort(); await rejected;
+});
+
+test('assembles interleaved SUB_FILE batches by exact resource path and rejects incomplete batches', async () => {
+  const requests = ['_rels/.rels', 'thumbnail'].map(resource => ({ path: '/resource.3mf', resource, maxBytes: 16 }));
+  const read = (mode, input = requests) => readBambuStorageResources(addon, source, `bambu:///local/${mode}`, input, options);
+  assert.deepEqual((await read('resource-batch')).map(value => Buffer.from(value).toString()), ['abc', 'xyz']);
+  await assert.rejects(read('resource-batch-missing'), error => error.code === 'invalid-response');
+  await assert.rejects(read('resource-batch', [...requests, requests[0]]), error => error.code === 'invalid-response');
+  await assert.rejects(read('resource-batch', []), error => error.code === 'invalid-response');
+});
+
+test('keeps successful thumbnails across a terminal missing-file response and reuses request sequences', async () => {
+  const reader = await openBambuStorageResourceReader(addon, source, 'bambu:///local/resource-reuse', options);
+  const file = name => ({ path: `/${name}.3mf`, resource: 'thumbnail', maxBytes: 16 });
+  try {
+    assert.deepEqual((await reader.read(['one', 'missing', 'two'].map(file))).map(value => value && Buffer.from(value).toString()), ['a', null, 'b']);
+    assert.equal(Buffer.from((await reader.read([file('one')]))[0]).toString(), 'a');
+  } finally { await reader.close(); }
 });

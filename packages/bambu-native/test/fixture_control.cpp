@@ -59,6 +59,27 @@ int Bambu_SendMessage(Bambu_Tunnel tunnel, int type, const char* bytes, int size
         return 0;
     }
     if (message.find("\"cmdtype\":2") != std::string::npos) {
+        if (s.mode.find("resource-reuse") != std::string::npos) {
+            const auto at = message.find("\"sequence\":");
+            const int seq = std::stoi(message.substr(at + 11));
+            auto reply = [&](int result, const char* path, const char* body) {
+                const std::string data(body);
+                s.replies.push_back("{\"result\":" + std::to_string(result) + ",\"sequence\":" + std::to_string(seq) +
+                    ",\"reply\":{\"path\":\"" + path + "\",\"size\":" + std::to_string(data.size()) + "}}" + (data.empty() ? "" : "\n\n" + data));
+            };
+            if (message.find("/missing.3mf") != std::string::npos) {
+                reply(1, "/one.3mf#thumbnail", "a"); reply(14, "/missing.3mf#thumbnail", "");
+            } else if (message.find("/two.3mf") != std::string::npos) reply(0, "/two.3mf#thumbnail", "b");
+            else reply(0, "/one.3mf#thumbnail", "a");
+            return 0;
+        }
+        if (s.mode.find("resource-batch") != std::string::npos) {
+            s.replies.push_back(std::string(R"({"result":1,"sequence":1,"reply":{"path":"/resource.3mf#_rels/.rels","size":1,"offset":0,"total":3,"continue":true}})") + "\n\na");
+            if (s.mode.find("missing") == std::string::npos)
+                s.replies.push_back(std::string(R"({"result":1,"sequence":1,"reply":{"path":"/resource.3mf#thumbnail","size":3,"offset":0,"total":3,"continue":false}})") + "\n\nxyz");
+            s.replies.push_back(std::string(R"({"result":0,"sequence":1,"reply":{"path":"/resource.3mf#_rels/.rels","size":2,"offset":1,"total":3,"continue":false}})") + "\n\nbc");
+            return 0;
+        }
         if (message.find("/resource.3mf#_rels/.rels") == std::string::npos) return -1;
         if (s.mode.find("silent") != std::string::npos) return 0;
         if (s.mode.find("empty") != std::string::npos) {

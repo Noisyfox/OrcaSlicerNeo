@@ -21,11 +21,12 @@ export interface StorageChannel {
   /** One outstanding read. Each consumer demand has its own inactivity deadline. */
   read(): Promise<StorageReply>;
   close(): Promise<void>;
+  send(command: number, request: Record<string, unknown>): void;
 }
 
-/** Each channel owns one sequence and joins the native reader on all terminal paths. */
+/** One native connection; sequential requests have distinct sequences. Close always joins the reader. */
 export async function openStorageChannel(addonPath: string, sourcePath: string, privateUrl: string,
-  command: number, request: Record<string, unknown>, options: BambuStorageReadOptions): Promise<StorageChannel> {
+  command: number, request: Record<string, unknown> | undefined, options: BambuStorageReadOptions): Promise<StorageChannel> {
   for (const timeout of [options.connectTimeoutMs, options.inactivityTimeoutMs])
     if (!Number.isSafeInteger(timeout) || timeout < 1) throw new BambuStorageError('invalid-response', 'Invalid storage timeout.');
   if (!privateUrl.startsWith('bambu:///local/')) throw new BambuStorageError('transport', 'Storage requires an authorized LAN connection.');
@@ -33,7 +34,7 @@ export async function openStorageChannel(addonPath: string, sourcePath: string, 
   let stream: NativeControlStream;
   try { stream = loadBambuControlStream(addonPath, sourcePath, privateUrl, 'storage'); }
   catch { throw new BambuStorageError('transport', 'Could not open printer storage.'); }
-  let closing: Promise<void> | undefined, reading = false;
+  let closing: Promise<void> | undefined, reading = false, sequence = 0, complete = true;
   let pending: Uint8Array[] = [];
   const close = () => {
     if (!closing) {
@@ -50,6 +51,11 @@ export async function openStorageChannel(addonPath: string, sourcePath: string, 
   };
   options.signal?.addEventListener('abort', abort, { once: true });
   const wait = async () => { await delay(5, undefined, { signal: options.signal }); };
+  const send = (nextCommand: number, nextRequest: Record<string, unknown>) => {
+    check(); if (reading || !complete) throw invalidStorageReply();
+    command = nextCommand; complete = false;
+    stream.send(JSON.stringify({ cmdtype: command, sequence: ++sequence, req: nextRequest }));
+  };
   const normalize = (error: unknown) => options.signal?.aborted ? cancelled() : error instanceof BambuStorageError ? error
     : new BambuStorageError('transport', 'Could not read printer storage.');
   try {
@@ -61,10 +67,10 @@ export async function openStorageChannel(addonPath: string, sourcePath: string, 
       await wait();
     }
     check();
-    stream.send(JSON.stringify({ cmdtype: command, sequence: 1, req: request }));
+    if (request !== undefined) send(command, request);
   } catch (error) { await close(); throw normalize(error); }
   return {
-    close,
+    close, send,
     async read() {
       if (reading) throw new BambuStorageError('invalid-response', 'A storage read is already pending.');
       reading = true;
@@ -83,11 +89,13 @@ export async function openStorageChannel(addonPath: string, sourcePath: string, 
           let root: unknown;
           try { root = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(header)); } catch { throw invalidStorageReply(); }
           if (!storageObject(root)) throw invalidStorageReply();
-          if (root.sequence !== 1 || root.result === undefined) continue;
+          if (root.sequence !== sequence || root.result === undefined) continue;
           if (!storageInteger(root.result) || root.cmdtype !== undefined && root.cmdtype !== command) throw invalidStorageReply();
-          if (root.result !== 0 && root.result !== 1)
+          const fileError = command === 2 && [10, 12, 13, 14, 16].includes(root.result);
+          if (root.result !== 0 && root.result !== 1 && !fileError)
             throw new BambuStorageError('device-rejected', 'The printer rejected the storage request.', root.result);
           if (!storageObject(root.reply)) throw invalidStorageReply();
+          complete = root.result !== 1;
           return { result: root.result, reply: root.reply, body };
         }
       } catch (error) { await close(); throw normalize(error); }
