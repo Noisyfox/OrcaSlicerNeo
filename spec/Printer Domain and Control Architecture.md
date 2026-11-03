@@ -3073,6 +3073,18 @@ an existing `camera.test.mjs` startup failure (`No fixture samples`); the isolat
 camera suite and complete serial suite passed. A subsequent unchanged parallel
 run also passed. This is an intermittent test result, not a diagnosed/fixed camera
 problem or evidence of physical thumbnail support.
+
+The [remote-print bridge](../packages/slicer-wasm/src/bridge_remote_print.cpp)
+now wraps Orca's `load_gcode_3mf_from_stream` without accessing live project state
+or activating presets. The runtime builds a metadata-only ZIP; the C++ boundary
+checks its resource allowlist, duplicate names, compressed/expanded budgets and
+plate count before returning agent-facing metadata. Thumbnails remain separately
+owned image resources. A disposable desktop Worker serializes inspection, bounds
+pending admission, terminates on timeout/cancellation and joins teardown before
+the next request. Focused real-threaded-WASM smoke covers two plates, repeat
+inspection and malformed/bounded ZIP cases. This parser boundary alone does not
+enable remote print preparation or physical submission; those integrations remain
+separate acceptance requirements.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the feature envelope and user-facing decisions.
 
