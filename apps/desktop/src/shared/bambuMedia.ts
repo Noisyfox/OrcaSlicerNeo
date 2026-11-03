@@ -6,7 +6,7 @@ export interface BambuMediaInputs { cancelOpen: { requestId: D.Id<'request'> }; 
 export interface BambuMediaResults { cancelOpen: D.Result<null>; open: D.Result<D.MediaDescriptor>; get: D.Result<BambuMediaStatus>; renew: D.Result<D.MediaDescriptor>; close: D.Result<null> }
 export type BambuMediaRequest = { [K in keyof BambuMediaInputs]: { method: K; input: BambuMediaInputs[K] } }[keyof BambuMediaInputs];
 export type BambuMediaCall = <K extends keyof BambuMediaInputs>(method: K, input: BambuMediaInputs[K]) => Promise<BambuMediaResults[K]>;
-export interface BambuMediaAttachment { media: D.MediaRef; streamId: D.Id<'media-stream'>; token: string }
+export interface BambuMediaAttachment { media: D.MediaRef; streamId: D.Id<'media-stream'>; token: string; startSeconds?: number }
 export type BambuMediaMessage = { type: 'packet'; packet: D.MediaStreamPacket } | { type: 'error'; error: D.PrinterError } | { type: 'closed' };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const text = (v: unknown) => typeof v === 'string' && v.length > 0 && v.length <= 512;
@@ -15,7 +15,8 @@ export function isMediaRef(v: unknown): v is D.MediaRef {
   return object(v) && exact(v, ['printerId', 'routeId', 'id']) && text(v.printerId) && text(v.routeId) && text(v.id);
 }
 export function isBambuMediaAttachment(v: unknown): v is BambuMediaAttachment {
-  return object(v) && exact(v, ['media', 'streamId', 'token']) && isMediaRef(v.media) && text(v.streamId) && text(v.token);
+  return object(v) && exact(v, ['media', 'streamId', 'token', 'startSeconds']) && isMediaRef(v.media) && text(v.streamId) && text(v.token)
+    && (v.startSeconds === undefined || typeof v.startSeconds === 'number' && Number.isFinite(v.startSeconds) && v.startSeconds >= 0);
 }
 export function isBambuMediaRequest(v: unknown): v is BambuMediaRequest {
   if (!object(v) || !exact(v, ['method', 'input'])) return false;

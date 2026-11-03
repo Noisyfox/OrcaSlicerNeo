@@ -174,7 +174,7 @@ export class BambuMedia {
   }
   attach(owner: string, attachment: BambuMediaAttachment, port: CameraPort) {
     const r = this.valid(owner, attachment.media), delivery = r?.descriptor?.presentation;
-    if (!r || r.status !== 'ready' || delivery?.kind !== 'video' || !('streamId' in delivery.delivery) || delivery.delivery.streamId !== attachment.streamId || r.attached) {
+    if (attachment.startSeconds !== undefined || !r || r.status !== 'ready' || delivery?.kind !== 'video' || !('streamId' in delivery.delivery) || delivery.delivery.streamId !== attachment.streamId || r.attached) {
       port.postMessage({ type: 'error', error: error('invalid-target', 'Camera stream unavailable.') }); port.close(); return;
     }
     r.attached = true; r.channel.attach(port);

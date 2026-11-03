@@ -36,6 +36,10 @@ export class DesktopPrinterDownloads implements D.PrinterDownloads {
   }
   onChanged(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   async list() { return { ok: true as const, value: this.tasks.list() }; }
+  async resolvePhysical(file: D.RemoteFileRef): Promise<D.Result<{ physicalPrinterKey: string }>> {
+    for (const binding of this.bindings) { const result = await binding.resolve(file); if (result.ok || result.error.code !== 'unsupported') return result; }
+    return fail('unsupported', 'This printer has no file reader on this host.');
+  }
   start(request: Parameters<D.PrinterDownloads['start']>[0]): ReturnType<D.PrinterDownloads['start']> {
     const selected = structuredClone(request);
     const work = this.admission.then(async () => {

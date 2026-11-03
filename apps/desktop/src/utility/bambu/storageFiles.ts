@@ -72,7 +72,7 @@ export class BambuStorageFiles {
       if (current.value.configurationRevision !== revision) return failure('stale-context', 'The printer configuration changed while loading storage.');
       if (options?.signal?.aborted) return failure('cancelled', 'Storage reading was cancelled.');
       const [first, ...rest] = collections.map((item): D.StorageCollection => ({ id: item.id as D.Id<'file-collection'>,
-        name: item.name, kinds: [item.kind], actions: item.kind === 'print-file' ? ['download', 'delete', 'inspect-print'] : ['download', 'delete'] }));
+        name: item.name, kinds: [item.kind], actions: item.kind === 'print-file' ? ['download', 'delete', 'inspect-print'] : ['download', 'delete', 'preview'] }));
       return { ok: true, value: names.map(name => ({ id: name as D.Id<'storage'>,
         name: name === 'internal' ? 'Internal storage' : name === 'sdcard' ? 'SD card' : name === 'udisk' ? 'USB storage' : name,
         kind: name === 'internal' ? 'internal' : name === 'sdcard' || name === 'udisk' ? 'removable' : 'other',
@@ -144,7 +144,9 @@ export class BambuStorageFiles {
     const resolved = await this.resolveFile(ref); if (!resolved.ok) return resolved;
     const address = resolved.value.address;
     const thumbnail = !!address.path && (address.collection !== 'model' || address.name.toLowerCase().endsWith('.3mf'));
-    return { ok: true, value: { file: { ...ref }, options: thumbnail ? [{ id: 'thumbnail' as D.Id<'preview-option'>, kind: 'thumbnail', label: 'Thumbnail', contentFormat: null }] : [] } };
+    const options: D.FilePreviewOption[] = thumbnail ? [{ id: 'thumbnail' as D.Id<'preview-option'>, kind: 'thumbnail', label: 'Thumbnail', contentFormat: null }] : [];
+    if (address.collection !== 'model') options.push({ id: 'video' as D.Id<'preview-option'>, kind: 'video', label: 'Play video', contentFormat: null });
+    return { ok: true, value: { file: { ...ref }, options } };
   }
 
   async download(request: { target: D.RemoteFileRef; range?: D.ByteRange }, options?: D.ReadOptions): Promise<D.Result<D.DownloadedFile>> {

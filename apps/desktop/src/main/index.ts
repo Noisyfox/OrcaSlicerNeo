@@ -1,4 +1,5 @@
 import { DesktopPrinterDownloads } from './printerDownloads';
+import { StoredMediaQueue } from './storedMediaQueue';
 import { bambuDownloadBinding } from './bambuDownloads';
 import { downloadDestinationHost } from './downloadDestination';
 import { isDownloadRequest } from '../shared/printerDownloads';
@@ -446,7 +447,14 @@ function registerIpc(): void {
     return summarizeElectronMemory(app.getAppMetrics());
   });
 
-  const cameraIpc = new BambuMediaIpc(() => bambuUtility, isCurrentRenderer);
+  const storedMedia = new StoredMediaQueue(printerDownloads.queue, {
+    resolve: file => printerDownloads.resolvePhysical(file),
+    open: async (owner, request) => await bambuUtility!.media(owner, { method: 'open', input: request }) as import('@orca/printer-control/domain').Result<import('@orca/printer-control/domain').MediaDescriptor>,
+    waitRead: (owner, ref) => bambuUtility!.host('media.waitRead', { owner, ref }),
+    cancelOpen: (owner, requestId) => bambuUtility!.media(owner, { method: 'cancelOpen', input: { requestId } }),
+    close: (owner, ref) => bambuUtility!.media(owner, { method: 'close', input: ref }),
+  });
+  const cameraIpc = new BambuMediaIpc(() => bambuUtility, isCurrentRenderer, storedMedia);
   ipcMain.handle(Ipc.bambuMedia, (event, request: unknown) => cameraIpc.call(event, request));
   ipcMain.on(Ipc.bambuMediaConnect, (event, request: unknown) => { try { cameraIpc.connect(event, request); } catch { /* Reject guest/invalid requests without exposing private state. */ } });
 

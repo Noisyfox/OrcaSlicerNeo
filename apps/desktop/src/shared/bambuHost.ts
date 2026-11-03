@@ -1,12 +1,15 @@
 /** Private main ↔ utility protocol. Never exposed through the application preload. */
 import { isDownloadExecutionRequest, type DownloadExecutionInputs, type DownloadExecutionResults } from './downloadExecution';
 import type { Result } from '@orca/printer-control/domain';
+import type { MediaRef } from '@orca/printer-control/domain';
+import { isMediaRef } from './bambuMedia';
 import type { AccountResult } from '@orca/service-provider';
 export type LoginCompletion =
   | { kind: 'ticket'; ticket: string; autotestToken?: string }
   | { kind: 'user'; data: Record<string, unknown>; autotestToken?: string }
   | { kind: 'tokens'; token: string; refresh: string; expires: string; refreshExpires: string };
 export interface BambuHostInputs extends DownloadExecutionInputs {
+  'media.waitRead': { owner: string; ref: MediaRef };
   'lan.authorize': { candidateId: string; accessCode: string };
   'lan.forget': { deviceId: string; expectedRevision?: string };
   'printers.refresh': null;
@@ -20,6 +23,7 @@ export interface BambuHostInputs extends DownloadExecutionInputs {
   'account.setting': { key: string; value: string };
 }
 export interface BambuHostResults extends DownloadExecutionResults {
+  'media.waitRead': Result<null>;
   'lan.authorize': Result<null>;
   'lan.forget': Result<null>;
   'printers.refresh': AccountResult<void>;
@@ -39,6 +43,7 @@ export function isBambuHostRequest(value: unknown): value is BambuHostRequest {
   const { method, input } = value as BambuHostRequest;
   if (method === 'printers.refresh' || method === 'login.begin' || method === 'account.logout') return input === null;
   if (!input || typeof input !== 'object') return false;
+  if (method === 'media.waitRead') return typeof input.owner === 'string' && isMediaRef(input.ref);
   if (typeof method === 'string' && method.startsWith('download.')) return isDownloadExecutionRequest(method, input as unknown as Record<string, unknown>);
   if (method === 'lan.authorize') return typeof input.candidateId === 'string' && typeof input.accessCode === 'string';
   if (method === 'lan.forget') return typeof input.deviceId === 'string' && (input.expectedRevision === undefined || typeof input.expectedRevision === 'string');
@@ -52,4 +57,4 @@ export function isBambuHostRequest(value: unknown): value is BambuHostRequest {
     || (c.kind === 'tokens' && [c.token, c.refresh, c.expires, c.refreshExpires].every(v => typeof v === 'string') && c.token.length > 0)));
 }
 
-export type BambuAccountRequest = Exclude<BambuHostRequest, { method: 'lan.authorize' | 'lan.forget' | keyof DownloadExecutionInputs }>;
+export type BambuAccountRequest = Exclude<BambuHostRequest, { method: 'lan.authorize' | 'lan.forget' | 'media.waitRead' | keyof DownloadExecutionInputs }>;

@@ -3005,8 +3005,9 @@ include destination selection, progress, cancellation/retry, saved-file opening,
 startup cleanup and close coordination. Confirmed single/batch deletion is also
 implemented through the existing command/operation contract. Optional, visible-card
 thumbnail resources and independent remote print inspection/preparation/dispatch
-are implemented within fixture acceptance. Stored video playback and physical
-qualification remain pending.
+are implemented within fixture acceptance. Stored-video progressive playback now
+has generated AVC acceptance through real Electron main/preload/utility ports.
+LAN authorization recovery and physical qualification remain pending.
 The host-neutral [managed stream executor](../packages/printer-control/src/downloads.ts)
 is implemented independently of host IPC and filesystem bindings: it consumes
 one owned chunk at a time, waits for each sink write and terminal reader checks,
@@ -3018,8 +3019,10 @@ implements FIFO per host-resolved physical printer, a configurable global active
 reader bound, cancellation that joins the executor, and explicit retry/continuation
 of a blocked head. Different routes must resolve to the same physical key in the
 host. The desktop registry admits Bambu downloads to this queue with a provisional
-global limit of two readers; future media execution must register with the same
-queue. Physical mixed download/playback admission remains unqualified.
+global limit of two readers. Stored-video opens use the same queue and physical
+identity resolver; complete local caches release their reader slots while retaining
+the viewing lease. Queue fixtures cover mixed admission and cancellation. Physical
+mixed download/playback admission remains unqualified.
 The [managed task engine](../packages/printer-control/src/downloadTasks.ts) now
 tracks batch/task identity, attempt-scoped progress, private saved receipts,
 isolated failure continuation and blocked-head retry/acknowledgment. Its public
@@ -3475,8 +3478,45 @@ explicit downloads. Persistent reusable cache and a floating player are outside
 the initial scope. Media that cannot progressively play falls back, by user
 choice, to explicit download and opening with the system application, not a
 full-download-then-in-app attempt. Decoder incompatibility also exposes the
-external-player action. Exact media descriptors, transport, format qualification,
-cache limits and crash cleanup remain open; the
+external-player action.
+
+The initial desktop [stored-video owner](../apps/desktop/src/utility/bambu/storageVideos.ts)
+uses the common remote reader with a [disk cache](../apps/desktop/src/utility/media/storedVideoCache.ts)
+and a bounded [progressive MP4 parser](../apps/desktop/src/utility/media/progressiveMp4.ts).
+Its currently qualified subset is fast-start MP4 with one AVC video track and
+non-reordered timestamps. Audio, fragmented input, AVI, tail-moov MP4, other codecs
+and over-limit inputs expose the explicit download alternative. This is an
+implementation qualification limit, not a permanent restriction on other agents
+or future media bindings. No full-download retry feeds the embedded player.
+The current cache admits two resources, bounds each input/cache at 2 GiB and
+bounds headers, sample tables, input chunks and emitted fragments. These limits
+need real-file qualification. Each packet is written before its playable range is
+advertised. The iterator's terminal length/MD5 checks finish before releasing the
+remote reader slot. A late integrity failure stops playback; frames presented
+before that point are not proof of a verified complete download.
+
+Media descriptors expose actual `cachedRanges`, separate from source byte-range
+support. A stream attachment can start at a cached timestamp; the owner selects
+an indexed keyframe and emits fresh initialization. Detaching this finite stream
+does not destroy the viewing lease, allowing seek/replay. The shared finite MSE
+player stops pulling when ahead of playback or at its byte budget, removes
+consumed data and reattaches to disk cache for backward seeking. Renderer memory
+is not proportional to file size. This does not prove bounded memory in the
+pinned native plugin's internal response queue.
+
+Closing/leaving cancels reads, joins disk I/O, revokes the stream and removes the
+owned cache. A process-scoped cache directory supports cold-start orphan cleanup;
+live process directories are preserved. Cleanup errors are reported for explicit
+close/download transitions. A decoder failure releases playback immediately and
+presents an explicit managed download action. It never opens a system application
+before the user requests that action on a completed save.
+[Generated-video Electron acceptance](../apps/desktop/e2e/stored-media.e2e.ts)
+encodes AVC locally, begins playback before the source reaches EOF, checks actual
+decoded pixels after a cached seek, and verifies utility cache deletion after
+close/navigation. Unit coverage exercises FIFO interaction with downloads,
+truncated/over-limit reads, early tail-index rejection and cancellation cleanup.
+No physical Bambu video format or packaged-platform matrix is qualified by these
+fixtures. The
 [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the selected user behavior.
 

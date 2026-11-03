@@ -1,4 +1,5 @@
 import { BambuStorageImages } from './storageImages';
+import { BambuStorageVideos } from './storageVideos';
 import { BambuStoragePrints } from './storagePrints';
 import { RemotePrintInspector } from '../remotePrintInspector';
 import { BambuStorageCommands } from './storageCommands';
@@ -41,6 +42,7 @@ export class BambuRuntime {
   private submissions: BambuPrintSubmissions | null = null;
   private storageSessions: BambuStorageSessions | null = null;
   private storageImages: BambuStorageImages | null = null;
+  private storageVideos: BambuStorageVideos | null = null;
   private storageFiles: BambuStorageFiles | null = null;
   private readonly printInspector = new RemotePrintInspector();
   private storagePrints: BambuStoragePrints | null = null;
@@ -93,6 +95,7 @@ export class BambuRuntime {
       this.storageSessions = new BambuStorageSessions(this.config, agent, this.devices, this.repository, this.storageIo);
       this.storageFiles = new BambuStorageFiles(target => this.storageSessions!.resolve(target));
       this.storageImages = new BambuStorageImages(this.storageFiles, (file, previewId) => this.storagePrints?.thumbnail(file, previewId) ?? null);
+      this.storageVideos = new BambuStorageVideos(this.storageFiles, join(this.config.directory, 'storage-media'), () => this.publish('media'));
       this.submissions = new BambuPrintSubmissions(agent, this.access, this.devices, this.repository, join(this.config.directory, 'submissions'), () => this.publish('control'));
       this.storagePrints = new BambuStoragePrints(this.storageFiles, this.printInspector, request => this.submissions!.prepare(request), Date.now,
         (request, file) => this.submissions!.sendDeviceFile(request, file), () => this.publish('control'));
@@ -102,6 +105,7 @@ export class BambuRuntime {
     } catch {
       await this.storagePrints?.close(); this.storagePrints = null; await this.printInspector.close();
       await this.storageImages?.close(); this.storageImages = null;
+      await this.storageVideos?.close(); this.storageVideos = null;
       await this.storageSessions?.close(); this.storageSessions = null; this.storageFiles = null;
       await this.objectSkipping?.close(); this.objectSkipping = null;
       await this.media?.close(); this.media = null;
@@ -135,6 +139,7 @@ export class BambuRuntime {
     if (request.method === 'download.initialize') return this.downloads.initialize(request.input.root, request.input.parentPid);
     if (request.method === 'download.run') return this.downloads.run(request.input.id, request.input.file, request.input.destination);
     if (request.method === 'download.cancel') { this.downloads.cancel(request.input.id); return null; }
+    if (request.method === 'media.waitRead') return this.storageVideos?.waitRead(request.input.owner, request.input.ref) ?? { ok: false as const, error: { code: 'transport' as const, message: 'Media is unavailable.' } };
     if (request.method === 'lan.authorize' || request.method === 'lan.forget') {
       if (!this.lan || !this.access) throw new Error('Unavailable');
       const lan = this.lan;
@@ -189,21 +194,24 @@ export class BambuRuntime {
   }
   async mediaCall(owner: string, request: BambuMediaRequest) {
     await this.ready;
-    if (request.method === 'cancelOpen') { await Promise.all([this.storageImages?.call(owner, request), this.media?.call(owner, request)]); return { ok: true as const, value: null }; }
+    if (request.method === 'cancelOpen') { await Promise.all([this.storageVideos?.call(owner, request), this.storageImages?.call(owner, request), this.media?.call(owner, request)]); return { ok: true as const, value: null }; }
+    if (this.storageVideos && (request.method === 'open' ? request.input.source.kind === 'file-preview' && request.input.source.previewId === 'video' : this.storageVideos.owns(request.input))) return this.storageVideos.call(owner, request);
     if (this.storageImages && (request.method === 'open' ? request.input.source.kind === 'file-preview' : this.storageImages.owns(request.input))) return this.storageImages.call(owner, request);
     return this.media ? this.media.call(owner, request) : { ok: false as const, error: { code: 'transport' as const, message: 'Camera unavailable.' } };
   }
   async mediaAttach(owner: string, request: BambuMediaAttachment, port: CameraPort) {
     await this.ready;
+    if (this.storageVideos?.owns(request.media)) { await this.storageVideos.attach(owner, request, port); return; }
     if (this.media) this.media.attach(owner, request, port); else port.close();
   }
-  async mediaCloseOwner(owner: string) { await this.ready; await this.storageImages?.closeOwner(owner); await this.media?.closeOwner(owner); }
+  async mediaCloseOwner(owner: string) { await this.ready; await this.storageVideos?.closeOwner(owner); await this.storageImages?.closeOwner(owner); await this.media?.closeOwner(owner); }
   async close() { await this.ready; this.closing = true;
     for (const read of this.storageReads.values()) read.controller.abort();
     await this.printInspector.close(); await this.storagePrints?.close();
     let downloadFailure: unknown;
     try { await this.downloads.close(); } catch (error) { downloadFailure = error; }
     await this.storageImages?.close();
+    await this.storageVideos?.close();
     await this.storageSessions?.close(); await Promise.all([...this.storageReads.values()].map(read => read.done));
     await this.operations?.close(); this.monitor?.close(); await this.submissions?.close(); await this.objectSkipping?.close(); await this.media?.close(); await this.access?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; if (downloadFailure) throw downloadFailure; }
 }

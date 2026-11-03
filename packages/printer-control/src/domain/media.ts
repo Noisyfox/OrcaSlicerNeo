@@ -87,6 +87,8 @@ export type MediaPresentation = {
   seekable: boolean;
   codecId: string | null;
   live: boolean;
+  /** Actual playable disk-cache ranges. Absent for live media and providers without indexed caching. */
+  cachedRanges?: readonly { startSeconds: number; endSeconds: number }[];
 } | {
   kind: 'image';
   mimeType: string;
@@ -181,7 +183,7 @@ export interface PrinterMedia {
    * New generations begin at sequence zero with init+IDR or a complete JPEG.
    * Providers bound pending bytes independently of consumer speed; they never silently drop AVC.
    */
-  readStream(request: { media: MediaRef; streamId: Id<'media-stream'> }, options?: ReadOptions): AsyncIterable<MediaStreamPacket>;
+  readStream(request: { media: MediaRef; streamId: Id<'media-stream'>; startSeconds?: number }, options?: ReadOptions): AsyncIterable<MediaStreamPacket>;
   /** Delivery may change URLs/negotiation; inspect the returned revision. */
   renew(ref: MediaRef, options?: ReadOptions): Promise<Result<MediaDescriptor>>;
   /** Reject stale negotiation IDs and non-WebRTC resources. */

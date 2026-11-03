@@ -50,9 +50,10 @@ and [agent streams / host-owned downloads](../spec/Printer%20Domain%20and%20Cont
 The product and cross-host architecture decisions are recorded, with Bambu as
 the first agent. Implementation is authorized in verified increments; the direct
 scoped-file contract and initial shared browser are delivered with fixture coverage.
-Host-neutral streaming/FIFO, desktop file saving and native Bambu file operations
-are implemented as separately tested modules. Task/action/media integration and
-physical qualification remain in progress.
+Host-neutral streaming/FIFO, desktop managed saving, confirmed deletion, independent
+device-file print preparation and progressive stored-video playback are integrated
+with fixture acceptance. LAN authorization recovery and physical qualification
+remain in progress.
 
 ## Engineering references
 

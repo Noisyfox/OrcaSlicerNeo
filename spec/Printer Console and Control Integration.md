@@ -663,9 +663,14 @@ agent-provided target selection and plate thumbnails, shared material/options UI
 warning confirmation and one-shot start dispatch. It does not read/export the
 current slice or lock/modify the Project. Fixture E2E selects a second plate and
 observes a provider submission receipt; component tests cover late inspection
-cleanup and uncertain-start duplicate prevention. Stored-media playback and
-physical acceptance remain pending; the complete initial delivery is not yet
-qualified.
+cleanup and uncertain-start duplicate prevention. Stored video now has an explicit
+single-selection Play action, progressive embedded playback, a cached-range seek
+control and an explicit managed-download/system-player alternative. Closing the
+viewer or leaving Storage releases its lease and temporary cache. Generated AVC
+acceptance exercises real Electron decoding, seeking and utility cleanup; component
+tests cover unsupported-format fallback and cancellation of late opens. Missing
+LAN authorization recovery and physical acceptance remain pending; the complete
+initial delivery is not yet qualified.
 
 The [printer-domain Storage design](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)
 owns provider contracts, binary transport, host save ownership, the pinned Bambu
@@ -710,8 +715,9 @@ leaving Storage or switching printers stops playback, cancels outstanding media
 reads and cleans the cache. No floating player or persistent reusable playback
 cache is included in this delivery. Explicitly saved downloads are not cache
 entries and must not be deleted by playback cleanup. Independent download tasks
-and an already-open system player are unaffected by leaving Storage. Cache
-quotas and crash/cleanup-error mechanics remain execution-design work.
+and an already-open system player are unaffected by leaving Storage. The printer-domain specification records the implemented cache limits and
+crash/cleanup-error behavior; physical format and resource-limit qualification
+remain open.
 
 Seeking follows the effective capabilities of the reader and the media:
 

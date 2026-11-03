@@ -92,7 +92,7 @@ export function bambuMedia(bridge: BambuBridge): D.PrinterMedia {
       finally {
         clearTimeout(timeout); window.removeEventListener('message', receive); options?.signal?.removeEventListener('abort', abort); port?.close();
         // Bambu has one consumer; detachment ends that native view. close remains idempotent.
-        await bridge.media('close', request.media).catch(() => {});
+        if (!request.media.id.startsWith('storage-video:')) await bridge.media('close', request.media).catch(() => {});
       }
     },
   };
