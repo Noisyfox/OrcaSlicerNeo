@@ -4,6 +4,7 @@ import type { MaterialMetadata, MaterialMetadataPatch, PrintMaterialBinding, Mat
 import type { PrintFormatId, RemoteFileRef, RemoteFile, UploadProgress } from './files';
 import type { TimelapseSetting } from './media';
 import type { PrintObjectContextRef } from './objects';
+import type { PrintOptions } from './print-options';
 export interface CommandSpec<P, C extends object, R = null> {
   params: P;
   constraints: C;
@@ -32,9 +33,11 @@ export interface PrinterCommandSpecs {
   'jobs.start': CommandSpec<{
     source: RemoteFileRef;
     bindings: readonly PrintMaterialBinding[];
-    options?: {
-      timelapse?: readonly TimelapseSetting[];
-    };
+    /** Required by agents whose device files expose inspected print targets. */
+    inspection?: { id: Id<'print-inspection'>; targetId: Id<'print-target'> };
+    options?: PrintOptions;
+    acknowledgedIssues?: readonly string[];
+    allowAbnormalStorage?: boolean;
   }, {
     sources: NonEmptyReadonlyArray<{
       storageId: Id<'storage'>;
@@ -252,7 +255,7 @@ export interface OperationBase {
   revision: number;
   updatedAtMs: UnixMs;
 }
-export type CommandStepPhase = OperationPhase<null> | { kind: 'accepted' } | { kind: 'not-sent'; reason: string };
+export type CommandStepPhase = OperationPhase<null> | { kind: 'accepted' } | { kind: 'submitted' } | { kind: 'not-sent'; reason: string };
 export interface CommandStepOutcome { label: string; phase: CommandStepPhase }
 export type CommandOperation = { [K in CommandName]: OperationBase & {
   kind: 'command';
@@ -262,6 +265,10 @@ export type CommandOperation = { [K in CommandName]: OperationBase & {
   phase: OperationPhase<PrinterCommandSpecs[K]['result']> | {
     /** Terminal device acknowledgement when physical completion cannot be observed. */
     kind: 'accepted';
+  } | {
+    /** Terminal provider send receipt; device acknowledgement/physical completion
+     * has not been established. Observe the printer separately. */
+    kind: 'submitted';
   };
 } }[CommandName];
 export type UploadOperation = OperationBase & {

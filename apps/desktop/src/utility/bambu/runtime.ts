@@ -94,12 +94,13 @@ export class BambuRuntime {
       this.storageFiles = new BambuStorageFiles(target => this.storageSessions!.resolve(target));
       this.storageImages = new BambuStorageImages(this.storageFiles);
       this.submissions = new BambuPrintSubmissions(agent, this.access, this.devices, this.repository, join(this.config.directory, 'submissions'), () => this.publish('control'));
-      this.storagePrints = new BambuStoragePrints(this.storageFiles, this.printInspector, request => this.submissions!.prepare(request));
-      this.operations = new BambuOperations(this.monitor, () => this.publish('control'), undefined, undefined, new BambuStorageCommands(this.storageFiles, () => this.publish('control')));
+      this.storagePrints = new BambuStoragePrints(this.storageFiles, this.printInspector, request => this.submissions!.prepare(request), Date.now,
+        (request, file) => this.submissions!.sendDeviceFile(request, file), () => this.publish('control'));
+      this.operations = new BambuOperations(this.monitor, () => this.publish('control'), undefined, undefined, new BambuStorageCommands(this.storageFiles, () => this.publish('control')), this.storagePrints);
       this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
     } catch {
-      this.storagePrints?.close(); this.storagePrints = null; await this.printInspector.close();
+      await this.storagePrints?.close(); this.storagePrints = null; await this.printInspector.close();
       await this.storageImages?.close(); this.storageImages = null;
       await this.storageSessions?.close(); this.storageSessions = null; this.storageFiles = null;
       await this.objectSkipping?.close(); this.objectSkipping = null;
@@ -199,7 +200,7 @@ export class BambuRuntime {
   async mediaCloseOwner(owner: string) { await this.ready; await this.storageImages?.closeOwner(owner); await this.media?.closeOwner(owner); }
   async close() { await this.ready; this.closing = true;
     for (const read of this.storageReads.values()) read.controller.abort();
-    await this.printInspector.close(); this.storagePrints?.close();
+    await this.printInspector.close(); await this.storagePrints?.close();
     let downloadFailure: unknown;
     try { await this.downloads.close(); } catch (error) { downloadFailure = error; }
     await this.storageImages?.close();

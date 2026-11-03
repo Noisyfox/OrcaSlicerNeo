@@ -27,7 +27,7 @@ describe('Bambu storage file adapter', () => {
     const storages = unwrap(await f.files.listStorages(target));
     expect(storages.map(storage => [storage.name, storage.kind])).toEqual([['SD card', 'removable'], ['Internal storage', 'internal']]);
     expect(storages[0].browsing).toMatchObject({ kind: 'supported', constraints: { kind: 'collections', collections: [
-      { name: 'Print files', kinds: ['print-file'], actions: ['download', 'delete'] },
+      { name: 'Print files', kinds: ['print-file'], actions: ['download', 'delete', 'inspect-print'] },
       { name: 'Timelapses', kinds: ['timelapse'] }, { name: 'Recordings', kinds: ['recording'] },
     ] } });
   });

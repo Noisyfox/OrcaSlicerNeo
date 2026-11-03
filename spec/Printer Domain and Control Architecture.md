@@ -3101,8 +3101,15 @@ requirements and native paths are rejected at IPC admission. Missing subfiles do
 not trigger a full archive download. Ambiguous nozzle mappings block that target;
 missing thermal/hardness metadata requires an explicit print warning. Contexts
 are bounded and released explicitly or evicted/expired; they do not attest to
-remote content freshness. Shared target-selection UI and command dispatch remain
-the next integration boundary.
+remote content freshness. `jobs.start` now accepts the inspected target and
+normal print options/bindings. Bambu re-resolves agent-owned requirements,
+requires current warning acknowledgement, and shares print admission with local
+artifact sends. The device-file path never stages/uploads an archive and never
+falls back by resending an uncertain start. A `submitted` command outcome means
+the provider returned a successful send receipt, not a device acknowledgement or
+physical-print confirmation. Connection-time configuration/state is rechecked
+before dispatch. Shared target-selection UI and physical qualification remain
+separate integration requirements.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the feature envelope and user-facing decisions.
 

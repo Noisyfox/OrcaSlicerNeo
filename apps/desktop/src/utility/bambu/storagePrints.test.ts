@@ -18,10 +18,29 @@ async function fixture(name = 'part.gcode.3mf', metadata: RemotePrintMetadata = 
   const inspect = vi.fn(async () => metadata), prepare = vi.fn(async (): Promise<D.Result<D.PrintPreparation>> => ({ ok: true, value: {
     nozzleLabels: [], materialCatalogIds: [], configurationRevision: 'r1', route: 'lan', bindings: [], candidates: [], options: {}, optionDescriptors: [], issues: [],
   } }));
-  const prints = new BambuStoragePrints(files, { inspect }, prepare, () => now);
-  return { source, file: page.value.files[0].ref, prints, inspect, prepare, advance: () => { now += 31 * 60_000; } };
+  const execute = vi.fn(async (): Promise<D.Result<'sent' | 'unknown'>> => ({ ok: true, value: 'sent' }));
+  const prints = new BambuStoragePrints(files, { inspect }, prepare, () => now, execute);
+  return { source, file: page.value.files[0].ref, prints, inspect, prepare, execute, advance: () => { now += 31 * 60_000; } };
 }
 describe('device-file inspection contexts', () => {
+  it('requires current warning acknowledgement and records submitted separately from confirmed printing', async () => {
+    const f = await fixture(), inspection = await f.prints.inspect(f.file); if (!inspection.ok) throw new Error('fixture');
+    const request = { target, requestId: 'start' as D.Id<'request'>, command: { type: 'jobs.start' as const, params: {
+      source: f.file, inspection: { id: inspection.value.ref.id, targetId: inspection.value.targets[0].id }, bindings: [], acknowledgedIssues: [] as string[],
+    } } };
+    expect(await f.prints.submit(request)).toMatchObject({ kind: 'rejected', error: { code: 'precondition-failed' } });
+    expect(f.execute).not.toHaveBeenCalled();
+    request.command.params.acknowledgedIssues = ['remote-material-metadata'];
+    const result = await f.prints.submit(request); if (result.kind !== 'recorded') throw new Error('fixture');
+    await vi.waitFor(() => expect(f.prints.get(result.operation)).toMatchObject({ kind: 'found', operation: { phase: { kind: 'submitted' } } }));
+    expect(f.execute).toHaveBeenCalledWith(expect.objectContaining({ requirements: expect.objectContaining({ plateId: 'plate:0' }) }), { name: 'part.gcode.3mf', path: '/part.gcode.3mf', plateIndex: 0 });
+    expect(f.prints.get({ ...result.operation, routeId: 'other' as D.Id<'route'> })).toMatchObject({ kind: 'unknown' });
+    f.execute.mockResolvedValueOnce({ ok: true, value: 'unknown' });
+    const uncertain = await f.prints.submit({ ...request, requestId: 'second' as D.Id<'request'> }); if (uncertain.kind !== 'recorded') throw new Error('fixture');
+    await f.prints.close();
+    expect(f.prints.get(uncertain.operation)).toMatchObject({ kind: 'found', operation: { phase: { kind: 'outcome-unknown' } } });
+    expect(f.execute).toHaveBeenCalledTimes(2);
+  });
   it('reads bounded metadata without full download and prepares only the selected agent-owned plate', async () => {
     const f = await fixture(), result = await f.prints.inspect(f.file);
     expect(result.ok).toBe(true); if (!result.ok) return;

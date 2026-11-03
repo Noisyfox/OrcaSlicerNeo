@@ -72,7 +72,7 @@ export class BambuStorageFiles {
       if (current.value.configurationRevision !== revision) return failure('stale-context', 'The printer configuration changed while loading storage.');
       if (options?.signal?.aborted) return failure('cancelled', 'Storage reading was cancelled.');
       const [first, ...rest] = collections.map((item): D.StorageCollection => ({ id: item.id as D.Id<'file-collection'>,
-        name: item.name, kinds: [item.kind], actions: ['download', 'delete'] }));
+        name: item.name, kinds: [item.kind], actions: item.kind === 'print-file' ? ['download', 'delete', 'inspect-print'] : ['download', 'delete'] }));
       return { ok: true, value: names.map(name => ({ id: name as D.Id<'storage'>,
         name: name === 'internal' ? 'Internal storage' : name === 'sdcard' ? 'SD card' : name === 'udisk' ? 'USB storage' : name,
         kind: name === 'internal' ? 'internal' : name === 'sdcard' || name === 'udisk' ? 'removable' : 'other',

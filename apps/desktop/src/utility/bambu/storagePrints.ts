@@ -6,16 +6,22 @@ import { BambuStorageFiles, storageFailure } from './storageFiles';
 
 const failure = (code: D.ErrorCode, message: string): D.Result<never> => ({ ok: false, error: { code, message } });
 interface Context { value: D.RemotePrintInspection; name: string; path: string; warnings: Map<string, D.PrintIssue[]> }
+type StartRequest = Extract<D.CommandRequest, { command: D.CommandOf<'jobs.start'> }>;
+type Execute = (request: D.PrintSubmissionRequest, file: { path: string; name: string; plateIndex: number }) => Promise<D.Result<'sent' | 'unknown'>>;
 
 /** Metadata and preparation contexts belong to this agent, never to a Project.
  * Context identity scopes a selected plate; it does not identify file contents. */
 export class BambuStoragePrints implements D.PrinterRemotePrints {
   private contexts = new Map<string, Context>();
+  private operations = new Map<string, D.CommandOperation>();
+  private active = new Set<Promise<void>>();
+  private closed = false;
   constructor(private readonly files: BambuStorageFiles, private readonly inspector: Pick<RemotePrintInspector, 'inspect'>,
     private readonly preparePrint: (r: D.PrintPreparationRequest) => Promise<D.Result<D.PrintPreparation>>,
-    private readonly now = () => Date.now()) {}
+    private readonly now = () => Date.now(), private readonly execute?: Execute, private readonly changed = () => {}) {}
 
   async inspect(file: D.RemoteFileRef, options?: D.ReadOptions): Promise<D.Result<D.RemotePrintInspection>> {
+    if (this.closed) return failure('cancelled', 'Storage printing is closing.');
     const source = await this.files.resolveFile(file); if (!source.ok) return source;
     const { name, path, collection } = source.value.address;
     if (collection !== 'model' || !name.endsWith('.gcode.3mf') || !path)
@@ -81,7 +87,71 @@ export class BambuStoragePrints implements D.PrinterRemotePrints {
     if (context && sameFile(context.value.ref.file, ref.file)) this.contexts.delete(ref.id);
     return { ok: true, value: null };
   }
-  close(): void { this.contexts.clear(); }
+  async evaluate(target: D.PrinterTarget, command: D.CommandOf<'jobs.start'>): Promise<D.Result<D.CommandEvaluation>> {
+    const p = command.params;
+    if (!p.inspection || target.printerId !== p.source.printerId || target.routeId !== p.source.routeId)
+      return failure('invalid-target', 'Select an inspected print target on this printer.');
+    const prepared = await this.prepare({ inspection: { file: p.source, id: p.inspection.id }, targetId: p.inspection.targetId,
+      bindings: p.bindings, options: p.options ?? {}, suggest: false, allowAbnormalStorage: p.allowAbnormalStorage ?? false });
+    if (!prepared.ok) return prepared;
+    const blocking = prepared.value.issues.filter(i => i.severity === 'block');
+    return { ok: true, value: { basis: { capabilityRevision: 'bambu-storage-1' }, availability: blocking.length
+      ? { kind: 'blocked', reasons: blocking.map(i => ({ code: 'precondition-failed', message: i.message })) } : { kind: 'available' },
+      warnings: prepared.value.issues.filter(i => i.severity === 'warning').map(i => ({ id: i.id, message: i.message, helpUrl: null })) } };
+  }
+  async submit(request: StartRequest): Promise<D.Submission> {
+    const reject = (code: D.ErrorCode, message: string): D.Submission => ({ kind: 'rejected', error: { code, message } });
+    if (this.closed || !this.execute) return reject('unsupported', 'Device-file printing is unavailable.');
+    const p = request.command.params, file = p.source;
+    if (!p.inspection || request.target.printerId !== file.printerId || request.target.routeId !== file.routeId)
+      return reject('invalid-target', 'Select an inspected print target on this printer.');
+    if (request.target.expectedConfigurationRevision !== undefined && request.target.expectedConfigurationRevision !== file.configurationRevision)
+      return reject('stale-context', 'The printer configuration changed.');
+    if (Object.entries(request.guard ?? {}).some(([key, value]) => key !== 'capabilityRevision' || value !== 'bambu-storage-1'))
+      return reject('stale-context', 'Review the current print preparation before sending.');
+    const selected = this.resolve({ file, id: p.inspection.id }, p.inspection.targetId); if (!selected.ok) return { kind: 'rejected', error: selected.error };
+    const prepared = await this.prepare({ inspection: { file, id: p.inspection.id }, targetId: p.inspection.targetId,
+      bindings: p.bindings, options: p.options ?? {}, suggest: false, allowAbnormalStorage: p.allowAbnormalStorage ?? false, checkRecording: true });
+    if (!prepared.ok) return { kind: 'rejected', error: prepared.error };
+    const issue = prepared.value.issues.find(i => i.severity === 'block' || i.severity === 'warning' && !p.acknowledgedIssues?.includes(i.id));
+    if (issue) return reject('precondition-failed', issue.message);
+    if (prepared.value.recordingSpace?.status === 'insufficient' && prepared.value.options.timelapse)
+      return reject('precondition-failed', 'Disable timelapse or free recording space before printing.');
+    if (this.closed || this.active.size >= 4) return reject('busy', 'Wait for the current device-file print request.');
+    const { context, target } = selected.value;
+    const operation: D.CommandOperation = { kind: 'command', commandType: 'jobs.start',
+      ref: { printerId: file.printerId, routeId: file.routeId, id: randomUUID() as D.Id<'operation'> }, requestId: request.requestId,
+      configurationRevision: file.configurationRevision, revision: 1, updatedAtMs: this.now(), phase: { kind: 'sent' },
+      steps: [{ label: `${context.name} — ${target.label}`, phase: { kind: 'sent' } }] };
+    this.operations.set(operation.ref.id, operation); this.changed();
+    const work = (async () => {
+      let phase: D.CommandOperation['phase'];
+      try {
+        const result = await this.execute!({ target: { ...request.target, expectedConfigurationRevision: file.configurationRevision },
+          requestId: request.requestId, requirements: target.requirements!, bindings: p.bindings, options: p.options ?? {},
+          allowAbnormalStorage: p.allowAbnormalStorage ?? false, jobName: context.name, acknowledgedIssues: p.acknowledgedIssues ?? [] },
+        { path: context.path, name: context.name, plateIndex: Number(target.id.slice(6)) });
+        phase = !result.ok ? { kind: 'failed', error: result.error } : result.value === 'sent' ? { kind: 'submitted' }
+          : { kind: 'outcome-unknown', reason: 'Print start is unconfirmed. Check the printer before sending another request.' };
+      } catch { phase = { kind: 'outcome-unknown', reason: 'Print start is unconfirmed. Check the printer before sending another request.' }; }
+      this.operations.set(operation.ref.id, { ...operation, phase, steps: [{ ...operation.steps[0], phase }], revision: 2, updatedAtMs: this.now() });
+      const finished = [...this.operations.values()].filter(v => v.phase.kind !== 'sent');
+      for (const old of finished.slice(0, Math.max(0, finished.length - 200))) this.operations.delete(old.ref.id);
+      this.changed();
+    })().finally(() => this.active.delete(work));
+    this.active.add(work);
+    return { kind: 'recorded', operation: operation.ref };
+  }
+  get(ref: D.OperationRef): D.OperationLookup {
+    const operation = this.operations.get(ref.id);
+    return operation && operation.ref.printerId === ref.printerId && operation.ref.routeId === ref.routeId
+      ? { kind: 'found', operation: structuredClone(operation) } : { kind: 'unknown', reason: 'not-found' };
+  }
+  find(request: D.RequestLookup): D.OperationLookup {
+    const operation = [...this.operations.values()].find(o => o.requestId === request.requestId && o.ref.printerId === request.printerId && o.ref.routeId === request.routeId);
+    return operation ? this.get(operation.ref) : { kind: 'unknown', reason: 'not-found' };
+  }
+  async close(): Promise<void> { this.closed = true; this.contexts.clear(); await Promise.allSettled([...this.active]); }
 }
 
 function sameFile(a: D.RemoteFileRef, b: D.RemoteFileRef) {

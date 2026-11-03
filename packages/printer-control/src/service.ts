@@ -223,7 +223,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
     if (guard?.inventoryRevision !== undefined) fail('unsupported', 'Inventory comparison is unavailable');
     if (command.type === 'jobs.start') {
       filePath(command.params.source, target, resolved.entry);
-      if (command.params.bindings.length || command.params.options?.timelapse?.length) fail('unsupported', 'Material mappings and timelapse options are unavailable');
+      if (command.params.bindings.length || command.params.inspection || Object.keys(command.params.options ?? {}).length || command.params.acknowledgedIssues?.length || command.params.allowAbnormalStorage) fail('unsupported', 'Prepared device-file printing is unavailable for this agent');
     } else if (command.type === 'jobs.pause' || command.type === 'jobs.resume' || command.type === 'jobs.cancel') {
       if (!command.params || typeof command.params !== 'object' || Array.isArray(command.params) || Object.keys(command.params).length) fail('invalid-request', 'Current-print controls take no parameters');
     }

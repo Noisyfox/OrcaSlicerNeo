@@ -21,6 +21,9 @@ export class BambuPrintSubmissions {
   private jobs = new Map<string, Job>();
   private queue: Promise<unknown> = Promise.resolve();
   private active: Job | null = null;
+  private remoteActive = false;
+  private remoteJobs = new Set<Promise<unknown>>();
+  private closed = false;
   private sequence = 800000;
   private queries = new Map<string, { deviceId: string; resolve(value: Record<string, unknown> | null): void }>();
   constructor(private readonly native: BambuNative, private readonly access: BambuDeviceAccess,
@@ -43,7 +46,7 @@ export class BambuPrintSubmissions {
     if (!context.ok) return context;
     const delivery = await this.delivery(request.target, context.value, request.allowAbnormalStorage);
     const value = prepareBambuPrint(request, context.value, delivery.route);
-    if (this.active && !final(this.active.state.phase)) value.issues = [...value.issues, { id: 'submission-busy', severity: 'block', message: 'Another print submission is still active.' }];
+    if (this.remoteActive || this.active && !final(this.active.state.phase)) value.issues = [...value.issues, { id: 'submission-busy', severity: 'block', message: 'Another print submission is still active.' }];
     if (request.checkRecording && value.options.timelapse && context.value.machine.internalRecording && !value.issues.some(i => i.severity === 'block')) {
       const token = await this.access.acquire(request.target);
       if (!token.ok) return token;
@@ -73,7 +76,7 @@ export class BambuPrintSubmissions {
       const signature = JSON.stringify(input), r = input.request;
       const previous = [...this.jobs.values()].find(j => j.request.requestId === r.requestId && j.state.ref.printerId === r.target.printerId && j.state.ref.routeId === r.target.routeId);
       if (previous) return previous.signature === signature ? { ok: true, value: { ref: previous.state.ref, created: false } } : error('Request ID was already used for different print content.', 'invalid-request');
-      if (this.active) return error('Another print submission is still active.', 'busy');
+      if (this.closed || this.active || this.remoteActive) return error('Another print submission is active or the application is closing.', 'busy');
       const token = await this.access.acquire(r.target); if (!token.ok) return token;
       let directory: string | null = null;
       const files = new Map<string, File>();
@@ -169,6 +172,53 @@ export class BambuPrintSubmissions {
       else await this.finish(job, result.cancelRequested || result.code === -18 ? 'cancelled' : 'failed', result.cancelRequested ? 'Sending cancelled.' : 'Sending failed. You can retry.');
     } catch { if (!nativeInvoked) { await this.finish(job, cancelling(job) ? 'cancelled' : 'failed', 'Sending did not start. You can retry.'); return; } if (!final(job.state.phase)) await this.finish(job, 'unknown', 'The sending outcome is unknown. Check the printer.'); }
   }
+  /** Existing device files use the plugin's SD-card entrypoint. They never
+   * export, stage or upload an artifact. Admission is shared with local sends. */
+  sendDeviceFile(request: D.PrintSubmissionRequest, file: { path: string; name: string; plateIndex: number }): Promise<D.Result<'sent' | 'unknown'>> {
+    const work = this.sendRemote(request, file);
+    this.remoteJobs.add(work);
+    void work.finally(() => this.remoteJobs.delete(work)).catch(() => {});
+    return work;
+  }
+  private async sendRemote(request: D.PrintSubmissionRequest, file: { path: string; name: string; plateIndex: number }): Promise<D.Result<'sent' | 'unknown'>> {
+    const admitted = await this.serialize(async () => {
+      if (this.closed || this.active || this.remoteActive) return false;
+      this.remoteActive = true; return true;
+    });
+    if (!admitted) return error('Another print submission is active or the application is closing.', 'busy');
+    let token: string | null = null, invoked = false;
+    try {
+      const lease = await this.access.acquire(request.target); if (!lease.ok) return lease;
+      token = lease.value;
+      const context = await this.access.context(request.target); if (!context.ok) return context;
+      if (context.value.configurationRevision !== request.target.expectedConfigurationRevision) return error('The printer configuration changed.', 'stale-context');
+      const delivery = await this.delivery(request.target, context.value, request.allowAbnormalStorage);
+      const prepared = prepareBambuPrint({ ...request, suggest: false }, context.value, delivery.route);
+      const issue = prepared.issues.find(i => i.severity === 'block' || i.severity === 'warning' && !request.acknowledgedIssues.includes(i.id));
+      if (issue) return error(issue.message);
+      if (!delivery.device || !delivery.route) return error('The printer route is unavailable.', 'transport');
+      const lan = delivery.lan;
+      if (delivery.route === 'lan' && lan) {
+        await this.native.installDeviceCertificate(delivery.device.deviceId, !delivery.cloud);
+        if (await this.native.connectPrinter(lan.deviceId, lan.ip, 'bblp', lan.accessCode, true) !== 0) return error('The printer connection failed.', 'transport');
+      }
+      if (this.closed) return error('The application is closing.', 'cancelled');
+      const current = await this.access.context(request.target); if (!current.ok) return current;
+      if (current.value.configurationRevision !== request.target.expectedConfigurationRevision) return error('The printer configuration changed.', 'stale-context');
+      const finalPreparation = prepareBambuPrint({ ...request, suggest: false }, current.value, delivery.route);
+      const finalIssue = finalPreparation.issues.find(i => i.severity === 'block' || i.severity === 'warning' && !request.acknowledgedIssues.includes(i.id));
+      if (finalIssue) return error(finalIssue.message);
+      const params = printParameters(request, finalPreparation, { display: file.name, remote: file.name }, current.value.machine);
+      invoked = true;
+      const result = await this.native.startPrint('device-file', { ...params, dev_id: delivery.device.deviceId, dev_name: delivery.device.name,
+        filename: '', config_filename: '', ftp_file: '', project_name: file.name, dst_file: file.path,
+        plate_index: file.plateIndex + 1, print_type: 'from_sdcard_view', connection_type: delivery.route,
+        dev_ip: lan?.ip ?? '', username: 'bblp', password: lan?.accessCode ?? '', use_ssl_for_ftp: true, use_ssl_for_mqtt: true });
+      return result.code >= 0 ? { ok: true, value: 'sent' } : result.mayHaveStarted ? { ok: true, value: 'unknown' }
+        : error('The printer did not accept the device-file print request.', result.cancelRequested ? 'cancelled' : 'device-rejected');
+    } catch { return invoked ? { ok: true, value: 'unknown' } : error('Device-file printing could not be prepared.', 'transport'); }
+    finally { this.remoteActive = false; if (token) await this.access.stop(token).catch(() => {}); this.changed(); }
+  }
   async cancel(ref: D.PrintSubmissionRef): Promise<D.Result<D.PrintSubmissionState>> {
     const job = this.job(ref); if (!job) return error('Unknown submission.', 'invalid-target');
     if (job.state.phase === 'staging') return this.serialize(async () => { if (job.state.phase === 'staging') await this.finish(job, 'cancelled', 'Sending cancelled.'); return this.get(ref); });
@@ -200,5 +250,5 @@ export class BambuPrintSubmissions {
     const camera = record(root.camera), query = this.queries.get(String(camera.sequence_id));
     if (query?.deviceId === event.args[0] && camera.command === 'ipcam_get_media_info' && camera.sub_command === 'is_timelapse_storage_enough') query.resolve(camera);
   }
-  async close() { for (const query of this.queries.values()) query.resolve(null); for (const job of this.jobs.values()) { if (job.timer) clearTimeout(job.timer); await job.nativeDone; await this.release(job); } }
+  async close() { this.closed = true; for (const query of this.queries.values()) query.resolve(null); await Promise.allSettled([...this.remoteJobs]); for (const job of this.jobs.values()) { if (job.timer) clearTimeout(job.timer); await job.nativeDone; await this.release(job); } }
 }
