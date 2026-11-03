@@ -1,0 +1,129 @@
+import { randomUUID } from 'node:crypto';
+import type * as D from '@orca/printer-control/domain';
+import { REMOTE_PRINT_RESOURCES, type RemotePrintMetadata, type RemotePrintResourceBytes } from '../../../../../packages/slicer-runtime/src/core';
+import type { RemotePrintInspector } from '../remotePrintInspector';
+import { BambuStorageFiles, storageFailure } from './storageFiles';
+
+const failure = (code: D.ErrorCode, message: string): D.Result<never> => ({ ok: false, error: { code, message } });
+interface Context { value: D.RemotePrintInspection; name: string; path: string; warnings: Map<string, D.PrintIssue[]> }
+
+/** Metadata and preparation contexts belong to this agent, never to a Project.
+ * Context identity scopes a selected plate; it does not identify file contents. */
+export class BambuStoragePrints implements D.PrinterRemotePrints {
+  private contexts = new Map<string, Context>();
+  constructor(private readonly files: BambuStorageFiles, private readonly inspector: Pick<RemotePrintInspector, 'inspect'>,
+    private readonly preparePrint: (r: D.PrintPreparationRequest) => Promise<D.Result<D.PrintPreparation>>,
+    private readonly now = () => Date.now()) {}
+
+  async inspect(file: D.RemoteFileRef, options?: D.ReadOptions): Promise<D.Result<D.RemotePrintInspection>> {
+    const source = await this.files.resolveFile(file); if (!source.ok) return source;
+    const { name, path, collection } = source.value.address;
+    if (collection !== 'model' || !name.endsWith('.gcode.3mf') || !path)
+      return failure('unsupported', 'This agent currently inspects sliced .gcode.3mf device files.');
+    const normalized = name.replace(/^[. /\\]+/, '').replace(/[ .]+$/, '').replace(/[\x00-\x1f/\\]/g, '_');
+    if (normalized !== name) return failure('unsupported', 'The printer plugin would change this file name. Rename it before printing.');
+    try {
+      const resources: RemotePrintResourceBytes[] = [];
+      let bytes = 0;
+      for (const resource of REMOTE_PRINT_RESOURCES) {
+        if (options?.signal?.aborted) return failure('cancelled', 'Device file inspection was cancelled.');
+        const data = await source.value.source.resource(path, resource, 4 * 1024 * 1024, options?.signal);
+        if (!data?.byteLength) continue;
+        bytes += data.byteLength;
+        if (bytes > 16 * 1024 * 1024 - 4096) return failure('out-of-range', 'Device file metadata exceeds the inspection limit.');
+        resources.push({ name: resource, bytes: data });
+      }
+      if (['_rels/.rels', '3D/3dmodel.model', 'Metadata/model_settings.config', 'Metadata/slice_info.config'].some(name => !resources.some(r => r.name === name)))
+        return failure('unsupported', 'This printer did not provide the sliced-file metadata needed for inspection.');
+      const metadata = await this.inspector.inspect(resources, options?.signal);
+      const current = await this.files.resolveFile(file); if (!current.ok) return current;
+      if (options?.signal?.aborted) return failure('cancelled', 'Device file inspection was cancelled.');
+      const id = randomUUID() as D.Id<'print-inspection'>, warnings = new Map<string, D.PrintIssue[]>();
+      const targets = metadata.targets.map(plate => {
+        const normalized = normalizePlate(metadata, plate, id);
+        warnings.set(normalized.target.id, normalized.warnings); return normalized.target;
+      });
+      const value: D.RemotePrintInspection = { ref: { file: { ...file }, id }, targets, expiresAtMs: this.now() + 30 * 60_000 };
+      for (const [key, c] of this.contexts) if (c.value.expiresAtMs < this.now()) this.contexts.delete(key);
+      while (this.contexts.size >= 16) this.contexts.delete(this.contexts.keys().next().value!);
+      this.contexts.set(id, { value, name, path, warnings });
+      return { ok: true, value: structuredClone(value) };
+    } catch (error) {
+      if (options?.signal?.aborted) return failure('cancelled', 'Device file inspection was cancelled.');
+      return { ok: false, error: storageFailure(error) };
+    }
+  }
+
+  resolve(ref: D.RemotePrintInspectionRef, targetId: D.Id<'print-target'>): D.Result<{ context: Context; target: D.RemotePrintTarget }> {
+    const context = this.contexts.get(ref.id);
+    if (!context || context.value.expiresAtMs < this.now() || !sameFile(context.value.ref.file, ref.file))
+      return failure('stale-context', 'Reopen this device file to inspect its print targets.');
+    const target = context.value.targets.find(t => t.id === targetId);
+    if (!target?.requirements || target.availability.kind !== 'available')
+      return failure('unsupported', 'This device-file print target is unavailable.');
+    return { ok: true, value: { context, target } };
+  }
+
+  async prepare(request: D.RemotePrintPreparationRequest, options?: D.ReadOptions): Promise<D.Result<D.PrintPreparation>> {
+    if (options?.signal?.aborted) return failure('cancelled', 'Device file preparation was cancelled.');
+    const resolved = this.resolve(request.inspection, request.targetId); if (!resolved.ok) return resolved;
+    const current = await this.files.resolveFile(request.inspection.file); if (!current.ok) return current;
+    const file = request.inspection.file;
+    const result = await this.preparePrint({ ...request, target: { printerId: file.printerId, routeId: file.routeId,
+      expectedConfigurationRevision: file.configurationRevision }, requirements: resolved.value.target.requirements! });
+    if (!result.ok) return result;
+    if (options?.signal?.aborted) return failure('cancelled', 'Device file preparation was cancelled.');
+    return { ok: true, value: { ...result.value, issues: [...result.value.issues, ...resolved.value.context.warnings.get(request.targetId) ?? []],
+      ...(result.value.recordingSpace ? { recordingSpace: { ...result.value.recordingSpace, canClean: false } } : {}) } };
+  }
+  async release(ref: D.RemotePrintInspectionRef): Promise<D.Result<null>> {
+    const context = this.contexts.get(ref.id);
+    if (context && sameFile(context.value.ref.file, ref.file)) this.contexts.delete(ref.id);
+    return { ok: true, value: null };
+  }
+  close(): void { this.contexts.clear(); }
+}
+
+function sameFile(a: D.RemoteFileRef, b: D.RemoteFileRef) {
+  return a.printerId === b.printerId && a.routeId === b.routeId && a.configurationRevision === b.configurationRevision && a.storageId === b.storageId && a.fileId === b.fileId;
+}
+
+function normalizePlate(archive: RemotePrintMetadata, plate: RemotePrintMetadata['targets'][number], contextId: string): { target: D.RemotePrintTarget; warnings: D.PrintIssue[] } {
+  const id = `plate:${plate.plateIndex}` as D.Id<'print-target'>;
+  const unavailable = (message: string) => ({ target: { id, label: `Plate ${plate.plateIndex + 1}`, requirements: null,
+    availability: { kind: 'blocked' as const, reasons: [{ code: 'unsupported' as const, message }] } }, warnings: [] });
+  const config = { ...archive.configuration, ...plate.configuration };
+  const array = (key: string): (string | number)[] => Array.isArray(config[key]) ? config[key] as (string | number)[] : [];
+  const text = (key: string, index?: number) => index === undefined ? typeof config[key] === 'string' ? config[key] as string : '' : String(array(key)[index] ?? '');
+  const numeric = (value: unknown) => typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  const valid = (n: number) => Number.isFinite(n) && n >= 0;
+  const scalar = (value: unknown) => { const n = numeric(value); return valid(n) ? n : 0; };
+  const diameters = plate.nozzleDiameters.trim() ? plate.nozzleDiameters.trim().split(/[;,\s]+/).map(Number) : array('nozzle_diameter').map(Number);
+  if (!Number.isSafeInteger(plate.plateIndex) || plate.plateIndex < 0 || plate.plateIndex > 63 || plate.gcodePath !== `Metadata/plate_${plate.plateIndex + 1}.gcode`)
+    return unavailable('This plate uses an unsupported remote toolpath address.');
+  if (!diameters.length || diameters.length > 2 || diameters.some(n => !valid(n) || n <= 0))
+    return unavailable('The file does not describe a supported nozzle configuration.');
+  const flowNames = ['Standard', 'High Flow', 'TPU High Flow', 'E3D High Flow'];
+  const rawFlow = plate.nozzleFlowTypes || text('nozzle_volume_type');
+  const flows = rawFlow ? rawFlow.split(/[;,]+|\s+(?=\d)/).map(s => flowNames[Number(s)] ?? s.trim()) : diameters.map(() => 'Standard');
+  if (flows.length !== diameters.length || flows.some(s => !flowNames.includes(s))) return unavailable('The file has an unsupported nozzle flow configuration.');
+  if (!plate.materials.length || plate.materials.length > 64 || plate.materials.some(m => !Number.isSafeInteger(m.index) || m.index < 0 || m.index >= 64))
+    return unavailable('The file has invalid filament metadata.');
+  const count = Math.max(...plate.materials.map(m => m.index)) + 1;
+  const map = plate.filamentMap.length ? plate.filamentMap : diameters.length === 1 ? Array(count).fill(1) as number[] : [];
+  if (map.length > 64 || new Set(plate.materials.map(m => m.index)).size !== plate.materials.length || plate.materials.some(m => !Number.isSafeInteger(map[m.index]) || map[m.index] < 1 || map[m.index] > diameters.length))
+    return unavailable('The file does not specify an unambiguous filament-to-nozzle assignment.');
+  const incomplete = plate.materials.some(m => ['chamber_temperature', 'temperature_vitrification', 'required_nozzle_HRC'].some(k => !valid(numeric(array(k)[m.index]))));
+  const requirements: D.PrintRequirements = { contentId: contextId, plateId: id, printerModel: text('printer_model'), printerModelId: plate.printerModelId,
+    nozzleDiameters: diameters, nozzleFlowTypes: flows, filamentMap: map, requiresDynamicMapping: config.enable_filament_dynamic_map === true,
+    bedType: text('curr_bed_type'), durationSeconds: scalar(plate.duration), weightGrams: scalar(plate.weight), layerCount: 0, timelapseWarningCode: 0,
+    toolpathOutside: plate.toolpathOutside, warnings: plate.warnings,
+    materials: plate.materials.map(m => ({ key: `filament-${m.index}`, index: m.index, type: m.type, color: m.color,
+      presetId: m.presetId, presetName: text('filament_settings_id', m.index), brand: m.brand || text('filament_vendor', m.index),
+      toolIndex: map[m.index] - 1, nozzleDiameter: diameters[map[m.index] - 1], nozzleFlowType: flows[map[m.index] - 1],
+      chamberTemperature: scalar(array('chamber_temperature')[m.index]), softeningTemperature: scalar(array('temperature_vitrification')[m.index]),
+      requiredNozzleHardness: scalar(array('required_nozzle_HRC')[m.index]), usedGrams: scalar(m.usedGrams), usedMeters: scalar(m.usedMeters) })) };
+  return { target: { id, label: `Plate ${plate.plateIndex + 1}`, requirements, availability: { kind: 'available' } }, warnings: incomplete ? [{
+    id: 'remote-material-metadata', severity: 'warning', message: 'This device file omits some filament temperature or nozzle-hardness requirements. Check material and nozzle compatibility before printing.',
+  }] : [] };
+}

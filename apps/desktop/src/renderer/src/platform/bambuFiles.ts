@@ -24,3 +24,21 @@ export function bambuFiles(bridge: BambuBridge): D.PrinterFiles {
     watchChanges: async function* () { throw Object.assign(new Error(unsupported.message), { detail: unsupported }); },
   };
 }
+
+export function bambuRemotePrints(bridge: BambuBridge): D.PrinterRemotePrints {
+  async function read<T>(run: (readId: string) => Promise<D.Result<T>>, options?: D.ReadOptions): Promise<D.Result<T>> {
+    const id = crypto.randomUUID();
+    const cancelled = (): D.Result<T> => ({ ok: false, error: { code: 'cancelled', message: 'Device file inspection was cancelled.' } });
+    if (options?.signal?.aborted) return cancelled();
+    const abort = () => { void bridge.control('storage.cancel', { readId: id }).catch(() => {}); };
+    options?.signal?.addEventListener('abort', abort, { once: true });
+    try { const result = await run(id); return options?.signal?.aborted ? cancelled() : result; }
+    catch { return { ok: false, error: { code: 'transport', message: 'Device file inspection is unavailable.' } }; }
+    finally { options?.signal?.removeEventListener('abort', abort); }
+  }
+  return {
+    inspect: (file, options) => read(readId => bridge.control('storage.inspectPrint', { file, readId }), options),
+    prepare: (request, options) => read(readId => bridge.control('storage.preparePrint', { request, readId }), options),
+    release: ref => read(readId => bridge.control('storage.releasePrint', { ref, readId })),
+  };
+}

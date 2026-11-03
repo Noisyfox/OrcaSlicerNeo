@@ -3,6 +3,7 @@ import type { ServiceProvider } from '@orca/service-provider';
 import type { Id, UnixMs, ExternalRef, PrinterError, Result, ReadOptions, Capability, AtLeastOne, ObservationCursor, PrinterTarget, TargetRequest, Reading, NonEmptyReadonlyArray, Revision } from './common';
 import type { AgentHost, SavedPrinter, PrinterDescriptor, PrinterCapabilities, PrinterRoute, PrinterRouteConfiguration, StateTopic, PrinterObservationMap } from './printer';
 import type { PrinterSubmissions } from './submission';
+import type { PrinterRemotePrints } from './remote-print';
 import type { PrinterFiles } from './files';
 import type { PrinterMedia } from './media';
 import type { PrinterOperations, PrinterControls } from './control';
@@ -119,6 +120,7 @@ export interface PrinterProvider extends ServiceProvider {
 }
 export interface PrinterService {
   readonly submissions: PrinterSubmissions;
+  readonly remotePrints: PrinterRemotePrints;
   readonly operations: PrinterOperations;
   readonly controls: PrinterControls;
   readonly files: PrinterFiles;

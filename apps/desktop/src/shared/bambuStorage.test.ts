@@ -12,3 +12,11 @@ it('admits scoped metadata requests and rejects paths, credentials, ambiguous lo
     expect(isBambuControlRequest({ method: 'storage.list', input: { ...input, request } })).toBe(false);
   expect(isBambuControlRequest({ method: 'storage.download', input: { readId: 'read', path: '/host/file' } })).toBe(false);
 });
+it('admits remote preparation by agent-owned identity and rejects forged requirements or paths', () => {
+  const file = { ...target, configurationRevision: 'r1', storageId: 'sdcard', fileId: 'file' };
+  const request = { inspection: { file, id: 'inspection' }, targetId: 'plate', bindings: [], options: {}, suggest: true, allowAbnormalStorage: false };
+  expect(isBambuControlRequest({ method: 'storage.inspectPrint', input: { file, readId: 'read' } })).toBe(true);
+  expect(isBambuControlRequest({ method: 'storage.preparePrint', input: { request, readId: 'read' } })).toBe(true);
+  for (const invalid of [{ ...request, requirements: {} }, { ...request, path: '/device/file' }, { ...request, options: { native_option: true } }, { ...request, bindings: Array(65).fill({ materialKey: 'm', pathId: 'p' }) }])
+    expect(isBambuControlRequest({ method: 'storage.preparePrint', input: { request: invalid, readId: 'read' } })).toBe(false);
+});

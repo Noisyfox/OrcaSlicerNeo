@@ -1,4 +1,6 @@
 import { BambuStorageImages } from './storageImages';
+import { BambuStoragePrints } from './storagePrints';
+import { RemotePrintInspector } from '../remotePrintInspector';
 import { BambuStorageCommands } from './storageCommands';
 import { DownloadExecutor } from '../downloadExecutor';
 import type { DownloadProgress } from '@orca/printer-control/downloads';
@@ -40,6 +42,8 @@ export class BambuRuntime {
   private storageSessions: BambuStorageSessions | null = null;
   private storageImages: BambuStorageImages | null = null;
   private storageFiles: BambuStorageFiles | null = null;
+  private readonly printInspector = new RemotePrintInspector();
+  private storagePrints: BambuStoragePrints | null = null;
   private storageReads = new Map<string, { controller: AbortController; done: Promise<void> }>();
   private cancelledStorageReads = new Set<string>();
   private closing = false;
@@ -90,10 +94,12 @@ export class BambuRuntime {
       this.storageFiles = new BambuStorageFiles(target => this.storageSessions!.resolve(target));
       this.storageImages = new BambuStorageImages(this.storageFiles);
       this.submissions = new BambuPrintSubmissions(agent, this.access, this.devices, this.repository, join(this.config.directory, 'submissions'), () => this.publish('control'));
+      this.storagePrints = new BambuStoragePrints(this.storageFiles, this.printInspector, request => this.submissions!.prepare(request));
       this.operations = new BambuOperations(this.monitor, () => this.publish('control'), undefined, undefined, new BambuStorageCommands(this.storageFiles, () => this.publish('control')));
       this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
     } catch {
+      this.storagePrints?.close(); this.storagePrints = null; await this.printInspector.close();
       await this.storageImages?.close(); this.storageImages = null;
       await this.storageSessions?.close(); this.storageSessions = null; this.storageFiles = null;
       await this.objectSkipping?.close(); this.objectSkipping = null;
@@ -144,6 +150,9 @@ export class BambuRuntime {
       case 'storage.list': return this.storageRead(request.input.readId, signal => this.storageFiles!.list(request.input.request, { signal }));
       case 'storage.previews': return this.storageRead(request.input.readId, () => this.storageFiles!.listPreviews(request.input.file));
       case 'storage.stat': return this.storageRead(request.input.readId, signal => this.storageFiles!.stat(request.input.file, { signal }));
+      case 'storage.inspectPrint': return this.storageRead(request.input.readId, signal => this.storagePrints!.inspect(request.input.file, { signal }));
+      case 'storage.preparePrint': return this.storageRead(request.input.readId, signal => this.storagePrints!.prepare(request.input.request, { signal }));
+      case 'storage.releasePrint': return this.storagePrints!.release(request.input.ref);
       case 'storage.cancel': {
         this.cancelledStorageReads.add(request.input.readId); this.storageReads.get(request.input.readId)?.controller.abort();
         while (this.cancelledStorageReads.size > 128) this.cancelledStorageReads.delete(this.cancelledStorageReads.values().next().value!);
@@ -190,6 +199,7 @@ export class BambuRuntime {
   async mediaCloseOwner(owner: string) { await this.ready; await this.storageImages?.closeOwner(owner); await this.media?.closeOwner(owner); }
   async close() { await this.ready; this.closing = true;
     for (const read of this.storageReads.values()) read.controller.abort();
+    await this.printInspector.close(); this.storagePrints?.close();
     let downloadFailure: unknown;
     try { await this.downloads.close(); } catch (error) { downloadFailure = error; }
     await this.storageImages?.close();

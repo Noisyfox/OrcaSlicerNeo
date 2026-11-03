@@ -1,6 +1,6 @@
 import { bambuSubmissions } from './bambuSubmissions';
 import { bambuMedia } from './bambuMedia';
-import { bambuFiles } from './bambuFiles';
+import { bambuFiles, bambuRemotePrints } from './bambuFiles';
 import { bambuControls, bambuOperations } from './bambuControls';
 import { bambuObservations } from './bambuObservations';
 import { bambuCapabilities, savedBambuPrinter } from '../../../shared/bambuPrinters';
@@ -31,6 +31,7 @@ export function createBambuProvider(bridge: BambuBridge): AccountProvider & D.Pr
   };
   const printers: D.PrinterService = {
     submissions: bambuSubmissions(bridge),
+    remotePrints: bambuRemotePrints(bridge),
     listProviders: async () => ({ ok: true, value: [{ id: providerId, name: 'Bambu Lab', hosts: [{ id: hostId, name: 'Desktop', execution: 'desktop', discovery: { kind: 'supported', constraints: { kinds: ['account', 'lan'] } } }] }] }),
     listTypes: async () => ({ ok: true, value: [{ id: typeId, providerId, name: 'Bambu Lab', description: 'Bambu printer monitoring and control' }] }),
     listSaved, onSavedChanged: listener => bridge.onChanged(change => { if (change === 'printers') listener(); }),

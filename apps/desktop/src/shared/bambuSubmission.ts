@@ -22,10 +22,13 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 const integer = (v: unknown): v is number => finite(v) && Number.isSafeInteger(v);
 const target = (v: unknown) => object(v) && string(v.printerId) && string(v.routeId) && (v.expectedConfigurationRevision === undefined || string(v.expectedConfigurationRevision));
 const ref = (v: unknown) => target(v) && object(v) && string(v.id) && !!v.id;
+export function isPrintOptions(value: unknown): value is D.PrintOptions {
+  return object(value) && Object.entries(value).every(([k, x]) => ['bedLeveling', 'flowCalibration', 'nozzleOffsetCalibration'].includes(k) ? ['auto', 'on', 'off'].includes(String(x)) : k === 'timelapseStorage' ? ['internal', 'external'].includes(String(x)) : ['timelapse', 'sharedPressureAdvance', 'externalChangeAssist'].includes(k) && typeof x === 'boolean');
+}
 function preparation(v: unknown, submit = false): boolean {
   if (!object(v) || !target(v.target) || !object(v.requirements) || !object(v.options) || !Array.isArray(v.bindings) || v.bindings.length > 64 || typeof v.allowAbnormalStorage !== 'boolean') return false;
   if (!v.bindings.every(b => object(b) && string(b.materialKey) && string(b.pathId))) return false;
-  if (!Object.entries(v.options).every(([k, x]) => ['bedLeveling', 'flowCalibration', 'nozzleOffsetCalibration'].includes(k) ? ['auto', 'on', 'off'].includes(String(x)) : k === 'timelapseStorage' ? ['internal', 'external'].includes(String(x)) : ['timelapse', 'sharedPressureAdvance', 'externalChangeAssist'].includes(k) && typeof x === 'boolean')) return false;
+  if (!isPrintOptions(v.options)) return false;
   if (v.checkRecording !== undefined && typeof v.checkRecording !== 'boolean') return false;
   const r = v.requirements;
   if (!['contentId', 'plateId', 'printerModel', 'printerModelId', 'bedType'].every(k => string(r[k])) || !r.contentId || !Array.isArray(r.materials) || !r.materials.length || r.materials.length > 64) return false;

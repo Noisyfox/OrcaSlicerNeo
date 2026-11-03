@@ -338,6 +338,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   }
   const service: D.PrinterService = {
     submissions: unsupportedSubmissions,
+    remotePrints: { inspect: async () => rejected(), prepare: async () => rejected(), release: async () => rejected() },
     operations: operations.api, controls, files, observations,
     media: { readPrintObjectMap: async () => rejected(), readStream: unsupportedStream, readCurrentPrintPreview: async () => rejected(), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },
     listProviders: async () => ({ ok: true, value: [{ id: providerId, name: 'Moonraker', hosts: [{ ...options.host, discovery: unsupported }] }] }),

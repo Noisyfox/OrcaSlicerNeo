@@ -49,6 +49,8 @@ describe('provider composition', () => {
         totalBytes: 3, responseBytes: 3, returnedRange: null, chunks } });
     const stat = vi.spyOn(bambu.provider.printers.files, 'stat');
     const previews = vi.spyOn(bambu.provider.printers.files, 'listPreviews');
+    const inspect = vi.spyOn(bambu.provider.printers.remotePrints, 'inspect');
+    const release = vi.spyOn(bambu.provider.printers.remotePrints, 'release');
     const wrongReader = vi.spyOn(moon.provider.printers.files, 'download');
     const service = createPrinterService([moon.provider, bambu.provider]);
     const abort = new AbortController(), options = { signal: abort.signal };
@@ -59,6 +61,11 @@ describe('provider composition', () => {
     expect((await result.value.chunks[Symbol.asyncIterator]().next()).value).toBe(bytes);
     await service.files.stat(file, options);
     await service.files.listPreviews(file, options);
+    await service.remotePrints.inspect(file, options);
+    const inspection = { file, id: 'inspection' as Id<'print-inspection'> };
+    await service.remotePrints.release(inspection);
+    expect(inspect).toHaveBeenCalledWith(file, options);
+    expect(release).toHaveBeenCalledWith(inspection);
     expect(stat).toHaveBeenCalledWith(file, options);
     expect(previews).toHaveBeenCalledWith(file, options);
     expect(await service.files.download({ target: { ...file, printerId: moon.get()[0].identity.id } }))

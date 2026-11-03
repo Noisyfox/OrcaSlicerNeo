@@ -56,7 +56,13 @@ json configuration(const Slic3r::DynamicPrintConfig& config)
             "filament_type", "filament_colour", "filament_ids", "filament_settings_id", "filament_vendor",
             "chamber_temperature", "temperature_vitrification", "required_nozzle_HRC",
             "filament_map", "filament_map_mode", "enable_filament_dynamic_map", "has_filament_switcher"})
-        if (const auto* option = config.option(key)) result[key] = option->serialize();
+        if (const auto* option = config.option(key)) {
+            if (const auto* strings = dynamic_cast<const Slic3r::ConfigOptionStrings*>(option)) result[key] = strings->values;
+            else if (const auto* floats = dynamic_cast<const Slic3r::ConfigOptionFloats*>(option)) result[key] = floats->values;
+            else if (const auto* ints = dynamic_cast<const Slic3r::ConfigOptionInts*>(option)) result[key] = ints->values;
+            else if (const auto* flag = dynamic_cast<const Slic3r::ConfigOptionBool*>(option)) result[key] = flag->value;
+            else result[key] = option->serialize();
+        }
     return result;
 }
 

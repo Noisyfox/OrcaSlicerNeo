@@ -3093,6 +3093,16 @@ Native fixtures verify ABI routing and lifecycle, not physical printing. The
 [pinned implementation](https://github.com/ClusterM/open-bamboo-networking/blob/v2.2.0/src/print_job.cpp)
 uses the project basename for the wire file name despite requiring `dst_file`;
 the agent must reject names that this normalization would change.
+The shared `remotePrints` service dispatches inspection/preparation/release by
+provider-owned file identity. Bambu fetches bounded metadata subfiles, owns the
+resulting 30-minute inspection context, and resolves a selected target back to
+its own requirements before reusing material/option validation. Renderer-supplied
+requirements and native paths are rejected at IPC admission. Missing subfiles do
+not trigger a full archive download. Ambiguous nozzle mappings block that target;
+missing thermal/hardness metadata requires an explicit print warning. Contexts
+are bounded and released explicitly or evicted/expired; they do not attest to
+remote content freshness. Shared target-selection UI and command dispatch remain
+the next integration boundary.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the feature envelope and user-facing decisions.
 

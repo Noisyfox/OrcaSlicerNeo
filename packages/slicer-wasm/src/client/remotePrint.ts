@@ -3,7 +3,7 @@ import type { OrcaModule } from './types';
 /** Agent-facing Orca metadata, not a shared printer-domain format. No live
  * project or retained-slice receipt is created by remote inspection. */
 export interface RemotePrintMetadata {
-  configuration: Record<string, string>;
+  configuration: Record<string, string | boolean | string[] | number[]>;
   targets: Array<{
     plateIndex: number;
     gcodePath: string;
@@ -15,7 +15,7 @@ export interface RemotePrintMetadata {
     duration: string;
     weight: string;
     toolpathOutside: boolean;
-    configuration: Record<string, string>;
+    configuration: RemotePrintMetadata['configuration'];
     materials: Array<{
       index: number; type: string; color: string; presetId: string; brand: string;
       usedGrams: number; usedMeters: number; nozzleDiameter: number; nozzleFlowType: string;

@@ -15,3 +15,4 @@ export type * from './service';
 export type * from './web-interface';
 export * from './print-options';
 export * from './submission';
+export type * from './remote-print';
