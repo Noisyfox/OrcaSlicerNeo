@@ -9,7 +9,10 @@ import { File, Film, RefreshCw } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
 import type { PrinterRoute, PrinterStorage as Storage, RemoteFile, SavedPrinter, StorageCollection } from '@orca/printer-control/domain';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const bytes = (value: number | null) => value === null ? 'Size unknown' : value < 1024 ? `${value} B`
   : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / (1024 * 1024)).toFixed(1)} MB`;
@@ -120,16 +123,21 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   return <section className="flex h-full flex-col gap-3 p-4" aria-label="Printer storage" data-testid="printer-storage">
     <header className="flex flex-wrap items-center gap-3">
       <h2 className="mr-auto font-semibold">Storage</h2>
-      <label className="text-sm">Storage <select aria-label="Storage" className="ml-2 rounded border bg-background px-2 py-1.5" value={storageId}
-        onChange={event => { setStorageId(event.target.value); setCollectionId(''); }} disabled={discovering || !storages.length}>
-        {storages.map(storage => <option key={storage.id} value={storage.id}>{storage.name}</option>)}
-      </select></label>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>Storage</span>
+        <Select value={storageId} onValueChange={value => { if (value !== null) { setStorageId(value); setCollectionId(''); } }}
+          items={storages.map(storage => ({ value: storage.id, label: storage.name }))} disabled={discovering || !storages.length}>
+          <SelectTrigger aria-label="Storage" className="min-w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>{storages.map(storage => <SelectItem key={storage.id} value={storage.id}>{storage.name}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
       <Button variant="outline" size="sm" disabled={discovering || loading} onClick={() => void (storage && category ? load() : discover())}><RefreshCw className="size-4" />Refresh</Button>
     </header>
-    {!!categories.length && <div className="flex flex-wrap gap-2" role="group" aria-label="File collections">
-      {categories.map(item => <Button key={item.id} variant={item.id === category?.id ? 'secondary' : 'ghost'} size="sm" aria-pressed={item.id === category?.id}
-        onClick={() => setCollectionId(item.id)}>{item.name}</Button>)}
-    </div>}
+    {!!categories.length && <Tabs value={category?.id ?? ''} onValueChange={value => setCollectionId(String(value))}>
+      <TabsList variant="segmented" aria-label="File collections">
+        {categories.map(item => <TabsTrigger key={item.id} value={item.id}>{item.name}</TabsTrigger>)}
+      </TabsList>
+    </Tabs>}
     {error && <div role="alert" className="rounded border border-destructive/40 p-3 text-sm text-destructive">{error}
       <Button variant="ghost" size="sm" className="ml-2" disabled={loading || discovering} onClick={() => void (storage && category ? load() : discover())}>Retry</Button>
     </div>}
@@ -143,37 +151,45 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
     {downloadError && <p role="alert" className="text-sm text-destructive">{downloadError}</p>}
     {category && <>
       <div className="flex flex-wrap items-center gap-3">
-        <Input aria-label="Filter loaded files" placeholder="Filter loaded files…" value={search} onChange={event => setSearch(event.target.value)} className="max-w-xs" />
-        <label className="text-sm">Group <select aria-label="Group files" className="ml-2 rounded border bg-background px-2 py-1.5" value={groupBy}
-          onChange={event => setGroupBy(event.target.value as typeof groupBy)}><option value="none">None</option><option value="year">Year</option><option value="month">Month</option></select></label>
+        <div className="min-w-40 max-w-xs flex-1"><SearchInput aria-label="Filter loaded files" placeholder="Filter loaded files…" value={search} onValueChange={setSearch} /></div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Group</span>
+          <Select value={groupBy} onValueChange={value => { if (value !== null) setGroupBy(value); }}
+            items={[{ value: 'none', label: 'None' }, { value: 'year', label: 'Year' }, { value: 'month', label: 'Month' }]}>
+            <SelectTrigger aria-label="Group files" className="min-w-24"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="none">None</SelectItem><SelectItem value="year">Year</SelectItem><SelectItem value="month">Month</SelectItem></SelectContent>
+          </Select>
+        </div>
         <Button size="sm" variant="ghost" disabled={!filtered.length} onClick={() => setSelected(previous => {
           const next = new Set(previous); for (const file of filtered) { if (allLoadedSelected) next.delete(file.ref.fileId); else next.add(file.ref.fileId); } return next;
         })}>{allLoadedSelected ? 'Deselect loaded results' : 'Select loaded results'}</Button>
         <span role="status" className="text-xs text-muted-foreground">{selected.size} selected · {filtered.length} matching of {files.length} loaded</span>
       </div>
-      {category.actions.includes('download') && downloads.capability.kind === 'supported' && <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" disabled={!selected.size || queuing || loading} onClick={() => void download('default')}>Download selected</Button>
-        <Button size="sm" variant="outline" disabled={!selected.size || queuing || loading} onClick={() => void download('choose')}>Save as…</Button>
-        <Button size="sm" variant="ghost" disabled={queuing} onClick={() => void chooseFolder()}>Folder: {folder}</Button>
-      </div>}
-      {category.actions.includes('delete') && <Button size="sm" variant="destructive" className="self-start" disabled={!selected.size || loading || queuing}
-        onClick={() => setDeleting(files.filter(file => selected.has(file.ref.fileId)))}>Delete selected</Button>}
-      {category.actions.includes('inspect-print') && <Button size="sm" variant="outline" className="self-start" disabled={selected.size !== 1 || loading}
-        onClick={() => setPrinting(files.find(file => selected.has(file.ref.fileId)) ?? null)}>Print selected file</Button>}
-      {category.actions.includes('preview') && <Button size="sm" variant="outline" className="self-start" disabled={selected.size !== 1 || loading}
-        onClick={() => setPlaying(files.find(file => selected.has(file.ref.fileId)) ?? null)}>Play selected video</Button>}
+      <div className="flex flex-wrap items-center gap-2">
+        {category.actions.includes('download') && downloads.capability.kind === 'supported' && <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" disabled={!selected.size || queuing || loading} onClick={() => void download('default')}>Download selected</Button>
+          <Button size="sm" variant="outline" disabled={!selected.size || queuing || loading} onClick={() => void download('choose')}>Save as…</Button>
+          <Button size="sm" variant="ghost" disabled={queuing} onClick={() => void chooseFolder()}>Folder: {folder}</Button>
+        </div>}
+        {category.actions.includes('delete') && <Button size="sm" variant="destructive" disabled={!selected.size || loading || queuing}
+          onClick={() => setDeleting(files.filter(file => selected.has(file.ref.fileId)))}>Delete selected</Button>}
+        {category.actions.includes('inspect-print') && <Button size="sm" variant="outline" disabled={selected.size !== 1 || loading}
+          onClick={() => setPrinting(files.find(file => selected.has(file.ref.fileId)) ?? null)}>Print selected file</Button>}
+        {category.actions.includes('preview') && <Button size="sm" variant="outline" disabled={selected.size !== 1 || loading}
+          onClick={() => setPlaying(files.find(file => selected.has(file.ref.fileId)) ?? null)}>Play selected video</Button>}
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={loading}>
         {groups.map(([label, items]) => <div key={label} className="mb-4">
           {label && <h3 className="mb-2 text-sm font-medium">{label}</h3>}
           <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
-            {items.map(file => <label key={file.ref.fileId} className={`flex cursor-pointer flex-col gap-2 rounded-lg border p-3 ${selected.has(file.ref.fileId) ? 'border-primary bg-accent/20' : 'hover:bg-muted/40'}`}>
-              <div className="flex items-start justify-between"><input type="checkbox" aria-label={`Select ${file.name}`} checked={selected.has(file.ref.fileId)} onChange={() => toggle(file.ref.fileId)} />
+            {items.map(file => <div onClick={() => toggle(file.ref.fileId)} key={file.ref.fileId} className={`flex cursor-pointer flex-col gap-2 rounded-lg border p-3 ${selected.has(file.ref.fileId) ? 'border-primary bg-accent/20' : 'hover:bg-muted/40'}`}>
+              <div className="flex items-start justify-between"><Checkbox onClick={event => event.stopPropagation()} aria-label={`Select ${file.name}`} checked={selected.has(file.ref.fileId)} onCheckedChange={() => toggle(file.ref.fileId)} />
               </div>
               <StorageThumbnail file={file} fallback={file.metadata.kind === 'recording' || file.metadata.kind === 'timelapse' ? <Film className="size-10 text-muted-foreground" /> : <File className="size-10 text-muted-foreground" />} />
               <span className="break-all text-sm font-medium">{file.name}</span>
               {unconfirmed.has(file.ref.fileId) && <span className="text-xs text-amber-500">Deletion unconfirmed · Refresh manually</span>}
               <span className="text-xs text-muted-foreground">{bytes(file.sizeBytes)}{file.modifiedAtMs !== null && ` · ${new Date(file.modifiedAtMs).toLocaleDateString()}`}</span>
-            </label>)}
+            </div>)}
           </div>
         </div>)}
         {!loading && !error && !filtered.length && <p className="py-10 text-center text-sm text-muted-foreground">{files.length ? 'No loaded files match this filter.' : 'This collection is empty.'}</p>}

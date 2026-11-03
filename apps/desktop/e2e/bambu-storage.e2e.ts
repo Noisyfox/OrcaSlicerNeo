@@ -147,7 +147,9 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await expect(storage.getByTestId('download-task')).toHaveCount(10);
     await storage.getByRole('button', { name: 'Cancel', exact: true }).first().click();
     await expect(storage.getByRole('button', { name: 'Retry from start', exact: true })).toHaveCount(1);
-    await storage.getByLabel('Storage', { exact: true }).selectOption('internal');
+    await storage.getByRole('combobox', { name: 'Storage', exact: true }).click();
+    await page.getByRole('option', { name: 'Internal storage', exact: true }).click();
+    await expect(page.getByRole('listbox')).not.toBeVisible();
     await expect(storage.getByRole('checkbox')).toHaveCount(100);
     await expect(storage.locator('input[type=checkbox]:checked')).toHaveCount(0);
     await expect(storage.getByText('internal-part-000.gcode.3mf', { exact: true })).toBeVisible();
@@ -177,7 +179,9 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await storage.getByRole('button', { name: 'Print selected file', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('Print device file');
-    await dialog.getByLabel('Print target', { exact: true }).selectOption('target-2');
+    await dialog.getByRole('combobox', { name: 'Print target', exact: true }).click();
+    await page.getByRole('option').nth(1).click();
+    await expect(page.getByRole('listbox')).not.toBeVisible();
     await expect(dialog.getByTestId('print-job-statistics')).toContainText('2m');
     await expect.poll(() => dialog.getByAltText('Thumbnail of internal-part-003.gcode.3mf').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
     await dialog.screenshot({ path: test.info().outputPath('storage-print-preparation.png') });

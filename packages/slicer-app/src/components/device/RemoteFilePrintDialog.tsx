@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Box } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
 import type * as D from '@orca/printer-control/domain';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PrintPreparationView } from '../send/PrintPreparationPanel';
@@ -32,11 +33,13 @@ export function RemoteFilePrintDialog({ file, printer, onClose }: { file: D.Remo
       <DialogHeader><DialogTitle>Print device file</DialogTitle><DialogDescription>{file.name} · {printer.identity.displayName}</DialogDescription></DialogHeader>
       {!inspection && !error && <p role="status">Reading device file metadata…</p>}
       {error && <div className="space-y-3"><p role="alert" className="text-sm text-destructive">{error}</p><Button variant="outline" onClick={() => setAttempt(v => v + 1)}>Retry inspection</Button></div>}
-      {inspection && inspection.targets.length > 1 && <label className="flex items-center gap-3 text-sm">Print target
-        <select aria-label="Print target" className="rounded border bg-background p-2" disabled={busy} value={targetId} onChange={event => setTargetId(event.target.value)}>
-          {inspection.targets.map(target => <option key={target.id} value={target.id}>{target.label}</option>)}
-        </select>
-      </label>}
+      {inspection && inspection.targets.length > 1 && <div className="flex items-center gap-3 text-xs"><span>Print target</span>
+        <Select value={targetId} disabled={busy} onValueChange={value => { if (value !== null) setTargetId(value); }}
+          items={inspection.targets.map(target => ({ value: target.id, label: target.label }))}>
+          <SelectTrigger aria-label="Print target"><SelectValue /></SelectTrigger>
+          <SelectContent>{inspection.targets.map(target => <SelectItem key={target.id} value={target.id}>{target.label}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>}
       {inspection && selected?.availability.kind === 'available' && selected.requirements
         ? <PreparedTarget key={selected.id} inspection={inspection} selected={selected} file={file} printer={printer} onClose={onClose} onBusyChange={setBusy} />
         : <>{selected?.availability.kind === 'blocked' && selected.availability.reasons.map((reason, i) => <p role="alert" key={i}>{reason.message}</p>)}

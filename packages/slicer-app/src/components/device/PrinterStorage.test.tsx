@@ -69,8 +69,8 @@ it('clears scope selection and ignores an aborted previous-storage response', as
   f.list.mockImplementationOnce(async () => new Promise(resolve => { finish = resolve; }));
   await f.mount();
   const signal = f.list.mock.calls[0][1]!.signal!;
-  const select = f.element.querySelector<HTMLSelectElement>('select[aria-label="Storage"]')!;
-  await act(async () => { select.value = 'removable'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  await act(async () => f.element.querySelector<HTMLElement>('[aria-label="Storage"]')!.click());
+  await act(async () => { const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent === 'Removable')!; option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); option.click(); });
   expect(signal.aborted).toBe(true);
   await act(async () => finish({ ok: true, value: { directories: [], files: [f.file('obsolete')], nextCursor: null, listingRevision: 'old', pagination: 'snapshot' } }));
   expect(f.element.textContent).not.toContain('obsolete');
@@ -104,8 +104,8 @@ it('refreshes explicitly and reconciles removed identities without selecting new
   f.list.mockResolvedValue({ ok: true, value: { directories: [], files: [f.file('first'), f.file('new')], nextCursor: null, listingRevision: 'new', pagination: 'snapshot' } });
   await f.click('Refresh');
   expect(f.element.querySelectorAll('input[type=checkbox]:checked')).toHaveLength(1);
-  expect(f.element.querySelector<HTMLInputElement>('input[aria-label="Select first"]')?.checked).toBe(true);
-  expect(f.element.querySelector<HTMLInputElement>('input[aria-label="Select new"]')?.checked).toBe(false);
+  expect(f.element.querySelector('[role="checkbox"][aria-label="Select first"]')?.getAttribute('aria-checked')).toBe('true');
+  expect(f.element.querySelector('[role="checkbox"][aria-label="Select new"]')?.getAttribute('aria-checked')).toBe('false');
 });
 
 it('queues only explicitly selected files and leaves task ownership with the host on navigation', async () => {

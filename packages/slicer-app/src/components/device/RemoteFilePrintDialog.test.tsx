@@ -43,8 +43,8 @@ async function fixture(unknown = false, delayed = false) {
 }
 it('prepares the selected agent target without reading or exporting the current project', async () => {
   const f = await fixture();
-  const select = document.querySelector('[aria-label="Print target"]') as HTMLSelectElement;
-  await act(async () => { select.value = 'target-2'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  await act(async () => document.querySelector<HTMLElement>('[aria-label="Print target"]')!.click());
+  await act(async () => { const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent === f.inspection.targets[1].label)!; option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); option.click(); });
   expect(f.prepare).toHaveBeenLastCalledWith(expect.objectContaining({ targetId: 'target-2' }), expect.anything());
   expect(document.querySelector('[aria-label="Rename print job"]')).toBeNull();
   await f.click('Send'); expect(f.submit).not.toHaveBeenCalled();
