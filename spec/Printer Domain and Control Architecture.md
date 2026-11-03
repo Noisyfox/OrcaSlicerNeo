@@ -3000,6 +3000,12 @@ The scoped-file contract migration is implemented; the remaining execution, UI
 and physical qualification work is not yet delivered.
 The existing TypeScript file contracts and provider dispatch are implemented,
 but Bambu file browsing/download execution and the Storage UI are not delivered.
+The host-neutral [managed stream executor](../packages/printer-control/src/downloads.ts)
+is implemented independently of host IPC and filesystem bindings: it consumes
+one owned chunk at a time, waits for each sink write and terminal reader checks,
+then publishes. It joins cleanup on failures/cancellation and reports the actual
+publication outcome when cancellation races finalization. This does not yet
+deliver the task queue, desktop sink, Bambu reader or Storage UI.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the feature envelope and user-facing decisions.
 

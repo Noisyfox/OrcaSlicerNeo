@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./domain": "./src/domain/index.ts"
+    "./domain": "./src/domain/index.ts",
+    "./downloads": "./src/downloads.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.domain.json",
