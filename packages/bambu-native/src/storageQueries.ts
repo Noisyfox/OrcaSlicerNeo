@@ -36,7 +36,11 @@ export function listBambuStorageFiles(addonPath: string, sourcePath: string, url
   request: { storage: string; collection: BambuStorageCollection; maxEntries: number }, options: BambuStorageQueryOptions): Promise<readonly BambuStorageEntry[]> {
   if (!/^[a-zA-Z0-9_-]{1,64}$/.test(request.storage) || !['model', 'timelapse', 'video'].includes(request.collection) ||
     !Number.isSafeInteger(request.maxEntries) || request.maxEntries < 1 || request.maxEntries > 50_000) throw invalidStorageReply();
-  return query(addonPath, sourcePath, url, 1, { storage: request.storage, type: request.collection, api_version: 2 }, options, async channel => {
+  // Media ability IDs are not LIST_INFO selectors. Like Orca, omit storage for
+  // external media and use "internal" for eMMC; H2D rejects "udisk" with result 17.
+  const storage = request.storage === 'emmc' ? 'internal' : request.storage;
+  const selector = storage === 'udisk' || storage === 'sdcard' ? {} : { storage };
+  return query(addonPath, sourcePath, url, 1, { ...selector, type: request.collection, api_version: 2, notify: 'DETAIL' }, options, async channel => {
     const entries: BambuStorageEntry[] = [], identities = new Set<string>();
     let metadataBytes = 0;
     while (true) {

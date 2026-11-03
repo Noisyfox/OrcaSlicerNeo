@@ -74,10 +74,10 @@ export class BambuStorageFiles {
       const [first, ...rest] = collections.map((item): D.StorageCollection => ({ id: item.id as D.Id<'file-collection'>,
         name: item.name, kinds: [item.kind], actions: item.kind === 'print-file' ? ['download', 'delete', 'inspect-print'] : ['download', 'delete', 'preview'] }));
       return { ok: true, value: names.map(name => ({ id: name as D.Id<'storage'>,
-        name: name === 'internal' ? 'Internal storage' : name === 'sdcard' ? 'SD card' : name === 'udisk' ? 'USB storage' : name,
-        kind: name === 'internal' ? 'internal' : name === 'sdcard' || name === 'udisk' ? 'removable' : 'other',
+        name: name === 'internal' || name === 'emmc' ? 'Internal storage' : name === 'sdcard' ? 'SD card' : name === 'udisk' ? 'USB storage' : name,
+        kind: name === 'internal' || name === 'emmc' ? 'internal' : name === 'sdcard' || name === 'udisk' ? 'removable' : 'other',
         availability: { kind: 'available' }, capacityBytes: null, freeBytes: null,
-        browsing: { kind: 'supported', constraints: { kind: 'collections', collections: name === 'internal' ? [first] : [first, ...rest] } },
+        browsing: { kind: 'supported', constraints: { kind: 'collections', collections: name === 'internal' || name === 'emmc' ? [first] : [first, ...rest] } },
       })) };
     } catch (error) { return { ok: false, error: storageFailure(error) }; }
   }

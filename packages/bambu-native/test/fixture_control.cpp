@@ -25,6 +25,14 @@ int Bambu_SendMessage(Bambu_Tunnel tunnel, int type, const char* bytes, int size
         s.replies.push_back("{\"result\":0,\"sequence\":1,\"reply\":{\"storage\":[\"sdcard\",\"internal\"]}}"); return 0;
     }
     if (message.find("\"cmdtype\":1,") != std::string::npos) {
+        if (s.mode.find("selector-") != std::string::npos) {
+            const bool expected = s.mode.find("selector-external") != std::string::npos
+                ? message.find("\"storage\"") == std::string::npos
+                : message.find("\"storage\":\"internal\"") != std::string::npos;
+            if (!expected || message.find("\"notify\":\"DETAIL\"") == std::string::npos) {
+                s.replies.push_back("{\"result\":17,\"sequence\":1,\"reply\":{}}"); return 0;
+            }
+        }
         if (s.mode.find("silent") != std::string::npos) return 0;
         if (s.mode.find("continued-empty") != std::string::npos) {
             s.replies.push_back("{\"result\":1,\"sequence\":1,\"reply\":{\"file_lists\":[]}}"); return 0;

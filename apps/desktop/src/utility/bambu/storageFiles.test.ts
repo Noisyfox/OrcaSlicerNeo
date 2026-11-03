@@ -22,6 +22,15 @@ function fixture() {
 const unwrap = <T>(value: D.Result<T>): T => { if (!value.ok) throw new Error(value.error.message); return value.value; };
 
 describe('Bambu storage file adapter', () => {
+  it('presents H2D discovery IDs with internal and external collection constraints', async () => {
+    const f = fixture(); vi.mocked(f.source.discover).mockResolvedValue(['emmc', 'udisk']);
+    const storages = unwrap(await f.files.listStorages(target));
+    expect(storages.map(storage => [storage.id, storage.name, storage.kind])).toEqual([
+      ['emmc', 'Internal storage', 'internal'], ['udisk', 'USB storage', 'removable'],
+    ]);
+    expect(storages[0].browsing).toMatchObject({ constraints: { collections: [{ id: 'model' }] } });
+    expect(storages[1].browsing).toMatchObject({ constraints: { collections: [{ id: 'model' }, { id: 'timelapse' }, { id: 'video' }] } });
+  });
   it('resolves each storage and its collections only when explicitly asked', async () => {
     const f = fixture(); expect(f.resolve).not.toHaveBeenCalled();
     const storages = unwrap(await f.files.listStorages(target));
