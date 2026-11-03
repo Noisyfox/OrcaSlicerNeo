@@ -3002,8 +3002,9 @@ filters/groups loaded entries, and maintains explicit scope-bound selection.
 Renderer/preload/main fixture E2E passes; utility routing/session and native
 protocol fixtures are tested separately. Registered desktop download tasks now
 include destination selection, progress, cancellation/retry, saved-file opening,
-startup cleanup and close coordination. Delete/print/media UI, thumbnails and
-physical qualification remain pending.
+startup cleanup and close coordination. Confirmed single/batch deletion is also
+implemented through the existing command/operation contract. Print/media UI,
+thumbnails and physical qualification remain pending.
 The host-neutral [managed stream executor](../packages/printer-control/src/downloads.ts)
 is implemented independently of host IPC and filesystem bindings: it consumes
 one owned chunk at a time, waits for each sink write and terminal reader checks,
@@ -3042,6 +3043,16 @@ The utility joins active cancellation and file cleanup before closing its journa
 Main initializes recovery at startup and reports failed/ignored records; download
 shutdown precedes utility shutdown. Unexpected utility exits reject pending calls
 instead of leaving tasks waiting forever.
+The [Bambu storage command owner](../apps/desktop/src/utility/bambu/storageCommands.ts)
+uses CTRL deletion without acquiring the selected MQTT Monitor lease, probing file
+content or consulting local transfer/print activity. Existing command request IDs
+provide instance-local deduplication. Explicit device rejection is a failure;
+transport or inconsistent-response outcomes remain unconfirmed. Shared batch UI
+continues after isolated failures, pauses after shared/uncertain failures and
+never re-queries or resends an uncertain deletion. Confirmed results remove only
+the affected local entries and invalidate old pagination; manual refresh starts
+a new snapshot. Native, command-owner, shared UI and renderer/preload/main fixture
+tests cover these boundaries; no physical files have been deleted for acceptance.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the feature envelope and user-facing decisions.
 

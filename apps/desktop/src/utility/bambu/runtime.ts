@@ -1,3 +1,4 @@
+import { BambuStorageCommands } from './storageCommands';
 import { DownloadExecutor } from '../downloadExecutor';
 import type { DownloadProgress } from '@orca/printer-control/downloads';
 import { BambuPrintSubmissions } from './printSubmission';
@@ -86,7 +87,7 @@ export class BambuRuntime {
       this.storageSessions = new BambuStorageSessions(this.config, agent, this.devices, this.repository, this.storageIo);
       this.storageFiles = new BambuStorageFiles(target => this.storageSessions!.resolve(target));
       this.submissions = new BambuPrintSubmissions(agent, this.access, this.devices, this.repository, join(this.config.directory, 'submissions'), () => this.publish('control'));
-      this.operations = new BambuOperations(this.monitor, () => this.publish('control'));
+      this.operations = new BambuOperations(this.monitor, () => this.publish('control'), undefined, undefined, new BambuStorageCommands(this.storageFiles, () => this.publish('control')));
       this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
     } catch {
@@ -185,5 +186,5 @@ export class BambuRuntime {
     let downloadFailure: unknown;
     try { await this.downloads.close(); } catch (error) { downloadFailure = error; }
     await this.storageSessions?.close(); await Promise.all([...this.storageReads.values()].map(read => read.done));
-    this.operations?.close(); this.monitor?.close(); await this.submissions?.close(); await this.objectSkipping?.close(); await this.media?.close(); await this.access?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; if (downloadFailure) throw downloadFailure; }
+    await this.operations?.close(); this.monitor?.close(); await this.submissions?.close(); await this.objectSkipping?.close(); await this.media?.close(); await this.access?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; if (downloadFailure) throw downloadFailure; }
 }

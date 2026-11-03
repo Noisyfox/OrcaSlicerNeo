@@ -1,3 +1,4 @@
+import { DeleteStorageFiles } from './DeleteStorageFiles';
 import { PrinterDownloadTasks } from './PrinterDownloadTasks';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { File, Film, RefreshCw } from 'lucide-react';
@@ -15,6 +16,8 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const [queuing, setQueuing] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [folder, setFolder] = useState('Download folder');
+  const [deleting, setDeleting] = useState<readonly RemoteFile[] | null>(null);
+  const [unconfirmed, setUnconfirmed] = useState<ReadonlySet<string>>(new Set());
   const target = useMemo(() => ({ printerId: printer.identity.id, routeId: route.id }), [printer.identity.id, route.id]);
   const [storages, setStorages] = useState<readonly Storage[]>([]);
   const [storageId, setStorageId] = useState('');
@@ -68,6 +71,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
       if (controller.signal.aborted) return;
       if (!result.ok) { setError(result.error.message); return; }
       const page = result.value.files;
+      if (!next) setUnconfirmed(new Set());
       setFiles(previous => next ? [...new Map([...previous, ...page].map(file => [file.ref.fileId, file])).values()] : page);
       setCursor(result.value.nextCursor);
       if (!next) setSelected(previous => new Set([...previous].filter(id => page.some(file => file.ref.fileId === id))));
@@ -79,7 +83,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
     return () => { discovery.current?.abort(); listing.current?.abort(); };
   }, [service, target, route.configurationRevision]);
   useEffect(() => {
-    setFiles([]); setCursor(null); setSelected(new Set()); setSearch('');
+    setFiles([]); setCursor(null); setSelected(new Set()); setSearch(''); setUnconfirmed(new Set()); setDeleting(null);
     void load(); return () => listing.current?.abort();
   }, [scope, service, target]);
 
@@ -144,6 +148,8 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
         <Button size="sm" variant="outline" disabled={!selected.size || queuing || loading} onClick={() => void download('choose')}>Save as…</Button>
         <Button size="sm" variant="ghost" disabled={queuing} onClick={() => void chooseFolder()}>Folder: {folder}</Button>
       </div>}
+      {category.actions.includes('delete') && <Button size="sm" variant="destructive" className="self-start" disabled={!selected.size || loading || queuing}
+        onClick={() => setDeleting(files.filter(file => selected.has(file.ref.fileId)))}>Delete selected</Button>}
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={loading}>
         {groups.map(([label, items]) => <div key={label} className="mb-4">
           {label && <h3 className="mb-2 text-sm font-medium">{label}</h3>}
@@ -152,6 +158,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
               <div className="flex items-start justify-between"><input type="checkbox" aria-label={`Select ${file.name}`} checked={selected.has(file.ref.fileId)} onChange={() => toggle(file.ref.fileId)} />
                 {file.metadata.kind === 'recording' || file.metadata.kind === 'timelapse' ? <Film className="size-10 text-muted-foreground" /> : <File className="size-10 text-muted-foreground" />}</div>
               <span className="break-all text-sm font-medium">{file.name}</span>
+              {unconfirmed.has(file.ref.fileId) && <span className="text-xs text-amber-500">Deletion unconfirmed · Refresh manually</span>}
               <span className="text-xs text-muted-foreground">{bytes(file.sizeBytes)}{file.modifiedAtMs !== null && ` · ${new Date(file.modifiedAtMs).toLocaleDateString()}`}</span>
             </label>)}
           </div>
@@ -161,6 +168,13 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
         {cursor && <Button variant="outline" className="mx-auto flex" disabled={loading} onClick={() => void load(cursor)}>Load more files</Button>}
       </div>
     </>}
+    {deleting && <DeleteStorageFiles files={deleting} printerName={printer.identity.displayName} storageName={storage?.name ?? 'Storage'} onClose={() => setDeleting(null)}
+      onOutcome={(ref, result) => {
+        if (result.state === 'deleted') {
+          listing.current?.abort(); setLoading(false); setFiles(previous => previous.filter(file => file.ref.fileId !== ref.fileId)); setCursor(null);
+          setSelected(previous => new Set([...previous].filter(id => id !== ref.fileId)));
+        } else if (result.state === 'unconfirmed') setUnconfirmed(previous => new Set([...previous, ref.fileId]));
+      }} />}
     <PrinterDownloadTasks />
   </section>;
 }

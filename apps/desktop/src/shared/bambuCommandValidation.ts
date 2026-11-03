@@ -1,3 +1,4 @@
+import { isStorageFileRef } from './bambuStorage';
 import type * as D from '@orca/printer-control/domain';
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown) => typeof value === 'string' && value.length > 0 && value.length < 1024;
@@ -10,6 +11,7 @@ export function isBambuCommandPayload(value: unknown): value is D.PrinterCommand
   if (!object(value) || !exact(value, ['type', 'params']) || !object(value.params)) return false;
   const p = value.params;
   switch (value.type) {
+    case 'files.delete': return exact(p, ['target']) && isStorageFileRef(p.target);
     case 'materials.configure': {
       if (!text(p.slotId) || !Array.isArray(p.acknowledgedWarningIds) || p.acknowledgedWarningIds.length > 128 || !p.acknowledgedWarningIds.every(text)) return false;
       if (p.intent === 'reset') return exact(p, ['slotId', 'intent', 'acknowledgedWarningIds']);

@@ -1,3 +1,4 @@
+import type { BambuStorageCommands } from './storageCommands';
 import type { PreparedCommand } from './controlContext';
 import { randomUUID } from 'node:crypto';
 import type { NativeEvent } from '@orca/bambu-native';
@@ -20,8 +21,9 @@ export class BambuOperations {
   private readonly requests = new Map<string, { fingerprint: string; result: Promise<D.Submission> }>();
   private sequence = 1000000;
   constructor(private readonly monitor: BambuMonitor, private readonly changed: () => void,
-    private readonly timeoutMs: number | ((command: D.PrinterCommand) => number) = completionTimeout, private readonly now = () => Date.now()) {}
+    private readonly timeoutMs: number | ((command: D.PrinterCommand) => number) = completionTimeout, private readonly now = () => Date.now(), private readonly storage?: BambuStorageCommands) {}
   async evaluate(target: D.PrinterTarget, command: D.PrinterCommand): Promise<D.Result<D.CommandEvaluation>> {
+    if (command.type === 'files.delete' && this.storage) return this.storage.evaluate(target, command);
     const context = command.type === 'materials.configure' ? await this.monitor.prepareMaterials(target, command.params) : await this.monitor.context(target); if (!context.ok) return context;
     const result = prepareCommand(context.value, command);
     return { ok: true, value: { basis: commandBasis(context.value), warnings: result.ok ? result.value.warnings : [], availability: result.ok ? { kind: 'available' } : { kind: 'blocked', reasons: [result.error] } } };
@@ -33,6 +35,7 @@ export class BambuOperations {
     const result = this.submitNew(structuredClone(request)); this.requests.set(key, { fingerprint, result }); return result;
   }
   private async submitNew(request: D.CommandRequest): Promise<D.Submission> {
+    if (request.command.type === 'files.delete' && this.storage) return this.storage.submit(request as Extract<D.CommandRequest, { command: D.CommandOf<'files.delete'> }>);
     const lease = await this.monitor.acquire(request.target);
     if (!lease.ok) return { kind: 'rejected', error: lease.error };
     let tracked: Tracked | undefined;
@@ -139,11 +142,11 @@ export class BambuOperations {
   get(ref: D.OperationRef): D.Result<D.OperationLookup> {
     const tracked = this.operations.get(ref.id);
     return { ok: true, value: tracked && tracked.operation.ref.printerId === ref.printerId && tracked.operation.ref.routeId === ref.routeId
-      ? { kind: 'found', operation: structuredClone(tracked.operation) } : { kind: 'unknown', reason: 'not-found' } };
+      ? { kind: 'found', operation: structuredClone(tracked.operation) } : this.storage?.get(ref) ?? { kind: 'unknown', reason: 'not-found' } };
   }
   find(request: D.RequestLookup): D.Result<D.OperationLookup> {
     const tracked = [...this.operations.values()].find(value => value.operation.requestId === request.requestId && value.operation.ref.printerId === request.printerId && value.operation.ref.routeId === request.routeId);
-    return tracked ? this.get(tracked.operation.ref) : { ok: true, value: { kind: 'unknown', reason: 'not-found' } };
+    return tracked ? this.get(tracked.operation.ref) : { ok: true, value: this.storage?.find(request) ?? { kind: 'unknown', reason: 'not-found' } };
   }
-  close() { for (const tracked of this.operations.values()) this.endUnconfirmed(tracked, 'This application instance closed before completion was confirmed.'); }
+  async close() { await this.storage?.close(); for (const tracked of this.operations.values()) this.endUnconfirmed(tracked, 'This application instance closed before completion was confirmed.'); }
 }

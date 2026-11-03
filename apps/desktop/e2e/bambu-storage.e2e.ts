@@ -4,7 +4,7 @@ import { installControlFixture } from './bambu-control-fixture';
 import { Ipc } from '../src/shared/ipc';
 
 /** Real renderer/preload/main metadata boundary; native protocol/session tests are separate. */
-test('Storage resolves only on entry and selects loaded filtered files without selecting later pages', async () => {
+test('Storage scopes selection, retains download tasks and distinguishes confirmed and uncertain deletion', async () => {
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
   try {
     const page = await app.firstWindow(); await page.setViewportSize({ width: 1280, height: 850 });
@@ -17,6 +17,10 @@ test('Storage resolves only on entry and selects loaded filtered files without s
         fixture.requests.push({ method, input });
         const target = input.target ?? input.request?.target ?? input.file ?? input;
         const current = fixture.data[target.printerId];
+        if (method === 'submit' && input.command.type === 'files.delete') return { kind: 'recorded', operation: { ...input.target, id: input.command.params.target.fileId } };
+        if (method === 'operation') return { ok: true, value: { kind: 'found', operation: { kind: 'command', commandType: 'files.delete',
+          ref: input, requestId: 'delete', configurationRevision: current.description.configurationRevision, revision: 1, updatedAtMs: 0, steps: [],
+          phase: input.id.includes('001') ? { kind: 'outcome-unknown', reason: 'Fixture connection lost.' } : { kind: 'completed', result: null, confirmation: 'device-result' } } } };
         if (method === 'describe') return { ok: true, value: current.description };
         if (method === 'read') return { ok: true, value: current.snapshot };
         if (['observe', 'release', 'storage.cancel'].includes(method)) return { ok: true, value: null };
@@ -90,5 +94,22 @@ test('Storage resolves only on entry and selects loaded filtered files without s
     await storage.screenshot({ path: test.info().outputPath('storage-browser.png') });
     await storage.getByRole('button', { name: 'Refresh', exact: true }).click();
     await expect.poll(async () => (await calls()).filter(call => call.method === 'storage.list').length).toBe(5);
+    await storage.getByRole('checkbox', { name: 'Select internal-part-000.gcode.3mf', exact: true }).check();
+    await storage.getByRole('button', { name: 'Delete selected', exact: true }).click();
+    await expect(page.getByRole('dialog')).toContainText('Internal storage');
+    await page.getByRole('button', { name: 'Delete files', exact: true }).click();
+    await expect(page.getByRole('dialog')).toContainText('1 deleted · 0 failed · 0 unconfirmed');
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(storage.getByRole('checkbox')).toHaveCount(99);
+    await storage.getByRole('checkbox', { name: 'Select internal-part-001.gcode.3mf', exact: true }).check();
+    await storage.getByRole('checkbox', { name: 'Select internal-part-002.gcode.3mf', exact: true }).check();
+    await storage.getByRole('button', { name: 'Delete selected', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete files', exact: true }).click();
+    await expect(page.getByRole('dialog')).toContainText('Deletion paused.');
+    await page.getByRole('button', { name: 'Stop batch', exact: true }).click();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(storage.getByText('Deletion unconfirmed · Refresh manually')).toBeVisible();
+    await expect(storage.getByRole('checkbox')).toHaveCount(99);
+    expect((await calls()).filter(call => call.method === 'storage.list')).toHaveLength(5);
   } finally { await app.close(); }
 });

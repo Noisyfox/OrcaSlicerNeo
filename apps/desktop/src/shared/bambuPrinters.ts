@@ -13,7 +13,7 @@ export function bambuCapabilities(): D.PrinterCapabilities {
       'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
       'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,
       'materials.writeMetadata': unsupported, 'materials.configure': unsupported, 'materials.refreshTag': unsupported, 'drying.start': unsupported, 'drying.stop': unsupported,
-      'camera.setEnabled': unsupported, 'camera.setDeviceTimelapse': unsupported, 'files.delete': unsupported,
+      'camera.setEnabled': unsupported, 'camera.setDeviceTimelapse': unsupported, 'files.delete': { kind: 'unknown', reason: 'Open Storage to discover available file actions.' },
     },
     cameras: [], currentPrintPreview: unsupported, webInterface: unsupported,
     files: { upload: unsupported, list: { kind: 'unknown', reason: 'Open Storage to discover available printer storage.' },

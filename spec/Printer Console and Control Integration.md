@@ -653,8 +653,11 @@ and Electron renderer/preload/main fixture E2E pass. Desktop host-owned download
 tasks, default-folder/Save As selection, progress, cancellation/retry, completion
 notices and saved-file opening are integrated. Fixture E2E covers task persistence
 across navigation and cancellation; separate utility tests verify actual saving.
-Thumbnails, delete/print actions, stored-media playback and physical acceptance
-remain pending; the complete initial delivery is not yet qualified.
+Confirmed single/batch deletion now distinguishes confirmed, failed, unconfirmed
+and unexecuted entries, with explicit continuation of a paused batch. Fixture E2E
+checks local removal after confirmation and retained entries without automatic
+refresh after uncertain outcomes. Thumbnails, print actions, stored-media playback
+and physical acceptance remain pending; the complete initial delivery is not yet qualified.
 
 The [printer-domain Storage design](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)
 owns provider contracts, binary transport, host save ownership, the pinned Bambu
