@@ -3,7 +3,7 @@ import type * as D from '@orca/printer-control/domain';
 import { BambuStorageFiles, type BambuStorageSource } from './storageFiles';
 import { BambuStorageImages, thumbnailMime } from './storageImages';
 const owners: BambuStorageImages[] = [];
-afterEach(async () => { for (const owner of owners.splice(0)) await owner.close(); });
+afterEach(async () => { for (const owner of owners.splice(0)) await owner.close(); vi.useRealTimers(); });
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64');
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 async function fixture() {
@@ -49,6 +49,61 @@ it('keeps image resources document-owned and releases retained bytes on close', 
   expect(await f.images.call('other', { method: 'get', input: ref })).toMatchObject({ ok: false });
   await f.images.call('document', { method: 'close', input: ref });
   expect(await f.images.call('document', { method: 'open', input: f.request })).toMatchObject({ ok: false, error: { code: 'lease-expired' } });
+});
+it.each(['available', 'missing'] as const)('keeps admitting thumbnails after hundreds of %s reads within one history window', async availability => {
+  const f = await fixture();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+  if (availability === 'missing') vi.mocked(f.source.resource).mockResolvedValue(null);
+  try {
+    for (let index = 0; index < 300; index++) {
+      const result = await f.images.call('document', { method: 'open', input: { ...f.request, requestId: `thumbnail-${index}` as D.Id<'request'> } });
+      if (availability === 'missing') expect(result).toMatchObject({ ok: false, error: { code: 'preview-unavailable' } });
+      else {
+        if (!result.ok || !result.value || !('ref' in result.value)) throw new Error(`Thumbnail ${index} was rejected`);
+        await f.images.call('document', { method: 'close', input: result.value.ref });
+      }
+    }
+    const reads = vi.mocked(f.source.resource).mock.calls.length;
+    const last = await f.images.call('document', { method: 'open', input: { ...f.request, requestId: 'thumbnail-299' as D.Id<'request'> } });
+    expect(last).toMatchObject({ ok: false, error: { code: availability === 'missing' ? 'preview-unavailable' : 'lease-expired' } });
+    expect(f.source.resource).toHaveBeenCalledTimes(reads);
+    // History remains bounded: its oldest terminal entry can be read again.
+    const first = await f.images.call('document', { method: 'open', input: { ...f.request, requestId: 'thumbnail-0' as D.Id<'request'> } });
+    expect(f.source.resource).toHaveBeenCalledTimes(reads + (availability === 'missing' ? 1 : 2));
+    if (first.ok && first.value && 'ref' in first.value) await f.images.call('document', { method: 'close', input: first.value.ref });
+  } finally { clock.mockRestore(); }
+});
+it('preserves pending deduplication and live leases while evicting completed request history', async () => {
+  const f = await fixture(), read = vi.mocked(f.source.resource).getMockImplementation()!;
+  let enter!: () => void, resume!: () => void;
+  const started = new Promise<void>(resolve => { enter = resolve; }), paused = new Promise<void>(resolve => { resume = resolve; });
+  vi.mocked(f.source.resource).mockImplementationOnce(async (...args) => { enter(); await paused; return read(...args); });
+  const opening = f.images.call('document', { method: 'open', input: f.request }); await started;
+  const heldRequest = { ...f.request, requestId: 'held' as D.Id<'request'> };
+  const held = await f.images.call('document', { method: 'open', input: heldRequest });
+  if (!held.ok || !held.value || !('ref' in held.value)) throw new Error('No held image');
+  for (let index = 0; index < 150; index++) {
+    const result = await f.images.call('document', { method: 'open', input: { ...f.request, requestId: `churn-${index}` as D.Id<'request'> } });
+    if (!result.ok || !result.value || !('ref' in result.value)) throw new Error('History blocked an image');
+    await f.images.call('document', { method: 'close', input: result.value.ref });
+  }
+  const reads = vi.mocked(f.source.resource).mock.calls.length;
+  expect(await f.images.call('document', { method: 'open', input: heldRequest })).toEqual(held);
+  const duplicate = f.images.call('document', { method: 'open', input: f.request });
+  resume(); expect(await duplicate).toEqual(await opening);
+  expect(f.source.resource).toHaveBeenCalledTimes(reads + 1); // Only the original read's image remains; no duplicate relationship read.
+  expect(await f.images.call('document', { method: 'open', input: { ...heldRequest, client: { ...heldRequest.client, imageMimeTypes: [] } } }))
+    .toMatchObject({ ok: false, error: { code: 'invalid-request' } });
+});
+it('keeps a renewed live lease deduplicated after its original request-history deadline', async () => {
+  vi.useFakeTimers();
+  const f = await fixture(), result = await f.images.call('document', { method: 'open', input: f.request });
+  if (!result.ok || !result.value || !('ref' in result.value)) throw new Error('No image');
+  await vi.advanceTimersByTimeAsync(50_000);
+  expect(await f.images.call('document', { method: 'renew', input: result.value.ref })).toMatchObject({ ok: true });
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect(await f.images.call('document', { method: 'open', input: f.request })).toMatchObject({ ok: true, value: { ref: result.value.ref } });
+  expect(f.source.resource).toHaveBeenCalledTimes(2);
 });
 it('rejects a changed configuration and excessive decoded image dimensions', async () => {
   const f = await fixture(); vi.mocked(f.source.resource).mockImplementation(async () => { f.source.configurationRevision = 'r2'; return png; });

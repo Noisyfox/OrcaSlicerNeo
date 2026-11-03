@@ -6,10 +6,11 @@ import { BambuStorageFiles, storageFailure } from './storageFiles';
 const failure = (code: D.ErrorCode, message: string): D.Result<never> => ({ ok: false, error: { code, message } });
 interface ImageResource { owner: string; request: D.OpenMediaRequest; descriptor: D.MediaDescriptor; bytes: number; until: number }
 interface Pending { owner: string; controller: AbortController; work: Promise<D.Result<D.MediaDescriptor>> }
+interface ImageRequest { owner: string; fingerprint: string; result: Promise<D.Result<D.MediaDescriptor>>; until: number; active: boolean }
 /** Optional bounded image resources, independent of the live-camera lease. */
 export class BambuStorageImages {
   private resources = new Map<string, ImageResource>();
-  private requests = new Map<string, { fingerprint: string; result: Promise<D.Result<D.MediaDescriptor>>; until: number }>();
+  private requests = new Map<string, ImageRequest>();
   private pending = new Map<string, Pending>();
   private retiredOwners = new Set<string>();
   private closed = false;
@@ -17,7 +18,7 @@ export class BambuStorageImages {
   private timer = setInterval(() => {
     const now = Date.now();
     for (const [id, resource] of this.resources) if (resource.until < now) this.release(id);
-    for (const [key, request] of this.requests) if (request.until < now) this.requests.delete(key);
+    for (const [key, request] of this.requests) if (!request.active && !this.pending.has(key) && request.until < now) this.requests.delete(key);
   }, 1000);
   constructor(private readonly files: BambuStorageFiles, private readonly printThumbnail: (file: D.RemoteFileRef, previewId: string) => string | null = () => null) { this.timer.unref(); }
   owns(ref: D.MediaRef) { return ref.id.startsWith('storage-image:'); }
@@ -49,10 +50,21 @@ export class BambuStorageImages {
     const key = `${owner}:${request.requestId}`, fingerprint = JSON.stringify(request), old = this.requests.get(key);
     if (this.cancelled.has(key)) return Promise.resolve(failure('cancelled', 'Thumbnail reading stopped.'));
     if (old) return old.fingerprint === fingerprint ? old.result : Promise.resolve(failure('invalid-request', 'The image request ID was reused.'));
-    if (this.pending.size >= 16 || this.resources.size >= 32 || this.requests.size >= 128) return Promise.resolve(failure('busy', 'Wait for other thumbnail reads to finish.'));
+    if (this.pending.size >= 16 || this.resources.size >= 32) return Promise.resolve(failure('busy', 'Wait for other thumbnail reads to finish.'));
+    // Completed request history bounds deduplication, not browsing throughput.
+    // Keep in-flight reads and live leases; evict the oldest terminal records.
+    while (this.requests.size >= 128) {
+      const victim = [...this.requests].find(([key, request]) => !request.active && !this.pending.has(key));
+      if (!victim) return Promise.resolve(failure('busy', 'Wait for other thumbnail reads to finish.'));
+      this.requests.delete(victim[0]);
+    }
     const controller = new AbortController();
-    const work = this.read(owner, request, controller.signal).catch(error => ({ ok: false as const, error: storageFailure(error) })).finally(() => this.pending.delete(key));
-    this.pending.set(key, { owner, controller, work }); this.requests.set(key, { fingerprint, result: work, until: Date.now() + 60_000 });
+    const work = this.read(owner, request, controller.signal).catch(error => ({ ok: false as const, error: storageFailure(error) })).then(result => {
+      const entry = this.requests.get(key);
+      if (entry && !result.ok) { entry.active = false; entry.until = Date.now() + 60_000; }
+      return result;
+    }).finally(() => this.pending.delete(key));
+    this.pending.set(key, { owner, controller, work }); this.requests.set(key, { owner, fingerprint, result: work, until: Date.now() + 60_000, active: true });
     return work;
   }
   private async read(owner: string, request: D.OpenMediaRequest, signal: AbortSignal): Promise<D.Result<D.MediaDescriptor>> {
@@ -88,12 +100,13 @@ export class BambuStorageImages {
     const resource = this.resources.get(id); if (!resource) return;
     this.resources.delete(id);
     const request = this.requests.get(`${resource.owner}:${resource.request.requestId}`);
-    if (request) request.result = Promise.resolve(failure('lease-expired', 'The thumbnail was released.'));
+    if (request) { request.result = Promise.resolve(failure('lease-expired', 'The thumbnail was released.')); request.active = false; request.until = Date.now() + 60_000; }
   }
   async closeOwner(owner: string) {
     this.retiredOwners.add(owner);
     const jobs = [...this.pending.values()].filter(job => job.owner === owner); jobs.forEach(job => job.controller.abort()); await Promise.allSettled(jobs.map(job => job.work));
     for (const [id, resource] of this.resources) if (resource.owner === owner) this.release(id);
+    for (const [key, request] of this.requests) if (request.owner === owner) this.requests.delete(key);
   }
   async close() { this.closed = true; clearInterval(this.timer); for (const job of this.pending.values()) job.controller.abort(); await Promise.allSettled([...this.pending.values()].map(job => job.work)); this.resources.clear(); this.requests.clear(); }
 }

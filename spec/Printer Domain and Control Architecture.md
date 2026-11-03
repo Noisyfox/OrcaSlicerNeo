@@ -3103,7 +3103,13 @@ subfiles, so that path deliberately retains placeholder images. Reads have a
 30-second per-batch budget, 1 MiB relationship / 4 MiB image limits and bounded
 decoded dimensions. Utility images have document ownership, cancellation before
 or during open, expiring leases and a 16 MiB resource budget. These lifetimes are
-separate from the live camera and independent save tasks.
+separate from the live camera and independent save tasks. The utility's 128-entry
+request deduplication history evicts the oldest terminal entries under pressure;
+completed/released/missing-image requests never impose a cumulative browsing quota.
+Pending reads and live image leases are protected from history eviction and expiry,
+including renewed leases. Closing a document clears its request history. This is
+bounded operation bookkeeping; thumbnail content caching remains in the shared
+frontend browser.
 
 Thumbnail acceptance covers native resource packets, utility ownership/format
 limits, viewport caching/cancellation and lease release, actual image decoding in the Electron
