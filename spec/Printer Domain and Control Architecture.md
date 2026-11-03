@@ -3588,6 +3588,16 @@ or change to the current project's mutable runtime is authorized by this design.
 
 #### Initial qualification boundary
 
+Development-host software acceptance now covers workspace tests/typechecks,
+both wasm64 quick builds, comprehensive serial bridge smoke, and threaded remote
+inspection through the real parser and the built disposable Node Worker. Electron
+fixtures cover Storage browsing/actions, same-device authorization recovery,
+local/remote print preparation, generated AVC decoding/seeking and utility cache
+cleanup, camera regression and project/window-close behavior. Desktop renderer CSS
+and the Web frontend build pass. Existing skipped tests remain skipped; this is
+not the dual-host/dual-WASM release matrix or packaged-platform qualification.
+The Web host still reports Bambu managed Storage operations unavailable.
+
 H2D + AMS is the first delivery's physical acceptance target. Cover the storage
 and media capabilities it actually exposes, including SD/internal storage where
 supported, file management, a physical device-file print with plate/material
@@ -3600,10 +3610,12 @@ Qualification includes long transfers beyond the current small-resource deadline
 slow consumers, stopped progress, queue cancellation, disk/publication errors and
 memory behavior across the plugin/native/host chain. Mocks or IPC backpressure
 alone do not qualify the pinned plugin's internal buffering. Record actual device,
-firmware, plugin and host platform for results. Physical acceptance is a future
-implementation gate; no hardware testing or feature delivery is claimed by this
-documentation work. Exact reproducible cases and resource thresholds remain to
-be specified, without requiring all Bambu model families for first acceptance.
+firmware, plugin and host platform for results. Physical acceptance remains open
+and is required before claiming a qualified complete first delivery. Software
+implementation and fixtures do not establish real-printer file management,
+printing, video compatibility or end-to-end native buffering behavior. Exact
+physical cases and resource thresholds remain to be specified, without requiring
+all Bambu model families for first acceptance.
 Use the [testing guidelines](../doc/testing_guidelines.md) for the affected-package,
 host and WASM verification scope; passing fixtures cannot replace these physical
 and native-resource qualification gates.
