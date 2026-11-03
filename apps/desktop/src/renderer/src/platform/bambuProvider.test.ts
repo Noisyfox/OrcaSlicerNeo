@@ -23,7 +23,7 @@ it('projects stable provider/printer/route identities and exposes monitoring and
   const printer = result.value[0]; expect(printer.identity.id).toBe('bambu:serial-a'); expect(printer.routes[0].providerId).toBe(f.provider.id);
   expect(printer.routes[0].configuration).toMatchObject({ channel: 'automatic', address: null, credentialRef: null, webInterfaceUrl: null });
   expect(printer.routes[0].management).toEqual({ rename: false, configure: false, forget: false });
-  expect(Object.entries(printer.routes[0].capabilities.commands).every(([name, capability]) => capability.kind === (name === 'files.delete' ? 'unknown' : 'unsupported'))).toBe(true);
+  expect(Object.entries(printer.routes[0].capabilities.commands).every(([name, capability]) => capability.kind === (['files.delete', 'jobs.start'].includes(name) ? 'unknown' : 'unsupported'))).toBe(true);
   expect(printer.routes[0].capabilities.files.upload.kind).toBe('unsupported');
   const target = { printerId: printer.identity.id, routeId: printer.routes[0].id };
   expect(await f.provider.printers.describe(target)).toMatchObject({ ok: true, value: { descriptor: { kind: 'unknown' } } });

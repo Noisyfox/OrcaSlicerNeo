@@ -3,6 +3,45 @@ import { _electron, desktopLaunchOptions } from './electron-fixture';
 import { installControlFixture } from './bambu-control-fixture';
 import { Ipc } from '../src/shared/ipc';
 
+test('Storage repairs same-printer LAN access through explicit discovery and retains the existing device identity', async () => {
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
+  try {
+    const page = await app.firstWindow(); await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await installControlFixture(app);
+    await app.evaluate(({ ipcMain }, channels) => {
+      let authorized = false;
+      const devices = ['a', 'b'].map(deviceId => ({ deviceId, name: `Workshop ${deviceId.toUpperCase()}`, model: 'H2D', routes: [{ channel: 'cloud', revision: 'r1' }] as Record<string, string>[] }));
+      ipcMain.removeHandler(channels.bambuRead);
+      ipcMain.handle(channels.bambuRead, (_event, kind) => kind === 'printers.saved' ? { ok: true, value: devices }
+        : kind === 'printers.candidates' ? { ok: true, value: devices.map(device => ({ candidateId: device.deviceId, deviceId: device.deviceId, name: `LAN ${device.name}`, model: 'H2D', address: '192.0.2.1', expiresAtMs: Date.now() + 60_000 })) }
+          : kind === 'account.state' ? { status: 'signed-out', error: null } : []);
+      ipcMain.removeHandler(channels.bambuPrinterCommand);
+      ipcMain.handle(channels.bambuPrinterCommand, (event, request) => {
+        if (request.action !== 'authorize' || request.candidateId !== 'a' || request.accessCode !== 'ABCDEFGH') throw new Error('Incorrect authorization target');
+        authorized = true; devices[0].routes.push({ channel: 'lan', revision: 'lan-r1', address: '192.0.2.1' }); event.sender.send(channels.bambuChanged, 'printers');
+        return { ok: true, value: null };
+      });
+      ipcMain.removeHandler(channels.bambuControl);
+      ipcMain.handle(channels.bambuControl, (_event, { method, input }) => {
+        if (method === 'storage.storages') return authorized ? { ok: true, value: [] } : { ok: false, error: { code: 'authentication-required', message: 'Authorize LAN access to browse storage.' } };
+        if (method === 'describe') return { ok: true, value: globalThis.bambuControlFixture.data[input.printerId].description };
+        if (method === 'read') return { ok: true, value: globalThis.bambuControlFixture.data[input.printerId].snapshot };
+        if (method === 'preview') return { ok: false, error: { code: 'preview-unavailable', message: 'No fixture preview.' } };
+        return { ok: true, value: null };
+      });
+    }, Ipc);
+    await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Workshop A', exact: true }).click(); await page.getByRole('tab', { name: 'Storage', exact: true }).click();
+    await page.getByRole('button', { name: 'Authorize storage access', exact: true }).click();
+    const dialog = page.getByTestId('printer-discovery-dialog'); await expect(dialog.getByText('LAN Workshop A', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('LAN Workshop B', { exact: true })).toHaveCount(0);
+    await dialog.getByText('LAN Workshop A', { exact: true }).click(); await dialog.getByLabel('Access code', { exact: true }).fill('ABCDEFGH');
+    await expect(dialog.getByLabel('Access code', { exact: true })).toHaveAttribute('type', 'password'); await dialog.getByRole('button', { name: 'Authorize access', exact: true }).click();
+    await expect(dialog).toHaveCount(0); await expect(page.getByTestId('printer-storage')).toContainText('The printer reports no available storage.');
+    await expect(page.getByTestId('device-printer-select')).toContainText('Workshop A');
+  } finally { await app.close(); }
+});
+
 /** Real renderer/preload/main metadata boundary; native protocol/session tests are separate. */
 test('Storage scopes selection, retains download tasks and distinguishes confirmed and uncertain deletion', async () => {
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });

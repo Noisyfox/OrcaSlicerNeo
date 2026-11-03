@@ -52,8 +52,8 @@ the first agent. Implementation is authorized in verified increments; the direct
 scoped-file contract and initial shared browser are delivered with fixture coverage.
 Host-neutral streaming/FIFO, desktop managed saving, confirmed deletion, independent
 device-file print preparation and progressive stored-video playback are integrated
-with fixture acceptance. LAN authorization recovery and physical qualification
-remain in progress.
+with fixture acceptance. Same-printer LAN authorization recovery is integrated;
+physical qualification remains open.
 
 ## Engineering references
 

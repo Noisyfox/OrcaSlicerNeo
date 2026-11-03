@@ -3007,7 +3007,8 @@ implemented through the existing command/operation contract. Optional, visible-c
 thumbnail resources and independent remote print inspection/preparation/dispatch
 are implemented within fixture acceptance. Stored-video progressive playback now
 has generated AVC acceptance through real Electron main/preload/utility ports.
-LAN authorization recovery and physical qualification remain pending.
+Same-printer LAN authorization recovery is integrated through the existing
+provider discovery/authorization contract. Physical qualification remains pending.
 The host-neutral [managed stream executor](../packages/printer-control/src/downloads.ts)
 is implemented independently of host IPC and filesystem bindings: it consumes
 one owned chunk at a time, waits for each sink write and terminal reader checks,
@@ -3321,7 +3322,18 @@ without requiring the user to add a separate LAN connection. Prompt for missing
 access information. This does not authorize credential reuse across devices or
 retarget existing file references; reads retain their resolved route and
 configuration context. Account login or Cloud enumeration alone does not prove
-access. Exact unavailable-route messages and recovery remain to be specified.
+access. Missing authorization now exposes a Storage recovery action through the
+shared discovery/authorization UI. It starts discovery only on explicit request,
+filters candidates by provider/host and external physical identity, and submits
+`existingPrinterId` with transient masked input. The Bambu provider independently
+checks the candidate against current discoveries and the existing printer ID.
+Success updates access on the existing device, then refreshes Storage; it does not
+create a second printer entry or expose stored access codes. Recovery permits an
+explicit replacement code. If the same printer is not announced locally, show
+network/power guidance and keep waiting; manual IP entry is not implemented by
+this provider flow. Orca's `MediaFilePanel::fetchUrl` instead invokes its existing
+IP-entry dialog when local addressing is missing. These are distinct recovery
+interfaces; neither Cloud login nor an announcement grants file access.
 
 Orca receives download chunks on a C++ worker thread, writes them synchronously
 to an output stream and accumulates MD5, then reports progress to its UI. Its

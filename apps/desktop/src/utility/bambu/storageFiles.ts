@@ -35,7 +35,7 @@ const collections = [
   { id: 'video', name: 'Recordings', kind: 'recording' },
 ] as const;
 const collection = (value: string) => collections.find(item => item.id === value);
-const unavailable = { kind: 'blocked', reasons: [{ code: 'unsupported', message: 'Remote print inspection is not available yet.' }] } as const;
+const unavailable = { kind: 'blocked', reasons: [{ code: 'unsupported', message: 'This collection does not contain print targets.' }] } as const;
 interface FileAddress { collection: BambuStorageCollection; name: string; path: string }
 const fileId = (value: FileAddress) => `bambu-file:${Buffer.from(JSON.stringify(value)).toString('base64url')}` as D.Id<'remote-file'>;
 function address(ref: D.RemoteFileRef): FileAddress | null {
@@ -136,7 +136,8 @@ export class BambuStorageFiles {
       const entry = entries.find(entry => entry.path === address.path && entry.name === address.name);
       if (!entry) return failure('file-not-found', 'The file no longer exists on the printer.');
       return { ok: true, value: { file: remoteFile({ printerId: ref.printerId, routeId: ref.routeId }, ref.configurationRevision, ref.storageId, address.collection, entry),
-        assessedAtMs: this.now(), capabilityRevision: 'bambu-storage-1', availability: { download: { kind: 'available' }, delete: { kind: 'available' }, startPrint: unavailable } } };
+        assessedAtMs: this.now(), capabilityRevision: 'bambu-storage-1', availability: { download: { kind: 'available' }, delete: { kind: 'available' },
+          startPrint: address.collection === 'model' ? { kind: 'unknown', reason: 'Inspect this file to determine its printable targets.' } : unavailable } } };
     } catch (error) { return { ok: false, error: storageFailure(error) }; }
   }
 

@@ -1,6 +1,7 @@
 import { StorageThumbnail } from './StorageThumbnail';
 import { RemoteFilePrintDialog } from './RemoteFilePrintDialog';
 import { StoredVideoDialog } from './StoredVideoDialog';
+import { PrinterDiscovery } from './PrinterDiscovery';
 import { DeleteStorageFiles } from './DeleteStorageFiles';
 import { PrinterDownloadTasks } from './PrinterDownloadTasks';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -33,6 +34,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const [search, setSearch] = useState('');
   const [groupBy, setGroupBy] = useState<'none' | 'year' | 'month'>('none');
   const [error, setError] = useState<string | null>(null);
+  const [needsAuthorization, setNeedsAuthorization] = useState(false);
   const [discovering, setDiscovering] = useState(true);
   const [loading, setLoading] = useState(false);
   const discovery = useRef<AbortController | null>(null), listing = useRef<AbortController | null>(null);
@@ -55,11 +57,11 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const discover = async () => {
     discovery.current?.abort(); listing.current?.abort();
     const controller = new AbortController(); discovery.current = controller;
-    setDiscovering(true); setError(null); setFiles([]); setCursor(null); setSelected(new Set());
+    setDiscovering(true); setError(null); setNeedsAuthorization(false); setFiles([]); setCursor(null); setSelected(new Set());
     try {
       const result = await service.files.listStorages(target, { signal: controller.signal });
       if (controller.signal.aborted) return;
-      if (!result.ok) { setError(result.error.message); setStorages([]); return; }
+      if (!result.ok) { setError(result.error.message); setNeedsAuthorization(['authentication-required', 'permission-denied'].includes(result.error.code)); setStorages([]); return; }
       setStorages(result.value);
       const first = result.value.find(storage => storage.availability.kind === 'available' && storage.browsing.kind === 'supported') ?? result.value[0];
       setStorageId(first?.id ?? ''); setCollectionId('');
@@ -69,12 +71,12 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const load = async (next: string | null = null) => {
     if (!storage || !category || storage.availability.kind !== 'available') return;
     listing.current?.abort(); const controller = new AbortController(); listing.current = controller;
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setNeedsAuthorization(false);
     try {
       const result = await service.files.list({ target, storageId: storage.id, location: { kind: 'collection', collectionId: category.id },
         pageSize: 100, ...(next ? { cursor: next } : {}) }, { signal: controller.signal });
       if (controller.signal.aborted) return;
-      if (!result.ok) { setError(result.error.message); return; }
+      if (!result.ok) { setError(result.error.message); setNeedsAuthorization(['authentication-required', 'permission-denied'].includes(result.error.code)); return; }
       const page = result.value.files;
       if (!next) setUnconfirmed(new Set());
       setFiles(previous => next ? [...new Map([...previous, ...page].map(file => [file.ref.fileId, file])).values()] : page);
@@ -131,6 +133,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
     {error && <div role="alert" className="rounded border border-destructive/40 p-3 text-sm text-destructive">{error}
       <Button variant="ghost" size="sm" className="ml-2" disabled={loading || discovering} onClick={() => void (storage && category ? load() : discover())}>Retry</Button>
     </div>}
+    {needsAuthorization && <PrinterDiscovery saved={[printer]} target={printer} onAuthorized={() => void discover()} />}
     {discovering ? <p role="status" className="text-sm text-muted-foreground">Loading available storage…</p>
       : !storages.length && !error ? <p className="text-sm text-muted-foreground">The printer reports no available storage.</p>
       : storage?.availability.kind === 'blocked' ? <p role="status">{storage.availability.reasons.map(reason => reason.message).join(' ')}</p>

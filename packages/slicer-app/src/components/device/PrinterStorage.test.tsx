@@ -45,7 +45,7 @@ async function fixture(supportDownloads = false) {
   const root = createRoot(element); roots.push(root);
   const mount = async (panel = false) => { await act(async () => root.render(<PlatformProvider value={platform}>{panel ? <DevicePanel initialSelection={printer.identity.id} /> : <PrinterStorage printer={printer} route={route} />}</PlatformProvider>)); };
   const click = async (label: string) => { const button = [...element.querySelectorAll('button')].find(button => button.textContent === label); expect(button).toBeDefined(); await act(async () => button!.click()); };
-  return { element, root, printer, route, mount, click, list, listStorages, storages, file, downloads };
+  return { element, root, printer, route, service, mount, click, list, listStorages, storages, file, downloads };
 }
 
 it('discovers only on explicit Storage entry and does not poll when selecting or loading another page', async () => {
@@ -87,6 +87,16 @@ it('keeps failed capability resolution pending for manual retry and reports an e
   expect(f.listStorages).toHaveBeenCalledTimes(1); expect(f.list).not.toHaveBeenCalled();
   await f.click('Retry'); expect(f.listStorages).toHaveBeenCalledTimes(2); expect(f.list).toHaveBeenCalledTimes(1);
   expect(f.element.textContent).toContain('This collection is empty.');
+});
+it('offers scoped authorization after an auth error without starting discovery until requested', async () => {
+  const f = await fixture();
+  f.service.listProviders = async () => ({ ok: true, value: [{ id: f.route.providerId, name: 'Provider', hosts: [{ id: f.route.configuration.hostId,
+    name: 'Host', execution: 'desktop', discovery: { kind: 'supported', constraints: { kinds: ['lan'] } } }] }] });
+  const discover = vi.fn<D.PrinterService['discover']>(async function* () {}); f.service.discover = discover;
+  f.listStorages.mockResolvedValueOnce({ ok: false, error: { code: 'authentication-required', message: 'Authorize this printer.' } });
+  await f.mount(); expect(discover).not.toHaveBeenCalled(); expect(f.element.textContent).toContain('Authorize storage access');
+  await f.click('Authorize storage access'); expect(discover).toHaveBeenCalledWith(f.route.providerId, { kind: 'lan', hostId: f.route.configuration.hostId }, expect.anything());
+  expect(document.body.textContent).toContain('Waiting for this printer on the local network.'); expect(f.listStorages).toHaveBeenCalledOnce();
 });
 
 it('refreshes explicitly and reconciles removed identities without selecting newly loaded files', async () => {

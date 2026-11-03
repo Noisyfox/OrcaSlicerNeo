@@ -8,7 +8,7 @@ export function bambuCapabilities(): D.PrinterCapabilities {
   return {
     revision: 'bambu-storage-1', submission: { kind: 'supported', constraints: { formats: ['print-3mf'] } },
     commands: {
-      'jobs.start': unsupported, 'jobs.pause': unsupported, 'jobs.resume': unsupported, 'jobs.cancel': unsupported, 'jobs.setSpeed': unsupported, 'jobs.skipObjects': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
+      'jobs.start': { kind: 'unknown', reason: 'Inspect a device file to prepare a supported print target.' }, 'jobs.pause': unsupported, 'jobs.resume': unsupported, 'jobs.cancel': unsupported, 'jobs.setSpeed': unsupported, 'jobs.skipObjects': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
       'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported, 'motion.home': unsupported,
       'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
       'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,

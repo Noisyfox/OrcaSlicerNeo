@@ -668,9 +668,11 @@ single-selection Play action, progressive embedded playback, a cached-range seek
 control and an explicit managed-download/system-player alternative. Closing the
 viewer or leaving Storage releases its lease and temporary cache. Generated AVC
 acceptance exercises real Electron decoding, seeking and utility cleanup; component
-tests cover unsupported-format fallback and cancellation of late opens. Missing
-LAN authorization recovery and physical acceptance remain pending; the complete
-initial delivery is not yet qualified.
+tests cover unsupported-format fallback and cancellation of late opens.
+LAN authorization recovery now reuses scoped discovery and masked access input
+for the existing physical printer. Component and Electron fixture acceptance cover
+identity filtering and the successful return to Storage. Physical acceptance
+remains pending; the complete initial delivery is not yet qualified.
 
 The [printer-domain Storage design](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)
 owns provider contracts, binary transport, host save ownership, the pinned Bambu
