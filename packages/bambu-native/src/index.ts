@@ -9,6 +9,8 @@ export { readBambuStorageFile } from './storageDownload.js';
 export { BambuStorageError } from './storageChannel.js';
 export type { BambuStorageReadOptions } from './storageChannel.js';
 export type { BambuStorageFile, BambuStorageDownload } from './storageDownload.js';
+export { discoverBambuStorage, listBambuStorageFiles, deleteBambuStorageFile } from './storageQueries.js';
+export type { BambuStorageQueryOptions, BambuStorageEntry, BambuStorageCollection } from './storageQueries.js';
 export type { NativePrintParameters, NativePrintResult } from './print.js';
 
 export interface NativeHttpResult { result: number; httpCode: number; body: string }

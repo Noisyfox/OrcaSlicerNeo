@@ -11,7 +11,7 @@ struct FixtureControl {
     std::chrono::steady_clock::time_point next_packet;
 };
 extern "C" {
-int Bambu_Create(Bambu_Tunnel* tunnel, const char* path) { *tunnel = new FixtureControl{path}; return 0; }
+int Bambu_Create(Bambu_Tunnel* tunnel, const char* path) { auto fixture = new FixtureControl; fixture->mode = path; *tunnel = fixture; return 0; }
 int Bambu_Open(Bambu_Tunnel tunnel) {
     auto& s = *static_cast<FixtureControl*>(tunnel);
     if (s.mode.find("slow") != std::string::npos) std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -21,6 +21,35 @@ int Bambu_StartStreamEx(Bambu_Tunnel, int type) { return type == 0x3001 ? 0 : -1
 int Bambu_SendMessage(Bambu_Tunnel tunnel, int type, const char* bytes, int size) {
     auto& s = *static_cast<FixtureControl*>(tunnel);
     const std::string message(bytes, size);
+    if (message.find("\"cmdtype\":7") != std::string::npos) {
+        s.replies.push_back("{\"result\":0,\"sequence\":1,\"reply\":{\"storage\":[\"sdcard\",\"internal\"]}}"); return 0;
+    }
+    if (message.find("\"cmdtype\":1,") != std::string::npos) {
+        if (s.mode.find("silent") != std::string::npos) return 0;
+        if (s.mode.find("continued-empty") != std::string::npos) {
+            s.replies.push_back("{\"result\":1,\"sequence\":1,\"reply\":{\"file_lists\":[]}}"); return 0;
+        }
+        if (s.mode.find("largeheader") != std::string::npos) {
+            std::string files;
+            for (int i = 0; i < 1000; ++i) {
+                if (i) files += ',';
+                const auto name = std::string(80, 'a') + std::to_string(i) + ".3mf";
+                files += "{\"name\":\"" + name + "\",\"path\":\"/" + name + "\",\"size\":3}";
+            }
+            s.replies.push_back("{\"result\":0,\"sequence\":1,\"reply\":{\"file_lists\":[" + files + "]}}"); return 0;
+        }
+        s.replies.push_back("{\"result\":1,\"sequence\":1,\"reply\":{\"file_lists\":[{\"name\":\"b.3mf\",\"path\":\"/b.3mf\",\"size\":3,\"time\":10}]}}");
+        const std::string name = s.mode.find("duplicate") != std::string::npos ? "b.3mf" : "a.3mf";
+        const std::string path = s.mode.find("legacy") != std::string::npos ? "" : "/" + name;
+        s.replies.push_back("{\"result\":0,\"sequence\":1,\"reply\":{\"file_lists\":[{\"name\":\"" + name + "\",\"path\":\"" + path + "\",\"size\":4,\"time\":10}]}}"); return 0;
+    }
+    if (message.find("\"cmdtype\":3") != std::string::npos) {
+        if (s.mode.find("silent") != std::string::npos) return 0;
+        if (s.mode.find("rejected") != std::string::npos) s.replies.push_back("{\"result\":10,\"sequence\":1}");
+        else if (s.mode.find("uncertain") != std::string::npos) s.replies.push_back("{\"result\":0,\"sequence\":1,\"reply\":{\"paths\":[]}}");
+        else s.replies.push_back("{\"result\":0,\"sequence\":1,\"reply\":{\"paths\":[\"/storage-file\"]}}");
+        return 0;
+    }
     if (message.find("/storage-file") != std::string::npos) {
         if (s.mode.find("silent") != std::string::npos) return 0;
         if (s.mode.find("long-progress") != std::string::npos) {

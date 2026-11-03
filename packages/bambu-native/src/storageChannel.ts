@@ -78,7 +78,8 @@ export async function openStorageChannel(addonPath: string, sourcePath: string, 
           const packet = Buffer.from(pending.shift()!), separator = packet.indexOf('\n\n');
           const header = separator < 0 ? packet : packet.subarray(0, separator);
           const body = separator < 0 ? new Uint8Array(0) : packet.subarray(separator + 2);
-          if (header.byteLength > 65536) throw invalidStorageReply();
+          // Listings may contain many entries in one JSON packet; binary file headers are small.
+          if (header.byteLength > (command === 1 ? 4 * 1024 * 1024 : 65536)) throw invalidStorageReply();
           let root: unknown;
           try { root = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(header)); } catch { throw invalidStorageReply(); }
           if (!storageObject(root)) throw invalidStorageReply();

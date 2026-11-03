@@ -3229,12 +3229,19 @@ offsets, total length and terminal MD5, exposes single-consumer owned chunks and
 joins closure on cancellation/early return. Its separate connection and demanded-read
 inactivity timeouts do not count time spent waiting for the consumer to request
 another chunk. Timeout values remain host configuration requiring qualification.
+The [Storage query adapter](../packages/bambu-native/src/storageQueries.ts) adds
+explicit media-ability discovery, bounded multipart collection listings and one-file
+deletion with response validation. Listings are deterministic, reject duplicate or
+incompatible entries, and have an overall request deadline independently of stream
+inactivity. Delete requests have no local playback/printing veto and do not retry;
+transport or inconsistent acknowledgment leaves the outcome uncertain for the host.
 Native fixture tests cover a progressing transfer exceeding twenty seconds,
-consumer pauses, cancellation, malformed data and zero-byte output; all 36 native
-tests pass on macOS arm64 after a no-code-change rerun. The first full run had an
-existing camera fixture sample-acquisition timeout; the rerun does not establish
-its cause. These tests do not qualify physical Storage reads. Registration with
-the utility/provider, file discovery and UI remain separate work.
+consumer pauses, cancellation, malformed data, zero-byte output, listing assembly
+and deletion acknowledgment; all 39 native tests pass on macOS arm64. An earlier
+full run had an existing camera fixture sample-acquisition timeout that did not
+recur on a no-code-change rerun; its cause is unconfirmed. These tests do not
+qualify physical Storage reads or deletions. Registration with the utility/provider
+and UI remain separate work.
 The pinned plugin's internal response queue has no
 explicit capacity limit in its
 [implementation](https://github.com/ClusterM/open-bamboo-networking/blob/v2.2.0/stubs/BambuSource.cpp).
