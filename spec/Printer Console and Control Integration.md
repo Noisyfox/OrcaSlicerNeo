@@ -751,8 +751,22 @@ access. The initial pinned Bambu implementation requires LAN reachability.
 
 The initial delivery supports both removable SD storage and internal printer
 storage where the device supports them. Each storage advertises its own content
-kinds and actions. Orca's external-storage categories and internal-model view
-are a Bambu reference, not restrictions imposed on other agents.
+kinds and actions. Bambu follows the capability-gated External/Internal browsing
+of [Bambu Studio master 79df7ae](https://github.com/bambulab/BambuStudio/blob/79df7ae309be398ed30c9f397c13c9911c2edc57/src/slic3r/GUI/MediaFilePanel.cpp#L475-L488):
+External is the initial choice and provides print files, timelapses and recordings.
+Internal print files require reported `fun2` bit 17; internal timelapses require
+`fun` bit 28. Internal recordings are not offered. Discovery identifiers such as
+`emmc` do not establish those browsing capabilities. These restrictions belong to
+the Bambu agent and do not constrain other agents.
+
+The shared browser presents the union of agent-provided collections, retaining
+collection selection while switching storage. It offers only storages supporting
+the current collection and hides the storage selector when fewer than two choices
+exist. Changing collection or refreshing capabilities falls back to the first
+eligible storage when the current one no longer qualifies, resets the old scope's
+selection and cancels obsolete reads. Bambu orders External first. Explicit Refresh
+re-resolves storage capabilities before loading the collection; ordinary selection
+does not poll the printer.
 
 The shared browsing contract supports classification-based collections and
 hierarchical directories according to provider capabilities. Bambu initially

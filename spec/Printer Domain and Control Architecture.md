@@ -3164,7 +3164,14 @@ deletion invalidates affected paging snapshots. The
 [session binding](../apps/desktop/src/utility/bambu/storageSessions.ts) resolves only
 same-device authorized LAN credentials, bounds outstanding native requests, and
 joins stream return on cancellation, authorization changes and shutdown. It does
-not acquire the single selected MQTT monitor lease. The runtime and renderer
+not acquire the single selected MQTT monitor lease. Storage visibility separately
+uses reported Bambu capability bits: reuse a fresh same-route context, otherwise
+attempt one temporary status read that releases its lease. It does not displace
+another monitored printer. A cold direct internal-list request can resolve missing
+capabilities without prior discovery; subsequent internal lists reuse the report
+without acquiring a status lease. When that read is unavailable, retain known same-route
+capabilities or conservatively offer External only. Capability refresh does not
+make binary reads depend on an active Monitor. The runtime and renderer
 provider now register metadata-only Storage RPC, including read cancellation.
 The [shared browser](../packages/slicer-app/src/components/device/PrinterStorage.tsx)
 uses that provider through the normal printer dispatcher. The
@@ -3306,6 +3313,14 @@ unsupported/limited cases need explicit capability handling. Mobile remains
 deferred.
 
 #### Initial Bambu direction and reference behavior
+
+Bambu presents logical `external` and `internal` storage IDs, independent of the
+raw names returned by CTRL discovery. Browsing visibility does not issue the
+CTRL media-ability enumeration; it follows the reported capability flags. External is first and is listed without a
+`storage` wire selector; Internal uses `storage: "internal"`. The current agent
+advertises internal model/timelapse collections only for the respective reported
+capability, never from the presence of `emmc` alone. Optional internal discovery
+is not a successful listing qualification; printer rejection remains visible.
 
 Use the existing pinned `open-bamboo-networking` v2.2.0 artifacts and extend
 `@orca/bambu-native`'s BambuSource CTRL integration. Orca's
@@ -3629,6 +3644,13 @@ and real LAN transport established the following narrower results:
   embedded progressive playback or cached-range seeking.** Closing the failed
   viewers left no video resource cache. No format conversion or silent full-file
   buffering was added to make the acceptance pass.
+
+A read-only recheck of the capability-gated build on the same H2D returned the
+same 35/25/88 external collection counts. No Internal selector was exposed for
+print files, timelapses or recordings in that session. This verifies conservative
+visibility and the External default; internal listing and a real capability change
+remain unqualified. Remote deletion, print submission and material operations were
+not performed.
 
 Sparse normal-speed process measurements do not establish a plugin-to-host
 memory bound. Slow consumers, stopped progress, fault injection, mixed playback

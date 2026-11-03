@@ -9,11 +9,11 @@ const plate = (index = 0): RemotePrintMetadata['targets'][number] => ({ plateInd
   materials: [{ index: 0, type: 'PLA', color: '#FF0000', presetId: 'GFA00', brand: '', usedGrams: 2, usedMeters: 1, nozzleDiameter: 0.4, nozzleFlowType: 'Standard' }] });
 async function fixture(name = 'part.gcode.3mf', metadata: RemotePrintMetadata = { configuration: {}, targets: [plate(), plate(1)] }) {
   let now = 1000;
-  const source: BambuStorageSource = { configurationRevision: 'r1', discover: async () => ['sdcard'],
+  const source: BambuStorageSource = { configurationRevision: 'r1',
     list: vi.fn(async () => [{ name, path: `/${name}`, sizeBytes: 3, modifiedAtSeconds: null }]),
     download: vi.fn(), remove: vi.fn(), resource: vi.fn(async () => Uint8Array.of(1)) };
   const files = new BambuStorageFiles(async () => ({ ok: true, value: source }));
-  const page = await files.list({ target, storageId: 'sdcard' as D.Id<'storage'>, location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } });
+  const page = await files.list({ target, storageId: 'external' as D.Id<'storage'>, location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } });
   if (!page.ok) throw new Error('fixture');
   const inspect = vi.fn(async () => metadata), prepare = vi.fn(async (): Promise<D.Result<D.PrintPreparation>> => ({ ok: true, value: {
     nozzleLabels: [], materialCatalogIds: [], configurationRevision: 'r1', route: 'lan', bindings: [], candidates: [], options: {}, optionDescriptors: [], issues: [],

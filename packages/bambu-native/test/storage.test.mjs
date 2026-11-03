@@ -90,8 +90,8 @@ const list = (mode, maxEntries = 2000, collection = 'model') => listBambuStorage
   `bambu:///local/${mode}`, { storage: 'sdcard', collection, maxEntries }, queryOptions);
 
 test('translates discovered storage IDs to Orca LIST_INFO selectors used by H2D', async () => {
-  for (const storage of ['udisk', 'sdcard', 'emmc', 'internal']) {
-    const mode = storage === 'udisk' || storage === 'sdcard' ? 'selector-external' : 'selector-internal';
+  for (const storage of ['external', 'udisk', 'sdcard', 'emmc', 'internal']) {
+    const mode = storage === 'external' || storage === 'udisk' || storage === 'sdcard' ? 'selector-external' : 'selector-internal';
     const files = await listBambuStorageFiles(addon, source, `bambu:///local/${mode}`,
       { storage, collection: 'model', maxEntries: 100 }, queryOptions);
     assert.equal(files.length, 2);

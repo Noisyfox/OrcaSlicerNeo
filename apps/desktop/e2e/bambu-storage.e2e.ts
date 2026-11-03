@@ -76,11 +76,13 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
               durationSeconds: n * 60, weightGrams: n, layerCount: 0, toolpathOutside: false, timelapseWarningCode: 0, warnings: [], materials: [] } })) } };
         if (method === 'storage.preparePrint') return { ok: true, value: { configurationRevision: current.description.configurationRevision, route: 'lan', bindings: [], candidates: [],
           options: input.request.options, nozzleLabels: ['Nozzle'], materialCatalogIds: [], optionDescriptors: [], issues: [] } };
-        if (method === 'storage.storages') return { ok: true, value: ['sdcard', 'internal'].map(id => ({
-          id, name: id === 'sdcard' ? 'SD card' : 'Internal storage', kind: id === 'sdcard' ? 'removable' : 'internal',
+        if (method === 'storage.storages') return { ok: true, value: ['external', 'internal'].map(id => ({
+          id, name: id === 'external' ? 'External' : 'Internal', kind: id === 'external' ? 'removable' : 'internal',
           availability: { kind: 'available' }, capacityBytes: null, freeBytes: null,
           browsing: { kind: 'supported', constraints: { kind: 'collections', collections: [
             { id: 'model', name: 'Print files', kinds: ['print-file'], actions: ['download', 'delete', 'inspect-print'] },
+            ...(id === 'external' ? [{ id: 'timelapse', name: 'Timelapses', kinds: ['timelapse'], actions: ['download', 'preview'] },
+              { id: 'video', name: 'Recordings', kinds: ['recording'], actions: ['download', 'preview'] }] : []),
           ] } },
         })) };
         if (method === 'storage.list') {
@@ -130,7 +132,7 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await page.getByRole('tab', { name: 'Storage', exact: true }).click();
     const storage = page.getByTestId('printer-storage');
     await expect(storage.getByRole('checkbox')).toHaveCount(100);
-    await expect.poll(() => storage.getByAltText('Thumbnail of sdcard-part-000.gcode.3mf').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
+    await expect.poll(() => storage.getByAltText('Thumbnail of external-part-000.gcode.3mf').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
     await storage.getByLabel('Filter loaded files').fill('part-00');
     await expect(storage.getByRole('checkbox')).toHaveCount(10);
     await storage.getByRole('button', { name: 'Select loaded results', exact: true }).click();
@@ -148,7 +150,7 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await storage.getByRole('button', { name: 'Cancel', exact: true }).first().click();
     await expect(storage.getByRole('button', { name: 'Retry from start', exact: true })).toHaveCount(1);
     await storage.getByRole('combobox', { name: 'Storage', exact: true }).click();
-    await page.getByRole('option', { name: 'Internal storage', exact: true }).click();
+    await page.getByRole('option', { name: 'Internal', exact: true }).click();
     await expect(page.getByRole('listbox')).not.toBeVisible();
     await expect(storage.getByRole('checkbox')).toHaveCount(100);
     await expect(storage.locator('input[type=checkbox]:checked')).toHaveCount(0);
@@ -158,7 +160,7 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await expect.poll(async () => (await calls()).filter(call => call.method === 'storage.list').length).toBe(5);
     await storage.getByRole('checkbox', { name: 'Select internal-part-000.gcode.3mf', exact: true }).check();
     await storage.getByRole('button', { name: 'Delete selected', exact: true }).click();
-    await expect(page.getByRole('dialog')).toContainText('Internal storage');
+    await expect(page.getByRole('dialog')).toContainText('Internal');
     await page.getByRole('button', { name: 'Delete files', exact: true }).click();
     await expect(page.getByRole('dialog')).toContainText('1 deleted · 0 failed · 0 unconfirmed');
     await page.getByRole('button', { name: 'Close', exact: true }).click();
@@ -191,5 +193,16 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
       .filter(r => r.method === 'submit' && r.input.command?.type === 'jobs.start').map(r => r.input.command!.params));
     expect(starts).toHaveLength(1);
     expect(starts[0]).toMatchObject({ inspection: { id: 'inspection', targetId: 'target-2' }, source: { fileId: 'internal-part-003.gcode.3mf' } });
+    await page.getByRole('tab', { name: 'Storage', exact: true }).click();
+    await storage.getByRole('combobox', { name: 'Storage', exact: true }).click();
+    await page.getByRole('option', { name: 'Internal', exact: true }).click();
+    await expect(page.getByRole('listbox')).not.toBeVisible();
+    await storage.getByRole('tab', { name: 'Recordings', exact: true }).click();
+    await expect(storage.getByRole('combobox', { name: 'Storage', exact: true })).not.toBeVisible();
+    await expect(storage.getByText('external-part-000.gcode.3mf', { exact: true })).toBeVisible();
+    await expect(storage.locator('input[type=checkbox]:checked')).toHaveCount(0);
+    await storage.getByRole('tab', { name: 'Print files', exact: true }).click();
+    await expect(storage.getByRole('combobox', { name: 'Storage', exact: true })).toContainText('External');
+
   } finally { await app.close(); }
 });

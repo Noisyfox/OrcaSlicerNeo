@@ -18,7 +18,7 @@ function fixture() {
   ] }));
   const native = { installDeviceCertificate: vi.fn(async () => undefined) };
   const returned = vi.fn(async () => ({ done: true as const, value: undefined }));
-  const io: typeof storageNative = { discover: vi.fn(async () => ['sdcard']), list: vi.fn(async () => []), resource: vi.fn(async () => null), remove: vi.fn(async () => undefined),
+  const io: typeof storageNative = { list: vi.fn(async () => []), resource: vi.fn(async () => null), remove: vi.fn(async () => undefined),
     download: vi.fn(async () => ({ totalBytes: 3, chunks: { [Symbol.asyncIterator]: () => ({
       next: vi.fn(async () => ({ done: false as const, value: new Uint8Array([1, 2, 3]) })), return: returned,
     }) } })),
@@ -33,16 +33,16 @@ function fixture() {
 describe('Bambu storage session ownership', () => {
   it('does not probe while resolving and reuses only same-device authorized LAN credentials', async () => {
     const f = fixture(), source = unwrap(await f.sessions.resolve(f.target()));
-    expect(f.native.installDeviceCertificate).not.toHaveBeenCalled(); expect(f.io.discover).not.toHaveBeenCalled();
-    expect(await source.discover()).toEqual(['sdcard']);
+    expect(f.native.installDeviceCertificate).not.toHaveBeenCalled(); expect(f.io.list).not.toHaveBeenCalled();
+    expect(await source.list('external', 'model')).toEqual([]);
     expect(f.native.installDeviceCertificate).toHaveBeenCalledWith('a', true);
-    const call = vi.mocked(f.io.discover).mock.calls[0];
+    const call = vi.mocked(f.io.list).mock.calls[0];
     expect(call[2]).toContain('passwd=private-secret'); expect(call[2]).toContain('device=a');
     expect(source).not.toHaveProperty('privateUrl');
     f.state.lan = f.state.lan.filter(record => record.deviceId !== 'a');
     expect(await f.sessions.resolve(f.target())).toMatchObject({ ok: false, error: { code: 'authentication-required' } });
-    await expect(source.discover()).rejects.toMatchObject({ detail: { code: 'authentication-required' } });
-    expect(f.io.discover).toHaveBeenCalledTimes(1); await f.sessions.close();
+    await expect(source.list('external', 'model')).rejects.toMatchObject({ detail: { code: 'authentication-required' } });
+    expect(f.io.list).toHaveBeenCalledTimes(1); await f.sessions.close();
   });
 
   it('does not share the currently selected monitor lease across different printers', async () => {
@@ -62,8 +62,8 @@ describe('Bambu storage session ownership', () => {
     await f.sessions.reconcile();
     await expect(iterator.next()).rejects.toMatchObject({ detail: { code: 'cancelled' } });
     expect(f.returned).toHaveBeenCalledTimes(1);
-    await expect(source.discover()).rejects.toMatchObject({ detail: { code: 'authentication-required' } });
-    expect(f.io.discover).not.toHaveBeenCalled(); await f.sessions.close();
+    await expect(source.list('external', 'model')).rejects.toMatchObject({ detail: { code: 'authentication-required' } });
+    expect(f.io.list).not.toHaveBeenCalled(); await f.sessions.close();
   });
 
   it('cancels unread streams and waits for native resource return before shutdown finishes', async () => {

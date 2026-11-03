@@ -39,7 +39,7 @@ export function listBambuStorageFiles(addonPath: string, sourcePath: string, url
   // Media ability IDs are not LIST_INFO selectors. Like Orca, omit storage for
   // external media and use "internal" for eMMC; H2D rejects "udisk" with result 17.
   const storage = request.storage === 'emmc' ? 'internal' : request.storage;
-  const selector = storage === 'udisk' || storage === 'sdcard' ? {} : { storage };
+  const selector = storage === 'external' || storage === 'udisk' || storage === 'sdcard' ? {} : { storage };
   return query(addonPath, sourcePath, url, 1, { ...selector, type: request.collection, api_version: 2, notify: 'DETAIL' }, options, async channel => {
     const entries: BambuStorageEntry[] = [], identities = new Set<string>();
     let metadataBytes = 0;

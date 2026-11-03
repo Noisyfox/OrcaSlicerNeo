@@ -1,3 +1,4 @@
+import { readStorageCapabilities } from './storageCapabilities';
 import { BambuStorageImages } from './storageImages';
 import { BambuStorageVideos } from './storageVideos';
 import { BambuStoragePrints } from './storagePrints';
@@ -93,7 +94,8 @@ export class BambuRuntime {
       this.monitor = new BambuMonitor(this.access, this.objectSkipping);
       this.media = new BambuMedia(this.config, agent, this.access, this.devices, this.repository, () => this.publish('media'));
       this.storageSessions = new BambuStorageSessions(this.config, agent, this.devices, this.repository, this.storageIo);
-      this.storageFiles = new BambuStorageFiles(target => this.storageSessions!.resolve(target));
+      this.storageFiles = new BambuStorageFiles(target => this.storageSessions!.resolve(target), Date.now,
+        (target, signal, refresh) => readStorageCapabilities(this.access!, target, signal, refresh));
       this.storageImages = new BambuStorageImages(this.storageFiles, (file, previewId) => this.storagePrints?.thumbnail(file, previewId) ?? null);
       this.storageVideos = new BambuStorageVideos(this.storageFiles, join(this.config.directory, 'storage-media'), () => this.publish('media'));
       this.submissions = new BambuPrintSubmissions(agent, this.access, this.devices, this.repository, join(this.config.directory, 'submissions'), () => this.publish('control'));

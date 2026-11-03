@@ -41,11 +41,16 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const [discovering, setDiscovering] = useState(true);
   const [loading, setLoading] = useState(false);
   const discovery = useRef<AbortController | null>(null), listing = useRef<AbortController | null>(null);
-  const storage = storages.find(storage => storage.id === storageId);
-  const categories: readonly StorageCollection[] = storage?.browsing.kind === 'supported' && storage.browsing.constraints.kind === 'collections'
+  const [discoveryRevision, setDiscoveryRevision] = useState(0);
+  const collectionsOf = (storage: Storage): readonly StorageCollection[] => storage.browsing.kind === 'supported' && storage.browsing.constraints.kind === 'collections'
     ? storage.browsing.constraints.collections : [];
-  const category = categories.find(category => category.id === collectionId) ?? categories[0];
-  const scope = `${storageId}:${category?.id ?? ''}`;
+  const categories = [...new Map(storages.flatMap(collectionsOf).map(item => [item.id, item])).values()];
+  const categoryId = categories.some(item => item.id === collectionId) ? collectionId : categories[0]?.id;
+  const availableStorages = storages.filter(storage => collectionsOf(storage).some(item => item.id === categoryId));
+  const storage = availableStorages.find(storage => storage.id === storageId) ?? availableStorages[0] ?? storages[0];
+  const category = storage && collectionsOf(storage).find(item => item.id === categoryId);
+  const scope = `${storage?.id ?? ''}:${category?.id ?? ''}`;
+  useEffect(() => { setStorageId(storage?.id ?? ''); }, [storage?.id]);
   const filtered = useMemo(() => files.filter(file => file.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [files, search]);
   const groups = useMemo(() => {
     const result = new Map<string, RemoteFile[]>();
@@ -57,17 +62,19 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
     return [...result];
   }, [filtered, groupBy]);
 
-  const discover = async () => {
+  const discover = async (refresh = false) => {
     discovery.current?.abort(); listing.current?.abort();
     const controller = new AbortController(); discovery.current = controller;
-    setDiscovering(true); setError(null); setNeedsAuthorization(false); setFiles([]); setCursor(null); setSelected(new Set());
+    setDiscovering(true); setLoading(false); setError(null); setNeedsAuthorization(false);
+    if (!refresh) { setFiles([]); setCursor(null); setSelected(new Set()); }
     try {
       const result = await service.files.listStorages(target, { signal: controller.signal });
       if (controller.signal.aborted) return;
       if (!result.ok) { setError(result.error.message); setNeedsAuthorization(['authentication-required', 'permission-denied'].includes(result.error.code)); setStorages([]); return; }
       setStorages(result.value);
       const first = result.value.find(storage => storage.availability.kind === 'available' && storage.browsing.kind === 'supported') ?? result.value[0];
-      setStorageId(first?.id ?? ''); setCollectionId('');
+      setStorageId(previous => refresh && result.value.some(storage => storage.id === previous) ? previous : first?.id ?? '');
+      setDiscoveryRevision(value => value + 1);
     } catch { if (!controller.signal.aborted) setError('Printer storage could not be loaded.'); }
     finally { if (!controller.signal.aborted) setDiscovering(false); }
   };
@@ -94,8 +101,8 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   }, [service, target, route.configurationRevision]);
   useEffect(() => {
     setFiles([]); setCursor(null); setSelected(new Set()); setSearch(''); setUnconfirmed(new Set()); setDeleting(null); setPrinting(null); setPlaying(null);
-    void load(); return () => listing.current?.abort();
   }, [scope, service, target]);
+  useEffect(() => { void load(); return () => listing.current?.abort(); }, [scope, service, target, discoveryRevision]);
 
   useEffect(() => {
     let alive = true;
@@ -123,15 +130,15 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   return <section className="flex h-full flex-col gap-3 p-4" aria-label="Printer storage" data-testid="printer-storage">
     <header className="flex flex-wrap items-center gap-3">
       <h2 className="mr-auto font-semibold">Storage</h2>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground" hidden={availableStorages.length < 2}>
         <span>Storage</span>
-        <Select value={storageId} onValueChange={value => { if (value !== null) { setStorageId(value); setCollectionId(''); } }}
-          items={storages.map(storage => ({ value: storage.id, label: storage.name }))} disabled={discovering || !storages.length}>
+        <Select value={storage?.id ?? ''} onValueChange={value => { if (value !== null) setStorageId(value); }}
+          items={availableStorages.map(storage => ({ value: storage.id, label: storage.name }))} disabled={discovering || !storages.length}>
           <SelectTrigger aria-label="Storage" className="min-w-36"><SelectValue /></SelectTrigger>
-          <SelectContent>{storages.map(storage => <SelectItem key={storage.id} value={storage.id}>{storage.name}</SelectItem>)}</SelectContent>
+          <SelectContent>{availableStorages.map(storage => <SelectItem key={storage.id} value={storage.id}>{storage.name}</SelectItem>)}</SelectContent>
         </Select>
       </div>
-      <Button variant="outline" size="sm" disabled={discovering || loading} onClick={() => void (storage && category ? load() : discover())}><RefreshCw className="size-4" />Refresh</Button>
+      <Button variant="outline" size="sm" disabled={discovering || loading} onClick={() => void discover(true)}><RefreshCw className="size-4" />Refresh</Button>
     </header>
     {!!categories.length && <Tabs value={category?.id ?? ''} onValueChange={value => setCollectionId(String(value))}>
       <TabsList variant="segmented" aria-label="File collections">
@@ -139,7 +146,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
       </TabsList>
     </Tabs>}
     {error && <div role="alert" className="rounded border border-destructive/40 p-3 text-sm text-destructive">{error}
-      <Button variant="ghost" size="sm" className="ml-2" disabled={loading || discovering} onClick={() => void (storage && category ? load() : discover())}>Retry</Button>
+      <Button variant="ghost" size="sm" className="ml-2" disabled={loading || discovering} onClick={() => void discover(true)}>Retry</Button>
     </div>}
     {needsAuthorization && <PrinterDiscovery saved={[printer]} target={printer} onAuthorized={() => void discover()} />}
     {discovering ? <p role="status" className="text-sm text-muted-foreground">Loading available storage…</p>

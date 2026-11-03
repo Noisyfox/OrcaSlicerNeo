@@ -7,12 +7,12 @@ afterEach(async () => { for (const owner of owners.splice(0)) await owner.close(
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64');
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 async function fixture() {
-  const source: BambuStorageSource = { configurationRevision: 'r1', discover: async () => ['sdcard'],
+  const source: BambuStorageSource = { configurationRevision: 'r1',
     list: vi.fn(async () => [{ name: 'part.gcode.3mf', path: '/part.gcode.3mf', sizeBytes: 3, modifiedAtSeconds: null }]),
     download: vi.fn(), remove: vi.fn(), resource: vi.fn(async (_path, resource) => resource === '_rels/.rels'
       ? new TextEncoder().encode('<Relationships><Relationship Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail" Target="Metadata/cover.png"/></Relationships>') : new Uint8Array(png)) };
   const files = new BambuStorageFiles(async () => ({ ok: true, value: source }));
-  const page = await files.list({ target, storageId: 'sdcard' as D.Id<'storage'>, location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } });
+  const page = await files.list({ target, storageId: 'external' as D.Id<'storage'>, location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } });
   if (!page.ok) throw new Error('fixture'); const file = page.value.files[0].ref;
   const images = new BambuStorageImages(files); owners.push(images);
   const request: D.OpenMediaRequest = { target, requestId: 'request' as D.Id<'request'>, source: { kind: 'file-preview', target: file, previewId: 'thumbnail' as D.Id<'preview-option'> }, client: { video: [], imageMimeTypes: ['image/png'], contentFormats: [] } };

@@ -117,3 +117,24 @@ it('queues only explicitly selected files and leaves task ownership with the hos
   await act(async () => f.root.unmount()); roots.splice(roots.indexOf(f.root), 1);
   expect(f.downloads.cancel).not.toHaveBeenCalled();
 });
+
+it('filters storage choices by collection, falls back when switching category, and refreshes changed capabilities', async () => {
+  const f = await fixture();
+  const browsing = f.storages[1].browsing;
+  if (browsing.kind !== 'supported' || browsing.constraints.kind !== 'collections') throw new Error('fixture');
+  browsing.constraints.collections = [browsing.constraints.collections[1]];
+  await f.mount();
+  expect(f.element.querySelector<HTMLElement>('[aria-label="Storage"]')?.closest('[hidden]')).not.toBeNull();
+  await f.click('Movies');
+  await act(async () => f.element.querySelector<HTMLElement>('[aria-label="Storage"]')!.click());
+  await act(async () => { const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent === 'Removable')!;
+    option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); option.click(); });
+  expect(f.list.mock.calls.at(-1)![0].storageId).toBe('removable');
+  await f.click('Documents');
+  expect(f.list.mock.calls.at(-1)![0]).toMatchObject({ storageId: 'local', location: { collectionId: 'documents' } });
+  await f.click('Movies');
+  f.storages.splice(1, 1); await f.click('Refresh');
+  expect(f.listStorages).toHaveBeenCalledTimes(2);
+  expect(f.list.mock.calls.at(-1)![0]).toMatchObject({ storageId: 'local', location: { collectionId: 'movies' } });
+  expect(f.element.querySelector<HTMLElement>('[aria-label="Storage"]')?.closest('[hidden]')).not.toBeNull();
+});

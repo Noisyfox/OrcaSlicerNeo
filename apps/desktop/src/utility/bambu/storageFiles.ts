@@ -4,9 +4,9 @@ import type * as D from '@orca/printer-control/domain';
 import { BambuStorageError, type BambuStorageCollection, type BambuStorageEntry, type BambuStorageFile,
   type BambuStorageDownload } from '@orca/bambu-native';
 
+export interface BambuStorageCapabilities { internalModel: boolean; internalTimelapse: boolean }
 export interface BambuStorageSource {
   configurationRevision: string;
-  discover(signal?: AbortSignal): Promise<readonly string[]>;
   list(storage: string, collection: BambuStorageCollection, signal?: AbortSignal): Promise<readonly BambuStorageEntry[]>;
   download(file: BambuStorageFile, signal?: AbortSignal): Promise<BambuStorageDownload>;
   remove(file: BambuStorageFile, signal?: AbortSignal): Promise<void>;
@@ -61,24 +61,26 @@ interface Listing { scope: string; files: readonly D.RemoteFile[]; expires: numb
 
 export class BambuStorageFiles {
   private listings = new Map<string, Listing>();
-  constructor(private readonly resolve: ResolveStorageSource, private readonly now = () => Date.now()) {}
+  constructor(private readonly resolve: ResolveStorageSource, private readonly now = () => Date.now(),
+    private readonly capabilities: (target: D.PrinterTarget, signal?: AbortSignal, refresh?: boolean) => Promise<BambuStorageCapabilities> = async () => ({ internalModel: false, internalTimelapse: false })) {}
 
   async listStorages(target: D.PrinterTarget, options?: D.ReadOptions): Promise<D.Result<readonly D.PrinterStorage[]>> {
     const source = await this.resolve(target); if (!source.ok) return source;
     const revision = source.value.configurationRevision;
     try {
-      const names = await source.value.discover(options?.signal);
+      const support = await this.capabilities(target, options?.signal);
       const current = await this.resolve(target); if (!current.ok) return current;
       if (current.value.configurationRevision !== revision) return failure('stale-context', 'The printer configuration changed while loading storage.');
       if (options?.signal?.aborted) return failure('cancelled', 'Storage reading was cancelled.');
       const [first, ...rest] = collections.map((item): D.StorageCollection => ({ id: item.id as D.Id<'file-collection'>,
         name: item.name, kinds: [item.kind], actions: item.kind === 'print-file' ? ['download', 'delete', 'inspect-print'] : ['download', 'delete', 'preview'] }));
-      return { ok: true, value: names.map(name => ({ id: name as D.Id<'storage'>,
-        name: name === 'internal' || name === 'emmc' ? 'Internal storage' : name === 'sdcard' ? 'SD card' : name === 'udisk' ? 'USB storage' : name,
-        kind: name === 'internal' || name === 'emmc' ? 'internal' : name === 'sdcard' || name === 'udisk' ? 'removable' : 'other',
-        availability: { kind: 'available' }, capacityBytes: null, freeBytes: null,
-        browsing: { kind: 'supported', constraints: { kind: 'collections', collections: name === 'internal' || name === 'emmc' ? [first] : [first, ...rest] } },
-      })) };
+      const internal = [support.internalModel ? first : null, support.internalTimelapse ? rest[0] : null].filter((item): item is D.StorageCollection => item !== null);
+      const storage = (id: string, name: string, kind: D.PrinterStorage['kind'], supported: [D.StorageCollection, ...D.StorageCollection[]]): D.PrinterStorage => ({
+        id: id as D.Id<'storage'>, name, kind, availability: { kind: 'available' }, capacityBytes: null, freeBytes: null,
+        browsing: { kind: 'supported', constraints: { kind: 'collections', collections: supported } },
+      });
+      return { ok: true, value: [storage('external', 'External', 'removable', [first, ...rest]),
+        ...(internal.length ? [storage('internal', 'Internal', 'internal', [internal[0], ...internal.slice(1)])] : [])] };
     } catch (error) { return { ok: false, error: storageFailure(error) }; }
   }
 
@@ -88,6 +90,14 @@ export class BambuStorageFiles {
     if (!selected || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 500 ||
       !/^[a-zA-Z0-9_-]{1,64}$/.test(request.storageId) || request.kinds?.length === 0 || request.kinds?.some(kind => kind !== selected.kind))
       return failure('invalid-request', 'This storage collection request is invalid.');
+    if (request.storageId !== 'external' && request.storageId !== 'internal') return failure('invalid-request', 'This Bambu storage is unavailable.');
+    if (request.storageId === 'internal') {
+      try {
+        const support = await this.capabilities(request.target, options?.signal, false);
+        if (!(selected.id === 'model' && support.internalModel || selected.id === 'timelapse' && support.internalTimelapse))
+          return failure('unsupported', 'This collection is not supported on internal storage.');
+      } catch (error) { return { ok: false, error: storageFailure(error) }; }
+    }
     const source = await this.resolve(request.target); if (!source.ok) return source;
     const revision = source.value.configurationRevision;
     const scope = JSON.stringify([request.target.printerId, request.target.routeId, revision, request.storageId, selected.id, request.kinds ?? null, pageSize]);

@@ -7,11 +7,11 @@ import { BambuOperations } from './operations';
 import type { BambuMonitor } from './monitor';
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 async function fixture() {
-  const source: BambuStorageSource = { configurationRevision: 'r1', discover: async () => ['sdcard'],
+  const source: BambuStorageSource = { configurationRevision: 'r1',
     list: vi.fn(async () => [{ name: 'part.gcode.3mf', path: '/part.gcode.3mf', sizeBytes: 3, modifiedAtSeconds: null }]),
     download: vi.fn(), resource: vi.fn(async () => null), remove: vi.fn(async () => {}) };
   const files = new BambuStorageFiles(async () => ({ ok: true, value: source }));
-  const page = await files.list({ target, storageId: 'sdcard' as D.Id<'storage'>, location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } });
+  const page = await files.list({ target, storageId: 'external' as D.Id<'storage'>, location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } });
   if (!page.ok) throw new Error('fixture'); const file = page.value.files[0].ref;
   const monitor = { acquire: vi.fn(() => { throw new Error('Storage must not acquire MQTT'); }), context: vi.fn() } as unknown as BambuMonitor;
   const storage = new BambuStorageCommands(files, () => {}), operations = new BambuOperations(monitor, () => {}, undefined, undefined, storage);

@@ -26,21 +26,24 @@ function nativeFixture() {
 }
 
 describe('Bambu utility runtime', () => {
-  it('routes explicit Storage metadata reads without acquiring MQTT and honors early cancellation', async () => fixture(async directory => {
+  it('reads Storage visibility with a temporary status lease and honors early cancellation', async () => fixture(async directory => {
     const repository = new BambuRepository(directory);
     await repository.update(state => ({ ...state, lan: [{ deviceId: 'a', name: 'A', model: 'H2D', ip: '192.0.2.1', accessCode: 'private', revision: 'r1' }] }));
     const { native } = nativeFixture(); native.installDeviceCertificate = vi.fn(async () => {});
-    const io: typeof storageNative = { ...storageNative, discover: vi.fn(async () => ['sdcard']),
+    const io: typeof storageNative = { ...storageNative,
       list: vi.fn(async () => [{ name: 'part.gcode.3mf', path: '/part.gcode.3mf', sizeBytes: 3, modifiedAtSeconds: 10 }]) };
-    const runtime = new BambuRuntime({ directory, addonPath: '/addon', pluginPath: '/plugin', certificateDirectory: '/cert', osType: 'macos', osVersion: 'test' }, () => {}, () => native, io);
+    const runtime = new BambuRuntime({ directory, addonPath: '/addon', pluginPath: '/plugin', certificateDirectory: '/cert', osType: 'macos', osVersion: 'test' }, () => {}, (_addon, _plugin, emit) => {
+      native.sendMessageToPrinter = vi.fn(async (device: string) => {
+        queueMicrotask(() => emit({ type: 'local-message', args: [device, JSON.stringify({ print: { command: 'push_status', msg: 0, gcode_state: 'IDLE', fun: '0', fun2: '0' } })] })); return 0;
+      }); return native;
+    }, io);
     const target = { printerId: 'bambu:a', routeId: 'bambu:a:agent' } as D.PrinterTarget;
-    await runtime.read('printers.saved'); expect(io.discover).not.toHaveBeenCalled(); expect(io.list).not.toHaveBeenCalled();
+    await runtime.read('printers.saved'); expect(io.list).not.toHaveBeenCalled();
     await runtime.control({ method: 'storage.cancel', input: { readId: 'cancel-first' } });
     expect(await runtime.control({ method: 'storage.storages', input: { target, readId: 'cancel-first' } })).toMatchObject({ ok: false, error: { code: 'cancelled' } });
-    expect(io.discover).not.toHaveBeenCalled();
-    expect(await runtime.control({ method: 'storage.storages', input: { target, readId: 'discover' } })).toMatchObject({ ok: true, value: [{ name: 'SD card' }] });
+    expect(await runtime.control({ method: 'storage.storages', input: { target, readId: 'discover' } })).toMatchObject({ ok: true, value: [{ name: 'External' }] });
     expect(await runtime.control({ method: 'storage.list', input: { readId: 'list', request: { target,
-      storageId: 'sdcard' as D.Id<'storage'>,
+      storageId: 'external' as D.Id<'storage'>,
       location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } } } })).toMatchObject({ ok: true, value: { files: [{ name: 'part.gcode.3mf' }] } });
     expect(native.installDeviceCertificate).toHaveBeenCalledWith('a', true); await runtime.close();
   }));
@@ -55,7 +58,7 @@ describe('Bambu utility runtime', () => {
     const runtime = new BambuRuntime({ directory, addonPath: '/addon', pluginPath: '/plugin', certificateDirectory: '/cert', osType: 'macos', osVersion: 'test' }, () => {}, () => native, io, progress);
     const page = await runtime.control({ method: 'storage.list', input: { readId: 'page', request: {
       target: { printerId: 'bambu:a', routeId: 'bambu:a:agent' } as D.PrinterTarget,
-      storageId: 'sdcard' as D.Id<'storage'>, location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } } } }) as D.Result<D.RemoteFilePage>;
+      storageId: 'external' as D.Id<'storage'>, location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } } } }) as D.Result<D.RemoteFilePage>;
     expect(page.ok).toBe(true); if (!page.ok) throw new Error('No fixture file');
     await runtime.host({ method: 'download.initialize', input: { root: join(directory, 'journal'), parentPid: process.pid } });
     const result = await runtime.host({ method: 'download.run', input: { id: 'download', file: page.value.files[0].ref,
