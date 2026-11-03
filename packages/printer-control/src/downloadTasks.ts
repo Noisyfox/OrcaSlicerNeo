@@ -103,6 +103,7 @@ export class ManagedDownloadTasks<T> {
         } else if (result.status === 'cancelled') {
           task.snapshot.state = 'cancelled'; task.snapshot.canRetry = true;
         } else {
+          if (result.failure.cleanupFailed) task.snapshot.warning = 'Temporary-file cleanup could not be confirmed.';
           task.snapshot.error = { ...result.failure.error }; task.snapshot.canRetry = true;
           if (!signal.aborted && !this.closed && pausesDownloadQueue(result)) {
             task.snapshot.state = 'paused'; task.snapshot.canCancel = true; this.publish();

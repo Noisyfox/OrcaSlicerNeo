@@ -182,7 +182,8 @@ export class BambuRuntime {
   async mediaCloseOwner(owner: string) { await this.ready; await this.media?.closeOwner(owner); }
   async close() { await this.ready; this.closing = true;
     for (const read of this.storageReads.values()) read.controller.abort();
-    await this.downloads.close();
+    let downloadFailure: unknown;
+    try { await this.downloads.close(); } catch (error) { downloadFailure = error; }
     await this.storageSessions?.close(); await Promise.all([...this.storageReads.values()].map(read => read.done));
-    this.operations?.close(); this.monitor?.close(); await this.submissions?.close(); await this.objectSkipping?.close(); await this.media?.close(); await this.access?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; }
+    this.operations?.close(); this.monitor?.close(); await this.submissions?.close(); await this.objectSkipping?.close(); await this.media?.close(); await this.access?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; if (downloadFailure) throw downloadFailure; }
 }

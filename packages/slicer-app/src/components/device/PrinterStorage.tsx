@@ -1,3 +1,4 @@
+import { PrinterDownloadTasks } from './PrinterDownloadTasks';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { File, Film, RefreshCw } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
@@ -10,7 +11,10 @@ const bytes = (value: number | null) => value === null ? 'Size unknown' : value 
 
 /** Shared collection browser. All storage/category meanings come from the agent. */
 export function PrinterStorage({ printer, route }: { printer: SavedPrinter; route: PrinterRoute }) {
-  const service = usePlatform().printers.service;
+  const { service, downloads } = usePlatform().printers;
+  const [queuing, setQueuing] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [folder, setFolder] = useState('Download folder');
   const target = useMemo(() => ({ printerId: printer.identity.id, routeId: route.id }), [printer.identity.id, route.id]);
   const [storages, setStorages] = useState<readonly Storage[]>([]);
   const [storageId, setStorageId] = useState('');
@@ -79,6 +83,25 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
     void load(); return () => listing.current?.abort();
   }, [scope, service, target]);
 
+  useEffect(() => {
+    let alive = true;
+    if (downloads.capability.kind === 'supported') void downloads.directory().then(result => { if (alive && result.ok) setFolder(result.value.label); }).catch(() => {});
+    return () => { alive = false; };
+  }, [downloads]);
+  const download = async (destination: 'default' | 'choose') => {
+    setQueuing(true); setDownloadError(null);
+    try {
+      const result = await downloads.start({ destination, files: files.filter(file => selected.has(file.ref.fileId)).map(file => ({ file: file.ref, name: file.name, printerName: printer.identity.displayName })) });
+      if (!result.ok) setDownloadError(result.error.message);
+    } catch { setDownloadError('The download could not be queued.'); }
+    finally { setQueuing(false); }
+  };
+  const chooseFolder = async () => {
+    try { const result = await downloads.chooseDirectory();
+      if (result.ok && result.value.status === 'selected') setFolder(result.value.label);
+      else if (!result.ok) setDownloadError(result.error.message);
+    } catch { setDownloadError('The download folder could not be changed.'); }
+  };
   const allLoadedSelected = filtered.length > 0 && filtered.every(file => selected.has(file.ref.fileId));
   const toggle = (id: string) => setSelected(previous => {
     const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next;
@@ -105,6 +128,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
       : storage?.availability.kind === 'unknown' ? <p role="status">{storage.availability.reason}</p>
       : storage?.browsing.kind === 'unsupported' || storage?.browsing.kind === 'unknown' ? <p role="status">{storage.browsing.reason}</p>
       : storage?.browsing.kind === 'supported' && storage.browsing.constraints.kind === 'directories' ? <p role="status">Directory browsing is not available in this view.</p> : null}
+    {downloadError && <p role="alert" className="text-sm text-destructive">{downloadError}</p>}
     {category && <>
       <div className="flex flex-wrap items-center gap-3">
         <Input aria-label="Filter loaded files" placeholder="Filter loaded files…" value={search} onChange={event => setSearch(event.target.value)} className="max-w-xs" />
@@ -115,6 +139,11 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
         })}>{allLoadedSelected ? 'Deselect loaded results' : 'Select loaded results'}</Button>
         <span role="status" className="text-xs text-muted-foreground">{selected.size} selected · {filtered.length} matching of {files.length} loaded</span>
       </div>
+      {category.actions.includes('download') && downloads.capability.kind === 'supported' && <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" disabled={!selected.size || queuing || loading} onClick={() => void download('default')}>Download selected</Button>
+        <Button size="sm" variant="outline" disabled={!selected.size || queuing || loading} onClick={() => void download('choose')}>Save as…</Button>
+        <Button size="sm" variant="ghost" disabled={queuing} onClick={() => void chooseFolder()}>Folder: {folder}</Button>
+      </div>}
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={loading}>
         {groups.map(([label, items]) => <div key={label} className="mb-4">
           {label && <h3 className="mb-2 text-sm font-medium">{label}</h3>}
@@ -132,5 +161,6 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
         {cursor && <Button variant="outline" className="mx-auto flex" disabled={loading} onClick={() => void load(cursor)}>Load more files</Button>}
       </div>
     </>}
+    <PrinterDownloadTasks />
   </section>;
 }

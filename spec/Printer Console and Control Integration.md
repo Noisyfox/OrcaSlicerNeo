@@ -649,8 +649,11 @@ and qualification proceed in independently verified increments. Implementation
 is authorized. The initial shared Storage browser is implemented with explicit
 capability resolution, collection/storage switching, loaded-file filtering and date
 grouping, manual refresh, snapshot pagination and scoped selection. Shared UI tests
-and Electron renderer/preload/main fixture E2E pass. Thumbnails, host download-task
-integration, delete/print actions, stored-media playback and physical acceptance
+and Electron renderer/preload/main fixture E2E pass. Desktop host-owned download
+tasks, default-folder/Save As selection, progress, cancellation/retry, completion
+notices and saved-file opening are integrated. Fixture E2E covers task persistence
+across navigation and cancellation; separate utility tests verify actual saving.
+Thumbnails, delete/print actions, stored-media playback and physical acceptance
 remain pending; the complete initial delivery is not yet qualified.
 
 The [printer-domain Storage design](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)

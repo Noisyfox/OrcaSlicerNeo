@@ -41,6 +41,24 @@ test('Storage resolves only on entry and selects loaded filtered files without s
         return { ok: false, error: { code: 'unsupported', message: 'Unavailable fixture operation.' } };
       });
     }, Ipc.bambuControl);
+    await app.evaluate(({ ipcMain }, channels) => {
+      const tasks: any[] = [];
+      ipcMain.removeHandler(channels.request);
+      ipcMain.handle(channels.request, (event, { method, args }) => {
+        if (method === 'list') return { ok: true, value: tasks };
+        if (method === 'directory') return { ok: true, value: { label: 'Fixture downloads' } };
+        if (method === 'start') {
+          for (const [index, file] of args[0].files.entries()) tasks.push({ ...file, id: `task-${index}`, batchId: 'batch', attempt: 1,
+            state: 'running', phase: 'transferring', writtenBytes: 1024, totalBytes: 4096, canCancel: true, canRetry: false, error: null, warning: null });
+          event.sender.send(channels.changed); return { ok: true, value: { status: 'queued', batchId: 'batch', taskIds: tasks.map(task => task.id) } };
+        }
+        if (method === 'cancel') {
+          const task = tasks.find(task => task.id === args[0]); task.state = 'cancelled'; task.canCancel = false; task.canRetry = true;
+          event.sender.send(channels.changed); return { ok: true, value: null };
+        }
+        return { ok: false, error: { code: 'unsupported', message: 'Fixture action unavailable.' } };
+      });
+    }, { request: Ipc.printerDownloadRequest, changed: Ipc.printerDownloadChanged });
     const calls = () => app.evaluate(() => globalThis.bambuControlFixture.requests.filter(request =>
       (request as { method: string }).method.startsWith('storage.')) as { method: string }[]);
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
@@ -58,12 +76,19 @@ test('Storage resolves only on entry and selects loaded filtered files without s
     await expect(storage.getByRole('checkbox')).toHaveCount(101);
     await expect(storage.locator('input[type=checkbox]:checked')).toHaveCount(10);
     expect((await calls()).filter(call => call.method === 'storage.list')).toHaveLength(2);
+    await storage.getByRole('button', { name: 'Download selected', exact: true }).click();
+    await expect(storage.getByTestId('download-task')).toHaveCount(10);
+    await page.getByRole('tab', { name: 'Monitor', exact: true }).click();
+    await page.getByRole('tab', { name: 'Storage', exact: true }).click();
+    await expect(storage.getByTestId('download-task')).toHaveCount(10);
+    await storage.getByRole('button', { name: 'Cancel', exact: true }).first().click();
+    await expect(storage.getByRole('button', { name: 'Retry from start', exact: true })).toHaveCount(1);
     await storage.getByLabel('Storage', { exact: true }).selectOption('internal');
     await expect(storage.getByRole('checkbox')).toHaveCount(100);
     await expect(storage.locator('input[type=checkbox]:checked')).toHaveCount(0);
     await expect(storage.getByText('internal-part-000.gcode.3mf', { exact: true })).toBeVisible();
     await storage.screenshot({ path: test.info().outputPath('storage-browser.png') });
     await storage.getByRole('button', { name: 'Refresh', exact: true }).click();
-    await expect.poll(async () => (await calls()).filter(call => call.method === 'storage.list').length).toBe(4);
+    await expect.poll(async () => (await calls()).filter(call => call.method === 'storage.list').length).toBe(5);
   } finally { await app.close(); }
 });

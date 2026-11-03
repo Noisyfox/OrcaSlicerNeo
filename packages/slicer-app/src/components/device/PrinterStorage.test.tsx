@@ -1,3 +1,4 @@
+import { unavailablePrinterDownloads } from '@orca/printer-control';
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -10,7 +11,7 @@ import { DevicePanel } from './DevicePanel';
 
 const roots: Root[] = [];
 afterEach(async () => { await act(async () => { for (const root of roots.splice(0)) root.unmount(); }); document.body.innerHTML = ''; });
-async function fixture() {
+async function fixture(supportDownloads = false) {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const service = createMoonrakerService({ host: { id: 'host' as D.Id<'agent-host'>, name: 'Host', execution: 'desktop' },
     configuration: { load: async () => ({ version: 1, printers: [{ id: 'p', driverId: 'moonraker', displayName: 'Test printer', apiBaseUrl: 'http://printer.local', consoleUrl: '', apiKey: '' }] }), save: async () => {} },
@@ -33,12 +34,18 @@ async function fixture() {
     nextCursor: request.cursor ? null : 'next', listingRevision: 'snapshot', pagination: 'snapshot' } }));
   Object.assign(service.files, { listStorages, list });
   service.listSaved = async () => ({ ok: true, value: [printer] });
-  const platform = { printers: { service }, preferences: { load: async () => ({ ui: {} }) }, webview: { mount: vi.fn() } } as unknown as PlatformCapabilities;
+  const downloads: D.PrinterDownloads = { ...unavailablePrinterDownloads(),
+    ...(supportDownloads ? { capability: { kind: 'supported' as const, constraints: {} } } : {}),
+    list: vi.fn<D.PrinterDownloads['list']>(async () => ({ ok: true, value: [] })), directory: async () => ({ ok: true, value: { label: 'Downloads' } }),
+    start: vi.fn<D.PrinterDownloads['start']>(async () => ({ ok: true, value: { status: 'queued', batchId: 'batch' as D.DownloadBatchId, taskIds: ['task' as D.DownloadTaskId] } })),
+    cancel: vi.fn<D.PrinterDownloads['cancel']>(async () => ({ ok: true, value: null })),
+  };
+  const platform = { printers: { service, downloads }, preferences: { load: async () => ({ ui: {} }) }, webview: { mount: vi.fn() } } as unknown as PlatformCapabilities;
   const element = document.createElement('div'); document.body.append(element);
   const root = createRoot(element); roots.push(root);
   const mount = async (panel = false) => { await act(async () => root.render(<PlatformProvider value={platform}>{panel ? <DevicePanel initialSelection={printer.identity.id} /> : <PrinterStorage printer={printer} route={route} />}</PlatformProvider>)); };
   const click = async (label: string) => { const button = [...element.querySelectorAll('button')].find(button => button.textContent === label); expect(button).toBeDefined(); await act(async () => button!.click()); };
-  return { element, root, printer, route, mount, click, list, listStorages, storages, file };
+  return { element, root, printer, route, mount, click, list, listStorages, storages, file, downloads };
 }
 
 it('discovers only on explicit Storage entry and does not poll when selecting or loading another page', async () => {
@@ -89,4 +96,14 @@ it('refreshes explicitly and reconciles removed identities without selecting new
   expect(f.element.querySelectorAll('input[type=checkbox]:checked')).toHaveLength(1);
   expect(f.element.querySelector<HTMLInputElement>('input[aria-label="Select first"]')?.checked).toBe(true);
   expect(f.element.querySelector<HTMLInputElement>('input[aria-label="Select new"]')?.checked).toBe(false);
+});
+
+it('queues only explicitly selected files and leaves task ownership with the host on navigation', async () => {
+  const f = await fixture(true); await f.mount(); await f.click('Select loaded results'); await f.click('Load more files');
+  await f.click('Download selected');
+  expect(f.downloads.start).toHaveBeenCalledWith({ destination: 'default', files: ['first', 'second'].map(name => ({ file: f.file(name).ref, name, printerName: f.printer.identity.displayName })) });
+  await f.click('Save as…'); expect(vi.mocked(f.downloads.start).mock.calls[1][0].destination).toBe('choose');
+  await f.click('Movies'); expect(f.element.querySelector('button')?.disabled).toBeDefined();
+  await act(async () => f.root.unmount()); roots.splice(roots.indexOf(f.root), 1);
+  expect(f.downloads.cancel).not.toHaveBeenCalled();
 });

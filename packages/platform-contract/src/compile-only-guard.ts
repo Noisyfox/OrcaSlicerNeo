@@ -1,3 +1,4 @@
+import { unavailablePrinterDownloads } from '@orca/printer-control';
 import type {
   ExternalLinks, FileDownloader, GcodeExporter, ModelImporter, PlatformCapabilities, ProfileSource,
   SlicerRuntime, UserPreferencesRepository, PrinterConfigurationRepository,
@@ -25,6 +26,7 @@ export const fakeCapabilities: PlatformCapabilities = {
   preferences: { async load() { throw new Error(); }, async save() {} } satisfies UserPreferencesRepository,
   accounts: [],
   printers: {
+    downloads: unavailablePrinterDownloads(),
     configuration: { onChanged: () => () => {}, async load() { return { version: 1 as const, printers: [] }; }, async save() {} } satisfies PrinterConfigurationRepository,
     service: {} as PrinterService,
   },

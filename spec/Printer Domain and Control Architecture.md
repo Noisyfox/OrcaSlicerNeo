@@ -3000,27 +3000,35 @@ The scoped-file contract migration and initial shared Storage browser are
 implemented. The browser resolves storage on explicit entry, loads snapshot pages,
 filters/groups loaded entries, and maintains explicit scope-bound selection.
 Renderer/preload/main fixture E2E passes; utility routing/session and native
-protocol fixtures are tested separately. Registered download-task execution,
-delete/print/media UI, thumbnails and physical qualification remain pending.
+protocol fixtures are tested separately. Registered desktop download tasks now
+include destination selection, progress, cancellation/retry, saved-file opening,
+startup cleanup and close coordination. Delete/print/media UI, thumbnails and
+physical qualification remain pending.
 The host-neutral [managed stream executor](../packages/printer-control/src/downloads.ts)
 is implemented independently of host IPC and filesystem bindings: it consumes
 one owned chunk at a time, waits for each sink write and terminal reader checks,
 then publishes. It joins cleanup on failures/cancellation and reports the actual
-publication outcome when cancellation races finalization. This does not yet
-deliver the download-task facade or registered download execution.
+publication outcome when cancellation races finalization. The desktop task facade
+uses this executor through a private main/utility protocol.
 The host-neutral [transfer admission queue](../packages/printer-control/src/transferQueue.ts)
 implements FIFO per host-resolved physical printer, a configurable global active
 reader bound, cancellation that joins the executor, and explicit retry/continuation
 of a blocked head. Different routes must resolve to the same physical key in the
-host. Download and media executors still need registration with that single queue;
-the unit-tested scheduler alone does not establish cross-process admission.
+host. The desktop registry admits Bambu downloads to this queue with a provisional
+global limit of two readers; future media execution must register with the same
+queue. Physical mixed download/playback admission remains unqualified.
 The [managed task engine](../packages/printer-control/src/downloadTasks.ts) now
 tracks batch/task identity, attempt-scoped progress, private saved receipts,
 isolated failure continuation and blocked-head retry/acknowledgment. Its public
 [task contract](../packages/printer-control/src/domain/downloadTasks.ts) contains
 no destination paths and distinguishes managed saving from browser handoff.
-The utility execution binding and private progress protocol are implemented;
-host admission/dialogs, public task IPC and application shutdown integration remain pending.
+The [desktop registry](../apps/desktop/src/main/printerDownloads.ts), destination
+dialogs, private utility execution/progress, public task IPC and application-close
+coordination are implemented. Shared UI owns task presentation and completion/
+failure notices. The Web host explicitly reports managed downloads unsupported.
+Renderer/preload/main fixture E2E covers page navigation and task cancellation;
+separate executor tests perform actual file writes, and registry tests cover
+admission and shutdown. This is not real-printer or packaged-platform qualification.
 The desktop [filesystem sink](../apps/desktop/src/utility/downloadFiles.ts) is also
 implemented and tested with actual filesystem writes and process-exit recovery.
 It writes to a same-directory temporary file, publishes confirmed replacements
@@ -3031,8 +3039,9 @@ The app-owned journal identifies orphan output for cold-start cleanup. Calling
 recovery through the utility execution initializer checks both recorded parent and
 worker PIDs before cleaning an old session, preserving other live app instances.
 The utility joins active cancellation and file cleanup before closing its journal.
-The main-process startup/shutdown binding still needs integration. Unexpected
-utility exits now reject pending calls instead of leaving tasks waiting forever.
+Main initializes recovery at startup and reports failed/ignored records; download
+shutdown precedes utility shutdown. Unexpected utility exits reject pending calls
+instead of leaving tasks waiting forever.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the feature envelope and user-facing decisions.
 
