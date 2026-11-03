@@ -49,7 +49,7 @@ export class BambuStorageImages {
     const key = `${owner}:${request.requestId}`, fingerprint = JSON.stringify(request), old = this.requests.get(key);
     if (this.cancelled.has(key)) return Promise.resolve(failure('cancelled', 'Thumbnail reading stopped.'));
     if (old) return old.fingerprint === fingerprint ? old.result : Promise.resolve(failure('invalid-request', 'The image request ID was reused.'));
-    if (this.pending.size >= 4 || this.resources.size >= 32 || this.requests.size >= 128) return Promise.resolve(failure('busy', 'Wait for other thumbnail reads to finish.'));
+    if (this.pending.size >= 16 || this.resources.size >= 32 || this.requests.size >= 128) return Promise.resolve(failure('busy', 'Wait for other thumbnail reads to finish.'));
     const controller = new AbortController();
     const work = this.read(owner, request, controller.signal).catch(error => ({ ok: false as const, error: storageFailure(error) })).finally(() => this.pending.delete(key));
     this.pending.set(key, { owner, controller, work }); this.requests.set(key, { fingerprint, result: work, until: Date.now() + 60_000 });

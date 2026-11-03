@@ -8,7 +8,7 @@ async function admitted<T>(signal: AbortSignal, work: () => Promise<T>): Promise
     const enter = () => { acquired = true; active++; signal.removeEventListener('abort', abort); resolve(); };
     const abort = () => { const index = waiting.indexOf(enter); if (index >= 0) { waiting.splice(index, 1); resolve(); } };
     if (signal.aborted) { resolve(); return; }
-    if (active < 2) enter(); else { waiting.push(enter); signal.addEventListener('abort', abort, { once: true }); }
+    if (active < 8) enter(); else { waiting.push(enter); signal.addEventListener('abort', abort, { once: true }); }
   });
   if (!acquired) return;
   try { if (!signal.aborted) return await work(); }

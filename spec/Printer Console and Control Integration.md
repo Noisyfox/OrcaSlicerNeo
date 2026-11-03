@@ -658,7 +658,10 @@ and unexecuted entries, with explicit continuation of a paused batch. Fixture E2
 checks local removal after confirmation and retained entries without automatic
 refresh after uncertain outcomes. Visible-card thumbnails now use optional managed
 image resources with cancellation and bounded concurrency; unsupported image reads
-retain placeholders. Device-file printing now has an independent inspection dialog,
+retain placeholders. Bambu thumbnail requests are batched on short-lived reusable
+browser connections, so one missing resource does not discard successfully read
+images in the batch. The [thumbnail transport and measured acceptance](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)
+owns connection/resource limits and the H2D timing evidence. Device-file printing now has an independent inspection dialog,
 agent-provided target selection and plate thumbnails, shared material/options UI,
 warning confirmation and one-shot start dispatch. It does not read/export the
 current slice or lock/modify the Project. Fixture E2E selects a second plate and

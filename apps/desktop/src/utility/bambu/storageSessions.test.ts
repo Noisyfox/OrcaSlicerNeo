@@ -18,7 +18,7 @@ function fixture() {
   ] }));
   const native = { installDeviceCertificate: vi.fn(async () => undefined) };
   const returned = vi.fn(async () => ({ done: true as const, value: undefined }));
-  const io: typeof storageNative = { list: vi.fn(async () => []), resource: vi.fn(async () => null), remove: vi.fn(async () => undefined),
+  const io: typeof storageNative = { list: vi.fn(async () => []), openResources: vi.fn(async () => ({ read: vi.fn(async requests => requests.map(() => null)), close: vi.fn(async () => {}) })), remove: vi.fn(async () => undefined),
     download: vi.fn(async () => ({ totalBytes: 3, chunks: { [Symbol.asyncIterator]: () => ({
       next: vi.fn(async () => ({ done: false as const, value: new Uint8Array([1, 2, 3]) })), return: returned,
     }) } })),

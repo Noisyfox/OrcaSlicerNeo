@@ -1,6 +1,8 @@
 /** Credential and native-reader lifetime binding. Independent of the selected MQTT monitor. */
+import { StorageResourceConnections } from './storageResourceConnections';
+import { StorageResourceQueue } from './storageResourceQueue';
 import { dirname, join } from 'node:path';
-import { listBambuStorageFiles, readBambuStorageFile, deleteBambuStorageFile, readBambuStorageResource,
+import { listBambuStorageFiles, readBambuStorageFile, deleteBambuStorageFile, openBambuStorageResourceReader,
   type BambuNative, type BambuStorageDownload } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
 import type { BambuDevices } from './devices';
@@ -10,10 +12,12 @@ import { savedBambuPrinter } from '../../shared/bambuPrinters';
 import { StorageHostError, type BambuStorageSource } from './storageFiles';
 
 export const storageNative = { list: listBambuStorageFiles,
-  download: readBambuStorageFile, remove: deleteBambuStorageFile, resource: readBambuStorageResource };
+  download: readBambuStorageFile, remove: deleteBambuStorageFile, openResources: openBambuStorageResourceReader };
 const failure = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });
 
 export class BambuStorageSessions {
+  private readonly resourceConnections = new StorageResourceConnections();
+  private readonly resources = new StorageResourceQueue();
   private readonly shutdown = new AbortController();
   private readonly active = new Map<Promise<void>, { target: D.PrinterTarget; revision: string; controller: AbortController }>();
   constructor(private readonly config: BambuHostConfig,
@@ -75,7 +79,10 @@ export class BambuStorageSessions {
     return { ok: true, value: {
       configurationRevision: revision,
       list: (storage, collection, signal) => query(signal, (url, opts) => this.io.list(this.config.addonPath, sourcePath, url, { storage, collection, maxEntries: 20_000 }, opts)),
-      resource: (path, resource, maxBytes, signal) => query(signal, (url, opts) => this.io.resource(this.config.addonPath, sourcePath, url, { path, resource, maxBytes }, { ...opts, signal: AbortSignal.any([opts.signal, AbortSignal.timeout(opts.requestTimeoutMs)]) })),
+      resource: (path, resource, maxBytes, signal) => this.resources.read(JSON.stringify([target, revision]), { path, resource, maxBytes },
+        (requests, batchSignal) => query(batchSignal, (url, opts) => this.resourceConnections.read(JSON.stringify([target, revision]), requests,
+          connectionSignal => this.io.openResources(this.config.addonPath, sourcePath, url, { ...opts, signal: connectionSignal }),
+          AbortSignal.any([opts.signal, AbortSignal.timeout(opts.requestTimeoutMs)]))), signal),
       remove: (file, signal) => query(signal, (url, opts) => this.io.remove(this.config.addonPath, sourcePath, url, file, opts)),
       download: async (file, signal) => {
         const job = this.begin(target, revision, signal);
@@ -113,6 +120,10 @@ export class BambuStorageSessions {
   }
 
   async reconcile(): Promise<void> {
+    await this.resourceConnections.reconcile(async key => {
+      const [target, revision] = JSON.parse(key) as [D.PrinterTarget, string];
+      try { const current = await this.identity(target); return current.ok && current.value.revision === revision; } catch { return false; }
+    });
     for (const job of this.active.values()) {
       try {
         const current = await this.identity(job.target);
@@ -120,5 +131,5 @@ export class BambuStorageSessions {
       } catch { job.controller.abort(); }
     }
   }
-  async close(): Promise<void> { this.shutdown.abort(); await Promise.all([...this.active.keys()]); }
+  async close(): Promise<void> { this.shutdown.abort(); await this.resources.close(); await this.resourceConnections.close(); await Promise.all([...this.active.keys()]); }
 }

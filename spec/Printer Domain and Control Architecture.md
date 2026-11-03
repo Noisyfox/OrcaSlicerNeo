@@ -3061,12 +3061,23 @@ a new snapshot. Native, command-owner, shared UI and renderer/preload/main fixtu
 tests cover these boundaries; no physical files have been deleted for acceptance.
 Optional [storage images](../apps/desktop/src/utility/bambu/storageImages.ts) use
 `files.listPreviews` and the existing managed-media contract. Visible cards admit
-two reads at a time, release resources when hidden and reload on manual refresh.
+eight reads at a time, release resources when hidden and reload on manual refresh.
+The Bambu host coalesces up to eight resources per SUB_FILE request, deduplicates
+identical resources within that batch and serializes batches per route/configuration.
+Two host resource connections are allowed globally, reused across sequential
+requests and closed after a two-second idle lease. Shutdown, cancellation of all
+batch consumers, transport/protocol failure and configuration/auth changes close
+and join the affected native reader. Independent consumers retain their own leases;
+cancelling one consumer does not abort another consumer's shared batch.
+Queued resources are bounded to 64 and each batch to 16 MiB. No file-content cache
+or automatic failed-file retry is introduced. A terminal per-file SUB_FILE error
+preserves completed resources, leaves that file as a placeholder, and continues
+only entries not yet read, using a new request sequence on the same connection.
 Bambu reads a bounded relationship document and its selected PNG/JPEG through
 SUB_FILE, or a video's `#thumbnail`; it does not download the archive to fill a
 missing thumbnail. The pinned plugin's FTPS fallback returns empty optional
 subfiles, so that path deliberately retains placeholder images. Reads have a
-30-second per-resource budget, 1 MiB relationship / 4 MiB image limits and bounded
+30-second per-batch budget, 1 MiB relationship / 4 MiB image limits and bounded
 decoded dimensions. Utility images have document ownership, cancellation before
 or during open, expiring leases and a 16 MiB resource budget. These lifetimes are
 separate from the live camera and independent save tasks.
@@ -3078,6 +3089,20 @@ an existing `camera.test.mjs` startup failure (`No fixture samples`); the isolat
 camera suite and complete serial suite passed. A subsequent unchanged parallel
 run also passed. This is an intermittent test result, not a diagnosed/fixed camera
 problem or evidence of physical thumbnail support.
+
+Read-only H2D performance acceptance on 2026-11-03 used the same printer, files,
+LAN and macOS development host as the earlier Storage round. The first visible
+model viewport contained seven available thumbnails and five missing resources;
+all seven available images were retained after the optimization. From Storage entry,
+the last available model thumbnail changed from 27.183 seconds to 4.104 seconds;
+the optimized listing was ready at 2.798 seconds, leaving 1.306 seconds for the
+thumbnail stage. Twelve visible timelapse thumbnails changed from 14.634 seconds
+to 1.344 seconds with a reusable connection; a cold connection refresh took
+2.353 seconds. These are observed single-host runs, not latency guarantees or an
+Orca wall-clock benchmark. The implementation comparison with Orca is from source:
+Orca batches SUB_FILE paths on its existing browser connection. No remote deletion,
+print submission or full-file thumbnail fallback was used. Normal-speed timings
+do not qualify end-to-end plugin buffering or a slow-consumer memory bound.
 
 The [remote-print bridge](../packages/slicer-wasm/src/bridge_remote_print.cpp)
 now wraps Orca's `load_gcode_3mf_from_stream` without accessing live project state
