@@ -1,7 +1,7 @@
 /** Typed commands, capability constraints and asynchronous outcomes. This module defines no executor. */
 import type { Id, Revision, UnixMs, Axis, Range, PrinterError, Result, ReadOptions, Capability, Availability, NonEmptyReadonlyArray, NoConstraints, PrinterTarget, TargetRequest } from './common';
 import type { MaterialMetadata, MaterialMetadataPatch, PrintMaterialBinding, MaterialColorConfiguration, MaterialPresetConfiguration, MaterialConfigurationTarget } from './materials';
-import type { PrintFormatId, FileSelection, VersionCheck, RemoteFile, UploadProgress } from './files';
+import type { PrintFormatId, RemoteFileRef, RemoteFile, UploadProgress } from './files';
 import type { TimelapseSetting } from './media';
 import type { PrintObjectContextRef } from './objects';
 export interface CommandSpec<P, C extends object, R = null> {
@@ -30,7 +30,7 @@ export interface PrinterAction {
 /** One source for command parameters, support constraints and confirmed results. */
 export interface PrinterCommandSpecs {
   'jobs.start': CommandSpec<{
-    source: FileSelection;
+    source: RemoteFileRef;
     bindings: readonly PrintMaterialBinding[];
     options?: {
       timelapse?: readonly TimelapseSetting[];
@@ -38,7 +38,6 @@ export interface PrinterCommandSpecs {
   }, {
     sources: NonEmptyReadonlyArray<{
       storageId: Id<'storage'>;
-      versionCheck: VersionCheck;
     }>;
     formats: NonEmptyReadonlyArray<PrintFormatId>;
     materialMapping: 'none' | 'optional' | 'required';
@@ -169,10 +168,9 @@ export interface PrinterCommandSpecs {
   }>;
   'camera.setDeviceTimelapse': CommandSpec<TimelapseSetting, NonEmptyReadonlyArray<TimelapseSetting>>;
   'files.delete': CommandSpec<{
-    target: FileSelection;
+    target: RemoteFileRef;
   }, NonEmptyReadonlyArray<{
     storageId: Id<'storage'>;
-    versionCheck: VersionCheck;
   }>>;
 }
 export type CommandName = keyof PrinterCommandSpecs;

@@ -48,8 +48,9 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 Device Storage selected design: [interaction and scope](../spec/Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 and [agent streams / host-owned downloads](../spec/Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads).
 The product and cross-host architecture decisions are recorded, with Bambu as
-the first agent. Contract implementation and device qualification remain future
-work; this design increment does not authorize implementation.
+the first agent. Implementation is authorized in verified increments; the direct
+scoped-file contract is delivered, while Storage execution/UI and physical
+qualification remain in progress.
 
 ## Engineering references
 

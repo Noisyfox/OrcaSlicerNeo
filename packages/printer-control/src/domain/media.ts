@@ -1,6 +1,6 @@
 /** Managed camera and remote-file presentation. Temporary delivery credentials are not persistent DTOs. */
 import type { Id, Revision, UnixMs, PrinterError, Result, ReadOptions, Capability, PrinterTarget, TargetRequest, NonEmptyReadonlyArray } from './common';
-import type { FileSelection, ByteRange, BinaryRead } from './files';
+import type { RemoteFileRef, ByteRange, BinaryRead } from './files';
 import type { PrintObjectContextRef, PrintObjectMap } from './objects';
 export type TimelapseMode = 'off' | 'traditional' | 'smooth';
 export interface TimelapseSetting {
@@ -43,7 +43,7 @@ export type MediaSource = {
   profileId?: string;
 } | {
   kind: 'file-preview';
-  target: FileSelection;
+  target: RemoteFileRef;
   /** From files.listPreviews; validate against this file, without caller-session state. */
   previewId: Id<'preview-option'>;
 };

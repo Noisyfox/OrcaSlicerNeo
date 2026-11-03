@@ -9,20 +9,8 @@ export interface RemoteFileRef {
   configurationRevision: Revision;
   storageId: Id<'storage'>;
   fileId: Id<'remote-file'>;
-  contentRevision: Revision | null;
 }
 
-/** Strict matching requires atomic adapter support; never silently downgrade it. */
-export type FileSelection = {
-  consistency: 'require-version-match';
-  file: RemoteFileRef & {
-    contentRevision: Revision;
-  };
-} | {
-  consistency: 'best-effort';
-  file: RemoteFileRef;
-};
-export type VersionCheck = 'atomic' | 'best-effort' | 'unavailable';
 export interface PrinterStorage {
   id: Id<'storage'>;
   name: string;
@@ -77,14 +65,14 @@ export interface RemoteFileDetails {
 }
 export type PreviewKind = 'thumbnail' | 'image' | 'video' | 'text' | 'toolpath';
 export interface FilePreviewOption {
-  /** Scoped to file/configuration/content; not a token for a prior listing session. */
+  /** Scoped to file/configuration; not a token for a prior listing session. */
   id: Id<'preview-option'>;
   kind: PreviewKind;
   label: string;
   contentFormat: string | null;
 }
 export interface FilePreviewListing {
-  /** Identity/version assessed for these options; retain it when opening media. */
+  /** Device/configuration/file identity; does not promise unchanged contents. */
   file: RemoteFileRef;
   /** Empty means this file has no preview options, not that the query failed. */
   options: readonly FilePreviewOption[];
@@ -165,12 +153,10 @@ export interface FileCapabilities {
   }>;
   stat: Capability<NonEmptyReadonlyArray<{
     storageId: Id<'storage'>;
-    versionCheck: VersionCheck;
   }>>;
   download: Capability<NonEmptyReadonlyArray<{
     storageId: Id<'storage'>;
     byteRanges: boolean;
-    versionCheck: VersionCheck;
   }>>;
   upload: Capability<NonEmptyReadonlyArray<{
     destination: UploadRequest['destination'];
@@ -183,7 +169,6 @@ export interface FileCapabilities {
   preview: Capability<NonEmptyReadonlyArray<{
     storageId: Id<'storage'>;
     kinds: NonEmptyReadonlyArray<PreviewKind>;
-    versionCheck: VersionCheck;
   }>>;
   changes: Capability<{
     storageIds: NonEmptyReadonlyArray<Id<'storage'>>;
@@ -193,11 +178,11 @@ export interface FileCapabilities {
 export interface PrinterFiles {
   listStorages(target: PrinterTarget, options?: ReadOptions): Promise<Result<readonly PrinterStorage[]>>;
   list(request: ListFilesRequest, options?: ReadOptions): Promise<Result<RemoteFilePage>>;
-  stat(selection: FileSelection, options?: ReadOptions): Promise<Result<RemoteFileDetails>>;
+  stat(file: RemoteFileRef, options?: ReadOptions): Promise<Result<RemoteFileDetails>>;
   /** Preview capability owns this query; no stat call or listing session is required. */
-  listPreviews(selection: FileSelection, options?: ReadOptions): Promise<Result<FilePreviewListing>>;
+  listPreviews(file: RemoteFileRef, options?: ReadOptions): Promise<Result<FilePreviewListing>>;
   download(request: {
-    target: FileSelection;
+    target: RemoteFileRef;
     range?: ByteRange;
   }, options?: ReadOptions): Promise<Result<DownloadedFile>>;
   /**

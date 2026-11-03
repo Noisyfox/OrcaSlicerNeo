@@ -108,9 +108,9 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   }
   function capabilities(): D.PrinterCapabilities {
     return {
-      revision: 'moonraker-domain-2', submission: unsupported,
+      revision: 'moonraker-domain-3', submission: unsupported,
       commands: {
-        'jobs.start': supported({ sources: [{ storageId, versionCheck: 'unavailable' }], formats: ['gcode'], materialMapping: 'none', jobTimelapse: [] }),
+        'jobs.start': supported({ sources: [{ storageId }], formats: ['gcode'], materialMapping: 'none', jobTimelapse: [] }),
         'jobs.pause': supported({}), 'jobs.resume': supported({}), 'jobs.cancel': supported({}), 'jobs.setSpeed': unsupported, 'jobs.skipObjects': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
         'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported,
         'motion.home': unsupported, 'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
@@ -150,13 +150,11 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   }
   function fileRef(printer: PrinterConfiguration, entry: ConfigurationEntry, path: string): D.RemoteFileRef {
     return { ...targetFor(printer.id), configurationRevision: entry.revision, storageId,
-      fileId: `moonraker-file:${encodeURIComponent(path)}` as D.Id<'remote-file'>, contentRevision: null };
+      fileId: `moonraker-file:${encodeURIComponent(path)}` as D.Id<'remote-file'> };
   }
-  function filePath(selection: D.FileSelection, target: D.TargetRequest, entry: ConfigurationEntry): string {
-    const file = selection.file;
+  function filePath(file: D.RemoteFileRef, target: D.TargetRequest, entry: ConfigurationEntry): string {
     if (file.printerId !== target.printerId || file.routeId !== target.routeId || file.storageId !== storageId) fail('invalid-target', 'File belongs to another route or storage');
     if (file.configurationRevision !== entry.revision) fail('stale-context', 'File configuration changed');
-    if (selection.consistency !== 'best-effort' || file.contentRevision !== null) fail('unsupported', 'Moonraker cannot verify this file version');
     if (!file.fileId.startsWith('moonraker-file:')) fail('invalid-target', 'Invalid Moonraker file reference');
     let path: string;
     try { path = decodeURIComponent(file.fileId.slice('moonraker-file:'.length)); } catch { fail('invalid-target', 'Invalid Moonraker file reference'); }

@@ -64,7 +64,7 @@ export async function startUploadedPrint(service: PrinterService, file: RemoteFi
   const submission = await service.controls.submit({
     target: { printerId: file.ref.printerId, routeId: file.ref.routeId, expectedConfigurationRevision: file.ref.configurationRevision },
     requestId: requestId(), command: { type: 'jobs.start', params: {
-      source: { consistency: 'best-effort', file: file.ref }, bindings: [],
+      source: file.ref, bindings: [],
     } },
   });
   if (submission.kind === 'rejected') throw new SendFailure(submission.error.code);

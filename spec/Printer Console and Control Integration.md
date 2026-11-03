@@ -645,8 +645,8 @@ outcomes never cause an automatic retry. Video remains outside this delivery.
 **Decision status:** A shared, capability-driven Storage feature with Bambu as
 its first agent is selected for initial Electron delivery. The host-owned download
 boundary and feature behavior below are selected; detailed contract implementation
-and qualification remain future work. This is documentation/design work, not an
-authorization to implement or a statement that Storage is delivered. The delivered Web Interface/Monitor behavior above
+and qualification proceed in independently verified increments. Implementation
+is authorized; this is not a statement that Storage is delivered. The delivered Web Interface/Monitor behavior above
 continues to describe current code.
 
 The [printer-domain Storage design](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)

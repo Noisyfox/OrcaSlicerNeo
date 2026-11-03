@@ -93,7 +93,7 @@ async function uploaded(service: D.PrinterService) {
   return operation.phase.result;
 }
 function start(file: D.RemoteFile): D.CommandRequest {
-  return { target, requestId: id(crypto.randomUUID()), command: { type: 'jobs.start', params: { source: { file: file.ref, consistency: 'best-effort' }, bindings: [] } } };
+  return { target, requestId: id(crypto.randomUUID()), command: { type: 'jobs.start', params: { source: file.ref, bindings: [] } } };
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;

@@ -98,7 +98,7 @@ In particular, the following choices remain reviewable:
 | Operation tracking | Service-scoped tracking and request lookup; ownership, storage and retention are not prescribed. |
 | Sensor representation | Typed readings, common sensor storage and references from heaters/material units; extension registration and lookup/indexing are open. |
 | Media | Explicit media resources for live and stored content, and WebRTC signaling when selected; concrete transports and resource reuse rules are open. |
-| Remote-file identity | The selected Storage design retains printer/route/configuration-scoped references and removes file-content version checks and strict/best-effort modes; current versioned TypeScript contracts still need to be migrated. |
+| Remote-file identity | The selected Storage design retains printer/route/configuration-scoped references and removes file-content version checks and strict/best-effort modes; the TypeScript contracts now use direct scoped file references without content-version modes. |
 | Transfers | Paged listings, streamed reads, invalidation notifications and reject/rename/overwrite upload policies; no exact wire API or universal provider support is assumed. |
 | Credentials | Opaque credential references; Bambu session storage/refresh is delegated to the black-box plugin in section 2.1. Other credential migration and host storage remain open. |
 | Project material import | The accepted [Prepare synchronization design](Printer%20Console%20and%20Control%20Integration.md#prepare-printer-and-filament-synchronization) provides implemented modal material mapping/rebuild and atomic native application; physical qualification remains separate. |
@@ -126,10 +126,10 @@ exercise public imports, typed extensions, command/result correlations and
 representative printer shapes without implementing an agent.
 
 The interface selects typed topic reads, replacement events with opaque cursors,
-a typed command map, explicit media resource references and file consistency
-modes. The selected Storage design in section 9 removes those file-content
-consistency modes in a future contract migration. Current types are not evidence
-that the user mandated a particular transport or permanent schema.
+a typed command map, explicit media resource references and scoped file references.
+The Storage contract uses direct remote-file references without file-content
+consistency modes. Current types are not evidence that the user mandated a
+particular transport or permanent schema.
 Future refinements update the single contract and its consumers together.
 No gateway wire format or credential persistence migration is defined. The bounded
 Moonraker runtime migration is described below.
@@ -190,8 +190,9 @@ buffer limit before network dispatch. It does not claim chunked network upload.
 Transfer totals are transport bytes, including multipart overhead where reported;
 a null total means unknown, not the declared file length. Completion requires
 the device response and returns the actual remote path as a route-bound file
-reference. File version comparison is unavailable, so start uses explicit
-best-effort consistency. No listing or connection preflight is required.
+reference. Start consumes that reference directly, retaining device/configuration
+validation without file-content version comparison. No listing or connection
+preflight is required.
 
 Response decoding follows each Moonraker endpoint's contract. The HTTP-only
 [file upload endpoint](https://moonraker.readthedocs.io/en/latest/external_api/file_manager/#file-upload)
@@ -2955,11 +2956,10 @@ veto. Do not add pre-operation stat, timestamp, size or hash comparisons solely
 to detect such replacement. Existing metadata reads needed for browsing or print
 preparation remain, but do not provide an unchanged-content guarantee.
 
-The current TypeScript contract still has `contentRevision`, `VersionCheck` and
-strict/best-effort `FileSelection` branches. Implementation must remove this
-file-content version contract and update producers, consumers, adapters, mocks
-and tests together, rather than silently redefining the old modes or retaining
-parallel legacy payloads. This is a documented target change, not delivered code.
+The TypeScript contract uses `RemoteFileRef` directly for reads, previews and
+start/delete commands. File-content revision fields, comparison capabilities and
+strict/best-effort selection modes are removed across producers, consumers,
+adapters and compile-time fixtures; no parallel legacy payload is accepted.
 Retain printer, storage, route, configuration and authorization checks so an old
 reference cannot target a different device after configuration edits. Retain
 transfer-length and protocol integrity checks to detect incomplete/corrupt reads;
@@ -2995,8 +2995,9 @@ agent file reads from host download/save tasks are selected. Bambu is the first
 agent to implement this feature. The initial delivery includes file management,
 device-file printing, in-app playback while downloading, and completed-file
 opening with the system application. Product and architecture choices below are
-selected; contract implementation and qualification remain future work. This
-increment authorizes documentation only.
+selected and implementation is authorized in independently verified increments.
+The scoped-file contract migration is implemented; the remaining execution, UI
+and physical qualification work is not yet delivered.
 The existing TypeScript file contracts and provider dispatch are implemented,
 but Bambu file browsing/download execution and the Storage UI are not delivered.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
