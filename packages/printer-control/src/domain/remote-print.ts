@@ -1,6 +1,6 @@
 /** Agent-owned device-file inspection; independent of the current project. */
 import type { Id, Result, ReadOptions, Availability } from './common';
-import type { RemoteFileRef } from './files';
+import type { RemoteFileRef, FilePreviewOption } from './files';
 import type { PrintRequirements, PrintPreparation, PrintPreparationRequest } from './submission';
 
 export interface RemotePrintInspectionRef { file: RemoteFileRef; id: Id<'print-inspection'> }
@@ -9,6 +9,7 @@ export interface RemotePrintTarget {
   label: string;
   availability: Availability;
   requirements: PrintRequirements | null;
+  thumbnail?: FilePreviewOption;
 }
 export interface RemotePrintInspection {
   ref: RemotePrintInspectionRef;

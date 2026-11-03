@@ -15,9 +15,11 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
       ipcMain.handle(channel, (_event, { method, input }) => {
         const fixture = globalThis.bambuControlFixture;
         fixture.requests.push({ method, input });
-        const target = input.target ?? input.request?.target ?? input.file ?? input;
+        const target = input.target ?? input.request?.target ?? input.request?.inspection?.file ?? input.file ?? input;
         const current = fixture.data[target.printerId];
         if (method === 'submit' && input.command.type === 'files.delete') return { kind: 'recorded', operation: { ...input.target, id: input.command.params.target.fileId } };
+        if (method === 'submit' && input.command.type === 'jobs.start') return { kind: 'recorded', operation: { ...input.target, id: 'remote-print' } };
+        if (method === 'operation' && input.id === 'remote-print') return { ok: true, value: { kind: 'found', operation: { kind: 'command', commandType: 'jobs.start', ref: input, requestId: 'print', configurationRevision: current.description.configurationRevision, revision: 2, updatedAtMs: 0, steps: [], phase: { kind: 'submitted' } } } };
         if (method === 'operation') return { ok: true, value: { kind: 'found', operation: { kind: 'command', commandType: 'files.delete',
           ref: input, requestId: 'delete', configurationRevision: current.description.configurationRevision, revision: 1, updatedAtMs: 0, steps: [],
           phase: input.id.includes('001') ? { kind: 'outcome-unknown', reason: 'Fixture connection lost.' } : { kind: 'completed', result: null, confirmation: 'device-result' } } } };
@@ -26,11 +28,20 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
         if (['observe', 'release', 'storage.cancel'].includes(method)) return { ok: true, value: null };
         if (method === 'preview') return { ok: false, error: { code: 'preview-unavailable', message: 'No image.' } };
         if (method === 'storage.previews') return { ok: true, value: { file: input.file, options: [{ id: 'thumbnail', kind: 'thumbnail', label: 'Thumbnail', contentFormat: null }] } };
+        if (method === 'storage.releasePrint') return { ok: true, value: null };
+        if (method === 'storage.inspectPrint') return { ok: true, value: { ref: { file: input.file, id: 'inspection' }, expiresAtMs: Date.now() + 60_000,
+          targets: [1, 2].map(n => ({ id: `target-${n}`, label: `Plate ${n}`, availability: { kind: 'available' },
+            thumbnail: { id: `print-thumbnail:${n}`, kind: 'thumbnail', label: 'Plate thumbnail', contentFormat: null },
+            requirements: { contentId: 'inspection', plateId: `remote-${n}`, printerModel: 'Fixture', printerModelId: 'fixture',
+              nozzleDiameters: [.4], nozzleFlowTypes: ['Standard'], filamentMap: [1], requiresDynamicMapping: false, bedType: 'High Temp Plate',
+              durationSeconds: n * 60, weightGrams: n, layerCount: 0, toolpathOutside: false, timelapseWarningCode: 0, warnings: [], materials: [] } })) } };
+        if (method === 'storage.preparePrint') return { ok: true, value: { configurationRevision: current.description.configurationRevision, route: 'lan', bindings: [], candidates: [],
+          options: input.request.options, nozzleLabels: ['Nozzle'], materialCatalogIds: [], optionDescriptors: [], issues: [] } };
         if (method === 'storage.storages') return { ok: true, value: ['sdcard', 'internal'].map(id => ({
           id, name: id === 'sdcard' ? 'SD card' : 'Internal storage', kind: id === 'sdcard' ? 'removable' : 'internal',
           availability: { kind: 'available' }, capacityBytes: null, freeBytes: null,
           browsing: { kind: 'supported', constraints: { kind: 'collections', collections: [
-            { id: 'model', name: 'Print files', kinds: ['print-file'], actions: ['download', 'delete'] },
+            { id: 'model', name: 'Print files', kinds: ['print-file'], actions: ['download', 'delete', 'inspect-print'] },
           ] } },
         })) };
         if (method === 'storage.list') {
@@ -121,5 +132,21 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await expect(storage.getByText('Deletion unconfirmed · Refresh manually')).toBeVisible();
     await expect(storage.getByRole('checkbox')).toHaveCount(99);
     expect((await calls()).filter(call => call.method === 'storage.list')).toHaveLength(5);
+    await storage.getByRole('checkbox', { name: 'Select internal-part-001.gcode.3mf', exact: true }).uncheck();
+    await storage.getByRole('checkbox', { name: 'Select internal-part-002.gcode.3mf', exact: true }).uncheck();
+    await storage.getByRole('checkbox', { name: 'Select internal-part-003.gcode.3mf', exact: true }).check();
+    await storage.getByRole('button', { name: 'Print selected file', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Print device file');
+    await dialog.getByLabel('Print target', { exact: true }).selectOption('target-2');
+    await expect(dialog.getByTestId('print-job-statistics')).toContainText('2m');
+    await expect.poll(() => dialog.getByAltText('Thumbnail of internal-part-003.gcode.3mf').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
+    await dialog.screenshot({ path: test.info().outputPath('storage-print-preparation.png') });
+    await dialog.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    const starts = await app.evaluate(() => (globalThis.bambuControlFixture.requests as { method: string; input: { command?: { type: string; params: unknown } } }[])
+      .filter(r => r.method === 'submit' && r.input.command?.type === 'jobs.start').map(r => r.input.command!.params));
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({ inspection: { id: 'inspection', targetId: 'target-2' }, source: { fileId: 'internal-part-003.gcode.3mf' } });
   } finally { await app.close(); }
 });

@@ -19,7 +19,7 @@ export class BambuStorageImages {
     for (const [id, resource] of this.resources) if (resource.until < now) this.release(id);
     for (const [key, request] of this.requests) if (request.until < now) this.requests.delete(key);
   }, 1000);
-  constructor(private readonly files: BambuStorageFiles) { this.timer.unref(); }
+  constructor(private readonly files: BambuStorageFiles, private readonly printThumbnail: (file: D.RemoteFileRef, previewId: string) => string | null = () => null) { this.timer.unref(); }
   owns(ref: D.MediaRef) { return ref.id.startsWith('storage-image:'); }
   async call(owner: string, request: BambuMediaRequest) {
     if (this.closed || this.retiredOwners.has(owner)) return failure('cancelled', 'The viewing document closed.');
@@ -56,15 +56,17 @@ export class BambuStorageImages {
     return work;
   }
   private async read(owner: string, request: D.OpenMediaRequest, signal: AbortSignal): Promise<D.Result<D.MediaDescriptor>> {
-    if (request.source.kind !== 'file-preview' || request.source.previewId !== 'thumbnail') return failure('invalid-request', 'Unsupported file preview.');
+    if (request.source.kind !== 'file-preview') return failure('invalid-request', 'Unsupported file preview.');
     const ref = request.source.target;
+    const printResource = request.source.previewId !== 'thumbnail' ? this.printThumbnail(ref, request.source.previewId) : null;
+    if (request.source.previewId !== 'thumbnail' && !printResource) return failure('invalid-request', 'This print thumbnail is unavailable.');
     if (ref.printerId !== request.target.printerId || ref.routeId !== request.target.routeId ||
       request.target.expectedConfigurationRevision !== undefined && request.target.expectedConfigurationRevision !== ref.configurationRevision) return failure('stale-context', 'The file preview target changed.');
     const resolved = await this.files.resolveFile(ref); if (!resolved.ok) return resolved;
     const { source, address } = resolved.value;
     if (!address.path || address.collection === 'model' && !address.name.toLowerCase().endsWith('.3mf')) return failure('preview-unavailable', 'No thumbnail is available.');
-    let resource = 'thumbnail';
-    if (address.collection === 'model') {
+    let resource = printResource ?? 'thumbnail';
+    if (!printResource && address.collection === 'model') {
       const relationships = await source.resource(address.path, '_rels/.rels', 1024 * 1024, signal);
       if (!relationships) return failure('preview-unavailable', 'The printer does not provide a thumbnail for this file.');
       resource = thumbnailTarget(new TextDecoder('utf-8', { fatal: true }).decode(relationships)).replace(/^\//, '');

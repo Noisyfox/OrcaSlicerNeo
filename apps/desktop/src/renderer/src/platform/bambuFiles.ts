@@ -37,7 +37,11 @@ export function bambuRemotePrints(bridge: BambuBridge): D.PrinterRemotePrints {
     finally { options?.signal?.removeEventListener('abort', abort); }
   }
   return {
-    inspect: (file, options) => read(readId => bridge.control('storage.inspectPrint', { file, readId }), options),
+    inspect: (file, options) => read(async readId => {
+      const result = await bridge.control('storage.inspectPrint', { file, readId });
+      if (result.ok && options?.signal?.aborted) await bridge.control('storage.releasePrint', { ref: result.value.ref, readId: crypto.randomUUID() }).catch(() => {});
+      return result;
+    }, options),
     prepare: (request, options) => read(readId => bridge.control('storage.preparePrint', { request, readId }), options),
     release: ref => read(readId => bridge.control('storage.releasePrint', { ref, readId })),
   };

@@ -1,4 +1,5 @@
 import { StorageThumbnail } from './StorageThumbnail';
+import { RemoteFilePrintDialog } from './RemoteFilePrintDialog';
 import { DeleteStorageFiles } from './DeleteStorageFiles';
 import { PrinterDownloadTasks } from './PrinterDownloadTasks';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -18,6 +19,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [folder, setFolder] = useState('Download folder');
   const [deleting, setDeleting] = useState<readonly RemoteFile[] | null>(null);
+  const [printing, setPrinting] = useState<RemoteFile | null>(null);
   const [unconfirmed, setUnconfirmed] = useState<ReadonlySet<string>>(new Set());
   const target = useMemo(() => ({ printerId: printer.identity.id, routeId: route.id }), [printer.identity.id, route.id]);
   const [storages, setStorages] = useState<readonly Storage[]>([]);
@@ -84,7 +86,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
     return () => { discovery.current?.abort(); listing.current?.abort(); };
   }, [service, target, route.configurationRevision]);
   useEffect(() => {
-    setFiles([]); setCursor(null); setSelected(new Set()); setSearch(''); setUnconfirmed(new Set()); setDeleting(null);
+    setFiles([]); setCursor(null); setSelected(new Set()); setSearch(''); setUnconfirmed(new Set()); setDeleting(null); setPrinting(null);
     void load(); return () => listing.current?.abort();
   }, [scope, service, target]);
 
@@ -151,6 +153,8 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
       </div>}
       {category.actions.includes('delete') && <Button size="sm" variant="destructive" className="self-start" disabled={!selected.size || loading || queuing}
         onClick={() => setDeleting(files.filter(file => selected.has(file.ref.fileId)))}>Delete selected</Button>}
+      {category.actions.includes('inspect-print') && <Button size="sm" variant="outline" className="self-start" disabled={selected.size !== 1 || loading}
+        onClick={() => setPrinting(files.find(file => selected.has(file.ref.fileId)) ?? null)}>Print selected file</Button>}
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={loading}>
         {groups.map(([label, items]) => <div key={label} className="mb-4">
           {label && <h3 className="mb-2 text-sm font-medium">{label}</h3>}
@@ -177,6 +181,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
           setSelected(previous => new Set([...previous].filter(id => id !== ref.fileId)));
         } else if (result.state === 'unconfirmed') setUnconfirmed(previous => new Set([...previous, ref.fileId]));
       }} />}
+    {printing && <RemoteFilePrintDialog file={printing} printer={printer} onClose={() => setPrinting(null)} />}
     <PrinterDownloadTasks />
   </section>;
 }

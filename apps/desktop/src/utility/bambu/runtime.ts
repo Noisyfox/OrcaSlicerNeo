@@ -92,7 +92,7 @@ export class BambuRuntime {
       this.media = new BambuMedia(this.config, agent, this.access, this.devices, this.repository, () => this.publish('media'));
       this.storageSessions = new BambuStorageSessions(this.config, agent, this.devices, this.repository, this.storageIo);
       this.storageFiles = new BambuStorageFiles(target => this.storageSessions!.resolve(target));
-      this.storageImages = new BambuStorageImages(this.storageFiles);
+      this.storageImages = new BambuStorageImages(this.storageFiles, (file, previewId) => this.storagePrints?.thumbnail(file, previewId) ?? null);
       this.submissions = new BambuPrintSubmissions(agent, this.access, this.devices, this.repository, join(this.config.directory, 'submissions'), () => this.publish('control'));
       this.storagePrints = new BambuStoragePrints(this.storageFiles, this.printInspector, request => this.submissions!.prepare(request), Date.now,
         (request, file) => this.submissions!.sendDeviceFile(request, file), () => this.publish('control'));

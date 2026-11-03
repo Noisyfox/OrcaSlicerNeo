@@ -5,7 +5,7 @@ import type { RemotePrintInspector } from '../remotePrintInspector';
 import { BambuStorageFiles, storageFailure } from './storageFiles';
 
 const failure = (code: D.ErrorCode, message: string): D.Result<never> => ({ ok: false, error: { code, message } });
-interface Context { value: D.RemotePrintInspection; name: string; path: string; warnings: Map<string, D.PrintIssue[]> }
+interface Context { value: D.RemotePrintInspection; name: string; path: string; warnings: Map<string, D.PrintIssue[]>; thumbnails: Map<string, string> }
 type StartRequest = Extract<D.CommandRequest, { command: D.CommandOf<'jobs.start'> }>;
 type Execute = (request: D.PrintSubmissionRequest, file: { path: string; name: string; plateIndex: number }) => Promise<D.Result<'sent' | 'unknown'>>;
 
@@ -44,15 +44,21 @@ export class BambuStoragePrints implements D.PrinterRemotePrints {
       const metadata = await this.inspector.inspect(resources, options?.signal);
       const current = await this.files.resolveFile(file); if (!current.ok) return current;
       if (options?.signal?.aborted) return failure('cancelled', 'Device file inspection was cancelled.');
-      const id = randomUUID() as D.Id<'print-inspection'>, warnings = new Map<string, D.PrintIssue[]>();
+      const id = randomUUID() as D.Id<'print-inspection'>, warnings = new Map<string, D.PrintIssue[]>(), thumbnails = new Map<string, string>();
       const targets = metadata.targets.map(plate => {
         const normalized = normalizePlate(metadata, plate, id);
+        const resource = plate.thumbnailPath.replace(/^\//, '');
+        if (/^Metadata\/[\w.-]+\.(png|jpe?g)$/i.test(resource) && !resource.includes('..')) {
+          const previewId = `print-thumbnail:${id}:${plate.plateIndex}` as D.Id<'preview-option'>;
+          thumbnails.set(previewId, resource);
+          normalized.target.thumbnail = { id: previewId, kind: 'thumbnail', label: `${normalized.target.label} thumbnail`, contentFormat: null };
+        }
         warnings.set(normalized.target.id, normalized.warnings); return normalized.target;
       });
       const value: D.RemotePrintInspection = { ref: { file: { ...file }, id }, targets, expiresAtMs: this.now() + 30 * 60_000 };
       for (const [key, c] of this.contexts) if (c.value.expiresAtMs < this.now()) this.contexts.delete(key);
       while (this.contexts.size >= 16) this.contexts.delete(this.contexts.keys().next().value!);
-      this.contexts.set(id, { value, name, path, warnings });
+      this.contexts.set(id, { value, name, path, warnings, thumbnails });
       return { ok: true, value: structuredClone(value) };
     } catch (error) {
       if (options?.signal?.aborted) return failure('cancelled', 'Device file inspection was cancelled.');
@@ -68,6 +74,12 @@ export class BambuStoragePrints implements D.PrinterRemotePrints {
     if (!target?.requirements || target.availability.kind !== 'available')
       return failure('unsupported', 'This device-file print target is unavailable.');
     return { ok: true, value: { context, target } };
+  }
+  thumbnail(file: D.RemoteFileRef, previewId: string): string | null {
+    const match = /^print-thumbnail:([^:]+):\d+$/.exec(previewId);
+    const context = match && this.contexts.get(match[1]);
+    return context && context.value.expiresAtMs >= this.now() && sameFile(context.value.ref.file, file)
+      ? context.thumbnails.get(previewId) ?? null : null;
   }
 
   async prepare(request: D.RemotePrintPreparationRequest, options?: D.ReadOptions): Promise<D.Result<D.PrintPreparation>> {

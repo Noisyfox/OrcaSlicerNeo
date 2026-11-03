@@ -658,8 +658,14 @@ and unexecuted entries, with explicit continuation of a paused batch. Fixture E2
 checks local removal after confirmation and retained entries without automatic
 refresh after uncertain outcomes. Visible-card thumbnails now use optional managed
 image resources with cancellation and bounded concurrency; unsupported image reads
-retain placeholders. Print actions, stored-media playback and physical acceptance
-remain pending; the complete initial delivery is not yet qualified.
+retain placeholders. Device-file printing now has an independent inspection dialog,
+agent-provided target selection and plate thumbnails, shared material/options UI,
+warning confirmation and one-shot start dispatch. It does not read/export the
+current slice or lock/modify the Project. Fixture E2E selects a second plate and
+observes a provider submission receipt; component tests cover late inspection
+cleanup and uncertain-start duplicate prevention. Stored-media playback and
+physical acceptance remain pending; the complete initial delivery is not yet
+qualified.
 
 The [printer-domain Storage design](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)
 owns provider contracts, binary transport, host save ownership, the pinned Bambu

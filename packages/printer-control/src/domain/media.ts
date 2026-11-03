@@ -44,7 +44,7 @@ export type MediaSource = {
 } | {
   kind: 'file-preview';
   target: RemoteFileRef;
-  /** From files.listPreviews; validate against this file, without caller-session state. */
+  /** From files.listPreviews or an inspected print target; validate against this file. */
   previewId: Id<'preview-option'>;
 };
 export interface OpenMediaRequest {

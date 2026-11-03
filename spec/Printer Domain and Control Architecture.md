@@ -3004,8 +3004,9 @@ protocol fixtures are tested separately. Registered desktop download tasks now
 include destination selection, progress, cancellation/retry, saved-file opening,
 startup cleanup and close coordination. Confirmed single/batch deletion is also
 implemented through the existing command/operation contract. Optional, visible-card
-thumbnail resources are implemented. Remote print preparation/submission, stored
-video playback and physical qualification remain pending.
+thumbnail resources and independent remote print inspection/preparation/dispatch
+are implemented within fixture acceptance. Stored video playback and physical
+qualification remain pending.
 The host-neutral [managed stream executor](../packages/printer-control/src/downloads.ts)
 is implemented independently of host IPC and filesystem bindings: it consumes
 one owned chunk at a time, waits for each sink write and terminal reader checks,
@@ -3108,8 +3109,14 @@ artifact sends. The device-file path never stages/uploads an archive and never
 falls back by resending an uncertain start. A `submitted` command outcome means
 the provider returned a successful send receipt, not a device acknowledgement or
 physical-print confirmation. Connection-time configuration/state is rechecked
-before dispatch. Shared target-selection UI and physical qualification remain
-separate integration requirements.
+before dispatch. Shared Storage now exposes single-file inspection and target
+selection, reuses the material/options presentation with an independent remote
+source hook, and releases inspection/image resources on close. Agent-issued plate
+thumbnail options resolve only against that exact file and inspection. Renderer
+fixtures verify that no project read/export is invoked, unknown starts cannot be
+resent, and late contexts are released. Electron fixture E2E covers second-plate
+selection, actual thumbnail decoding and submitted-command navigation. Physical
+device-file printing remains unqualified.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the feature envelope and user-facing decisions.
 
@@ -3450,8 +3457,10 @@ Emscripten access inside the existing slicer client/runtime boundary and printer
 networking outside it. The agent fetches relevant remote resources, invokes the
 parser and normalizes results; shared UI never interprets vendor archive layouts.
 Other agents may use their own parsers and need not depend on slicing WASM. The
-same service boundary permits an independent Web Worker later. Exact parser API,
-normalized metadata, initialization/lifetime and resource limits remain open.
+same service boundary permits an independent Web Worker later. The implemented
+runtime accepts a bounded metadata resource bundle and returns Orca metadata for
+agent normalization; the desktop inspector owns disposable Worker admission and
+termination. Physical format/resource-limit qualification remains open.
 
 Stored-media playback consumes an agent-provided read through host-owned media
 delivery. The host exposes actual playback/seek capabilities to the shared

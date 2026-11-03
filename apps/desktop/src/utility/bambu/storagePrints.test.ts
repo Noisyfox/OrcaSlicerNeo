@@ -23,6 +23,15 @@ async function fixture(name = 'part.gcode.3mf', metadata: RemotePrintMetadata = 
   return { source, file: page.value.files[0].ref, prints, inspect, prepare, execute, advance: () => { now += 31 * 60_000; } };
 }
 describe('device-file inspection contexts', () => {
+  it('scopes plate thumbnail addresses to the inspection and exact file identity', async () => {
+    const f = await fixture('part.gcode.3mf', { configuration: {}, targets: [{ ...plate(), thumbnailPath: 'Metadata/plate_1.png' }] });
+    const result = await f.prints.inspect(f.file); if (!result.ok) throw new Error('fixture');
+    const preview = result.value.targets[0].thumbnail!;
+    expect(f.prints.thumbnail(f.file, preview.id)).toBe('Metadata/plate_1.png');
+    expect(f.prints.thumbnail({ ...f.file, fileId: 'other' as D.Id<'remote-file'> }, preview.id)).toBeNull();
+    await f.prints.release(result.value.ref);
+    expect(f.prints.thumbnail(f.file, preview.id)).toBeNull();
+  });
   it('requires current warning acknowledgement and records submitted separately from confirmed printing', async () => {
     const f = await fixture(), inspection = await f.prints.inspect(f.file); if (!inspection.ok) throw new Error('fixture');
     const request = { target, requestId: 'start' as D.Id<'request'>, command: { type: 'jobs.start' as const, params: {

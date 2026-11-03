@@ -32,9 +32,10 @@ function PrintThumbnail({ plateId }: { plateId: string | undefined }) {
   </div>;
 }
 
-export function PrintJobSummary({ requirements, printer, printerControl, name, onNameChange, disabled, onRefresh, route }: {
+export function PrintJobSummary({ requirements, printer, printerControl, name, onNameChange, disabled, onRefresh, route, thumbnail, nameReadOnly = false }: {
   requirements: PrintRequirements | null; printer: SavedPrinter; printerControl?: ReactNode;
   name: string; onNameChange(name: string): void; disabled: boolean; onRefresh(): void; route?: string | null;
+  thumbnail?: ReactNode; nameReadOnly?: boolean;
 }) {
   const session = usePlateSessionStore(s => s.snapshot);
   const structure = useObjectListStore(s => s.structure);
@@ -45,14 +46,14 @@ export function PrintJobSummary({ requirements, printer, printerControl, name, o
   const commit = () => { if (draft.trim()) onNameChange(draft.trim()); setEditing(false); };
   const minutes = requirements ? Math.ceil(requirements.durationSeconds / 60) : 0;
   return <div className="grid grid-cols-[120px_minmax(0,1fr)] items-center gap-5 sm:grid-cols-[180px_minmax(0,1fr)]" data-testid="print-job-summary">
-    <PrintThumbnail plateId={requirements?.plateId} />
+    {thumbnail !== undefined ? thumbnail : <PrintThumbnail plateId={requirements?.plateId} />}
     <div className="min-w-0 space-y-5">
       <div className="space-y-2">
         {editing ? <Input autoFocus aria-label="Print job name" value={draft} disabled={disabled}
           onChange={event => setDraft(event.target.value)} onBlur={commit}
           onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(); } if (event.key === 'Escape') { event.stopPropagation(); setEditing(false); } }} />
           : <div className="flex min-w-0 items-center gap-1"><span className="truncate font-semibold" title={displayName}>{displayName}</span>
-            <Button variant="ghost" size="icon" aria-label="Rename print job" disabled={disabled} onClick={() => { setDraft(displayName); setEditing(true); }}><Pencil className="size-3.5" /></Button></div>}
+            {!nameReadOnly && <Button variant="ghost" size="icon" aria-label="Rename print job" disabled={disabled} onClick={() => { setDraft(displayName); setEditing(true); }}><Pencil className="size-3.5" /></Button>}</div>}
         <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm tabular-nums" data-testid="print-job-statistics">
           <span className="flex items-center gap-2"><Clock3 className="size-4 text-muted-foreground" aria-hidden="true" />{requirements ? `${minutes >= 60 ? `${Math.floor(minutes / 60)}h ` : ''}${minutes % 60}m` : '—'}</span>
           <span className="flex items-center gap-2"><Weight className="size-4 text-muted-foreground" aria-hidden="true" />{requirements ? `${requirements.weightGrams.toFixed(2)} g` : '—'}</span>
