@@ -1,3 +1,4 @@
+import { BambuStorageImages } from './storageImages';
 import { BambuStorageCommands } from './storageCommands';
 import { DownloadExecutor } from '../downloadExecutor';
 import type { DownloadProgress } from '@orca/printer-control/downloads';
@@ -37,6 +38,7 @@ export class BambuRuntime {
   private objectSkipping: BambuObjectSkipping | null = null;
   private submissions: BambuPrintSubmissions | null = null;
   private storageSessions: BambuStorageSessions | null = null;
+  private storageImages: BambuStorageImages | null = null;
   private storageFiles: BambuStorageFiles | null = null;
   private storageReads = new Map<string, { controller: AbortController; done: Promise<void> }>();
   private cancelledStorageReads = new Set<string>();
@@ -86,11 +88,13 @@ export class BambuRuntime {
       this.media = new BambuMedia(this.config, agent, this.access, this.devices, this.repository, () => this.publish('media'));
       this.storageSessions = new BambuStorageSessions(this.config, agent, this.devices, this.repository, this.storageIo);
       this.storageFiles = new BambuStorageFiles(target => this.storageSessions!.resolve(target));
+      this.storageImages = new BambuStorageImages(this.storageFiles);
       this.submissions = new BambuPrintSubmissions(agent, this.access, this.devices, this.repository, join(this.config.directory, 'submissions'), () => this.publish('control'));
       this.operations = new BambuOperations(this.monitor, () => this.publish('control'), undefined, undefined, new BambuStorageCommands(this.storageFiles, () => this.publish('control')));
       this.account = new BambuAccount(agent, this.repository, this.publish, this.devices);
       await this.account.restore();
     } catch {
+      await this.storageImages?.close(); this.storageImages = null;
       await this.storageSessions?.close(); this.storageSessions = null; this.storageFiles = null;
       await this.objectSkipping?.close(); this.objectSkipping = null;
       await this.media?.close(); this.media = null;
@@ -138,6 +142,7 @@ export class BambuRuntime {
     switch (request.method) {
       case 'storage.storages': return this.storageRead(request.input.readId, signal => this.storageFiles!.listStorages(request.input.target, { signal }));
       case 'storage.list': return this.storageRead(request.input.readId, signal => this.storageFiles!.list(request.input.request, { signal }));
+      case 'storage.previews': return this.storageRead(request.input.readId, () => this.storageFiles!.listPreviews(request.input.file));
       case 'storage.stat': return this.storageRead(request.input.readId, signal => this.storageFiles!.stat(request.input.file, { signal }));
       case 'storage.cancel': {
         this.cancelledStorageReads.add(request.input.readId); this.storageReads.get(request.input.readId)?.controller.abort();
@@ -174,17 +179,20 @@ export class BambuRuntime {
   }
   async mediaCall(owner: string, request: BambuMediaRequest) {
     await this.ready;
+    if (request.method === 'cancelOpen') { await Promise.all([this.storageImages?.call(owner, request), this.media?.call(owner, request)]); return { ok: true as const, value: null }; }
+    if (this.storageImages && (request.method === 'open' ? request.input.source.kind === 'file-preview' : this.storageImages.owns(request.input))) return this.storageImages.call(owner, request);
     return this.media ? this.media.call(owner, request) : { ok: false as const, error: { code: 'transport' as const, message: 'Camera unavailable.' } };
   }
   async mediaAttach(owner: string, request: BambuMediaAttachment, port: CameraPort) {
     await this.ready;
     if (this.media) this.media.attach(owner, request, port); else port.close();
   }
-  async mediaCloseOwner(owner: string) { await this.ready; await this.media?.closeOwner(owner); }
+  async mediaCloseOwner(owner: string) { await this.ready; await this.storageImages?.closeOwner(owner); await this.media?.closeOwner(owner); }
   async close() { await this.ready; this.closing = true;
     for (const read of this.storageReads.values()) read.controller.abort();
     let downloadFailure: unknown;
     try { await this.downloads.close(); } catch (error) { downloadFailure = error; }
+    await this.storageImages?.close();
     await this.storageSessions?.close(); await Promise.all([...this.storageReads.values()].map(read => read.done));
     await this.operations?.close(); this.monitor?.close(); await this.submissions?.close(); await this.objectSkipping?.close(); await this.media?.close(); await this.access?.close(); await this.lan?.close(); await this.account?.close(); await this.native?.close(); this.native = null; if (downloadFailure) throw downloadFailure; }
 }

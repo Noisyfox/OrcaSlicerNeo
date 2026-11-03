@@ -1,3 +1,4 @@
+import { StorageThumbnail } from './StorageThumbnail';
 import { DeleteStorageFiles } from './DeleteStorageFiles';
 import { PrinterDownloadTasks } from './PrinterDownloadTasks';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -156,7 +157,8 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
           <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
             {items.map(file => <label key={file.ref.fileId} className={`flex cursor-pointer flex-col gap-2 rounded-lg border p-3 ${selected.has(file.ref.fileId) ? 'border-primary bg-accent/20' : 'hover:bg-muted/40'}`}>
               <div className="flex items-start justify-between"><input type="checkbox" aria-label={`Select ${file.name}`} checked={selected.has(file.ref.fileId)} onChange={() => toggle(file.ref.fileId)} />
-                {file.metadata.kind === 'recording' || file.metadata.kind === 'timelapse' ? <Film className="size-10 text-muted-foreground" /> : <File className="size-10 text-muted-foreground" />}</div>
+              </div>
+              <StorageThumbnail file={file} fallback={file.metadata.kind === 'recording' || file.metadata.kind === 'timelapse' ? <Film className="size-10 text-muted-foreground" /> : <File className="size-10 text-muted-foreground" />} />
               <span className="break-all text-sm font-medium">{file.name}</span>
               {unconfirmed.has(file.ref.fileId) && <span className="text-xs text-amber-500">Deletion unconfirmed · Refresh manually</span>}
               <span className="text-xs text-muted-foreground">{bytes(file.sizeBytes)}{file.modifiedAtMs !== null && ` · ${new Date(file.modifiedAtMs).toLocaleDateString()}`}</span>

@@ -30,6 +30,7 @@ export class BambuMedia {
   private readonly retiredOwners = new Set<string>();
   private readonly timer: ReturnType<typeof setInterval>;
   private closing = false;
+  private cancelled = new Set<string>();
   constructor(private readonly config: BambuHostConfig, private readonly native: BambuNative,
     private readonly access: { acquire: BambuDeviceAccess['acquire']; stop: BambuDeviceAccess['stop']; context(target: D.PrinterTarget): Promise<D.Result<{ report: Record<string, unknown> }>> },
     private readonly devices: Pick<BambuDevices, 'list'>, private readonly repository: Pick<BambuRepository, 'read'>,
@@ -63,6 +64,12 @@ export class BambuMedia {
   }
   async call(owner: string, request: BambuMediaRequest) {
     if (this.closing || this.retiredOwners.has(owner)) return failed(error('cancelled', 'The viewing document closed.'));
+    if (request.method === 'cancelOpen') {
+      const key = `${owner}:${request.input.requestId}`; this.cancelled.add(key);
+      while (this.cancelled.size > 128) this.cancelled.delete(this.cancelled.values().next().value!);
+      if (this.active?.owner === owner && this.active.request.requestId === request.input.requestId) await this.release(this.active);
+      return { ok: true as const, value: null };
+    }
     if (request.method === 'open') return this.open(owner, request.input);
     const r = this.valid(owner, request.input);
     if (!r) return request.method === 'close' ? { ok: true as const, value: null } : failed(error('invalid-target', 'Camera resource unavailable.'));
@@ -78,6 +85,7 @@ export class BambuMedia {
   }
   open(owner: string, request: D.OpenMediaRequest): Promise<D.Result<D.MediaDescriptor>> {
     const key = `${owner}:${request.requestId}`, fingerprint = JSON.stringify(request);
+    if (this.cancelled.has(key)) return Promise.resolve(failed(error('cancelled', 'Camera viewing stopped.')));
     const previous = this.requests.get(key);
     if (previous && previous.until > Date.now()) return previous.fingerprint === fingerprint ? previous.result : Promise.resolve(failed(error('invalid-request', 'Camera request ID was reused.')));
     if (this.requests.size >= 128) return Promise.resolve(failed(error('busy', 'Too many camera requests.')));

@@ -50,6 +50,18 @@ int Bambu_SendMessage(Bambu_Tunnel tunnel, int type, const char* bytes, int size
         else s.replies.push_back("{\"result\":0,\"sequence\":1,\"reply\":{\"paths\":[\"/storage-file\"]}}");
         return 0;
     }
+    if (message.find("\"cmdtype\":2") != std::string::npos) {
+        if (message.find("/resource.3mf#_rels/.rels") == std::string::npos) return -1;
+        if (s.mode.find("silent") != std::string::npos) return 0;
+        if (s.mode.find("empty") != std::string::npos) {
+            s.replies.push_back(R"({"result":0,"sequence":1,"reply":{"path":"/resource.3mf#_rels/.rels","size":0,"total":0}})"); return 0;
+        }
+        s.replies.push_back(std::string(R"({"result":1,"sequence":1,"reply":{"path":"/resource.3mf#_rels/.rels","size":1,"offset":0,"total":3,"continue":true}})") + "\n\na");
+        if (s.mode.find("mismatch") != std::string::npos)
+            s.replies.push_back(std::string(R"({"result":0,"sequence":1,"reply":{"path":"/other.3mf#_rels/.rels","size":2,"offset":1,"total":3,"continue":false}})") + "\n\nbc");
+        else s.replies.push_back(std::string(R"({"result":0,"sequence":1,"reply":{"path":"/resource.3mf#_rels/.rels","size":2,"offset":1,"total":3,"continue":false}})") + "\n\nbc");
+        return 0;
+    }
     if (message.find("/storage-file") != std::string::npos) {
         if (s.mode.find("silent") != std::string::npos) return 0;
         if (s.mode.find("long-progress") != std::string::npos) {

@@ -17,7 +17,7 @@ export function bambuCapabilities(): D.PrinterCapabilities {
     },
     cameras: [], currentPrintPreview: unsupported, webInterface: unsupported,
     files: { upload: unsupported, list: { kind: 'unknown', reason: 'Open Storage to discover available printer storage.' },
-      stat: { kind: 'unknown', reason: 'File information requires authorized storage access.' }, download: unsupported, preview: unsupported, changes: unsupported },
+      stat: { kind: 'unknown', reason: 'File information requires authorized storage access.' }, download: unsupported, preview: { kind: 'unknown', reason: 'Open Storage to resolve available file previews.' }, changes: unsupported },
     observations: { printObjects: unsupported, descriptor: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, status: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, firmware: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, thermal: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, motion: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } },
       actuators: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, materials: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, cameras: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, sensors: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, alerts: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } } },
   };

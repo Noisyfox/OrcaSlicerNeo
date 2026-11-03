@@ -174,3 +174,4 @@ export function loadBambuCamera(addonPath: string, sourcePath: string, url: stri
   const addon = createRequire(addonPath)(addonPath) as { Camera: new (path: string, url: string) => NativeCamera };
   return new addon.Camera(sourcePath, url);
 }
+export { readBambuStorageResource, type BambuStorageResourceRequest } from './storageResource.js';

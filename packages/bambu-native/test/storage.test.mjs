@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { getEventListeners } from 'node:events';
-import { loadBambuControlStream, readBambuStorageFile, discoverBambuStorage, listBambuStorageFiles, deleteBambuStorageFile } from '../dist/index.js';
+import { readBambuStorageResource, loadBambuControlStream, readBambuStorageFile, discoverBambuStorage, listBambuStorageFiles, deleteBambuStorageFile } from '../dist/index.js';
 
 const addon = fileURLToPath(new URL('../build/Release/bambu.node', import.meta.url));
 const source = fileURLToPath(new URL(`../build/Release/fixture_control.${process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so'}`, import.meta.url));
@@ -111,4 +111,18 @@ test('single-file deletion distinguishes acknowledgment, rejection and uncertain
   await assert.rejects(remove('uncertain'), error => error.code === 'invalid-response');
   await assert.rejects(deleteBambuStorageFile(addon, source, 'bambu:///local/silent', { path: '/storage-file' },
     { ...queryOptions, requestTimeoutMs: 30 }), error => error.code === 'transport');
+});
+
+
+test('reads bounded optional storage resources and preserves unavailable thumbnails', async () => {
+  const request = { path: '/resource.3mf', resource: '_rels/.rels', maxBytes: 16 };
+  const resource = (mode, changes = {}) => readBambuStorageResource(addon, source, `bambu:///local/${mode}`, { ...request, ...changes }, options);
+  assert.equal(Buffer.from(await resource('fixture')).toString(), 'abc');
+  assert.equal(await resource('empty'), null);
+  await assert.rejects(resource('mismatch'), error => error.code === 'invalid-response');
+  await assert.rejects(resource('fixture', { maxBytes: 2 }), error => error.code === 'invalid-response');
+  await assert.rejects(resource('fixture', { resource: '../outside' }), error => error.code === 'invalid-response');
+  const controller = new AbortController();
+  const pending = readBambuStorageResource(addon, source, 'bambu:///local/silent', request, { ...options, signal: controller.signal });
+  const rejected = assert.rejects(pending, error => error.code === 'cancelled'); controller.abort(); await rejected;
 });

@@ -3,12 +3,14 @@ import type * as D from '@orca/printer-control/domain';
 export interface BambuStorageInputs {
   'storage.storages': { target: D.PrinterTarget; readId: string };
   'storage.list': { request: D.ListFilesRequest; readId: string };
+  'storage.previews': { file: D.RemoteFileRef; readId: string };
   'storage.stat': { file: D.RemoteFileRef; readId: string };
   'storage.cancel': { readId: string };
 }
 export interface BambuStorageResults {
   'storage.storages': D.Result<readonly D.PrinterStorage[]>;
   'storage.list': D.Result<D.RemoteFilePage>;
+  'storage.previews': D.Result<D.FilePreviewListing>;
   'storage.stat': D.Result<D.RemoteFileDetails>;
   'storage.cancel': D.Result<null>;
 }
@@ -24,7 +26,7 @@ export function isBambuStorageRequest(method: string, input: Record<string, unkn
   if (!text(input.readId)) return false;
   if (method === 'storage.cancel') return exact(input, ['readId']);
   if (method === 'storage.storages') return exact(input, ['target', 'readId']) && target(input.target);
-  if (method === 'storage.stat') return exact(input, ['file', 'readId']) && isStorageFileRef(input.file);
+  if (method === 'storage.stat' || method === 'storage.previews') return exact(input, ['file', 'readId']) && isStorageFileRef(input.file);
   if (method !== 'storage.list' || !exact(input, ['request', 'readId']) || !object(input.request)) return false;
   const request = input.request, location = request.location;
   return exact(request, ['target', 'storageId', 'location', 'kinds', 'cursor', 'pageSize']) && target(request.target) && text(request.storageId) &&

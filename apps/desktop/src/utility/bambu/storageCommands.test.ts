@@ -9,7 +9,7 @@ const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agen
 async function fixture() {
   const source: BambuStorageSource = { configurationRevision: 'r1', discover: async () => ['sdcard'],
     list: vi.fn(async () => [{ name: 'part.gcode.3mf', path: '/part.gcode.3mf', sizeBytes: 3, modifiedAtSeconds: null }]),
-    download: vi.fn(), remove: vi.fn(async () => {}) };
+    download: vi.fn(), resource: vi.fn(async () => null), remove: vi.fn(async () => {}) };
   const files = new BambuStorageFiles(async () => ({ ok: true, value: source }));
   const page = await files.list({ target, storageId: 'sdcard' as D.Id<'storage'>, location: { kind: 'collection', collectionId: 'model' as D.Id<'file-collection'> } });
   if (!page.ok) throw new Error('fixture'); const file = page.value.files[0].ref;

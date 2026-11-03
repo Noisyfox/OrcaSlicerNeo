@@ -13,7 +13,7 @@ function fixture() {
     list: vi.fn(async () => [{ name: 'a.gcode.3mf', path: '/a.gcode.3mf', sizeBytes: 3, modifiedAtSeconds: 10 },
       { name: 'b.gcode.3mf', path: '/b.gcode.3mf', sizeBytes: 4, modifiedAtSeconds: 20 }]),
     download: vi.fn(async () => ({ totalBytes: 3, chunks: (async function* () { yield new Uint8Array([1, 2, 3]); })() })),
-    remove: vi.fn(async () => undefined),
+    resource: vi.fn(async () => null), remove: vi.fn(async () => undefined),
   };
   const resolve = vi.fn(async () => ({ ok: true as const, value: source }));
   const files = new BambuStorageFiles(resolve, () => clock);

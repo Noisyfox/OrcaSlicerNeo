@@ -656,8 +656,10 @@ across navigation and cancellation; separate utility tests verify actual saving.
 Confirmed single/batch deletion now distinguishes confirmed, failed, unconfirmed
 and unexecuted entries, with explicit continuation of a paused batch. Fixture E2E
 checks local removal after confirmation and retained entries without automatic
-refresh after uncertain outcomes. Thumbnails, print actions, stored-media playback
-and physical acceptance remain pending; the complete initial delivery is not yet qualified.
+refresh after uncertain outcomes. Visible-card thumbnails now use optional managed
+image resources with cancellation and bounded concurrency; unsupported image reads
+retain placeholders. Print actions, stored-media playback and physical acceptance
+remain pending; the complete initial delivery is not yet qualified.
 
 The [printer-domain Storage design](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)
 owns provider contracts, binary transport, host save ownership, the pinned Bambu

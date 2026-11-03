@@ -1,6 +1,6 @@
 /** Credential and native-reader lifetime binding. Independent of the selected MQTT monitor. */
 import { dirname, join } from 'node:path';
-import { discoverBambuStorage, listBambuStorageFiles, readBambuStorageFile, deleteBambuStorageFile,
+import { discoverBambuStorage, listBambuStorageFiles, readBambuStorageFile, deleteBambuStorageFile, readBambuStorageResource,
   type BambuNative, type BambuStorageDownload } from '@orca/bambu-native';
 import type * as D from '@orca/printer-control/domain';
 import type { BambuDevices } from './devices';
@@ -10,7 +10,7 @@ import { savedBambuPrinter } from '../../shared/bambuPrinters';
 import { StorageHostError, type BambuStorageSource } from './storageFiles';
 
 export const storageNative = { discover: discoverBambuStorage, list: listBambuStorageFiles,
-  download: readBambuStorageFile, remove: deleteBambuStorageFile };
+  download: readBambuStorageFile, remove: deleteBambuStorageFile, resource: readBambuStorageResource };
 const failure = (code: D.ErrorCode, message: string) => ({ ok: false as const, error: { code, message } });
 
 export class BambuStorageSessions {
@@ -76,6 +76,7 @@ export class BambuStorageSessions {
       configurationRevision: revision,
       discover: signal => query(signal, (url, opts) => this.io.discover(this.config.addonPath, sourcePath, url, opts)),
       list: (storage, collection, signal) => query(signal, (url, opts) => this.io.list(this.config.addonPath, sourcePath, url, { storage, collection, maxEntries: 20_000 }, opts)),
+      resource: (path, resource, maxBytes, signal) => query(signal, (url, opts) => this.io.resource(this.config.addonPath, sourcePath, url, { path, resource, maxBytes }, { ...opts, signal: AbortSignal.any([opts.signal, AbortSignal.timeout(opts.requestTimeoutMs)]) })),
       remove: (file, signal) => query(signal, (url, opts) => this.io.remove(this.config.addonPath, sourcePath, url, file, opts)),
       download: async (file, signal) => {
         const job = this.begin(target, revision, signal);

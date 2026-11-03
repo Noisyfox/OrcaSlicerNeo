@@ -3003,8 +3003,9 @@ Renderer/preload/main fixture E2E passes; utility routing/session and native
 protocol fixtures are tested separately. Registered desktop download tasks now
 include destination selection, progress, cancellation/retry, saved-file opening,
 startup cleanup and close coordination. Confirmed single/batch deletion is also
-implemented through the existing command/operation contract. Print/media UI,
-thumbnails and physical qualification remain pending.
+implemented through the existing command/operation contract. Optional, visible-card
+thumbnail resources are implemented. Remote print preparation/submission, stored
+video playback and physical qualification remain pending.
 The host-neutral [managed stream executor](../packages/printer-control/src/downloads.ts)
 is implemented independently of host IPC and filesystem bindings: it consumes
 one owned chunk at a time, waits for each sink write and terminal reader checks,
@@ -3053,6 +3054,25 @@ never re-queries or resends an uncertain deletion. Confirmed results remove only
 the affected local entries and invalidate old pagination; manual refresh starts
 a new snapshot. Native, command-owner, shared UI and renderer/preload/main fixture
 tests cover these boundaries; no physical files have been deleted for acceptance.
+Optional [storage images](../apps/desktop/src/utility/bambu/storageImages.ts) use
+`files.listPreviews` and the existing managed-media contract. Visible cards admit
+two reads at a time, release resources when hidden and reload on manual refresh.
+Bambu reads a bounded relationship document and its selected PNG/JPEG through
+SUB_FILE, or a video's `#thumbnail`; it does not download the archive to fill a
+missing thumbnail. The pinned plugin's FTPS fallback returns empty optional
+subfiles, so that path deliberately retains placeholder images. Reads have a
+30-second per-resource budget, 1 MiB relationship / 4 MiB image limits and bounded
+decoded dimensions. Utility images have document ownership, cancellation before
+or during open, expiring leases and a 16 MiB resource budget. These lifetimes are
+separate from the live camera and independent save tasks.
+
+Thumbnail acceptance covers native resource packets, utility ownership/format
+limits, viewport read/release behavior, actual image decoding in the Electron
+fixture and existing live-camera E2E. The default parallel native suite repeated
+an existing `camera.test.mjs` startup failure (`No fixture samples`); the isolated
+camera suite and complete serial suite passed. A subsequent unchanged parallel
+run also passed. This is an intermittent test result, not a diagnosed/fixed camera
+problem or evidence of physical thumbnail support.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the feature envelope and user-facing decisions.
 

@@ -25,6 +25,7 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
         if (method === 'read') return { ok: true, value: current.snapshot };
         if (['observe', 'release', 'storage.cancel'].includes(method)) return { ok: true, value: null };
         if (method === 'preview') return { ok: false, error: { code: 'preview-unavailable', message: 'No image.' } };
+        if (method === 'storage.previews') return { ok: true, value: { file: input.file, options: [{ id: 'thumbnail', kind: 'thumbnail', label: 'Thumbnail', contentFormat: null }] } };
         if (method === 'storage.storages') return { ok: true, value: ['sdcard', 'internal'].map(id => ({
           id, name: id === 'sdcard' ? 'SD card' : 'Internal storage', kind: id === 'sdcard' ? 'removable' : 'internal',
           availability: { kind: 'available' }, capacityBytes: null, freeBytes: null,
@@ -63,6 +64,14 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
         return { ok: false, error: { code: 'unsupported', message: 'Fixture action unavailable.' } };
       });
     }, { request: Ipc.printerDownloadRequest, changed: Ipc.printerDownloadChanged });
+    await app.evaluate(({ ipcMain }, channel) => {
+      ipcMain.removeHandler(channel);
+      ipcMain.handle(channel, (_event, { method, input }) => method === 'open' ? { ok: true, value: {
+        ref: { ...input.target, id: input.requestId }, configurationRevision: input.source.target.configurationRevision,
+        revision: 1, source: input.source, expiresAtMs: null,
+        presentation: { kind: 'image', mimeType: 'image/png', url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=' },
+      } } : { ok: true, value: null });
+    }, Ipc.bambuMedia);
     const calls = () => app.evaluate(() => globalThis.bambuControlFixture.requests.filter(request =>
       (request as { method: string }).method.startsWith('storage.')) as { method: string }[]);
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
@@ -71,6 +80,7 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await page.getByRole('tab', { name: 'Storage', exact: true }).click();
     const storage = page.getByTestId('printer-storage');
     await expect(storage.getByRole('checkbox')).toHaveCount(100);
+    await expect.poll(() => storage.getByAltText('Thumbnail of sdcard-part-000.gcode.3mf').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
     await storage.getByLabel('Filter loaded files').fill('part-00');
     await expect(storage.getByRole('checkbox')).toHaveCount(10);
     await storage.getByRole('button', { name: 'Select loaded results', exact: true }).click();

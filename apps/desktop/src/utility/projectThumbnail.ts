@@ -48,7 +48,7 @@ function readEntry(archive: ZipFile, entry: Entry, limit: number): Promise<Buffe
 }
 
 /** Match Orca's _BBS_3MF_Importer::get_thumbnail relationship selection. */
-function thumbnailTarget(xml: string): string {
+export function thumbnailTarget(xml: string): string {
   let middle = '', standard = '';
   const parser = new SaxesParser();
   parser.on('doctype', () => { throw new Error('Unsupported relationship document'); });

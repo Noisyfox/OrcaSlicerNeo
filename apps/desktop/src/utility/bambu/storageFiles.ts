@@ -10,6 +10,7 @@ export interface BambuStorageSource {
   list(storage: string, collection: BambuStorageCollection, signal?: AbortSignal): Promise<readonly BambuStorageEntry[]>;
   download(file: BambuStorageFile, signal?: AbortSignal): Promise<BambuStorageDownload>;
   remove(file: BambuStorageFile, signal?: AbortSignal): Promise<void>;
+  resource(path: string, resource: string, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array | null>;
 }
 export type ResolveStorageSource = (target: D.PrinterTarget) => Promise<D.Result<BambuStorageSource>>;
 export class StorageHostError extends Error { constructor(readonly detail: D.PrinterError) { super(detail.message); } }
@@ -137,6 +138,13 @@ export class BambuStorageFiles {
       return { ok: true, value: { file: remoteFile({ printerId: ref.printerId, routeId: ref.routeId }, ref.configurationRevision, ref.storageId, address.collection, entry),
         assessedAtMs: this.now(), capabilityRevision: 'bambu-storage-1', availability: { download: { kind: 'available' }, delete: { kind: 'available' }, startPrint: unavailable } } };
     } catch (error) { return { ok: false, error: storageFailure(error) }; }
+  }
+
+  async listPreviews(ref: D.RemoteFileRef): Promise<D.Result<D.FilePreviewListing>> {
+    const resolved = await this.resolveFile(ref); if (!resolved.ok) return resolved;
+    const address = resolved.value.address;
+    const thumbnail = !!address.path && (address.collection !== 'model' || address.name.toLowerCase().endsWith('.3mf'));
+    return { ok: true, value: { file: { ...ref }, options: thumbnail ? [{ id: 'thumbnail' as D.Id<'preview-option'>, kind: 'thumbnail', label: 'Thumbnail', contentFormat: null }] : [] } };
   }
 
   async download(request: { target: D.RemoteFileRef; range?: D.ByteRange }, options?: D.ReadOptions): Promise<D.Result<D.DownloadedFile>> {

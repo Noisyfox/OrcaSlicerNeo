@@ -18,7 +18,7 @@ export function bambuFiles(bridge: BambuBridge): D.PrinterFiles {
     listStorages: (target, options) => read(readId => bridge.control('storage.storages', { target, readId }), options),
     list: (request, options) => read(readId => bridge.control('storage.list', { request, readId }), options),
     stat: (file, options) => read(readId => bridge.control('storage.stat', { file, readId }), options),
-    listPreviews: async () => ({ ok: false, error: unsupported }),
+    listPreviews: (file, options) => read(readId => bridge.control('storage.previews', { file, readId }), options),
     download: async () => ({ ok: false, error: unsupported }),
     upload: async () => ({ kind: 'rejected', error: unsupported }),
     watchChanges: async function* () { throw Object.assign(new Error(unsupported.message), { detail: unsupported }); },
