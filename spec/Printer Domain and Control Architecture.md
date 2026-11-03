@@ -3005,7 +3005,13 @@ is implemented independently of host IPC and filesystem bindings: it consumes
 one owned chunk at a time, waits for each sink write and terminal reader checks,
 then publishes. It joins cleanup on failures/cancellation and reports the actual
 publication outcome when cancellation races finalization. This does not yet
-deliver the task queue, Bambu reader or Storage UI.
+deliver the download-task facade, Bambu reader or Storage UI.
+The host-neutral [transfer admission queue](../packages/printer-control/src/transferQueue.ts)
+implements FIFO per host-resolved physical printer, a configurable global active
+reader bound, cancellation that joins the executor, and explicit retry/continuation
+of a blocked head. Different routes must resolve to the same physical key in the
+host. Download and media executors still need registration with that single queue;
+the unit-tested scheduler alone does not establish cross-process admission.
 The desktop [filesystem sink](../apps/desktop/src/utility/downloadFiles.ts) is also
 implemented and tested with actual filesystem writes and process-exit recovery.
 It writes to a same-directory temporary file, publishes confirmed replacements

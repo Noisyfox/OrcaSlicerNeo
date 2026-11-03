@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./domain": "./src/domain/index.ts",
-    "./downloads": "./src/downloads.ts"
+    "./downloads": "./src/downloads.ts",
+    "./transfer-queue": "./src/transferQueue.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.domain.json",
