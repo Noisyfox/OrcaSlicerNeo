@@ -3042,15 +3042,30 @@ Model browsing capabilities per storage: supported content kinds and actions,
 and collection-based or hierarchical browsing. The shared contract must support
 both browsing modes without inventing a directory tree for Bambu or flattening
 future agents' real directories. Bambu collection browsing is the initial UI;
-directory navigation is delivered with the first agent that requires it. Exact
-capability record shapes remain to be finalized. Both removable SD storage and
+directory navigation is delivered with the first agent that requires it.
+`PrinterStorage.browsing` now describes a collection catalogue or directory scope
+with content kinds and action IDs. `ListFilesRequest.location` selects exactly one
+collection or directory. Both removable SD storage and
 internal storage are in the initial Bambu scope where supported by the device.
 
 Resolve unknown Storage capabilities on explicit page entry through one bounded,
 agent-owned attempt when needed, then list supported resources. Failure exposes
 manual retry without background probe loops. Do not collapse unknown capability
 into unsupported, and do not initiate this work during startup or passive printer
-enumeration. Exact discovery request/response shapes remain to be specified.
+enumeration. Explicit `listStorages` returns the resolved per-storage browsing
+capabilities; it is not a passive device-enumeration call.
+
+The independently tested [Bambu file adapter](../apps/desktop/src/utility/bambu/storageFiles.ts)
+maps protocol entries to stable scoped references and snapshot pages. Cursor scope
+includes device, route/configuration, storage, collection/filter and page size.
+Snapshots expire after five minutes and are bounded to eight retained listings and
+50,000 entries overall; one native listing is limited to 20,000 entries. Confirmed
+deletion invalidates affected paging snapshots. The
+[session binding](../apps/desktop/src/utility/bambu/storageSessions.ts) resolves only
+same-device authorized LAN credentials, bounds outstanding native requests, and
+joins stream return on cancellation, authorization changes and shutdown. It does
+not acquire the single selected MQTT monitor lease. IPC registration and shared
+Storage UI remain pending; this module increment is not a delivered Storage page.
 
 Browsing refresh is request-driven: load on entry or scope changes, allow manual
 refresh and update after mutations, without periodic list polling. Bulk selection

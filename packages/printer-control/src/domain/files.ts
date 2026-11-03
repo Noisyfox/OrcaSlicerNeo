@@ -18,7 +18,20 @@ export interface PrinterStorage {
   availability: Availability;
   capacityBytes: number | null;
   freeBytes: number | null;
+  /** Resolved on explicit Storage entry; passive device enumeration does not probe. */
+  browsing: Capability<StorageBrowsing>;
 }
+export type StorageFileAction = 'download' | 'delete' | 'inspect-print' | 'preview';
+export interface StorageBrowseScope {
+  kinds: NonEmptyReadonlyArray<RemoteFileKind>;
+  /** Adapter-supported actions; per-file assessment can still reject unavailable operations. */
+  actions: readonly StorageFileAction[];
+}
+export interface StorageCollection extends StorageBrowseScope { id: Id<'file-collection'>; name: string }
+export type StorageBrowsing = { kind: 'collections'; collections: NonEmptyReadonlyArray<StorageCollection> }
+  | { kind: 'directories'; scope: StorageBrowseScope };
+export type StorageLocation = { kind: 'collection'; collectionId: Id<'file-collection'> }
+  | { kind: 'directory'; directoryId: Id<'remote-directory'> | null };
 export interface RemoteDirectory {
   id: Id<'remote-directory'>;
   storageId: Id<'storage'>;
@@ -80,7 +93,7 @@ export interface FilePreviewListing {
 export interface ListFilesRequest {
   target: PrinterTarget;
   storageId: Id<'storage'>;
-  directoryId: Id<'remote-directory'> | null;
+  location: StorageLocation;
   kinds?: readonly RemoteFileKind[];
   cursor?: string;
   pageSize?: number;

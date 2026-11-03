@@ -523,10 +523,10 @@ service.files.upload({
   fileName: 'part.gcode', format: 'gcode', sizeBytes: 100, collisionPolicy: 'reject',
 }, { chunks });
 service.files.listStorages(target);
-service.files.list({ target, storageId: remoteFile.storageId, directoryId: null });
+service.files.list({ target, storageId: remoteFile.storageId, location: { kind: 'directory', directoryId: null } });
 service.files.watchChanges(target);
 // @ts-expect-error Listing is not implicitly bound to a selected printer.
-service.files.list({ storageId: remoteFile.storageId, directoryId: null });
+service.files.list({ storageId: remoteFile.storageId, location: { kind: 'directory', directoryId: null } });
 // @ts-expect-error Explicit target is required for independent control evaluation.
 service.controls.evaluate({ type: 'jobs.pause', params: {} });
 service.controls.submit({ target, requestId: id<'request'>('start'), command: {
