@@ -92,6 +92,7 @@ export type MediaPresentation = {
 } | {
   kind: 'image';
   mimeType: string;
+  /** Renderer-readable delivery URL; thumbnail browsers may copy it before closing the lease. */
   url: string;
 } | {
   kind: 'text' | 'toolpath';

@@ -3061,7 +3061,30 @@ a new snapshot. Native, command-owner, shared UI and renderer/preload/main fixtu
 tests cover these boundaries; no physical files have been deleted for acceptance.
 Optional [storage images](../apps/desktop/src/utility/bambu/storageImages.ts) use
 `files.listPreviews` and the existing managed-media contract. Visible cards admit
-eight reads at a time, release resources when hidden and reload on manual refresh.
+eight reads at a time. The [shared frontend thumbnail cache](../packages/slicer-app/src/components/device/media/ThumbnailCache.tsx)
+retains independent image snapshots (including explicit missing-preview results)
+for the current browser session. Scrolling away releases the visible consumer;
+returning, filtering and regrouping reuse cached images without another
+`listPreviews` or `media.open`, and therefore without another agent resource read.
+Concurrent consumers of the same exact file/preview reference share one pending
+read; cancellation aborts it only after the last consumer leaves. Provider media
+leases close immediately after copying; scrolling does not keep agent resources
+alive. Immutable PNG/JPEG data URLs can be retained directly. Other image delivery
+URLs must be renderer-fetchable under the host's origin/CORS/CSP policy and are
+copied through a bounded stream to browser-owned Blob URLs before lease release.
+The common cache supports all agents; agents do not implement thumbnail caching.
+
+Each browser cache is bounded to 256 entries and 32 MiB of retained image bytes
+(conservatively counted as UTF-16 for inline URLs), with a 4 MiB per-image source
+limit. Inactive least-recently-used entries are evicted; displayed images are pinned.
+Eviction can require a later remote read. Object URLs are revoked on eviction or
+cleanup. A successful first-page reload/manual refresh, printer/route/configuration
+or storage/collection switch, and leaving the browser clear the cache. Pagination
+does not clear it. File/preview keys include the full opaque file reference; there
+is no content-version probe. Transient failures are not cached as missing images.
+The cache is memory-only, never persisted or logged, and does not cache video
+playback, live camera streams or full files.
+
 The Bambu host coalesces up to eight resources per SUB_FILE request, deduplicates
 identical resources within that batch and serializes batches per route/configuration.
 Two host resource connections are allowed globally, reused across sequential
@@ -3069,8 +3092,8 @@ requests and closed after a two-second idle lease. Shutdown, cancellation of all
 batch consumers, transport/protocol failure and configuration/auth changes close
 and join the affected native reader. Independent consumers retain their own leases;
 cancelling one consumer does not abort another consumer's shared batch.
-Queued resources are bounded to 64 and each batch to 16 MiB. No file-content cache
-or automatic failed-file retry is introduced. A terminal per-file SUB_FILE error
+Queued resources are bounded to 64 and each batch to 16 MiB. The Bambu host adds
+no file-content cache or automatic failed-file retry. A terminal per-file SUB_FILE error
 preserves completed resources, leaves that file as a placeholder, and continues
 only entries not yet read, using a new request sequence on the same connection.
 Bambu reads a bounded relationship document and its selected PNG/JPEG through
@@ -3083,7 +3106,7 @@ or during open, expiring leases and a 16 MiB resource budget. These lifetimes ar
 separate from the live camera and independent save tasks.
 
 Thumbnail acceptance covers native resource packets, utility ownership/format
-limits, viewport read/release behavior, actual image decoding in the Electron
+limits, viewport caching/cancellation and lease release, actual image decoding in the Electron
 fixture and existing live-camera E2E. The default parallel native suite repeated
 an existing `camera.test.mjs` startup failure (`No fixture samples`); the isolated
 camera suite and complete serial suite passed. A subsequent unchanged parallel

@@ -661,7 +661,8 @@ function startRendererServer(): void {
           "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; " +
           // The Vite e2e/mock renderer emits its bundled module worker as a
           // data URL. Keep this narrowly scoped to workers, not scripts.
-          "font-src 'self' data:; connect-src 'self'; worker-src 'self' data:; child-src 'self' data:",
+          // Shared thumbnails copy temporary Blob images before releasing provider leases.
+          "font-src 'self' data:; connect-src 'self' blob:; worker-src 'self' data:; child-src 'self' data:",
       });
       res.end(data);
     } catch {

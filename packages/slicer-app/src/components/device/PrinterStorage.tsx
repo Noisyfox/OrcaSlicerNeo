@@ -1,4 +1,5 @@
 import { StorageThumbnail } from './StorageThumbnail';
+import { ThumbnailCacheScope } from './media/ThumbnailCache';
 import { RemoteFilePrintDialog } from './RemoteFilePrintDialog';
 import { StoredVideoDialog } from './StoredVideoDialog';
 import { PrinterDiscovery } from './PrinterDiscovery';
@@ -31,6 +32,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const [storageId, setStorageId] = useState('');
   const [collectionId, setCollectionId] = useState('');
   const [files, setFiles] = useState<readonly RemoteFile[]>([]);
+  const [thumbnailGeneration, setThumbnailGeneration] = useState(0);
   const [cursor, setCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -87,7 +89,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
       if (controller.signal.aborted) return;
       if (!result.ok) { setError(result.error.message); setNeedsAuthorization(['authentication-required', 'permission-denied'].includes(result.error.code)); return; }
       const page = result.value.files;
-      if (!next) setUnconfirmed(new Set());
+      if (!next) { setUnconfirmed(new Set()); setThumbnailGeneration(value => value + 1); }
       setFiles(previous => next ? [...new Map([...previous, ...page].map(file => [file.ref.fileId, file])).values()] : page);
       setCursor(result.value.nextCursor);
       if (!next) setSelected(previous => new Set([...previous].filter(id => page.some(file => file.ref.fileId === id))));
@@ -115,7 +117,7 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
   const toggle = (id: string) => setSelected(previous => {
     const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next;
   });
-  return <section className="flex h-full flex-col gap-3 p-4" aria-label="Printer storage" data-testid="printer-storage">
+  return <ThumbnailCacheScope scope={JSON.stringify([target, route.configurationRevision, storage?.id, category?.id, thumbnailGeneration])}><section className="flex h-full flex-col gap-3 p-4" aria-label="Printer storage" data-testid="printer-storage">
     <header className="flex flex-wrap items-center gap-3">
       <h2 className="mr-auto font-semibold">Storage</h2>
       <div className="flex items-center gap-2 text-xs text-muted-foreground" hidden={availableStorages.length < 2}>
@@ -201,5 +203,5 @@ export function PrinterStorage({ printer, route }: { printer: SavedPrinter; rout
     {playing && <StoredVideoDialog file={playing} printerName={printer.identity.displayName} onClose={() => setPlaying(null)} />}
     {printing && <RemoteFilePrintDialog file={printing} printer={printer} onClose={() => setPrinting(null)} />}
     <PrinterDownloadTasks />
-  </section>;
+  </section></ThumbnailCacheScope>;
 }

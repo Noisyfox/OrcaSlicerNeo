@@ -75,7 +75,8 @@ export default defineConfig(({ mode }) => {
             "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; " +
             // Vite emits the package worker as a data URL in the e2e/mock bundle;
             // keep the allowance scoped to worker-src (never script-src).
-            "font-src 'self' data:; connect-src 'self'; worker-src 'self' data:; child-src 'self' data:",
+            // Shared thumbnails copy temporary Blob images before releasing provider leases.
+            "font-src 'self' data:; connect-src 'self' blob:; worker-src 'self' data:; child-src 'self' data:",
         },
       },
       resolve: {

@@ -49,6 +49,10 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     const page = await app.firstWindow(); await page.setViewportSize({ width: 1280, height: 850 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await installControlFixture(app);
+    const thumbnailUrl = await page.evaluate(() => {
+      const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII='), char => char.charCodeAt(0));
+      return URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+    });
     await app.evaluate(({ ipcMain }, channel) => {
       ipcMain.removeHandler(channel);
       ipcMain.handle(channel, (_event, { method, input }) => {
@@ -118,14 +122,23 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
         return { ok: false, error: { code: 'unsupported', message: 'Fixture action unavailable.' } };
       });
     }, { request: Ipc.printerDownloadRequest, changed: Ipc.printerDownloadChanged });
-    await app.evaluate(({ ipcMain }, channel) => {
+    await app.evaluate(({ ipcMain }, { channel, url }) => {
+      const state = globalThis as typeof globalThis & { storageThumbnailOpens: Record<string, number> };
+      state.storageThumbnailOpens = {};
       ipcMain.removeHandler(channel);
-      ipcMain.handle(channel, (_event, { method, input }) => method === 'open' ? { ok: true, value: {
-        ref: { ...input.target, id: input.requestId }, configurationRevision: input.source.target.configurationRevision,
-        revision: 1, source: input.source, expiresAtMs: null,
-        presentation: { kind: 'image', mimeType: 'image/png', url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=' },
-      } } : { ok: true, value: null });
-    }, Ipc.bambuMedia);
+      ipcMain.handle(channel, (_event, { method, input }) => {
+        if (method !== 'open') return { ok: true, value: null };
+        const file = input.source.target.fileId;
+        state.storageThumbnailOpens[file] = (state.storageThumbnailOpens[file] ?? 0) + 1;
+        return { ok: true, value: {
+          ref: { ...input.target, id: input.requestId }, configurationRevision: input.source.target.configurationRevision,
+          revision: 1, source: input.source, expiresAtMs: null,
+          presentation: { kind: 'image', mimeType: 'image/png', url },
+        } };
+      });
+    }, { channel: Ipc.bambuMedia, url: thumbnailUrl });
+    const thumbnailOpens = (file: string) => app.evaluate((_electron, name) =>
+      (globalThis as typeof globalThis & { storageThumbnailOpens: Record<string, number> }).storageThumbnailOpens[name] ?? 0, file);
     const calls = () => app.evaluate(() => globalThis.bambuControlFixture.requests.filter(request =>
       (request as { method: string }).method.startsWith('storage.')) as { method: string }[]);
     const openPreferences = async () => {
@@ -151,6 +164,18 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await expect(storage.getByRole('button', { name: /^Folder:/ })).toHaveCount(0);
     await expect(storage.getByRole('checkbox')).toHaveCount(100);
     await expect.poll(() => storage.getByAltText('Thumbnail of external-part-000.gcode.3mf').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
+    expect(await storage.getByAltText('Thumbnail of external-part-000.gcode.3mf').getAttribute('src')).not.toBe(thumbnailUrl);
+    // Real viewport exits/returns must not dispatch another provider media open.
+    await storage.getByText('external-part-099.gcode.3mf', { exact: true }).scrollIntoViewIfNeeded();
+    await expect(storage.getByAltText('Thumbnail of external-part-000.gcode.3mf')).toHaveCount(0);
+    await expect.poll(() => thumbnailOpens('external-part-099.gcode.3mf')).toBe(1);
+    await storage.getByRole('checkbox', { name: 'Select external-part-000.gcode.3mf', exact: true }).scrollIntoViewIfNeeded();
+    await expect(storage.getByAltText('Thumbnail of external-part-000.gcode.3mf')).toBeVisible();
+    expect(await thumbnailOpens('external-part-000.gcode.3mf')).toBe(1);
+    expect(await app.evaluate(() => globalThis.bambuControlFixture.requests.filter(request => {
+      const call = request as { method: string; input: { file?: { fileId: string } } };
+      return call.method === 'storage.previews' && call.input.file?.fileId === 'external-part-000.gcode.3mf';
+    }).length)).toBe(1);
     await storage.getByLabel('Filter loaded files').fill('part-00');
     await expect(storage.getByRole('checkbox')).toHaveCount(10);
     await storage.getByRole('button', { name: 'Select loaded results', exact: true }).click();
