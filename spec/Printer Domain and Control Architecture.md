@@ -3085,6 +3085,14 @@ the next request. Focused real-threaded-WASM smoke covers two plates, repeat
 inspection and malformed/bounded ZIP cases. This parser boundary alone does not
 enable remote print preparation or physical submission; those integrations remain
 separate acceptance requirements.
+The native wrapper also exposes `start_sdcard_print` as the host-private
+`device-file` print mode, with remote-path/plate admission instead of a local
+upload filename. Its pinned v2.2.0 Sending callback precedes MQTT publication;
+post-dispatch failures remain uncertain and close joins the in-flight call.
+Native fixtures verify ABI routing and lifecycle, not physical printing. The
+[pinned implementation](https://github.com/ClusterM/open-bamboo-networking/blob/v2.2.0/src/print_job.cpp)
+uses the project basename for the wire file name despite requiring `dst_file`;
+the agent must reject names that this normalization would change.
 The [Storage interaction design](Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
 owns the feature envelope and user-facing decisions.
 

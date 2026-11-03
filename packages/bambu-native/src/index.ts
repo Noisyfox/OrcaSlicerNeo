@@ -23,7 +23,7 @@ export type NativeEvent =
   | { type: 'local-connect'; args: [number, string, string] }
   | { type: 'server-error'; args: [string, number] };
 interface Binding {
-  startPrint(route: 'lan' | 'cloud', params: NativePrintParameters): Promise<NativePrintResult>;
+  startPrint(route: 'lan' | 'cloud' | 'device-file', params: NativePrintParameters): Promise<NativePrintResult>;
   cancelPrint(): boolean;
   invoke(method: string, args: readonly unknown[]): Promise<unknown>;
   drain(): Promise<void>;
@@ -31,7 +31,7 @@ interface Binding {
 }
 
 export interface BambuNative {
-  startPrint(route: 'lan' | 'cloud', params: NativePrintParameters): Promise<NativePrintResult>;
+  startPrint(route: 'lan' | 'cloud' | 'device-file', params: NativePrintParameters): Promise<NativePrintResult>;
   /** Requests cancellation without waiting behind upload. Completion establishes the outcome. */
   cancelPrint(): boolean;
   getVersion(): Promise<string>;

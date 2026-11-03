@@ -35,9 +35,9 @@ test('upload cancellation bypasses call queue; live observations and duplicate a
     assert(!JSON.stringify(events).includes('private'));
   });
 });
-for (const route of ['lan', 'cloud']) test(`${route} dispatch disables send-cancellation and keeps ownership through close`, async () => {
+for (const route of ['lan', 'cloud', 'device-file']) test(`${route} dispatch disables send-cancellation and keeps ownership through close`, async () => {
   await session(async (agent, events, trace) => {
-    const print = agent.startPrint(route, params);
+    const print = agent.startPrint(route, route === 'device-file' ? { ...params, dst_file: '/sdcard/test.gcode.3mf', project_name: 'test' } : params);
     await until(() => events.some(e => e.type === 'print-progress' && e.args[2]));
     assert.equal(agent.cancelPrint(), false);
     const closed = agent.close();
@@ -46,6 +46,17 @@ for (const route of ['lan', 'cloud']) test(`${route} dispatch disables send-canc
     await closed;
     const text = await readFile(trace, 'utf8');
     assert(text.indexOf('print-published') < text.indexOf('destroy'));
+  });
+});
+test('device-file start preserves remote archive and plate without invoking upload', async () => {
+  await session(async (agent, _events, trace) => {
+    const remote = { ...params, filename: '', dst_file: '/sdcard/example.gcode.3mf', project_name: 'example.gcode.3mf', plate_index: 2 };
+    assert.equal((await agent.startPrint('device-file', remote)).code, 0);
+    const text = await readFile(trace, 'utf8');
+    assert(text.includes('device-file:/sdcard/example.gcode.3mf:example.gcode.3mf:2'));
+    assert(text.includes('print:device::2:'));
+    assert.deepEqual(await agent.startPrint('device-file', { ...remote, task_name: 'fail' }), { code: -4010, mayHaveStarted: false, cancelRequested: false });
+    assert.deepEqual(await agent.startPrint('device-file', { ...remote, task_name: 'unknown' }), { code: -4020, mayHaveStarted: true, cancelRequested: false });
   });
 });
 test('failure before dispatch and uncertain failure after dispatch are distinct', async () => {
