@@ -1,0 +1,86 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
+import { getEventListeners } from 'node:events';
+import { loadBambuControlStream, readBambuStorageFile } from '../dist/index.js';
+
+const addon = fileURLToPath(new URL('../build/Release/bambu.node', import.meta.url));
+const source = fileURLToPath(new URL(`../build/Release/fixture_control.${process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so'}`, import.meta.url));
+const options = { connectTimeoutMs: 1000, inactivityTimeoutMs: 1000 };
+const read = (mode, extra = {}) => readBambuStorageFile(addon, source, `bambu:///local/${mode}`, { path: '/storage-file' }, { ...options, ...extra });
+async function collect(value) {
+  const chunks = [];
+  for await (const chunk of value.chunks) chunks.push(chunk);
+  return Buffer.concat(chunks).toString();
+}
+
+test('streams owned file chunks and verifies terminal MD5 without file-sized buffering', async () => {
+  const value = await read('fixture');
+  assert.equal(value.totalBytes, 3);
+  const iterator = value.chunks[Symbol.asyncIterator]();
+  const first = (await iterator.next()).value;
+  assert.equal(Buffer.from(first).toString(), 'a');
+  assert.equal(Buffer.from((await iterator.next()).value).toString(), 'bc');
+  assert.equal((await iterator.next()).done, true);
+  assert.equal(Buffer.from(first).toString(), 'a');
+  assert.throws(() => value.chunks[Symbol.asyncIterator](), /already owned/);
+});
+
+test('accepts a validated zero-byte file and rejects terminal integrity/offset errors', async () => {
+  const empty = await read('empty'); assert.equal(empty.totalBytes, 0); assert.equal(await collect(empty), '');
+  for (const mode of ['checksum', 'offset']) await assert.rejects(collect(await read(mode)), error => error.code === 'invalid-response');
+  await assert.rejects(read('rejected'), error => error.code === 'device-rejected' && error.result === 10);
+});
+
+test('consumer pauses do not count as printer inactivity; abort closes an unread iterator', async () => {
+  const signal = new AbortController();
+  const value = await read('fixture', { signal: signal.signal, inactivityTimeoutMs: 10 });
+  await delay(40);
+  assert.equal(await collect(value), 'abc');
+  assert.equal(getEventListeners(signal.signal, 'abort').length, 0);
+  const second = await read('fixture', { signal: signal.signal });
+  assert.equal(getEventListeners(signal.signal, 'abort').length, 1);
+  signal.abort(); assert.equal(getEventListeners(signal.signal, 'abort').length, 0);
+  await assert.rejects(second.chunks[Symbol.asyncIterator]().next(), error => error.code === 'cancelled');
+});
+
+test('return before the first consumer pull releases the primed native reader', async () => {
+  const signal = new AbortController();
+  const value = await read('fixture', { signal: signal.signal });
+  const iterator = value.chunks[Symbol.asyncIterator]();
+  assert.equal((await iterator.return()).done, true);
+  assert.equal(getEventListeners(signal.signal, 'abort').length, 0);
+  assert.equal((await iterator.next()).done, true);
+});
+
+test('timeouts and cancellation join a silent source, without credential leaks', async () => {
+  await assert.rejects(read('silent?passwd=secret', { inactivityTimeoutMs: 15 }), error => error.code === 'transport' && !error.message.includes('secret'));
+  const abort = new AbortController();
+  const pending = read('silent', { signal: abort.signal });
+  await delay(15); abort.abort();
+  await assert.rejects(pending, error => error.code === 'cancelled');
+  assert.equal(getEventListeners(abort.signal, 'abort').length, 0);
+});
+
+test('bounds the storage native backlog while leaving resource overflow behavior separate', async () => {
+  const stream = loadBambuControlStream(addon, source, 'bambu:///local/burst', 'storage');
+  try {
+    await delay(50); const first = stream.poll();
+    assert.equal(first.messages.length, 2); assert.equal(first.messages[0].length, 1024 * 1024);
+    await delay(50); const second = stream.poll(); assert.equal(second.messages.length, 2);
+    assert.equal(first.messages[0][0], 'x'.charCodeAt(0));
+  } finally { await stream.close(); }
+});
+
+test('rejects non-LAN storage and invalid paths before creating native sessions', async () => {
+  for (const path of ['../secret', 'mem:/16', 'bad\0path'])
+    await assert.rejects(readBambuStorageFile(addon, source, 'bambu:///local/fixture', { path }, options), error => error.code === 'invalid-response');
+  await assert.rejects(readBambuStorageFile(addon, source, 'bambu:///tutk/fixture', { path: '/storage-file' }, options), /authorized LAN/);
+});
+
+test('sustained storage progress survives the old twenty-second resource deadline', { timeout: 30000 }, async () => {
+  const start = performance.now();
+  assert.equal(await collect(await read('long-progress', { inactivityTimeoutMs: 3000 })), 'a'.repeat(22));
+  assert.ok(performance.now() - start >= 20_000);
+});

@@ -4,7 +4,11 @@ import { isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { NativePrintParameters, NativePrintResult } from './print.js';
 export { loadBambuControlStream, readBambuProjectResource, BambuResourceError } from './control.js';
-export type { NativeControlStream, BambuResourceSource, BambuResourceReadOptions } from './control.js';
+export type { NativeControlStream, BambuResourceSource, BambuResourceReadOptions, BambuControlPurpose } from './control.js';
+export { readBambuStorageFile } from './storageDownload.js';
+export { BambuStorageError } from './storageChannel.js';
+export type { BambuStorageReadOptions } from './storageChannel.js';
+export type { BambuStorageFile, BambuStorageDownload } from './storageDownload.js';
 export type { NativePrintParameters, NativePrintResult } from './print.js';
 
 export interface NativeHttpResult { result: number; httpCode: number; body: string }

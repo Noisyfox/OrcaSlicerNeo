@@ -13,6 +13,7 @@
 namespace {
 constexpr int ctrl_type = 0x3001;
 struct ControlState {
+    bool storage = false;
     std::atomic<bool> stop{false};
     std::mutex mutex;
     std::thread thread;
@@ -48,13 +49,20 @@ struct ControlState {
             if (stop) return;
             { std::lock_guard<std::mutex> lock(mutex); ready = true; }
             while (!stop) {
-                if (std::chrono::steady_clock::now() >= deadline) { fail("Task resource stream timed out"); return; }
+                if (!storage && std::chrono::steady_clock::now() >= deadline) { fail("Task resource stream timed out"); return; }
                 std::string message;
                 { std::lock_guard<std::mutex> lock(mutex); if (!outgoing.empty()) message = outgoing.front(); }
                 if (!message.empty()) {
                     const int result = api.Bambu_SendMessage(tunnel, ctrl_type, message.data(), static_cast<int>(message.size()));
                     if (result == Bambu_success) { std::lock_guard<std::mutex> lock(mutex); outgoing.pop_front(); }
                     else if (result != Bambu_would_block) { fail("Task resource request failed"); return; }
+                }
+                // Storage readers use downstream demand instead of overflowing their
+                // application queue. The plugin's own queue still needs qualification.
+                if (storage) {
+                    bool full;
+                    { std::lock_guard<std::mutex> lock(mutex); full = incoming.size() >= 2; }
+                    if (full) { std::this_thread::sleep_for(std::chrono::milliseconds(2)); continue; }
                 }
                 Bambu_Sample sample{};
                 const int result = api.Bambu_ReadSample(tunnel, &sample);
@@ -87,13 +95,15 @@ public:
         return exports;
     }
     ControlWrap(const Napi::CallbackInfo& info) : Napi::ObjectWrap<ControlWrap>(info) {
-        if (info.Length() != 2 || !info[0].IsString() || !info[1].IsString()) throw Napi::TypeError::New(info.Env(), "Expected control library and private URL");
+        if (info.Length() != 3 || !info[0].IsString() || !info[1].IsString() || !info[2].IsString()) throw Napi::TypeError::New(info.Env(), "Expected control library, private URL and purpose");
+        const auto purpose = info[2].As<Napi::String>().Utf8Value();
+        if (purpose != "project-resource" && purpose != "storage") throw Napi::TypeError::New(info.Env(), "Unsupported control reader purpose");
         const auto path = info[0].As<Napi::String>().Utf8Value(), url = info[1].As<Napi::String>().Utf8Value();
         const bool allowed = url.rfind("bambu:///local/", 0) == 0 || url.rfind("bambu:///tutk?", 0) == 0 || url.rfind("bambu:///tutk/", 0) == 0
             || url.rfind("bambu:///agora?", 0) == 0 || url.rfind("bambu:///agora/", 0) == 0;
         if (path.empty() || path.find('\0') != std::string::npos || url.find('\0') != std::string::npos || url.size() > 8192 || !allowed)
             throw Napi::TypeError::New(info.Env(), "Unsupported task resource URL");
-        state_ = std::make_shared<ControlState>(); auto state = state_;
+        state_ = std::make_shared<ControlState>(); state_->storage = purpose == "storage"; auto state = state_;
         state_->thread = std::thread([state, path, url] { state->run(path, url); });
     }
     ~ControlWrap() override { if (state_) { state_->stop = true; if (close_.IsEmpty() && state_->thread.joinable()) state_->thread.join(); } }

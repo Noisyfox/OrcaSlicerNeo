@@ -2999,13 +2999,13 @@ selected and implementation is authorized in independently verified increments.
 The scoped-file contract migration is implemented; the remaining execution, UI
 and physical qualification work is not yet delivered.
 The existing TypeScript file contracts and provider dispatch are implemented,
-but Bambu file browsing/download execution and the Storage UI are not delivered.
+but Bambu file browsing, registered download execution and the Storage UI are not delivered.
 The host-neutral [managed stream executor](../packages/printer-control/src/downloads.ts)
 is implemented independently of host IPC and filesystem bindings: it consumes
 one owned chunk at a time, waits for each sink write and terminal reader checks,
 then publishes. It joins cleanup on failures/cancellation and reports the actual
 publication outcome when cancellation races finalization. This does not yet
-deliver the download-task facade, Bambu reader or Storage UI.
+deliver the download-task facade, registered provider reader or Storage UI.
 The host-neutral [transfer admission queue](../packages/printer-control/src/transferQueue.ts)
 implements FIFO per host-resolved physical printer, a configurable global active
 reader bound, cancellation that joins the executor, and explicit retry/continuation
@@ -3219,11 +3219,23 @@ misclassifying them as printer disconnection. Exact timeout values and stalled-s
 handling require slow-link and device qualification. Preserve the existing bounded
 current-project reader's purpose instead of globally removing its limits.
 
-The current [native CTRL reader](../packages/bambu-native/native/control.cpp)
-and [current-project resource adapter](../packages/bambu-native/src/control.ts)
-are bounded, short-lived resource readers. Storage execution needs an appropriate
-long-transfer lifetime and streaming behavior while preserving the current-task
-resource access boundary. The pinned plugin's internal response queue has no
+The [native CTRL reader](../packages/bambu-native/native/control.cpp) now requires
+an explicit purpose. The [current-project resource adapter](../packages/bambu-native/src/control.ts)
+retains its allowlist, size limits and twenty-second native lifetime. Storage mode
+has no total transfer deadline and bounds its incoming queue to two packets, each
+at most 4 MiB, pausing native pulls while that queue is full. The
+[Storage file reader](../packages/bambu-native/src/storageDownload.ts) validates
+offsets, total length and terminal MD5, exposes single-consumer owned chunks and
+joins closure on cancellation/early return. Its separate connection and demanded-read
+inactivity timeouts do not count time spent waiting for the consumer to request
+another chunk. Timeout values remain host configuration requiring qualification.
+Native fixture tests cover a progressing transfer exceeding twenty seconds,
+consumer pauses, cancellation, malformed data and zero-byte output; all 36 native
+tests pass on macOS arm64 after a no-code-change rerun. The first full run had an
+existing camera fixture sample-acquisition timeout; the rerun does not establish
+its cause. These tests do not qualify physical Storage reads. Registration with
+the utility/provider, file discovery and UI remain separate work.
+The pinned plugin's internal response queue has no
 explicit capacity limit in its
 [implementation](https://github.com/ClusterM/open-bamboo-networking/blob/v2.2.0/stubs/BambuSource.cpp).
 Host-side flow control alone therefore does not establish end-to-end bounded

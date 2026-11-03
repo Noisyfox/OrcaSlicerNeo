@@ -39,8 +39,8 @@ test('bounds paths, URL schemes and message size before privileged I/O', async (
   for (const resource of ['../secret', 'Metadata/../../secret', 'Metadata/plate_1.gcode', 'Metadata/pick_0.png', 'Metadata/pick_1000.png'])
     await assert.rejects(readBambuProjectResource(addon, source, local('fixture'), resource), error => error.code === 'invalid-resource');
   for (const url of ['https://printer/', 'bambu:///rtsps___printer', 'bambu:///local/x\0secret', 'bambu:///tutk_evil'])
-    assert.throws(() => loadBambuControlStream(addon, source, url), /Unsupported/);
-  const stream = loadBambuControlStream(addon, source, 'bambu:///local/fixture');
+    assert.throws(() => loadBambuControlStream(addon, source, url, 'project-resource'), /Unsupported/);
+  const stream = loadBambuControlStream(addon, source, 'bambu:///local/fixture', 'project-resource');
   try { for (const message of ['', 'x'.repeat(65537), 'x\0y']) assert.throws(() => stream.send(message), /Invalid/); }
   finally { await stream.close(); }
 });
@@ -67,7 +67,7 @@ test('remote URL resolution has an independent deadline and abort listener clean
 });
 
 test('native packet buffers remain owned across reads; close is idempotent', async () => {
-  const stream = loadBambuControlStream(addon, source, 'bambu:///local/fixture');
+  const stream = loadBambuControlStream(addon, source, 'bambu:///local/fixture', 'project-resource');
   try {
     await pollUntil(stream, value => value.ready);
     const message = JSON.stringify({ cmdtype: 4, sequence: 1, req: { path: 'mem:/16' } }) + '\n\n' + JSON.stringify({ command: 'get_project_file', file_rel_path: path });
@@ -81,7 +81,7 @@ test('native packet buffers remain owned across reads; close is idempotent', asy
 });
 
 test('native backlog overflow is explicit and releases the reader', async () => {
-  const stream = loadBambuControlStream(addon, source, 'bambu:///local/burst');
+  const stream = loadBambuControlStream(addon, source, 'bambu:///local/burst', 'project-resource');
   try { await delay(60); assert.throws(() => stream.poll(), /overflow/); }
   finally { await stream.close(); }
 });

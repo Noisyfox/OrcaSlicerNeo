@@ -9,10 +9,11 @@ export interface NativeControlStream {
   send(message: string): void;
   close(): Promise<void>;
 }
-export function loadBambuControlStream(addonPath: string, sourcePath: string, privateUrl: string): NativeControlStream {
+export type BambuControlPurpose = 'project-resource' | 'storage';
+export function loadBambuControlStream(addonPath: string, sourcePath: string, privateUrl: string, purpose: BambuControlPurpose): NativeControlStream {
   if (!isAbsolute(addonPath) || !isAbsolute(sourcePath)) throw new Error('Native library paths must be absolute');
-  const addon = createRequire(addonPath)(addonPath) as { ControlStream: new (path: string, url: string) => NativeControlStream };
-  return new addon.ControlStream(sourcePath, privateUrl);
+  const addon = createRequire(addonPath)(addonPath) as { ControlStream: new (path: string, url: string, purpose: BambuControlPurpose) => NativeControlStream };
+  return new addon.ControlStream(sourcePath, privateUrl, purpose);
 }
 export class BambuResourceError extends Error {
   constructor(readonly code: 'cancelled' | 'transport' | 'invalid-resource' | 'out-of-range', message: string) { super(message); }
@@ -43,7 +44,7 @@ function remoteUrl(resolve: () => Promise<string>, options: BambuResourceReadOpt
 }
 
 async function readOne(addonPath: string, sourcePath: string, url: string, resource: string, limit: number, options: BambuResourceReadOptions): Promise<Uint8Array> {
-  const stream = loadBambuControlStream(addonPath, sourcePath, url);
+  const stream = loadBambuControlStream(addonPath, sourcePath, url, 'project-resource');
   try {
     const deadline = Date.now() + (options.timeoutMs ?? 15_000);
     const parameter = JSON.stringify({ sequence_id: 1, version: 1, peer_host: 'studio', command: 'get_project_file', file_rel_path: resource });
