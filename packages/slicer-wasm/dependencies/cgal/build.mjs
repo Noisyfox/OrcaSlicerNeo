@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { createWriteStream } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = resolve(here, '../..');
@@ -57,18 +58,32 @@ async function recipeDigest() {
   return hash.digest('hex');
 }
 
-async function source(recipe, work) {
+export async function source(recipe, work) {
   const downloads = join(work, 'deps/downloads');
   await mkdir(downloads, { recursive: true });
   const archive = join(downloads, recipe.archive);
   let valid = false;
   try { valid = await digest(archive) === recipe.sha256; } catch { /* cold cache */ }
   if (!valid) {
-    const response = await fetch(recipe.url);
-    if (!response.ok || !response.body) throw new Error(`Download failed: ${recipe.url} (${response.status})`);
-    await pipeline(Readable.fromWeb(response.body), createWriteStream(`${archive}.part`));
-    if (await digest(`${archive}.part`) !== recipe.sha256) throw new Error(`Checksum mismatch: ${recipe.archive}`);
-    await rename(`${archive}.part`, archive);
+    for (let attempt = 1; attempt <= 3; ++attempt) {
+      try {
+        const response = await fetch(recipe.url, { signal: AbortSignal.timeout(120_000) });
+        if (!response.ok || !response.body) {
+          await response.body?.cancel();
+          throw new Error(`HTTP ${response.status}`);
+        }
+        await pipeline(Readable.fromWeb(response.body), createWriteStream(`${archive}.part`));
+        if (await digest(`${archive}.part`) !== recipe.sha256) throw new Error('Checksum mismatch');
+        await rename(`${archive}.part`, archive);
+        break;
+      } catch (error) {
+        await rm(`${archive}.part`, { force: true });
+        const reason = [error.message, error.cause?.message].filter(Boolean).join(': ');
+        if (attempt === 3) throw new Error(`Download failed after ${attempt} attempts: ${recipe.url}: ${reason}`, { cause: error });
+        console.warn(`[cgal] Download attempt ${attempt} failed for ${recipe.url}: ${reason}; retrying`);
+        await delay(attempt * 1000);
+      }
+    }
   }
   const parent = join(work, 'deps', `${recipe.name}-${recipe.version}`);
   const directory = join(parent, `src-${recipe.sha256.slice(0, 12)}`);
@@ -80,7 +95,9 @@ async function source(recipe, work) {
   const temporary = join(parent, `.unpack-${process.pid}`);
   await mkdir(temporary, { recursive: true });
   try {
-    run('tar', ['-xf', archive, '-C', temporary]);
+    // CMake's libarchive supports both ZIP and tar.bz2 on all build hosts;
+    // Linux GNU tar cannot extract the pinned CGAL ZIP.
+    run('cmake', ['-E', 'tar', 'xf', archive], { cwd: temporary });
     const extracted = join(temporary, recipe.directory);
     if (recipe.name === 'gmp') {
       // Preserve Orca's GCC15 configure-probe fix. Its diff names the new
