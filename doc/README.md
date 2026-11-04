@@ -45,6 +45,19 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Electron utility, temporary files and proposed Python | [Native Python Plugin Architecture](../spec/Native%20Python%20Plugin%20Architecture.md) (host work delivered; Python remains design work) |
 | Live camera playback and remote media URLs | [Camera architecture and acceptance sequence](../spec/Printer%20Domain%20and%20Control%20Architecture.md#81-bambu-lan-live-view-and-shared-playback), [Camera UI](../spec/Printer%20Console%20and%20Control%20Integration.md#camera-live-view) (v2.2.0 LAN reader/remux, binary transport and shared Camera card delivered with fixture acceptance; H2D H.264 LAN accepted on the development host; JPEG hardware/six-platform playback qualification pending, TUTK excluded) |
 
+Device Storage selected design: [interaction and scope](../spec/Printer%20Console%20and%20Control%20Integration.md#device-storage-design)
+and [agent streams / host-owned downloads](../spec/Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads).
+The product and cross-host architecture decisions are recorded, with Bambu as
+the first agent. Implementation is authorized in verified increments; the direct
+scoped-file contract and initial shared browser are delivered with fixture coverage.
+Host-neutral streaming/FIFO, desktop managed saving, confirmed deletion, independent
+device-file print preparation and progressive stored-video playback are integrated
+with fixture acceptance. Same-printer LAN authorization recovery is integrated.
+Read-only H2D USB browsing, sampled thumbnails, managed downloads and system-player
+video fallback have physical acceptance; internal storage and embedded playback
+remain unqualified, and deletion/printing were excluded from that round. See the
+[qualification boundary](../spec/Printer%20Domain%20and%20Control%20Architecture.md#initial-qualification-boundary).
+
 ## Engineering references
 
 | Topic | Reference |

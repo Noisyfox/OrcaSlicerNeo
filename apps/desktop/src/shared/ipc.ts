@@ -38,6 +38,8 @@ export const Ipc = {
   preferencesSave: 'preferences:save',
   preferencesCompareAndSwap: 'preferences:compare-and-swap',
   bambuRead: 'bambu:read',
+  printerDownloadRequest: 'printer-download:request',
+  printerDownloadChanged: 'printer-download:changed',
   bambuControl: 'bambu:control',
   bambuMedia: 'bambu:media',
   bambuMediaConnect: 'bambu:media-connect',
@@ -129,6 +131,7 @@ export interface ElectronBridge {
     sample(): Promise<ElectronMemoryIpcSnapshot>;
   };
   printers: {
+    downloads: import('@orca/printer-control/domain').PrinterDownloads;
     configuration: {
       load(): Promise<PrinterConfigurationDocument>;
       save(document: PrinterConfigurationDocument): Promise<void>;

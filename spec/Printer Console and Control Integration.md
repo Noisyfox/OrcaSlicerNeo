@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-11-02
+**Updated:** 2026-11-03
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
@@ -639,6 +639,299 @@ and task, temperature, actuator, motion, tool and material cards. The
 provider validates commands against fresh observations and their original target.
 Missing readings stay unreported; disconnected data is marked stale. Unknown
 outcomes never cause an automatic retry. Video remains outside this delivery.
+
+### Device Storage design
+
+**Decision status:** A shared, capability-driven Storage feature with Bambu as
+its first agent is selected for initial Electron delivery. The host-owned download
+boundary and feature behavior below are selected; detailed contract implementation
+and qualification proceed in independently verified increments. Implementation
+is authorized. The initial shared Storage browser is implemented with explicit
+capability resolution, collection/storage switching, loaded-file filtering and date
+grouping, manual refresh, snapshot pagination and scoped selection. Shared UI tests
+and Electron renderer/preload/main fixture E2E pass. Desktop host-owned download
+tasks, default-folder/Save As selection, progress, cancellation/retry, completion
+notices and saved-file opening are integrated. Fixture E2E covers task persistence
+across navigation and cancellation; separate utility tests verify actual saving.
+Confirmed single/batch deletion now distinguishes confirmed, failed, unconfirmed
+and unexecuted entries, with explicit continuation of a paused batch. Fixture E2E
+checks local removal after confirmation and retained entries without automatic
+refresh after uncertain outcomes. Visible-card thumbnails now use optional managed
+image resources with cancellation and bounded concurrency; unsupported image reads
+retain placeholders. A shared frontend cache retains independent thumbnail
+snapshots and missing-preview results across scrolling, filtering and regrouping.
+Provider leases close after copying, and cache hits issue no new agent read.
+Refresh or browsing-scope changes clear this session cache; inactive entries may
+be evicted to meet its entry/byte retention targets; pinned images may exceed
+these targets without rejection. Storage thumbnails add no per-image size or
+decoded-dimension limit. Bambu thumbnail requests are batched on short-lived reusable
+browser connections, so one missing resource does not discard successfully read
+images in the batch. The [thumbnail transport and measured acceptance](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)
+owns connection/resource limits and the H2D timing evidence. Device-file printing now has an independent inspection dialog,
+agent-provided target selection and plate thumbnails, shared material/options UI,
+warning confirmation and one-shot start dispatch. It does not read/export the
+current slice or lock/modify the Project. Fixture E2E selects a second plate and
+observes a provider submission receipt; component tests cover late inspection
+cleanup and uncertain-start duplicate prevention. Stored video now has an explicit
+single-selection Play action, progressive embedded playback, a cached-range seek
+control and an explicit managed-download/system-player alternative. Closing the
+viewer or leaving Storage releases its lease and temporary cache. Generated AVC
+acceptance exercises real Electron decoding, seeking and utility cleanup; component
+tests cover unsupported-format fallback and cancellation of late opens.
+LAN authorization recovery now reuses scoped discovery and masked access input
+for the existing physical printer. Component and Electron fixture acceptance cover
+identity filtering and the successful return to Storage. Read-only H2D + AMS
+acceptance now covers USB listing, sampled thumbnails, managed downloads including
+a 240 MiB recording, cancellation cleanup, and downloaded-video playback/seeking
+in QuickTime. Real timelapse/recording samples have a tail-positioned MP4 index,
+so they show the explicit download alternative; embedded progressive playback
+is not physically qualified. Advertised internal storage returns unavailable on
+the tested firmware. Deletion and actual printing were excluded by the user.
+The [physical qualification boundary](Printer%20Domain%20and%20Control%20Architecture.md#initial-qualification-boundary)
+records the device/firmware and exact limits; the complete initial delivery is
+not yet qualified.
+
+The [printer-domain Storage design](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)
+owns provider contracts, binary transport, host save ownership, the pinned Bambu
+execution boundary, contract implementation boundaries and qualification gates.
+Shared UI uses those capabilities for every provider. Storage selects its own eligible printer route; it must not
+inherit a Monitor route merely because that route is currently selected.
+
+The initial implementation target is Electron. The shared contract separates
+provider reads, task orchestration and host saving so a future Web host can use
+browser-direct agents or a native-agent gateway without a second Storage UI.
+Default directories, save dialogs, filename collisions, external-player launch,
+temporary disk cache and last-window shutdown below describe the selected desktop
+experience; Web exposes its actual capabilities rather than claiming parity.
+Distinguish a verified managed save from handing a download to the browser. A
+gateway-side transfer completion does not establish local saving. Browser save
+adapters and the native-agent gateway are not part of this first delivery.
+
+The interaction reference is Orca's
+[MediaFilePanel](../packages/slicer-wasm/cpp/src/slic3r/GUI/MediaFilePanel.cpp):
+storage selection, Timelapse/Video/Model collections where available, date
+grouping, thumbnail browsing, refresh and selected-file download/deletion. Orca
+retrieves model metadata before opening device-file print preparation. Its video
+action downloads the file and opens the saved file with the system application.
+Neo's initial delivery includes browsing/thumbnails, file download and deletion,
+and printing existing device files. Implementation can proceed in independently
+verified pieces, but completion of this delivery includes physical device-file
+printing acceptance rather than deferring that feature to a later delivery.
+
+Stored recordings and timelapses have both an in-app player and an action to
+download and open the completed local file with the system application. A
+standalone download action remains available. The in-app player supports
+playback while downloading for qualified media; full-file download is not the
+default prerequisite for starting playback. If progressive playback is not
+supported for the media, explain the limitation and offer download followed by
+opening with the system application. Do not fall back to full-file buffering for
+another in-app playback attempt. The same external-player action is available
+when the in-app decoder cannot handle the media. Exact format/codec qualification
+remains to be specified; support is not inferred from an extension alone.
+
+In-app playback uses host-owned temporary disk cache. Closing the player,
+leaving Storage or switching printers stops playback, cancels outstanding media
+reads and cleans the cache. No floating player or persistent reusable playback
+cache is included in this delivery. Explicitly saved downloads are not cache
+entries and must not be deleted by playback cleanup. Independent download tasks
+and an already-open system player are unaffected by leaving Storage. The printer-domain specification records the implemented cache limits and
+crash/cleanup-error behavior; physical format and resource-limit qualification
+remain open.
+
+Seeking follows the effective capabilities of the reader and the media:
+
+- When range/random access and media indexing permit it, allow seeking to any
+  position in the known timeline. A target without available media data enters
+  a visible buffering state while the required data is acquired.
+- When that access is unavailable, permit seeking only within downloaded,
+  playable ranges and communicate the available range in the timeline. Do not
+  accept an arbitrary undownloaded target and wait for sequential downloading
+  to catch up.
+
+This is one capability-adaptive player. Read support alone does not prove that
+a container can seek or decode at a requested timestamp. Downloaded byte ranges
+and playable time ranges are distinct; the UI uses actual media seekability.
+
+Opening Storage may reuse existing authorized LAN access information for the
+same physical printer, including a cloud-paired printer. A separately configured
+LAN connection is not a prerequisite. Missing address or credentials prompts
+the user to supply them; cloud account binding alone does not establish file
+access. The initial pinned Bambu implementation requires LAN reachability.
+
+The initial delivery supports both removable SD storage and internal printer
+storage where the device supports them. Each storage advertises its own content
+kinds and actions. Bambu follows the capability-gated External/Internal browsing
+of [Bambu Studio master 79df7ae](https://github.com/bambulab/BambuStudio/blob/79df7ae309be398ed30c9f397c13c9911c2edc57/src/slic3r/GUI/MediaFilePanel.cpp#L475-L488):
+External is the initial choice and provides print files, timelapses and recordings.
+Internal print files require reported `fun2` bit 17; internal timelapses require
+`fun` bit 28. Internal recordings are not offered. Discovery identifiers such as
+`emmc` do not establish those browsing capabilities. These restrictions belong to
+the Bambu agent and do not constrain other agents.
+
+The shared browser presents the union of agent-provided collections, retaining
+collection selection while switching storage. It offers only storages supporting
+the current collection and hides the storage selector when fewer than two choices
+exist. Changing collection or refreshing capabilities falls back to the first
+eligible storage when the current one no longer qualifies, resets the old scope's
+selection and cancels obsolete reads. Bambu orders External first. Explicit Refresh
+re-resolves storage capabilities before loading the collection; ordinary selection
+does not poll the printer.
+
+The shared browsing contract supports classification-based collections and
+hierarchical directories according to provider capabilities. Bambu initially
+uses collections. Folder navigation and breadcrumbs are implemented with the
+first agent that needs directory browsing; this delivery does not require a
+directory UI unsupported by the initial agent. Paths do not imply directory
+navigation support or require flattening future directory-based providers.
+
+The proposed shared page provides storage and file-kind selection,
+a thumbnail/list surface and capability-driven actions.
+It distinguishes unsupported capability, unknown capability, unavailable storage,
+empty results and failed reads. Storage names and kinds come from the agent;
+internal/removable storage and Bambu-specific category combinations are not
+hard-coded for all providers. Layout, filters and grouping can be refined during
+implementation within the selected browsing and selection behavior.
+
+When Storage capability is unknown, explicit entry into the page allows the
+agent to perform one bounded capability-resolution attempt as needed, followed
+by listing supported storage/collections. Show failures with a manual retry
+action rather than repeating probes in the background. Unknown, unsupported and
+temporarily unavailable remain distinct; no separate initial Check Capability
+button is required. This does not authorize probing during application startup
+or passive printer enumeration.
+
+Load the current list on Storage entry and when switching storage, collection
+or directory. Provide manual refresh and update the list after file mutations.
+Do not periodically poll while the page remains open. Changes made by the
+printer or another client are discovered on re-entry or manual refresh.
+
+Selection is scoped to the current printer, storage, collection or directory;
+switching that scope clears it. Already-started download tasks have independent
+lifetimes and continue when selection is cleared. The bulk selection action
+selects only loaded items matching the current filters, including items outside
+the viewport that require scrolling. It neither fetches additional pages nor
+recursively selects other directories. Label the action and selected count so
+that it does not imply selection of unloaded results. Selection is an explicit
+set; loading another page does not automatically select newly loaded items.
+
+Saving uses the injected host download service, exposing task progress and
+results without exposing private destination paths or Bambu protocol payloads.
+Ordinary downloads use an application-wide default download directory without a
+destination prompt. Configure it under Preferences → Downloads; it is shared by
+all printer agents and saved immediately when the folder chooser succeeds.
+Cancelling the chooser retains the previous location. Storage has no default-folder
+configuration action. The initial desktop location is the OS Downloads folder;
+Web explains that browser facilities manage the location. A separate Save As action chooses a file destination for a
+single item or one destination folder for a batch. Ordinary downloads preserve
+existing files by adding a numeric suffix on name collisions. Save As requires
+overwrite confirmation when the chosen destination already exists.
+
+A batch records per-file success, failure and cancellation, with a summary and
+an action to retry failed items. An isolated file failure does not block the
+remaining items. A failure affecting the batch, such as a disconnected source
+or an out-of-space destination, pauses the affected queue and prompts the user
+to resolve the problem before continuing. Continuing a queue does not itself
+promise byte-level resume for an interrupted file.
+
+The initial delivery does not implement interrupted-download resume. Failed or
+canceled downloads clean up their temporary output; retries start from the
+beginning. This is independent of range reads used for media playback.
+
+Downloads continue when leaving Storage or switching printers while the
+application remains open. Task details, cancellation and retry live within
+Storage, including access to tasks started for a previously selected printer;
+do not introduce a global download task panel. Completion/failure notifications
+inform users outside Storage, and file entries also reflect their task state.
+
+Closing the last application window with unfinished downloads prompts the user
+to return and wait or cancel the tasks and close. Explicit application quit uses
+the same unfinished-task decision. Do not keep the application running without
+a window solely to finish downloads. Confirmed cancellation cleans temporary
+output before normal closure; cleanup failures must be reported rather than
+presented as successful cleanup. The domain design defines owned temporary-file
+cleanup; platform-specific crash recovery details remain implementation work.
+
+The initial delivery runs explicit downloads sequentially per physical printer;
+different printers can progress independently. Playback reads and downloads
+share one transfer slot for that printer. Opening media while the slot is occupied
+shows a waiting state. Use strict FIFO admission across queued downloads and
+playback requests: playback waits for all previously queued downloads, not merely
+the currently running file. Cancellation removes only the canceled request; it
+does not promote playback past other earlier requests. Do not automatically
+preempt an existing task. Leaving the playback context also removes its queued
+request. Keep the playback slot until its remote reading ends or is canceled; a player
+using only completed local cache does not require the remote transfer slot.
+Future agent-specific concurrency remains an extension, not a first-delivery
+capability negotiation requirement. A file-read cancellation does not cancel a
+printer's physical print job. Playback's temporary cache and page-bound lifetime
+are separate from these explicit download destination and lifetime decisions.
+
+Single-file and batch deletion both require confirmation identifying the printer,
+storage and file name or count; a batch has one confirmation with an expandable
+file list. After confirmation, submit deletion without an additional client-side
+in-use veto for downloading, playback or known printing activity. Let the printer
+decide whether deletion is allowed. Do not automatically cancel downloads, stop
+playback or cancel a physical print to enable deletion. Concurrent reads may
+continue if the device permits them or fail with their actual read errors; show
+those results independently. Ordinary capability, authorization and scoped-file
+reference validation still apply.
+
+Storage does not perform remote-file content version checking or expose a strict
+versus best-effort choice. Download, delete, preview and print target the file
+currently addressed on the device, including a replacement at the same path.
+Do not add a version-conflict dialog or an extra metadata/hash check solely to
+detect replacement. Device/route/configuration and authorization checks remain;
+download completeness/integrity checks and ordinary missing-file/format errors
+are separate from content version checking.
+
+If a deletion request has an uncertain outcome, retain the entry and show that
+the deletion result is unconfirmed. Do not automatically re-query or resend the
+request; the user can manually refresh. A clearly confirmed deletion can update
+the list normally. Manual refresh establishes current file presence, not proof
+of which earlier request changed it.
+
+Batch deletion continues after isolated, explicit per-file failures. Disconnection
+or an uncertain outcome pauses remaining deletion work for user handling. Report
+confirmed successes, explicit failures, unconfirmed outcomes and unexecuted items
+separately; do not roll back successful deletions. Only report per-file certainty
+that the provider's actual response supports. A batch-level response with ambiguous
+item outcomes must not be converted into invented per-file success or failure.
+
+Device-file printing and stored-media playback are independently gated features.
+Remote viewing/inspection preserves the open project and retained slice result.
+Remote printing needs its own source and plate selection,
+then shared material mapping, options and current-device validation. A video
+download does not establish playback compatibility, and a printable extension
+alone does not establish that a file can be started.
+
+The agent decides which formats and individual remote files it can print and
+supplies normalized preparation information or an unavailable/unsupported reason.
+Shared UI must not branch on provider brand or file extensions to determine
+printability. The initial Bambu implementation supports sliced `.gcode.3mf`
+printing; ordinary `.gcode` printing is deferred for that agent, without limiting
+formats supported by other agents. Browsing, download and deletion remain
+independently capability-driven for files that cannot be printed.
+
+The initial workflow selects and prints one target at a time. Multi-plate files
+offer a plate choice with the selected plate's thumbnail and preparation data;
+agents without a plate concept supply a single print target. Multi-target or
+consecutive-plate execution is outside this delivery. Show available material
+requirements, estimated time and other preparation metadata without fabricating
+missing values. The first delivery uses thumbnails and preparation information;
+full G-code toolpath preview is deferred and is not a prerequisite for printing.
+
+Bambu's preparation data comes from reuse of Orca C++ parsing through an isolated
+runtime/Worker inspection service, followed by agent normalization. The inspection
+does not replace the user's current project or slice result. This is a Bambu
+implementation choice; other agents can supply the same normalized preparation
+information through different parsers without depending on slicer WASM.
+
+The first Storage physical acceptance target is H2D + AMS. Other Bambu models may
+expose capabilities without being part of that acceptance matrix; distinguish
+reported availability from actual device qualification. Transfers that continue
+making effective progress have no total file deadline. Connection establishment
+and loss of progress have separate timeouts, with values chosen through device
+and slow-link qualification; cancellation remains available throughout.
 
 ### Bambu control design
 

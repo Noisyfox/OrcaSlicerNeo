@@ -6,17 +6,18 @@ const typeId = 'bambu-network' as D.Id<'printer-type'>;
 const unsupported = { kind: 'unsupported', layer: 'adapter', reason: 'This operation is not supported by the Bambu adapter.' } as const;
 export function bambuCapabilities(): D.PrinterCapabilities {
   return {
-    revision: 'bambu-submission-1', submission: { kind: 'supported', constraints: { formats: ['print-3mf'] } },
+    revision: 'bambu-storage-1', submission: { kind: 'supported', constraints: { formats: ['print-3mf'] } },
     commands: {
-      'jobs.start': unsupported, 'jobs.pause': unsupported, 'jobs.resume': unsupported, 'jobs.cancel': unsupported, 'jobs.setSpeed': unsupported, 'jobs.skipObjects': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
+      'jobs.start': { kind: 'unknown', reason: 'Inspect a device file to prepare a supported print target.' }, 'jobs.pause': unsupported, 'jobs.resume': unsupported, 'jobs.cancel': unsupported, 'jobs.setSpeed': unsupported, 'jobs.skipObjects': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
       'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported, 'motion.home': unsupported,
       'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
       'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,
       'materials.writeMetadata': unsupported, 'materials.configure': unsupported, 'materials.refreshTag': unsupported, 'drying.start': unsupported, 'drying.stop': unsupported,
-      'camera.setEnabled': unsupported, 'camera.setDeviceTimelapse': unsupported, 'files.delete': unsupported,
+      'camera.setEnabled': unsupported, 'camera.setDeviceTimelapse': unsupported, 'files.delete': { kind: 'unknown', reason: 'Open Storage to discover available file actions.' },
     },
     cameras: [], currentPrintPreview: unsupported, webInterface: unsupported,
-    files: { upload: unsupported, list: unsupported, stat: unsupported, download: unsupported, preview: unsupported, changes: unsupported },
+    files: { upload: unsupported, list: { kind: 'unknown', reason: 'Open Storage to discover available printer storage.' },
+      stat: { kind: 'unknown', reason: 'File information requires authorized storage access.' }, download: unsupported, preview: { kind: 'unknown', reason: 'Open Storage to resolve available file previews.' }, changes: unsupported },
     observations: { printObjects: unsupported, descriptor: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, status: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, firmware: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, thermal: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, motion: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } },
       actuators: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, materials: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, cameras: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, sensors: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, alerts: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } } },
   };

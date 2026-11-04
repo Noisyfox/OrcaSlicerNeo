@@ -29,9 +29,9 @@ test('prefers local and resolves a remote URL only after local acquisition fails
   await assert.rejects(read(local('error')), error => error.code === 'transport' && !error.message.includes('passwd'));
 });
 
-test('rejects corrupt hashes, offsets, JSON and excessive declared sizes', async () => {
+test('rejects corrupt hashes, offsets, JSON and incomplete declared content', async () => {
   for (const mode of ['checksum', 'offset', 'malformed']) await assert.rejects(read(local(mode)), error => error.code === 'invalid-resource');
-  await assert.rejects(read(local('oversize')), error => error.code === 'out-of-range');
+  await assert.rejects(read(local('oversize')), error => error.code === 'invalid-resource');
   await assert.rejects(read(local('silent'), { timeoutMs: 20 }), error => error.code === 'transport');
 });
 
@@ -39,8 +39,8 @@ test('bounds paths, URL schemes and message size before privileged I/O', async (
   for (const resource of ['../secret', 'Metadata/../../secret', 'Metadata/plate_1.gcode', 'Metadata/pick_0.png', 'Metadata/pick_1000.png'])
     await assert.rejects(readBambuProjectResource(addon, source, local('fixture'), resource), error => error.code === 'invalid-resource');
   for (const url of ['https://printer/', 'bambu:///rtsps___printer', 'bambu:///local/x\0secret', 'bambu:///tutk_evil'])
-    assert.throws(() => loadBambuControlStream(addon, source, url), /Unsupported/);
-  const stream = loadBambuControlStream(addon, source, 'bambu:///local/fixture');
+    assert.throws(() => loadBambuControlStream(addon, source, url, 'project-resource'), /Unsupported/);
+  const stream = loadBambuControlStream(addon, source, 'bambu:///local/fixture', 'project-resource');
   try { for (const message of ['', 'x'.repeat(65537), 'x\0y']) assert.throws(() => stream.send(message), /Invalid/); }
   finally { await stream.close(); }
 });
@@ -67,7 +67,7 @@ test('remote URL resolution has an independent deadline and abort listener clean
 });
 
 test('native packet buffers remain owned across reads; close is idempotent', async () => {
-  const stream = loadBambuControlStream(addon, source, 'bambu:///local/fixture');
+  const stream = loadBambuControlStream(addon, source, 'bambu:///local/fixture', 'project-resource');
   try {
     await pollUntil(stream, value => value.ready);
     const message = JSON.stringify({ cmdtype: 4, sequence: 1, req: { path: 'mem:/16' } }) + '\n\n' + JSON.stringify({ command: 'get_project_file', file_rel_path: path });
@@ -80,8 +80,30 @@ test('native packet buffers remain owned across reads; close is idempotent', asy
   assert.throws(() => stream.poll(), /closed/);
 });
 
-test('native backlog overflow is explicit and releases the reader', async () => {
-  const stream = loadBambuControlStream(addon, source, 'bambu:///local/burst');
-  try { await delay(60); assert.throws(() => stream.poll(), /overflow/); }
+test('backpressures project-resource reads instead of failing an overflowing backlog', async () => {
+  const stream = loadBambuControlStream(addon, source, 'bambu:///local/burst', 'project-resource');
+  try {
+    await delay(60); const first = stream.poll();
+    assert.equal(first.messages.length, 2); assert.equal(first.messages[0].length, 1024 * 1024);
+    await delay(60); const second = stream.poll(); assert.equal(second.messages.length, 2);
+    assert.equal(first.messages[0][0], 120);
+  }
   finally { await stream.close(); }
+});
+
+test('reads large metadata and images without resource, packet or queue-byte caps', async () => {
+  for (const resource of [path, 'Metadata/pick_1.png']) {
+    const bytes = await readBambuProjectResource(addon, source, local('project-large'), resource);
+    assert.equal(bytes.length, 17 * 1024 * 1024);
+    assert.equal(bytes[0], 120); assert.equal(bytes[bytes.length - 1], 120);
+  }
+});
+
+test('reads more than 4096 project-resource fragments with final integrity validation', async () => {
+  const bytes = await read(local('project-many-packets'), { timeoutMs: 20_000 });
+  assert.equal(bytes.length, 4097); assert.equal(bytes[0], 120); assert.equal(bytes[4096], 120);
+});
+
+test('accepts CTRL JSON headers and parameter metadata above the former 64 KiB cap', async () => {
+  assert.equal(new TextDecoder().decode(await read(local('project-headers'))), 'abc');
 });

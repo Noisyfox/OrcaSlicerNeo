@@ -23,6 +23,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
 import { PrinterMonitor, supportsMonitor } from './PrinterMonitor';
+import { PrinterStorage } from './PrinterStorage';
 
 type DialogState =
   | { kind: 'add' }
@@ -125,7 +126,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
   const [remembered, setRemembered] = useState<string | null | undefined>(undefined);
   const selectionTouched = useRef(initialSelection !== null);
-  const [selectedPage, setSelectedPage] = useState<'web' | 'monitor'>('web');
+  const [selectedPage, setSelectedPage] = useState<'web' | 'monitor' | 'storage'>('web');
   const [dialog, setDialog] = useState<DialogState>(null);
   const [draft, setDraft] = useState<PrinterDraft>(EMPTY_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
@@ -265,8 +266,9 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   const consoleRoute = selectedPrinter?.routes.find(route => route.capabilities.webInterface.kind === 'supported');
 
   const monitorRoute = selectedPrinter?.routes.find(route => supportsMonitor(route.capabilities));
+  const storageRoute = selectedPrinter?.routes.find(route => route.capabilities.files.list.kind !== 'unsupported');
   useEffect(() => { useDeviceSelectionStore.getState().selectGroupingSource(selectedPrinter, monitorRoute ?? selectedPrinter?.routes[0] ?? null); }, [selectedPrinter, monitorRoute]);
-  const activePage = selectedPage === 'web' && consoleRoute ? 'web' : selectedPage === 'monitor' && monitorRoute ? 'monitor' : consoleRoute ? 'web' : monitorRoute ? 'monitor' : null;
+  const activePage = selectedPage === 'storage' && storageRoute ? 'storage' : selectedPage === 'web' && consoleRoute ? 'web' : selectedPage === 'monitor' && monitorRoute ? 'monitor' : consoleRoute ? 'web' : monitorRoute ? 'monitor' : null;
 
   // Mount without a URL first, register the fixed built-in script, then load
   // the configured URL. This ordering is required for Electron document_start.
@@ -414,11 +416,11 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
                   const next = event.key === 'ArrowDown' ? (index + 1) % tabs.length : event.key === 'ArrowUp' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
                   if (next >= 0 && tabs[next]) { event.preventDefault(); tabs[next].focus(); tabs[next].click(); }
                 }}>
-                  {([{ id: 'web', label: 'Web Interface', available: !!consoleRoute }, { id: 'monitor', label: 'Monitor', available: !!monitorRoute }] as const).filter(page => page.available).map(page => <button
+                  {([{ id: 'web', label: 'Web Interface', available: !!consoleRoute }, { id: 'monitor', label: 'Monitor', available: !!monitorRoute }, { id: 'storage', label: 'Storage', available: !!storageRoute }] as const).filter(page => page.available).map(page => <button
                     key={page.id} id={`device-tab-${page.id}`} role="tab" aria-selected={activePage === page.id} aria-controls="device-content" tabIndex={activePage === page.id ? 0 : -1}
                     className={cn('rounded-md border px-3 py-2 text-left text-sm', activePage === page.id ? 'border-primary bg-accent/20' : 'border-transparent hover:bg-muted/60')}
                     onClick={() => setSelectedPage(page.id)}>{page.label}</button>)}
-                  {!activePage && <p className="p-3 text-xs text-muted-foreground">No supported features are available. Some printer capabilities may not yet be known.</p>}
+                  {!activePage && !storageRoute && <p className="p-3 text-xs text-muted-foreground">No supported features are available. Some printer capabilities may not yet be known.</p>}
                 </div>}
           </div>
         </aside>
@@ -440,6 +442,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
         />
 
         <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card" id="device-content" role={activePage ? "tabpanel" : undefined} aria-labelledby={activePage ? `device-tab-${activePage}` : undefined} aria-label={activePage ? undefined : "Printer details"}>
+          {visible && !pauseDeviceObservation && activePage === 'storage' && selectedPrinter && storageRoute && <PrinterStorage key={`${selectedPrinter.identity.id}:${storageRoute.id}:${storageRoute.configurationRevision}`} printer={selectedPrinter} route={storageRoute} />}
           {!pauseDeviceObservation && selectedPrinter && monitorRoute && <div hidden={activePage !== 'monitor'} className="h-full"><PrinterMonitor key={`${selectedPrinter.identity.id}:${monitorRoute.id}:${monitorRoute.configurationRevision}`} printer={selectedPrinter} route={monitorRoute} visible={visible && activePage === 'monitor'} observeWhileHidden={requestedSelection > 0 && useDeviceSelectionStore.getState().requestedPrinterId === selectedPrinter.identity.id} /></div>}
           <div hidden={activePage !== 'web'} ref={webviewContainerRef} className="absolute inset-0 [&>iframe]:h-full [&>iframe]:w-full [&>webview]:h-full [&>webview]:w-full" data-testid="device-webview-container" />
           {!selectedPrinter && (
@@ -456,7 +459,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
                 <p className="font-medium">{selectedPrinter.identity.displayName}</p>
                 <p>{[selectedPrinter.identity.manufacturer, selectedPrinter.identity.model].filter(Boolean).join(' · ')}</p>
                 <p className="text-muted-foreground">{selectedPrinter.routes.map(route => route.label).join(' · ')}</p>
-                <p className="mt-2 text-muted-foreground">This printer does not provide a console.</p>
+                <p className="mt-2 text-muted-foreground">{storageRoute ? 'Choose a printer feature from the sidebar.' : 'This printer does not provide a console.'}</p>
               </div>
             </div>
           )}

@@ -3,7 +3,7 @@
 #include "print_params.hpp"
 #include <cmath>
 #include <limits>
-inline Slic3r::PrintParams read_print_params(const Napi::Object& object) {
+inline Slic3r::PrintParams read_print_params(const Napi::Object& object, bool device_file = false) {
     Slic3r::PrintParams params{};
     const auto env = object.Env();
 #define STRING(key) if (object.Has(#key)) { auto v = object.Get(#key); if (!v.IsString()) throw Napi::TypeError::New(env, "Invalid print string"); params.key = v.As<Napi::String>().Utf8Value(); }
@@ -57,7 +57,8 @@ inline Slic3r::PrintParams read_print_params(const Napi::Object& object) {
 #undef STRING
 #undef BOOLEAN
 #undef INTEGER
-    if (params.dev_id.empty() || params.filename.empty() || params.plate_index < 1)
+    if (params.dev_id.empty() || params.plate_index < 1 ||
+        (device_file ? params.dst_file.empty() || params.project_name.empty() : params.filename.empty()))
         throw Napi::TypeError::New(env, "Missing print identity or artifact");
     return params;
 }

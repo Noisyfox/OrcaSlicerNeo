@@ -1,3 +1,8 @@
+import { DesktopPrinterDownloads } from './printerDownloads';
+import { StoredMediaQueue } from './storedMediaQueue';
+import { bambuDownloadBinding } from './bambuDownloads';
+import { downloadDestinationHost } from './downloadDestination';
+import { isDownloadRequest } from '../shared/printerDownloads';
 import { loadNativeScreenColorSampler } from '@orca/color-sampler-native';
 import { createScreenColorIpc } from './screenColorIpc';
 import { createScreenColorFixture } from './testing/screenColorFixture';
@@ -138,6 +143,8 @@ let bambuLogin: BambuLogin | null = null;
 let bambuDirectory: string | null = null;
 let bambuCleanup: Promise<void> | null = null;
 let bambuStopped = false;
+let printerDownloads: DesktopPrinterDownloads;
+let closingDownloads = false;
 
 function isCurrentRenderer(sender: WebContents): boolean {
   return isCurrentRendererSender(sender, mainWindow);
@@ -392,7 +399,19 @@ function registerIpc(): void {
     if (!isCurrentRenderer(event.sender) || typeof allow !== 'boolean') return;
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return;
-    if (!allow) return;
+    if (!allow || closingDownloads) return;
+    closingDownloads = true;
+    try {
+      if (printerDownloads?.hasUnfinished()) {
+        const choice = await dialog.showMessageBox(win, { type: 'question', message: 'Downloads are still active.',
+          detail: 'Return to the app to wait, or cancel unfinished downloads and close after cleanup.',
+          buttons: ['Return to app', 'Cancel downloads and close'], defaultId: 0, cancelId: 0 });
+        if (choice.response !== 1) return;
+      }
+      const warnings = await printerDownloads?.close();
+      if (warnings?.length) await dialog.showMessageBox(win, { type: 'warning', message: 'Some download cleanup could not be confirmed.',
+        detail: 'Owned temporary files will be checked on a later launch. Completed downloads are preserved.', buttons: ['Close'] });
+    } finally { closingDownloads = false; }
     allowWindowClose = true;
     win.destroy();
   });
@@ -428,7 +447,14 @@ function registerIpc(): void {
     return summarizeElectronMemory(app.getAppMetrics());
   });
 
-  const cameraIpc = new BambuMediaIpc(() => bambuUtility, isCurrentRenderer);
+  const storedMedia = new StoredMediaQueue(printerDownloads.queue, {
+    resolve: file => printerDownloads.resolvePhysical(file),
+    open: async (owner, request) => await bambuUtility!.media(owner, { method: 'open', input: request }) as import('@orca/printer-control/domain').Result<import('@orca/printer-control/domain').MediaDescriptor>,
+    waitRead: (owner, ref) => bambuUtility!.host('media.waitRead', { owner, ref }),
+    cancelOpen: (owner, requestId) => bambuUtility!.media(owner, { method: 'cancelOpen', input: { requestId } }),
+    close: (owner, ref) => bambuUtility!.media(owner, { method: 'close', input: ref }),
+  });
+  const cameraIpc = new BambuMediaIpc(() => bambuUtility, isCurrentRenderer, storedMedia);
   ipcMain.handle(Ipc.bambuMedia, (event, request: unknown) => cameraIpc.call(event, request));
   ipcMain.on(Ipc.bambuMediaConnect, (event, request: unknown) => { try { cameraIpc.connect(event, request); } catch { /* Reject guest/invalid requests without exposing private state. */ } });
 
@@ -457,6 +483,19 @@ function registerIpc(): void {
     } catch { return { ok: false, error: { code: 'unavailable', message: 'Bambu networking is unavailable.' } }; }
   });
 
+  ipcMain.handle(Ipc.printerDownloadRequest, async (event, request: unknown) => {
+    if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame || !isDownloadRequest(request)) throw new Error('Download request rejected');
+    switch (request.method) {
+      case 'start': return printerDownloads.start(request.args[0]);
+      case 'list': return printerDownloads.list();
+      case 'directory': return printerDownloads.directory();
+      case 'chooseDirectory': return printerDownloads.chooseDirectory();
+      case 'cancel': return printerDownloads.cancel(request.args[0]);
+      case 'retry': return printerDownloads.retry(request.args[0]);
+      case 'continue': return printerDownloads.continue(request.args[0]);
+      case 'open': return printerDownloads.open(request.args[0]);
+    }
+  });
   ipcMain.handle(Ipc.bambuControl, async (event, request: unknown) => {
     if (!isCurrentRenderer(event.sender) || event.senderFrame !== event.sender.mainFrame || !isBambuControlRequest(request)) throw new Error('Bambu IPC request rejected');
     try {
@@ -622,7 +661,8 @@ function startRendererServer(): void {
           "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; " +
           // The Vite e2e/mock renderer emits its bundled module worker as a
           // data URL. Keep this narrowly scoped to workers, not scripts.
-          "font-src 'self' data:; connect-src 'self'; worker-src 'self' data:; child-src 'self' data:",
+          // Shared thumbnails copy temporary Blob images before releasing provider leases.
+          "font-src 'self' data:; connect-src 'self' blob:; worker-src 'self' data:; child-src 'self' data:",
       });
       res.end(data);
     } catch {
@@ -655,6 +695,12 @@ app.whenReady().then(() => {
       }
     });
   } catch { bambuUtility = null; }
+  const downloadDirectory = process.env.ORCA_E2E === '1' ? join(bambuDirectory!, 'downloads') : join(app.getPath('userData'), 'downloads');
+  printerDownloads = new DesktopPrinterDownloads(bambuUtility ? [bambuDownloadBinding(bambuUtility, join(downloadDirectory, 'journal'), () => {
+    void dialog.showMessageBox({ type: 'warning', message: 'Some interrupted download files could not be cleaned up.', detail: 'Completed downloads are preserved. Unrecognized records were left untouched.', buttons: ['OK'] });
+  })] : [],
+    downloadDestinationHost(downloadDirectory, () => mainWindow));
+  printerDownloads.onChanged(() => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(Ipc.printerDownloadChanged); });
   setupSessionHeaders();
   setupWebViewGuestSecurity();
   registerIpc();
@@ -684,7 +730,7 @@ app.on('will-quit', (event) => {
   if (!bambuStopped && bambuUtility) {
     event.preventDefault();
     bambuLogin?.dispose();
-    if (!bambuCleanup) bambuCleanup = bambuUtility.close().catch(() => undefined).then(async () => {
+    if (!bambuCleanup) bambuCleanup = printerDownloads.close().catch(() => undefined).then(() => bambuUtility!.close()).catch(() => undefined).then(async () => {
       if (process.env.ORCA_E2E === '1' && !process.env.ORCA_E2E_BAMBU_DIRECTORY && bambuDirectory) await rm(bambuDirectory, { recursive: true, force: true }).catch(() => undefined);
       bambuStopped = true; app.quit();
     });

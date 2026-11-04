@@ -24,7 +24,8 @@ export interface PrintMaterialRequirement {
   usedMeters: number;
 }
 export interface PrintRequirements {
-  /** Opaque identity of one retained slice generation; never a host path. */
+  /** Opaque source context: retained slice or remote inspection, never a host path
+   * or a promise that remote file contents are unchanged. */
   contentId: string;
   plateId: string;
   printerModel: string;

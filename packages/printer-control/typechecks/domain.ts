@@ -1,5 +1,5 @@
 // Compile-only consumers of the public entrypoint. Never imported by runtime code.
-import type { PrinterAction, PrinterActionRef, PrintStatus, CommandCapabilities, CommandOf, CommandRequest, FileSelection, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState, SensorSnapshot } from '@orca/printer-control/domain';
+import type { PrinterAction, PrinterActionRef, PrintStatus, CommandCapabilities, CommandOf, CommandRequest, RemoteFileRef, Id, MaterialMetadataPatch, PrinterCommand, PrinterDescriptor, PrinterEvent, PrinterOperation, PrinterState, SensorDefinition, SensorState, SensorSnapshot } from '@orca/printer-control/domain';
 import type { PrinterCapabilities, PrinterService, WebInterfaceDescription, WebInterfaceLaunch } from '@orca/printer-control/domain';
 import type { Capability, DiscoveryCandidate, PrinterRoute, SavedPrinter, PrinterTarget, ObservationCursor, MediaRef, MaterialInventory, CameraMediaCapability, FileCapabilities, ProviderDescriptor, Range, FilePreviewListing, RemoteFileDetails, ObservationRequest, PrinterSnapshot, FirmwareComponent, MaterialImportProposal, Revision } from '@orca/printer-control/domain';
 
@@ -339,25 +339,12 @@ const remoteFile = {
   routeId: id<'route'>('lan'),
   configurationRevision: 'config-1',
   storageId: id<'storage'>('sd'),
-  fileId: id<'remote-file'>('part'),
-  contentRevision: null
+  fileId: id<'remote-file'>('part')
 };
-const bestEffort: FileSelection = {
-  consistency: 'best-effort',
-  file: remoteFile
-};
-const strict: FileSelection = {
-  consistency: 'require-version-match',
-  file: {
-    ...remoteFile,
-    contentRevision: 'content-1'
-  }
-};
-// @ts-expect-error Strict access cannot be requested without a known revision.
-const unversioned: FileSelection = {
-  consistency: 'require-version-match',
-  file: remoteFile
-};
+const fileReference: RemoteFileRef = remoteFile;
+// @ts-expect-error Device configuration provenance is required even without content versions.
+const missingFileConfiguration: RemoteFileRef = { printerId: remoteFile.printerId,
+  routeId: remoteFile.routeId, storageId: remoteFile.storageId, fileId: remoteFile.fileId };
 declare const operation: PrinterOperation;
 if (operation.kind === 'command' && operation.commandType === 'jobs.start' && operation.phase.kind === 'completed') {
   const result: null = operation.phase.result;
@@ -536,17 +523,17 @@ service.files.upload({
   fileName: 'part.gcode', format: 'gcode', sizeBytes: 100, collisionPolicy: 'reject',
 }, { chunks });
 service.files.listStorages(target);
-service.files.list({ target, storageId: remoteFile.storageId, directoryId: null });
+service.files.list({ target, storageId: remoteFile.storageId, location: { kind: 'directory', directoryId: null } });
 service.files.watchChanges(target);
 // @ts-expect-error Listing is not implicitly bound to a selected printer.
-service.files.list({ storageId: remoteFile.storageId, directoryId: null });
+service.files.list({ storageId: remoteFile.storageId, location: { kind: 'directory', directoryId: null } });
 // @ts-expect-error Explicit target is required for independent control evaluation.
 service.controls.evaluate({ type: 'jobs.pause', params: {} });
 service.controls.submit({ target, requestId: id<'request'>('start'), command: {
-  type: 'jobs.start', params: { source: bestEffort, bindings: [] },
+  type: 'jobs.start', params: { source: fileReference, bindings: [] },
 } });
 // @ts-expect-error A command cannot use an implicit current printer.
-service.controls.submit({ requestId: id<'request'>('missing-target'), command: { type: 'jobs.start', params: { source: bestEffort, bindings: [] } } });
+service.controls.submit({ requestId: id<'request'>('missing-target'), command: { type: 'jobs.start', params: { source: fileReference, bindings: [] } } });
 
 async function manualMaterialsSync() {
   const result = await service.observations.read({ target, topics: ['materials'], source: 'device' });
@@ -718,13 +705,12 @@ const bareSensorEvent: PrinterEvent<'sensors'> = {
 const previewWithoutStat = {
   preview: { kind: 'supported', constraints: [{
     storageId: remoteFile.storageId, kinds: ['thumbnail', 'video', 'toolpath'],
-    versionCheck: 'best-effort',
   }] },
   stat: { kind: 'unsupported', layer: 'adapter', reason: 'No general file metadata endpoint' },
 } satisfies Pick<FileCapabilities, 'preview' | 'stat'>;
 async function openRemotePreviewWithoutStat() {
   if (previewWithoutStat.preview.kind !== 'supported') return;
-  const result = await service.files.listPreviews(bestEffort);
+  const result = await service.files.listPreviews(fileReference);
   if (!result.ok) return result.error;
   const listing = result.value;
   const option = listing.options[0];
@@ -734,18 +720,16 @@ async function openRemotePreviewWithoutStat() {
       expectedConfigurationRevision: listing.file.configurationRevision },
     requestId: id<'request'>('remote-preview'),
     source: { kind: 'file-preview', previewId: option.id,
-      target: { consistency: 'best-effort', file: listing.file } },
+      target: listing.file },
     client: { video: [{ transport: 'progressive-http', codecIds: ['h264'] }],
       imageMimeTypes: ['image/jpeg'], contentFormats: ['gcode'] },
   });
 }
 const noPreviews: FilePreviewListing = { file: remoteFile, options: [] };
-// @ts-expect-error Preview options require the assessed file identity/version.
+// @ts-expect-error Preview options require the assessed file identity.
 const unboundPreviews: FilePreviewListing = { options: [] };
-// @ts-expect-error Option enumeration requires an explicit file selection and consistency policy.
+// @ts-expect-error Option enumeration requires an explicit scoped file reference.
 service.files.listPreviews({ file: remoteFile });
-// @ts-expect-error Strict option queries require a known content revision.
-service.files.listPreviews({ consistency: 'require-version-match', file: remoteFile });
 declare const fileDetails: RemoteFileDetails;
 // @ts-expect-error Preview options have a single owner, independent of stat.
 fileDetails.previews;

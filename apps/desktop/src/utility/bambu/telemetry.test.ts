@@ -278,8 +278,8 @@ it('preserves missing protocol settings and explicit zero over legacy fallbacks'
   expect(parsedMachine({ flag3: ((1 << 17) | (1 << 10)).toString(16) })).toMatchObject({ maxColors: 32, legacyNozzleFlow: 'High Flow', legacyHighFlow: true });
 });
 it('decodes high protocol bits without losing precision and keeps nozzle protocol selection', () => {
-  const p = { fun: ((1n << 60n) | (1n << 48n) | (1n << 28n)).toString(16), cfg: (2n << 43n).toString(16), fun2: (1 << 15).toString(16), aux: (1n << 29n).toString(16), stat: '0', flag3: (1 << 10).toString(16) };
-  expect(parsedMachine(p)).toMatchObject({ hotendRack: true, externalChangeAssist: true, internalRecording: true, filamentSwitch: true, smartNozzleBlob: { supported: true, mode: 'auto' }, nozzleFlowSupported: true, legacyNozzleFlow: undefined, legacyHighFlow: false, maxColors: undefined });
+  const p = { fun: ((1n << 60n) | (1n << 48n) | (1n << 28n)).toString(16), cfg: (2n << 43n).toString(16), fun2: ((1 << 15) | (1 << 17)).toString(16), aux: (1n << 29n).toString(16), stat: '0', flag3: (1 << 10).toString(16) };
+  expect(parsedMachine(p)).toMatchObject({ hotendRack: true, externalChangeAssist: true, internalRecording: true, internalModelStorage: true, filamentSwitch: true, smartNozzleBlob: { supported: true, mode: 'auto' }, nozzleFlowSupported: true, legacyNozzleFlow: undefined, legacyHighFlow: false, maxColors: undefined });
 });
 it('decodes AMS subtype and fan ranges into the owned machine state', () => {
   expect(parsedMachine({})).toMatchObject({ amsUnits: [], fans: [] });

@@ -1,3 +1,4 @@
+import { PrinterDownloadNotifications } from './components/device/PrinterDownloadNotifications';
 import { useProjectDialogStore } from './stores/useProjectDialogStore';
 import { useDeviceSelectionStore } from './stores/useDeviceSelectionStore';
 import { paintingCommandAllowed, closePaintingForCommand, paintingSessionActive } from './components/workspace/viewport/gizmo/painting/projectCommands';
@@ -759,6 +760,7 @@ function AppContent() {
       />
       </ArrangementEditBoundary>
       {fileManagerWindow}
+      <PrinterDownloadNotifications />
       <WorkspaceNotifications visible={isWorkspaceTab(activeTab)} />
       {setupWizard}
     </>

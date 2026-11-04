@@ -41,6 +41,7 @@ function decodeMachineState(p: Report) {
     manualMultiColor: bits(p.fun2, 23) === 1,
     sharedPressureAdvance: bits(p.fun2, 3) === 1,
     internalRecording: bits(p.fun, 28) === 1,
+    internalModelStorage: bits(p.fun2, 17) === 1,
     externalChangeAssist: bits(p.fun, 48) === 1 || bits(p.flag3, 16) === 1,
     smartNozzleBlob: Object.freeze({ supported: bits(p.fun2, 15) === 1, mode: blobMode === undefined ? undefined : (['off', 'on', 'auto'] as const)[blobMode] }),
     hotendRack: bits(p.fun, 60) === 1,

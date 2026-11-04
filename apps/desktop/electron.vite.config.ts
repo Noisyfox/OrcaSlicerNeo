@@ -24,16 +24,21 @@ export default defineConfig(({ mode }) => {
         }),
       },
       resolve: { alias: {
+        '@orca/printer-control/downloads': resolve(printerControlRoot, 'downloads.ts'),
+        '@orca/printer-control/download-tasks': resolve(printerControlRoot, 'downloadTasks.ts'),
+        '@orca/printer-control/transfer-queue': resolve(printerControlRoot, 'transferQueue.ts'),
         '@orca/printer-control': resolve(printerControlRoot, 'index.ts'),
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       } },
-      build: { externalizeDeps: { exclude: ['yauzl', 'saxes', 'proper-lockfile', 'mp4box', '@orca/bambu-native', '@orca/color-sampler-native'] }, rollupOptions: { input: {
+      build: { externalizeDeps: { exclude: ['@orca/printer-control', 'yauzl', 'saxes', 'proper-lockfile', 'mp4box', '@orca/bambu-native', '@orca/color-sampler-native'] }, rollupOptions: { input: {
         index: resolve('src/main/index.ts'),
         'slicer-host': resolve('src/utility/slicer-host.ts'),
         'bambu-host': resolve('src/utility/bambu-host.ts'),
-        ...(mode === 'e2e' ? { 'bambu-host-smoke': resolve('e2e/bambu-host-smoke.ts'), 'bambu-camera-smoke': resolve('e2e/bambu-camera-smoke.ts'), 'bambu-camera-host': resolve('e2e/bambu-camera-host.ts') } : {}),
+        ...(mode === 'e2e' ? { 'bambu-host-smoke': resolve('e2e/bambu-host-smoke.ts'), 'bambu-camera-smoke': resolve('e2e/bambu-camera-smoke.ts'), 'bambu-camera-host': resolve('e2e/bambu-camera-host.ts'),
+          'stored-media-smoke': resolve('e2e/stored-media-smoke.ts'), 'stored-media-host': resolve('e2e/stored-media-host.ts') } : {}),
         'slicer-worker': resolve('src/utility/slicer-worker.ts'),
+        'remote-print-worker': resolve('src/utility/remote-print-worker.ts'),
         'recent-thumbnail-worker': resolve('src/utility/recent-thumbnail-worker.ts'),
       } } },
     },
@@ -70,7 +75,8 @@ export default defineConfig(({ mode }) => {
             "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; " +
             // Vite emits the package worker as a data URL in the e2e/mock bundle;
             // keep the allowance scoped to worker-src (never script-src).
-            "font-src 'self' data:; connect-src 'self'; worker-src 'self' data:; child-src 'self' data:",
+            // Shared thumbnails copy temporary Blob images before releasing provider leases.
+            "font-src 'self' data:; connect-src 'self' blob:; worker-src 'self' data:; child-src 'self' data:",
         },
       },
       resolve: {

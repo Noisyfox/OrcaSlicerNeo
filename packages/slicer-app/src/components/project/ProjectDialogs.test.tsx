@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
+import { unavailablePrinterDownloads } from '@orca/printer-control';
 import type { PrinterConfigurationDocument } from '@orca/printer-control';
 import { act, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -21,7 +22,7 @@ describe('project dialogs', () => {
     const container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    await act(async () => { root?.render(<PlatformProvider value={{ accounts: [], printers: { configuration } } as unknown as PlatformCapabilities}>{element}</PlatformProvider>); });
+    await act(async () => { root?.render(<PlatformProvider value={{ accounts: [], printers: { configuration, downloads: unavailablePrinterDownloads() } } as unknown as PlatformCapabilities}>{element}</PlatformProvider>); });
     return container;
   }
 

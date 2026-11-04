@@ -16,7 +16,7 @@ const MAX_PACKET_BYTES = 16 * 1024 * 1024;
 export class PlaybackError extends Error {}
 const aborted = () => new DOMException('Playback stopped', 'AbortError');
 
-function cancellable<T>(promise: Promise<T>, signal: AbortSignal, timeoutMs?: number): Promise<T> {
+export function cancellable<T>(promise: Promise<T>, signal: AbortSignal, timeoutMs?: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const stop = () => { cleanup(); reject(signal.reason ?? aborted()); };
     const timer = timeoutMs === undefined ? undefined : setTimeout(() => { cleanup(); reject(new PlaybackError('Camera playback timed out')); }, timeoutMs);
@@ -27,7 +27,7 @@ function cancellable<T>(promise: Promise<T>, signal: AbortSignal, timeoutMs?: nu
   });
 }
 
-function event(target: EventTarget, name: string, signal: AbortSignal, action?: () => void): Promise<void> {
+export function event(target: EventTarget, name: string, signal: AbortSignal, action?: () => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const cleanup = () => { clearTimeout(timer); target.removeEventListener(name, ok); target.removeEventListener('error', bad); signal.removeEventListener('abort', stop); };
     const ok = () => { cleanup(); resolve(); };
