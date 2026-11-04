@@ -63,7 +63,7 @@ test('timeouts and cancellation join a silent source, without credential leaks',
   assert.equal(getEventListeners(abort.signal, 'abort').length, 0);
 });
 
-test('bounds the storage native backlog while leaving resource overflow behavior separate', async () => {
+test('backpressures the storage native backlog without rejecting incoming content', async () => {
   const stream = loadBambuControlStream(addon, source, 'bambu:///local/burst', 'storage');
   try {
     await delay(50); const first = stream.poll();

@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-11-03
+**Updated:** 2026-11-04
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -248,6 +248,71 @@ domain beneath those and richer device features, preserving selection and
 explicit cancellation while distinguishing definite failure from unknown outcome. [Multi-Filament Support](Multi-Filament%20Support.md)
 owns the project's native material rack. [Grand Plan](Grand%20Plan.md) remains
 the only delivery roadmap.
+
+### 1.4 Agent compatibility limits
+
+A fixed host budget is not a printer capability. Shared contracts and feature UI
+must distinguish device/protocol constraints, adapter feature coverage, resource
+retention/scheduling, and content rejection introduced by Neo. In particular,
+removing a transport budget does not establish that its downstream parser, IPC
+validator or renderer accepts the same resource. Record every enforced layer.
+
+The source audit covers the shared printer/service-provider contracts, Moonraker
+HTTP adapter and both host transports, Bambu native/plugin wrappers, utility
+provider, renderer/preload/main IPC, and shared media/object consumers. The
+reference is the checked-in Orca source; plugin-internal or firmware limits cannot
+be inferred from the public wrapper. Web has the Moonraker implementation; a
+Bambu browser/gateway agent remains deferred.
+
+Both CTRL purposes now use pull backpressure rather than receive-queue overflow
+failure. Storage subfiles and current-project resources add no file-byte,
+packet-byte or fragment-count budget; current-project response headers and
+parameter metadata likewise have no fixed byte budget. Length/offset consistency,
+JSON parsing, result handling, ownership/context checks and final project-resource
+MD5 remain. Connection/request deadlines and outgoing admission remain separate
+host policies. Orca's reference is
+[`PrinterFileSystem::DownloadRamFile` and response dispatch](../packages/slicer-wasm/cpp/src/slic3r/GUI/Printer/PrinterFileSystem.cpp).
+Native fixture regression covers 17 MiB metadata/images, more than 4096 fragments,
+large CTRL JSON/parameter metadata, slow-consumer backpressure and malformed
+content/integrity failures. This does not qualify large resources on hardware.
+
+The following remaining application thresholds are audit findings, not new
+approved device limits or claims that they have been removed:
+
+| Owner | Remaining threshold and effect | Source/reference assessment |
+| --- | --- | --- |
+| [Current-task preview](../apps/desktop/src/utility/bambu/preview.ts) | Subtask JSON above 2 MiB or image content above 4 MiB is rejected. | Neo content budgets; the Orca current-task preview path does not establish these thresholds as printer limits. |
+| [Object catalogue and map](../apps/desktop/src/utility/bambu/objectSkipping.ts), [shared picker](../packages/slicer-app/src/components/device/SkipObjects.tsx), [project resource selector](../packages/bambu-native/src/control.ts) | XML above 2 MiB, nesting above 64, names longer than 4096 characters or more than 4096 labels and picking images above 2048 pixels are rejected; the resource selector accepts only positive plate indices of at most three digits. | Additional Neo parser/selector/image thresholds. Orca streams XML in `ModelSettingHelper::Parse` and constructs `pick_<plate>.png` from the plate index. Removing reader byte limits alone does not remove these downstream restrictions. |
+| [Storage queries](../packages/bambu-native/src/storageQueries.ts), [channel](../packages/bambu-native/src/storageChannel.ts), [listing snapshots](../apps/desktop/src/utility/bambu/storageFiles.ts) | The adapter rejects listings above 20,000 files; the native API caps selectable `maxEntries` at 50,000, accumulated names/paths at 16 MiB and individual names/paths at 4096 characters. JSON headers cap at 4 MiB for listings and 64 KiB otherwise; storage enumeration caps at 32 entries. | Neo content/listing budgets, distinct from pagination or snapshot eviction. The inspected Orca list/response handling has no matching fixed thresholds. |
+| [Telemetry](../apps/desktop/src/utility/bambu/telemetry.ts) | Payload strings above 4 Mi characters are ignored, which can lose an otherwise parseable status update. | Neo threshold; Orca `MachineObject::parse_json` parses the supplied payload without this gate. This comparison does not qualify the plugin's MQTT packet limits. |
+| [Bambu submission IPC](../apps/desktop/src/shared/bambuSubmission.ts), [Storage preparation](../apps/desktop/src/utility/bambu/storagePrints.ts) | Each uploaded artifact is limited to 512 MiB; preparation arrays have fixed 64-element and warning lists 128-element ceilings. Device-file preparation also limits materials/maps to 64 and nozzle diameters to two. | Artifact/IPC ceilings are application-defined. Fixed-dual-tool preparation is declared adapter coverage; device-reported color/nozzle capability checks remain separate. These gates are not imposed by the general inspection parser and need individual compatibility review. |
+| [Moonraker agent](../packages/printer-control/src/service.ts) | Advertises and enforces a 2,147,483,647-byte upload ceiling, without reading a server limit. | Neo allocation/adapter policy presented as a capability. Orca's Moonraker uploader submits the source file through the HTTP file form. Actual Moonraker/proxy limits remain server-owned. |
+| [Live camera reader](../packages/bambu-native/native/camera.cpp), [muxer](../apps/desktop/src/utility/bambu/cameraMuxer.ts), [delivery](../apps/desktop/src/utility/bambu/mediaChannel.ts) | Native/muxer frame limits of 4 MiB, native queue 64 samples/8 MiB and delivery queue 64 packets/8 MiB can fail playback; shared media IPC/player packet ceilings also apply. | Neo streaming/delivery budgets. Orca uses a different native player path; these numbers must not be labelled printer capabilities or assumed Orca-equivalent. Replacing overflow failure requires coordinated frame/muxer/player handling. |
+| [Stored-video cache](../apps/desktop/src/utility/media/storedVideoCache.ts), [MP4 parser](../apps/desktop/src/utility/media/progressiveMp4.ts), [shared playback](../packages/slicer-app/src/components/device/media/storedPlayback.ts) | 2 GiB disk quota, 8 MiB headers, 200,000 samples, 8192-pixel video dimensions, 4 MiB samples/input chunks, 4096 buffered fragments, and shared packet/startup-buffer ceilings can select the download alternative or stop playback. | Explicit Neo embedded-player coverage/budgets, not full-file download or device restrictions. Orca's native player is not a matching parser contract. |
+| [Account avatar](../apps/desktop/src/utility/bambu/account.ts) | Avatars above 2 MiB produce no image. | Neo presentation budget; unrelated to device resource validity. |
+| [Typed IPC](../apps/desktop/src/shared/bambuControl.ts), [command validation](../apps/desktop/src/shared/bambuCommandValidation.ts), [Storage IPC](../apps/desktop/src/shared/bambuStorage.ts), [media IPC](../apps/desktop/src/shared/bambuMedia.ts), [native CTRL wrapper](../packages/bambu-native/native/control.cpp) | Fixed text/opaque-reference lengths, 128 acknowledged warnings, 16 catalogue references, 8192-character native tunnel URLs and 64 KiB outbound CTRL messages can reject otherwise representable values. | Neo boundary budgets; type/schema, authorization and protocol integer checks are separate. Review each producer/consumer together rather than calling these firmware limits. |
+
+Orca comparison entrypoints are [current-task previews](../packages/slicer-wasm/cpp/src/slic3r/GUI/StatusPanel.cpp),
+[streamed object XML](../packages/slicer-wasm/cpp/src/slic3r/GUI/SkipPartCanvas.cpp),
+[object-skipping applicability](../packages/slicer-wasm/cpp/src/slic3r/GUI/PartSkipDialog.cpp),
+[telemetry parsing](../packages/slicer-wasm/cpp/src/slic3r/GUI/DeviceManager.cpp), and
+[Moonraker file upload](../packages/slicer-wasm/cpp/src/slic3r/Utils/Moonraker.cpp).
+
+Retention and scheduling also expose deliberate host admission policies: thumbnail
+cache LRU targets, eight-resource batches, two resource connections, queued/active
+request counts, 500-file download batches and 1,000 unfinished tasks. They are not
+per-file compatibility limits. Camera history (128 records for five minutes) and
+stored-video history (64 records for one minute) can still impose cumulative
+open quotas inside their retention windows; they do not use the thumbnail
+history's terminal-entry eviction policy. Snapshot/history expiry, request
+idempotency and busy results need separate lifecycle review.
+
+Some fixed values have a different basis: Orca's `PartSkipDialog` blocks
+skipping plates above 64 objects; PNG picking colour IDs are 24-bit; native ABI
+integer widths and valid protocol enums constrain representation. Temperature and
+fan ranges derived from device observations, task/configuration ownership,
+non-replay of uncertain commands and parser consistency checks remain intact.
+No physical control, deletion or print is exercised by this audit.
 
 ## 2. Scope and architectural boundaries
 
@@ -1091,12 +1156,15 @@ reads. No plugin change, replacement or remote hardware acceptance is claimed.
 
 The native resource-read increment is implemented in `@orca/bambu-native`.
 `ControlStream` owns a separate source-library/thread lifetime, starts CTRL
-stream type `0x3001`, and bounds both outgoing requests and owned incoming
-packets. Close is idempotent and joins off the JavaScript thread before releasing
+stream type `0x3001`, bounds outgoing request admission, and pauses native pulls
+while two owned incoming packets await the consumer. Close is idempotent and joins off the JavaScript thread before releasing
 the tunnel/library. `readBambuProjectResource` permits only current-project
 object metadata and indexed picking PNGs, issues Orca's `get_project_file` /
 `mem:/16` request, excludes parameter metadata from file bytes, validates chunk
-offsets/lengths and final MD5, and bounds metadata/image sizes and read deadlines.
+offsets/lengths and final MD5, and retains read deadlines. It adds no resource-size,
+packet-size, fragment-count, response-header-size or parameter-metadata-size
+budget. These transport changes do not remove downstream object-catalogue or
+picking-image restrictions listed in section 1.4.
 Local success does not resolve a remote ticket; local failure may invoke the
 explicit remote resolver, while cancellation and LAN-only access do not trigger
 remote fallback. Returned bytes are owned and errors omit private URLs.

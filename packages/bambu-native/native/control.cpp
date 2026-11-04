@@ -19,11 +19,10 @@ struct ControlState {
     std::thread thread;
     std::deque<std::string> outgoing;
     std::deque<std::vector<unsigned char>> incoming;
-    std::size_t bytes = 0;
     bool ready = false;
     std::string error;
     ~ControlState() { stop = true; if (thread.joinable()) thread.join(); }
-    void fail(const char* message) { std::lock_guard<std::mutex> lock(mutex); error = message; incoming.clear(); bytes = 0; }
+    void fail(const char* message) { std::lock_guard<std::mutex> lock(mutex); error = message; incoming.clear(); }
     void run(const std::string& path, const std::string& url) {
         try {
             Library library(path);
@@ -57,21 +56,18 @@ struct ControlState {
                     if (result == Bambu_success) { std::lock_guard<std::mutex> lock(mutex); outgoing.pop_front(); }
                     else if (result != Bambu_would_block) { fail("Task resource request failed"); return; }
                 }
-                // Storage readers use downstream demand instead of overflowing their
+                // CTRL readers use downstream demand instead of overflowing their
                 // application queue. The plugin's own queue still needs qualification.
-                if (storage) {
-                    bool full;
-                    { std::lock_guard<std::mutex> lock(mutex); full = incoming.size() >= 2; }
-                    if (full) { std::this_thread::sleep_for(std::chrono::milliseconds(2)); continue; }
-                }
+                bool full;
+                { std::lock_guard<std::mutex> lock(mutex); full = incoming.size() >= 2; }
+                if (full) { std::this_thread::sleep_for(std::chrono::milliseconds(2)); continue; }
                 Bambu_Sample sample{};
                 const int result = api.Bambu_ReadSample(tunnel, &sample);
                 if (result == Bambu_would_block) { std::this_thread::sleep_for(std::chrono::milliseconds(2)); continue; }
-                if (result != Bambu_success || !sample.buffer || sample.size <= 0 || (!storage && sample.size > 4 * 1024 * 1024)) { fail("Task resource packet unavailable"); return; }
+                if (result != Bambu_success || !sample.buffer || sample.size <= 0) { fail("Task resource packet unavailable"); return; }
                 std::vector<unsigned char> owned(sample.buffer, sample.buffer + sample.size);
                 std::lock_guard<std::mutex> lock(mutex);
-                if (!storage && (incoming.size() >= 32 || bytes + owned.size() > 8 * 1024 * 1024)) { error = "Task resource reader overflow"; incoming.clear(); bytes = 0; return; }
-                bytes += owned.size(); incoming.push_back(std::move(owned));
+                incoming.push_back(std::move(owned));
             }
         } catch (...) { fail("Task resource native reader failed"); }
     }
@@ -124,7 +120,7 @@ public:
         auto result = Napi::Object::New(info.Env()); result.Set("ready", state_->ready);
         auto messages = Napi::Array::New(info.Env(), state_->incoming.size()); uint32_t i = 0;
         for (const auto& packet : state_->incoming) messages.Set(i++, Napi::Buffer<unsigned char>::Copy(info.Env(), packet.data(), packet.size()));
-        state_->incoming.clear(); state_->bytes = 0; result.Set("messages", messages); return result;
+        state_->incoming.clear(); result.Set("messages", messages); return result;
     }
     Napi::Value Close(const Napi::CallbackInfo& info) {
         if (!close_.IsEmpty()) return close_.Value();

@@ -121,6 +121,22 @@ int Bambu_SendMessage(Bambu_Tunnel tunnel, int type, const char* bytes, int size
     if (type != 0x3001 || message.find("\"cmdtype\":4") == std::string::npos || message.find("mem:/16") == std::string::npos
         || message.find("get_project_file") == std::string::npos || message.find("Metadata/") == std::string::npos) return -1;
     if (s.mode.find("silent") != std::string::npos) return 0;
+    if (s.mode.find("project-large") != std::string::npos || s.mode.find("project-many-packets") != std::string::npos || s.mode.find("project-headers") != std::string::npos) {
+        const bool headers = s.mode.find("project-headers") != std::string::npos;
+        const int count = s.mode.find("many-packets") != std::string::npos ? 4097 : 1;
+        const int size = headers ? 3 : count == 1 ? 17 * 1024 * 1024 : 1;
+        const std::string padding = headers ? ",\"padding\":\"" + std::string(65537, ' ') + "\"" : "";
+        const std::string metadata = "{\"result\":0,\"size\":" + std::to_string(count * size) + padding + "}";
+        s.replies.push_back("{\"result\":1,\"sequence\":1" + padding + ",\"reply\":{\"mem_dl_param_size\":" + std::to_string(metadata.size()) + "}}\n\n" + metadata);
+        for (int i = 0; i < count; ++i) {
+            const bool last = i == count - 1;
+            const char* md5 = headers ? "900150983cd24fb0d6963f7d28e17f72" : count == 1 ? "c9fa02f009aa62f0b0504a86cc983e2b" : "88751dd296563726278c2d57ab7549e4";
+            s.replies.push_back("{\"result\":" + std::to_string(last ? 0 : 1) + ",\"sequence\":1,\"reply\":{\"offset\":" + std::to_string(i * size) +
+                ",\"total\":" + std::to_string(count * size) + ",\"size\":" + std::to_string(size) +
+                (last ? ",\"file_md5\":\"" + std::string(md5) + "\"" : "") + "}}\n\n" + (headers ? "abc" : std::string(size, 'x')));
+        }
+        return 0;
+    }
     if (s.mode.find("malformed") != std::string::npos) { s.replies.push_back("not-json"); return 0; }
     s.replies.push_back("{\"result\":0,\"sequence\":99,\"reply\":{}}");
     const std::string metadata = s.mode.find("oversize") != std::string::npos ? "{\"result\":0,\"size\":999999999}" : "{\"result\":0,\"size\":3}";

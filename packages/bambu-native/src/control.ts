@@ -43,7 +43,7 @@ function remoteUrl(resolve: () => Promise<string>, options: BambuResourceReadOpt
   });
 }
 
-async function readOne(addonPath: string, sourcePath: string, url: string, resource: string, limit: number, options: BambuResourceReadOptions): Promise<Uint8Array> {
+async function readOne(addonPath: string, sourcePath: string, url: string, resource: string, options: BambuResourceReadOptions): Promise<Uint8Array> {
   const stream = loadBambuControlStream(addonPath, sourcePath, url, 'project-resource');
   try {
     const deadline = Date.now() + (options.timeoutMs ?? 15_000);
@@ -59,7 +59,6 @@ async function readOne(addonPath: string, sourcePath: string, url: string, resou
         const packet = Buffer.from(value), separator = packet.indexOf('\n\n');
         const header = separator === -1 ? packet : packet.subarray(0, separator);
         const body = separator === -1 ? Buffer.alloc(0) : packet.subarray(separator + 2);
-        if (header.length > 65536) throw invalid();
         let root: unknown;
         try { root = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(header)); } catch { throw invalid(); }
         if (!object(root)) throw invalid();
@@ -68,18 +67,18 @@ async function readOne(addonPath: string, sourcePath: string, url: string, resou
         if (!object(root.reply)) throw invalid();
         const reply = root.reply;
         if (reply.mem_dl_param_size !== undefined) {
-          if (!integer(reply.mem_dl_param_size) || reply.mem_dl_param_size !== body.length || body.length > 65536) throw invalid();
+          if (!integer(reply.mem_dl_param_size) || reply.mem_dl_param_size !== body.length) throw invalid();
           let metadata: unknown;
           try { metadata = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body)); } catch { throw invalid(); }
           if (!object(metadata) || metadata.result !== 0) throw new BambuResourceError('transport', 'The current task resource is unavailable.');
-          if (metadata.size !== undefined && (!integer(metadata.size) || metadata.size === 0 || metadata.size > limit))
+          if (metadata.size !== undefined && (!integer(metadata.size) || metadata.size === 0))
             throw new BambuResourceError('out-of-range', 'The task resource size is unsupported.');
           continue; // Parameter metadata is not part of the file bytes/hash.
         }
         if (!integer(reply.offset) || !integer(reply.total) || !integer(reply.size) || reply.offset !== received
           || reply.size !== body.length || total !== undefined && total !== reply.total) throw invalid();
-        if (chunks.length >= 4096 || body.length === 0 && root.result === 1) throw invalid();
-        if (reply.total === 0 || reply.total > limit || received + body.length > reply.total)
+        if (body.length === 0 && root.result === 1) throw invalid();
+        if (reply.total === 0 || received + body.length > reply.total)
           throw new BambuResourceError('out-of-range', 'The task resource size is unsupported.');
         total = reply.total; received += body.length; chunks.push(body); hash.update(body);
         if (root.result === 0) {
@@ -104,17 +103,16 @@ export async function readBambuProjectResource(addonPath: string, sourcePath: st
   if (!/^Metadata\/(?:slice_info\.config|model_settings\.config|pick_[1-9]\d{0,2}\.png)$/.test(resource)) throw invalid();
   if (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 20_000)) throw invalid();
   if (options.signal?.aborted) throw cancelled();
-  const limit = resource.endsWith('.png') ? 4 * 1024 * 1024 : 2 * 1024 * 1024;
   let failure: unknown;
   if (source.localUrl) {
-    try { return await readOne(addonPath, sourcePath, source.localUrl, resource, limit, options); }
+    try { return await readOne(addonPath, sourcePath, source.localUrl, resource, options); }
     catch (error) { if (options.signal?.aborted) throw cancelled(); failure = error; }
   }
   if (source.remoteUrl) {
     try {
       const url = await remoteUrl(source.remoteUrl, options);
       if (options.signal?.aborted) throw cancelled();
-      return await readOne(addonPath, sourcePath, url, resource, limit, options);
+      return await readOne(addonPath, sourcePath, url, resource, options);
     } catch (error) { if (options.signal?.aborted) throw cancelled(); failure = error; }
   }
   if (failure instanceof BambuResourceError) throw failure;
