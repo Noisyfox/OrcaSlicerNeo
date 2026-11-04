@@ -15,20 +15,24 @@ export function DeleteStorageFiles({ files, printerName, storageName, onOutcome,
   const [stopRequested, setStopRequested] = useState(false);
   const position = useRef(0), running = useRef(false), stop = useRef(false), lifetime = useRef(new AbortController());
   const callback = useRef(onOutcome); callback.current = onOutcome;
-  useEffect(() => () => { stop.current = true; lifetime.current.abort(); }, []);
+  useEffect(() => {
+    const controller = new AbortController(); lifetime.current = controller; stop.current = false;
+    return () => { stop.current = true; controller.abort(); };
+  }, []);
   const leaveUnsent = () => setItems(previous => previous.map((item, index) => index >= position.current ? { ...item, result: { state: 'not-sent' } } : item));
   const run = async () => {
-    if (running.current || lifetime.current.signal.aborted) return;
+    const controller = lifetime.current;
+    if (running.current || controller.signal.aborted) return;
     running.current = true; setPhase('running');
     try {
-      while (position.current < files.length && !stop.current && !lifetime.current.signal.aborted) {
+      while (position.current < files.length && !stop.current && !controller.signal.aborted) {
         const index = position.current++, file = files[index];
-        const result = await deleteStorageFile(service, file.ref, lifetime.current.signal);
-        if (lifetime.current.signal.aborted) return;
+        const result = await deleteStorageFile(service, file.ref, controller.signal);
+        if (controller.signal.aborted) return;
         setItems(previous => previous.map((item, i) => i === index ? { ...item, result } : item)); callback.current(file.ref, result);
         if (!stop.current && pausesDeletion(result) && position.current < files.length) { setPhase('paused'); return; }
       }
-      if (!lifetime.current.signal.aborted) { leaveUnsent(); setPhase('done'); }
+      if (!controller.signal.aborted) { leaveUnsent(); setPhase('done'); }
     } finally { running.current = false; }
   };
   const close = () => { if (!running.current) onClose(); };
