@@ -427,7 +427,9 @@ of the accepted initial direction.
   Append the native operation suffix to A's name. An empty Gizmo result keeps
   the input geometry and uses the native warning.
 - Add an application-level, persisted keep-painting preference, defaulting
-  to disabled when unset, matching Orca's
+  to disabled when unset. Expose it in the global Preferences dialog, with
+  Save applying the change and Cancel discarding it; the Mesh Boolean Gizmo
+  does not expose a separate switch. The default matches Orca's
   [preference](../packages/slicer-wasm/cpp/src/slic3r/GUI/Preferences.cpp) and
   [configuration lookup](../packages/slicer-wasm/cpp/src/libslic3r/AppConfig.hpp).
   Store it through the existing host-neutral

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { updateUserPreferences, type UserPreferencesRepository } from '@orca/platform-contract';
+import type { UserPreferencesRepository } from '@orca/platform-contract';
 
 /** Global execution state and application preference; operand picks belong to
  * the scene controller and never enter project history or persistence. */
@@ -20,10 +20,4 @@ export function loadMeshBooleanPreferences(repository: UserPreferencesRepository
     loads.set(repository, task);
   }
   return task;
-}
-export async function setMeshBooleanKeepPainting(repository: UserPreferencesRepository, keepPainting: boolean): Promise<void> {
-  if (useMeshBooleanStore.getState().busy) return;
-  useMeshBooleanStore.setState({ keepPainting });
-  try { await updateUserPreferences(repository, current => ({ ...current, meshBooleanKeepPainting: keepPainting })); }
-  catch (error) { console.error('Could not save Mesh Boolean preferences', error); }
 }

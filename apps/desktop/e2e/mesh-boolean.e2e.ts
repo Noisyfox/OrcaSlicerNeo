@@ -16,7 +16,13 @@ test('real threaded Electron Mesh Boolean interaction, history, modal admission 
   const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
   try {
     const page = await app.firstWindow();
-    await meshBooleanJourney(page, () => page.getByTestId('btn-add-model').click(), info);
+    await meshBooleanJourney(page, () => page.getByTestId('btn-add-model').click(), info, async () => {
+      if (process.platform === 'darwin') await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById('file-preferences')!.click());
+      else {
+        await page.getByTestId('titlebar-menu-trigger').click(); await page.getByTestId('menu-file-trigger').hover();
+        await page.getByTestId('file-preferences').click();
+      }
+    });
     expect(JSON.parse(readFileSync(preferences, 'utf8')).meshBooleanKeepPainting).toBe(true);
   } finally { await app.close(); }
 });

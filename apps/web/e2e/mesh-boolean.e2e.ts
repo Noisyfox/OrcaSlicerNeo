@@ -31,7 +31,10 @@ test('real Web Mesh Boolean interaction, history, modal admission and instances'
     const chooser = page.waitForEvent('filechooser');
     await page.getByTestId('btn-add-model').click();
     await (await chooser).setFiles(resolve(import.meta.dirname, '../../../packages/slicer-wasm/fixtures/cube.stl'));
-  }, info);
+  }, info, async () => {
+    await page.getByTestId('titlebar-menu-trigger').click(); await page.getByTestId('menu-file-trigger').hover();
+    await page.getByTestId('file-preferences').click();
+  });
   const expected = await readFile(resolve(import.meta.dirname, `../../../packages/slicer-wasm/out/${width}${variant}/orca_slice.wasm`));
   expect(servedHash).toBe(createHash('sha256').update(expected).digest('hex'));
   expect([...requests].sort()).toEqual(['data','js','wasm'].map(extension => `/wasm/${width}${variant}/orca_slice.${extension}`).sort());

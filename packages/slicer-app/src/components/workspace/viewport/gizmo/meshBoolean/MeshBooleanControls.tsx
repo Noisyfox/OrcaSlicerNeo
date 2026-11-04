@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { loadMeshBooleanPreferences, setMeshBooleanKeepPainting, useMeshBooleanStore } from '@/stores/useMeshBooleanStore';
+import { loadMeshBooleanPreferences, useMeshBooleanStore } from '@/stores/useMeshBooleanStore';
 import { useObjectListStore } from '../../../objectList/useObjectListStore';
 import type { SceneInteractionController } from '../../SceneInteractionController';
 import { useSceneInteraction, useSceneInteractionVersion } from '../../SceneInteractionContext';
@@ -47,9 +47,6 @@ export function MeshBooleanPanel({ sceneInteraction: scene }: { sceneInteraction
     {state.operation !== 'union' && <Label>
       <Checkbox checked={deleteInput} onCheckedChange={checked => session.setDeleteInput(checked)} />Delete input B
     </Label>}
-    <Label><Checkbox checked={keepPainting} disabled={!ready || busy}
-      onCheckedChange={checked => { void setMeshBooleanKeepPainting(platform.preferences, checked); }} />Keep painting
-    </Label>
     <Button className="w-full" disabled={!ready || busy || !session.request(keepPainting)} data-testid="mesh-boolean-execute"
       onClick={() => { const request = session.request(keepPainting); if (request) void executeMeshBoolean(platform, request, scene); }}>
       {state.operation === 'difference' ? 'Subtract B from A' : state.operation === 'intersection' ? 'Intersect A and B' : 'Union A and B'}

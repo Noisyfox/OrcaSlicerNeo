@@ -8,8 +8,23 @@ export const booleanMeshes = (page: Page): Promise<Mesh[]> => page.evaluate(() =
 const state = (page: Page): Promise<any> => page.evaluate(() => (window as any).__orcaE2e.meshBooleanState());
 
 /** Real UI inputs and native geometry; the probe only reads scene facts. */
-export async function meshBooleanJourney(page: Page, addCube: () => Promise<void>, info: TestInfo) {
+export async function meshBooleanJourney(page: Page, addCube: () => Promise<void>, info: TestInfo, openPreferences: () => Promise<void>) {
   await ready(page); await selectPrinter(page);
+  await openPreferences();
+  const preferences = page.getByTestId('project-preferences-dialog');
+  const keepPainting = preferences.getByRole('checkbox', { name: 'Keep painting', exact: true });
+  await expect(keepPainting).not.toBeChecked();
+  await keepPainting.check();
+  await preferences.getByTestId('project-preferences-cancel').click();
+  await openPreferences();
+  await expect(keepPainting).not.toBeChecked();
+  await keepPainting.check();
+  await preferences.getByTestId('project-preferences-save').click();
+  await expect(preferences).toBeHidden();
+  await openPreferences();
+  await expect(keepPainting).toBeChecked();
+  await preferences.screenshot({ path: info.outputPath('mesh-boolean-preferences.png') });
+  await preferences.getByTestId('project-preferences-cancel').click();
   const errors: string[] = []; page.on('pageerror', error => errors.push(String(error)));
   for (let count = 1; count <= 2; count++) {
     await addCube(); await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 30_000 }).toBe(count);
@@ -39,8 +54,7 @@ export async function meshBooleanJourney(page: Page, addCube: () => Promise<void
   await objects.first().getByRole('button').first().click();
   await page.getByTestId('gizmo-btn-mesh-boolean').click();
   const panel = page.getByTestId('mesh-boolean-panel'); await expect(panel).toBeVisible();
-  await expect(panel.getByRole('checkbox', { name: 'Keep painting', exact: true })).not.toBeChecked();
-  await panel.getByRole('checkbox', { name: 'Keep painting', exact: true }).check();
+  await expect(panel.getByRole('checkbox', { name: 'Keep painting', exact: true })).toHaveCount(0);
   await panel.getByRole('button', { name: 'Difference', exact: true }).click();
   await expect(panel.getByRole('checkbox', { name: 'Delete input B', exact: true })).not.toBeChecked();
   const beforePicks = await history(page);
@@ -65,7 +79,7 @@ export async function meshBooleanJourney(page: Page, addCube: () => Promise<void
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
   await page.getByTestId('gizmo-btn-mesh-boolean').click();
-  await expect(panel.getByRole('checkbox', { name: 'Keep painting', exact: true })).toBeChecked();
+  await expect(panel.getByRole('checkbox', { name: 'Keep painting', exact: true })).toHaveCount(0);
   expect(await state(page)).toMatchObject({ a: null, b: null, picking: 'a' });
   await panel.getByRole('button', { name: 'Difference', exact: true }).click();
   await parts.nth(0).getByRole('button').first().click(); await parts.nth(1).getByRole('button').first().click();

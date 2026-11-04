@@ -11,8 +11,9 @@ import type {
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectNotice, ProjectOperation } from '@/stores/useProjectStore';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Field, FieldGroup, FieldLabel, FieldDescription } from '@/components/ui/field';
+import { Field, FieldGroup, FieldLabel, FieldDescription, FieldContent } from '@/components/ui/field';
 import {
   Dialog,
   DialogContent,
@@ -135,20 +136,25 @@ export function ProjectPreferencesDialog({
 }: {
   open: boolean;
   preferences: UserPreferences | null;
-  onSave: (behaviour: ProjectLoadBehaviour, autoFlushPolicy: NonNullable<UserPreferences['autoFlushPolicy']>) => Promise<void> | void;
+  onSave: (behaviour: ProjectLoadBehaviour, autoFlushPolicy: NonNullable<UserPreferences['autoFlushPolicy']>, keepPainting: boolean) => Promise<void> | void;
   onClose: () => void;
 }) {
   const [behaviour, setBehaviour] = useState<ProjectLoadBehaviour>('ask_when_relevant');
   const [autoFlushPolicy, setAutoFlushPolicy] = useState<NonNullable<UserPreferences['autoFlushPolicy']>>('all');
+  const [keepPainting, setKeepPainting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    if (open) { setBehaviour(preferences?.projectLoadBehaviour ?? 'ask_when_relevant'); setAutoFlushPolicy(preferences?.autoFlushPolicy ?? 'all'); }
+    if (open) {
+      setBehaviour(preferences?.projectLoadBehaviour ?? 'ask_when_relevant');
+      setAutoFlushPolicy(preferences?.autoFlushPolicy ?? 'all');
+      setKeepPainting(preferences?.meshBooleanKeepPainting ?? false);
+    }
   }, [open, preferences]);
   if (!open) return null;
   const save = async () => {
     setSaving(true);
-    try { setSaveError(null); await onSave(behaviour, autoFlushPolicy); onClose(); } catch (e) { setSaveError(String(e)); } finally { setSaving(false); }
+    try { setSaveError(null); await onSave(behaviour, autoFlushPolicy, keepPainting); onClose(); } catch (e) { setSaveError(String(e)); } finally { setSaving(false); }
   };
   return (
     <Modal title="Preferences" testId="project-preferences-dialog">
@@ -182,6 +188,14 @@ export function ProjectPreferencesDialog({
         </Select>
         <FieldDescription>All recalculates after colour or material changes; Color recalculates after colour changes; None preserves manual values. Adding a material initializes its new pairs in every mode.</FieldDescription>
       </Field></FieldGroup>
+      <Field orientation="horizontal">
+        <Checkbox id="mesh-boolean-keep-painting" checked={keepPainting} disabled={saving}
+          onCheckedChange={checked => setKeepPainting(checked === true)} aria-describedby="mesh-boolean-keep-painting-description" />
+        <FieldContent>
+          <FieldLabel htmlFor="mesh-boolean-keep-painting">Keep painting</FieldLabel>
+          <FieldDescription id="mesh-boolean-keep-painting-description">Preserve support, seam, color and fuzzy-skin painting when applying Mesh Boolean.</FieldDescription>
+        </FieldContent>
+      </Field>
       <DownloadPreferences />
       <AccountSettings />
       <PrinterStoragePreferences />

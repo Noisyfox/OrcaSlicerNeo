@@ -16,6 +16,7 @@ import { Workspace, type PreviewRenderTransition } from './components/workspace/
 import { DevicePanel } from './components/device/DevicePanel';
 import { StatusBar } from './components/layout/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
+import { useMeshBooleanStore } from './stores/useMeshBooleanStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import { useProjectStore } from './stores/useProjectStore';
 import type { SceneInteractionController } from './components/workspace/viewport/SceneInteractionController';
@@ -316,11 +317,13 @@ function AppContent() {
     setFileManagerOpen(true);
     setFileManagerFocusRequest((request) => request + 1);
   }, []);
-  const savePreferences = useCallback(async (behaviour: ProjectLoadBehaviour, autoFlushPolicy: NonNullable<UserPreferences['autoFlushPolicy']>) => {
+  const savePreferences = useCallback(async (behaviour: ProjectLoadBehaviour, autoFlushPolicy: NonNullable<UserPreferences['autoFlushPolicy']>, keepPainting: boolean) => {
     const result = await platform.runtime.setAutoFlushPolicy(autoFlushPolicy);
     if (!result.ok) throw new Error(result.error ?? 'Could not set automatic flushing');
     try {
-      const next = await updateUserPreferences(platform.preferences, current => ({ ...current, projectLoadBehaviour: behaviour, autoFlushPolicy }));
+      const next = await updateUserPreferences(platform.preferences, current => ({ ...current,
+        projectLoadBehaviour: behaviour, autoFlushPolicy, meshBooleanKeepPainting: keepPainting }));
+      useMeshBooleanStore.setState({ keepPainting: next.meshBooleanKeepPainting === true });
       setPreferences(next);
     } catch (error) {
       await platform.runtime.setAutoFlushPolicy(preferences?.autoFlushPolicy ?? 'all');

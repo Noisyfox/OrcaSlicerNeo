@@ -70,7 +70,8 @@ describe('project dialogs', () => {
   });
 
   it('renders the four persisted load behaviour choices in the shadcn select', async () => {
-    await renderDialog(<ProjectPreferencesDialog open preferences={{ version: 1, rememberedBedTypes: {}, projectLoadBehaviour: 'always_ask', selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } }} onSave={vi.fn()} onClose={vi.fn()} />);
+    const onSave = vi.fn();
+    await renderDialog(<ProjectPreferencesDialog open preferences={{ version: 1, rememberedBedTypes: {}, projectLoadBehaviour: 'always_ask', selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } }} onSave={onSave} onClose={vi.fn()} />);
     expect(document.body.textContent).toContain('Project Load Behaviour');
     const trigger = document.querySelector('[data-testid="project-load-behaviour"]');
     expect(trigger?.getAttribute('role')).toBe('combobox');
@@ -81,6 +82,13 @@ describe('project dialogs', () => {
     expect(document.body.textContent).toContain('Always Ask');
     expect(document.body.textContent).toContain('Load Geometry Only');
     expect(document.querySelectorAll('[role="option"]')).toHaveLength(4);
+    await act(async () => { (document.querySelector('[role="option"][aria-selected="true"]') as HTMLElement).click(); });
+    const keepPainting = document.querySelector('#mesh-boolean-keep-painting') as HTMLElement;
+    expect(keepPainting.hasAttribute('data-checked')).toBe(false);
+    await act(async () => keepPainting.click());
+    expect(onSave).not.toHaveBeenCalled();
+    await act(async () => { (document.querySelector('[data-testid="project-preferences-save"]') as HTMLElement).click(); });
+    expect(onSave).toHaveBeenCalledWith('always_ask', 'all', true);
   });
 
   it('saves the global storage preference immediately while preserving printer preferences and Cancel', async () => {
