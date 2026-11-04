@@ -112,7 +112,18 @@ export async function source(recipe, work) {
     }
     await writeFile(join(extracted, '.source-sha256'), `${marker}\n`);
     await rm(directory, { recursive: true, force: true });
-    await rename(extracted, directory);
+    // Windows scanners can briefly hold freshly extracted files open, which
+    // prevents renaming their parent directory even after CMake has exited.
+    for (let attempt = 1; ; ++attempt) {
+      try {
+        await rename(extracted, directory);
+        break;
+      } catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt === 6) throw error;
+        console.warn(`[cgal] Source rename attempt ${attempt} failed (${error.code}); retrying`);
+        await delay(attempt * 200);
+      }
+    }
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
