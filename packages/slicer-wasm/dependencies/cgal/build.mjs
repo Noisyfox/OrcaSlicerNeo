@@ -210,7 +210,7 @@ async function main(args) {
   const host = join(options.work, 'cgal-generators');
   const nativeEnvironment = { ...process.env };
   for (const key of ['CC', 'CXX', 'CFLAGS', 'CXXFLAGS', 'LDFLAGS', 'CMAKE_TOOLCHAIN_FILE']) delete nativeEnvironment[key];
-  run('cmake', ['-S', join(here, 'host'), '-B', host, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', `-DGMP_SOURCE=${gmp}`], { env: nativeEnvironment });
+  run('cmake', ['-S', join(here, 'host'), '-B', host, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', `-DGMP_SOURCE:PATH=${gmp}`], { env: nativeEnvironment });
   run('cmake', ['--build', host, '--parallel', jobs], { env: nativeEnvironment });
   const tables = join(options.work, `cgal-tables-wasm${options.width}`);
   await mkdir(join(tables, 'mpn'), { recursive: true });
@@ -234,7 +234,9 @@ async function main(args) {
     `-DCMAKE_TOOLCHAIN_FILE=${join(emscriptenRoot(), 'cmake/Modules/Platform/Emscripten.cmake')}`,
     `-DCMAKE_C_FLAGS=${flags}`, `-DCMAKE_CXX_FLAGS=${flags}`, `-DCMAKE_INSTALL_PREFIX=${options.stage}`,
     `-DWASM_WIDTH=${bits}`, `-DWASM_THREADING=${options.threaded ? 'ON' : 'OFF'}`,
-    `-DGMP_SOURCE=${gmp}`, `-DMPFR_SOURCE=${mpfr}`, `-DGMP_TABLES=${tables}`]);
+    // Typed path entries let CMake normalize Windows backslashes before using
+    // them in generated C sources and the cmake_install.cmake script.
+    `-DGMP_SOURCE:PATH=${gmp}`, `-DMPFR_SOURCE:PATH=${mpfr}`, `-DGMP_TABLES:PATH=${tables}`]);
   run('cmake', ['--build', build, '--parallel', jobs]);
   run('cmake', ['--install', build]);
   await cp(join(cgal, 'include'), join(options.stage, 'include'), { recursive: true });
