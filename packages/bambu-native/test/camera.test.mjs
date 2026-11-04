@@ -1,13 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { loadBambuCamera } from '../dist/index.js';
 const addon = fileURLToPath(new URL('../build/Release/bambu.node', import.meta.url));
 const source = fileURLToPath(new URL(`../build/Release/fixture_camera.${process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so'}`, import.meta.url));
 async function first(camera) {
-  for (let i = 0; i < 100; i++) { const result = camera.poll(); if (result.samples.length) return result; await delay(5); }
-  throw new Error('No fixture samples');
+  // Native library loading can take seconds on a cold, parallel test run.
+  const start = performance.now();
+  const deadline = start + 5000;
+  for (;;) {
+    const result = camera.poll();
+    if (result.samples.length) return result;
+    const now = performance.now();
+    if (now >= deadline) {
+      throw new Error(`No fixture samples after ${Math.round(now - start)} ms (ready=${result.ready}, format=${JSON.stringify(result.format)})`);
+    }
+    await delay(5);
+  }
 }
 test('camera owns borrowed bytes and 100ns timestamps; close is idempotent', async () => {
   const camera = loadBambuCamera(addon, source, 'bambu:///local/fixture');
@@ -19,6 +30,13 @@ test('camera owns borrowed bytes and 100ns timestamps; close is idempotent', asy
     assert(later.samples.at(-1).bytes[2] > value); assert.equal(sample.bytes[2], value);
   } finally { const closed = camera.close(); assert.equal(closed, camera.close()); await closed; }
   assert.throws(() => camera.poll(), /closed/);
+});
+test('camera waits for samples across delayed native startup', async () => {
+  const camera = loadBambuCamera(addon, source, 'bambu:///local/delayed');
+  try {
+    const initial = await first(camera);
+    assert.equal(initial.ready, true); assert.equal(initial.format, 'jpeg');
+  } finally { await camera.close(); }
 });
 test('native queue overflow fails explicitly instead of silently losing interdependent samples', async () => {
   const camera = loadBambuCamera(addon, source, 'bambu:///local/burst');
