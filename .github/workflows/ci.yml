@@ -190,6 +190,16 @@ jobs:
           node packages/slicer-wasm/harness/run-mesh-boolean-backend.mjs packages/slicer-wasm/.work/threaded/build/mesh_boolean_backend_test.mjs
           node packages/slicer-wasm/.work/threaded/build/arrangement_core_test.cjs
           node packages/slicer-wasm/.work/threaded/build/headless_arrangement_test.cjs
+      - uses: pnpm/action-setup@v6
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+      - name: Install typed native acceptance dependencies
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile --filter @orca/slicer-wasm --filter @orca/profile-resources
+      - name: Mesh Boolean — threaded typed geometry/history/painting acceptance
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        env:
+          ORCA_MESH_BOOLEAN_MODULE: ${{ github.workspace }}/packages/slicer-wasm/out/threaded/orca_slice.js
+        run: pnpm --filter @orca/slicer-wasm exec vitest run harness/mesh-boolean.native.test.mjs
       - name: Smoke — slice cube.stl end to end
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
@@ -290,10 +300,24 @@ jobs:
         if: steps.wasm-cache.outputs.cache-hit != 'true'
       - name: Install native profile-fixture packaging dependencies
         if: steps.wasm-cache.outputs.cache-hit != 'true'
-        run: pnpm install --frozen-lockfile --filter @orca/profile-resources
+        run: pnpm install --frozen-lockfile --filter @orca/profile-resources --filter @orca/slicer-wasm
       - name: Printer picker — exact toolhead combinations and indexed fallback
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/printer-picker-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+      - name: Mesh Boolean — serial typed geometry/history/painting acceptance
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        env:
+          ORCA_MESH_BOOLEAN_MODULE: ${{ github.workspace }}/packages/slicer-wasm/out/serial/orca_slice.js
+        run: pnpm --filter @orca/slicer-wasm exec vitest run harness/mesh-boolean.native.test.mjs
+      - name: Mesh Boolean — explicit fault build verifies atomic publication and fallback
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        env:
+          ORCA_MESH_BOOLEAN_MODULE: ${{ github.workspace }}/packages/slicer-wasm/.work/serial/build/orca_slice.js
+          ORCA_MESH_BOOLEAN_FAULTS: '1'
+        run: |
+          cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_MESH_BOOLEAN_COMMAND_TEST=ON
+          cmake --build packages/slicer-wasm/.work/serial/build --target orca_slice --parallel 2
+          pnpm --filter @orca/slicer-wasm exec vitest run harness/mesh-boolean.native.test.mjs
       - name: Arrangement — explicit test build verifies publication rollback
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: |
@@ -424,6 +448,16 @@ jobs:
           node packages/slicer-wasm/harness/bridge-smoke.mjs "$module" packages/slicer-wasm/fixtures/cube.stl
           node packages/slicer-wasm/harness/arrangement-smoke.mjs "$module"
           node packages/slicer-wasm/harness/step-import-smoke.mjs "$module" packages/slicer-wasm/fixtures/step
+      - uses: pnpm/action-setup@v6
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+      - name: Install typed native acceptance dependencies
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile --filter @orca/slicer-wasm --filter @orca/profile-resources
+      - name: Mesh Boolean — wasm32 typed operation acceptance
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        env:
+          ORCA_MESH_BOOLEAN_MODULE: ${{ github.workspace }}/packages/slicer-wasm/out/wasm32/${{ matrix.variant }}/orca_slice.js
+        run: pnpm --filter @orca/slicer-wasm exec vitest run harness/mesh-boolean.native.test.mjs
       - name: Verify production artifacts
         run: |
           for extension in js wasm data; do

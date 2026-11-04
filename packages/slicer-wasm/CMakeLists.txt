@@ -32,6 +32,7 @@ set(NLOPT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/nlopt-2.5.0/stage-wasm64-
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone history tests" OFF)
 set(CGAL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/cgal-5.6.3/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "CGAL and numerical WASM prefix")
 option(NEO_MESH_BOOLEAN_TEST "Build real MeshBoolean backend acceptance tests" OFF)
+option(NEO_MESH_BOOLEAN_COMMAND_TEST "Enable Mesh Boolean command fault injection" OFF)
 option(NEO_ARRANGEMENT_TEST "Build arrangement publication fault injection for rollback tests" OFF)
 option(NEO_REAL_PROJECT_PROFILE "Build the dedicated real-project profiling ABI" OFF)
 option(NEO_PAINTING_PROFILE "Build painting-only native timing counters" OFF)
@@ -407,6 +408,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_prime_tower.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_model_operations.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_mesh_boolean.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_profiles.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_plate.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_slicing_pipeline.cpp"
@@ -425,6 +427,10 @@ set(ORCA_SLICE_SRC
   ${ORCA_BRIDGE_SRC}
 )
 add_executable(orca_slice ${ORCA_SLICE_SRC})
+if(NEO_MESH_BOOLEAN_COMMAND_TEST)
+  set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_mesh_boolean.cpp"
+    APPEND PROPERTY COMPILE_DEFINITIONS NEO_MESH_BOOLEAN_COMMAND_TEST=1)
+endif()
 # Original Orca filename folding is independent of the wxWidgets GUI.
 target_sources(orca_slice PRIVATE "${ORCA_SRC}/src/slic3r/Utils/ASCIIFolding.cpp")
 if(NEO_ARRANGEMENT_TEST)

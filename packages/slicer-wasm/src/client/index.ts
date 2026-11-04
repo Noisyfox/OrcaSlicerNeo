@@ -51,7 +51,7 @@ export type {
   LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelScenePatchResult, ModelObjectBuffer, ModelRenderable, ModelGeometry, ModelPaintDrawGroup, ModelPaintGeometry, NativeModelObjectBuffer, ModelTransform, ModelTransformMutation,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,
   ReorderStructureResult, SplitVolumeResult, SplitObjectResult,
-  MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
+  MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
   ModelStructureResult, ModelObjectStructure, ModelVolumeStructure,
   AddVolumeRequest, AddVolumeResult, ModelInstanceStructure, VolumeType,
   SliceResultStatus, SliceDiagnostic, SliceDiagnosticEvent, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,

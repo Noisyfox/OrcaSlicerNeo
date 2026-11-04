@@ -101,6 +101,24 @@ fixtures. It adds no test ABI to the production module. Product behavior and
 remaining acceptance are specified in
 [Object List and Parts](../spec/ObjectList-and-Parts.md#10-mesh-boolean-design).
 
+The typed project-command suite uses an existing complete module and real
+geometry, painting, history and 3MF persistence. Build profile resources first;
+select the artifact with `ORCA_MESH_BOOLEAN_MODULE`:
+
+```sh
+pnpm --filter @orca/profile-resources build
+ORCA_MESH_BOOLEAN_MODULE="$PWD/packages/slicer-wasm/.work/serial/build/orca_slice.js" pnpm --filter @orca/slicer-wasm exec vitest run harness/mesh-boolean.native.test.mjs
+```
+
+By default this suite skips its two fault-only cases. To verify publication
+compensation and the native positive-Part fallback, explicitly configure that
+same build tree with `-DNEO_MESH_BOOLEAN_COMMAND_TEST=ON`, rebuild `orca_slice`
+and run with `ORCA_MESH_BOOLEAN_FAULTS=1` in addition to the module variable.
+The suite checks that the artifact's hook state matches the requested mode.
+Restore the option to `OFF` and rebuild before staging a production artifact.
+Normal full/quick drivers always reset it to `OFF`; CI keeps fault modules in
+the build tree and uploads only the separate production outputs.
+
 When symbols or upstream signatures change, fix the owning source/scaffold
 rather than adding a renderer compatibility layer.
 

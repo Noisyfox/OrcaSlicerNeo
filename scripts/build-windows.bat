@@ -300,7 +300,7 @@ if "%DBG%"=="1" (
   )
 )
 REM Normal quick builds must not inherit fault injection from a test cache.
-cmake -S "%PKG%" -B "%QBUILD%" -DNEO_ARRANGEMENT_TEST=OFF
+cmake -S "%PKG%" -B "%QBUILD%" -DNEO_ARRANGEMENT_TEST=OFF -DNEO_MESH_BOOLEAN_COMMAND_TEST=OFF
 if errorlevel 1 exit /b 1
 call :discard_invalid_link_outputs "%QBUILD%"
 if defined JOBS (

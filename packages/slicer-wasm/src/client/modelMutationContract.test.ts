@@ -19,6 +19,7 @@ const operations: Operation[] = [
   { name: 'orc_reorder_objects', fields: ['objects'], invoke: (c, o) => c.reorderObjects(o[0].id, 0) },
   { name: 'orc_reorder_volumes', fields: ['objects'], invoke: (c, o) => c.reorderVolumes(o[0].id, o[0].volumes[0].id, 0) },
   { name: 'orc_split_volume_to_parts', fields: ['parts', 'newVolumeIds', 'objects'], invoke: (c, o) => c.splitVolumeToParts(o[0].volumes[0].id) },
+  { name: 'orc_mesh_boolean', fields: ['changed', 'objectId', 'volumeId', 'objects', 'warning'], invoke: async (c, o) => { const result = await c.meshBoolean({ entry: 'object', objectId: o[0].id, keepPainting: false }); if (result.ok && !result.changed) throw new Error('Expected a changed fixture'); return result; } },
   { name: 'orc_split_object_to_objects', fields: ['objects', 'newObjectIds'], invoke: (c, o) => c.splitObjectToObjects(o[0].id) },
   { name: 'orc_merge_objects_to_multipart', fields: ['objects', 'objectId'], invoke: (c, o) => c.mergeObjectsToMultipart(o.map(object => object.id), 'merged') },
   { name: 'orc_instances_to_separate_objects', fields: ['objects', 'newObjectIds'], invoke: (c, o) => c.separateInstances(o[0].id, [o[0].instances[1].id]) },

@@ -177,7 +177,7 @@ quick_variant() {
     die "Tree $bd was configured without WASM_DEBUG — run: bash scripts/build.sh build --debug (reconfigures both variants)"
   fi
   # Normal quick builds must not inherit fault injection from a test cache.
-  cmake -S "$PKG" -B "$bd" -DNEO_ARRANGEMENT_TEST=OFF
+  cmake -S "$PKG" -B "$bd" -DNEO_ARRANGEMENT_TEST=OFF -DNEO_MESH_BOOLEAN_COMMAND_TEST=OFF
   discard_invalid_link_outputs "$bd"
   log "Incremental: emmake ninja -C $bd orca_slice ${NINJA_JOBS[*]+"${NINJA_JOBS[*]}"}"
   emmake ninja -C "$bd" orca_slice ${NINJA_JOBS[@]+"${NINJA_JOBS[@]}"}

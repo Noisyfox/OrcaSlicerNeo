@@ -18,6 +18,7 @@ import type {
   ProjectLoadResult,
   VolumeType,
   SliceDiagnostic,
+  MeshBooleanRequest,
 } from '../types';
 
 export interface MockFeature {
@@ -114,6 +115,8 @@ export interface MockModuleOptions {
   threaded?: boolean;
   /** Protocol fixture only: geometry correctness is tested with real WASM. */
   arrangementResult?: unknown;
+  /** Protocol/interaction fixture only; real WASM owns all Boolean geometry. */
+  meshBooleanResult?: 'success' | 'empty' | 'positive-parts-only';
   /** Warning metadata returned by the native BBS project-load bridge. */
   embeddedPresetWarnings?: Partial<NonNullable<ProjectLoadResult['embeddedPresetWarnings']>>;
   /** Optional wire snapshot override for malformed/unsupported-version tests. */
@@ -3544,6 +3547,47 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
       return { ok: true, objects: buildStructure(), plate_session: modelStructureMutation(affectedBefore) };
     },
+    orc_mesh_boolean(requestJson: string) {
+      const request = JSON.parse(requestJson) as MeshBooleanRequest;
+      const oi = objectMeta.findIndex(object => object.id === request.objectId);
+      if (oi < 0 || typeof request.keepPainting !== 'boolean') return { ok: false, error: 'Invalid Mesh Boolean target' };
+      const volumes = volumeMeta[oi];
+      let sourceIndex = 0;
+      let toolIndex = -1;
+      if (request.entry === 'gizmo') {
+        sourceIndex = volumes.findIndex(volume => volume.id === request.sourceVolumeId);
+        toolIndex = volumes.findIndex(volume => volume.id === request.toolVolumeId);
+        if (volumes.length < 2 || !instanceMeta[oi].some(instance => instance.id === request.instanceId) ||
+            sourceIndex < 0 || toolIndex < 0 || sourceIndex === toolIndex ||
+            !['union', 'difference', 'intersection'].includes(request.operation) || typeof request.deleteInput !== 'boolean')
+          return { ok: false, error: 'Invalid Mesh Boolean operands' };
+      } else if (request.entry !== 'object' || (volumes.length < 2 && !volumes[0]?.isSplittable)) {
+        return { ok: false, error: 'Object is not multipart or splittable' };
+      }
+      if (opts.meshBooleanResult === 'empty') return { ok: true, changed: false, warning: 'empty_result' };
+      const source = volumes[sourceIndex];
+      const generated = { id: nextVolumeId++,
+        name: request.entry === 'gizmo' ? `${source.name} - ${request.operation}` : objectMeta[oi].name,
+        type: request.entry === 'gizmo' ? source.type : 'model_part' as VolumeType,
+        isSplittable: false, primitive: source.primitive };
+      const consumed = new Set(request.entry === 'object' ? volumes.map(volume => volume.id)
+        : [request.sourceVolumeId, ...(request.operation === 'union' || request.deleteInput ? [request.toolVolumeId] : [])]);
+      const inherited = request.entry === 'gizmo' ? nativeScopedConfig.parts[String(source.id)] : undefined;
+      const nextVolumes: typeof volumes = [];
+      const nextTransforms: typeof objectVolumeTransforms[number] = [];
+      volumes.forEach((volume, index) => {
+        if (index === sourceIndex) { nextVolumes.push(generated); nextTransforms.push(identityTransform()); }
+        if (!consumed.has(volume.id)) { nextVolumes.push(volume); nextTransforms.push(objectVolumeTransforms[oi][index]); }
+        else delete nativeScopedConfig.parts[String(volume.id)];
+      });
+      if (inherited) nativeScopedConfig.parts[String(generated.id)] = clone(inherited);
+      volumeMeta[oi] = nextVolumes;
+      objectVolumeTransforms[oi] = nextTransforms;
+      sliced = false;
+      return { ok: true, changed: true, objectId: objectMeta[oi].id, volumeId: generated.id,
+        objects: buildStructure(), warning: opts.meshBooleanResult === 'positive-parts-only' ? 'positive_parts_only' : null,
+        plate_session: modelStructureMutation(objectPlateIds[oi] ? [objectPlateIds[oi]] : []) };
+    },
     orc_split_volume_to_parts(volumeId: number, _maxExtruders: number, _remapPaint: number) {
       for (let oi = 0; oi < volumeMeta.length; oi++) {
         const vi = volumeMeta[oi].findIndex((v) => v.id === volumeId);
@@ -4210,6 +4254,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_reorder_objects: { ret: 'number', args: ['number', 'number'] },
     orc_reorder_volumes: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_split_volume_to_parts: { ret: 'number', args: ['number', 'number', 'number'] },
+    orc_mesh_boolean: { ret: 'number', args: ['string'] },
     orc_split_object_to_objects: { ret: 'number', args: ['number', 'number'] },
     orc_merge_objects_to_multipart: { ret: 'number', args: ['string', 'string'] },
     orc_instances_to_separate_objects: { ret: 'number', args: ['number', 'string'] },

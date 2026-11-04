@@ -347,9 +347,9 @@ settled-transform, history and current-plate contracts as ordinary imports.
 
 ## 10. Mesh Boolean design
 
-**Decision status:** Design agreed; native dependency/source closure is
-implemented. Project commands, application interaction and final qualification
-remain pending. The accepted Neo behavior below governs the
+**Decision status:** Design agreed; native dependency/source closure and
+typed project operations are implemented. Application interaction and final
+qualification remain pending. The accepted Neo behavior below governs the
 explicit differences from the Orca reference behavior.
 
 ### 10.1 Accepted constraints
@@ -771,6 +771,15 @@ of the next piece starts.
    10.1. Keep the original MCUT/fallback behavior. Exercise real native/WASM
    operations, Undo/Redo and project roundtrips; update contracts and affected
    mocks together without parallel payload formats.
+
+   **Accepted native command scope:** real wasm64 serial/threaded geometry,
+   stable instance IDs/transforms, retained Part ordering, configuration and
+   all four painting channels. Native tests cover one-entry Undo/Redo, affected
+   plates, scene receipts, 3MF roundtrips, empty/stale input and positive-Part
+   fallback. An explicit serial test build injects a publication exception and
+   verifies restoration of geometry ownership and plate revisions. The normal
+   build excludes that hook. Application admission and modal publication are
+   still owned by step 3; direct native tests do not establish those behaviors.
 3. **Shared application interaction.** Add the Prepare Gizmo, viewport/list
    operand assignment, object-menu action and persisted painting preference.
    Implement the global modal wait and reject conflicting commands before
