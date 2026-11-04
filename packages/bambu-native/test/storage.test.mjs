@@ -130,6 +130,8 @@ test('reads bounded optional storage resources and preserves unavailable thumbna
   assert.equal(await resource('empty'), null);
   await assert.rejects(resource('mismatch'), error => error.code === 'invalid-response');
   await assert.rejects(resource('fixture', { maxBytes: 2 }), error => error.code === 'invalid-response');
+  assert.equal(Buffer.from(await resource('fixture', { maxBytes: null })).toString(), 'abc');
+  assert.equal(Buffer.from(await resource('fixture', { maxBytes: 5 * 1024 * 1024 })).toString(), 'abc');
   await assert.rejects(resource('fixture', { resource: '../outside' }), error => error.code === 'invalid-response');
   const controller = new AbortController();
   const pending = readBambuStorageResource(addon, source, 'bambu:///local/silent', request, { ...options, signal: controller.signal });

@@ -35,19 +35,22 @@ assert.equal(result.targets[0].duration, '120');
 assert.deepEqual(inspect(writeStoredZip(entries)), result, 'repeated inspection has no accumulated state');
 assert.equal(inspect(Uint8Array.of(1, 2, 3)).ok, false);
 assert.equal(inspect(writeStoredZip(entries.slice(1))).ok, false);
-assert.equal(inspect(writeStoredZip([...entries, { name: 'Metadata/plate_1.gcode', content: 'G28' }])).ok, false);
-assert.equal(inspect(writeStoredZip([...entries, entries[0]])).ok, false);
-const bomb = writeStoredZip(entries);
-// Inflate only the central directory's declared expanded size; reject before
-// attempting to extract or allocate the attacker-declared resource.
-for (let p = 0; p < bomb.length - 46; p++) {
-  if (new DataView(bomb.buffer).getUint32(p, true) === 0x02014b50) {
-    new DataView(bomb.buffer).setUint32(p + 24, 64 * 1024 * 1024, true); break;
-  }
-}
-assert.equal(inspect(bomb).ok, false);
+assert.equal(inspect(writeStoredZip([...entries, { name: 'Metadata/plate_1.gcode', content: 'G28' }])).ok, true);
+assert.equal(inspect(writeStoredZip([...entries, entries[0]])).ok, true);
+assert.equal(inspect(writeStoredZip([...entries, ...Array.from({ length: 300 }, (_, i) => ({ name: `extra/${i}.txt`, content: 'x' }))])).ok, true);
+// Valid XML above the former per-resource and bundle budgets stays parser-compatible.
+const largeEntries = entries.map(entry => ({ ...entry, content: entry.content + ' '.repeat(9 * 1024 * 1024) }));
+assert.equal(inspect(writeStoredZip(largeEntries)).ok, true);
+// Orca can derive plates from model_settings without slice_info.
+assert.equal(inspect(writeStoredZip(entries.filter(entry => entry.name !== 'Metadata/slice_info.config'))).ok, true);
+const many = Array.from({ length: 65 }, (_, i) => `<plate><metadata key="plater_id" value="${i + 1}"/><metadata key="gcode_file" value="Metadata/plate_${i + 1}.gcode"/></plate>`).join('');
+const multiPlate = entries.filter(entry => entry.name !== 'Metadata/slice_info.config').map(entry => entry.name === 'Metadata/model_settings.config' ? { ...entry, content: `<config>${many}</config>` } : entry);
+assert.equal(inspect(writeStoredZip(multiPlate)).targets.length, 65);
+const filaments = Array.from({ length: 257 }, (_, i) => `<filament id="${i + 1}" type="PLA" color="#FF0000" used_g="1" used_m="1"/>`).join('');
+const manyMaterials = entries.map(entry => entry.name === 'Metadata/slice_info.config' ? { ...entry, content: `<config><plate><metadata key="index" value="1"/>${filaments}</plate></config>` } : entry);
+assert.equal(inspect(writeStoredZip(manyMaterials)).targets[0].materials.length, 257);
 if (workerPath) {
-  const worker = new Worker(workerPath, { workerData: entries.map(entry => ({
+  const worker = new Worker(workerPath, { workerData: largeEntries.map(entry => ({
     name: entry.name, bytes: new TextEncoder().encode(entry.content),
   })) });
   const timer = setTimeout(() => worker.terminate(), 30_000);
@@ -61,5 +64,5 @@ if (workerPath) {
   } finally { clearTimeout(timer); await worker.terminate(); }
   console.log('remote-print inspection: packaged Node Worker and runtime resource bundle passed');
 }
-console.log('remote-print inspection: real parser, two plates, repeated reads and malformed/bounded ZIP cases passed');
+console.log('remote-print inspection: real parser, two plates, repeated reads, malformed ZIP and Orca-compatible unrestricted bundles passed');
 process.exit(0);

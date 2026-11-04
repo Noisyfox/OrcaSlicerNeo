@@ -1,15 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import { unzipSync } from 'fflate';
+import type { OrcaModule } from '../../slicer-wasm/src/client';
+import { inspectRemotePrintBundle } from '../../slicer-wasm/src/client';
 import { inspectRemotePrintResources } from './remotePrint';
-
-describe('remote metadata bundle admission', () => {
-  it('rejects missing, duplicate, oversized and non-metadata resources before loading WASM', async () => {
-    const load = vi.fn();
-    const name = '_rels/.rels' as const;
-    for (const input of [[], [{ name, bytes: new Uint8Array() }],
-      [{ name, bytes: Uint8Array.of(1) }, { name, bytes: Uint8Array.of(2) }],
-      [{ name, bytes: new Uint8Array(8 * 1024 * 1024 + 1) }],
-      [{ name: 'Metadata/plate_1.gcode' as typeof name, bytes: Uint8Array.of(1) }]])
-      await expect(inspectRemotePrintResources(input, load)).rejects.toThrow();
-    expect(load).not.toHaveBeenCalled();
-  });
+vi.mock('../../slicer-wasm/src/client', () => ({ inspectRemotePrintBundle: vi.fn(() => ({ configuration: {}, targets: [] })) }));
+it('packages supplied resources without imposing metadata size or required-file validation', async () => {
+  const bytes = new Uint8Array(17 * 1024 * 1024);
+  bytes[0] = 42;
+  const module = {} as OrcaModule, load = vi.fn(async () => module);
+  await expect(inspectRemotePrintResources([{ name: 'Metadata/project_settings.config', bytes }], load)).resolves.toEqual({ configuration: {}, targets: [] });
+  expect(load).toHaveBeenCalledOnce();
+  const [received, zip] = vi.mocked(inspectRemotePrintBundle).mock.calls[0];
+  expect(received).toBe(module);
+  const unpacked = unzipSync(zip)['Metadata/project_settings.config'];
+  expect(unpacked.byteLength).toBe(bytes.byteLength);
+  expect(unpacked[0]).toBe(42);
+  expect(unpacked.at(-1)).toBe(0);
 });

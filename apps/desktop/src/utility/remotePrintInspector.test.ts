@@ -40,3 +40,13 @@ describe('remote print inspection lifetime', () => {
     await inspector.close(); await Promise.all(pending);
   });
 });
+
+it('admits metadata above the former size and resource-count limits', async () => {
+  const worker = new FakeWorker(), inspector = new RemotePrintInspector(() => worker);
+  const input = Array.from({ length: 7 }, () => ({ name: '_rels/.rels' as const, bytes: new Uint8Array(3 * 1024 * 1024) }));
+  const pending = inspector.inspect(input);
+  await vi.waitFor(() => expect(worker.listenerCount('message')).toBe(1));
+  worker.emit('message', { ok: true, value });
+  expect(await pending).toEqual(value);
+  await inspector.close();
+});

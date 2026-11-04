@@ -1,7 +1,7 @@
 /// <reference path="../env.d.ts" />
 // packages/slicer-wasm/src/client/index.ts
 export { createClient, normalizeHistoryContext } from './client';
-export { inspectRemotePrintBundle, REMOTE_PRINT_BUNDLE_MAX_BYTES } from './remotePrint';
+export { inspectRemotePrintBundle } from './remotePrint';
 export type { RemotePrintMetadata } from './remotePrint';
 export { startWorker, createWorkerClient } from './worker';
 export { mountNativeTemporaryDirectory } from './temporaryFilesystem';

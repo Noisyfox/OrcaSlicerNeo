@@ -25,10 +25,6 @@ export class RemotePrintInspector {
   inspect(resources: readonly RemotePrintResourceBytes[], signal?: AbortSignal): Promise<RemotePrintMetadata> {
     if (this.closed || signal?.aborted) return Promise.reject(new Error('Inspection cancelled'));
     if (this.requests.size >= 4) return Promise.reject(new Error('Too many pending inspections'));
-    // Reject oversized admission before copying or queuing. The runtime and C++
-    // repeat validation at their own boundaries.
-    if (resources.length > 6 || resources.reduce((sum, r) => sum + r.bytes.byteLength, 0) > 16 * 1024 * 1024)
-      return Promise.reject(new Error('Inspection metadata exceeds its size limit'));
     const owned = resources.map(resource => ({ name: resource.name, bytes: resource.bytes.slice() }));
     const controller = new AbortController();
     const abort = () => controller.abort();

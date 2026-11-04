@@ -50,7 +50,7 @@ describe('device-file inspection contexts', () => {
     expect(f.prints.get(uncertain.operation)).toMatchObject({ kind: 'found', operation: { phase: { kind: 'outcome-unknown' } } });
     expect(f.execute).toHaveBeenCalledTimes(2);
   });
-  it('reads bounded metadata without full download and prepares only the selected agent-owned plate', async () => {
+  it('reads metadata without full download and prepares only the selected agent-owned plate', async () => {
     const f = await fixture(), result = await f.prints.inspect(f.file);
     expect(result.ok).toBe(true); if (!result.ok) return;
     expect(result.value.targets.map(t => t.label)).toEqual(['Plate 1', 'Plate 2']);
@@ -63,6 +63,15 @@ describe('device-file inspection contexts', () => {
     await f.prints.release(result.value.ref);
     expect((await f.prints.prepare(request)).ok).toBe(false);
   });
+  it('passes available resources to Orca without per-file budgets or a required-file precheck', async () => {
+    const f = await fixture();
+    vi.mocked(f.source.resource).mockImplementation(async (_path, resource, limit) => {
+      expect(limit).toBeNull();
+      return resource === 'Metadata/model_settings.config' ? new Uint8Array(5 * 1024 * 1024) : null;
+    });
+    expect((await f.prints.inspect(f.file)).ok).toBe(true);
+    expect(f.inspect).toHaveBeenCalledWith([{ name: 'Metadata/model_settings.config', bytes: expect.any(Uint8Array) }], undefined);
+  });
   it('keeps format decisions in the agent and refuses plugin filename rewriting', async () => {
     for (const name of ['part.gcode', '.part.gcode.3mf', ' part.gcode.3mf', 'part.GCODE.3MF']) {
       const f = await fixture(name);
@@ -70,10 +79,11 @@ describe('device-file inspection contexts', () => {
       expect(f.source.resource).not.toHaveBeenCalled();
     }
   });
-  it('rejects missing subfiles, changed device configuration and expired contexts without file version checks', async () => {
+  it('delegates missing subfiles to Orca and rejects changed or expired contexts without file version checks', async () => {
     const f = await fixture(); vi.mocked(f.source.resource).mockResolvedValue(null);
-    expect(await f.prints.inspect(f.file)).toMatchObject({ ok: false, error: { code: 'unsupported' } });
-    expect(f.inspect).not.toHaveBeenCalled(); expect(f.source.download).not.toHaveBeenCalled();
+    f.inspect.mockRejectedValueOnce(new Error('Cannot parse sliced-3MF metadata'));
+    expect((await f.prints.inspect(f.file)).ok).toBe(false);
+    expect(f.inspect).toHaveBeenCalledWith([], undefined); expect(f.source.download).not.toHaveBeenCalled();
     vi.mocked(f.source.resource).mockResolvedValue(Uint8Array.of(1));
     const result = await f.prints.inspect(f.file); if (!result.ok) throw new Error('fixture');
     const request: D.RemotePrintPreparationRequest = { inspection: result.value.ref, targetId: result.value.targets[0].id, bindings: [], options: {}, suggest: false, allowAbnormalStorage: false };

@@ -10,7 +10,7 @@ export interface BambuStorageSource {
   list(storage: string, collection: BambuStorageCollection, signal?: AbortSignal): Promise<readonly BambuStorageEntry[]>;
   download(file: BambuStorageFile, signal?: AbortSignal): Promise<BambuStorageDownload>;
   remove(file: BambuStorageFile, signal?: AbortSignal): Promise<void>;
-  resource(path: string, resource: string, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array | null>;
+  resource(path: string, resource: string, maxBytes: number | null, signal?: AbortSignal): Promise<Uint8Array | null>;
 }
 export type ResolveStorageSource = (target: D.PrinterTarget) => Promise<D.Result<BambuStorageSource>>;
 export class StorageHostError extends Error { constructor(readonly detail: D.PrinterError) { super(detail.message); } }

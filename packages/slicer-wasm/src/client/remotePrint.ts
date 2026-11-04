@@ -24,14 +24,9 @@ export interface RemotePrintMetadata {
   }>;
 }
 
-export const REMOTE_PRINT_BUNDLE_MAX_BYTES = 16 * 1024 * 1024;
-
 /** Only call inside an isolated Worker. This intentionally bypasses createClient
  * initialization: remote metadata must not need or activate installed presets. */
 export function inspectRemotePrintBundle(module: OrcaModule, bytes: Uint8Array): RemotePrintMetadata {
-  if (!bytes.byteLength || bytes.byteLength > REMOTE_PRINT_BUNDLE_MAX_BYTES) {
-    throw new Error('Inspection bundle exceeds its size limit');
-  }
   const input = module._malloc(bytes.byteLength);
   if (!input) throw new Error('Cannot allocate inspection bytes');
   let output = 0;

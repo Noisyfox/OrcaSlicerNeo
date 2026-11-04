@@ -3092,7 +3092,7 @@ requests and closed after a two-second idle lease. Shutdown, cancellation of all
 batch consumers, transport/protocol failure and configuration/auth changes close
 and join the affected native reader. Independent consumers retain their own leases;
 cancelling one consumer does not abort another consumer's shared batch.
-Queued resources are bounded to 64 and each batch to 16 MiB. The Bambu host adds
+Queued resources are bounded to 64; thumbnail-only batches are bounded to 16 MiB. The Bambu host adds
 no file-content cache or automatic failed-file retry. A terminal per-file SUB_FILE error
 preserves completed resources, leaves that file as a placeholder, and continues
 only entries not yet read, using a new request sequence on the same connection.
@@ -3135,13 +3135,16 @@ do not qualify end-to-end plugin buffering or a slow-consumer memory bound.
 
 The [remote-print bridge](../packages/slicer-wasm/src/bridge_remote_print.cpp)
 now wraps Orca's `load_gcode_3mf_from_stream` without accessing live project state
-or activating presets. The runtime builds a metadata-only ZIP; the C++ boundary
-checks its resource allowlist, duplicate names, compressed/expanded budgets and
-plate count before returning agent-facing metadata. Thumbnails remain separately
+or activating presets. The runtime packages the requested resources into a ZIP and delegates format
+acceptance to Orca's parser. Inspection adds no separate resource allowlist,
+required-file preflight, archive/expanded-size, entry-count, plate-count or
+material-count rejection. The agent and SUB_FILE reader likewise impose no
+per-resource or aggregate metadata budget on this path; ordinary thumbnail
+consumers retain their explicit image budgets. Thumbnails remain separately
 owned image resources. A disposable desktop Worker serializes inspection, bounds
 pending admission, terminates on timeout/cancellation and joins teardown before
 the next request. Focused real-threaded-WASM smoke covers two plates, repeat
-inspection and malformed/bounded ZIP cases. This parser boundary alone does not
+inspection, Orca-compatible larger resource bundles and malformed ZIP cases. This parser boundary alone does not
 enable remote print preparation or physical submission; those integrations remain
 separate acceptance requirements.
 The native wrapper also exposes `start_sdcard_print` as the host-private
@@ -3153,7 +3156,7 @@ Native fixtures verify ABI routing and lifecycle, not physical printing. The
 uses the project basename for the wire file name despite requiring `dst_file`;
 the agent must reject names that this normalization would change.
 The shared `remotePrints` service dispatches inspection/preparation/release by
-provider-owned file identity. Bambu fetches bounded metadata subfiles, owns the
+provider-owned file identity. Bambu fetches metadata subfiles, owns the
 resulting 30-minute inspection context, and resolves a selected target back to
 its own requirements before reusing material/option validation. Renderer-supplied
 requirements and native paths are rejected at IPC admission. Missing subfiles do
@@ -3550,9 +3553,9 @@ networking outside it. The agent fetches relevant remote resources, invokes the
 parser and normalizes results; shared UI never interprets vendor archive layouts.
 Other agents may use their own parsers and need not depend on slicing WASM. The
 same service boundary permits an independent Web Worker later. The implemented
-runtime accepts a bounded metadata resource bundle and returns Orca metadata for
+runtime packages metadata resources for Orca parsing and returns Orca metadata for
 agent normalization; the desktop inspector owns disposable Worker admission and
-termination. Physical format/resource-limit qualification remains open.
+termination. Physical file-format qualification remains separate.
 
 Stored-media playback consumes an agent-provided read through host-owned media
 delivery. The host exposes actual playback/seek capabilities to the shared

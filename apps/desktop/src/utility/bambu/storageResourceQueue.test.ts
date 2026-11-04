@@ -35,3 +35,14 @@ it('cancels one active consumer without aborting the other, and joins shared shu
   await vi.advanceTimersByTimeAsync(8); await queue.close(); expect(signal.aborted).toBe(true);
   expect((await third).detail.code).toBe('cancelled');
 });
+
+it('preserves an unrestricted inspection read while enforcing another consumer’s explicit budget', async () => {
+  const queue = fixture(), value = new Uint8Array(17 * 1024 * 1024);
+  const read = vi.fn(async (_requests, _signal) => [value]);
+  const a = queue.read('printer', { ...request('one'), maxBytes: null }, read);
+  const b = queue.read('printer', request('one'), read).catch(error => error.message);
+  await vi.advanceTimersByTimeAsync(8);
+  expect(read.mock.calls[0][0][0].maxBytes).toBeNull();
+  expect((await a)?.byteLength).toBe(value.byteLength);
+  expect(await b).toContain('limit');
+});

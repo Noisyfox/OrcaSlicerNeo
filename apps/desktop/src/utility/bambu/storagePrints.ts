@@ -30,17 +30,12 @@ export class BambuStoragePrints implements D.PrinterRemotePrints {
     if (normalized !== name) return failure('unsupported', 'The printer plugin would change this file name. Rename it before printing.');
     try {
       const resources: RemotePrintResourceBytes[] = [];
-      let bytes = 0;
       for (const resource of REMOTE_PRINT_RESOURCES) {
         if (options?.signal?.aborted) return failure('cancelled', 'Device file inspection was cancelled.');
-        const data = await source.value.source.resource(path, resource, 4 * 1024 * 1024, options?.signal);
+        const data = await source.value.source.resource(path, resource, null, options?.signal);
         if (!data?.byteLength) continue;
-        bytes += data.byteLength;
-        if (bytes > 16 * 1024 * 1024 - 4096) return failure('out-of-range', 'Device file metadata exceeds the inspection limit.');
         resources.push({ name: resource, bytes: data });
       }
-      if (['_rels/.rels', '3D/3dmodel.model', 'Metadata/model_settings.config', 'Metadata/slice_info.config'].some(name => !resources.some(r => r.name === name)))
-        return failure('unsupported', 'This printer did not provide the sliced-file metadata needed for inspection.');
       const metadata = await this.inspector.inspect(resources, options?.signal);
       const current = await this.files.resolveFile(file); if (!current.ok) return current;
       if (options?.signal?.aborted) return failure('cancelled', 'Device file inspection was cancelled.');

@@ -1,5 +1,5 @@
 import { zipSync } from 'fflate';
-import { inspectRemotePrintBundle, REMOTE_PRINT_BUNDLE_MAX_BYTES } from '../../slicer-wasm/src/client';
+import { inspectRemotePrintBundle } from '../../slicer-wasm/src/client';
 import type { OrcaModule, RemotePrintMetadata } from '../../slicer-wasm/src/client';
 
 /** Metadata-only resource set used by Orca's sliced-3MF reader. Thumbnails have
@@ -17,18 +17,7 @@ export interface RemotePrintResourceBytes { name: RemotePrintResource; bytes: Ui
 export async function inspectRemotePrintResources(
   resources: readonly RemotePrintResourceBytes[], load: () => Promise<OrcaModule>,
 ): Promise<RemotePrintMetadata> {
-  const entries: Record<string, Uint8Array> = {};
-  let total = 0;
-  for (const resource of resources) {
-    if (!REMOTE_PRINT_RESOURCES.includes(resource.name) || Object.hasOwn(entries, resource.name) ||
-        !(resource.bytes instanceof Uint8Array) || resource.bytes.byteLength > 8 * 1024 * 1024)
-      throw new Error('Invalid inspection resource');
-    total += resource.bytes.byteLength;
-    if (total > REMOTE_PRINT_BUNDLE_MAX_BYTES - 4096) throw new Error('Inspection metadata exceeds its size limit');
-    entries[resource.name] = resource.bytes;
-  }
-  for (const name of ['_rels/.rels', '3D/3dmodel.model', 'Metadata/slice_info.config'])
-    if (!entries[name]?.byteLength) throw new Error('Missing sliced-3MF metadata');
+  const entries = Object.fromEntries(resources.map(resource => [resource.name, resource.bytes]));
   const bytes = zipSync(entries, { level: 0 });
   return inspectRemotePrintBundle(await load(), bytes);
 }
