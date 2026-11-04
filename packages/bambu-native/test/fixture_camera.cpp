@@ -13,6 +13,7 @@ extern "C" {
 int Bambu_Create(Bambu_Tunnel* tunnel, const char* path) { *tunnel = new FixtureCamera{path}; return 0; }
 int Bambu_Open(Bambu_Tunnel tunnel) {
     auto& camera = *static_cast<FixtureCamera*>(tunnel);
+    if (camera.mode.find("delayed") != std::string::npos) std::this_thread::sleep_for(std::chrono::milliseconds(750));
     if (camera.mode.find("slow") != std::string::npos) std::this_thread::sleep_for(std::chrono::milliseconds(200));
     return camera.mode.find("error") != std::string::npos ? -1 : 0;
 }
