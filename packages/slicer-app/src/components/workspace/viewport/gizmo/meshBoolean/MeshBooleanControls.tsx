@@ -3,7 +3,9 @@ import { LoaderCircle, X } from 'lucide-react';
 import * as THREE from 'three';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { loadMeshBooleanPreferences, setMeshBooleanKeepPainting, useMeshBooleanStore } from '@/stores/useMeshBooleanStore';
 import { useObjectListStore } from '../../../objectList/useObjectListStore';
 import type { SceneInteractionController } from '../../SceneInteractionController';
@@ -24,7 +26,7 @@ export function MeshBooleanPanel({ sceneInteraction: scene }: { sceneInteraction
   const object = structure.find(item => item.id === state.target?.objectId);
   const deleteInput = state.operation === 'difference' ? state.deleteDifference : state.deleteIntersection;
   return <section className="space-y-3" aria-label="Mesh Boolean" data-testid="mesh-boolean-panel">
-    <div className="flex items-center justify-between"><h3 className="text-sm font-medium">Mesh Boolean</h3>
+    <div className="flex items-center justify-between"><h2 className="text-module font-semibold uppercase tracking-wide text-muted-foreground">Mesh Boolean</h2>
       <Button size="icon" variant="ghost" aria-label="Close Mesh Boolean" onClick={() => scene.closeGizmo()}><X /></Button></div>
     <div className="flex flex-wrap gap-1" role="group" aria-label="Boolean operation">
       {(['union', 'difference', 'intersection'] as const).map(operation => <Button key={operation} size="sm"
@@ -42,12 +44,12 @@ export function MeshBooleanPanel({ sceneInteraction: scene }: { sceneInteraction
         onClick={() => session.clear(slot)}><X /></Button>
     </div>)}
     <p className="text-xs text-muted-foreground">Choose Parts in the viewport or Object List. A and B must belong to this object.</p>
-    {state.operation !== 'union' && <label className="flex items-center gap-2 text-sm">
-      <input type="checkbox" checked={deleteInput} onChange={event => session.setDeleteInput(event.target.checked)} />Delete input B
-    </label>}
-    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={keepPainting} disabled={!ready || busy}
-      onChange={event => { void setMeshBooleanKeepPainting(platform.preferences, event.target.checked); }} />Keep painting
-    </label>
+    {state.operation !== 'union' && <Label>
+      <Checkbox checked={deleteInput} onCheckedChange={checked => session.setDeleteInput(checked)} />Delete input B
+    </Label>}
+    <Label><Checkbox checked={keepPainting} disabled={!ready || busy}
+      onCheckedChange={checked => { void setMeshBooleanKeepPainting(platform.preferences, checked); }} />Keep painting
+    </Label>
     <Button className="w-full" disabled={!ready || busy || !session.request(keepPainting)} data-testid="mesh-boolean-execute"
       onClick={() => { const request = session.request(keepPainting); if (request) void executeMeshBoolean(platform, request, scene); }}>
       {state.operation === 'difference' ? 'Subtract B from A' : state.operation === 'intersection' ? 'Intersect A and B' : 'Union A and B'}

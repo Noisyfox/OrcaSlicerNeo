@@ -39,10 +39,10 @@ export async function meshBooleanJourney(page: Page, addCube: () => Promise<void
   await objects.first().getByRole('button').first().click();
   await page.getByTestId('gizmo-btn-mesh-boolean').click();
   const panel = page.getByTestId('mesh-boolean-panel'); await expect(panel).toBeVisible();
-  await expect(panel.getByLabel('Keep painting', { exact: true })).not.toBeChecked();
-  await panel.getByLabel('Keep painting', { exact: true }).check();
+  await expect(panel.getByRole('checkbox', { name: 'Keep painting', exact: true })).not.toBeChecked();
+  await panel.getByRole('checkbox', { name: 'Keep painting', exact: true }).check();
   await panel.getByRole('button', { name: 'Difference', exact: true }).click();
-  await expect(panel.getByLabel('Delete input B', { exact: true })).not.toBeChecked();
+  await expect(panel.getByRole('checkbox', { name: 'Delete input B', exact: true })).not.toBeChecked();
   const beforePicks = await history(page);
   // Pick the exposed corner of A with an actual viewport pointer; B is offset
   // positively along every axis, so it cannot occlude this corner from above.
@@ -65,7 +65,7 @@ export async function meshBooleanJourney(page: Page, addCube: () => Promise<void
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
   await page.getByTestId('gizmo-btn-mesh-boolean').click();
-  await expect(panel.getByLabel('Keep painting', { exact: true })).toBeChecked();
+  await expect(panel.getByRole('checkbox', { name: 'Keep painting', exact: true })).toBeChecked();
   expect(await state(page)).toMatchObject({ a: null, b: null, picking: 'a' });
   await panel.getByRole('button', { name: 'Difference', exact: true }).click();
   await parts.nth(0).getByRole('button').first().click(); await parts.nth(1).getByRole('button').first().click();
