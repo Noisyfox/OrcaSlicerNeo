@@ -20,9 +20,15 @@ export function bambuMedia(bridge: BambuBridge): D.PrinterMedia {
     },
     readCurrentPrintPreview: target => bridge.control('preview', target),
     open: async (request, options) => {
-      const result = await bridge.media('open', request);
-      if (options?.signal?.aborted && result.ok) { await bridge.media('close', result.value.ref); return { ok: false, error: { code: 'cancelled', message: 'Camera viewing stopped.' } }; }
-      return result;
+      const aborted = (): D.Result<never> => ({ ok: false, error: { code: 'cancelled', message: 'Media viewing stopped.' } });
+      if (options?.signal?.aborted) return aborted();
+      const abort = () => { void bridge.media('cancelOpen', { requestId: request.requestId }).catch(() => {}); };
+      options?.signal?.addEventListener('abort', abort, { once: true });
+      try {
+        const result = await bridge.media('open', request);
+        if (options?.signal?.aborted) { if (result.ok) await bridge.media('close', result.value.ref); return aborted(); }
+        return result;
+      } finally { options?.signal?.removeEventListener('abort', abort); }
     },
     renew: ref => bridge.media('renew', ref), close: ref => bridge.media('close', ref),
     sendSignal: unsupported, readContent: unsupported, captureSnapshot: unsupported,
@@ -86,7 +92,7 @@ export function bambuMedia(bridge: BambuBridge): D.PrinterMedia {
       finally {
         clearTimeout(timeout); window.removeEventListener('message', receive); options?.signal?.removeEventListener('abort', abort); port?.close();
         // Bambu has one consumer; detachment ends that native view. close remains idempotent.
-        await bridge.media('close', request.media).catch(() => {});
+        if (!request.media.id.startsWith('storage-video:')) await bridge.media('close', request.media).catch(() => {});
       }
     },
   };

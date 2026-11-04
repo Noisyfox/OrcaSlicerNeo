@@ -93,6 +93,18 @@ const bridge: ElectronBridge = {
   },
 
   printers: {
+    downloads: {
+      capability: { kind: 'supported', constraints: {} },
+      start: request => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'start', args: [request] }),
+      list: () => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'list', args: [] }),
+      directory: () => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'directory', args: [] }),
+      chooseDirectory: () => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'chooseDirectory', args: [] }),
+      cancel: id => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'cancel', args: [id] }),
+      retry: id => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'retry', args: [id] }),
+      continue: id => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'continue', args: [id] }),
+      open: id => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'open', args: [id] }),
+      onChanged: listener => { const handler = () => listener(); ipcRenderer.on(Ipc.printerDownloadChanged, handler); return () => ipcRenderer.removeListener(Ipc.printerDownloadChanged, handler); },
+    },
     configuration: {
       onChanged: (listener) => {
         const handler = () => listener();

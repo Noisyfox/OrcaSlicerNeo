@@ -463,7 +463,7 @@ export interface PlatformCapabilities {
   projects: ProjectFileCapability;
   recentProjects: RecentProjectsCapability;
   preferences: UserPreferencesRepository;
-  printers: { configuration: PrinterConfigurationRepository; service: PrinterService };
+  printers: { configuration: PrinterConfigurationRepository; service: PrinterService; downloads: import('@orca/printer-control/domain').PrinterDownloads };
   webview: WebViewHost;
   runtime: SlicerRuntime;
   memory: PlatformMemory;

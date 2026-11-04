@@ -9,7 +9,9 @@ PrintResult PluginAgent::print(const std::string& route, Slic3r::PrintParams par
     if (get_version_().rfind("02.08.01.", 0) != 0)
         throw std::runtime_error("Unsupported print plugin ABI");
     auto update = [state, sink, route, library = library_](int stage, int code, std::string) {
-        // Pinned v2.2.0: LAN publishes after Waiting; Cloud POSTs after Sending.
+        // Pinned v2.2.0: LAN publishes after Waiting; Cloud POSTs and device-file
+        // MQTT publication happen after Sending. Neither completion proves that
+        // the physical printer has started.
         // This flag is conservative, including cancellation racing the final check.
         if ((route == "lan" && stage == 2) || stage == 3 || stage == 5 || stage == 6)
             state->may_have_started = true;
@@ -23,6 +25,7 @@ PrintResult PluginAgent::print(const std::string& route, Slic3r::PrintParams par
     if (cancelled()) return {-18, false, true};
     if (route == "lan") code = start_local_print_(agent_, std::move(params), update, cancelled);
     else if (route == "cloud") code = start_print_(agent_, std::move(params), update, cancelled, wait);
+    else if (route == "device-file") code = start_sdcard_print_(agent_, std::move(params), update, cancelled);
     else throw std::runtime_error("Invalid print route");
     return {code, state->may_have_started.load() || code == 0, state->cancel.load()};
 }

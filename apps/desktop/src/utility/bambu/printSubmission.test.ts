@@ -50,6 +50,25 @@ function singleTool(model: string, patch: Record<string, unknown> = {}) {
   input.requirements = { ...input.requirements, printerModel: model, printerModelId: model, nozzleDiameters: [.4], nozzleFlowTypes: ['Standard'], filamentMap: [1], materials: [{ ...input.requirements.materials[0], toolIndex: 0 }] };
   return { context, input };
 }
+it('starts an inspected device plate without artifacts and excludes concurrent local sends', async () => {
+  const f = await fixture(); await f.service.cancel(f.ref);
+  const request = { ...f.request, target: { ...f.request.target, expectedConfigurationRevision: 'r1' } };
+  const pending = f.service.sendDeviceFile(request, { path: '/sdcard/part.gcode.3mf', name: 'part.gcode.3mf', plateIndex: 1 });
+  await vi.waitFor(() => expect(f.native.startPrint).toHaveBeenCalledOnce());
+  expect(f.native.startPrint).toHaveBeenCalledWith('device-file', expect.objectContaining({ filename: '', config_filename: '', project_name: 'part.gcode.3mf', dst_file: '/sdcard/part.gcode.3mf', plate_index: 2, print_type: 'from_sdcard_view' }));
+  expect(await readdir(f.directory)).toEqual([]);
+  expect(await f.service.begin({ request: { ...request, requestId: id('another') }, artifacts: f.artifacts })).toMatchObject({ ok: false, error: { code: 'busy' } });
+  f.complete({ code: -4020, mayHaveStarted: true, cancelRequested: false });
+  expect(await pending).toEqual({ ok: true, value: 'unknown' });
+  expect(f.native.startPrint).toHaveBeenCalledOnce();
+});
+it('rechecks device-file configuration after connecting and never retargets the send', async () => {
+  const f = await fixture(); await f.service.cancel(f.ref);
+  f.native.connectPrinter.mockImplementation(async () => { const context = printContext(); context.configurationRevision = 'r2'; f.update(context); return 0; });
+  expect(await f.service.sendDeviceFile({ ...f.request, target: { ...f.request.target, expectedConfigurationRevision: 'r1' } },
+    { path: '/part.gcode.3mf', name: 'part.gcode.3mf', plateIndex: 0 })).toMatchObject({ ok: false, error: { code: 'stale-context' } });
+  expect(f.native.startPrint).not.toHaveBeenCalled();
+});
 it.each(['N1', 'N2S'])('uses the pinned %s Cloud-only default for preparation and sending', async model => {
   const initial = singleTool(model), f = await fixture(true, false, undefined, initial);
   expect(await f.service.prepare(initial.input)).toMatchObject({ ok: true, value: { route: 'cloud' } });

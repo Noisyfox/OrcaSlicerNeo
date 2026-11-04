@@ -125,6 +125,10 @@ static int run_print(void* handle, PrintParams p, OnUpdateStatusFn update, WasCa
     return 0;
 }
 EXPORT int bambu_network_start_local_print(void* h, PrintParams p, OnUpdateStatusFn u, WasCancelledFn c) { return run_print(h, p, u, c, false); }
+EXPORT int bambu_network_start_sdcard_print(void* h, PrintParams p, OnUpdateStatusFn u, WasCancelledFn c) {
+    fixture(h).record("device-file:" + p.dst_file + ":" + p.project_name + ":" + std::to_string(p.plate_index));
+    return run_print(h, p, u, c, true);
+}
 EXPORT int bambu_network_start_print(void* h, PrintParams p, OnUpdateStatusFn u, WasCancelledFn c, OnWaitFn) { return run_print(h, p, u, c, true); }
 EXPORT int bambu_network_start_local_print_with_record(void* h, PrintParams p, OnUpdateStatusFn u, WasCancelledFn c, OnWaitFn) { return run_print(h, p, u, c, true); }
 #define CHECK(name) static_assert(std::is_same_v<decltype(&bambu_network_##name), Slic3r::func_##name>);

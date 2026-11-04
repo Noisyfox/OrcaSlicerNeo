@@ -4,7 +4,13 @@ import { isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { NativePrintParameters, NativePrintResult } from './print.js';
 export { loadBambuControlStream, readBambuProjectResource, BambuResourceError } from './control.js';
-export type { NativeControlStream, BambuResourceSource, BambuResourceReadOptions } from './control.js';
+export type { NativeControlStream, BambuResourceSource, BambuResourceReadOptions, BambuControlPurpose } from './control.js';
+export { readBambuStorageFile } from './storageDownload.js';
+export { BambuStorageError } from './storageChannel.js';
+export type { BambuStorageReadOptions } from './storageChannel.js';
+export type { BambuStorageFile, BambuStorageDownload } from './storageDownload.js';
+export { discoverBambuStorage, listBambuStorageFiles, deleteBambuStorageFile } from './storageQueries.js';
+export type { BambuStorageQueryOptions, BambuStorageEntry, BambuStorageCollection } from './storageQueries.js';
 export type { NativePrintParameters, NativePrintResult } from './print.js';
 
 export interface NativeHttpResult { result: number; httpCode: number; body: string }
@@ -17,7 +23,7 @@ export type NativeEvent =
   | { type: 'local-connect'; args: [number, string, string] }
   | { type: 'server-error'; args: [string, number] };
 interface Binding {
-  startPrint(route: 'lan' | 'cloud', params: NativePrintParameters): Promise<NativePrintResult>;
+  startPrint(route: 'lan' | 'cloud' | 'device-file', params: NativePrintParameters): Promise<NativePrintResult>;
   cancelPrint(): boolean;
   invoke(method: string, args: readonly unknown[]): Promise<unknown>;
   drain(): Promise<void>;
@@ -25,7 +31,7 @@ interface Binding {
 }
 
 export interface BambuNative {
-  startPrint(route: 'lan' | 'cloud', params: NativePrintParameters): Promise<NativePrintResult>;
+  startPrint(route: 'lan' | 'cloud' | 'device-file', params: NativePrintParameters): Promise<NativePrintResult>;
   /** Requests cancellation without waiting behind upload. Completion establishes the outcome. */
   cancelPrint(): boolean;
   getVersion(): Promise<string>;
@@ -168,3 +174,4 @@ export function loadBambuCamera(addonPath: string, sourcePath: string, url: stri
   const addon = createRequire(addonPath)(addonPath) as { Camera: new (path: string, url: string) => NativeCamera };
   return new addon.Camera(sourcePath, url);
 }
+export { readBambuStorageResource, readBambuStorageResources, openBambuStorageResourceReader, type BambuStorageResourceReader, type BambuStorageResourceRequest } from './storageResource.js';

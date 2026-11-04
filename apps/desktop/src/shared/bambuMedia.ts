@@ -1,11 +1,12 @@
+import { isStorageFileRef } from './bambuStorage';
 /** Metadata-only IPC and bounded binary channel messages. Credentials never cross this boundary. */
 import type * as D from '@orca/printer-control/domain';
 export type BambuMediaStatus = { descriptor: D.MediaDescriptor; state: 'ready' | 'interrupted' | 'closed'; error: D.PrinterError | null };
-export interface BambuMediaInputs { open: D.OpenMediaRequest; get: D.MediaRef; renew: D.MediaRef; close: D.MediaRef }
-export interface BambuMediaResults { open: D.Result<D.MediaDescriptor>; get: D.Result<BambuMediaStatus>; renew: D.Result<D.MediaDescriptor>; close: D.Result<null> }
+export interface BambuMediaInputs { cancelOpen: { requestId: D.Id<'request'> }; open: D.OpenMediaRequest; get: D.MediaRef; renew: D.MediaRef; close: D.MediaRef }
+export interface BambuMediaResults { cancelOpen: D.Result<null>; open: D.Result<D.MediaDescriptor>; get: D.Result<BambuMediaStatus>; renew: D.Result<D.MediaDescriptor>; close: D.Result<null> }
 export type BambuMediaRequest = { [K in keyof BambuMediaInputs]: { method: K; input: BambuMediaInputs[K] } }[keyof BambuMediaInputs];
 export type BambuMediaCall = <K extends keyof BambuMediaInputs>(method: K, input: BambuMediaInputs[K]) => Promise<BambuMediaResults[K]>;
-export interface BambuMediaAttachment { media: D.MediaRef; streamId: D.Id<'media-stream'>; token: string }
+export interface BambuMediaAttachment { media: D.MediaRef; streamId: D.Id<'media-stream'>; token: string; startSeconds?: number }
 export type BambuMediaMessage = { type: 'packet'; packet: D.MediaStreamPacket } | { type: 'error'; error: D.PrinterError } | { type: 'closed' };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const text = (v: unknown) => typeof v === 'string' && v.length > 0 && v.length <= 512;
@@ -14,16 +15,19 @@ export function isMediaRef(v: unknown): v is D.MediaRef {
   return object(v) && exact(v, ['printerId', 'routeId', 'id']) && text(v.printerId) && text(v.routeId) && text(v.id);
 }
 export function isBambuMediaAttachment(v: unknown): v is BambuMediaAttachment {
-  return object(v) && exact(v, ['media', 'streamId', 'token']) && isMediaRef(v.media) && text(v.streamId) && text(v.token);
+  return object(v) && exact(v, ['media', 'streamId', 'token', 'startSeconds']) && isMediaRef(v.media) && text(v.streamId) && text(v.token)
+    && (v.startSeconds === undefined || typeof v.startSeconds === 'number' && Number.isFinite(v.startSeconds) && v.startSeconds >= 0);
 }
 export function isBambuMediaRequest(v: unknown): v is BambuMediaRequest {
   if (!object(v) || !exact(v, ['method', 'input'])) return false;
+  if (v.method === 'cancelOpen') return object(v.input) && exact(v.input, ['requestId']) && text(v.input.requestId);
   if (['get', 'renew', 'close'].includes(String(v.method))) return isMediaRef(v.input);
   if (v.method !== 'open' || !object(v.input) || !exact(v.input, ['target', 'requestId', 'source', 'client'])) return false;
   const r = v.input;
   if (!object(r.target) || !exact(r.target, ['printerId', 'routeId', 'expectedConfigurationRevision']) || !text(r.target.printerId) || !text(r.target.routeId)
     || r.target.expectedConfigurationRevision !== undefined && !text(r.target.expectedConfigurationRevision) || !text(r.requestId)) return false;
-  if (!object(r.source) || r.source.kind !== 'camera' || !exact(r.source, ['kind', 'cameraId', 'profileId']) || !text(r.source.cameraId) || r.source.profileId !== undefined && !text(r.source.profileId)) return false;
+  if (!object(r.source) || !(r.source.kind === 'camera' && exact(r.source, ['kind', 'cameraId', 'profileId']) && text(r.source.cameraId) && (r.source.profileId === undefined || text(r.source.profileId))
+    || r.source.kind === 'file-preview' && exact(r.source, ['kind', 'target', 'previewId']) && isStorageFileRef(r.source.target) && text(r.source.previewId))) return false;
   const c = r.client;
   return object(c) && exact(c, ['video', 'imageMimeTypes', 'contentFormats']) && Array.isArray(c.video) && c.video.length <= 16
     && c.video.every(v => object(v) && exact(v, ['transport', 'codecIds']) && ['mse-fmp4', 'jpeg-frames', 'hls', 'mjpeg', 'progressive-http', 'webrtc'].includes(String(v.transport))

@@ -26,7 +26,7 @@ export function usePrinterCommands(service: D.PrinterService, target: D.TargetRe
       if (!ref) { if (active(abort)) setFeedback(unknownOutcome); return; }
       for await (const operation of service.operations.watch(ref, { signal: abort.signal })) {
         if (!active(abort)) return;
-        if (operation.phase.kind === 'accepted' || operation.phase.kind === 'completed') { setFeedback(null); return; }
+        if (operation.phase.kind === 'submitted' || operation.phase.kind === 'accepted' || operation.phase.kind === 'completed') { setFeedback(null); return; }
         if (operation.phase.kind === 'failed') { setFeedback(operation.phase.error.message); return; }
         if (operation.phase.kind === 'outcome-unknown') { setFeedback(operation.phase.reason); return; }
       }

@@ -18,12 +18,12 @@ function fixture() {
   return { provider: createBambuProvider(bridge), second: createBambuProvider(bridge), read, command, printerCommand, listeners, candidates: (next: readonly BambuLanCandidate[]) => { candidates = next; },
     update: (next: readonly BambuDevice[]) => { devices = next; listeners.forEach(listener => listener('printers')); } };
 }
-it('projects stable provider/printer/route identities and exposes monitoring capabilities with controls still unsupported', async () => {
+it('projects stable provider/printer/route identities and exposes monitoring and pending storage-delete discovery without passive probes', async () => {
   const f = fixture(); const result = await f.provider.printers.listSaved(); if (!result.ok) throw new Error('Missing catalogue');
   const printer = result.value[0]; expect(printer.identity.id).toBe('bambu:serial-a'); expect(printer.routes[0].providerId).toBe(f.provider.id);
   expect(printer.routes[0].configuration).toMatchObject({ channel: 'automatic', address: null, credentialRef: null, webInterfaceUrl: null });
   expect(printer.routes[0].management).toEqual({ rename: false, configure: false, forget: false });
-  expect(Object.values(printer.routes[0].capabilities.commands).every(capability => capability.kind === 'unsupported')).toBe(true);
+  expect(Object.entries(printer.routes[0].capabilities.commands).every(([name, capability]) => capability.kind === (['files.delete', 'jobs.start'].includes(name) ? 'unknown' : 'unsupported'))).toBe(true);
   expect(printer.routes[0].capabilities.files.upload.kind).toBe('unsupported');
   const target = { printerId: printer.identity.id, routeId: printer.routes[0].id };
   expect(await f.provider.printers.describe(target)).toMatchObject({ ok: true, value: { descriptor: { kind: 'unknown' } } });

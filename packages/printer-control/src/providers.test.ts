@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createPrinterService } from './providers';
 import { createMoonrakerService } from './service';
-import type { Id, PrinterProvider, SavedPrinter, TargetRequest } from './domain';
+import type { Id, PrinterProvider, RemoteFileRef, SavedPrinter, TargetRequest } from './domain';
 
 async function fixture(id = 'moonraker', printerId = 'moon') {
   const request = vi.fn(async () => { throw new Error('Listing must not probe devices'); });
@@ -35,6 +35,47 @@ async function fixture(id = 'moonraker', printerId = 'moon') {
 }
 
 describe('provider composition', () => {
+  it('routes scoped file reads without a prior listing and preserves the stream', async () => {
+    const moon = await fixture();
+    const bambu = await fixture('bambu', 'bambu-device');
+    const device = bambu.get()[0], route = device.routes[0];
+    const file: RemoteFileRef = { printerId: device.identity.id, routeId: route.id,
+      configurationRevision: route.configurationRevision, storageId: 'sd' as Id<'storage'>,
+      fileId: 'recording' as Id<'remote-file'> };
+    const bytes = new Uint8Array([1, 2, 3]);
+    const chunks = (async function* () { yield bytes; })();
+    const download = vi.spyOn(bambu.provider.printers.files, 'download').mockResolvedValue({ ok: true,
+      value: { file, suggestedFileName: 'recording.mp4', mimeType: 'video/mp4',
+        totalBytes: 3, responseBytes: 3, returnedRange: null, chunks } });
+    const stat = vi.spyOn(bambu.provider.printers.files, 'stat');
+    const previews = vi.spyOn(bambu.provider.printers.files, 'listPreviews');
+    const inspect = vi.spyOn(bambu.provider.printers.remotePrints, 'inspect');
+    const release = vi.spyOn(bambu.provider.printers.remotePrints, 'release');
+    const wrongReader = vi.spyOn(moon.provider.printers.files, 'download');
+    const service = createPrinterService([moon.provider, bambu.provider]);
+    const abort = new AbortController(), options = { signal: abort.signal };
+    const result = await service.files.download({ target: file }, options);
+    expect(download).toHaveBeenCalledWith({ target: file }, options);
+    if (!result.ok) throw new Error('File read was not routed');
+    expect(result.value.chunks).toBe(chunks);
+    expect((await result.value.chunks[Symbol.asyncIterator]().next()).value).toBe(bytes);
+    await service.files.stat(file, options);
+    await service.files.listPreviews(file, options);
+    await service.remotePrints.inspect(file, options);
+    const inspection = { file, id: 'inspection' as Id<'print-inspection'> };
+    await service.remotePrints.release(inspection);
+    expect(inspect).toHaveBeenCalledWith(file, options);
+    expect(release).toHaveBeenCalledWith(inspection);
+    expect(stat).toHaveBeenCalledWith(file, options);
+    expect(previews).toHaveBeenCalledWith(file, options);
+    expect(await service.files.download({ target: { ...file, printerId: moon.get()[0].identity.id } }))
+      .toMatchObject({ ok: false, error: { code: 'invalid-target' } });
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(wrongReader).not.toHaveBeenCalled();
+    expect(moon.request).not.toHaveBeenCalled();
+    expect(bambu.request).not.toHaveBeenCalled();
+  });
+
   it('keeps identical names/addresses distinct and dispatches by route owner without probing', async () => {
     const moon = await fixture();
     const bambu = await fixture('bambu', 'bambu-device');

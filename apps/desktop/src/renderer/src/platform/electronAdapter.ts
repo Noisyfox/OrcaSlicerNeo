@@ -268,6 +268,7 @@ export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorA
     },
     accounts: [bambu],
     printers: {
+      downloads: host.printers.downloads,
       configuration: printerConfiguration,
       service: createPrinterService([bambu, {
         id: 'moonraker' as Id<'provider'>, name: 'Moonraker',

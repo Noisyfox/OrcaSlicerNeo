@@ -1,6 +1,6 @@
 /** Managed camera and remote-file presentation. Temporary delivery credentials are not persistent DTOs. */
 import type { Id, Revision, UnixMs, PrinterError, Result, ReadOptions, Capability, PrinterTarget, TargetRequest, NonEmptyReadonlyArray } from './common';
-import type { FileSelection, ByteRange, BinaryRead } from './files';
+import type { RemoteFileRef, ByteRange, BinaryRead } from './files';
 import type { PrintObjectContextRef, PrintObjectMap } from './objects';
 export type TimelapseMode = 'off' | 'traditional' | 'smooth';
 export interface TimelapseSetting {
@@ -43,8 +43,8 @@ export type MediaSource = {
   profileId?: string;
 } | {
   kind: 'file-preview';
-  target: FileSelection;
-  /** From files.listPreviews; validate against this file, without caller-session state. */
+  target: RemoteFileRef;
+  /** From files.listPreviews or an inspected print target; validate against this file. */
   previewId: Id<'preview-option'>;
 };
 export interface OpenMediaRequest {
@@ -87,9 +87,12 @@ export type MediaPresentation = {
   seekable: boolean;
   codecId: string | null;
   live: boolean;
+  /** Actual playable disk-cache ranges. Absent for live media and providers without indexed caching. */
+  cachedRanges?: readonly { startSeconds: number; endSeconds: number }[];
 } | {
   kind: 'image';
   mimeType: string;
+  /** Renderer-readable delivery URL; thumbnail browsers may copy it before closing the lease. */
   url: string;
 } | {
   kind: 'text' | 'toolpath';
@@ -181,7 +184,7 @@ export interface PrinterMedia {
    * New generations begin at sequence zero with init+IDR or a complete JPEG.
    * Providers bound pending bytes independently of consumer speed; they never silently drop AVC.
    */
-  readStream(request: { media: MediaRef; streamId: Id<'media-stream'> }, options?: ReadOptions): AsyncIterable<MediaStreamPacket>;
+  readStream(request: { media: MediaRef; streamId: Id<'media-stream'>; startSeconds?: number }, options?: ReadOptions): AsyncIterable<MediaStreamPacket>;
   /** Delivery may change URLs/negotiation; inspect the returned revision. */
   renew(ref: MediaRef, options?: ReadOptions): Promise<Result<MediaDescriptor>>;
   /** Reject stale negotiation IDs and non-WebRTC resources. */

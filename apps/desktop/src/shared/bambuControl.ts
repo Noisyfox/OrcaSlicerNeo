@@ -1,8 +1,9 @@
 import { isBambuSubmissionRequest, type BambuSubmissionInputs, type BambuSubmissionResults } from './bambuSubmission';
+import { isBambuStorageRequest, type BambuStorageInputs, type BambuStorageResults } from './bambuStorage';
 import { isBambuCommandPayload, isPrintObjectContextRef } from './bambuCommandValidation';
 /** Renderer-safe domain RPC. Native protocol JSON and credentials have no representation here. */
 import type * as D from '@orca/printer-control/domain';
-export interface BambuControlInputs extends BambuSubmissionInputs {
+export interface BambuControlInputs extends BambuSubmissionInputs, BambuStorageInputs {
   objectMap: { contextRef: D.PrintObjectContextRef; readId: string };
   cancelObjectRead: { readId: string };
   preview: D.TargetRequest;
@@ -15,7 +16,7 @@ export interface BambuControlInputs extends BambuSubmissionInputs {
   observe: { target: D.PrinterTarget; token: string };
   release: { token: string };
 }
-export interface BambuControlResults extends BambuSubmissionResults {
+export interface BambuControlResults extends BambuSubmissionResults, BambuStorageResults {
   objectMap: D.Result<D.PrintObjectMap>;
   cancelObjectRead: D.Result<null>;
   preview: D.Result<D.CurrentPrintPreview>;
@@ -41,6 +42,7 @@ const topics: readonly D.StateTopic[] = ['descriptor', 'status', 'firmware', 'th
 export function isBambuControlRequest(value: unknown): value is BambuControlRequest {
   if (!object(value) || !exact(value, ['method', 'input']) || !object(value.input)) return false;
   const input = value.input;
+  if (typeof value.method === 'string' && value.method.startsWith('storage.')) return isBambuStorageRequest(value.method, input);
   if (value.method === 'objectMap') return exact(input, ['contextRef', 'readId']) && isPrintObjectContextRef(input.contextRef) && string(input.readId);
   if (value.method === 'cancelObjectRead') return exact(input, ['readId']) && string(input.readId);
   if (typeof value.method === 'string' && value.method.startsWith('print.')) return isBambuSubmissionRequest(value.method, input);

@@ -1,3 +1,4 @@
+import { unavailablePrinterDownloads } from '@orca/printer-control';
 import { createBrowserScreenColorSampler, externalHttpsUrl } from '@orca/platform-contract';
 import { createPrinterService } from '@orca/printer-control';
 import {
@@ -157,6 +158,7 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
     },
     accounts: [],
     printers: {
+      downloads: unavailablePrinterDownloads(),
       configuration: printerConfiguration,
       service: createPrinterService([{
         id: 'moonraker' as Id<'provider'>, name: 'Moonraker',

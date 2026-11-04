@@ -132,8 +132,8 @@ private:
         if (info.Length() != 2 || !info[0].IsString() || !info[1].IsObject() || info[1].IsArray())
             throw Napi::TypeError::New(info.Env(), "Invalid print request");
         const auto route = info[0].As<Napi::String>().Utf8Value();
-        if (route != "lan" && route != "cloud") throw Napi::TypeError::New(info.Env(), "Invalid print route");
-        auto params = read_print_params(info[1].As<Napi::Object>());
+        if (route != "lan" && route != "cloud" && route != "device-file") throw Napi::TypeError::New(info.Env(), "Invalid print route");
+        auto params = read_print_params(info[1].As<Napi::Object>(), route == "device-file");
         auto agent = agent_; auto hub = hub_; auto state = std::make_shared<PrintState>();
         auto work = [agent, hub, state, route, params]() -> Output {
             return agent->print(route, params, state, [hub](PluginEvent event) { hub->send(std::move(event)); });

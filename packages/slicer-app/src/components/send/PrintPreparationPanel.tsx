@@ -17,13 +17,24 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
   const state = usePrintPreparation(platform, printer, route, receipt, () => {
     useDeviceSelectionStore.getState().showPrinter(printer.identity.id); onClose();
   });
+  return <PrintPreparationView state={state} printer={printer} onClose={onClose} onBusyChange={onBusyChange} printerControl={printerControl} />;
+}
+
+export type PrintPreparationViewState = Omit<ReturnType<typeof usePrintPreparation>, 'operation'> & {
+  operation: Pick<D.PrintSubmissionState, 'phase' | 'message' | 'progress' | 'canCancel'> | null;
+};
+/** Shared mapping/options presentation; the source-specific hooks own reads and sending. */
+export function PrintPreparationView({ state, printer, onClose, onBusyChange, printerControl, thumbnail, nameReadOnly = false }: {
+  state: PrintPreparationViewState; printer: D.SavedPrinter; onClose(): void; onBusyChange(busy: boolean): void;
+  printerControl?: ReactNode; thumbnail?: ReactNode; nameReadOnly?: boolean;
+}) {
   const { requirements, prepared, operation, confirmation } = state;
   useEffect(() => { onBusyChange(state.active); }, [state.active, onBusyChange]);
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
   return <div className="flex flex-col gap-4" data-testid="print-preparation">
     {!requirements && !state.error && <p role="status">Reading the current slice…</p>}
     <PrintJobSummary requirements={requirements} printer={printer} printerControl={printerControl} name={state.jobName}
-      onNameChange={state.setJobName} disabled={state.active || operation?.phase === 'unknown'} onRefresh={() => void state.refresh()} route={prepared?.route} />
+      onNameChange={state.setJobName} disabled={state.active || operation?.phase === 'unknown'} onRefresh={() => void state.refresh()} route={prepared?.route} thumbnail={thumbnail} nameReadOnly={nameReadOnly} />
     {requirements && <fieldset disabled={state.active || operation?.phase === 'unknown'} className="min-w-0 space-y-4">
       <legend className="mb-3 flex w-full items-center gap-2 text-sm text-muted-foreground">Filament<span className="h-px flex-1 bg-border" /></legend>
       <div className={`grid gap-4 ${requirements.nozzleDiameters.length > 1 ? 'sm:grid-cols-2' : ''}`} data-testid="print-nozzle-groups">

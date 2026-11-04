@@ -1,3 +1,5 @@
+import { isStorageFileRef } from './bambuStorage';
+import { isPrintOptions } from './bambuSubmission';
 import type * as D from '@orca/printer-control/domain';
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown) => typeof value === 'string' && value.length > 0 && value.length < 1024;
@@ -10,6 +12,12 @@ export function isBambuCommandPayload(value: unknown): value is D.PrinterCommand
   if (!object(value) || !exact(value, ['type', 'params']) || !object(value.params)) return false;
   const p = value.params;
   switch (value.type) {
+    case 'jobs.start': return Object.keys(p).every(k => ['source', 'inspection', 'bindings', 'options', 'acknowledgedIssues', 'allowAbnormalStorage'].includes(k)) &&
+      isStorageFileRef(p.source) && object(p.inspection) && exact(p.inspection, ['id', 'targetId']) && text(p.inspection.id) && text(p.inspection.targetId) &&
+      Array.isArray(p.bindings) && p.bindings.length <= 64 && p.bindings.every(b => object(b) && exact(b, ['materialKey', 'pathId']) && text(b.materialKey) && text(b.pathId)) &&
+      (p.options === undefined || isPrintOptions(p.options)) && (p.allowAbnormalStorage === undefined || typeof p.allowAbnormalStorage === 'boolean') &&
+      (p.acknowledgedIssues === undefined || Array.isArray(p.acknowledgedIssues) && p.acknowledgedIssues.length <= 256 && p.acknowledgedIssues.every(text));
+    case 'files.delete': return exact(p, ['target']) && isStorageFileRef(p.target);
     case 'materials.configure': {
       if (!text(p.slotId) || !Array.isArray(p.acknowledgedWarningIds) || p.acknowledgedWarningIds.length > 128 || !p.acknowledgedWarningIds.every(text)) return false;
       if (p.intent === 'reset') return exact(p, ['slotId', 'intent', 'acknowledgedWarningIds']);
