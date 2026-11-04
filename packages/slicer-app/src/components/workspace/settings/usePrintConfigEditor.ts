@@ -1,3 +1,4 @@
+import { useMeshBooleanStore } from '@/stores/useMeshBooleanStore';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { ConfigEditorSnapshot, NativeScopedConfigMutationRequest, ScopedConfigEditorSnapshot, ScopedConfigEditorTarget } from '@slicer/client';
 import type { PlatformCapabilities } from '@orca/platform-contract';
@@ -11,20 +12,21 @@ function editorContext(runtime: PlatformCapabilities['runtime'], targets: readon
   return { runtime, targets, enabled, identity: targets === null ? 'project' : JSON.stringify(targets),
     base: settings.baseValues, refreshRequired: settings.nativeScopedConfigRefreshRequired, revision: settings.nativeScopedConfigRevision, entry: settings.printEditorEntry,
     metadata: settings.metadata, printer: settings.selectedPrinter, print: settings.selectedPrint,
-    historyRevision: history.revision, historyPhase: history.phase };
+    historyRevision: history.revision, historyPhase: history.phase, booleanBusy: useMeshBooleanStore.getState().busy };
 }
 type EditorContext = ReturnType<typeof editorContext>;
-const contextKeys = ['runtime', 'identity', 'base', 'revision', 'entry', 'metadata', 'printer', 'print', 'historyRevision', 'refreshRequired'] as const;
+const contextKeys = ['runtime', 'identity', 'base', 'revision', 'entry', 'metadata', 'printer', 'print', 'historyRevision', 'refreshRequired', 'booleanBusy'] as const;
 const sameContext = (left: EditorContext, right: EditorContext) => contextKeys.every(key => left[key] === right[key]);
 const sameOwner = (left: EditorContext, right: EditorContext) =>
   left.runtime === right.runtime && left.identity === right.identity && left.entry === right.entry &&
   left.metadata === right.metadata && left.printer === right.printer && left.historyRevision === right.historyRevision;
-const readable = (context: EditorContext) => context.enabled && !context.refreshRequired && context.metadata !== null && context.revision !== null &&
+const readable = (context: EditorContext) => !context.booleanBusy && context.enabled && !context.refreshRequired && context.metadata !== null && context.revision !== null &&
   context.historyPhase === 'idle' && (context.targets === null || context.targets.length > 0);
 
 function useEditorSession<Snapshot extends { ok: true; revision: number }>(platform: PlatformCapabilities,
   targets: readonly ScopedConfigEditorTarget[] | null, enabled: boolean,
   read: (context: EditorContext) => Promise<Snapshot | { ok: false; error: string }>) {
+  const booleanBusy = useMeshBooleanStore(state => state.busy);
   const base = useSettingsStore(state => state.baseValues);
   const revision = useSettingsStore(state => state.nativeScopedConfigRevision);
   const entry = useSettingsStore(state => state.printEditorEntry);
@@ -45,7 +47,7 @@ function useEditorSession<Snapshot extends { ok: true; revision: number }>(platf
   useLayoutEffect(() => {
     committed.current = { targets, enabled };
     void controller.refresh();
-  }, [controller, identity, enabled, base, revision, entry, metadata, printer, print, historyRevision, historyPhase, refreshRequired]);
+  }, [controller, identity, enabled, base, revision, entry, metadata, printer, print, historyRevision, historyPhase, refreshRequired, booleanBusy]);
   useEffect(() => { controller.start(); return () => controller.stop(); }, [controller]);
   const context = editorContext(platform.runtime, targets, enabled);
   const current = readable(context) && state.loaded !== null && sameContext(state.loaded.context, context);

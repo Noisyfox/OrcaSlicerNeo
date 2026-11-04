@@ -1,3 +1,4 @@
+import { executeMeshBoolean } from '../viewport/gizmo/meshBoolean/meshBooleanCommand';
 import type { FilamentAssignmentTargetRequest, ModelInstanceStructure, ModelObjectStructure, ModelVolumeStructure, VolumeType } from '@slicer/client';
 import type { ReactNode } from 'react';
 import { FolderPlus } from 'lucide-react';
@@ -181,6 +182,12 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
       <MenuItem key="clone" label="Clone" testid="objectlist-clone"
         onClick={() => act(cloneObjectsInList(runtime, targetObjectIds))} />,
     );
+    if (targetObjectIds.length === 1 && (o.volumes.length > 1 || o.volumes.some(volume => volume.isSplittable))) {
+      items.push(<MenuItem key="mesh-boolean" label="Mesh boolean" testid="objectlist-mesh-boolean"
+        disabled={!!runtime.getRuntimeExecutionState?.().sliceActive}
+        onClick={() => { onClose(); void executeMeshBoolean(platform,
+          { entry: 'object', objectId: o.id, keepPainting: false }, sceneInteraction ?? null); }} />);
+    }
     // Orca shows Split to objects only when the object is splittable (multiple
     // volumes, or a volume with disconnected shells).
     if (o.volumes.length > 1 || o.volumes.some((vol) => vol.isSplittable)) {

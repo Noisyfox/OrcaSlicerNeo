@@ -2501,6 +2501,10 @@ export function createClient(
       const m = await module();
       return normalizeNativePerformanceProfile(callJson(m, 'orc_take_performance_profile', [], []));
     },
+    async runMeshBooleanOperation(operation) {
+      if (this.getRuntimeExecutionState().sliceActive) throw new Error('slice_busy');
+      return operation(this);
+    },
     runProjectHistoryTransaction,
 
     async getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult> {

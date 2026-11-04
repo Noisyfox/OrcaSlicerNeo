@@ -347,9 +347,9 @@ settled-transform, history and current-plate contracts as ordinary imports.
 
 ## 10. Mesh Boolean design
 
-**Decision status:** Design agreed; native dependency/source closure and
-typed project operations are implemented. Application interaction and final
-qualification remain pending. The accepted Neo behavior below governs the
+**Decision status:** Native dependency/source closure, typed project operations
+and shared application interaction are implemented. Final variant and
+model-scale qualification remains pending. The accepted Neo behavior below governs the
 explicit differences from the Orca reference behavior.
 
 ### 10.1 Accepted constraints
@@ -786,6 +786,15 @@ of the next piece starts.
    posting them. Verify selection/tool lifecycle, modal input blocking and
    terminal success/error handling through the shared application, then cover
    the distinct Web and Electron host seams.
+
+   **Accepted interaction scope:** real threaded wasm64 journeys on Electron
+   and Chrome cover viewport/list picking, mode changes, idle Escape and page
+   lifecycle, the persisted painting preference, both entry points, result
+   selection, Undo/Redo and instance preservation. The wait blocks navigation,
+   keyboard and camera input. Application and transport tests also hold
+   publication open after native completion and verify that foreign commands
+   are rejected without being queued or posted. Full fallback packaging and
+   browser variant qualification remain in step 4.
 4. **Integration and model-scale qualification.** Follow
    [Testing Guidelines](../doc/testing_guidelines.md) for package, repository,
    affected-host and WASM-variant gates. Exercise the new variant-dependent

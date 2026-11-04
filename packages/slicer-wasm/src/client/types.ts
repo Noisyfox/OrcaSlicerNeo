@@ -1774,6 +1774,9 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   takeNativePerformanceProfile?(): Promise<NativePerformanceProfile>;
   /** Existing native history archive/reuse counters for acceptance diagnostics. */
   getNativeHistoryDiagnostics?(): Promise<Record<string, unknown>>;
+  /** Reserve this Worker through Mesh Boolean history/scene publication.
+   * Foreign requests fail before postMessage; use only the scoped client. */
+  runMeshBooleanOperation<T>(operation: (owner: SlicerClient) => Promise<T>): Promise<T>;
   runProjectHistoryTransaction<T>(
     label: import('./history').HistoryLabel,
     category: import('./history').HistoryCategory,

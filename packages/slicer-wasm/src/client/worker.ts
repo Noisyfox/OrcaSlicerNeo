@@ -173,6 +173,7 @@ export function startWorker(
   // the active writer and is popped only after its commit/abort.
   const activeTransactionIds: string[] = [];
   let transactionStarting = false;
+  let meshBooleanActive = false;
   // Short command gate, acquired before any async hook/module initialization.
   // It rejects overlap; it never queues work or spans an editing session.
   let historyTransitionInFlight = false;
@@ -191,9 +192,16 @@ export function startWorker(
     let ownsTransition = false;
     let ownsTransactionStart = false;
     let ownsArrangement = false;
+    let ownsMeshBoolean = false;
     let ownsCatalogueOpen = false;
     let ownsPresetWrite = false;
     try {
+      if (meshBooleanActive && restrictedWhileSerialSlicing.has(op)) throw new Error('mesh_boolean_busy');
+      if (op === 'meshBoolean') {
+        if (arrangementActive || client.getRuntimeExecutionState().sliceActive) throw new Error('runtime_busy');
+        meshBooleanActive = true;
+        ownsMeshBoolean = true;
+      }
       if (presetWriteActive) throw new Error('user preset write is in progress');
       if (op === 'mutateUserPreset') {
         if (historyTransitionInFlight || transactionStarting || activeTransactionIds.length || arrangementActive || catalogueOpening)
@@ -295,6 +303,7 @@ export function startWorker(
       if (ownsPresetWrite) presetWriteActive = false;
       if (ownsCatalogueOpen) catalogueOpening = false;
       if (ownsArrangement) arrangementActive = false;
+      if (ownsMeshBoolean) meshBooleanActive = false;
       if (ownsTransition) historyTransitionInFlight = false;
     }
   });
@@ -312,6 +321,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   const progressListeners = new Set<(pct: number, text: string) => void>();
   const arrangementListeners = new Set<(pct: number, text: string) => void>();
   let arrangementActive = false;
+  let meshBooleanScope: object | null = null;
   let catalogueOpening = false;
   const projectClosedListeners = new Set<ProjectClosedCallback>();
   let runtimeThreaded: boolean | undefined;
@@ -401,7 +411,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     else p.reject(new Error(msg.error ?? 'worker error'));
   });
 
-  function call(op: string, args: unknown[], onDiagnostics?: (event: SliceDiagnosticEvent) => void): Promise<unknown> {
+  function call(op: string, args: unknown[], onDiagnostics?: (event: SliceDiagnosticEvent) => void, owner?: object): Promise<unknown> {
+    if (owner && owner !== meshBooleanScope) return Promise.reject(new Error('mesh_boolean_scope_closed'));
+    if (meshBooleanScope && owner !== meshBooleanScope) return Promise.reject(new Error('mesh_boolean_busy'));
+    if (op === 'meshBoolean' && !owner) return Promise.reject(new Error('Mesh Boolean requires an exclusive operation'));
     if (fatalError) return Promise.reject(fatalError);
     if (setupWizardOperations.has(op) && catalogueOpening)
       return Promise.reject(new Error('setup_catalogue_loading'));
@@ -445,9 +458,22 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   // (bare {type:'progress'} messages, add/delete around the call) and never
   // forwarded through postMessage — a function arg would DataCloneError in
   // a real worker.
-  return new Proxy({} as SlicerClient, {
+  function scopedClient(owner?: object): SlicerClient {
+    const sendScoped = (op: string, args: unknown[], diagnostics?: (event: SliceDiagnosticEvent) => void) => call(op, args, diagnostics, owner);
+    return new Proxy({} as SlicerClient, {
     get(_target, prop) {
       if (typeof prop !== 'string' || prop === 'then') return undefined;
+      if (prop === 'runMeshBooleanOperation') {
+        return async <T>(operation: (client: SlicerClient) => Promise<T>): Promise<T> => {
+          if (fatalError) throw fatalError;
+          if (meshBooleanScope || pending.size || arrangementActive || catalogueOpening || activeSliceRequests)
+            throw new Error('runtime_busy');
+          const token = {};
+          meshBooleanScope = token;
+          try { return await operation(scopedClient(token)); }
+          finally { meshBooleanScope = null; }
+        };
+      }
       if (prop === 'getHistoryDiagnostics') {
         return () => copyDiagnostics(diagnostics);
       }
@@ -468,15 +494,15 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
           afterContext: unknown | (() => unknown | Promise<unknown>),
         ) => {
           const startedAt = historyNow();
-          const transactionId = await call('beginHistory', [label, category, beforeContext]);
+          const transactionId = await sendScoped('beginHistory', [label, category, beforeContext]);
           try {
             const result = await mutation(String(transactionId));
             const context = typeof afterContext === 'function'
               ? await (afterContext as () => unknown | Promise<unknown>)() : afterContext;
-            const receipt = await call('commitHistory', [transactionId, context]) as import('./history').HistoryCommitResult;
+            const receipt = await sendScoped('commitHistory', [transactionId, context]) as import('./history').HistoryCommitResult;
             return { result, ...receipt };
           } catch (error) {
-            try { await call('abortHistory', [transactionId]); } catch { /* preserve mutation error */ }
+            try { await sendScoped('abortHistory', [transactionId]); } catch { /* preserve mutation error */ }
             throw error;
           } finally {
             recordLayer('client', { kind: 'mutation', durationMs: historyNow() - startedAt });
@@ -493,7 +519,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
             ? onProjectClosed as ProjectClosedCallback : undefined;
           if (progressListener) progressListeners.add(progressListener);
           if (closedListener) projectClosedListeners.add(closedListener);
-          return call(prop, args.slice(0, 3)).finally(() => {
+          return sendScoped(prop, args.slice(0, 3)).finally(() => {
             if (progressListener) progressListeners.delete(progressListener);
             if (closedListener) projectClosedListeners.delete(closedListener);
           });
@@ -502,10 +528,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       if (prop === 'importProjectGeometry') {
         return (...args: unknown[]) => {
           const onProgress = args[2];
-          if (typeof onProgress !== 'function') return call(prop, args);
+          if (typeof onProgress !== 'function') return sendScoped(prop, args);
           const listener = onProgress as (pct: number, text: string) => void;
           progressListeners.add(listener);
-          return call(prop, args.slice(0, 2)).finally(() => {
+          return sendScoped(prop, args.slice(0, 2)).finally(() => {
             progressListeners.delete(listener);
           });
         };
@@ -514,17 +540,17 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
         if (prop === 'slicePlate') {
           return (target: unknown, config: Record<string, string>, onProgress?: (percent: number, text: string) => void,
             onDiagnostics?: (event: SliceDiagnosticEvent) => void) => {
-            if (!onProgress) return call('slicePlate', [target, config], onDiagnostics);
+            if (!onProgress) return sendScoped('slicePlate', [target, config], onDiagnostics);
             progressListeners.add(onProgress);
-            return call('slicePlate', [target, config], onDiagnostics).finally(() => {
+            return sendScoped('slicePlate', [target, config], onDiagnostics).finally(() => {
               progressListeners.delete(onProgress);
             });
           };
         }
         return (config: Record<string, string>, onProgress?: (percent: number, text: string) => void) => {
-          if (!onProgress) return call('slice', [config]);
+          if (!onProgress) return sendScoped('slice', [config]);
           progressListeners.add(onProgress);
-          return call('slice', [config]).finally(() => {
+          return sendScoped('slice', [config]).finally(() => {
             progressListeners.delete(onProgress);
           });
         };
@@ -532,10 +558,12 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       if (prop === 'arrange') {
         return (request: unknown, onProgress?: (percent: number, text: string) => void) => {
           if (onProgress) arrangementListeners.add(onProgress);
-          return call(prop, [request]).finally(() => { if (onProgress) arrangementListeners.delete(onProgress); });
+          return sendScoped(prop, [request]).finally(() => { if (onProgress) arrangementListeners.delete(onProgress); });
         };
       }
-      return (...args: unknown[]) => call(prop, args);
+      return (...args: unknown[]) => sendScoped(prop, args);
     },
-  }) as SlicerClient;
+    }) as SlicerClient;
+  }
+  return scopedClient();
 }

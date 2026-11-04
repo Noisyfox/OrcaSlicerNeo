@@ -1,3 +1,4 @@
+import { useMeshBooleanStore } from '@/stores/useMeshBooleanStore';
 import type { PaintingController } from './PaintingController';
 import { useArrangementStore } from '@/stores/useArrangementStore';
 import type { FilamentSessionSnapshot, FilamentMutationSummary } from '@slicer/client';
@@ -13,7 +14,7 @@ export function registerPaintingCommands(controller: PaintingController): () => 
   return () => { if (owner === controller) owner = null; };
 }
 export function paintingCommandAllowed(): boolean {
-  return !useSetupWizardStore.getState().active && !useArrangementStore.getState().active && (owner?.commandAllowed ?? true);
+  return !useMeshBooleanStore.getState().busy && !useSetupWizardStore.getState().active && !useArrangementStore.getState().active && (owner?.commandAllowed ?? true);
 }
 export function coordinatePaintingProjectOperation<T>(operation: () => Promise<T>, enqueue: (operation: () => Promise<T>) => Promise<T>): Promise<T> {
   return owner?.active ? owner.projectOperation(operation) : enqueue(operation);

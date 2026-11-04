@@ -119,6 +119,20 @@ Restore the option to `OFF` and rebuild before staging a production artifact.
 Normal full/quick drivers always reset it to `OFF`; CI keeps fault modules in
 the build tree and uploads only the separate production outputs.
 
+After building the required production artifacts, the
+[shared Mesh Boolean host journey](../scripts/run-mesh-boolean-e2e.mjs) stages
+and verifies the native payloads, builds the application with E2E read probes
+and exercises both entry points through real UI input:
+
+```sh
+node scripts/run-mesh-boolean-e2e.mjs
+```
+
+Use `--desktop-only` or `--web-only` for a focused host gate. `--serial`
+selects non-isolated Web execution; Electron retains its production threaded
+runtime. A Web build requires the complete four-artifact staging set described
+above, even when a particular journey selects only wasm64.
+
 When symbols or upstream signatures change, fix the owning source/scaffold
 rather than adding a renderer compatibility layer.
 

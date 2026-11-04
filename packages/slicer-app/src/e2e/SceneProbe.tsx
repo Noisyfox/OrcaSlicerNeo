@@ -397,6 +397,22 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
         })) ?? [],
       };
     },
+    meshBooleanState: () => ({ gizmo: sceneInteraction.gizmo, publishing: sceneInteraction.meshBoolean.publishing, ...sceneInteraction.meshBoolean.getSnapshot() }),
+    meshBooleanMeshes: () => glVolumes.map(volume => {
+      const positions = volume.geometry.getAttribute('position'), indices = volume.geometry.index;
+      let signedVolume = 0;
+      const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+      const count = indices?.count ?? positions.count;
+      for (let i = 0; i < count; i += 3) {
+        a.fromBufferAttribute(positions, indices ? indices.getX(i) : i);
+        b.fromBufferAttribute(positions, indices ? indices.getX(i+1) : i+1);
+        c.fromBufferAttribute(positions, indices ? indices.getX(i+2) : i+2);
+        signedVolume += a.dot(b.cross(c)) / 6;
+      }
+      const bounds = volume.getWorldBounds();
+      return { objectId: volume.buffer.objectId, volumeId: volume.buffer.volumeId, instanceId: volume.buffer.instanceId,
+        triangles: count / 3, volume: Math.abs(signedVolume), bounds: { min: bounds.min.toArray(), max: bounds.max.toArray() } };
+    }),
     modelSelectionIdentities: () => glVolumes.filter((volume) => sceneInteraction.selection.has(volume)).map((volume) => ({
       id: volume.id,
       objectId: volume.buffer.objectId,

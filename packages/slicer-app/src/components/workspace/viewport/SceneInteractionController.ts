@@ -1,3 +1,4 @@
+import { MeshBooleanSession, meshBooleanTarget } from './gizmo/meshBoolean/MeshBooleanSession';
 import * as THREE from 'three';
 import type { ModelTransform } from '@slicer/client';
 import type { HistoryContext, ModelStructureResult } from '@slicer/client';
@@ -25,7 +26,7 @@ import {
   type BoxRect,
 } from './boxSelectionMath';
 
-export type OpenGizmo = 'move' | 'rotate' | 'scale' | null;
+export type OpenGizmo = 'move' | 'rotate' | 'scale' | 'mesh-boolean' | null;
 /** Scale gizmo handle space; multi-selection always scales in world space. */
 export type ScaleSpace = 'world' | 'local';
 export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box' | 'external';
@@ -79,6 +80,7 @@ export interface SceneEntityCommitPort<Entity extends GLVolume = GLVolume> {
  */
 export class SceneInteractionController {
   readonly selection = new Selection();
+  readonly meshBoolean = new MeshBooleanSession(() => this.getVolumes(), () => this.emit());
 
   private readonly listeners = new Set<() => void>();
   private selectionModeState: SelectionMode = 'instance';
@@ -150,8 +152,14 @@ export class SceneInteractionController {
    * armed one.
    */
   toggleGizmo(mode: Exclude<OpenGizmo, null>): boolean {
+    if (this.meshBoolean.publishing) return false;
     if (this.selection.empty) return false;
     if (this.hasWipeTowerSelection && mode !== 'move') return false;
+    if (mode === 'mesh-boolean' && this.openGizmo !== mode) {
+      const target = meshBooleanTarget(this.selectedVolumes(), this.getVolumes());
+      if (!target) return false;
+      this.meshBoolean.open(target);
+    } else this.meshBoolean.close();
     this.openGizmo = this.openGizmo === mode ? null : mode;
     this.emit();
     return this.openGizmo === mode;
@@ -159,8 +167,10 @@ export class SceneInteractionController {
 
   /** Close the armed gizmo without changing the shared selection. */
   closeGizmo(): boolean {
+    if (this.meshBoolean.publishing) return false;
     if (this.openGizmo === null) return false;
     this.openGizmo = null;
+    this.meshBoolean.close();
     this.emit();
     return true;
   }
@@ -203,7 +213,7 @@ export class SceneInteractionController {
     // The initiating DragControls must stay enabled for the rest of its own
     // gesture. A gizmo remains exclusive; other body wrappers are still
     // blocked synchronously by tryBeginBodyDrag/update ownership checks.
-    return (this.pointerOrigin === 'non-gizmo' || !this.gizmoGrabberHovered)
+    return this.openGizmo !== 'mesh-boolean' && (this.pointerOrigin === 'non-gizmo' || !this.gizmoGrabberHovered)
       && (this.pointerOwner === 'none' || this.pointerOwner === 'body')
       // An unselected body must be able to start the same press that selects
       // it. GLVolumeMesh selects synchronously at pointer-down, before
@@ -374,6 +384,8 @@ export class SceneInteractionController {
   }
 
   selectFromHit(hit: GLVolume, additive: boolean, part = false): boolean {
+    if (this.meshBoolean.publishing) return false;
+    if (this.openGizmo === 'mesh-boolean' && this.meshBoolean.assign(hit)) return true;
     if (!hit.selectable) return false;
     if (hit instanceof WipeTowerVolume) {
       // The special volume cannot be mixed with model volumes or selected
@@ -403,6 +415,7 @@ export class SceneInteractionController {
    * stable ObjectIDs by the list/spec §7 as needed).
    */
   selectComposite(objectIdx: number, volumeIdx?: number, instanceIdx?: number, additive = false): boolean {
+    if (this.meshBoolean.publishing) return false;
     if (additive && !this.canToggleVolumeIds(this.compositeVolumeIds(objectIdx, volumeIdx, instanceIdx))) return false;
     const changed = additive
       ? this.selection.toggleComposite(this.getVolumes(), { objectIdx, volumeIdx, instanceIdx })
@@ -415,6 +428,7 @@ export class SceneInteractionController {
   /** Replace (or, when additive, union) the selection with raw volume IDs
    *  (used by the ObjectList's Shift-range multi-select). */
   selectVolumeIds(ids: readonly string[], additive = false): boolean {
+    if (this.meshBoolean.publishing) return false;
     const requested = ids.map((id) => this.getVolumes().find((volume) => volume.id === id)).filter((volume): volume is GLVolume => volume !== undefined && volume.selectable);
     const models = requested.filter((volume) => !(volume instanceof WipeTowerVolume));
     ids = (models.length > 0 ? models : requested).map((volume) => volume.id);
@@ -431,6 +445,7 @@ export class SceneInteractionController {
    * a model mesh.
    */
   prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean, part = false): boolean {
+    if (this.openGizmo === 'mesh-boolean' && this.meshBoolean.assign(hit)) return true;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
     this.pendingBodyDragHit = hit;
     // A drag that starts on a member of an existing multi-selection must move
@@ -455,10 +470,12 @@ export class SceneInteractionController {
   }
 
   clearSelection(): boolean {
+    if (this.meshBoolean.publishing) return false;
     const selectionChanged = this.selection.clear();
     this.cancelDrag();
     const boxAbandoned = this.abandonBoxSelect();
     this.openGizmo = null;
+    this.meshBoolean.close();
     if (selectionChanged || boxAbandoned) this.emit();
     return selectionChanged || boxAbandoned;
   }
@@ -597,6 +614,7 @@ export class SceneInteractionController {
     if (retainedWipeTower && this.getVolumes().includes(retainedWipeTower))
       this.selection.replaceIds([retainedWipeTower.id]);
     this.openGizmo = null;
+    this.meshBoolean.close();
     this.drag = null;
     this.suppressPostDragClick = false;
     this.pointerOwner = 'none';
@@ -1338,7 +1356,9 @@ export class SceneInteractionController {
   // Gizmos never auto-open on selection; a selection that empties (e.g. a
   // model reload pruning stale IDs) auto-closes the armed gizmo.
   private syncGizmoToSelection(): void {
-    if (this.selection.empty) this.openGizmo = null;
+    if (this.openGizmo === 'mesh-boolean') {
+      if (!this.meshBoolean.reconcile(this.selectedVolumes())) this.closeGizmo();
+    } else if (this.selection.empty) this.openGizmo = null;
   }
 
   private emit(): void {

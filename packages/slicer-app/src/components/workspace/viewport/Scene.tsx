@@ -1,3 +1,4 @@
+import { MeshBooleanBounds } from './gizmo/meshBoolean/MeshBooleanControls';
 // packages/slicer-app/src/components/viewport/Scene.tsx
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import * as THREE from 'three';
@@ -193,7 +194,7 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, s
         <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession}
           selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} />
       ))}
-      {interactive && <SelectionBoundsBox />}
+      {interactive && <><SelectionBoundsBox /><MeshBooleanBounds /></>}
       {interactive && <SelectionTransformGizmo />}
       {/* The slicing bridge publishes world-space preview moves. The separate
           source G-code remains printer-local for export/send, so this render

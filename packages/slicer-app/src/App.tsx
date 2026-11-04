@@ -1,3 +1,4 @@
+import { MeshBooleanWait } from './components/workspace/viewport/gizmo/meshBoolean/MeshBooleanControls';
 import { useProjectDialogStore } from './stores/useProjectDialogStore';
 import { useDeviceSelectionStore } from './stores/useDeviceSelectionStore';
 import { paintingCommandAllowed, closePaintingForCommand, paintingSessionActive } from './components/workspace/viewport/gizmo/painting/projectCommands';
@@ -759,6 +760,7 @@ function AppContent() {
       />
       </ArrangementEditBoundary>
       {fileManagerWindow}
+      <MeshBooleanWait />
       <WorkspaceNotifications visible={isWorkspaceTab(activeTab)} />
       {setupWizard}
     </>

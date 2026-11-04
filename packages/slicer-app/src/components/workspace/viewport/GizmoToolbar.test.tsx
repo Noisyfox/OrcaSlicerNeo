@@ -29,7 +29,7 @@ vi.mock('@/stores/useFilamentSessionStore', () => ({ useFilamentSessionStore: ()
 let root: Root, container: HTMLDivElement;
 const scene = {
   selection: { subscribe: () => () => {}, revision: 0, empty: false },
-  subscribe: () => () => {}, hasWipeTowerSelection: false,
+  subscribe: () => () => {}, hasWipeTowerSelection: false, selectedVolumes: () => [],
   gizmo: null as SceneInteractionController['gizmo'],
   closeGizmo: vi.fn(() => { scene.gizmo = null; }),
   toggleGizmo: vi.fn((mode: SceneInteractionController['gizmo']) => { scene.gizmo = scene.gizmo === mode ? null : mode; }),

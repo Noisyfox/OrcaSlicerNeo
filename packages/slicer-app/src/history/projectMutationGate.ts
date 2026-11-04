@@ -16,17 +16,25 @@ type QueuedOperation = {
   resolve: (value: unknown) => void;
   reject: (error: unknown) => void;
 };
+/** Only the caller holding this identity may enter during an exclusive edit. */
+export interface ProjectMutationAdmission { readonly token: symbol }
+let exclusiveAdmission: ProjectMutationAdmission | null = null;
 let operationBusy = false;
 const operationQueue: QueuedOperation[] = [];
 
 /** One FIFO shared by project history and filament mutations. */
-export function enqueueProjectMutationOperation<T>(operation: () => Promise<T>): Promise<T> {
+export function enqueueProjectMutationOperation<T>(operation: () => Promise<T>, admission?: ProjectMutationAdmission): Promise<T> {
+  if (exclusiveAdmission) {
+    if (admission !== exclusiveAdmission) return Promise.reject(new Error('mesh_boolean_busy'));
+    return enqueueOperation(operation);
+  }
   return coordinatePaintingProjectOperation(operation, enqueuePaintingOperation);
 }
 
 /** Painting already owns admission and its own lane; it joins the same FIFO
  * without recursively requesting project-command admission. */
 export function enqueuePaintingOperation<T>(operation: () => Promise<T>): Promise<T> {
+  if (exclusiveAdmission) return Promise.reject(new Error('mesh_boolean_busy'));
   if (useArrangementStore.getState().active) return Promise.reject(new Error('arrangement_busy'));
   return enqueueOperation(operation);
 }
@@ -34,7 +42,19 @@ export function enqueuePaintingOperation<T>(operation: () => Promise<T>): Promis
 /** Read-only reservations preserve publication ordering without edit admission,
  * a mutation lease, or changing the active painting session. */
 export function enqueueProjectReadOperation<T>(operation: () => Promise<T>): Promise<T> {
+  if (exclusiveAdmission) return Promise.reject(new Error('mesh_boolean_busy'));
   return enqueueOperation(operation);
+}
+
+/** Reserve an idle lane immediately; never queue a Boolean behind another edit. */
+export async function runExclusiveProjectOperation<T>(operation: (admission: ProjectMutationAdmission) => Promise<T>): Promise<T> {
+  if (exclusiveAdmission || operationBusy || operationQueue.length || useArrangementStore.getState().active ||
+      useProjectStore.getState().projectMutationPendingCount) throw new Error('project_busy');
+  const admission = Object.freeze({ token: Symbol('mesh-boolean') });
+  exclusiveAdmission = admission;
+  const lease = acquireProjectMutationLease();
+  try { return await operation(admission); }
+  finally { exclusiveAdmission = null; lease.release(); }
 }
 
 function enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {

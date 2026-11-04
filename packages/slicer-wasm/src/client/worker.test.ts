@@ -638,3 +638,67 @@ describe('worker protocol', () => {
     expect(diagnostics.worker.reads?.primeTowerProjection.count).toBe(2);
   });
 });
+
+describe('Mesh Boolean exclusive transport ownership', () => {
+  it('rejects foreign commands before post through native completion and delayed publication', async () => {
+    const transport = new RecordingTransport(), client = createWorkerClient(transport);
+    let publish!: () => void;
+    const publication = new Promise<void>(resolve => { publish = resolve; });
+    let scoped!: typeof client;
+    const operation = client.runMeshBooleanOperation(async owner => {
+      scoped = owner;
+      const result = await owner.getModelStructure();
+      await publication;
+      return result;
+    });
+    const initial = transport.posted[0] as Extract<WorkerMessage, { type: 'request' }>;
+    expect(initial.op).toBe('getModelStructure');
+    const rejectForeign = async () => {
+      const requests = [
+        () => client.clearModel(), () => client.undoHistory(), () => client.cancel(),
+        () => client.slice({}, () => {}), () => client.exportProject(),
+        () => client.setNativeScopedConfig({ scope: 'project' }, 'wall_loops', '3'),
+        () => client.meshBoolean({ entry: 'object', objectId: 1, keepPainting: false }),
+      ];
+      for (const request of requests) await expect(request()).rejects.toThrow('mesh_boolean_busy');
+      await expect(client.runMeshBooleanOperation(async () => {})).rejects.toThrow('runtime_busy');
+      expect(transport.posted).toHaveLength(1);
+    };
+    await rejectForeign();
+    transport.emit({ type: 'response', id: initial.id, ok: true, result: { ok: true, objects: [] } });
+    await Promise.resolve();
+    await rejectForeign(); // native RPC has finished; scene publication still owns admission
+    publish();
+    await expect(operation).resolves.toEqual({ ok: true, objects: [] });
+    await expect(scoped.clearModel()).rejects.toThrow('mesh_boolean_scope_closed');
+    expect(transport.posted).toHaveLength(1);
+    const next = client.getModelStructure();
+    const message = transport.posted[1] as Extract<WorkerMessage, { type: 'request' }>;
+    transport.emit({ type: 'response', id: message.id, ok: true, result: { ok: true, objects: [] } });
+    await next;
+  });
+
+  it.each([true, false])('does not queue a Boolean behind a running slice (threaded=%s)', async threaded => {
+    const transport = new RecordingTransport(), client = createWorkerClient(transport);
+    transport.emit({ type: 'runtime-state', threaded, serialTerminalEpoch: '0' });
+    const slice = client.slice({}, () => {});
+    let entered = false;
+    await expect(client.runMeshBooleanOperation(async () => { entered = true; })).rejects.toThrow('runtime_busy');
+    expect(entered).toBe(false);
+    expect(transport.posted).toHaveLength(1);
+    const request = transport.posted[0] as Extract<WorkerMessage, { type: 'request' }>;
+    transport.emit({ type: 'response', id: request.id, ok: true, result: {} });
+    await slice;
+    await expect(client.runMeshBooleanOperation(async () => 'available')).resolves.toBe('available');
+  });
+
+  it('releases on a business exception and propagates fatal retirement without queued work', async () => {
+    const transport = new RecordingTransport(), client = createWorkerClient(transport);
+    await expect(client.runMeshBooleanOperation(async () => { throw new Error('invalid operand'); })).rejects.toThrow('invalid operand');
+    const failing = client.runMeshBooleanOperation(owner => owner.getModelStructure());
+    transport.emit({ type: 'fatal', error: 'Worker terminated' });
+    await expect(failing).rejects.toThrow('Worker terminated');
+    await expect(client.clearModel()).rejects.toThrow('Worker terminated');
+    expect(transport.posted).toHaveLength(1);
+  });
+});

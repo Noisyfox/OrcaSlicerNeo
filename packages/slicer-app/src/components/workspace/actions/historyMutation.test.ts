@@ -7,7 +7,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { historyContextForStructure, projectHistoryStatus, readProjectMutationReservation, runProjectHistoryMutation, runProjectMutationOperation, syncHistoryStatus } from './historyMutation';
-import { acquireProjectMutationLease, enqueueProjectMutationOperation } from '@/history/projectMutationGate';
+import { acquireProjectMutationLease, enqueueProjectMutationOperation, enqueuePaintingOperation, runExclusiveProjectOperation } from '@/history/projectMutationGate';
 import { useArrangementStore } from '@/stores/useArrangementStore';
 
 const status: HistoryStatus = {
@@ -399,5 +399,34 @@ describe('structural history transaction boundary', () => {
     // from the same FIFO mutation has truncated that branch.
     projectHistoryStatus({ ...status, revision: 3, canRedo: true, redoEntries: [{ id: 'redo-1', label: 'Undo Add Cube', category: 'project' }] });
     expect(useHistoryNavigationStore.getState().status).toMatchObject({ revision: 4, canRedo: false });
+  });
+});
+
+
+describe('exclusive project admission', () => {
+  it('holds the project fence through publication and rejects edits, painting and reads without enqueuing them', async () => {
+    let finish!: () => void;
+    const publication = new Promise<void>(resolve => { finish = resolve; });
+    const foreign = vi.fn(async () => {});
+    const task = runExclusiveProjectOperation(async admission => {
+      expect(useProjectStore.getState().projectMutationPendingCount).toBe(1);
+      const runtime = transactionRuntime();
+      const response = await runProjectHistoryMutation(runtime, 'Mesh Boolean', async () => ({ ok: true }), null, {
+        admission, contextReceipt: () => ({ structure: 'preserved', activePlateId: null }),
+        publish: async () => { await publication; },
+      });
+      return response.result;
+    });
+    await expect(enqueueProjectMutationOperation(foreign)).rejects.toThrow('mesh_boolean_busy');
+    await expect(enqueuePaintingOperation(foreign)).rejects.toThrow('mesh_boolean_busy');
+    await expect(readProjectMutationReservation(foreign)).rejects.toThrow('mesh_boolean_busy');
+    await expect(runExclusiveProjectOperation(foreign)).rejects.toThrow('project_busy');
+    expect(foreign).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().projectMutationPendingCount).toBeGreaterThan(0);
+    finish(); await expect(task).resolves.toEqual({ ok: true });
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+    expect(foreign).not.toHaveBeenCalled();
+    await enqueueProjectMutationOperation(foreign);
+    expect(foreign).toHaveBeenCalledOnce();
   });
 });
