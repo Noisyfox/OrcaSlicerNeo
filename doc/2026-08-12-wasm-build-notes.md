@@ -45,11 +45,61 @@ clones and CI can fetch it. External dependency patches remain in
 
 The WASM scaffold compiles libslic3r and the headless Neo adapters, excluding
 wxWidgets. Its dependency closure includes Boost, oneTBB for threaded builds,
-Draco, OCCT/XCAF for STEP and NLopt for arrangement. Fetch/build scripts and
+Draco, OCCT/XCAF for STEP, NLopt for arrangement and the complete CGAL,
+GMP/GMPXX, MPFR and CORE closure for Mesh Boolean. Fetch/build scripts and
 CMake own exact versions, library sets and feature exclusions. OCCT builds with
 `USE_FREETYPE=OFF`; its staged manifest records that setting. A normal `build`
 rebuilds older OCCT stages automatically. A `quick` build rejects them with a
 rebuild instruction before linking.
+
+Mesh Boolean compiles the complete pinned `MeshBoolean.cpp` in its own
+target, retaining the original libigl code and both CGAL and MCUT wrappers.
+The normal shell and cmd build drivers invoke the same
+[`dependencies/cgal/build.mjs`](../packages/slicer-wasm/dependencies/cgal/build.mjs)
+helper. It verifies source archive hashes and stages static numerical
+libraries by address width, threading mode, compiler identity and recipe.
+It uses the pinned upstream C/C++ sources with generic C arithmetic and a
+small CMake build overlay; native GMP generator programs produce tables for
+the requested WASM limb width. A native C99 compiler is required for these
+build tools; Emscripten compiles all runtime libraries. Orca's GMP
+configure-probe compatibility fix is retained. No Bash
+or MSYS runtime is needed by this helper on Windows.
+
+The numerical recipe and manifests are owned by that helper. CGAL TUs use
+`CGAL_USE_GMPXX=1` and `CGAL_ALWAYS_ROUND_TO_NEAREST=1`; serial builds also
+use `CGAL_HAS_NO_THREADS=1` and MPFR without TLS/shared caches. The MCUT
+external-dependency patch is applied to a private source copy under the
+variant build directory. Its API manager threads default to enabled and
+remain enabled in the threaded artifact; serial builds execute packaged
+tasks inline with Context-owned perturbation state. The checked-out Orca
+submodule is not patched by dependency preparation.
+
+To prepare or verify a numerical stage directly, use the same command on
+any build host (select `wasm32` or `threaded` as needed):
+
+```text
+node packages/slicer-wasm/dependencies/cgal/build.mjs build --target wasm64 --variant serial
+node packages/slicer-wasm/dependencies/cgal/build.mjs verify --target wasm64 --variant serial
+```
+
+After a normal build has configured the serial tree, enable and run the
+optional real numerical/wrapper acceptance target:
+
+```text
+cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_MESH_BOOLEAN_TEST=ON
+cmake --build packages/slicer-wasm/.work/serial/build --target mesh_boolean_backend_test --parallel 2
+node packages/slicer-wasm/harness/run-mesh-boolean-backend.mjs packages/slicer-wasm/.work/serial/build/mesh_boolean_backend_test.mjs --browser
+```
+
+The test runner exercises a Node Worker and, with `--browser`, a headless
+Chrome Worker. Serial browser execution deliberately omits cross-origin
+isolation and checks that no internal Workers are created. Threaded browser
+execution uses isolation and shared memory. This target tests exact CORE
+arithmetic, MPFR directed rounding and the original libigl/CGAL/MCUT wrappers,
+including Context creation, reuse, interleaving and native perturbation
+fixtures. It adds no test ABI to the production module. Product behavior and
+remaining acceptance are specified in
+[Object List and Parts](../spec/ObjectList-and-Parts.md#10-mesh-boolean-design).
 
 When symbols or upstream signatures change, fix the owning source/scaffold
 rather than adding a renderer compatibility layer.

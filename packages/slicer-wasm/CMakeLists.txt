@@ -18,6 +18,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # refuses to mix the two. Must match the Boost archives (build-boost-wasm64.sh
 # / .bat) and the final module's -m64 link flag. (-m64 is the standard spelling;
 # -sMEMORY64 is deprecated and warns on every em++ invocation.)
+set(WASM_TARGET wasm64)
 add_compile_options(-m64)
 
 option(WASM_THREADING "Use upstream oneTBB and Emscripten pthreads" ON)
@@ -29,6 +30,8 @@ endif()
 set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
 set(NLOPT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/nlopt-2.5.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged NLopt wasm64 prefix (include/ and lib/)")
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone history tests" OFF)
+set(CGAL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/cgal-5.6.3/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "CGAL and numerical WASM prefix")
+option(NEO_MESH_BOOLEAN_TEST "Build real MeshBoolean backend acceptance tests" OFF)
 option(NEO_ARRANGEMENT_TEST "Build arrangement publication fault injection for rollback tests" OFF)
 option(NEO_REAL_PROJECT_PROFILE "Build the dedicated real-project profiling ABI" OFF)
 option(NEO_PAINTING_PROFILE "Build painting-only native timing counters" OFF)
@@ -118,7 +121,7 @@ set(DROP_PATTERNS
   "OpenVDBUtils"          # OpenVDB grid conversion (hollowing)
   "Hollowing"             # OpenVDB
   "CutSurface"            # CGAL
-  "MeshBoolean"           # CGAL boolean ops
+  "MeshBoolean"           # Complete TU compiled separately by dependencies/mesh-boolean.cmake
   "/Format/svg"           # SVG->mesh needs OpenCASCADE; load_svg stubbed in stubs/format-stubs.cpp
   "/Shape/TextShape"      # OCCT font->mesh; no kept callers
   "GCodeSender"           # serial/network host control; boost::asio signal_blocker
@@ -242,6 +245,7 @@ else()
       -Wno-missing-template-arg-list-after-template-kw)
 endif()
 target_compile_options(slic3r_core PRIVATE ${SLIC3R_COMPILE_OPTS})
+include("${CMAKE_CURRENT_SOURCE_DIR}/dependencies/mesh-boolean.cmake")
 
 # ---- Vendored deps (deps_src/ inside the submodule) ----
 # The upstream two-stage build compiles these as separate static libs; the
@@ -664,4 +668,29 @@ if(NOT PRELOAD_FILES)
   if(DEFINED PRELOAD_FILE AND NOT "${PRELOAD_FILE}" STREQUAL "")
     target_link_options(orca_slice PRIVATE "--preload-file=${PRELOAD_FILE}")
   endif()
+endif()
+
+# Optional real numerical/wrapper execution, with the production library closure.
+if(NEO_MESH_BOOLEAN_TEST)
+  get_target_property(_boolean_test_libraries orca_slice LINK_LIBRARIES)
+  add_executable(mesh_boolean_backend_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/mesh-boolean/MeshBooleanBackend.test.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/mesh-boolean/NumericalBackend.test.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/mesh-boolean/McutContext.test.cpp")
+  target_link_libraries(mesh_boolean_backend_test PRIVATE ${_boolean_test_libraries})
+  target_include_directories(mesh_boolean_backend_test PRIVATE "${CGAL_ROOT}/include" "${mcut_source}/include")
+  target_compile_definitions(mesh_boolean_backend_test PRIVATE CGAL_ALWAYS_ROUND_TO_NEAREST=1 CGAL_USE_GMPXX=1)
+  if(NOT WASM_THREADING)
+    target_compile_definitions(mesh_boolean_backend_test PRIVATE CGAL_HAS_NO_THREADS=1)
+  endif()
+  target_compile_options(mesh_boolean_backend_test PRIVATE -fexceptions)
+  target_link_options(mesh_boolean_backend_test PRIVATE -m64 -O2 -fexceptions
+    --no-entry -sDISABLE_EXCEPTION_CATCHING=0 -sEXIT_RUNTIME=0 -sINVOKE_RUN=0
+    -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608
+    -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node
+    -sEXPORTED_RUNTIME_METHODS=HEAPU8)
+  if(WASM_THREADING)
+    target_link_options(mesh_boolean_backend_test PRIVATE -pthread -sPTHREAD_POOL_SIZE=8)
+  endif()
+  set_target_properties(mesh_boolean_backend_test PROPERTIES SUFFIX ".mjs")
 endif()

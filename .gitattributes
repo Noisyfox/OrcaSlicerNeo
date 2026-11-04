@@ -6,3 +6,8 @@
 # WASM source patches are consumed by `git apply`; their context must retain
 # LF line endings regardless of a developer's core.autocrlf setting.
 /packages/slicer-wasm/patches/**/*.patch text eol=lf
+
+# MCUT's patch data retains the exact upstream context (tabs and trailing
+# blanks). Check source whitespace normally, rather than treating that data
+# as newly added C++ indentation.
+/packages/slicer-wasm/patches/mcut/*.patch whitespace=-blank-at-eol,-space-before-tab

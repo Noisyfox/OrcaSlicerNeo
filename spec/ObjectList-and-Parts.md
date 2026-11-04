@@ -347,8 +347,9 @@ settled-transform, history and current-plate contracts as ordinary imports.
 
 ## 10. Mesh Boolean design
 
-**Decision status:** Design agreed; application implementation and
-qualification remain pending. The accepted Neo behavior below governs the
+**Decision status:** Design agreed; native dependency/source closure is
+implemented. Project commands, application interaction and final qualification
+remain pending. The accepted Neo behavior below governs the
 explicit differences from the Orca reference behavior.
 
 ### 10.1 Accepted constraints
@@ -743,6 +744,8 @@ unqualified.
 The product and source-boundary decisions are agreed. Deliver the following
 independently verifiable implementation pieces in order; the dependency probes
 in 10.4 do not mark any of these application pieces as delivered.
+Each piece must pass its acceptance gate and be committed before implementation
+of the next piece starts.
 
 1. **Native dependency and source closure.** Integrate the full pinned CGAL,
    GMP/GMPXX, MPFR and CORE closure into the existing WASM build drivers and
@@ -751,6 +754,16 @@ in 10.4 do not mark any of these application pieces as delivered.
    Context-owned perturbation state. Verify actual linked wrapper execution
    and serial/threaded startup with the intended numerical and thread settings;
    building an unused object alone is insufficient.
+
+   **Accepted foundation scope:** complete wasm64 serial/threaded module
+   builds, existing bridge/slicing smoke and real wrapper tests in Node and
+   Chrome Workers. The serial Chrome test runs without SharedArrayBuffer or
+   internal Workers. Numerical execution covers all four address-width/threading
+   combinations; wasm32 also passes the MCUT Context lifecycle/state suite.
+   Full wasm32 application and host interaction qualification remain in step 4.
+   Rotated float-mesh fixtures can produce self-intersecting MCUT output despite
+   closed topology. Tests record that limitation and validate volume/closedness;
+   this integration adds no post-result repair or guarantee for arbitrary input.
 2. **Native project operations and typed runtime.** Add both entry-point
    operations through the existing bridge/client/runtime boundary. Implement
    object-coordinate transforms, instance preservation, result configuration,

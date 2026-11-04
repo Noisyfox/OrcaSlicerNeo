@@ -41,6 +41,7 @@ REM can never reuse pthread objects (or vice versa).
 if not defined WASM_THREADING set "WASM_THREADING=1"
 if not defined NEO_REAL_PROJECT_PROFILE set "NEO_REAL_PROJECT_PROFILE=0"
 if not defined NEO_PAINTING_PROFILE set "NEO_PAINTING_PROFILE=0"
+if not defined NEO_MESH_BOOLEAN_TEST set "NEO_MESH_BOOLEAN_TEST=0"
 if not defined NEO_PROJECT_HISTORY_TEST set "NEO_PROJECT_HISTORY_TEST=0"
 if defined WASM_ARTIFACT_VARIANT (
   set "ARTIFACT_VARIANT=%WASM_ARTIFACT_VARIANT%"
@@ -219,6 +220,10 @@ if not exist "%OCCT_ROOT%\lib\libTKXDESTEP.a" (
   exit /b 1
 )
 
+if not defined CGAL_ROOT set "CGAL_ROOT=%WORK_DIR%\deps\cgal-5.6.3\stage-wasm64-%ARTIFACT_VARIANT%"
+node "%PKG_DIR%\dependencies\cgal\build.mjs" build --target wasm64 --variant "%ARTIFACT_VARIANT%" --stage "%CGAL_ROOT%"
+if errorlevel 1 exit /b 1
+
 REM Profiles are installed by the runtime Worker before orc_init().
 REM WASM only retains the distinct /info resource needed by the bridge.
 set "INFO_DIR=%ORCA_SRC%\resources\info"
@@ -237,6 +242,7 @@ set "DRACO_INCLUDE_CM=%DRACO_INCLUDE:\=/%"
 set "DRACO_ARCHIVE_CM=%DRACO_ARCHIVE:\=/%"
 set "NLOPT_ROOT_CM=%NLOPT_ROOT:\=/%"
 set "OCCT_ROOT_CM=%OCCT_ROOT:\=/%"
+set "CGAL_ROOT_CM=%CGAL_ROOT:\=/%"
 set "TBB_CM=%TBB_ROOT:\=/%"
 
 REM ---------------- Configure + build ----------------
@@ -248,6 +254,7 @@ emcmake cmake -S "%PKG_DIR%" -B "%BUILD_DIR%" -G Ninja ^
   -DNEO_PAINTING_PROFILE=%NEO_PAINTING_PROFILE% ^
   -DNEO_PROJECT_HISTORY_TEST=%NEO_PROJECT_HISTORY_TEST% ^
   -DNEO_ARRANGEMENT_TEST=OFF ^
+  -DNEO_MESH_BOOLEAN_TEST=%NEO_MESH_BOOLEAN_TEST% ^
   -DORCA_SRC="%ORCA_SRC_CM%" ^
   -DSHIM_INCLUDE="%SHIM_CM%" ^
   -DGEN_INCLUDE="%GEN_CM%" ^
@@ -258,6 +265,7 @@ emcmake cmake -S "%PKG_DIR%" -B "%BUILD_DIR%" -G Ninja ^
   -DDRACO_ARCHIVE="%DRACO_ARCHIVE_CM%" ^
   -DNLOPT_ROOT="%NLOPT_ROOT_CM%" ^
   -DOCCT_ROOT="%OCCT_ROOT_CM%" ^
+  -DCGAL_ROOT="%CGAL_ROOT_CM%" ^
   -DWASM_THREADING=%WASM_THREADING% ^
   -DWASM_PTHREAD_POOL_SIZE=%WASM_PTHREAD_POOL_SIZE% ^
   -DTBB_ROOT="%TBB_CM%" ^

@@ -46,7 +46,7 @@ export async function prepareWasm32() {
   await mkdir(generatedPackage, { recursive: true });
   await mkdir(join(scaffold, 'scripts'), { recursive: true });
   await writeFile(join(scaffold, 'package.json'), '{"type":"module"}\n');
-  for (const name of ['cpp', 'src', 'stubs', 'shim', 'patches', 'harness', 'fixtures']) {
+  for (const name of ['cpp', 'src', 'stubs', 'shim', 'patches', 'dependencies', 'harness', 'fixtures']) {
     await linkDirectory(join(pkg, name), join(generatedPackage, name));
   }
   await linkDirectory(work, join(generatedPackage, '.work'));
@@ -91,6 +91,13 @@ export async function verifyDependencies(deps = join(work, 'deps')) {
       `occt-7.6.0/stage-wasm32-${variant}/include/opencascade/Standard.hxx`, `occt-7.6.0/stage-wasm32-${variant}/lib/libTKXDESTEP.a`]) {
       await requireFile(join(deps, suffix));
     }
+    const numerical = join(deps, `cgal-5.6.3/stage-wasm32-${variant}`);
+    for (const file of ['include/CGAL/CORE/Expr.h', 'include/gmpxx.h', 'include/mpfr.h',
+      'lib/libgmp.a', 'lib/libgmpxx.a', 'lib/libmpfr.a']) await requireFile(join(numerical, file));
+    const { identity } = JSON.parse(await readFile(join(numerical, 'manifest.json'), 'utf8'));
+    if (identity?.width !== 32 || identity?.threaded !== (variant === 'threaded')) {
+      throw new Error(`CGAL wasm32 ${variant} stage configuration mismatch: ${numerical}`);
+    }
     const manifest = join(deps, `occt-7.6.0/stage-wasm32-${variant}/manifest.txt`);
     const settings = await readFile(manifest, 'utf8');
     if (!settings.split(/\r?\n/).includes('USE_FREETYPE=OFF')) {
@@ -118,6 +125,9 @@ async function main() {
     run(process.execPath, [join(pkg, 'harness/run-tbb-parallelism-probe.mjs'), join(generatedPackage, 'out/orca_tbb_probe.js')]);
     for (const mode of ['threaded', 'serial']) for (const dep of ['nlopt', 'draco', 'occt']) {
       linuxHelper(`build-${dep}-wasm32.sh`, { WASM_THREADING: mode === 'threaded' ? '1' : '0', WASM_ARTIFACT_VARIANT: mode });
+    }
+    for (const mode of ['threaded', 'serial']) {
+      run(process.execPath, [join(pkg, 'dependencies/cgal/build.mjs'), 'build', '--target', 'wasm32', '--variant', mode]);
     }
     await verifyDependencies();
     return;
