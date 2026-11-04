@@ -148,13 +148,24 @@ function emscriptenRoot() {
   return path;
 }
 
-async function identity(options) {
+export function compilerVersion() {
+  // Use the active launcher, just like the build driver. It owns SDK Python
+  // selection; Windows installations may expose either emcc.exe or emcc.bat.
+  // The shell command is fixed text, with no paths or user arguments to quote.
   const compiler = process.platform === 'win32'
-    ? spawnSync(process.env.PYTHON || 'python', [join(emscriptenRoot(), 'emcc.py'), '--version'], { encoding: 'utf8' })
+    ? spawnSync('emcc --version', { shell: true, encoding: 'utf8' })
     : spawnSync('emcc', ['--version'], { encoding: 'utf8' });
-  if (compiler.status !== 0) throw new Error('Cannot identify the active Emscripten compiler');
+  const version = compiler.stdout?.trim();
+  if (compiler.status !== 0 || !version) {
+    const detail = [compiler.error?.message, compiler.stderr?.trim(), compiler.signal].filter(Boolean).join('; ');
+    throw new Error(`Cannot identify the active Emscripten compiler (emcc --version, exit ${compiler.status ?? 'not started'}): ${detail || 'no version output'}`);
+  }
+  return version;
+}
+
+async function identity(options) {
   return { width: options.width, threaded: options.threaded,
-    compiler: compiler.stdout.trim(), recipe: await recipeDigest(),
+    compiler: compilerVersion(), recipe: await recipeDigest(),
     sources: Object.fromEntries(recipes.map(r => [r.name, { version: r.version, sha256: r.sha256 }])) };
 }
 
