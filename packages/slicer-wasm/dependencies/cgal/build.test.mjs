@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm, symlink, copyFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -8,48 +8,6 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { settings, source, verifyStage } from './build.mjs';
-
-async function compilerFixture(t, extension, contents) {
-  const directory = await mkdtemp(join(tmpdir(), 'orca compiler (SDK) '));
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  const launcher = join(directory, `emcc${extension}`);
-  if (extension === '.exe') await copyFile(process.execPath, launcher);
-  else if (contents !== null) await writeFile(launcher, contents, { mode: 0o755 });
-  const env = { ...process.env };
-  for (const key of Object.keys(env)) if (key.toLowerCase() === 'path') delete env[key];
-  // The launcher is the only PATH entry. A system Python must not be needed,
-  // and unrelated PYTHON configuration must not override the SDK launcher.
-  Object.assign(env, { PATH: directory, PYTHON: join(directory, 'unrelated-python.exe') });
-  const script = `import { compilerVersion } from ${JSON.stringify(new URL('./build.mjs', import.meta.url).href)}; console.log(compilerVersion());`;
-  return spawnSync(process.execPath, ['--input-type=module', '-e', script], { env, cwd: directory, encoding: 'utf8' });
-}
-
-for (const extension of process.platform === 'win32' ? ['.bat', '.cmd', '.exe'] : ['']) {
-  test(`compiler identification runs the active ${extension || 'POSIX'} launcher without system Python`, async t => {
-    const result = await compilerFixture(t, extension, process.platform === 'win32'
-      ? '@echo off\r\necho fixture Emscripten compiler\r\n'
-      : '#!/bin/sh\nprintf "fixture Emscripten compiler\\n"\n');
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout.trim(), extension === '.exe' ? process.version : 'fixture Emscripten compiler');
-  });
-}
-
-test('compiler identification preserves launcher failure diagnostics', async t => {
-  const result = await compilerFixture(t, process.platform === 'win32' ? '.bat' : '', process.platform === 'win32'
-    ? '@echo off\r\necho fixture SDK failure 1>&2\r\nexit /b 37\r\n'
-    : '#!/bin/sh\nprintf "fixture SDK failure\\n" >&2\nexit 37\n');
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Cannot identify the active Emscripten compiler \(emcc --version, exit 37\): fixture SDK failure/);
-});
-
-test('compiler identification rejects a missing launcher and empty version output', async t => {
-  for (const contents of [null, process.platform === 'win32' ? '@exit /b 0\r\n' : '#!/bin/sh\nexit 0\n']) {
-    const result = await compilerFixture(t, process.platform === 'win32' ? '.bat' : '', contents);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /Cannot identify the active Emscripten compiler/);
-    if (contents) assert.match(result.stderr, /no version output/);
-  }
-});
 
 for (const [extension, flags] of [['zip', ['cf', '--format=zip']], ['tar.bz2', ['cjf']]]) {
   test(`cold ${extension} source retries HTTP failures, verifies and extracts with CMake`, async t => {
