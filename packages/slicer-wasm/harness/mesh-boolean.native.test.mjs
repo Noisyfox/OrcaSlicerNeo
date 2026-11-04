@@ -101,6 +101,28 @@ describe.skipIf(!artifact)('real Mesh Boolean project operations', () => {
   }
   const channels = ['paint_color', 'paint_supports', 'paint_seam', 'paint_fuzzy_skin'];
 
+  it('reuses one session for slicing, Boolean, reslicing and a project roundtrip', async () => {
+    const { request } = await pair();
+    const sliceCurrent = async () => {
+      const plate = await client.getPlateSessionSnapshot();
+      const target = { plateId: plate.currentPlateId, inputRevision: plate.inputRevisions[plate.currentPlateId] };
+      const result = await client.slicePlate(target, {});
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+      expect(client.getRuntimeExecutionState().sliceActive).toBe(false);
+      return result.receipt;
+    };
+    const first = await sliceCurrent();
+    const result = (await transaction(request)).result;
+    expect(result.changed).toBe(true);
+    const second = await sliceCurrent();
+    expect(second.inputStamp).toBeGreaterThan(first.inputStamp);
+    const project = await exportModels();
+    expect((await client.loadProject(project.bytes, 'project', 'boolean-roundtrip.3mf')).ok).toBe(true);
+    const restored = (await client.getModelMesh()).objects;
+    expect(restored).toHaveLength(1);
+    expect(Math.abs(volume(restored[0]) - 12718.75)).toBeLessThan(1);
+  }, 120_000);
+
   it.each([
     ['union', false, 1, 12718.75], ['difference', false, 2, 4718.75],
     ['difference', true, 1, 4718.75], ['intersection', false, 2, 3281.25], ['intersection', true, 1, 3281.25],
@@ -209,6 +231,52 @@ describe.skipIf(!artifact)('real Mesh Boolean project operations', () => {
       expect(scoped.nativeScopedConfig.snapshot.parts[String(result.volumeId)].wall_loops).toBe('4');
     }
   });
+
+  it.each([false, true])('preserves partial painting in all four channels with mirror=%s', async mirror => {
+    const entries = readZipEntries(await readFile(resolve(here, '../fixtures/painted-facet/painted-facet-instances.3mf')));
+    let triangle = 0;
+    for (const entry of entries) if (entry.name.endsWith('.model')) {
+      entry.content = new TextEncoder().encode(new TextDecoder().decode(entry.content).replace(/<triangle\b[^>]*\/>/g, face => {
+        const clean = face.replace(/\s+paint_color="[^"]*"/g, '');
+        return triangle++ === 0 ? clean.replace('/>', ' paint_color="401" paint_supports="401" paint_seam="401" paint_fuzzy_skin="401"/>') : clean;
+      }));
+    }
+    expect((await client.loadProject(writeStoredZip(entries), 'project', 'partial-boolean.3mf')).ok).toBe(true);
+    const object = (await client.getModelStructure()).objects[0], a = object.volumes[0].id;
+    const added = await client.addVolume({ objectId: object.id, instanceId: object.instances[0].id,
+      volumeType: 'model_part', ext: 'stl', name: 'Disjoint B' }, cube);
+    const source = await meshFor(a), tool = await meshFor(added.volumeId);
+    await client.setModelTransform(source.objectIdx,source.volumeIdx,source.instanceIdx,source.instanceTransform,
+      { ...trs(), scale: [1.3,.9,1.1], mirror: [mirror ? -1 : 1,1,1] });
+    await client.setModelTransform(tool.objectIdx,tool.volumeIdx,tool.instanceIdx,tool.instanceTransform,trs([60,0,0]));
+    const before = await client.getModelMesh(), sourceMatrix = (await meshFor(a)).volumeTransform.matrix;
+    function moment(paint, matrix) {
+      let area = 0; const weighted = [0,0,0];
+      for (const group of paint.drawGroups) if (group.stateId === 1) for (let i = group.startIndex; i < group.startIndex + group.indexCount; i += 3) {
+        const points = [...paint.indices.slice(i,i+3)].map(index => [0,1,2].map(axis =>
+          matrix[axis]*paint.positions[index*3] + matrix[4+axis]*paint.positions[index*3+1] +
+          matrix[8+axis]*paint.positions[index*3+2] + matrix[12+axis]));
+        const [a,b,c] = points, ab = a.map((v,axis)=>b[axis]-v), ac = a.map((v,axis)=>c[axis]-v);
+        const weight = Math.hypot(ab[1]*ac[2]-ab[2]*ac[1],ab[2]*ac[0]-ab[0]*ac[2],ab[0]*ac[1]-ab[1]*ac[0])/2;
+        area += weight; weighted.forEach((_,axis)=>{weighted[axis] += weight*(a[axis]+b[axis]+c[axis])/3;});
+      }
+      return { area, centroid: weighted.map(value=>value/area) };
+    }
+    const expected = moment(before.paintGeometries.find(paint=>paint.volumeId===a),sourceMatrix);
+    expect(expected.area).toBeGreaterThan(0);
+    const result = await client.meshBoolean({ entry: 'gizmo', objectId: object.id, instanceId: object.instances[0].id,
+      sourceVolumeId: a, toolVolumeId: added.volumeId, operation: 'difference', deleteInput: true, keepPainting: true });
+    expect(result.ok && result.changed, JSON.stringify(result)).toBe(true);
+    const after = await client.getModelMesh();
+    const actual = moment(after.paintGeometries.find(paint=>paint.volumeId===result.volumeId), (await meshFor(result.volumeId)).volumeTransform.matrix);
+    expect(Math.abs(actual.area-expected.area)/expected.area).toBeLessThan(.05);
+    actual.centroid.forEach((value,axis)=>expect(Math.abs(value-expected.centroid[axis])).toBeLessThan(.2));
+    const exported = await exportModels();
+    const annotated = [...exported.text.matchAll(/<triangle\b[^>]*\/>/g)].map(match => channels.map(channel =>
+      match[0].match(new RegExp(`${channel}="([^"]+)"`))?.[1] ?? '')).filter(values => values.some(Boolean));
+    expect(annotated.length).toBeGreaterThan(0);
+    for (const values of annotated) expect(new Set(values).size).toBe(1);
+  }, 120_000);
 
   it('empty output and stale/cross-object operands leave model, plates and history unchanged', async () => {
     const { a, b, request } = await pair();

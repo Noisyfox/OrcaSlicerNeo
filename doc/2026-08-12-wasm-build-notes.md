@@ -130,8 +130,34 @@ node scripts/run-mesh-boolean-e2e.mjs
 
 Use `--desktop-only` or `--web-only` for a focused host gate. `--serial`
 selects non-isolated Web execution; Electron retains its production threaded
-runtime. A Web build requires the complete four-artifact staging set described
-above, even when a particular journey selects only wasm64.
+runtime. Add `--wasm32` for the real Memory64-incompatible WebKit gate, with or
+without `--serial`. A Web build requires the complete four-artifact staging set
+described above, even when a particular journey selects only wasm64.
+
+An explicit larger-model Chrome gate imports synthetic STL through the browser
+picker, executes the Gizmo and waits for renderer/history publication after
+WASM memory grows beyond 4 GiB. It is skipped by ordinary focused journeys:
+
+```sh
+ORCA_MESH_BOOLEAN_LARGE=1 node scripts/run-mesh-boolean-e2e.mjs --web-only
+```
+
+For reproducible native scale measurements, select each production artifact
+in turn with the same runner. Its typed-client bundle is generated from the
+current source using the existing Vite build dependency:
+
+```sh
+node packages/slicer-wasm/harness/mesh-boolean-scale.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --levels 4,5,6,7 --report /tmp/mesh-boolean-scale.json
+```
+
+The default operations are Union, Difference and Intersection. The report
+identifies the native payload and records input/output size, connected
+components, analytical sphere-lens volume error, native command/history time,
+WASM memory capacity and sampled Node process RSS. The first case includes
+lazy compilation. WASM capacity is a high-water since module startup, not live
+allocation; Node RSS includes the owning Worker, pthreads and fixture analysis.
+The runner excludes renderer/GPU and painting-preservation timing. Run it
+without concurrent build/acceptance workloads when comparing timings.
 
 When symbols or upstream signatures change, fix the owning source/scaffold
 rather than adding a renderer compatibility layer.

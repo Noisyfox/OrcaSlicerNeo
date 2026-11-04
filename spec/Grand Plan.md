@@ -1,6 +1,6 @@
 # Grand Plan
 
-**Updated:** 2026-11-02
+**Updated:** 2026-11-04
 **Scope:** Current delivery status and remaining product work.
 
 This is the single roadmap. Topic specifications own behavior; engineering
@@ -25,6 +25,7 @@ Consolidation does not constitute a new release qualification.
 | Painting (M20) | Six MMU tools plus Support, Seam and Fuzzy adapters, native persistence, history and downstream slicing. [Surface Painting](Surface%20Painting%20Architecture.md). Functional delivery is complete; numerical performance thresholds remain unapproved. |
 | Preview | Sole native libvgcode SegmentTemplate GPU backend, layer/move controls, read-only schemes, analysis and source-text navigation. [Preview v2](G-code%20Preview%20v2.md), [GPU renderer](G-code%20Preview%20GPU%20Streaming%20Renderer.md). |
 | Arrangement | Native Arrange all/current plate, constraints, atomic history, progress and cancellation. [Model Arrangement](Model%20Arrangement.md). |
+| Mesh Boolean | Shared Prepare Gizmo and object-menu combining, native computation in all four WASM variants, painting preservation, history/scene publication and instance-preserving object coordinates. Global modal execution rejects conflicting commands. Bounded host and scale acceptance, original MCUT fallbacks and deferred input checks are recorded in [Object List and Parts](ObjectList-and-Parts.md#10-mesh-boolean-design). |
 | Profiles | Setup Wizard, activation, JSON-only vendor loading, selective startup delivery and full catalogue on open. [Setup Wizard](Setup%20Wizard%20and%20Profile%20Activation.md). |
 | Rendering and colours | Printer bed geometry/artwork, painted facets and shared colour editor. [Bed Display](Printer%20Bed%20Display.md), [Painted Facets](Painted%20Facet%20Model%20Rendering.md), [Color Picker](Reusable%20Color%20Picker.md). |
 | Electron runtime | Utility-process Node Worker and runtime lifecycle; [Native Python Plugin Architecture](Native%20Python%20Plugin%20Architecture.md) records the validated host work. Python/plugin execution remains unimplemented. |
@@ -41,7 +42,7 @@ Consolidation does not constitute a new release qualification.
   by the accepted user-preset scope.
 - External G-code import, result-mutating preview actions, additional metric
   schemes and richer analysis remain beyond delivered read-only preview.
-- Cut/measure/orient tools, mesh booleans/hollowing/advanced cut, calibration
+- Cut/measure/orient tools, hollowing/advanced cut, calibration
   wizards and additional printer drivers remain queued.
 - Large-project performance work continues; bounded fixture results do not
   establish a universal latency or memory guarantee.

@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..'), desktop = resolve(root, 'apps/desktop');
 const flags = new Set(process.argv.slice(2));
-for (const flag of flags) if (!['--web-only', '--desktop-only', '--serial'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
+for (const flag of flags) if (!['--web-only', '--desktop-only', '--serial', '--wasm32'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
 const base = { ...process.env, ORCA_E2E_REAL: '1', ORCA_E2E_VISIBLE: '1', VITE_E2E: '1', VITE_USE_MOCK: '0', CI: '1' };
 function pnpm(args, env = base, cwd = root) {
   const result = spawnSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', args,
@@ -31,7 +31,9 @@ if (!flags.has('--web-only')) {
 }
 if (!flags.has('--desktop-only')) {
   const env = { ...base, ORCA_WEB_NO_ISOLATION: flags.has('--serial') ? '1' : '0' };
-  pnpm(['exec', 'playwright', 'test', '--config', '../../apps/web/playwright.config.ts', 'e2e/mesh-boolean.e2e.ts'], env, desktop);
+  const config = flags.has('--wasm32') ? 'playwright.mesh-boolean-wasm32.config.ts' : 'playwright.config.ts';
+  pnpm(['exec', 'playwright', 'test', '--config', `../../apps/web/${config}`, 'e2e/mesh-boolean.e2e.ts'], env, desktop);
   // Web rewrites Node-only loader imports. Verify its native payloads exactly.
-  await verify('apps/web/dist', flags.has('--serial') ? 'serial' : 'threaded', ['orca_slice.wasm', 'orca_slice.data']);
+  const variant = `${flags.has('--wasm32') ? 'wasm32/' : ''}${flags.has('--serial') ? 'serial' : 'threaded'}`;
+  await verify('apps/web/dist', variant, ['orca_slice.wasm', 'orca_slice.data']);
 }

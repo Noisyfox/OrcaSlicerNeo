@@ -347,9 +347,8 @@ settled-transform, history and current-plate contracts as ordinary imports.
 
 ## 10. Mesh Boolean design
 
-**Decision status:** Native dependency/source closure, typed project operations
-and shared application interaction are implemented. Final variant and
-model-scale qualification remains pending. The accepted Neo behavior below governs the
+**Decision status:** Implemented with bounded native, host, variant and
+model-scale acceptance. The accepted Neo behavior below governs the
 explicit differences from the Orca reference behavior.
 
 ### 10.1 Accepted constraints
@@ -718,11 +717,12 @@ and fixed rounding with both WASM widths. All six box cases matched in
 reported volume and vertex/face counts. These comparisons do not establish
 coordinate/connectivity identity or general native/WASM equivalence.
 
-The probes do not qualify final Neo linking/UI integration, complete Orca
-wrapper execution in wasm32, all fallback branches, threaded WASM, adversarial
-geometry, other hosts or production-scale meshes. Final application
-download-size increment and runtime/memory costs remain unmeasured; a
-standalone probe's artifact size is not the application's size increment.
+These standalone probes establish feasibility; the delivered application gates
+are recorded separately in 10.5. Neither establishes arbitrary adversarial-input
+support or universal native/WASM mesh identity. The application download-size
+increment has not been isolated; a standalone probe's artifact size is not the
+application's size increment. Scale measurements cover the reproducible fixture
+and runner scope below, rather than every geometry or device.
 
 Implementation verification must cover the accepted entry-point rules,
 transformed and mirrored geometry, connected components, disconnected and
@@ -736,8 +736,8 @@ WASM-variant gates; mocks cannot replace real MCUT/WASM execution.
 Mobile product support remains deferred under the shared architecture. This
 design assumes desktop pointer/keyboard input. Boolean operations retain native
 input and output geometry in the Worker and can increase peak memory usage;
-large-model latency, allocation behavior and constrained-device limits remain
-unqualified.
+the bounded scale measurements below are not a universal latency or memory
+guarantee, and constrained-device limits remain unqualified.
 
 ### 10.5 Implementation sequence and acceptance
 
@@ -774,7 +774,10 @@ of the next piece starts.
 
    **Accepted native command scope:** real wasm64 serial/threaded geometry,
    stable instance IDs/transforms, retained Part ordering, configuration and
-   all four painting channels. Native tests cover one-entry Undo/Redo, affected
+   all four painting channels, including partial regions on reflected Parts.
+   Winding correction must preserve painting subdivision coordinates; a
+   reversed root face must not move paint to another region. Native tests
+   cover one-entry Undo/Redo, affected
    plates, scene receipts, 3MF roundtrips, empty/stale input and positive-Part
    fallback. An explicit serial test build injects a publication exception and
    verifies restoration of geometry ownership and plate revisions. The normal
@@ -805,6 +808,25 @@ of the next piece starts.
    counts, elapsed time and WASM heap-capacity high-water marks, plus host
    process memory where measurable. Name the artifact/configuration and any
    unavailable measurements. Keep no fixed Mesh Boolean face-count ceiling.
+
+   **Accepted qualification scope:** all four production WASM combinations
+   execute the native geometry/painting/history suite and reuse one session
+   for slicing, Boolean, reslicing and a 3MF roundtrip. Real Electron and Web
+   gates exercise the shared interaction; Web verifies actual Memory64
+   capability, isolation, selected asset requests and production payload hashes
+   for both widths and threading modes. An opt-in large-model Chrome gate
+   checks result/history publication after actual Worker linear memory grows
+   beyond 4 GiB. A dedicated serial fault build checks
+   publication compensation and positive-Part fallback; production artifacts
+   exclude its hook. The reproducible
+   [scale runner](../packages/slicer-wasm/harness/mesh-boolean-scale.mjs)
+   exercises all three operations over progressively refined, overlapping
+   closed icospheres with analytical volume checks and indexed-component
+   counts. It records native-command/history time, WASM capacity high-water
+   since startup and sampled whole-process Node RSS. Capacity is not live
+   allocator usage; these observations establish neither a product size cap
+   nor an arbitrary-input performance promise. Painting-preservation cost is
+   outside that scale runner's measured scope.
 
 Native comparisons must distinguish semantic/geometric agreement from mesh
 serialization identity. Include the perturbation-triggering fresh/interleaved

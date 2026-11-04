@@ -9,13 +9,15 @@ import { useObjectListStore } from '../../../objectList/useObjectListStore';
 import type { SceneInteractionController } from '../../SceneInteractionController';
 import { useSceneInteraction, useSceneInteractionVersion } from '../../SceneInteractionContext';
 import { selectionBoundsBoxPositions } from '../../SelectionBoundsBox';
-import { executeMeshBoolean } from './meshBooleanCommand';
+import { clearMeshBooleanEmptyWarning, executeMeshBoolean } from './meshBooleanCommand';
 
 export function MeshBooleanPanel({ sceneInteraction: scene }: { sceneInteraction: SceneInteractionController | null }) {
   const platform = usePlatform();
   useSceneInteractionVersion(scene ?? undefined);
   const { busy, ready, keepPainting } = useMeshBooleanStore();
   const structure = useObjectListStore(s => s.structure);
+  const gizmo = scene?.gizmo;
+  useEffect(() => gizmo === 'mesh-boolean' ? clearMeshBooleanEmptyWarning : undefined, [gizmo]);
   useEffect(() => { void loadMeshBooleanPreferences(platform.preferences); }, [platform.preferences]);
   if (!scene || scene.gizmo !== 'mesh-boolean') return null;
   const session = scene.meshBoolean, state = session.getSnapshot();

@@ -67,9 +67,6 @@ export async function meshBooleanJourney(page: Page, addCube: () => Promise<void
   await page.getByTestId('gizmo-btn-mesh-boolean').click();
   await expect(panel.getByLabel('Keep painting', { exact: true })).toBeChecked();
   expect(await state(page)).toMatchObject({ a: null, b: null, picking: 'a' });
-  await page.locator('#app-tab-preview').click(); await page.locator('#app-tab-prepare').click();
-  await expect(panel).toBeHidden();
-  await page.getByTestId('gizmo-btn-mesh-boolean').click();
   await panel.getByRole('button', { name: 'Difference', exact: true }).click();
   await parts.nth(0).getByRole('button').first().click(); await parts.nth(1).getByRole('button').first().click();
   expect((await history(page)).undoEntries).toEqual(beforePicks.undoEntries);
@@ -126,6 +123,21 @@ export async function meshBooleanJourney(page: Page, addCube: () => Promise<void
   combined.forEach(mesh => expect(mesh.volume).toBeCloseTo(12718.75, 0));
   await expect(panel).toBeHidden();
   await expect(page.getByText('Error: mesh_boolean_busy', { exact: false })).toHaveCount(0);
-  expect(errors).toEqual([]);
   await page.screenshot({ path: info.outputPath('mesh-boolean-result.png') });
+  // Preview starts a real slice and subsequent background result reads. Check
+  // its tool-closing behavior after the Boolean success path; conflicting
+  // native work deliberately rejects Boolean admission instead of queuing it.
+  await page.getByTestId('history-undo').click();
+  await expect.poll(async () => (await booleanMeshes(page)).length).toBe(4);
+  // Restore the original single-instance object for the tool-entry check.
+  await page.getByTestId('history-undo').click();
+  await expect.poll(async () => (await booleanMeshes(page)).length).toBe(2);
+  await objects.first().getByRole('button').first().click();
+  const booleanTool = page.getByTestId('gizmo-btn-mesh-boolean');
+  await expect(booleanTool).toBeEnabled(); await booleanTool.click();
+  await expect(panel).toBeVisible();
+  await page.locator('#app-tab-preview').click(); await page.locator('#app-tab-prepare').click();
+  await expect(panel).toBeHidden();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  expect(errors).toEqual([]);
 }

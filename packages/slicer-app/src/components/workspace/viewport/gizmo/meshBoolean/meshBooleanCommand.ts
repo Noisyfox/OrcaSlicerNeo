@@ -10,9 +10,15 @@ import type { SceneInteractionController } from '../../SceneInteractionControlle
 import { beforePaintingTopologyChange, closePaintingForCommand } from '../painting/projectCommands';
 
 let preparing = false;
-function notify(message: string, severity: 'warning' | 'error'): void {
+export function clearMeshBooleanEmptyWarning(): void {
   const notifications = useNotificationStore.getState();
-  const token = notifications.beginOperation({ key: 'mesh-boolean', title: 'Mesh Boolean', message, severity,
+  for (const item of notifications.notifications)
+    if (item.source === 'operation' && item.key === 'mesh-boolean-empty') notifications.dismiss(item.id);
+}
+
+function notify(message: string, severity: 'warning' | 'error', key = 'mesh-boolean'): void {
+  const notifications = useNotificationStore.getState();
+  const token = notifications.beginOperation({ key, title: 'Mesh Boolean', message, severity,
     plateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? '' });
   notifications.finishOperation(token, { title: 'Mesh Boolean', message, severity });
 }
@@ -68,7 +74,9 @@ export async function executeMeshBoolean(
           });
         const result = committed.result;
         if (!result.ok) notify(result.error, 'error');
-        else if (!result.changed) notify('Unable to perform boolean operation on selected parts', 'warning');
+        else if (!result.changed) notify('Unable to perform boolean operation on selected parts', 'warning',
+          request.entry === 'gizmo' ? 'mesh-boolean-empty' : 'mesh-boolean');
+        else if (request.entry === 'gizmo') clearMeshBooleanEmptyWarning();
         else if (result.warning === 'positive_parts_only') notify(
           'Unable to perform boolean operation on model meshes. Only positive parts will be kept. You may fix the meshes and try again.', 'error');
         return result;

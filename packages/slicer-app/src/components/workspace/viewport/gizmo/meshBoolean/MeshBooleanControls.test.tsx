@@ -2,7 +2,10 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { MeshBooleanWait } from './MeshBooleanControls';
+import { MeshBooleanPanel, MeshBooleanWait } from './MeshBooleanControls';
+import { DEFAULT_USER_PREFERENCES, PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
+import { useNotificationStore } from '@/stores/useNotificationStore';
+import type { SceneInteractionController } from '../../SceneInteractionController';
 import { useMeshBooleanStore } from '@/stores/useMeshBooleanStore';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -38,4 +41,22 @@ it('keeps a non-dismissible indeterminate modal and blocks keyboard, camera and 
   await act(async () => navigation.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
   expect(navigated).toHaveBeenCalledOnce();
   window.removeEventListener('keydown', keyboard); window.removeEventListener('wheel', wheel);
+});
+
+it('closes the Gizmo empty-result warning with the tool while preserving the object fallback notification', async () => {
+  useNotificationStore.getState().reset();
+  const notifications = useNotificationStore.getState();
+  const empty = notifications.beginOperation({ key: 'mesh-boolean-empty', title: 'Mesh Boolean', message: 'Empty', severity: 'warning', plateId: '' });
+  const object = notifications.beginOperation({ key: 'mesh-boolean', title: 'Mesh Boolean', message: 'Positive Parts only', severity: 'error', plateId: '' });
+  const scene = { gizmo: 'mesh-boolean', subscribe: () => () => {}, meshBoolean: {
+    getSnapshot: () => ({ target: { objectId: 1, instanceId: 2 }, a: null, b: null, picking: 'a', operation: 'union' }),
+    request: () => null,
+  } } as unknown as SceneInteractionController;
+  const platform = { preferences: { load: async () => DEFAULT_USER_PREFERENCES, save: async () => {} } } as unknown as PlatformCapabilities;
+  const render = () => root.render(<PlatformProvider value={platform}><MeshBooleanPanel sceneInteraction={scene} /></PlatformProvider>);
+  await act(async () => render());
+  Object.assign(scene, { gizmo: null });
+  await act(async () => render());
+  expect(useNotificationStore.getState().notifications.find(item => item.id === empty.id)?.dismissed).toBe(true);
+  expect(useNotificationStore.getState().notifications.find(item => item.id === object.id)?.dismissed).toBe(false);
 });

@@ -60,8 +60,48 @@ void validate_counts(const ModelVolume &volume) {
 
 void remap_painting(const ModelVolume &source, ModelVolume &result) {
     auto saved = source.save_painting();
-    if (saved)
-        saved->mesh.transform(source.get_matrix(), true);
+    if (!saved)
+        return;
+    const Transform3d transform = source.get_matrix();
+    if (transform.linear().determinant() < 0) {
+        // Fixing reflected mesh winding swaps face corners. A subdivision
+        // bitstream still refers to the original corners, so carrying it onto
+        // that swapped root moves partial paint to the wrong half of a face.
+        // Extract native painted leaves first; each is then a uniform face
+        // whose state is invariant under the winding correction. Keep native
+        // cursor projection/remapping for every channel and existing paint.
+        auto channel = [&](const TriangleSelector::TriangleSplittingData &data,
+                           FacetsAnnotation &target) {
+            if (data.bitstream.empty())
+                return;
+            TriangleSelector selector(saved->mesh);
+            selector.deserialize(data, false);
+            for (const auto state : TriangleSelector::extract_used_facet_states(data)) {
+                if (state == EnforcerBlockerType::NONE)
+                    continue;
+                auto leaves = selector.get_facets(state);
+                if (leaves.indices.empty())
+                    continue;
+                TriangleMesh reference(std::move(leaves));
+                reference.transform(transform, true);
+                TriangleSelector flat(reference);
+                for (std::size_t i = 0; i < reference.its.indices.size(); ++i)
+                    flat.set_facet(static_cast<int>(i), state);
+                const auto existing = std::optional<std::reference_wrapper<const TriangleSelector::TriangleSplittingData>>{
+                    std::cref(target.get_data())};
+                auto mapped = TriangleSelector::remap_painting(reference.its, flat.serialize(), result.mesh().its,
+                    Geometry::translation_transform(result.mesh().get_init_shift()), existing);
+                if (!mapped.bitstream.empty())
+                    target.set_data(std::move(mapped));
+            }
+        };
+        channel(saved->supported, result.supported_facets);
+        channel(saved->seam, result.seam_facets);
+        channel(saved->mmu, result.mmu_segmentation_facets);
+        channel(saved->fuzzy, result.fuzzy_skin_facets);
+        return;
+    }
+    saved->mesh.transform(transform, true);
     result.restore_painting(saved, true);
 }
 
