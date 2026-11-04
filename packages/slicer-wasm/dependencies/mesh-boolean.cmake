@@ -20,9 +20,15 @@ endif()
 file(READ "${CGAL_ROOT}/manifest.json" numerical_manifest)
 string(JSON numerical_compiler GET "${numerical_manifest}" identity compiler)
 execute_process(COMMAND "${CMAKE_CXX_COMPILER}" --version OUTPUT_VARIABLE actual_compiler
-  OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE compiler_result)
-if(NOT compiler_result EQUAL 0 OR NOT actual_compiler STREQUAL numerical_compiler)
-  message(FATAL_ERROR "CGAL stage and CMake's cached Emscripten compiler do not match")
+  OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE compiler_result ERROR_VARIABLE compiler_error)
+if(NOT compiler_result EQUAL 0)
+  message(FATAL_ERROR "Cannot identify CMake's cached Emscripten compiler ${CMAKE_CXX_COMPILER} (exit ${compiler_result}): ${compiler_error}")
+endif()
+# execute_process normalizes Windows CRLF output to LF; the JSON manifest
+# preserves Node's original command output. Compare the same line endings.
+string(REPLACE "\r\n" "\n" numerical_compiler "${numerical_compiler}")
+if(NOT actual_compiler STREQUAL numerical_compiler)
+  message(FATAL_ERROR "CGAL stage and CMake's cached Emscripten compiler do not match.\nStage: ${numerical_compiler}\nCached compiler: ${actual_compiler}")
 endif()
 string(JSON numerical_width GET "${numerical_manifest}" identity width)
 string(JSON numerical_threaded GET "${numerical_manifest}" identity threaded)
