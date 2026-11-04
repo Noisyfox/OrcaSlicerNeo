@@ -123,15 +123,17 @@ test('single-file deletion distinguishes acknowledgment, rejection and uncertain
 });
 
 
-test('reads bounded optional storage resources and preserves unavailable thumbnails', async () => {
-  const request = { path: '/resource.3mf', resource: '_rels/.rels', maxBytes: 16 };
+test('reads optional storage resources and preserves unavailable thumbnails', async () => {
+  const request = { path: '/resource.3mf', resource: '_rels/.rels' };
   const resource = (mode, changes = {}) => readBambuStorageResource(addon, source, `bambu:///local/${mode}`, { ...request, ...changes }, options);
   assert.equal(Buffer.from(await resource('fixture')).toString(), 'abc');
   assert.equal(await resource('empty'), null);
   await assert.rejects(resource('mismatch'), error => error.code === 'invalid-response');
-  await assert.rejects(resource('fixture', { maxBytes: 2 }), error => error.code === 'invalid-response');
-  assert.equal(Buffer.from(await resource('fixture', { maxBytes: null })).toString(), 'abc');
-  assert.equal(Buffer.from(await resource('fixture', { maxBytes: 5 * 1024 * 1024 })).toString(), 'abc');
+  for (const [mode, length] of [['resource-large', 17 * 1024 * 1024], ['resource-many-packets', 4097 * 4097]]) {
+    const value = await resource(mode);
+    assert.equal(value.byteLength, length);
+    assert.equal(value[0], 120); assert.equal(value[length - 1], 120);
+  }
   await assert.rejects(resource('fixture', { resource: '../outside' }), error => error.code === 'invalid-response');
   const controller = new AbortController();
   const pending = readBambuStorageResource(addon, source, 'bambu:///local/silent', request, { ...options, signal: controller.signal });
@@ -139,7 +141,7 @@ test('reads bounded optional storage resources and preserves unavailable thumbna
 });
 
 test('assembles interleaved SUB_FILE batches by exact resource path and rejects incomplete batches', async () => {
-  const requests = ['_rels/.rels', 'thumbnail'].map(resource => ({ path: '/resource.3mf', resource, maxBytes: 16 }));
+  const requests = ['_rels/.rels', 'thumbnail'].map(resource => ({ path: '/resource.3mf', resource }));
   const read = (mode, input = requests) => readBambuStorageResources(addon, source, `bambu:///local/${mode}`, input, options);
   assert.deepEqual((await read('resource-batch')).map(value => Buffer.from(value).toString()), ['abc', 'xyz']);
   await assert.rejects(read('resource-batch-missing'), error => error.code === 'invalid-response');
@@ -149,7 +151,7 @@ test('assembles interleaved SUB_FILE batches by exact resource path and rejects 
 
 test('keeps successful thumbnails across a terminal missing-file response and reuses request sequences', async () => {
   const reader = await openBambuStorageResourceReader(addon, source, 'bambu:///local/resource-reuse', options);
-  const file = name => ({ path: `/${name}.3mf`, resource: 'thumbnail', maxBytes: 16 });
+  const file = name => ({ path: `/${name}.3mf`, resource: 'thumbnail' });
   try {
     assert.deepEqual((await reader.read(['one', 'missing', 'two'].map(file))).map(value => value && Buffer.from(value).toString()), ['a', null, 'b']);
     assert.equal(Buffer.from((await reader.read([file('one')]))[0]).toString(), 'a');

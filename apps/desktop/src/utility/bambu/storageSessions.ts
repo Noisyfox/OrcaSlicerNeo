@@ -79,7 +79,7 @@ export class BambuStorageSessions {
     return { ok: true, value: {
       configurationRevision: revision,
       list: (storage, collection, signal) => query(signal, (url, opts) => this.io.list(this.config.addonPath, sourcePath, url, { storage, collection, maxEntries: 20_000 }, opts)),
-      resource: (path, resource, maxBytes, signal) => this.resources.read(JSON.stringify([target, revision]), { path, resource, maxBytes },
+      resource: (path, resource, signal) => this.resources.read(JSON.stringify([target, revision]), { path, resource },
         (requests, batchSignal) => query(batchSignal, (url, opts) => this.resourceConnections.read(JSON.stringify([target, revision]), requests,
           connectionSignal => this.io.openResources(this.config.addonPath, sourcePath, url, { ...opts, signal: connectionSignal }),
           AbortSignal.any([opts.signal, AbortSignal.timeout(opts.requestTimeoutMs)]))), signal),

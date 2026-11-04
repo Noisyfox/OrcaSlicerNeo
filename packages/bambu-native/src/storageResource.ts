@@ -1,9 +1,7 @@
-/** Optional SUB_FILE batches with caller-selected size budgets. No full-file fallback or archive extraction. */
+/** Optional SUB_FILE batches. No full-file fallback or archive extraction. */
 import { openStorageChannel, storageInteger, invalidStorageReply, type BambuStorageReadOptions, type StorageChannel } from './storageChannel.js';
 export interface BambuStorageResourceRequest {
   path: string; resource: string;
-  /** null delegates resource size to the consumer/parser without an application budget. */
-  maxBytes: number | null;
 }
 export interface BambuStorageResourceReader { read(requests: readonly BambuStorageResourceRequest[]): Promise<readonly (Uint8Array | null)[]>; close(): Promise<void> }
 export async function openBambuStorageResourceReader(addonPath: string, sourcePath: string, privateUrl: string,
@@ -13,11 +11,10 @@ export async function openBambuStorageResourceReader(addonPath: string, sourcePa
 }
 function resourceStates(requests: readonly BambuStorageResourceRequest[]) {
   if (!requests.length || requests.length > 8) throw invalidStorageReply();
-  const states = requests.map(({ path, resource, maxBytes }) => {
+  const states = requests.map(({ path, resource }) => {
     if (!path || path.startsWith('mem:') || /[\x00-\x1f#]/.test(path) || path.split(/[\\/]/).includes('..') ||
-      !resource || /[\x00-\x1f#\\]/.test(resource) || resource.startsWith('/') || resource.split('/').some(part => !part || part === '..') ||
-      maxBytes !== null && (!Number.isSafeInteger(maxBytes) || maxBytes < 1)) throw invalidStorageReply();
-    return { requested: `${path}#${resource}`, maxBytes, chunks: [] as Uint8Array[], size: 0, total: undefined as number | undefined, done: false };
+      !resource || /[\x00-\x1f#\\]/.test(resource) || resource.startsWith('/') || resource.split('/').some(part => !part || part === '..')) throw invalidStorageReply();
+    return { requested: `${path}#${resource}`, chunks: [] as Uint8Array[], size: 0, total: undefined as number | undefined, done: false };
   });
   const paths = states.map(state => state.requested);
   if (new Set(paths).size !== paths.length) throw invalidStorageReply();
@@ -26,8 +23,6 @@ function resourceStates(requests: readonly BambuStorageResourceRequest[]) {
 async function readBatch(channel: StorageChannel, requests: readonly BambuStorageResourceRequest[]): Promise<readonly (Uint8Array | null)[]> {
   const states = resourceStates(requests);
   channel.send(2, { paths: states.map(state => state.requested) });
-  const bounded = requests.every(request => request.maxBytes !== null);
-  let bytes = 0, packets = 0;
   try {
     for (;;) {
       const { result, reply, body } = await channel.read();
@@ -46,9 +41,7 @@ async function readBatch(channel: StorageChannel, requests: readonly BambuStorag
         reply.offset !== undefined && reply.offset !== state.size || reply.continue !== undefined && typeof reply.continue !== 'boolean' ||
         reply.total !== undefined && (!storageInteger(reply.total) || state.total !== undefined && state.total !== reply.total)) throw invalidStorageReply();
       if (reply.total !== undefined) state.total = Number(reply.total);
-      if (state.maxBytes !== null && (state.size + body.byteLength > state.maxBytes || state.total !== undefined && state.total > state.maxBytes) ||
-        state.total !== undefined && state.size + body.byteLength > state.total ||
-        bounded && ((bytes += body.byteLength) > 16 * 1024 * 1024 || ++packets > 4096)) throw invalidStorageReply();
+      if (state.total !== undefined && state.size + body.byteLength > state.total) throw invalidStorageReply();
       state.size += body.byteLength; state.chunks.push(new Uint8Array(body));
       if (reply.continue !== true) {
         if (state.total !== undefined && state.size !== state.total) throw invalidStorageReply();

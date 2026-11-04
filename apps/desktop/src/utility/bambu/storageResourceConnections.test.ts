@@ -3,7 +3,7 @@ import type { BambuStorageResourceReader } from '@orca/bambu-native';
 import { StorageResourceConnections } from './storageResourceConnections';
 const pools: StorageResourceConnections[] = [];
 afterEach(async () => { await Promise.all(pools.splice(0).map(pool => pool.close())); vi.useRealTimers(); });
-const requests = [{ path: '/part.3mf', resource: 'thumbnail', maxBytes: 16 }];
+const requests = [{ path: '/part.3mf', resource: 'thumbnail' }];
 function fixture() {
   vi.useFakeTimers(); const pool = new StorageResourceConnections(); pools.push(pool);
   const readers: { read: ReturnType<typeof vi.fn<BambuStorageResourceReader['read']>>; close: ReturnType<typeof vi.fn> }[] = [];

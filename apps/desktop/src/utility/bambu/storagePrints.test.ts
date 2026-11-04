@@ -65,8 +65,7 @@ describe('device-file inspection contexts', () => {
   });
   it('passes available resources to Orca without per-file budgets or a required-file precheck', async () => {
     const f = await fixture();
-    vi.mocked(f.source.resource).mockImplementation(async (_path, resource, limit) => {
-      expect(limit).toBeNull();
+    vi.mocked(f.source.resource).mockImplementation(async (_path, resource) => {
       return resource === 'Metadata/model_settings.config' ? new Uint8Array(5 * 1024 * 1024) : null;
     });
     expect((await f.prints.inspect(f.file)).ok).toBe(true);

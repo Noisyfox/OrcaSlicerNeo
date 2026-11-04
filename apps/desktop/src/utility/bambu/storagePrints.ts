@@ -32,7 +32,7 @@ export class BambuStoragePrints implements D.PrinterRemotePrints {
       const resources: RemotePrintResourceBytes[] = [];
       for (const resource of REMOTE_PRINT_RESOURCES) {
         if (options?.signal?.aborted) return failure('cancelled', 'Device file inspection was cancelled.');
-        const data = await source.value.source.resource(path, resource, null, options?.signal);
+        const data = await source.value.source.resource(path, resource, options?.signal);
         if (!data?.byteLength) continue;
         resources.push({ name: resource, bytes: data });
       }

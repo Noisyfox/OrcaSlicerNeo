@@ -67,10 +67,10 @@ struct ControlState {
                 Bambu_Sample sample{};
                 const int result = api.Bambu_ReadSample(tunnel, &sample);
                 if (result == Bambu_would_block) { std::this_thread::sleep_for(std::chrono::milliseconds(2)); continue; }
-                if (result != Bambu_success || !sample.buffer || sample.size <= 0 || sample.size > 4 * 1024 * 1024) { fail("Task resource packet unavailable"); return; }
+                if (result != Bambu_success || !sample.buffer || sample.size <= 0 || (!storage && sample.size > 4 * 1024 * 1024)) { fail("Task resource packet unavailable"); return; }
                 std::vector<unsigned char> owned(sample.buffer, sample.buffer + sample.size);
                 std::lock_guard<std::mutex> lock(mutex);
-                if (incoming.size() >= 32 || bytes + owned.size() > 8 * 1024 * 1024) { error = "Task resource reader overflow"; incoming.clear(); bytes = 0; return; }
+                if (!storage && (incoming.size() >= 32 || bytes + owned.size() > 8 * 1024 * 1024)) { error = "Task resource reader overflow"; incoming.clear(); bytes = 0; return; }
                 bytes += owned.size(); incoming.push_back(std::move(owned));
             }
         } catch (...) { fail("Task resource native reader failed"); }

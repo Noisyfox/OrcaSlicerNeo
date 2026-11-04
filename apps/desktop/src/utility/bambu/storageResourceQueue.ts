@@ -38,14 +38,12 @@ export class StorageResourceQueue {
         try {
           const unique = new Map<string, BambuStorageResourceRequest>();
           const address = (request: BambuStorageResourceRequest) => JSON.stringify([request.path, request.resource]);
-          for (const job of jobs) { const previous = unique.get(address(job.request));
-            unique.set(address(job.request), { ...job.request, maxBytes: job.request.maxBytes === null || previous?.maxBytes === null ? null : Math.max(job.request.maxBytes, previous?.maxBytes ?? 0) }); }
+          for (const job of jobs) unique.set(address(job.request), job.request);
           const requests = [...unique.values()], data = await jobs[0].read(requests, controller.signal);
           if (data.length !== requests.length) throw new Error('Invalid thumbnail batch.');
           for (const job of jobs) {
             const value = data[requests.findIndex(request => address(request) === address(job.request))];
             if (this.closed || controller.signal.aborted || job.signal?.aborted) job.reject(cancelled());
-            else if (value && job.request.maxBytes !== null && value.byteLength > job.request.maxBytes) job.reject(new Error('The thumbnail exceeds its resource limit.'));
             else job.resolve(value ? new Uint8Array(value) : null);
           }
         } catch (error) { for (const job of jobs) job.reject(this.closed || controller.signal.aborted || job.signal?.aborted ? cancelled() : error); }

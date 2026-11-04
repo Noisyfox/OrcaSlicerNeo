@@ -21,28 +21,30 @@ it('evicts the least recently used inactive image by byte/entry budgets and rele
   const b = cache.acquire('1', hit); expect(await b.result).toBe('b'); expect(hit).not.toHaveBeenCalled(); b.release();
   cache.clear(); expect(images[1].dispose).toHaveBeenCalledOnce(); expect(images[2].dispose).toHaveBeenCalledOnce();
 });
-it('bounds pending entries and zero-byte cached misses as well as image bytes', async () => {
+it('admits pending entries beyond the retention target and evicts inactive cached misses', async () => {
   const cache = new ThumbnailCache(8, 1);
   let finish!: (value: null) => void;
   const pending = cache.acquire('missing', () => new Promise<null>(resolve => { finish = resolve; }));
   await Promise.resolve();
-  const blocked = vi.fn(async () => image('blocked'));
-  await expect(cache.acquire('other', blocked).result).rejects.toThrow('full');
-  expect(blocked).not.toHaveBeenCalled();
-  finish(null); await pending.result; pending.release();
+  const other = cache.acquire('other', async () => image('other')); expect(await other.result).toBe('other');
+  other.release(); finish(null); await pending.result; pending.release();
   const next = cache.acquire('next', async () => null); await next.result; next.release();
   const reread = vi.fn(async () => null);
   const evicted = cache.acquire('missing', reread); await evicted.result;
   expect(reread).toHaveBeenCalledOnce(); evicted.release(); cache.clear();
 });
-it('never evicts displayed images and disposes rejected oversized copies', async () => {
-  const cache = new ThumbnailCache(4, 2), a = image('a'), b = image('b');
+it('keeps displayed images above retention targets and evicts them when released', async () => {
+  const cache = new ThumbnailCache(4, 1), a = image('a'), b = image('b', 8);
   const pinned = cache.acquire('a', async () => a); await pinned.result;
-  const rejected = cache.acquire('b', async () => b); await expect(rejected.result).rejects.toThrow('full');
-  expect(a.dispose).not.toHaveBeenCalled(); expect(b.dispose).toHaveBeenCalledOnce();
-  rejected.release(); pinned.release(); cache.clear();
+  const oversized = cache.acquire('b', async () => b); expect(await oversized.result).toBe('b');
+  expect(a.dispose).not.toHaveBeenCalled(); expect(b.dispose).not.toHaveBeenCalled();
+  const load = vi.fn(async () => image('unexpected'));
+  const shared = cache.acquire('b', load); expect(await shared.result).toBe('b'); expect(load).not.toHaveBeenCalled();
+  oversized.release(); expect(b.dispose).not.toHaveBeenCalled();
+  shared.release(); expect(b.dispose).toHaveBeenCalledOnce(); expect(a.dispose).not.toHaveBeenCalled();
+  pinned.release(); cache.clear(); expect(a.dispose).toHaveBeenCalledOnce();
 });
-it('copies expiring URLs into browser-owned blobs and bounds streamed image bytes', async () => {
+it('copies large streamed and inline images without a per-image size limit', async () => {
   const fetcher = vi.spyOn(globalThis, 'fetch');
   const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:local');
   const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
@@ -52,9 +54,12 @@ it('copies expiring URLs into browser-owned blobs and bounds streamed image byte
     const copied = await snapshotThumbnail('https://same-origin/expiring-image', signal);
     expect(copied.url).toBe('blob:local'); expect(copied.bytes).toBe(3); copied.dispose(); expect(revoke).toHaveBeenCalledWith('blob:local');
     fetcher.mockResolvedValueOnce(new Response(new Uint8Array(4 * 1024 * 1024 + 1)));
-    await expect(snapshotThumbnail('https://same-origin/oversized', signal)).rejects.toThrow('too large');
-    expect(create).toHaveBeenCalledOnce();
-    const inline = await snapshotThumbnail('data:image/png;base64,aGVsbG8=', signal);
-    expect(inline.url).toContain('data:image/png'); expect(fetcher).toHaveBeenCalledTimes(2);
+    const large = await snapshotThumbnail('https://same-origin/large', signal);
+    expect(large.bytes).toBe(4 * 1024 * 1024 + 1); large.dispose();
+    expect(create).toHaveBeenCalledTimes(2);
+    const url = 'data:image/png;base64,' + 'AAAA'.repeat(2 * 1024 * 1024);
+    const inline = await snapshotThumbnail(url, signal);
+    expect(inline.url === url).toBe(true); expect(inline.bytes).toBe(url.length * 2);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   } finally { fetcher.mockRestore(); create.mockRestore(); revoke.mockRestore(); }
 });

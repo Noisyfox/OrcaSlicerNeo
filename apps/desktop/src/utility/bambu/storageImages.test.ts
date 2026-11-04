@@ -22,8 +22,8 @@ it('enumerates an independent preview then reads only relationships and the sele
   const f = await fixture(); expect(await f.files.listPreviews(f.file)).toMatchObject({ ok: true, value: { options: [{ kind: 'thumbnail' }] } });
   const result = await f.images.call('document', { method: 'open', input: f.request });
   expect(result).toMatchObject({ ok: true, value: { presentation: { kind: 'image', mimeType: 'image/png', url: `data:image/png;base64,${png.toString('base64')}` } } });
-  expect(f.source.resource).toHaveBeenNthCalledWith(1, '/part.gcode.3mf', '_rels/.rels', 1024 * 1024, expect.any(AbortSignal));
-  expect(f.source.resource).toHaveBeenNthCalledWith(2, '/part.gcode.3mf', 'Metadata/cover.png', 4 * 1024 * 1024, expect.any(AbortSignal));
+  expect(f.source.resource).toHaveBeenNthCalledWith(1, '/part.gcode.3mf', '_rels/.rels', expect.any(AbortSignal));
+  expect(f.source.resource).toHaveBeenNthCalledWith(2, '/part.gcode.3mf', 'Metadata/cover.png', expect.any(AbortSignal));
   expect(f.source.download).not.toHaveBeenCalled(); expect(f.source.list).toHaveBeenCalledOnce();
   await f.images.call('document', { method: 'open', input: f.request }); expect(f.source.resource).toHaveBeenCalledTimes(2);
 });
@@ -34,7 +34,7 @@ it('does not substitute a full download when optional subfiles are unavailable',
 });
 it('cancels an in-progress image read and honors a cancellation arriving before open', async () => {
   const f = await fixture(); let started!: () => void; const entered = new Promise<void>(resolve => { started = resolve; });
-  vi.mocked(f.source.resource).mockImplementation(async (_path, _resource, _limit, signal) => {
+  vi.mocked(f.source.resource).mockImplementation(async (_path, _resource, signal) => {
     started(); await new Promise<void>(resolve => { if (signal?.aborted) resolve(); else signal?.addEventListener('abort', () => resolve(), { once: true }); }); return null;
   });
   const opening = f.images.call('document', { method: 'open', input: f.request }); await entered;
@@ -105,8 +105,27 @@ it('keeps a renewed live lease deduplicated after its original request-history d
   expect(await f.images.call('document', { method: 'open', input: f.request })).toMatchObject({ ok: true, value: { ref: result.value.ref } });
   expect(f.source.resource).toHaveBeenCalledTimes(2);
 });
-it('rejects a changed configuration and excessive decoded image dimensions', async () => {
+it('rejects a changed configuration', async () => {
   const f = await fixture(); vi.mocked(f.source.resource).mockImplementation(async () => { f.source.configurationRevision = 'r2'; return png; });
   expect((await f.images.call('document', { method: 'open', input: f.request })).ok).toBe(false);
-  const large = Buffer.from(png); large.writeUInt32BE(100_000, 16); expect(thumbnailMime(large)).toBeNull(); expect(thumbnailMime(png)).toBe('image/png');
+});
+it('identifies PNG/JPEG delivery types without imposing decoded dimension or JPEG marker restrictions', () => {
+  const large = Buffer.from(png); large.writeUInt32BE(100_000, 16);
+  expect(thumbnailMime(large)).toBe('image/png'); expect(thumbnailMime(png)).toBe('image/png');
+  // Lossless JPEG SOF3, also beyond the previous 4096-pixel width limit.
+  expect(thumbnailMime(Uint8Array.from([255, 216, 255, 195, 0, 8, 8, 0, 1, 32, 0, 0]))).toBe('image/jpeg');
+  expect(thumbnailMime(Uint8Array.of(1, 2, 3))).toBeNull();
+});
+it('delivers large relationships and images even when live images exceed the former aggregate budget', async () => {
+  const f = await fixture();
+  const relationships = new TextEncoder().encode('<Relationships>' + ' '.repeat(1024 * 1024) + '<Relationship Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail" Target="Metadata/cover.png"/></Relationships>');
+  const large = Buffer.alloc(5 * 1024 * 1024); png.copy(large);
+  vi.mocked(f.source.resource).mockImplementation(async (_path, resource) => resource === '_rels/.rels' ? relationships : large);
+  for (let i = 0; i < 4; i++) {
+    const result = await f.images.call('document', { method: 'open', input: { ...f.request, requestId: `large-${i}` as D.Id<'request'> } });
+    if (!result.ok || !result.value || !('presentation' in result.value) || result.value.presentation.kind !== 'image') throw new Error('Large thumbnail rejected');
+    const data = Buffer.from(result.value.presentation.url.split(',')[1], 'base64');
+    expect(data.length).toBe(large.length); expect(data.subarray(0, png.length)).toEqual(png);
+  }
+  expect(f.source.resource).toHaveBeenCalledTimes(8); expect(f.source.download).not.toHaveBeenCalled();
 });

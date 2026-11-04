@@ -3,7 +3,7 @@ import { StorageResourceQueue } from './storageResourceQueue';
 const queues: StorageResourceQueue[] = [];
 afterEach(async () => { await Promise.all(queues.splice(0).map(queue => queue.close())); vi.useRealTimers(); });
 function fixture() { vi.useFakeTimers(); const queue = new StorageResourceQueue(); queues.push(queue); return queue; }
-const request = (name: string) => ({ path: `/${name}.3mf`, resource: 'thumbnail', maxBytes: 16 });
+const request = (name: string) => ({ path: `/${name}.3mf`, resource: 'thumbnail' });
 it('batches visible resources and deduplicates the same resource without sharing between devices', async () => {
   const queue = fixture(), read = vi.fn(async requests => requests.map(() => new Uint8Array([1])));
   const a = queue.read('printer-a', request('one'), read), duplicate = queue.read('printer-a', request('one'), read);
@@ -36,13 +36,14 @@ it('cancels one active consumer without aborting the other, and joins shared shu
   expect((await third).detail.code).toBe('cancelled');
 });
 
-it('preserves an unrestricted inspection read while enforcing another consumer’s explicit budget', async () => {
-  const queue = fixture(), value = new Uint8Array(17 * 1024 * 1024);
+it('coalesces resources above the former batch budget and gives each consumer an independent copy', async () => {
+  const queue = fixture(), value = new Uint8Array(17 * 1024 * 1024); value[value.length - 1] = 7;
   const read = vi.fn(async (_requests, _signal) => [value]);
-  const a = queue.read('printer', { ...request('one'), maxBytes: null }, read);
-  const b = queue.read('printer', request('one'), read).catch(error => error.message);
+  const a = queue.read('printer', request('one'), read), b = queue.read('printer', request('one'), read);
   await vi.advanceTimersByTimeAsync(8);
-  expect(read.mock.calls[0][0][0].maxBytes).toBeNull();
-  expect((await a)?.byteLength).toBe(value.byteLength);
-  expect(await b).toContain('limit');
+  expect(read).toHaveBeenCalledOnce(); expect(read.mock.calls[0][0]).toEqual([request('one')]);
+  const first = (await a)!, second = (await b)!;
+  expect(first.byteLength).toBe(value.byteLength); expect(second.byteLength).toBe(value.byteLength);
+  expect(first[first.length - 1]).toBe(7); first[first.length - 1] = 9;
+  expect(second[second.length - 1]).toBe(7); expect(value[value.length - 1]).toBe(7);
 });

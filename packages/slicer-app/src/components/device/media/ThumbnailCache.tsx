@@ -8,7 +8,6 @@ interface Entry {
   snapshot?: Snapshot | null;
   result: Promise<string | null>;
 }
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 /** Browser-owned immutable images, independent of provider media leases. */
 export class ThumbnailCache {
@@ -19,11 +18,6 @@ export class ThumbnailCache {
   acquire(key: string, load: (signal: AbortSignal) => Promise<Snapshot | null>) {
     let entry = this.entries.get(key);
     if (!entry) {
-      while (this.entries.size >= this.maxEntries) {
-        const victim = [...this.entries].find(([, item]) => item.settled && item.users === 0);
-        if (!victim) return { result: Promise.reject<string | null>(new Error('Thumbnail cache is full')), release() {} };
-        this.remove(...victim);
-      }
       const created: Entry = { controller: new AbortController(), users: 0, settled: false, result: Promise.resolve(null) };
       entry = created;
       this.entries.set(key, entry);
@@ -31,14 +25,9 @@ export class ThumbnailCache {
         if (this.entries.get(key) !== created || created.controller.signal.aborted) {
           snapshot?.dispose(); return null;
         }
-        // Active images are pinned; never revoke an image another card is displaying.
-        while (this.bytes + (snapshot?.bytes ?? 0) > this.maxBytes) {
-          const victim = [...this.entries].find(([, item]) => item !== created && item.settled && item.users === 0);
-          if (!victim) { snapshot?.dispose(); throw new Error('Thumbnail cache is full'); }
-          this.remove(...victim);
-        }
         created.snapshot = snapshot; created.settled = true;
         this.bytes += snapshot?.bytes ?? 0;
+        this.trim();
         return snapshot?.url ?? null;
       }).catch(error => {
         if (this.entries.get(key) === created) this.remove(key, created);
@@ -48,14 +37,25 @@ export class ThumbnailCache {
     entry.users++;
     // Map order is the least-recently-used order, including cached misses.
     this.entries.delete(key); this.entries.set(key, entry);
+    this.trim();
     const owned = entry; let released = false;
     return { result: entry.result, release: () => {
       if (released) return; released = true; owned.users--;
       if (!owned.users && !owned.settled && this.entries.get(key) === owned) this.remove(key, owned);
+      this.trim();
     } };
   }
 
   clear() { for (const [key, entry] of this.entries) this.remove(key, entry); }
+  private trim() {
+    // Retention targets never reject an image or revoke one still being displayed.
+    // Pinned/pending entries may exceed them; release makes them eligible again.
+    while (this.bytes > this.maxBytes || this.entries.size > this.maxEntries) {
+      const victim = [...this.entries].find(([, entry]) => entry.settled && entry.users === 0);
+      if (!victim) break;
+      this.remove(...victim);
+    }
+  }
   private remove(key: string, entry: Entry) {
     this.entries.delete(key); entry.controller.abort();
     this.bytes -= entry.snapshot?.bytes ?? 0; entry.snapshot?.dispose();
@@ -65,11 +65,7 @@ export class ThumbnailCache {
 /** Copy expiring delivery URLs before closing their media lease. Never persist them. */
 export async function snapshotThumbnail(url: string, signal: AbortSignal): Promise<Snapshot> {
   // Immutable inline images need no fetch (and no host-specific CSP exceptions).
-  const inline = /^data:image\/(?:png|jpeg);base64,([a-z\d+/=\s]+)$/i.exec(url);
-  if (inline) {
-    const encoded = inline[1].replace(/\s/g, '');
-    const bytes = Math.ceil(encoded.length * 3 / 4) - (encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0);
-    if (bytes > MAX_IMAGE_BYTES) throw new Error('Thumbnail is too large');
+  if (/^data:image\/(?:png|jpeg);base64,[a-z\d+/=\s]+$/i.test(url)) {
     // Account conservatively for UTF-16 backing storage of the retained data URL.
     return { url, bytes: url.length * 2, dispose() {} };
   }
@@ -81,7 +77,6 @@ export async function snapshotThumbnail(url: string, signal: AbortSignal): Promi
     while (true) {
       const chunk = await reader.read(); if (chunk.done) break;
       bytes += chunk.value.byteLength;
-      if (bytes > MAX_IMAGE_BYTES) throw new Error('Thumbnail is too large');
       chunks.push(new Uint8Array(chunk.value));
     }
   } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }

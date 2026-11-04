@@ -49,9 +49,19 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     const page = await app.firstWindow(); await page.setViewportSize({ width: 1280, height: 850 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await installControlFixture(app);
-    const thumbnailUrl = await page.evaluate(() => {
+    const thumbnailUrls = await page.evaluate(async () => {
       const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII='), char => char.charCodeAt(0));
-      return URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+      const small = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+      const canvas = document.createElement('canvas'); canvas.width = 5000; canvas.height = 256;
+      const context = canvas.getContext('2d')!, pixels = context.createImageData(canvas.width, canvas.height);
+      let seed = 12345;
+      for (let i = 0; i < pixels.data.length; i++) {
+        seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; pixels.data[i] = seed & 255;
+      }
+      context.putImageData(pixels, 0, 0);
+      const blob = await new Promise<Blob>(resolve => canvas.toBlob(value => resolve(value!), 'image/png'));
+      if (blob.size <= 4 * 1024 * 1024) throw new Error('Fixture must exceed the former image byte limit');
+      return { small, large: URL.createObjectURL(blob) };
     });
     await app.evaluate(({ ipcMain }, channel) => {
       ipcMain.removeHandler(channel);
@@ -122,7 +132,7 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
         return { ok: false, error: { code: 'unsupported', message: 'Fixture action unavailable.' } };
       });
     }, { request: Ipc.printerDownloadRequest, changed: Ipc.printerDownloadChanged });
-    await app.evaluate(({ ipcMain }, { channel, url }) => {
+    await app.evaluate(({ ipcMain }, { channel, urls }) => {
       const state = globalThis as typeof globalThis & { storageThumbnailOpens: Record<string, number> };
       state.storageThumbnailOpens = {};
       ipcMain.removeHandler(channel);
@@ -133,10 +143,10 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
         return { ok: true, value: {
           ref: { ...input.target, id: input.requestId }, configurationRevision: input.source.target.configurationRevision,
           revision: 1, source: input.source, expiresAtMs: null,
-          presentation: { kind: 'image', mimeType: 'image/png', url },
+          presentation: { kind: 'image', mimeType: 'image/png', url: file === 'external-part-000.gcode.3mf' ? urls.large : urls.small },
         } };
       });
-    }, { channel: Ipc.bambuMedia, url: thumbnailUrl });
+    }, { channel: Ipc.bambuMedia, urls: thumbnailUrls });
     const thumbnailOpens = (file: string) => app.evaluate((_electron, name) =>
       (globalThis as typeof globalThis & { storageThumbnailOpens: Record<string, number> }).storageThumbnailOpens[name] ?? 0, file);
     const calls = () => app.evaluate(() => globalThis.bambuControlFixture.requests.filter(request =>
@@ -163,8 +173,8 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     const storage = page.getByTestId('printer-storage');
     await expect(storage.getByRole('button', { name: /^Folder:/ })).toHaveCount(0);
     await expect(storage.getByRole('checkbox')).toHaveCount(100);
-    await expect.poll(() => storage.getByAltText('Thumbnail of external-part-000.gcode.3mf').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
-    expect(await storage.getByAltText('Thumbnail of external-part-000.gcode.3mf').getAttribute('src')).not.toBe(thumbnailUrl);
+    await expect.poll(() => storage.getByAltText('Thumbnail of external-part-000.gcode.3mf').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(5000);
+    expect(await storage.getByAltText('Thumbnail of external-part-000.gcode.3mf').getAttribute('src')).not.toBe(thumbnailUrls.large);
     // Real viewport exits/returns must not dispatch another provider media open.
     await storage.getByText('external-part-099.gcode.3mf', { exact: true }).scrollIntoViewIfNeeded();
     await expect(storage.getByAltText('Thumbnail of external-part-000.gcode.3mf')).toHaveCount(0);

@@ -59,6 +59,18 @@ int Bambu_SendMessage(Bambu_Tunnel tunnel, int type, const char* bytes, int size
         return 0;
     }
     if (message.find("\"cmdtype\":2") != std::string::npos) {
+        if (s.mode.find("resource-large") != std::string::npos || s.mode.find("resource-many-packets") != std::string::npos) {
+            const int count = s.mode.find("many-packets") != std::string::npos ? 4097 : 1;
+            const int size = count == 1 ? 17 * 1024 * 1024 : 4097;
+            for (int i = 0; i < count; ++i) {
+                const bool last = i == count - 1;
+                s.replies.push_back("{\"result\":" + std::to_string(last ? 0 : 1) +
+                    ",\"sequence\":1,\"reply\":{\"path\":\"/resource.3mf#_rels/.rels\",\"size\":" + std::to_string(size) +
+                    ",\"offset\":" + std::to_string(i * size) + ",\"total\":" + std::to_string(count * size) +
+                    ",\"continue\":" + (last ? "false" : "true") + "}}\n\n" + std::string(size, 'x'));
+            }
+            return 0;
+        }
         if (s.mode.find("resource-reuse") != std::string::npos) {
             const auto at = message.find("\"sequence\":");
             const int seq = std::stoi(message.substr(at + 11));

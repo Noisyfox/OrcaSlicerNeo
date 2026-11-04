@@ -658,11 +658,13 @@ and unexecuted entries, with explicit continuation of a paused batch. Fixture E2
 checks local removal after confirmation and retained entries without automatic
 refresh after uncertain outcomes. Visible-card thumbnails now use optional managed
 image resources with cancellation and bounded concurrency; unsupported image reads
-retain placeholders. A bounded shared frontend cache retains independent thumbnail
+retain placeholders. A shared frontend cache retains independent thumbnail
 snapshots and missing-preview results across scrolling, filtering and regrouping.
 Provider leases close after copying, and cache hits issue no new agent read.
 Refresh or browsing-scope changes clear this session cache; inactive entries may
-be evicted when its entry/byte budget is reached. Bambu thumbnail requests are batched on short-lived reusable
+be evicted to meet its entry/byte retention targets; pinned images may exceed
+these targets without rejection. Storage thumbnails add no per-image size or
+decoded-dimension limit. Bambu thumbnail requests are batched on short-lived reusable
 browser connections, so one missing resource does not discard successfully read
 images in the batch. The [thumbnail transport and measured acceptance](Printer%20Domain%20and%20Control%20Architecture.md#91-device-storage-and-host-owned-downloads)
 owns connection/resource limits and the H2D timing evidence. Device-file printing now has an independent inspection dialog,

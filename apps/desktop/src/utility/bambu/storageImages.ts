@@ -4,10 +4,10 @@ import type { BambuMediaRequest, BambuMediaStatus } from '../../shared/bambuMedi
 import { thumbnailTarget } from '../projectThumbnail';
 import { BambuStorageFiles, storageFailure } from './storageFiles';
 const failure = (code: D.ErrorCode, message: string): D.Result<never> => ({ ok: false, error: { code, message } });
-interface ImageResource { owner: string; request: D.OpenMediaRequest; descriptor: D.MediaDescriptor; bytes: number; until: number }
+interface ImageResource { owner: string; request: D.OpenMediaRequest; descriptor: D.MediaDescriptor; until: number }
 interface Pending { owner: string; controller: AbortController; work: Promise<D.Result<D.MediaDescriptor>> }
 interface ImageRequest { owner: string; fingerprint: string; result: Promise<D.Result<D.MediaDescriptor>>; until: number; active: boolean }
-/** Optional bounded image resources, independent of the live-camera lease. */
+/** Optional image resources, independent of the live-camera lease. */
 export class BambuStorageImages {
   private resources = new Map<string, ImageResource>();
   private requests = new Map<string, ImageRequest>();
@@ -79,22 +79,21 @@ export class BambuStorageImages {
     if (!address.path || address.collection === 'model' && !address.name.toLowerCase().endsWith('.3mf')) return failure('preview-unavailable', 'No thumbnail is available.');
     let resource = printResource ?? 'thumbnail';
     if (!printResource && address.collection === 'model') {
-      const relationships = await source.resource(address.path, '_rels/.rels', 1024 * 1024, signal);
+      const relationships = await source.resource(address.path, '_rels/.rels', signal);
       if (!relationships) return failure('preview-unavailable', 'The printer does not provide a thumbnail for this file.');
       resource = thumbnailTarget(new TextDecoder('utf-8', { fatal: true }).decode(relationships)).replace(/^\//, '');
     }
-    const data = await source.resource(address.path, resource, 4 * 1024 * 1024, signal);
+    const data = await source.resource(address.path, resource, signal);
     if (!data) return failure('preview-unavailable', 'The printer does not provide a thumbnail for this file.');
     const mimeType = thumbnailMime(data);
     if (!mimeType || !request.client.imageMimeTypes.includes(mimeType)) return failure('no-compatible-media', 'The thumbnail format is unavailable.');
     const checked = await this.files.resolveFile(ref); if (!checked.ok) return checked;
     if (signal.aborted || this.retiredOwners.has(owner)) return failure('cancelled', 'Thumbnail reading stopped.');
-    if ([...this.resources.values()].reduce((sum, image) => sum + image.bytes, data.byteLength) > 16 * 1024 * 1024) return failure('busy', 'Thumbnail memory is full.');
     const id = `storage-image:${randomUUID()}` as D.Id<'media'>, until = Date.now() + 60_000;
     const descriptor: D.MediaDescriptor = { ref: { printerId: ref.printerId, routeId: ref.routeId, id }, source: request.source,
       configurationRevision: ref.configurationRevision, revision: 1, expiresAtMs: until,
       presentation: { kind: 'image', mimeType, url: `data:${mimeType};base64,${Buffer.from(data).toString('base64')}` } };
-    this.resources.set(id, { owner, request, descriptor, bytes: data.byteLength, until }); return { ok: true, value: descriptor };
+    this.resources.set(id, { owner, request, descriptor, until }); return { ok: true, value: descriptor };
   }
   private release(id: string) {
     const resource = this.resources.get(id); if (!resource) return;
@@ -110,20 +109,9 @@ export class BambuStorageImages {
   }
   async close() { this.closed = true; clearInterval(this.timer); for (const job of this.pending.values()) job.controller.abort(); await Promise.allSettled([...this.pending.values()].map(job => job.work)); this.resources.clear(); this.requests.clear(); }
 }
-/** Bound decoded dimensions before handing optional images to the renderer. */
+/** Identify the delivery MIME type; the renderer's image decoder validates content. */
 export function thumbnailMime(data: Uint8Array): 'image/png' | 'image/jpeg' | null {
-  const b = Buffer.from(data), dimensions = (w: number, h: number) => w > 0 && h > 0 && w <= 4096 && h <= 4096;
-  if (b.length >= 33 && b.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) && b.toString('ascii', 12, 16) === 'IHDR')
-    return dimensions(b.readUInt32BE(16), b.readUInt32BE(20)) ? 'image/png' : null;
-  if (b[0] !== 255 || b[1] !== 216) return null;
-  for (let offset = 2; offset + 4 < b.length;) {
-    if (b[offset++] !== 255) return null;
-    while (b[offset] === 255) offset++;
-    const marker = b[offset++]; if (marker === 0xda || marker === 0xd9 || offset + 2 > b.length) return null;
-    if (marker === 0x01 || marker >= 0xd0 && marker <= 0xd7) continue;
-    const length = b.readUInt16BE(offset); if (length < 2 || offset + length > b.length) return null;
-    if ([0xc0, 0xc1, 0xc2].includes(marker) && length >= 8) return dimensions(b.readUInt16BE(offset + 5), b.readUInt16BE(offset + 3)) ? 'image/jpeg' : null;
-    offset += length;
-  }
+  if (data.length >= 8 && data.subarray(0, 8).every((byte, index) => byte === [137, 80, 78, 71, 13, 10, 26, 10][index])) return 'image/png';
+  if (data[0] === 255 && data[1] === 216) return 'image/jpeg';
   return null;
 }

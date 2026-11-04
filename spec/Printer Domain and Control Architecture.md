@@ -3071,12 +3071,15 @@ read; cancellation aborts it only after the last consumer leaves. Provider media
 leases close immediately after copying; scrolling does not keep agent resources
 alive. Immutable PNG/JPEG data URLs can be retained directly. Other image delivery
 URLs must be renderer-fetchable under the host's origin/CORS/CSP policy and are
-copied through a bounded stream to browser-owned Blob URLs before lease release.
+copied to browser-owned Blob URLs before lease release.
 The common cache supports all agents; agents do not implement thumbnail caching.
 
-Each browser cache is bounded to 256 entries and 32 MiB of retained image bytes
-(conservatively counted as UTF-16 for inline URLs), with a 4 MiB per-image source
-limit. Inactive least-recently-used entries are evicted; displayed images are pinned.
+Each browser cache targets 256 entries and 32 MiB of retained image bytes
+(conservatively counted as UTF-16 for inline URLs). These are retention targets,
+not image acceptance limits. Inactive least-recently-used entries are evicted;
+displayed images and pending reads are pinned and may exceed either target.
+Releasing a consumer trims eligible entries again, including an oversized image
+when its last visible consumer leaves. There is no per-image source-size limit.
 Eviction can require a later remote read. Object URLs are revoked on eviction or
 cleanup. A successful first-page reload/manual refresh, printer/route/configuration
 or storage/collection switch, and leaving the browser clear the cache. Pagination
@@ -3092,27 +3095,33 @@ requests and closed after a two-second idle lease. Shutdown, cancellation of all
 batch consumers, transport/protocol failure and configuration/auth changes close
 and join the affected native reader. Independent consumers retain their own leases;
 cancelling one consumer does not abort another consumer's shared batch.
-Queued resources are bounded to 64; thumbnail-only batches are bounded to 16 MiB. The Bambu host adds
+Queued resources are bounded to 64; resource contents have no application byte
+or packet-count budget. The Bambu host adds
 no file-content cache or automatic failed-file retry. A terminal per-file SUB_FILE error
 preserves completed resources, leaves that file as a placeholder, and continues
 only entries not yet read, using a new request sequence on the same connection.
-Bambu reads a bounded relationship document and its selected PNG/JPEG through
+Bambu reads the relationship document and its selected PNG/JPEG through
 SUB_FILE, or a video's `#thumbnail`; it does not download the archive to fill a
 missing thumbnail. The pinned plugin's FTPS fallback returns empty optional
-subfiles, so that path deliberately retains placeholder images. Reads have a
-30-second per-batch budget, 1 MiB relationship / 4 MiB image limits and bounded
-decoded dimensions. Utility images have document ownership, cancellation before
-or during open, expiring leases and a 16 MiB resource budget. These lifetimes are
-separate from the live camera and independent save tasks. The utility's 128-entry
-request deduplication history evicts the oldest terminal entries under pressure;
+subfiles, so that path deliberately retains placeholder images. Reads retain a
+30-second per-batch deadline and inactivity timeout. No relationship/image size,
+decoded-dimension, native Storage packet-size or aggregate image-byte limit is
+added to Orca behavior. The host identifies PNG/JPEG delivery MIME types and the renderer
+decodes the actual image. Native Storage reads retain demand-based queue
+backpressure rather than rejecting a packet for its size. Utility images have
+document ownership, cancellation before or during open, and expiring leases.
+These lifetimes are separate from the live camera and independent save tasks.
+The utility's 128-entry request deduplication history evicts the oldest terminal entries under pressure;
 completed/released/missing-image requests never impose a cumulative browsing quota.
 Pending reads and live image leases are protected from history eviction and expiry,
 including renewed leases. Closing a document clears its request history. This is
 bounded operation bookkeeping; thumbnail content caching remains in the shared
 frontend browser.
 
-Thumbnail acceptance covers native resource packets, utility ownership/format
-limits, viewport caching/cancellation and lease release, actual image decoding in the Electron
+Thumbnail acceptance covers resources beyond the former byte/packet budgets,
+large relationship documents, utility ownership/MIME negotiation, viewport cache
+eviction/cancellation and lease release, and actual image decoding beyond the
+former 4 MiB/4096-pixel thresholds in the Electron
 fixture and existing live-camera E2E. The default parallel native suite repeated
 an existing `camera.test.mjs` startup failure (`No fixture samples`); the isolated
 camera suite and complete serial suite passed. A subsequent unchanged parallel
@@ -3139,8 +3148,8 @@ or activating presets. The runtime packages the requested resources into a ZIP a
 acceptance to Orca's parser. Inspection adds no separate resource allowlist,
 required-file preflight, archive/expanded-size, entry-count, plate-count or
 material-count rejection. The agent and SUB_FILE reader likewise impose no
-per-resource or aggregate metadata budget on this path; ordinary thumbnail
-consumers retain their explicit image budgets. Thumbnails remain separately
+per-resource or aggregate metadata budget on this path. Thumbnail reads also
+add no content-size budget; thumbnails remain separately
 owned image resources. A disposable desktop Worker serializes inspection, bounds
 pending admission, terminates on timeout/cancellation and joins teardown before
 the next request. Focused real-threaded-WASM smoke covers two plates, repeat
