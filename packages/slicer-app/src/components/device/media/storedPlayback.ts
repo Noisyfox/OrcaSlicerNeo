@@ -12,7 +12,10 @@ export function startStoredPlayback(descriptor: MediaDescriptor, media: Pick<Pri
     const presentation = descriptor.presentation;
     if (presentation.kind !== 'video' || presentation.delivery.transport !== 'mse-fmp4' ||
       !MediaSource.isTypeSupported(presentation.delivery.mimeType)) throw new PlaybackError('This video format cannot be played here. Download it to use a system player.');
-    const iterator = media.readStream({ media: descriptor.ref, streamId: presentation.delivery.streamId, startSeconds: start }, { signal })[Symbol.asyncIterator]();
+    // Cancel pending next() on failure without suppressing the outer error report.
+    const stream = new AbortController();
+    const streamSignal = AbortSignal.any([signal, stream.signal]);
+    const iterator = media.readStream({ media: descriptor.ref, streamId: presentation.delivery.streamId, startSeconds: start }, { signal: streamSignal })[Symbol.asyncIterator]();
     let source: MediaSource | undefined, buffer: SourceBuffer | undefined, sequence = 0, generation: number | undefined;
     let started = false, pendingBytes = 0;
     const appended: { end: number; bytes: number }[] = [];
@@ -59,7 +62,11 @@ export function startStoredPlayback(descriptor: MediaDescriptor, media: Pick<Pri
         }
         if (!started && pendingBytes > 16 * 1024 * 1024) throw new PlaybackError('This keyframe interval exceeds the playback buffer. Download the file to continue.');
       }
-    } finally { await iterator.return?.(); video.pause(); video.removeAttribute('src'); video.load(); if (url) URL.revokeObjectURL(url); url = undefined; }
+    } finally {
+      stream.abort();
+      try { await iterator.return?.(); }
+      finally { video.pause(); video.removeAttribute('src'); video.load(); if (url) URL.revokeObjectURL(url); url = undefined; }
+    }
   }
   const seek = (seconds: number) => {
     if (stopped || !Number.isFinite(seconds) || !ranges.some(r => seconds >= r.startSeconds && seconds < r.endSeconds)) return false;
