@@ -2,8 +2,10 @@
 
 **Date:** 2026-08-23
 
-**Status:** Delivered. Design and implementation complete for the first version.
-Mesh booleans, layer ranges, brim points and cut connectors remain deferred.
+**Status:** The existing object/part-management scope is delivered. Mesh
+Boolean remains unimplemented; section 10 records the agreed design and its
+implementation/qualification requirements.
+Layer ranges, brim points and cut connectors remain deferred.
 
 
 ## 1. Goal
@@ -66,9 +68,9 @@ Use the approved thin-bridge approach:
 
 ### 3.4 Explicitly deferred
 
-- Mesh boolean union/subtraction (`ObjectList::boolean()` /
-  `Plater::combine_mesh_fff()`): requires re-adding the currently dropped
-  `MeshBoolean`/MCUT/CSGMesh path.
+- Mesh Boolean is outside the delivered first-version scope. The
+  [agreed design](#10-mesh-boolean-design) covers the Gizmo and
+  object-menu paths and the native dependency boundary.
 - `merge(false)` / `append_menu_item_merge_to_single_object()`: the upstream
   menu function is defined but has no call site and is not part of the
   delivered feature.
@@ -343,7 +345,445 @@ multi-file entries, nor open String Hell's native preset-edit dialog. It must
 not temporarily alter profiles. Additions use the same operation admission,
 settled-transform, history and current-plate contracts as ordinary imports.
 
-## 10. Related specifications
+## 10. Mesh Boolean design
+
+**Decision status:** Design agreed; application implementation and
+qualification remain pending. The accepted Neo behavior below governs the
+explicit differences from the Orca reference behavior.
+
+### 10.1 Accepted constraints
+
+#### Computation and project boundary
+
+- Reuse MCUT for mesh boolean computation and compile the complete original
+  `MeshBoolean.cpp` with CGAL and its full GMP/GMPXX, MPFR and CORE dependency
+  closure. The CGAL closed-volume and self-intersection prechecks used by
+  Orca's object-menu path remain explicitly deferred. Compiling CGAL does not
+  select it as a replacement boolean engine.
+- Preserve Orca's existing MCUT behavior, including its Union fallback to
+  mesh concatenation under the original conditions. Preserve the object-menu
+  fallback that retains positive parts when the combined mesh is empty and
+  emits the existing failure notification. Typed bridge receipts must preserve
+  these semantics rather than reinterpret a native fallback as a rejected edit.
+- Both entry points use native model geometry in the existing stateful
+  WASM session. React owns interaction and presentation; it does not perform
+  boolean geometry or import Emscripten globals. The typed client and runtime
+  retain their existing ownership boundaries.
+- Follow the existing structural-edit boundary in section 8: settle transforms,
+  prepare any painting topology change, use the single history transaction,
+  publish stable-ID scene changes and invalidate the affected plate results.
+  Reuse native painting remapping when the painting-preservation policy is
+  selected; do not copy triangle annotations by their old triangle indices.
+
+Skipping the CGAL prechecks does not establish that MCUT accepts arbitrary
+damaged inputs. Input repair and a replacement boolean engine are not part
+of the accepted initial direction.
+
+#### Model scale
+
+- Follow Orca's entry-point policy without adding a Mesh Boolean-specific
+  triangle-count ceiling. Existing input, index-representation and memory
+  constraints still apply; unsupported counts must not be truncated to fit
+  the native API.
+- Record larger-model latency and memory behavior during implementation
+  acceptance. These measurements establish observed qualification scope,
+  not a fixed product size limit or a promise that every model will complete.
+
+#### Operation targets and instances
+
+- The object-menu operation preserves the object's separate instances,
+  including their stable identities and transforms. Compute the combined
+  Part geometry in object coordinates and keep it shared by those instances;
+  do not bake the instance copies into one result mesh. This intentionally
+  differs from Orca's all-instance baking. Geometry changes affect every
+  instance of that object, including instances on other plates, so all
+  affected plate results participate in invalidation.
+- The Gizmo operates on two distinct volumes within one object. Cross-object
+  operations require the existing Assemble command first; direct cross-object
+  Gizmo operands are outside this delivery.
+- Gizmo operands follow Orca's volume-type scope: model parts, negative
+  volumes, parameter modifiers, support blockers and support enforcers may
+  occupy either operand slot. The selected Union/Difference/Intersection mode
+  determines the geometric operation; operand volume type does not change
+  that operator. The object-menu CSG input filter remains a separate concern.
+
+#### Results, configuration and painting
+
+- The object-menu operation replaces all source volumes with one result model
+  Part. Only model parts and negative volumes participate in its CSG calculation.
+  Parameter modifiers, support blockers and support enforcers are removed
+  with the other original volumes even though they do not enter that calculation.
+  The instance-preservation decision above still applies.
+- Preserve the object's name and object-level configuration. The result Part
+  uses the existing native object-default filament inheritance rule; do not
+  merge independent configuration overrides from the old Parts or synthesize
+  MMU painting from their filament assignments. Existing MMU painting is
+  governed separately by the keep-painting preference.
+- Gizmo result handling follows Orca: create a result volume in the same
+  object and replace A. Union also removes B. Difference and Intersection
+  each expose Delete input to control removal of B; both options initially
+  default to unchecked. The result inherits A's volume type, configuration
+  and material, including its existing filament-inheritance/override setting.
+  Append the native operation suffix to A's name. An empty Gizmo result keeps
+  the input geometry and uses the native warning.
+- Add an application-level, persisted keep-painting preference, defaulting
+  to disabled when unset, matching Orca's
+  [preference](../packages/slicer-wasm/cpp/src/slic3r/GUI/Preferences.cpp) and
+  [configuration lookup](../packages/slicer-wasm/cpp/src/libslic3r/AppConfig.hpp).
+  Store it through the existing host-neutral
+  [preference boundary](Web-Electron%20Shared%20Application%20Architecture.md#7-preferences-and-selection-restoration).
+  This delivery connects it to Mesh Boolean only. Pass its value through the
+  typed boolean command to native code; do not restore an opaque AppConfig
+  bridge or make application UI call native globals.
+- When enabled, use native save/restore remapping for support, seam, MMU and
+  fuzzy-skin painting. Gizmo Difference maps A; Union and Intersection map A
+  and B. Object-menu boolean maps the positive Parts. Preserve the native
+  mapping behavior on new or retriangulated surfaces rather than introducing
+  a separate cut-surface coloring policy. Because Neo retains instances, the
+  object-menu mapping stays in object coordinates and the resulting annotations
+  remain shared across its instances; do not bake separately transformed
+  instance painting copies into the mesh.
+- When the preference is disabled, the new result has no remapped painting.
+  Paint on any retained input volume, including B when Delete input is
+  unchecked, remains unchanged.
+
+#### Interaction and tool lifecycle
+
+- Keep the existing
+  [Prepare tool-card layout](Application%20Shell.md#tool-cards) and one-active-tool
+  rule. Activate the Gizmo for one complete selected instance containing more
+  than one volume, following Orca's eligibility rule. The panel exposes Union,
+  Difference and Intersection, named A/B slots, the applicable Delete input
+  option and an explicit operation button.
+- Compute and apply the boolean only when that operation button is pressed.
+  Picking operands and switching operation modes do not compute a result
+  preview. Show operand identification and bounds. Merely picking operands,
+  changing a mode or clearing a slot does not create a project-history entry.
+- Support both viewport picking and Object List Part-row assignment. While
+  a picking slot is active, clicking a volume row of the current target fills
+  that slot without turning the normal selection into a partial-instance
+  selection that would disable the tool. Keep the target instance anchor.
+  A/B assignment is tool state, not a second ordinary scene-selection model.
+  This list-assignment entry is an intentional addition to Orca's viewport-only
+  operand picking.
+- Follow Orca's operand-slot behavior: begin with A, advance to B after picking
+  A, allow either slot to be explicitly reselected or cleared, and clear the
+  other slot when its volume is assigned to the active slot. Switching between
+  Union, Difference and Intersection retains valid operands.
+- After success, select the generated result using the normal stable-ID
+  selection/publication path, clear both operands and return to picking A.
+  Do not automatically fill A with the result. Re-evaluate tool eligibility
+  after the operation; close when the current target/selection no longer
+  qualifies.
+- Ordinary selection of a different eligible object retargets the open Gizmo,
+  clears A/B and returns to Union with A active. If the new selection is not
+  eligible, close the tool. This also keeps list assignment from becoming a
+  cross-object boolean entry: rows outside the current target follow ordinary
+  selection and eligibility handling rather than filling its old operand slots.
+  Reconcile stable target and operand IDs when model/history changes occur;
+  unavailable operands cannot be dispatched.
+- While idle, Escape, toggling the active tool off, or switching to another
+  Gizmo closes Mesh Boolean and clears its operand picks. Completed operations
+  remain committed and are reversed through ordinary Undo; tool closure is
+  not a whole-session discard.
+- Entering Preview closes the tool, following
+  [workspace mode navigation](Workspace%20Prepare%20and%20Preview%20Modes.md).
+  Returning to Prepare does not automatically reopen it. Idle navigation to
+  Home or Device hides the tool while retaining its target, operands and mode;
+  return to Prepare resumes that state after checking target validity. This
+  follows the existing
+  [hidden-page tool lifecycle](Surface%20Painting%20Architecture.md#33-navigation-and-editing-target-changes).
+  Project replacement and application shutdown clear the tool independently
+  of ordinary page navigation. The executing-operation rules below take
+  precedence over these idle navigation and tool-dismissal rules.
+
+#### Executing operations
+
+- Both entry points show a global modal wait state while the native operation
+  runs in its Worker. Display an indeterminate progress indicator; no native
+  percentage-progress contract is introduced.
+- The initial delivery provides no mid-operation cancellation. The modal
+  cannot be dismissed with Escape, an outside click or a close/cancel action.
+  Undo remains the ordinary way to reverse a successful completed operation.
+- Block application-controlled camera interaction, target selection, tool
+  changes and page navigation, including Home, Device and Preview, until the
+  operation settles. Also block project edits, configuration/painting edits,
+  history actions, project opening/saving, slicing, export and duplicate
+  boolean submissions. This is a global modal wait, rather than the idle
+  hide/resume behavior described above.
+- Reject conflicting commands before posting them to the Worker; do not queue
+  edits or navigation to execute after the boolean result. Keep the modal
+  active through native completion and publication of the result's history,
+  scene and selection changes. Release it after the operation's terminal
+  success or error has been reconciled, then apply the accepted result/tool
+  lifecycle rules. Preserve native fallback notifications and results.
+
+### 10.2 Orca reference behavior
+
+The references below resolve through the superproject's pinned Orca submodule.
+They describe native behavior for review, rather than silently deciding every
+Neo product choice.
+
+| Entry point | Selection and operation | Result behavior |
+| --- | --- | --- |
+| [Mesh Boolean Gizmo](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoMeshBoolean.cpp) | Activates for one complete selected instance with more than one selected volume. Source A and tool B are picked from that object's volumes. Offers Union, Difference A-minus-B and Intersection. | Creates a result volume in the same object and replaces A. Union also consumes B; Difference and Intersection expose a Delete input option controlling B. The shared object's other instances use the changed volumes too. |
+| [Object-list Mesh boolean](../packages/slicer-wasm/cpp/src/slic3r/GUI/GUI_ObjectList.cpp) | The menu gate accepts a multipart object or a single splittable volume. It is an immediate object operation, without the Gizmo's operation picker. | Combines model parts and negative volumes, creates a new object with one volume and one instance, preserves the object name/configuration, performs native placement adjustment and selects the result. |
+
+The object-menu path calls
+[`Plater::combine_mesh_fff(object, -1, ...)`](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp).
+It calculates positive/negative CSG in object coordinates, then applies every
+instance transform and merges those copies into the returned geometry. Thus
+the native result bakes all instances into one mesh, including instances at
+different positions. Preserving separate instances would be a deliberate Neo
+behavior difference, not an equivalent implementation of that call.
+
+Orca's object path defaults to CGAL closed-volume/self-intersection validation
+in [`check_csgmesh_booleans`](../packages/slicer-wasm/cpp/src/libslic3r/CSGMesh/PerformCSGMeshBooleans.hpp)
+before running MCUT. Its CGAL boolean-computation retry is compiled out.
+The initial Neo direction omits the former and does not enable the latter;
+the existing MCUT and positive-part fallbacks remain as accepted in 10.1.
+
+The Gizmo's result inherits A's volume configuration, type and material; its
+name adds the operation suffix. It always replaces A even when Delete input
+is unchecked. With Orca's keep-painting preference enabled, Difference maps
+A's painting, while Union and Intersection map painting from A and B. The
+object-menu path maps painting from positive parts over their instance copies.
+The [native preservation helpers](../packages/slicer-wasm/cpp/src/libslic3r/Model.cpp)
+cover support, seam, MMU and fuzzy-skin data.
+
+The Gizmo disables the raycaster's model-part-only restriction. Its
+[`set_src_volume` and `set_tool_volume` setters](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoMeshBoolean.hpp)
+maintain operand exclusivity: assigning the volume already held by the other
+slot clears that other slot. The action is enabled only when both slots are
+populated. This prevents the same volume from remaining both A and B.
+The object CSG path includes model parts and negative volumes;
+parameter/support modifiers do not participate. The accepted result rule in
+10.1 removes those auxiliary volumes along with the original Parts.
+
+The native Gizmo performs the operation when its button is pressed, then resets
+operand picking after success. It highlights operand bounds but does not
+continuously compute a live boolean-result preview. An empty Gizmo result
+leaves the input geometry in place and shows the native warning. These
+behaviors are separate from the object-menu fallback already accepted above.
+
+Native operand assignment comes from viewport ray hits; the panel selects,
+clears and labels the operand slots rather than assigning operands through
+Object List rows. The successful-operation path selects the result, clears
+A/B and returns to picking A. A target-object change resets the operands and
+operation mode to Union.
+
+The [native Gizmo manager](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmosManager.cpp)
+closes an ineligible Gizmo and closes Mesh Boolean on Escape. The Preview
+transition in Plater explicitly resets active Gizmos; ordinary Home/Device
+page switches retain the Prepare page. Closing Mesh Boolean clears its picks
+and warning state without reverting already performed model operations.
+
+The native Gizmo buttons and object-menu handler call their boolean routines
+synchronously within GUI callbacks. Neither entry point provides a dedicated
+percentage-progress or mid-computation cancellation UI. Neo keeps computation
+off the renderer thread while using the accepted global modal wait for input.
+
+### 10.3 Native and build boundary
+
+Compile the complete original
+[`MeshBoolean.cpp`](../packages/slicer-wasm/cpp/src/libslic3r/MeshBoolean.cpp),
+retaining its CGAL and MCUT implementations and the original libigl code.
+Update the [WASM source collection](../packages/slicer-wasm/CMakeLists.txt) to
+include that translation unit and link its full CGAL dependency closure.
+The accepted implementation uses this one Orca source implementation rather
+than splitting out MCUT, conditionally deleting CGAL sections or maintaining
+a separate WASM copy of the wrappers.
+
+Use the versions pinned by the Orca dependency recipes: CGAL 5.6.3, static
+GMP 6.2.1 with GMPXX, and MPFR 4.2.2. CORE is provided through CGAL's
+header-only support. These dependencies allow the original libigl square-root
+overloads to compile as supplied.
+
+The numerical libraries are cross-compiled to WASM and linked into the WASM
+module. Its runtime artifact is shared across host operating systems, with
+address width and threading mode selecting the appropriate variant. Integrate
+dependency preparation through the existing build-driver conventions and
+keep toolchain/configuration matching in dependency-stage validation.
+
+Use `CGAL_ALWAYS_ROUND_TO_NEAREST=1` consistently for CGAL's fixed-rounding
+interval implementation in WASM, with the GMPXX exact-number backend enabled
+consistently across CGAL translation units. Serial builds disable CGAL's
+threading support with `CGAL_HAS_NO_THREADS=1`, use GMP's generic C
+implementation with assembly disabled and retain Orca's existing GMP
+compiler-compatibility patch. Disable MPFR thread-local and shared caches in
+the serial dependency configuration. Select dependency stages by address
+width and threading mode; the serial configuration does not qualify the
+threaded dependency build.
+
+Using GMP/MPFR/CORE does not remove the floating-point interval requirement:
+CGAL still uses double-based filtering before exact arithmetic. The supported
+round-to-nearest interval path expands bounds outward and preserves the
+inclusion needed for reliable predicates. This changes the filtering mechanism;
+it does not establish byte-identical meshes, floating-point constructions or
+triangulations across native and WASM targets.
+
+The selected build keeps the CGAL prechecks deferred and the native disabled
+CGAL retry disabled, as accepted in 10.1.
+
+Orca wrapper/source changes belong in the committed Orca submodule, followed
+by a deliberate pin update when implementation is approved. Changes to the
+third-party MCUT scheduler belong to an external dependency patch. Prepare a
+build-local copy from the pinned MCUT source, apply that patch to the copy,
+and leave the checked-out Orca source unchanged during dependency preparation.
+The [native build reference](../doc/2026-08-12-wasm-build-notes.md#source-and-dependency-ownership)
+owns source and patch policy.
+
+The MCUT adaptation adds a manager-thread build switch that defaults
+to the existing threaded behavior. Serial builds disable both API manager
+threads and compute-helper threads. Context creation and shutdown then skip
+the manager threads, while task submission executes the existing packaged
+task inline on the slicer Worker. Retain its completion event, error status
+and cleanup; do not leave tasks queued without an executor.
+
+Serial execution must also preserve the lifetime of the perturbation random
+state in [MCUT preprocessing](../packages/slicer-wasm/cpp/deps_src/mcut/source/preproc.cpp).
+The original generator is `thread_local`: a fresh native Context's manager
+thread starts a fresh stream, while successive dispatches on that Context
+continue it. Inline execution on one persistent Worker would otherwise share
+the stream across different Contexts. The extended serial probe moves this
+generator and distribution into the Context, retaining the original seed,
+continuation within a Context and independence between Contexts. The default
+manager-thread build retains the original thread-local implementation.
+
+Orca currently requests zero compute helpers but MCUT still creates one API
+manager thread. Consequently disabling only the existing compute-helper-pool
+option does not make this MCUT version usable in a no-pthreads WASM build.
+The relevant scheduler is
+[`context_t`](../packages/slicer-wasm/cpp/deps_src/mcut/include/mcut/internal/frontend.h).
+The adaptation covers Orca's synchronous API calls, not a promise of
+support for asynchronous user events or out-of-order API execution.
+
+Serial execution adapts task submission, Context lifetime and perturbation
+state. Enabling CGAL does not remove these separate MCUT requirements.
+
+### 10.4 Feasibility and qualification boundary
+
+An isolated experiment using the pinned MCUT source has established that
+inline API task execution is feasible in no-pthreads wasm64 and wasm32.
+The synchronous API executed in Node and non-isolated Chrome module Workers
+without SharedArrayBuffer or additional Worker creation. Boolean geometry
+was compared with the original native manager-thread implementation; the
+experiment also exercised repeated Context lifetime and recovery after an
+invalid input. The default manager-thread path remained usable in a native
+build with the patch applied.
+
+This is dependency-level feasibility evidence. It does not qualify the
+Orca wrappers and fallbacks, application integration, painting/history,
+threaded WASM, other operating systems, or production-scale meshes.
+No prototype timing or fixture result establishes a product performance limit.
+
+The full-dependency probe used CGAL 5.6.3, GMP/GMPXX 6.2.1 and MPFR 4.2.2
+from the pinned dependency recipes, with Boost 1.84 and Emscripten 6.0.6.
+It built the numerical dependencies for both serial address widths and
+generated wasm64 and wasm32 objects from the complete unchanged Orca
+`MeshBoolean.cpp` with unmodified libigl.
+
+The full-dependency numerical probe passed large-integer multiplication and
+division, rational arithmetic, MPFR directed-rounding enclosure, CORE exact
+square-root/cancellation/comparison and the original libigl scalar conversions.
+Those checks and the six EPICK/EPECK boolean cases passed in Node Workers and
+non-isolated Chrome module Workers for both widths. A wasm64 combined fixture
+also linked the existing serial Orca core archives, their Boost dependencies
+and the adapted MCUT library, then exercised the original Orca CGAL Union,
+Difference and Intersection wrappers, libigl Difference and self-Union, and
+MCUT Union, Difference and Intersection. All eight wrapper cases passed in
+Node and Chrome Workers with non-shared WASM memory, no thread imports and no
+nested browser Workers; SharedArrayBuffer was unavailable in the browser.
+The existing Boost archives contribute an atomics target-feature marker to
+that combined module. This is evidence for serial execution without shared
+memory, not a claim that its binary has no atomics feature requirement.
+
+The combined fixture exposed the random-state lifetime gap described in 10.3:
+new Contexts in the initial inline adaptation consumed one continuing
+thread-local stream. After the Context-owned serial adaptation, three fresh
+Context cases and four calls interleaved between two live Contexts matched
+the original native MCUT counts, with maximum float-converted volume
+difference below 9e-16 in wasm64 and wasm32. Both widths also passed the
+earlier twelve-case geometry suite, 100 repeated Context cycles and invalid
+input followed by recovery. The native default manager-thread build remained
+consistent with the original in the added perturbation fixture. Analytical
+volume alone is not the native reference for inputs which MCUT perturbs;
+the original native library exhibits that displacement too.
+
+The full GMP/MPFR/CORE configuration still failed the default WASM interval
+rounding check and passed with the fixed-rounding macro. A native control
+using the same CGAL headers and matching GMP/MPFR versions compared default
+and fixed rounding with both WASM widths. All six box cases matched in
+reported volume and vertex/face counts. These comparisons do not establish
+coordinate/connectivity identity or general native/WASM equivalence.
+
+The probes do not qualify final Neo linking/UI integration, complete Orca
+wrapper execution in wasm32, all fallback branches, threaded WASM, adversarial
+geometry, other hosts or production-scale meshes. Final application
+download-size increment and runtime/memory costs remain unmeasured; a
+standalone probe's artifact size is not the application's size increment.
+
+Implementation verification must cover the accepted entry-point rules,
+transformed and mirrored geometry, connected components, disconnected and
+contained operands, empty results and Orca's existing fallback behavior.
+It must also cover painting, property/filament ownership, selection restoration,
+Undo/Redo, project roundtrips and plate-result invalidation under the final
+decisions. Follow
+[Testing Guidelines](../doc/testing_guidelines.md) for package, host and
+WASM-variant gates; mocks cannot replace real MCUT/WASM execution.
+
+Mobile product support remains deferred under the shared architecture. This
+design assumes desktop pointer/keyboard input. Boolean operations retain native
+input and output geometry in the Worker and can increase peak memory usage;
+large-model latency, allocation behavior and constrained-device limits remain
+unqualified.
+
+### 10.5 Implementation sequence and acceptance
+
+The product and source-boundary decisions are agreed. Deliver the following
+independently verifiable implementation pieces in order; the dependency probes
+in 10.4 do not mark any of these application pieces as delivered.
+
+1. **Native dependency and source closure.** Integrate the full pinned CGAL,
+   GMP/GMPXX, MPFR and CORE closure into the existing WASM build drivers and
+   source collection. Compile the original complete `MeshBoolean.cpp` and
+   apply the MCUT serial adaptation to a build-local dependency copy, including
+   Context-owned perturbation state. Verify actual linked wrapper execution
+   and serial/threaded startup with the intended numerical and thread settings;
+   building an unused object alone is insufficient.
+2. **Native project operations and typed runtime.** Add both entry-point
+   operations through the existing bridge/client/runtime boundary. Implement
+   object-coordinate transforms, instance preservation, result configuration,
+   painting remapping, history/scene publication and plate invalidation under
+   10.1. Keep the original MCUT/fallback behavior. Exercise real native/WASM
+   operations, Undo/Redo and project roundtrips; update contracts and affected
+   mocks together without parallel payload formats.
+3. **Shared application interaction.** Add the Prepare Gizmo, viewport/list
+   operand assignment, object-menu action and persisted painting preference.
+   Implement the global modal wait and reject conflicting commands before
+   posting them. Verify selection/tool lifecycle, modal input blocking and
+   terminal success/error handling through the shared application, then cover
+   the distinct Web and Electron host seams.
+4. **Integration and model-scale qualification.** Follow
+   [Testing Guidelines](../doc/testing_guidelines.md) for package, repository,
+   affected-host and WASM-variant gates. Exercise the new variant-dependent
+   dependency/scheduler paths in serial and threaded builds, including the
+   applicable wasm32 fallback. Use the full release/milestone matrix at its
+   defined gate rather than claiming release qualification from a fixture.
+   Record representative larger-model input/output sizes, connected-component
+   counts, elapsed time and WASM heap-capacity high-water marks, plus host
+   process memory where measurable. Name the artifact/configuration and any
+   unavailable measurements. Keep no fixed Mesh Boolean face-count ceiling.
+
+Native comparisons must distinguish semantic/geometric agreement from mesh
+serialization identity. Include the perturbation-triggering fresh/interleaved
+Context cases and preserve native perturbation/fallback results instead of
+requiring every output to match unperturbed analytical geometry exactly.
+Completion requires the accepted feature behavior and its applicable real
+runtime checks; documentation, mocks or the existing standalone probes alone
+do not satisfy application acceptance.
+
+## 11. Related specifications
 
 - [Multi-Plate Support](Multi-Plate%20Support.md): plate grouping and membership.
 - [Multi-Filament Support](Multi-Filament%20Support.md): native assignments and rack.

@@ -1,6 +1,6 @@
 # Documentation Index
 
-**Updated:** 2026-11-02
+**Updated:** 2026-11-04
 
 Specifications own accepted behavior, required constraints, exclusions and open
 decisions; engineering references own build/debug/verification procedures.
@@ -22,7 +22,7 @@ the authoritative [documentation policy](../project_structure_and_guidelines.md#
 | Chrome, controls, layout and diagnostics | [Application Shell](../spec/Application%20Shell.md), including [persistent workspace notifications](../spec/Application%20Shell.md#persistent-workspace-notifications) (implemented; focused development-host qualification, release matrix remains separate) |
 | Prepare/Preview navigation and lifetime | [Workspace modes](../spec/Workspace%20Prepare%20and%20Preview%20Modes.md) |
 | Picking, transforms, camera and rendering | [Viewport Interaction](../spec/Viewport%20Interaction.md) |
-| Objects, parts, instances and menus | [Object List and Parts](../spec/ObjectList-and-Parts.md) |
+| Objects, parts, instances and menus | [Object List and Parts](../spec/ObjectList-and-Parts.md), including the [agreed Mesh Boolean design](../spec/ObjectList-and-Parts.md#10-mesh-boolean-design) (implementation and qualification pending) |
 | Model loading | [Model Import](../spec/Model%20Import.md), [DRC](../spec/2026-09-01-drc-import-support.md) |
 | Bed geometry and artwork | [Printer Bed Display](../spec/Printer%20Bed%20Display.md) |
 | Native arrangement | [Model Arrangement](../spec/Model%20Arrangement.md) |
