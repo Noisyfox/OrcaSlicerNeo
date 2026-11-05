@@ -61,6 +61,15 @@ stages into the same WASM module. CGAL's
 [shared CMake interface](../packages/slicer-wasm/dependencies/cgal.cmake)
 carries its headers, numerical policy and library closure without a separate
 compiled target. The backend acceptance target consumes that same interface.
+
+[CI](../.github/workflows/ci.yml) keeps all large dependencies in one compiled
+dependency cache and preparation phase for each address width, including both
+threading variants. Its key tracks dependency recipes, compatibility patches
+and the toolchain. Consumer CMake configuration and Orca/MCUT source changes
+invalidate the production WASM artifact cache without invalidating prebuilt
+dependencies. Numerical stages are verified after restoration, including their
+compiler, variant, recipe and file hashes. The dependency cache is saved before
+core compilation; only tested production modules enter the artifact cache.
 The normal shell and cmd build drivers invoke the same
 [`dependencies/cgal/build.mjs`](../packages/slicer-wasm/dependencies/cgal/build.mjs)
 helper. It verifies source archive hashes and stages static numerical

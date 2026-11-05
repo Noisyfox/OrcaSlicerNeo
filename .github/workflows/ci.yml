@@ -78,7 +78,7 @@ jobs:
       - name: Select compiled dependency cache key
         id: dependency-key
         env:
-          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/**/*.test.*') }}
+          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/cgal/**/*.test.*') }}
         run: echo "key=${{ runner.os }}-wasm64-deps-emsdk-${EMSDK_VERSION}-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Select tested WASM artifact cache key
         id: build-key
@@ -366,7 +366,7 @@ jobs:
       - name: Select compiled wasm32 dependency cache key
         id: dependency-key
         env:
-          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/**/*.test.*', 'scripts/build-wasm32.mjs') }}
+          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/cgal/**/*.test.*', 'scripts/build-wasm32.mjs') }}
         run: echo "key=${{ runner.os }}-wasm32-deps-emsdk-${EMSDK_VERSION}-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Select tested wasm32 artifact cache key
         id: build-key
@@ -385,7 +385,11 @@ jobs:
         if: steps.dependency-cache.outputs.cache-hit != 'true'
         run: node scripts/build-wasm32.mjs deps
       - name: Verify staged wasm32 dependencies
-        run: node scripts/build-wasm32.mjs verify-deps
+        run: |
+          node scripts/build-wasm32.mjs verify-deps
+          for variant in threaded serial; do
+            WORK_DIR=packages/slicer-wasm/.work/wasm32 node packages/slicer-wasm/dependencies/cgal/build.mjs verify --target wasm32 --variant "$variant"
+          done
       - name: Save compiled wasm32 dependencies before core compilation
         if: steps.dependency-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
