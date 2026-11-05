@@ -1,0 +1,53 @@
+import { useMemo, useState } from 'react';
+import type { ConfiguredPrinterModel } from '@orca/printer-control/domain';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { Button } from '@/components/ui/button';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxGroup, ComboboxInput, ComboboxItem,
+  ComboboxList, ComboboxTrigger } from '@/components/ui/combobox';
+
+const unspecified = 'unspecified';
+const keyOf = ({ vendorId, model }: ConfiguredPrinterModel) => JSON.stringify([vendorId, model]);
+
+/** Uses the live enabled catalogue only; opening this field never installs profiles. */
+export function PrinterModelSelector({ value, onChange }: {
+  value: ConfiguredPrinterModel | undefined;
+  onChange(value: ConfiguredPrinterModel | undefined): void;
+}) {
+  const printers = useSettingsStore(s => s.printers);
+  const [search, setSearch] = useState('');
+  const models = useMemo(() => {
+    const entries = new Map<string, ConfiguredPrinterModel>();
+    for (const printer of printers) {
+      if (!printer.is_visible || printer.is_default || !printer.model) continue;
+      const model = { vendorId: printer.vendor_id, model: printer.model };
+      entries.set(keyOf(model), model);
+    }
+    return entries;
+  }, [printers]);
+  const items = useMemo(() => [unspecified, ...models.keys()], [models]);
+  const label = (key: string) => {
+    const model = models.get(key);
+    return model ? [model.vendorId, model.model].filter(Boolean).join(' · ') : 'Not specified';
+  };
+  return <Field>
+    <FieldLabel htmlFor="device-printer-model">Printer model <span className="text-muted-foreground">(optional)</span></FieldLabel>
+    <Combobox items={items} value={value ? keyOf(value) : unspecified} itemToStringLabel={label}
+      inputValue={search} onInputValueChange={setSearch} onOpenChange={open => { if (!open) setSearch(''); }}
+      onValueChange={key => { if (key !== null) onChange(models.get(key)); }}>
+      <ComboboxTrigger id="device-printer-model" aria-label="Printer model" data-testid="device-printer-model"
+        className="w-full justify-between" render={<Button variant="outline" />}>
+        <span className="min-w-0 truncate">{value ? [value.vendorId, value.model].filter(Boolean).join(' · ') : 'Not specified'}</span>
+      </ComboboxTrigger>
+      <ComboboxContent>
+        <ComboboxInput aria-label="Search printer models" placeholder="Search printer models…" showTrigger={false}
+          searchValue={search} onClearSearch={() => setSearch('')} />
+        <ComboboxGroup>
+          <ComboboxList>{(key: string) => <ComboboxItem key={key} value={key}>{label(key)}</ComboboxItem>}</ComboboxList>
+        </ComboboxGroup>
+        <ComboboxEmpty>No enabled printer models found.</ComboboxEmpty>
+      </ComboboxContent>
+    </Combobox>
+    <FieldDescription>Not specified allows any project printer model.</FieldDescription>
+  </Field>;
+}

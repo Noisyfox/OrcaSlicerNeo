@@ -1,6 +1,7 @@
 import { useProjectDialogStore } from '@/stores/useProjectDialogStore';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { PrinterDiscovery } from './PrinterDiscovery';
+import { PrinterModelSelector } from './PrinterModelSelector';
 import {
   useEffect,
   useMemo,
@@ -13,7 +14,7 @@ import {
 import { Pencil, Plus, Trash2, Monitor } from 'lucide-react';
 import type { SavedPrinter, PrinterRoute, TargetRequest } from '@orca/printer-control/domain';
 import { usePrinterCatalogue } from './usePrinterCatalogue';
-import type { PrinterConfiguration } from '@orca/printer-control';
+import type { PrinterConfiguration, PrinterConfigurationDocument } from '@orca/printer-control';
 import { normalizePrinterConfiguration, normalizePrinterConfigurationDocument } from '@orca/printer-control';
 import { updateUserPreferences, usePlatform, type WebViewHost, type WebViewPanelState } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
@@ -99,16 +100,16 @@ export function mountPrinterConsolePanel(
 }
 
 export function savePrinterDraft(
-  printers: readonly PrinterConfiguration[],
+  document: PrinterConfigurationDocument,
   draft: PrinterDraft,
   mode: 'add' | 'edit',
   printerId = newPrinterId(),
 ) {
   const normalized = normalizePrinterConfiguration({ ...draft, id: printerId });
   const next = mode === 'edit'
-    ? printers.map((printer) => printer.id === printerId ? normalized : printer)
-    : [...printers, normalized];
-  return normalizePrinterConfigurationDocument({ version: 1, printers: next });
+    ? document.printers.map((printer) => printer.id === printerId ? normalized : printer)
+    : [...document.printers, normalized];
+  return normalizePrinterConfigurationDocument({ ...document, printers: next });
 }
 
 export function removePrinter(printers: readonly PrinterConfiguration[], printerId: string) {
@@ -337,7 +338,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
     const id = dialog?.kind === 'edit' ? dialog.printerId : newPrinterId();
     try {
       const current = await platform.printers.configuration.load();
-      const document = savePrinterDraft(current.printers, draft, dialog?.kind === 'edit' ? 'edit' : 'add', id);
+      const document = savePrinterDraft(current, draft, dialog?.kind === 'edit' ? 'edit' : 'add', id);
       await platform.printers.configuration.save(document);
       await refresh();
       closeDialog();
@@ -507,6 +508,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
                 </SelectContent>
               </Select>
             </div>
+            <PrinterModelSelector value={draft.printerModel} onChange={printerModel => setDraft({ ...draft, printerModel })} />
             <div className="flex flex-col gap-2">
               <Label htmlFor="device-api-base-url">API base URL</Label>
               <Input id="device-api-base-url" data-testid="device-api-base-url" type="url" placeholder="http://printer.local:7125/" value={draft.apiBaseUrl} onChange={(event) => setDraft({ ...draft, apiBaseUrl: event.target.value })} required />

@@ -1,6 +1,6 @@
 import { _electron } from './electron-fixture';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -197,6 +197,45 @@ async function chooseSendPrinter(page: Page, printerId: string): Promise<void> {
   await page.getByTestId(`send-printer-${printerId}`).click();
   await expect(page.getByTestId('send-submit')).toBeEnabled();
 }
+
+test('manual printer model selection persists, reopens and clears without changing project profiles', async () => {
+  test.skip(process.env.ORCA_E2E_REAL === '1', 'Uses the deterministic enabled mock profile catalogue.');
+  const fixture = await startMoonrakerFixture();
+  const printPreferences = { 'bambu:fixture': { timelapse: false } };
+  const { app, fixtureDir } = await launchApp({ version: 1, printers: [], printPreferences });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page);
+    const projectPrinter = await page.getByTestId('preset-select').textContent();
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-add-printer').click();
+    await page.getByTestId('device-display-name').fill('Model fixture');
+    await page.getByTestId('device-api-base-url').fill(fixture.baseUrl);
+    await expect(page.getByTestId('device-printer-model')).toContainText('Not specified');
+    await page.getByTestId('device-printer-model').click();
+    await expect(page.getByRole('option', { name: /Afinia|Hidden/ })).toHaveCount(0);
+    await page.getByLabel('Search printer models', { exact: true }).fill('X1');
+    await expect(page.getByRole('option')).toHaveCount(1);
+    await page.getByRole('option', { name: 'bambulab · X1 Carbon', exact: true }).click();
+    await page.getByTestId('device-save-printer').click();
+    await expect(page.getByTestId('device-config-dialog')).toBeHidden();
+    const saved = () => JSON.parse(readFileSync(join(fixtureDir, 'printer-config.json'), 'utf8'));
+    expect(saved().printers[0].printerModel).toEqual({ vendorId: 'bambulab', model: 'X1 Carbon' });
+    expect(saved().printPreferences).toEqual(printPreferences);
+    const id = saved().printers[0].id;
+    await page.getByTestId('device-printer-select').click();
+    await page.getByTestId(`device-select-${id}`).click();
+    await page.getByTestId(`device-edit-${id}`).click();
+    await expect(page.getByTestId('device-printer-model')).toContainText('X1 Carbon');
+    await page.getByTestId('device-printer-model').click();
+    await page.getByRole('option', { name: 'Not specified', exact: true }).click();
+    await page.getByTestId('device-save-printer').click();
+    await expect(page.getByTestId('device-config-dialog')).toBeHidden();
+    expect(saved().printers[0]).not.toHaveProperty('printerModel');
+    expect(saved().printPreferences).toEqual(printPreferences);
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('preset-select')).toHaveText(projectPrinter!);
+  } finally { await app.close(); await fixture.close(); }
+});
 
 test('Device config and Electron console fixture inject the API key', async () => {
   const fixture = await startMoonrakerFixture();
