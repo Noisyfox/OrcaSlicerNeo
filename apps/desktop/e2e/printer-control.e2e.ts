@@ -237,6 +237,83 @@ test('manual printer model selection persists, reopens and clears without changi
   } finally { await app.close(); await fixture.close(); }
 });
 
+test('device model form follows shared control layout and keyboard behavior', async ({}, testInfo) => {
+  test.skip(process.env.ORCA_E2E_REAL === '1', 'Uses the deterministic enabled mock profile catalogue.');
+  const longModel = 'A printer model with a long descriptive name '.repeat(5);
+  const { app } = await launchApp({ version: 1, printers: [{ id: 'ui-fixture', displayName: 'UI fixture', driverId: 'moonraker',
+    apiBaseUrl: 'http://127.0.0.1:1/', consoleUrl: '', apiKey: '', printerModel: { vendorId: 'Vendor', model: longModel } }] });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByTestId('device-select-ui-fixture').click();
+    const edit = page.getByTestId('device-edit-ui-fixture');
+    await edit.click();
+    const dialog = page.getByRole('dialog', { name: 'Edit printer', exact: true });
+    const trigger = page.getByTestId('device-printer-model');
+    const name = page.getByTestId('device-display-name');
+    await expect(name).toBeFocused();
+    await expect(page.getByTestId('device-adapter').locator('[data-slot="select-value"]')).toHaveText('Moonraker');
+    await expect(trigger).toHaveAccessibleDescription('Not specified allows any project printer model.');
+    await expect(trigger).toHaveAttribute('title', `Vendor · ${longModel.trim()}`);
+    expect(await trigger.locator('span').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+    await page.getByTestId('device-save-printer').focus();
+    await page.keyboard.press('Tab');
+    await expect(name).toBeFocused();
+    await name.press('Shift+Tab');
+    await expect(page.getByTestId('device-save-printer')).toBeFocused();
+
+    for (const control of [trigger, name, dialog.locator('label[for="device-printer-model"]')]) await expect(control).toHaveCSS('font-size', '13px');
+    await expect(trigger).toHaveCSS('height', '28px');
+    const labelBox = (await dialog.locator('label[for="device-printer-model"]').boundingBox())!;
+    const triggerBox = (await trigger.boundingBox())!;
+    expect(triggerBox.x).toBeGreaterThan(labelBox.x + labelBox.width);
+    expect(Math.abs(triggerBox.y - labelBox.y)).toBeLessThan(2);
+    for (const field of ['device-display-name', 'device-adapter', 'device-api-base-url', 'device-console-url', 'device-api-key']) {
+      expect(Math.abs((await page.getByTestId(field).boundingBox())!.x - triggerBox.x)).toBeLessThan(1);
+    }
+    await trigger.focus(); await trigger.press('Enter');
+    const search = page.getByRole('combobox', { name: 'Search printer models', exact: true });
+    await expect(search).toBeFocused();
+    const popup = page.locator('[data-slot="combobox-content"]');
+    await expect(popup).toHaveCSS('opacity', '1');
+    const popupBox = (await popup.boundingBox())!;
+    expect(popupBox.width).toBeGreaterThanOrEqual(triggerBox.width);
+    expect(popupBox.x).toBeGreaterThanOrEqual(0);
+    expect(popupBox.x + popupBox.width).toBeLessThanOrEqual(await page.evaluate(() => innerWidth));
+    await expect(page.getByRole('option').first()).toHaveCSS('font-size', '13px');
+    await page.screenshot({ path: testInfo.outputPath('device-model-popup.png'), animations: 'disabled' });
+    // Exercise the actual shared list's native scrolling with the small mock catalogue.
+    const list = page.locator('[data-slot="combobox-list"]');
+    await list.evaluate(element => { element.style.maxHeight = '40px'; });
+    expect(await list.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+    await expect(list).toHaveCSS('overflow-y', 'auto');
+    expect(await list.evaluate(element => getComputedStyle(element, '::-webkit-scrollbar').width)).toBe('6px');
+    await search.fill('no-such-printer-model');
+    await expect(popup).toContainText('No matching printer models.');
+    await popup.getByRole('button', { name: 'Clear search', exact: true }).click();
+    await expect(search).toBeFocused(); await expect(search).toHaveValue('');
+    await search.press('Escape');
+    await expect(popup).toBeHidden(); await expect(dialog).toBeVisible(); await expect(trigger).toBeFocused();
+    await trigger.press('Enter');
+    await search.fill('X1'); await search.press('ArrowDown'); await search.press('Enter');
+    await expect(trigger).toContainText('X1 Carbon'); await expect(trigger).toBeFocused();
+    await trigger.press('Tab'); await expect(page.getByTestId('device-api-base-url')).toBeFocused();
+    await page.keyboard.press('Escape'); await expect(dialog).toBeHidden(); await expect(edit).toBeFocused();
+    await edit.click();
+    await page.setViewportSize({ width: 420, height: 360 });
+    const bounds = (await dialog.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(420); expect(bounds.y + bounds.height).toBeLessThanOrEqual(360);
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.getByTestId('device-save-printer').scrollIntoViewIfNeeded();
+    await expect(dialog).toHaveCSS('opacity', '1');
+    await page.screenshot({ path: testInfo.outputPath('device-model-small-window.png'), animations: 'disabled' });
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(edit).toBeFocused();
+  } finally { await app.close(); }
+});
+
 test('Device config and Electron console fixture inject the API key', async () => {
   const fixture = await startMoonrakerFixture();
   const { app } = await launchApp({ version: 1, printers: [] });
