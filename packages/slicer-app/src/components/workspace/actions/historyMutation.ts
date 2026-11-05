@@ -56,15 +56,19 @@ export function historyContextForStructure(sceneInteraction?: SceneInteractionCo
       objectList.highlightLevel,
     )
     : objectList.projection;
-  const mode = sceneInteraction?.selectionMode === 'volume'
-    ? 'part'
-    : sceneInteraction?.selectionMode ?? (projection.volumeIds.size > 0 ? 'part' : 'object');
+  // History records the selected entities, independently of future click
+  // expansion. A result Part can stay selected while normal clicks use Instance.
+  const mode = projection.volumeIds.size > 0 ? 'part'
+    : sceneInteraction?.selectionMode === 'volume' ? 'instance'
+    : sceneInteraction?.selectionMode ?? 'object';
   return {
     selection: {
       mode,
       objectIds: [...projection.objectIds].sort((a, b) => a - b),
       partIds: [...projection.volumeIds].sort((a, b) => a - b),
-      instanceIds: [...projection.instanceIds].sort((a, b) => a - b),
+      instanceIds: [...(mode === 'part' && sceneInteraction
+        ? new Set(sceneInteraction.selectedVolumes().map(volume => volume.buffer.instanceId))
+        : projection.instanceIds)].sort((a, b) => a - b),
     },
     activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
     gizmo: sceneInteraction?.gizmo ? { type: sceneInteraction.gizmo } : null,

@@ -103,4 +103,19 @@ describe('Mesh Boolean scene interaction', () => {
     scene.toggleGizmo('mesh-boolean'); session.assign(volumes[0]); scene.resetForModel();
     expect(scene.gizmo).toBe(null); expect(session.getSnapshot().target).toBe(null);
   });
+
+  it('closes when an Alt-click selects the result Part in a different instance', () => {
+    const { scene, session, volumes } = setup();
+    session.publishing = true;
+    const replacement = volume(0,2), otherInstance = volume(0,2,1);
+    volumes.splice(0,1,replacement); volumes.splice(2,1,otherInstance);
+    scene.pruneSelection(); session.completed(202); session.publishing = false;
+    scene.selectVolumeIds([replacement.id]);
+    expect(scene.gizmo).toBe('mesh-boolean');
+    scene.prepareBodyDragFromPointerDown(otherInstance, false, true);
+    expect(scene.selectedVolumes()).toEqual([otherInstance]);
+    expect(scene.gizmo).toBe(null);
+    expect(session.getSnapshot().target).toBe(null);
+    expect(session.request(false)).toBe(null);
+  });
 });

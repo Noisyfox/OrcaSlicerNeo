@@ -55,7 +55,7 @@ export async function executeMeshBoolean(
                 activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null };
               const object = result.objects.find(item => item.id === result.objectId)!;
               return { structure: { ok: true, objects: result.objects }, activePlateId: result.plateSession.currentPlateId,
-                selection: { mode: request.entry === 'gizmo' ? 'part' : 'instance', objectIds: [result.objectId],
+                selection: { mode: request.entry === 'gizmo' ? 'part' : 'instance', objectIds: request.entry === 'gizmo' ? [] : [result.objectId],
                   partIds: request.entry === 'gizmo' ? [result.volumeId] : [],
                   instanceIds: request.entry === 'gizmo' ? [request.instanceId] : object.instances.map(item => item.id) } };
             },
@@ -65,7 +65,9 @@ export async function executeMeshBoolean(
               if (scene) {
                 scene.meshBoolean.completed(result.volumeId);
                 scene.meshBoolean.publishing = false;
-                scene.setSelectionMode(request.entry === 'gizmo' ? 'volume' : 'instance');
+                // Selecting one result Part must not change how later canvas
+                // clicks expand to a complete instance.
+                if (request.entry === 'object') scene.setSelectionMode('instance');
                 scene.selectVolumeIds(glVolumeCollection.volumes.filter(volume => volume.buffer.objectId === result.objectId &&
                   volume.buffer.volumeId === result.volumeId && (request.entry === 'object' || volume.buffer.instanceId === request.instanceId))
                   .map(volume => volume.id));

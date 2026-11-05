@@ -118,10 +118,25 @@ export async function meshBooleanJourney(page: Page, addCube: () => Promise<void
   await expect(panel).toBeVisible(); expect(await state(page)).toMatchObject({ a: null, b: null, picking: 'a' });
   await expect(page.getByTestId('mesh-boolean-execute')).toBeDisabled();
   expect((await history(page)).undoEntries.length).toBe(beforePicks.undoEntries.length + 1);
+  const selectCompleteInstance = async () => {
+    const point = await page.evaluate(p => (window as any).__orcaE2e.projectWorldToScreen(p),
+      [original[1].bounds.max[0] - 1, original[1].bounds.max[1] - 1, original[1].bounds.max[2]]);
+    const rect = await canvas.boundingBox();
+    await page.mouse.click(rect!.x + point.x, rect!.y + point.y);
+    await expect(page.getByTestId('gizmo-btn-mesh-boolean')).toBeEnabled();
+  };
+  await panel.getByRole('button', { name: 'Close Mesh Boolean', exact: true }).click();
+  await expect(panel).toBeHidden();
+  // Clicking retained B must select the complete instance, rather than leaving
+  // the canvas in the result Part's selection mode after closing the tool.
+  await selectCompleteInstance();
   await page.getByTestId('history-undo').click();
   await expect.poll(() => booleanMeshes(page)).toEqual(original);
   await page.getByTestId('history-redo').click();
   await expect.poll(async () => (await booleanMeshes(page)).find(mesh => mesh.volumeId !== original[1].volumeId)?.volume).toBeCloseTo(4718.75, 0);
+  // History restores the selected result Part, independently of click policy.
+  await expect(page.getByTestId('gizmo-btn-mesh-boolean')).toBeDisabled();
+  await selectCompleteInstance();
   await page.getByTestId('history-undo').click(); await expect.poll(() => booleanMeshes(page)).toEqual(original);
   await objects.first().getByRole('button').first().click({ button: 'right' });
   await page.getByTestId('objectlist-add-instance').click();

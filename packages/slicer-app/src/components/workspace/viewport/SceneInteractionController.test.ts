@@ -347,6 +347,7 @@ describe('SceneInteractionController', () => {
     controller.restoreHistoryContext({ selection: { mode: 'part', objectIds: [], partIds: [201], instanceIds: [301] },
       activePlateId: null, gizmo: null, nativeScopedConfig: {} }, structure);
     expect(controller.selectedVolumes()).toEqual([volumes[3]]);
+    expect(controller.selectionMode).toBe('instance');
   });
 
   it('uses only surviving fallback selection IDs when a sparse history context is empty', () => {

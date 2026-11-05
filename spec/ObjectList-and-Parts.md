@@ -159,6 +159,10 @@ Excluded combinations (Orca's exclusions, which the shared app must respect):
 - The mode is derived from content: a full object/instance selection forces
   `Instance` mode; parts/modifiers use `Volume` mode.
 
+Selecting or restoring a result Part does not change future viewport click
+expansion. Normal clicks continue to select complete instances; Alt is the
+explicit per-click Part override, including after Undo/Redo.
+
 Consequently the renderer `Selection`:
 
 - uses `Instance` mode for instance and object rows (object = all instances of
@@ -476,7 +480,8 @@ of the accepted initial direction.
   selection/publication path, clear both operands and return to picking A.
   Do not automatically fill A with the result. Re-evaluate tool eligibility
   after the operation; close when the current target/selection no longer
-  qualifies.
+  qualifies. The result-Part exception is limited to the target instance;
+  selecting that Part in another instance cannot retain the old instance anchor.
 - Ordinary selection of a different eligible object retargets the open Gizmo,
   clears A/B and returns to Union with A active. If the new selection is not
   eligible, close the tool. This also keeps list assignment from becoming a

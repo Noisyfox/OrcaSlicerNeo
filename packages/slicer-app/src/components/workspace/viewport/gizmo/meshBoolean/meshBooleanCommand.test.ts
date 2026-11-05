@@ -11,6 +11,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import { useNotificationStore } from '@/stores/useNotificationStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { enqueueProjectMutationOperation, enqueueProjectReadOperation } from '@/history/projectMutationGate';
+import { historyContextForStructure } from '../../../actions/historyMutation';
 
 beforeEach(() => {
   useProjectStore.getState().reset(); useNotificationStore.getState().reset();
@@ -75,4 +76,29 @@ it('keeps inputs and picks for an empty result, warns, and releases both fences'
   expect(useNotificationStore.getState().notifications.at(-1)?.message).toBe('Unable to perform boolean operation on selected parts');
   expect(useMeshBooleanStore.getState().busy).toBe(false);
   expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+});
+
+it('keeps normal instance clicks after closing the result tool and after Undo/Redo', async () => {
+  const { runtime, scene, request, platform } = await setup();
+  const result = await executeMeshBoolean(platform, request, scene);
+  if (!result.ok || !result.changed) throw new Error(JSON.stringify(result));
+  expect(scene.selectedVolumes().map(volume => volume.buffer.volumeId)).toEqual([result.volumeId]);
+  expect(scene.selectionMode).toBe('instance');
+  expect(historyContextForStructure(scene).selection).toEqual({ mode: 'part', objectIds: [],
+    partIds: [result.volumeId], instanceIds: [request.instanceId] });
+  scene.closeGizmo(); scene.clearSelection();
+  const hit = glVolumeCollection.volumes.find(volume => volume.buffer.volumeId === result.volumeId &&
+    volume.buffer.instanceId === request.instanceId)!;
+  scene.prepareBodyDragFromPointerDown(hit, false);
+  expect(scene.selectedVolumes().map(volume => volume.buffer.volumeId).sort()).toEqual([result.volumeId, request.toolVolumeId].sort());
+  expect((await runtime.undoHistory()).ok).toBe(true);
+  const redone = await runtime.redoHistory();
+  if (!redone.ok) throw new Error(JSON.stringify(redone));
+  expect(redone.context.selection).toEqual({ mode: 'part', objectIds: [],
+    partIds: [result.volumeId], instanceIds: [request.instanceId] });
+  scene.restoreHistoryContext(redone.context, await runtime.getModelStructure());
+  expect(scene.selectedVolumes().map(volume => volume.buffer.volumeId)).toEqual([result.volumeId]);
+  expect(scene.selectionMode).toBe('instance');
+  scene.clearSelection(); scene.prepareBodyDragFromPointerDown(hit, false);
+  expect(scene.selectedVolumes()).toHaveLength(2);
 });

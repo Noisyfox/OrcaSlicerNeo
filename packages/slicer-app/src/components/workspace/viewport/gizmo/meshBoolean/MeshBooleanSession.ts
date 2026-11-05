@@ -65,7 +65,8 @@ export class MeshBooleanSession {
       if (target.objectId !== this.state.target?.objectId) this.open(target);
       else if (target.instanceId !== this.state.target.instanceId) this.update({ target });
     } else if (!this.resultId || selected.length !== 1 || selected[0].buffer.volumeId !== this.resultId ||
-        selected[0].buffer.objectId !== this.state.target?.objectId || !this.volume(this.resultId)) return false;
+        selected[0].buffer.objectId !== this.state.target?.objectId ||
+        selected[0].buffer.instanceId !== this.state.target?.instanceId || !this.volume(this.resultId)) return false;
     const { a, b } = this.state;
     const invalidA = a !== null && !this.volume(a), invalidB = b !== null && !this.volume(b);
     if (invalidA || invalidB) this.update({ ...(invalidA ? { a: null } : {}), ...(invalidB ? { b: null } : {}) });

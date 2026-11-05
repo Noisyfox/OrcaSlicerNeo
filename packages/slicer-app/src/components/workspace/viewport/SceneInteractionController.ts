@@ -780,7 +780,9 @@ export class SceneInteractionController {
       for (const id of fallbackSelectionIds)
         if (renderedIds.has(id)) selected.add(id);
     }
-    this.selectionModeState = context.selection.mode === 'part' ? 'volume' : context.selection.mode;
+    // Restore the exact Part IDs without making subsequent ordinary clicks
+    // pick individual Parts. Alt remains the explicit per-click Part override.
+    this.selectionModeState = context.selection.mode === 'part' ? 'instance' : context.selection.mode;
     this.selection.replaceIds([...selected]);
     this.openGizmo = context.gizmo?.type === 'move' || context.gizmo?.type === 'rotate' || context.gizmo?.type === 'scale'
       ? context.gizmo.type : null;

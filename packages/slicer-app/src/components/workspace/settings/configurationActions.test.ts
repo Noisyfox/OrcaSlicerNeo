@@ -403,7 +403,8 @@ describe('commitPresetDraftMutation', () => {
   it.each(['draft', 'save-as', 'delete'] as const)('samples renderer selection and gizmo inside the shared FIFO for %s', async action => {
     const originalObjectList = useObjectListStore.getState();
     const volumes = [0, 1].map(index => ({ id: `volume-${index}`,
-      buffer: { objectIdx: 0, volumeIdx: index, instanceIdx: 0 } })) as GLVolume[];
+      buffer: { objectId: 42, volumeId: 51 + index, instanceId: 61,
+        objectIdx: 0, volumeIdx: index, instanceIdx: 0 } })) as GLVolume[];
     const scene = new SceneInteractionController(() => volumes);
     useObjectListStore.setState({ structure: [{ id: 42, index: 0, name: 'Cube', printable: true,
       instanceCount: 1, volumes: [{ id: 51, index: 0 }, { id: 52, index: 1 }],
@@ -433,7 +434,7 @@ describe('commitPresetDraftMutation', () => {
     await blocker;
     await pending;
     expect(mutate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      selection: { mode: 'part', objectIds: [], partIds: [52], instanceIds: [] },
+      selection: { mode: 'part', objectIds: [], partIds: [52], instanceIds: [61] },
       gizmo: { type: 'rotate' },
     }));
     useObjectListStore.setState(originalObjectList);
