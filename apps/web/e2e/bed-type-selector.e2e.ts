@@ -59,10 +59,14 @@ test('native printer grouping and nozzle variants preserve canonical history and
   await expect(nozzle).toContainText('0.6');
   await expect(printer).toHaveAttribute('title', 'Snapmaker U1 (0.6 nozzle)');
   const beforeSync = await page.getByTestId('history-undo').getAttribute('title');
-  await page.getByTestId('nozzle-sync-placeholder').click();
+  await page.getByTestId('printer-sync').click();
+  const sync = page.getByTestId('prepare-synchronization-dialog');
+  await expect(sync).toBeVisible();
+  await expect(sync).toContainText('No saved device supports this synchronization.');
+  await sync.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(await page.getByTestId('history-undo').getAttribute('title')).toBe(beforeSync);
   const row = (await page.getByTestId('printer-nozzle-row').boundingBox())!;
-  const button = (await page.getByTestId('nozzle-sync-placeholder').boundingBox())!;
+  const button = (await page.getByTestId('printer-sync').boundingBox())!;
   const trigger = (await nozzle.boundingBox())!;
   expect(trigger.x).toBeGreaterThanOrEqual(button.x + button.width);
   expect(trigger.x + trigger.width).toBeLessThanOrEqual(row.x + row.width + 1);

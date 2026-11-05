@@ -60,20 +60,30 @@ test('native generic Printer topology edits, SEMM locks, joint reset and history
   await expect(page.getByTestId('preset-editor-option-label-extruders_count')).toHaveAttribute('data-draft-override-highlight','false');
 });
 
-test('native Bambu multi-head SEMM retains its heads and independently edits count', async ({page}) => {
+test('native Bambu multi-head SEMM retains its heads and locks count until disabled', async ({page}) => {
   await openPrinter(page,'BBL','Bambu Lab H2D');
   const semm=page.getByTestId('preset-editor-input-single_extruder_multi_material');
   const count=page.getByTestId('preset-editor-input-extruders_count');
   await expect(semm).toHaveAttribute('aria-checked','true');
   await expect(count).toHaveValue('2');
+  await expect(count).toBeDisabled();
   await semm.click(); await expect(semm).toHaveAttribute('aria-checked','false');
   await expect(count).toHaveValue('2');
+  await expect(count).toBeEnabled();
   await semm.click(); await expect(semm).toHaveAttribute('aria-checked','true');
   await expect(count).toHaveValue('2');
+  await expect(count).toBeDisabled();
+  await semm.click(); await expect(semm).toHaveAttribute('aria-checked','false');
   await count.fill('3'); await count.press('Enter');
   await expect(count).toHaveValue('3');
+  await semm.click();
   await expect(semm).toHaveAttribute('aria-checked','true');
+  await expect(count).toHaveValue('3');
+  await expect(count).toBeDisabled();
+  await semm.click(); await expect(semm).toHaveAttribute('aria-checked','false');
   await page.getByTestId('preset-editor-reset-field-extruders_count').click();
   await expect(count).toHaveValue('2');
+  await semm.click();
   await expect(semm).toHaveAttribute('aria-checked','true');
+  await expect(count).toBeDisabled();
 });

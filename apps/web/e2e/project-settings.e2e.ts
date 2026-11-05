@@ -59,6 +59,12 @@ test('real Project process catalogue includes object and region defaults and edi
     await expect(page.getByTestId(`config-field-${key}`)).toHaveCount(0);
   }
   await search.fill('Fuzzy skin');
+  const fuzzy = page.getByTestId('config-input-fuzzy_skin');
+  await fuzzy.click();
+  await page.getByRole('option', { name: 'All walls', exact: true }).click();
+  await expect(fuzzy).toContainText('All walls');
+  await expect(page.getByTestId('config-option-label-fuzzy_skin'))
+    .toHaveAttribute('data-local-override-highlight', 'true');
   for (const key of ['fuzzy_skin', 'fuzzy_skin_thickness', 'fuzzy_skin_point_distance'])
     await expect(page.getByTestId(`config-field-${key}`)).toBeVisible();
 
@@ -69,13 +75,6 @@ test('real Project process catalogue includes object and region defaults and edi
   await expect(page.getByTestId('config-option-label-fuzzy_skin_thickness'))
     .toHaveAttribute('data-local-override-highlight', 'true');
   await expect(thickness).toHaveValue('0.42');
-
-  const fuzzy = page.getByTestId('config-input-fuzzy_skin');
-  await fuzzy.click();
-  await page.getByRole('option', { name: 'All walls', exact: true }).click();
-  await expect(fuzzy).toContainText('All walls');
-  await expect(page.getByTestId('config-option-label-fuzzy_skin'))
-    .toHaveAttribute('data-local-override-highlight', 'true');
 
   await expect(page.getByRole('option', { name: 'All walls', exact: true })).toHaveCount(0);
   // Search unmounts the field. Its native effective enum value and readable

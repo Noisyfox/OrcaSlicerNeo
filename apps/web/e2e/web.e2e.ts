@@ -481,12 +481,20 @@ test('Web Help opens one nonmodal Worker File Manager and reopening it resets to
   await expect(manager.locator('thead th')).toHaveText(['Name', 'Size']);
   const headerColors = await manager.locator('thead').evaluate((header) => {
     const cell = header.querySelector('th');
-    return {
+    const reference = document.createElement('span');
+    reference.style.cssText = 'background-color:var(--color-secondary);color:var(--color-secondary-foreground)';
+    header.append(reference);
+    const expected = {
+      background: getComputedStyle(reference).backgroundColor,
+      foreground: getComputedStyle(reference).color,
+    };
+    reference.remove();
+    return { expected, actual: {
       background: getComputedStyle(header).backgroundColor,
       foreground: cell ? getComputedStyle(cell).color : '',
-    };
+    } };
   });
-  expect(headerColors).toEqual({ background: 'rgb(61, 63, 70)', foreground: 'rgb(239, 239, 240)' });
+  expect(headerColors.actual).toEqual(headerColors.expected);
 
   const infoDirectory = manager.locator('[data-testid^="file-manager-entry-"][data-entry-name="info"][data-entry-type="directory"]');
   await expect(infoDirectory).toBeVisible();
@@ -887,6 +895,14 @@ test('shared history toolbar keeps shortcuts and direct navigation host-neutral'
   await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
   await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', /^Undo Add /, { timeout: 120_000 });
   await expect(page.getByTestId('history-undo')).toBeEnabled({ timeout: 120_000 });
+  // Keep the first import as a known project baseline. Exercise two subsequent
+  // entries without depending on startup/system preference history.
+  await selectFixturePrinter(page, 'Bambu Lab X1 Carbon 0.4 nozzle');
+  await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Select Printer');
+  const secondChooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await secondChooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
+  await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', /^Undo Add /);
 
   // Switching away only gates navigation. It neither consumes the shortcut
   // nor loses the Worker-owned entry when Prepare is revisited.
@@ -904,13 +920,13 @@ test('shared history toolbar keeps shortcuts and direct navigation host-neutral'
     await layerHeight.press('Control+z');
     await expect(layerHeight).toHaveValue(before);
   }
-  // Undo the model import and then the preceding atomic Printer selection.
+  // Undo the second import and Printer selection back to the first import.
   // Wait for committed entry labels rather than a transient disabled state.
   await page.getByTestId('history-undo').focus();
   await page.keyboard.press('Control+z');
   await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Select Printer', { timeout: 30_000 });
   await page.keyboard.press('Control+z');
-  await expect(page.getByTestId('history-undo')).toBeDisabled({ timeout: 30_000 });
+  await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', /^Undo Add /, { timeout: 30_000 });
 
   // Reloading gives the real Web host a clean Worker session for the direct
   // menu route while keeping this test independent of frontend history state.
@@ -924,13 +940,19 @@ test('shared history toolbar keeps shortcuts and direct navigation host-neutral'
   await (await reloadedChooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
   await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', /^Undo Add /, { timeout: 120_000 });
   await expect(page.getByTestId('history-undo')).toBeEnabled({ timeout: 120_000 });
+  await selectFixturePrinter(page, 'Bambu Lab X1 Carbon 0.4 nozzle');
+  await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Select Printer');
+  const secondReloadedChooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await secondReloadedChooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
+  await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', /^Undo Add /);
   await page.getByTestId('history-undo').click({ button: 'right' });
   await expect(page.getByTestId(/history-undo-entry-/).first()).toBeVisible();
   await page.getByTestId(/history-undo-entry-/).first().click();
   await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Select Printer', { timeout: 30_000 });
   await page.getByTestId('history-undo').click({ button: 'right' });
   await page.getByTestId(/history-undo-entry-/).first().click();
-  await expect(page.getByTestId('history-undo')).toBeDisabled({ timeout: 30_000 });
+  await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', /^Undo Add /, { timeout: 30_000 });
 });
 
 test('multi-plate Prepare grid interactions use authoritative plates and preserve camera', async ({ page }) => {
@@ -948,7 +970,9 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
   await page.getByTestId('config-mode-plates').click();
   await expect(page.getByTestId('plate-controls')).toBeVisible({ timeout: 120_000 });
 
+  await page.getByTestId('plate-menu').click();
   await expect(page.getByTestId('delete-plate')).toBeDisabled();
+  await page.keyboard.press('Escape');
   const readBeds = () => page.evaluate(() =>
     (window as unknown as {
       __orcaE2e?: {
@@ -1345,6 +1369,13 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
   });
   const plate1CameraTarget = await readCameraTarget();
   if (!plate1CameraTarget) throw new Error('plate 1 camera target is unavailable');
+  // Keep the open inspector clear of the plate selector during the revisit.
+  const textHeader = (await page.getByTestId('gcode-text-header').boundingBox())!;
+  const viewportBounds = (await page.getByTestId('viewport').boundingBox())!;
+  await page.mouse.move(textHeader.x + 30, textHeader.y + textHeader.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(viewportBounds.x + 180, textHeader.y + textHeader.height / 2, { steps: 5 });
+  await page.mouse.up();
   // Selecting and slicing the other plate must not advance plate 2's input
   // revision: its retained result remains sliced when it becomes inactive.
   await phaseStep('plate 2: retained projection revisit terminal', 180_000, async () => {
