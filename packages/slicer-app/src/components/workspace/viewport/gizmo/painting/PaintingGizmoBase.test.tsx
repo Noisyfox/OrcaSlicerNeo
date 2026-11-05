@@ -113,6 +113,14 @@ it.each(['mmu', 'support', 'seam', 'fuzzy'] as const)('isolates the initial %s o
   expect(instanceHider.getSnapshot()).toEqual({ objectId: 1, instanceId: 2 });
   expect(container.textContent).toContain('Prepare');
 });
+
+it('keeps a successor tool isolated when the painting React tree unmounts late', async () => {
+  await render([source]);
+  const successor = instanceHider.acquire({ objectId: 7, instanceId: 8 });
+  await act(async () => root.render(null));
+  expect(instanceHider.getSnapshot()).toEqual({ objectId: 7, instanceId: 8 });
+  successor.release();
+});
 function readyBvh() {
   const session = { ...mocked.state!.session!, parts: mocked.state!.session!.parts.map((part) => ({ ...part, sourceTriangleCount: 12 })) };
   mocked.state = { ...mocked.state!, session, display: { ...mocked.state!.display!, session } };

@@ -20,7 +20,7 @@ import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client'
 import { currentPreviewPlate, previewVolumesForCurrentPlate } from './previewSceneProjection';
 import { WipeTowerVolumes } from './WipeTowerVolumeMesh';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
-import { GizmoPivotProbe, SceneE2eProbe } from '@/e2e/SceneProbe';
+import { GizmoPivotProbe, InstanceIsolationProbe, SceneE2eProbe } from '@/e2e/SceneProbe';
 import { paintingTarget, usePaintingState } from './gizmo/painting/PaintingProvider';
 import { visibleInstanceVolumes } from './InstanceHider';
 import { FuzzyPaintingGizmo } from './gizmo/painting/FuzzyPaintingGizmo';
@@ -44,6 +44,7 @@ export function Scene({ activeTab, controller, wipeTowerVolumes, glVolumes, tool
   return (
     <SceneInteractionProvider controller={controller}>
       {__ORCA_E2E__ && <PaintingVisualProbe />}
+      {__ORCA_E2E__ && <InstanceIsolationProbe sceneInteraction={controller} glVolumes={glVolumes} />}
       <SceneContents activeTab={activeTab} controller={controller} wipeTowerVolumes={wipeTowerVolumes} glVolumes={glVolumes} toolpath={toolpath} plateSession={plateSession} structure={structure} onEmptyBedClick={onEmptyBedClick} />
     </SceneInteractionProvider>
   );

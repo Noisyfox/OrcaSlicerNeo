@@ -25,14 +25,30 @@ pnpm --filter @orca/slicer-wasm painting-session-smoke
 pnpm --filter @orca/slicer-wasm painting-backend-smoke
 pnpm --filter @orca/slicer-wasm painting-engine-smoke
 pnpm exec node scripts/run-painting-e2e.mjs
+pnpm exec node scripts/run-painting-e2e.mjs --web-only --serial
+pnpm exec node scripts/run-painting-e2e.mjs --web-only --wasm32
+pnpm exec node scripts/run-painting-e2e.mjs --web-only --wasm32 --serial
 pnpm exec node scripts/check-painting-profile-elision.mjs
 ```
 
-The package smoke scripts select serial artifacts. A release gate also needs
-the applicable threaded harnesses, real Electron/Web journeys, profile/project
-compatibility and packaged-runtime checks. These commands alone are not a
-complete release matrix. Build/stage the current tree and record artifact
-identity before claiming real-WASM evidence.
+The package smoke scripts select serial artifacts. The painting E2E runner
+uses the supported threaded wasm64 artifact on Electron; its default also
+executes the shared instance-isolation journey in threaded wasm64 Chrome.
+`--desktop-only` and `--web-only` select a host. On Web, `--serial` omits
+cross-origin isolation and `--wasm32` uses the actual Memory64-incompatible
+WebKit engine. The runner checks staged production payload hashes.
+
+The [shared isolation journey](../apps/desktop/e2e/instance-isolation-journey.ts)
+uses painted Parts, two instances, an unrelated object and a Prime Tower. It
+checks actual scene nodes and raycasts across Boolean and all four painting
+channels, list retargeting, restored source geometry/BVH, and unchanged history.
+The persistent read-only probe also observes geometry disposal while ordinary
+and painting trees unmount. Production builds exclude the probe.
+
+A release gate also needs the applicable native variant harnesses,
+profile/project compatibility and packaged-runtime checks. These commands
+alone are not a complete release matrix. Build/stage the current tree and
+record artifact identity before claiming real-WASM evidence.
 
 ## Instrumented benchmark
 
