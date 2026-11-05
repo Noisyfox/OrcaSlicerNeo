@@ -905,6 +905,29 @@ export type SplitVolumeResult = ModelMutationResult<{
 }>;
 export type SplitObjectResult = ModelMutationResult<{ newObjectIds: number[]; objects: number }>;
 export type MergeObjectsResult = ModelMutationResult<{ objectId: number; objects: number }>;
+/** Both UI entries operate on one shared object's native, object-local geometry. */
+export type MeshBooleanRequest = {
+  entry: 'gizmo';
+  objectId: number;
+  instanceId: number;
+  sourceVolumeId: number;
+  toolVolumeId: number;
+  operation: 'union' | 'difference' | 'intersection';
+  deleteInput: boolean;
+  keepPainting: boolean;
+} | {
+  entry: 'object';
+  objectId: number;
+  keepPainting: boolean;
+};
+/** Empty results preserve every input and carry no plate invalidation receipt. */
+export type MeshBooleanResult = ModelMutationResult<{
+  changed: true;
+  objectId: number;
+  volumeId: number;
+  objects: ModelObjectStructure[];
+  warning: 'positive_parts_only' | null;
+}> | { ok: true; changed: false; warning: 'empty_result' };
 export type SeparateInstancesResult = ModelMutationResult<{ newObjectIds: number[]; objects: number }>;
 export type AddInstanceResult = ModelMutationResult<{ objectId: number; instanceId: number }>;
 export type RemoveInstanceResult = ModelMutationResult;
@@ -1751,6 +1774,9 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   takeNativePerformanceProfile?(): Promise<NativePerformanceProfile>;
   /** Existing native history archive/reuse counters for acceptance diagnostics. */
   getNativeHistoryDiagnostics?(): Promise<Record<string, unknown>>;
+  /** Reserve this Worker through Mesh Boolean history/scene publication.
+   * Foreign requests fail before postMessage; use only the scoped client. */
+  runMeshBooleanOperation<T>(operation: (owner: SlicerClient) => Promise<T>): Promise<T>;
   runProjectHistoryTransaction<T>(
     label: import('./history').HistoryLabel,
     category: import('./history').HistoryCategory,
@@ -1836,6 +1862,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   splitObjectToObjects(objectId: number, autoDrop?: boolean): Promise<SplitObjectResult>;
   /** Assemble objects into one multipart object; returns the new object's stable ID. */
   mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult>;
+  meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult>;
   /** Separate selected instances into their own objects; returns the new object IDs. */
   separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult>;
   /** Add a new default instance to an object; returns the new instance ID. */

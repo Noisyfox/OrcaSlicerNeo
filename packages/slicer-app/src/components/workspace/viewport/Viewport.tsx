@@ -1,3 +1,4 @@
+import { MeshBooleanPanel } from './gizmo/meshBoolean/MeshBooleanControls';
 import { useSetupWizardStore } from '@/stores/useSetupWizardStore';
 // packages/slicer-app/src/components/viewport/Viewport.tsx
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
@@ -199,6 +200,9 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
     const onKeyDown = (event: KeyboardEvent) => {
       if (useSetupWizardStore.getState().active) return;
       if (painting?.active) return;
+      if (event.key === 'Escape' && sceneInteraction.gizmo === 'mesh-boolean') {
+        event.preventDefault(); sceneInteraction.closeGizmo(); return;
+      }
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -404,7 +408,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         // Shift+drag is box selection: claim the press before OrbitControls
         // or DragControls can start their own gesture. A gizmo grab keeps
         // strict priority, and overlay DOM is never hijacked.
-        if (canStartBoxSelect(native, grabbedGizmo)) {
+        if (sceneInteractionRef.current?.gizmo !== 'mesh-boolean' && canStartBoxSelect(native, grabbedGizmo)) {
           startBoxSelectGesture(native);
           native.stopImmediatePropagation();
           native.preventDefault();
@@ -444,6 +448,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             onPointerMissed={(event) => {
               if (event.button !== 0) return;
               if (useArrangementStore.getState().active) return;
+              if (sceneInteractionRef.current?.gizmo === 'mesh-boolean') return;
               if (!previewTab && !paintingActive) {
                 const rect = viewportRef.current.getBoundingClientRect();
                 const plateId = pickBuildPlateId(sceneStateRef.current, {
@@ -541,6 +546,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
           <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} arrangementOpen={arrangementOpen} onArrangementOpenChange={setArrangementOpen} />
           <div className="pointer-events-auto flex max-h-full w-64 min-w-0 flex-col gap-3 overflow-y-auto rounded-md bg-card p-3 empty:hidden" data-testid="gizmo-options">
             {arrangementOpen && <ArrangementPanel sceneInteraction={sceneInteraction} onClose={closeArrangement} />}
+            <MeshBooleanPanel sceneInteraction={sceneInteraction} />
             <MovePanel sceneInteraction={sceneInteraction} />
             <RotatePanel sceneInteraction={sceneInteraction} />
             <ScalePanel sceneInteraction={sceneInteraction} />

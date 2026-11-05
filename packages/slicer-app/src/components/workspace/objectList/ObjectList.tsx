@@ -241,6 +241,13 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   /** Row click with multi-select: Ctrl/Cmd toggles the row; Shift selects a
    *  contiguous range from the previous (non-shift) selection to this row. */
   function handleRowClick(row: SelectableRow, ctrl: boolean, shift: boolean) {
+    if (sceneInteraction?.gizmo === 'mesh-boolean' && row.kind === 'part') {
+      const session = sceneInteraction.meshBoolean;
+      const object = structure.find(item => item.index === row.target.objectIdx);
+      const part = object?.volumes.find(item => item.index === row.target.volumeIdx);
+      const volume = object?.id === session.getSnapshot().target?.objectId && part ? session.volume(part.id) : undefined;
+      if (volume && session.assign(volume)) return;
+    }
     if (!sceneInteraction) return;
     setHighlightLevel(row.target.objectIdx, row.kind);
     const anchor = sceneInteraction.getSelectionInstanceAnchor(row.target.objectIdx);

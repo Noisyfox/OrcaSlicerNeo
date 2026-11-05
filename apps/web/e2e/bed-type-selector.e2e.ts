@@ -40,7 +40,7 @@ test('native printer grouping and nozzle variants preserve canonical history and
   const nozzle = page.getByTestId('nozzle-variant-select');
   await expect(nozzle).toBeEnabled();
   await nozzle.click();
-  expect(await page.getByRole('option').allTextContents()).toEqual(['0.2', '0.4', '0.4+0.6', '0.6', '0.8']);
+  await expect(page.getByRole('option')).toHaveText(['0.2', '0.4', '0.4+0.6', '0.6', '0.8']);
   await page.getByRole('option', { name: '0.4', exact: true }).click();
   await expect(nozzle).toBeEnabled();
   await nozzle.click();
@@ -59,10 +59,14 @@ test('native printer grouping and nozzle variants preserve canonical history and
   await expect(nozzle).toContainText('0.6');
   await expect(printer).toHaveAttribute('title', 'Snapmaker U1 (0.6 nozzle)');
   const beforeSync = await page.getByTestId('history-undo').getAttribute('title');
-  await page.getByTestId('nozzle-sync-placeholder').click();
+  await page.getByTestId('printer-sync').click();
+  const sync = page.getByTestId('prepare-synchronization-dialog');
+  await expect(sync).toBeVisible();
+  await expect(sync).toContainText('No saved device supports this synchronization.');
+  await sync.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(await page.getByTestId('history-undo').getAttribute('title')).toBe(beforeSync);
   const row = (await page.getByTestId('printer-nozzle-row').boundingBox())!;
-  const button = (await page.getByTestId('nozzle-sync-placeholder').boundingBox())!;
+  const button = (await page.getByTestId('printer-sync').boundingBox())!;
   const trigger = (await nozzle.boundingBox())!;
   expect(trigger.x).toBeGreaterThanOrEqual(button.x + button.width);
   expect(trigger.x + trigger.width).toBeLessThanOrEqual(row.x + row.width + 1);
@@ -122,7 +126,7 @@ test('real bed selector uses native labels, global/local scope, keyboard and com
   await local.click();
   const localPopup = page.locator('[data-slot="select-content"][data-open]');
   await expect(localPopup).toBeVisible();
-  expect(await localPopup.getByRole('option').allTextContents()).toEqual(labels);
+  await expect(localPopup.getByRole('option')).toHaveText(labels);
   await localPopup.getByRole('option', { name: 'Engineering Plate', exact: true }).click();
   await expect(local).toContainText('Engineering Plate');
   await expect(global).toContainText(last);

@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { PaintingController, type PaintingPorts, type PaintingState } from './PaintingController';
 import type { LoadedObject } from '@/components/workspace/viewport/useModelLoader';
+import { InstanceHider } from '../../InstanceHider';
 import { PaintingGizmoBase, paintingModelColor, paintingSurfaceMaterial, paintingStartMiss, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera, triangleContourMaterial } from './PaintingGizmoBase';
 
 const mocked = vi.hoisted(() => ({ state: null as PaintingState | null, owner: null as any, three: null as any }));
@@ -15,6 +16,7 @@ vi.mock('@react-three/fiber', () => ({ useThree: () => mocked.three }));
 vi.mock('@react-three/drei', () => ({ Line: () => null }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, container: HTMLDivElement, canvas: HTMLCanvasElement;
+let instanceHider: InstanceHider;
 const identity = new THREE.Matrix4().toArray();
 it.each([
   ['#000000', [0.2, 0.2, 0.2]],
@@ -71,6 +73,7 @@ it.each([
   material.dispose();
 });
 beforeEach(() => {
+  instanceHider = new InstanceHider();
   resolveCursorColor.mockClear();
   vi.stubGlobal('__ORCA_E2E__', false); vi.stubGlobal('PointerEvent', MouseEvent);
   // React DOM hosts the effect under test. It intentionally has no Three
@@ -99,10 +102,25 @@ beforeEach(() => {
   replacement = new THREE.BoxGeometry(2, 2, 2);
 });
 afterEach(async () => {
-  await act(async () => root.unmount()); container.remove(); canvas.remove(); source.geometry.dispose(); replacement.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+  await act(async () => root.unmount()); expect(instanceHider.getSnapshot()).toBeNull(); container.remove(); canvas.remove(); source.geometry.dispose(); replacement.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 const resolveCursorColor = vi.fn(() => new THREE.Color('#abcdef'));
-const render = (volumes: LoadedObject[]) => act(async () => root.render(<PaintingGizmoBase volumes={volumes} resolveColor={() => '#abcdef'} resolveCursorColor={resolveCursorColor} openingVisual={<span>Prepare</span>} />));
+const render = (volumes: LoadedObject[]) => act(async () => root.render(<PaintingGizmoBase volumes={volumes} instanceHider={instanceHider} openingTarget={{ objectId: 1, instanceId: 2 }} resolveColor={() => '#abcdef'} resolveCursorColor={resolveCursorColor} openingVisual={<span>Prepare</span>} />));
+
+it.each(['mmu', 'support', 'seam', 'fuzzy'] as const)('isolates the initial %s opening visual before a native session exists', async channel => {
+  mocked.state = { ...mocked.state!, channel, phase: 'opening', session: null, display: null };
+  await render([source]);
+  expect(instanceHider.getSnapshot()).toEqual({ objectId: 1, instanceId: 2 });
+  expect(container.textContent).toContain('Prepare');
+});
+
+it('keeps a successor tool isolated when the painting React tree unmounts late', async () => {
+  await render([source]);
+  const successor = instanceHider.acquire({ objectId: 7, instanceId: 8 });
+  await act(async () => root.render(null));
+  expect(instanceHider.getSnapshot()).toEqual({ objectId: 7, instanceId: 8 });
+  successor.release();
+});
 function readyBvh() {
   const session = { ...mocked.state!.session!, parts: mocked.state!.session!.parts.map((part) => ({ ...part, sourceTriangleCount: 12 })) };
   mocked.state = { ...mocked.state!, session, display: { ...mocked.state!.display!, session } };
@@ -387,11 +405,13 @@ it('opens without reframing, holds the displayed pivot during delayed transform 
   const otherSession = { ...nextSession, objectId: 7, instanceId: 8, revision: 3, instanceTransform: new THREE.Matrix4().makeTranslation(160, -20, 45).toArray(),
     parts: [{ ...nextSession.parts[0], draftResourceId: 'other' }] };
   mocked.state = { ...mocked.state!, session: otherSession }; await render([source, otherSource]);
+  expect(instanceHider.getSnapshot()).toEqual({ objectId: 1, instanceId: 2 });
   const retainedPoint = cameraPoint(nextPivot); await rotate(); near(cameraPoint(nextPivot).toArray(), retainedPoint.toArray());
   const beforeTargetHandoff = pose();
   mocked.state = { ...mocked.state!, display: { ...display, session: otherSession, revision: 3, parts: [{ volumeId: 3, resourceId: 'other' }],
     resources: [{ ...display.resources[0], resourceId: 'other' }] } };
   await render([source, otherSource]); near(pose(), beforeTargetHandoff);
+  expect(instanceHider.getSnapshot()).toEqual({ objectId: 7, instanceId: 8 });
   const otherPivot = new THREE.Vector3(160, -20, 45), otherPoint = cameraPoint(otherPivot); await rotate(); near(cameraPoint(otherPivot).toArray(), otherPoint.toArray());
   expect(mocked.owner.release).not.toHaveBeenCalled();
   const beforeClose = pose(); await act(async () => root.render(null)); near(pose(), beforeClose);

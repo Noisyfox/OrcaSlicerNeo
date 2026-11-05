@@ -36,8 +36,8 @@ import type {
   ExportGcodeRequest, ExportGcodeResult, PrintManifest, PrintManifestResult, ExportPrintResult, ExportPrintRequest,
   ExportProjectRequest, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
-  AddVolumeRequest, AddVolumeResult, ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
-  MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
+  AddVolumeRequest, AddVolumeResult, ModelStructureResult, ModelObjectStructure, MutationResult, SplitVolumeResult, SplitObjectResult,
+  MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
   PreviewAnalysis, PreviewMetricKey,
@@ -2501,6 +2501,10 @@ export function createClient(
       const m = await module();
       return normalizeNativePerformanceProfile(callJson(m, 'orc_take_performance_profile', [], []));
     },
+    async runMeshBooleanOperation(operation) {
+      if (this.getRuntimeExecutionState().sliceActive) throw new Error('slice_busy');
+      return operation(this);
+    },
     runProjectHistoryTransaction,
 
     async getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult> {
@@ -3106,6 +3110,24 @@ export function createClient(
       const m = await module();
       return normalizeStructuralResult<MergeObjectsResult>(callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
                       [JSON.stringify(objectIds), name]), value => modelCounts(value, 'objectId', 'objects') && value.objectId !== 0);
+    },
+
+    async meshBoolean(request: MeshBooleanRequest): Promise<MeshBooleanResult> {
+      const m = await module();
+      const raw = callJson(m, 'orc_mesh_boolean', ['string'], [JSON.stringify(request)]);
+      if (isRecord(raw) && raw.ok === true && raw.changed === false) {
+        if (raw.warning !== 'empty_result' || Object.hasOwn(raw, 'plate_session'))
+          return { ok: false, error: 'invalid empty Mesh Boolean response' };
+        return { ok: true, changed: false, warning: 'empty_result' };
+      }
+      return normalizeStructuralResult<Exclude<MeshBooleanResult, { ok: true; changed: false }>>(raw, value => {
+        if (value.changed !== true || !modelCounts(value, 'objectId', 'volumeId') ||
+            value.objectId === 0 || value.volumeId === 0 || !modelStructure(value.objects) ||
+            (value.warning !== null && value.warning !== 'positive_parts_only')) return false;
+        const objects = value.objects as ModelObjectStructure[];
+        return objects.some(object => object.id === value.objectId &&
+          object.volumes.some(volume => volume.id === value.volumeId));
+      });
     },
 
     async separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult> {

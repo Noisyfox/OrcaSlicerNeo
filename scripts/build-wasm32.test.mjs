@@ -42,6 +42,9 @@ test('cached wasm32 dependencies require FreeType-free OCCT manifests for both v
       `nlopt-2.5.0/stage-wasm32-${variant}/lib/libnlopt.a`, `draco-1.5.7/stage-wasm32-${variant}/lib/libdraco.a`,
       `occt-7.6.0/stage-wasm32-${variant}/include/opencascade/Standard.hxx`,
       `occt-7.6.0/stage-wasm32-${variant}/lib/libTKXDESTEP.a`]) await put(file);
+    for (const file of ['include/CGAL/CORE/Expr.h', 'include/gmpxx.h', 'include/mpfr.h',
+      'lib/libgmp.a', 'lib/libgmpxx.a', 'lib/libmpfr.a']) await put(`cgal-5.6.3/stage-wasm32-${variant}/${file}`);
+    await put(`cgal-5.6.3/stage-wasm32-${variant}/manifest.json`, JSON.stringify({ identity: { width: 32, threaded: variant === 'threaded' } }));
     await put(`occt-7.6.0/stage-wasm32-${variant}/manifest.txt`, 'USE_FREETYPE=OFF\r\n');
   }
   await verifyDependencies(deps);

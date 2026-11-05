@@ -78,7 +78,7 @@ jobs:
       - name: Select compiled dependency cache key
         id: dependency-key
         env:
-          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch') }}
+          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/cgal/**/*.test.*') }}
         run: echo "key=${{ runner.os }}-wasm64-deps-emsdk-${EMSDK_VERSION}-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Select tested WASM artifact cache key
         id: build-key
@@ -86,7 +86,7 @@ jobs:
           # Hash native build inputs only; tests, fixtures, JS dependencies and
           # workflow test steps do not invalidate production artifacts. The
           # submodule is identified by its recorded gitlink, never file hashes.
-          WASM_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*') }}
+          WASM_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', '!packages/slicer-wasm/dependencies/**/*.test.*') }}
         run: |
           orca_pin=$(git rev-parse HEAD:packages/slicer-wasm/cpp)
           echo "key=${{ runner.os }}-${{ runner.arch }}-wasm64-tested-v2-emsdk-${EMSDK_VERSION}-${orca_pin}-${WASM_INPUT_HASH}" >> "$GITHUB_OUTPUT"
@@ -110,6 +110,8 @@ jobs:
           WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build-draco-wasm64.sh
           WASM_THREADING=1 WASM_ARTIFACT_VARIANT=threaded bash packages/slicer-wasm/build-occt-wasm64.sh
           WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build-occt-wasm64.sh
+          node packages/slicer-wasm/dependencies/cgal/build.mjs build --target wasm64 --variant threaded
+          node packages/slicer-wasm/dependencies/cgal/build.mjs build --target wasm64 --variant serial
       - name: Verify staged WASM dependencies
         run: |
           deps=packages/slicer-wasm/.work/deps
@@ -128,6 +130,7 @@ jobs:
             require_file "$deps/occt-7.6.0/stage-wasm64-$variant/include/opencascade/Standard.hxx"
             require_file "$deps/occt-7.6.0/stage-wasm64-$variant/lib/libTKXDESTEP.a"
             grep -qx 'USE_FREETYPE=OFF' "$deps/occt-7.6.0/stage-wasm64-$variant/manifest.txt"
+            node packages/slicer-wasm/dependencies/cgal/build.mjs verify --target wasm64 --variant "$variant"
           done
       - name: Save compiled WASM dependencies
         if: steps.dependency-cache.outputs.cache-hit != 'true'
@@ -179,13 +182,24 @@ jobs:
         run: bash packages/slicer-wasm/fetch-deps.sh
       - name: Configure + build threaded module (preload-file bundle included)
         if: steps.wasm-cache.outputs.cache-hit != 'true'
-        run: bash packages/slicer-wasm/build.sh
+        run: NEO_MESH_BOOLEAN_TEST=ON bash packages/slicer-wasm/build.sh
       - name: Verify arrangement with cached threaded NLopt
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: |
-          cmake --build packages/slicer-wasm/.work/threaded/build --target arrangement_core_test headless_arrangement_test --parallel 2
+          cmake --build packages/slicer-wasm/.work/threaded/build --target arrangement_core_test headless_arrangement_test mesh_boolean_backend_test --parallel 2
+          node packages/slicer-wasm/harness/run-mesh-boolean-backend.mjs packages/slicer-wasm/.work/threaded/build/mesh_boolean_backend_test.mjs
           node packages/slicer-wasm/.work/threaded/build/arrangement_core_test.cjs
           node packages/slicer-wasm/.work/threaded/build/headless_arrangement_test.cjs
+      - uses: pnpm/action-setup@v6
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+      - name: Install typed native acceptance dependencies
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile --filter @orca/slicer-wasm --filter @orca/profile-resources
+      - name: Mesh Boolean — threaded typed geometry/history/painting acceptance
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        env:
+          ORCA_MESH_BOOLEAN_MODULE: ${{ github.workspace }}/packages/slicer-wasm/out/threaded/orca_slice.js
+        run: pnpm --filter @orca/slicer-wasm exec vitest run harness/mesh-boolean.native.test.mjs
       - name: Smoke — slice cube.stl end to end
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
@@ -268,11 +282,12 @@ jobs:
         run: bash packages/slicer-wasm/fetch-deps.sh
       - name: Build serial WASM for the Web fallback
         if: steps.wasm-cache.outputs.cache-hit != 'true'
-        run: WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build.sh
+        run: NEO_MESH_BOOLEAN_TEST=ON WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build.sh
       - name: Verify arrangement with cached serial NLopt
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: |
-          cmake --build packages/slicer-wasm/.work/serial/build --target arrangement_core_test headless_arrangement_test --parallel 2
+          cmake --build packages/slicer-wasm/.work/serial/build --target arrangement_core_test headless_arrangement_test mesh_boolean_backend_test --parallel 2
+          node packages/slicer-wasm/harness/run-mesh-boolean-backend.mjs packages/slicer-wasm/.work/serial/build/mesh_boolean_backend_test.mjs
           node packages/slicer-wasm/.work/serial/build/arrangement_core_test.cjs
           node packages/slicer-wasm/.work/serial/build/headless_arrangement_test.cjs
       - name: Arrangement — serial atomic history and partial success
@@ -285,10 +300,24 @@ jobs:
         if: steps.wasm-cache.outputs.cache-hit != 'true'
       - name: Install native profile-fixture packaging dependencies
         if: steps.wasm-cache.outputs.cache-hit != 'true'
-        run: pnpm install --frozen-lockfile --filter @orca/profile-resources
+        run: pnpm install --frozen-lockfile --filter @orca/profile-resources --filter @orca/slicer-wasm
       - name: Printer picker — exact toolhead combinations and indexed fallback
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/printer-picker-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+      - name: Mesh Boolean — serial typed geometry/history/painting acceptance
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        env:
+          ORCA_MESH_BOOLEAN_MODULE: ${{ github.workspace }}/packages/slicer-wasm/out/serial/orca_slice.js
+        run: pnpm --filter @orca/slicer-wasm exec vitest run harness/mesh-boolean.native.test.mjs
+      - name: Mesh Boolean — explicit fault build verifies atomic publication and fallback
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        env:
+          ORCA_MESH_BOOLEAN_MODULE: ${{ github.workspace }}/packages/slicer-wasm/.work/serial/build/orca_slice.js
+          ORCA_MESH_BOOLEAN_FAULTS: '1'
+        run: |
+          cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_MESH_BOOLEAN_COMMAND_TEST=ON
+          cmake --build packages/slicer-wasm/.work/serial/build --target orca_slice --parallel 2
+          pnpm --filter @orca/slicer-wasm exec vitest run harness/mesh-boolean.native.test.mjs
       - name: Arrangement — explicit test build verifies publication rollback
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: |
@@ -337,12 +366,12 @@ jobs:
       - name: Select compiled wasm32 dependency cache key
         id: dependency-key
         env:
-          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'scripts/build-wasm32.mjs') }}
+          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/cgal/**/*.test.*', 'scripts/build-wasm32.mjs') }}
         run: echo "key=${{ runner.os }}-wasm32-deps-emsdk-${EMSDK_VERSION}-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Select tested wasm32 artifact cache key
         id: build-key
         env:
-          WASM_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', 'scripts/build-wasm32.mjs') }}
+          WASM_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', '!packages/slicer-wasm/dependencies/**/*.test.*', 'scripts/build-wasm32.mjs') }}
         run: |
           orca_pin=$(git rev-parse HEAD:packages/slicer-wasm/cpp)
           echo "key=${{ runner.os }}-${{ runner.arch }}-wasm32-tested-v1-emsdk-${EMSDK_VERSION}-${orca_pin}-${WASM_INPUT_HASH}" >> "$GITHUB_OUTPUT"
@@ -356,7 +385,11 @@ jobs:
         if: steps.dependency-cache.outputs.cache-hit != 'true'
         run: node scripts/build-wasm32.mjs deps
       - name: Verify staged wasm32 dependencies
-        run: node scripts/build-wasm32.mjs verify-deps
+        run: |
+          node scripts/build-wasm32.mjs verify-deps
+          for variant in threaded serial; do
+            WORK_DIR=packages/slicer-wasm/.work/wasm32 node packages/slicer-wasm/dependencies/cgal/build.mjs verify --target wasm32 --variant "$variant"
+          done
       - name: Save compiled wasm32 dependencies before core compilation
         if: steps.dependency-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -408,15 +441,27 @@ jobs:
         run: test "${{ steps.dependency-cache.outputs.cache-hit }}" = "true"
       - name: Build wasm32 module
         if: steps.wasm-cache.outputs.cache-hit != 'true'
-        run: node scripts/build-wasm32.mjs build --variant ${{ matrix.variant }}
+        run: NEO_MESH_BOOLEAN_TEST=ON node scripts/build-wasm32.mjs build --variant ${{ matrix.variant }}
       - name: Native regression and variant-specific smoke
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: |
+          cmake --build packages/slicer-wasm/.work/wasm32/${{ matrix.variant }}/build --target mesh_boolean_backend_test --parallel 2
+          node packages/slicer-wasm/harness/run-mesh-boolean-backend.mjs packages/slicer-wasm/.work/wasm32/${{ matrix.variant }}/build/mesh_boolean_backend_test.mjs
           module=packages/slicer-wasm/out/wasm32/${{ matrix.variant }}/orca_slice.js
           node packages/slicer-wasm/harness/run-slice.mjs --module "$module" --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
           node packages/slicer-wasm/harness/bridge-smoke.mjs "$module" packages/slicer-wasm/fixtures/cube.stl
           node packages/slicer-wasm/harness/arrangement-smoke.mjs "$module"
           node packages/slicer-wasm/harness/step-import-smoke.mjs "$module" packages/slicer-wasm/fixtures/step
+      - uses: pnpm/action-setup@v6
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+      - name: Install typed native acceptance dependencies
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile --filter @orca/slicer-wasm --filter @orca/profile-resources
+      - name: Mesh Boolean — wasm32 typed operation acceptance
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        env:
+          ORCA_MESH_BOOLEAN_MODULE: ${{ github.workspace }}/packages/slicer-wasm/out/wasm32/${{ matrix.variant }}/orca_slice.js
+        run: pnpm --filter @orca/slicer-wasm exec vitest run harness/mesh-boolean.native.test.mjs
       - name: Verify production artifacts
         run: |
           for extension in js wasm data; do
@@ -455,7 +500,7 @@ jobs:
       - run: pnpm -r test
       - run: pnpm -r typecheck
       - name: Verify wasm32 build scaffold and host/Pages artifact boundaries
-        run: node --test scripts/build-wasm32.test.mjs scripts/stage.test.mjs scripts/prepare-web-pages.test.mjs
+        run: node --test packages/slicer-wasm/dependencies/cgal/build.test.mjs scripts/build-wasm32.test.mjs scripts/stage.test.mjs scripts/prepare-web-pages.test.mjs
 
   e2e-mock:
     name: e2e (mock module)

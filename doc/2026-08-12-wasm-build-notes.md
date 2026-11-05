@@ -45,11 +45,136 @@ clones and CI can fetch it. External dependency patches remain in
 
 The WASM scaffold compiles libslic3r and the headless Neo adapters, excluding
 wxWidgets. Its dependency closure includes Boost, oneTBB for threaded builds,
-Draco, OCCT/XCAF for STEP and NLopt for arrangement. Fetch/build scripts and
+Draco, OCCT/XCAF for STEP, NLopt for arrangement and the complete CGAL,
+GMP/GMPXX, MPFR and CORE closure for Mesh Boolean. Fetch/build scripts and
 CMake own exact versions, library sets and feature exclusions. OCCT builds with
 `USE_FREETYPE=OFF`; its staged manifest records that setting. A normal `build`
 rebuilds older OCCT stages automatically. A `quick` build rejects them with a
 rebuild instruction before linking.
+
+The production source build uses two static archives: `slic3r_core` for Orca
+code and `deps_core` for bundled dependencies. The complete pinned
+`MeshBoolean.cpp` belongs to `slic3r_core`, retaining the original libigl code
+and both CGAL and MCUT wrappers; MCUT sources belong to `deps_core`. The
+headless bridge and entrypoint link these archives and the prebuilt dependency
+stages into the same WASM module. CGAL's
+[shared CMake interface](../packages/slicer-wasm/dependencies/cgal.cmake)
+carries its headers, numerical policy and library closure without a separate
+compiled target. The backend acceptance target consumes that same interface.
+
+[CI](../.github/workflows/ci.yml) keeps all large dependencies in one compiled
+dependency cache and preparation phase for each address width, including both
+threading variants. Its key tracks dependency recipes, compatibility patches
+and the toolchain. Consumer CMake configuration and Orca/MCUT source changes
+invalidate the production WASM artifact cache without invalidating prebuilt
+dependencies. Numerical stages are verified after restoration, including their
+compiler, variant, recipe and file hashes. The dependency cache is saved before
+core compilation; only tested production modules enter the artifact cache.
+The normal shell and cmd build drivers invoke the same
+[`dependencies/cgal/build.mjs`](../packages/slicer-wasm/dependencies/cgal/build.mjs)
+helper. It verifies source archive hashes and stages static numerical
+libraries by address width, threading mode, compiler identity and recipe.
+It uses the pinned upstream C/C++ sources with generic C arithmetic and a
+small CMake build overlay; native GMP generator programs produce tables for
+the requested WASM limb width. A native C99 compiler is required for these
+build tools; Emscripten compiles all runtime libraries. Orca's GMP
+configure-probe compatibility fix is retained. No Bash
+or MSYS runtime is needed by this helper on Windows.
+
+The numerical recipe and manifests are owned by that helper. CGAL TUs use
+`CGAL_USE_GMPXX=1` and `CGAL_ALWAYS_ROUND_TO_NEAREST=1`; serial builds also
+use `CGAL_HAS_NO_THREADS=1` and MPFR without TLS/shared caches. The MCUT
+adaptation is committed in the Orca submodule and guarded by `ORC_NEO_WASM`.
+Without that macro its original manager-thread and perturbation paths remain
+unchanged. Neo's threaded artifact also retains those paths; serial builds
+execute packaged tasks inline with Context-owned perturbation state. The
+compute-helper macro applies only to MCUT source files in threaded builds.
+Dependency preparation does not copy or patch the checked-out MCUT source.
+
+To prepare or verify a numerical stage directly, use the same command on
+any build host (select `wasm32` or `threaded` as needed):
+
+```text
+node packages/slicer-wasm/dependencies/cgal/build.mjs build --target wasm64 --variant serial
+node packages/slicer-wasm/dependencies/cgal/build.mjs verify --target wasm64 --variant serial
+```
+
+After a normal build has configured the serial tree, enable and run the
+optional real numerical/wrapper acceptance target:
+
+```text
+cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_MESH_BOOLEAN_TEST=ON
+cmake --build packages/slicer-wasm/.work/serial/build --target mesh_boolean_backend_test --parallel 2
+node packages/slicer-wasm/harness/run-mesh-boolean-backend.mjs packages/slicer-wasm/.work/serial/build/mesh_boolean_backend_test.mjs --browser
+```
+
+The test runner exercises a Node Worker and, with `--browser`, a headless
+Chrome Worker. Serial browser execution deliberately omits cross-origin
+isolation and checks that no internal Workers are created. Threaded browser
+execution uses isolation and shared memory. This target tests exact CORE
+arithmetic, MPFR directed rounding and the original libigl/CGAL/MCUT wrappers,
+including Context creation, reuse, interleaving and native perturbation
+fixtures. It adds no test ABI to the production module. Product behavior and
+remaining acceptance are specified in
+[Object List and Parts](../spec/ObjectList-and-Parts.md#10-mesh-boolean-design).
+
+The typed project-command suite uses an existing complete module and real
+geometry, painting, history and 3MF persistence. Build profile resources first;
+select the artifact with `ORCA_MESH_BOOLEAN_MODULE`:
+
+```sh
+pnpm --filter @orca/profile-resources build
+ORCA_MESH_BOOLEAN_MODULE="$PWD/packages/slicer-wasm/.work/serial/build/orca_slice.js" pnpm --filter @orca/slicer-wasm exec vitest run harness/mesh-boolean.native.test.mjs
+```
+
+By default this suite skips its two fault-only cases. To verify publication
+compensation and the native positive-Part fallback, explicitly configure that
+same build tree with `-DNEO_MESH_BOOLEAN_COMMAND_TEST=ON`, rebuild `orca_slice`
+and run with `ORCA_MESH_BOOLEAN_FAULTS=1` in addition to the module variable.
+The suite checks that the artifact's hook state matches the requested mode.
+Restore the option to `OFF` and rebuild before staging a production artifact.
+Normal full/quick drivers always reset it to `OFF`; CI keeps fault modules in
+the build tree and uploads only the separate production outputs.
+
+After building the required production artifacts, the
+[shared Mesh Boolean host journey](../scripts/run-mesh-boolean-e2e.mjs) stages
+and verifies the native payloads, builds the application with E2E read probes
+and exercises both entry points through real UI input:
+
+```sh
+node scripts/run-mesh-boolean-e2e.mjs
+```
+
+Use `--desktop-only` or `--web-only` for a focused host gate. `--serial`
+selects non-isolated Web execution; Electron retains its production threaded
+runtime. Add `--wasm32` for the real Memory64-incompatible WebKit gate, with or
+without `--serial`. A Web build requires the complete four-artifact staging set
+described above, even when a particular journey selects only wasm64.
+
+An explicit larger-model Chrome gate imports synthetic STL through the browser
+picker, executes the Gizmo and waits for renderer/history publication after
+WASM memory grows beyond 4 GiB. It is skipped by ordinary focused journeys:
+
+```sh
+ORCA_MESH_BOOLEAN_LARGE=1 node scripts/run-mesh-boolean-e2e.mjs --web-only
+```
+
+For reproducible native scale measurements, select each production artifact
+in turn with the same runner. Its typed-client bundle is generated from the
+current source using the existing Vite build dependency:
+
+```sh
+node packages/slicer-wasm/harness/mesh-boolean-scale.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --levels 4,5,6,7 --report /tmp/mesh-boolean-scale.json
+```
+
+The default operations are Union, Difference and Intersection. The report
+identifies the native payload and records input/output size, connected
+components, analytical sphere-lens volume error, native command/history time,
+WASM memory capacity and sampled Node process RSS. The first case includes
+lazy compilation. WASM capacity is a high-water since module startup, not live
+allocation; Node RSS includes the owning Worker, pthreads and fixture analysis.
+The runner excludes renderer/GPU and painting-preservation timing. Run it
+without concurrent build/acceptance workloads when comparing timings.
 
 When symbols or upstream signatures change, fix the owning source/scaffold
 rather than adding a renderer compatibility layer.

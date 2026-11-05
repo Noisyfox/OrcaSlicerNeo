@@ -48,6 +48,7 @@ BOOST_INCLUDE="${BOOST_INCLUDE:-$WORK_DIR/deps/boost-1.84.0}"
 CEREAL_INCLUDE="${CEREAL_INCLUDE:-$WORK_DIR/deps/cereal-1.3.0/include}"
 DRACO_ROOT="$WORK_DIR/deps/draco-1.5.7/stage-wasm64-$ARTIFACT_VARIANT"
 NLOPT_ROOT="${NLOPT_ROOT:-$WORK_DIR/deps/nlopt-2.5.0/stage-wasm64-$ARTIFACT_VARIANT}"
+CGAL_ROOT="${CGAL_ROOT:-$WORK_DIR/deps/cgal-5.6.3/stage-wasm64-$ARTIFACT_VARIANT}"
 DRACO_INCLUDE="${DRACO_INCLUDE:-$DRACO_ROOT/include}"
 DRACO_ARCHIVE="${DRACO_ARCHIVE:-$DRACO_ROOT/lib/libdraco.a}"
 OCCT_ROOT="${OCCT_ROOT:-$WORK_DIR/deps/occt-7.6.0/stage-wasm64-$ARTIFACT_VARIANT}"
@@ -193,6 +194,8 @@ fi
 [[ -f "$OCCT_ROOT/include/opencascade/Standard.hxx" && -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]] \
   || die "staged OCCT prefix is incomplete: $OCCT_ROOT"
 
+WORK_DIR="$WORK_DIR" node "$PKG_DIR/dependencies/cgal/build.mjs" build --target wasm64 --variant "$ARTIFACT_VARIANT" --stage "$CGAL_ROOT"
+
 # Profile packages are installed by the runtime Worker before orc_init().
 # WASM only retains the distinct /info resource needed by the bridge.
 INFO_DIR="$ORCA_SRC/resources/info"
@@ -212,6 +215,8 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DWASM_DEBUG="$DEBUG" \
   -DNEO_ARRANGEMENT_TEST=OFF \
+  -DNEO_MESH_BOOLEAN_COMMAND_TEST=OFF \
+  -DNEO_MESH_BOOLEAN_TEST="${NEO_MESH_BOOLEAN_TEST:-OFF}" \
   -DORCA_SRC="$ORCA_SRC" \
   -DSHIM_INCLUDE="$SHIM_INCLUDE" \
   -DGEN_INCLUDE="$GEN_INCLUDE" \
@@ -222,6 +227,7 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DDRACO_ARCHIVE="$DRACO_ARCHIVE" \
   -DNLOPT_ROOT="$NLOPT_ROOT" \
   -DOCCT_ROOT="$OCCT_ROOT" \
+  -DCGAL_ROOT="$CGAL_ROOT" \
   -DWASM_THREADING="$WASM_THREADING" \
   -DWASM_PTHREAD_POOL_SIZE="$WASM_PTHREAD_POOL_SIZE" \
   -DTBB_ROOT="$TBB_ROOT" \
@@ -230,7 +236,9 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
 
 log "Building (emmake ninja) — expect to iterate on compile errors"
 discard_invalid_link_outputs
-emmake ninja -C "$BUILD_DIR" orca_slice || die "Build failed. Common next steps:
+BUILD_JOBS=()
+if [[ -n "${WASM_BUILD_JOBS:-}" ]]; then BUILD_JOBS=(-j "$WASM_BUILD_JOBS"); fi
+emmake ninja -C "$BUILD_DIR" ${BUILD_JOBS[@]+"${BUILD_JOBS[@]}"} orca_slice || die "Build failed. Common next steps:
   - Missing <tbb/X.h>: add X to TBB_HEADERS in build.sh and re-run.
   - Undefined symbol from an excluded file (SLA/CGAL/OCCT): add a stub in
     stubs/ or exclude its caller via DROP_PATTERNS in CMakeLists.txt.

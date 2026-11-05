@@ -1,6 +1,4 @@
-import type { LoadedObject } from '@/components/workspace/viewport/useModelLoader';
-import type { ReactNode } from 'react';
-import { PaintingGizmoBase } from './PaintingGizmoBase';
+import { PaintingGizmoBase, type PaintingGizmoProps } from './PaintingGizmoBase';
 import type { FilamentSessionSnapshot } from '@slicer/client';
 import * as THREE from 'three';
 import type { PaintingDisplay } from './PaintingController';
@@ -26,6 +24,6 @@ export function mmuPaintingCursorColor(display: PaintingDisplay, state: number):
   const encoded = new THREE.Color().setStyle(rgb, THREE.LinearSRGBColorSpace);
   return new THREE.Color().setRGB(Math.min(encoded.r * 1.25, 1), Math.min(encoded.g * 1.25, 1), Math.min(encoded.b * 1.25, 1), THREE.SRGBColorSpace);
 }
-export function MmuPaintingGizmo({ volumes, openingVisual }: { volumes: readonly LoadedObject[]; openingVisual: ReactNode }) {
-  return <PaintingGizmoBase volumes={volumes} openingVisual={openingVisual} resolveCursorColor={mmuPaintingCursorColor} resolveColor={(display, volumeId, facetState) => mmuPaintingColor(display.palette, display.session.objectId, volumeId, facetState)} />;
+export function MmuPaintingGizmo(props: PaintingGizmoProps) {
+  return <PaintingGizmoBase {...props} resolveCursorColor={mmuPaintingCursorColor} resolveColor={(display, volumeId, facetState) => mmuPaintingColor(display.palette, display.session.objectId, volumeId, facetState)} />;
 }

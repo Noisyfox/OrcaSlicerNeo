@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import * as THREE from 'three';
 import { MODEL_OUTLINE_NAME, NO_OUTLINE_RAYCAST } from '@/components/workspace/viewport/ModelSelectionOutline';
 import { useThree } from '@react-three/fiber';
@@ -22,6 +22,63 @@ interface SceneE2eProbeProps {
   previewVolumes: LoadedObject[];
   plateSession?: PlateSessionSnapshot | null;
   toolpath: ToolpathGeometry | null;
+}
+
+/** Stays mounted across ordinary/painting trees. Observes actual render and
+ * raycast nodes and borrowed-source disposal without controlling tool state. */
+export function InstanceIsolationProbe({ sceneInteraction, glVolumes }: {
+  sceneInteraction: SceneInteractionController;
+  glVolumes: readonly LoadedObject[];
+}) {
+  const scene = useThree(state => state.scene), camera = useThree(state => state.camera);
+  const disposals = useRef(new WeakMap<THREE.BufferGeometry, number>());
+  useEffect(() => {
+    const geometries = new Set(glVolumes.flatMap(volume => volume.paintGeometry ? [volume.geometry, volume.paintGeometry] : [volume.geometry]));
+    const listeners = [...geometries].map(geometry => {
+      if (!disposals.current.has(geometry)) disposals.current.set(geometry, 0);
+      const onDispose = () => disposals.current.set(geometry, (disposals.current.get(geometry) ?? 0) + 1);
+      geometry.addEventListener('dispose', onDispose);
+      return () => geometry.removeEventListener('dispose', onDispose);
+    });
+    return () => { for (const remove of listeners) remove(); };
+  }, [glVolumes]);
+  useEffect(() => registerOrcaE2eOwnerAfterPassiveEffects('instance-isolation', {
+    instanceIsolationEvidence: () => {
+      const models = new Set<string>(), painting = new Set<string>(), towers = new Set<string>();
+      scene.traverse(object => {
+        if (object.userData.orcaRaycastRole === MODEL_BODY_RAYCAST) models.add(object.userData.orcaVolume.id);
+        if (object.userData.primeTower === true) towers.add(object.userData.plateId);
+        const target = /^painting-model-(\d+)-(\d+)$/.exec(object.name);
+        if (target) painting.add(`${target[1]}:${target[2]}`);
+      });
+      return {
+        target: sceneInteraction.instanceHider.getSnapshot(),
+        models: [...models].sort(), painting: [...painting].sort(), towers: [...towers].sort(),
+        selection: [...sceneInteraction.selection.ids].sort(),
+        sources: glVolumes.map(volume => ({
+          id: volume.id, objectId: volume.buffer.objectId, instanceId: volume.buffer.instanceId,
+          center: volume.getWorldBounds().getCenter(new THREE.Vector3()).toArray(),
+          geometry: volume.geometry.uuid, hasBvh: !!volume.geometry.boundsTree,
+          disposals: disposals.current.get(volume.geometry) ?? 0,
+          paintGeometry: volume.paintGeometry?.uuid ?? null,
+          paintDisposals: volume.paintGeometry ? disposals.current.get(volume.paintGeometry) ?? 0 : 0,
+        })),
+      };
+    },
+    instanceIsolationRaycast: (point: [number, number, number]) => {
+      camera.updateWorldMatrix(true, false); scene.updateMatrixWorld(true);
+      const screen = new THREE.Vector3(...point).project(camera), ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(screen.x, screen.y), camera);
+      const ids = new Set<string>();
+      for (const hit of ray.intersectObjects(scene.children, true)) {
+        for (let ancestor: THREE.Object3D | null = hit.object; ancestor; ancestor = ancestor.parent) {
+          if (ancestor.userData.orcaVolume) { ids.add(ancestor.userData.orcaVolume.id); break; }
+        }
+      }
+      return [...ids].sort();
+    },
+  }), [scene, camera, sceneInteraction, glVolumes]);
+  return null;
 }
 
 export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewVolumes, plateSession, toolpath }: SceneE2eProbeProps) {
@@ -397,6 +454,22 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
         })) ?? [],
       };
     },
+    meshBooleanState: () => ({ gizmo: sceneInteraction.gizmo, publishing: sceneInteraction.meshBoolean.publishing, ...sceneInteraction.meshBoolean.getSnapshot() }),
+    meshBooleanMeshes: () => glVolumes.map(volume => {
+      const positions = volume.geometry.getAttribute('position'), indices = volume.geometry.index;
+      let signedVolume = 0;
+      const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+      const count = indices?.count ?? positions.count;
+      for (let i = 0; i < count; i += 3) {
+        a.fromBufferAttribute(positions, indices ? indices.getX(i) : i);
+        b.fromBufferAttribute(positions, indices ? indices.getX(i+1) : i+1);
+        c.fromBufferAttribute(positions, indices ? indices.getX(i+2) : i+2);
+        signedVolume += a.dot(b.cross(c)) / 6;
+      }
+      const bounds = volume.getWorldBounds();
+      return { objectId: volume.buffer.objectId, volumeId: volume.buffer.volumeId, instanceId: volume.buffer.instanceId,
+        triangles: count / 3, volume: Math.abs(signedVolume), bounds: { min: bounds.min.toArray(), max: bounds.max.toArray() } };
+    }),
     modelSelectionIdentities: () => glVolumes.filter((volume) => sceneInteraction.selection.has(volume)).map((volume) => ({
       id: volume.id,
       objectId: volume.buffer.objectId,

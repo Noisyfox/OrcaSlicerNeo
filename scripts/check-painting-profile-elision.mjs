@@ -25,7 +25,7 @@ const targets = [
 const sentinels = ['paintingFailNextClose', 'Injected painting close failure', 'nativeHitUs', 'nativeSelectorUs', 'nativeGeometryUs', '__orcaPaintingBenchmarkFinal', 'paintingPerformanceEvidence', 'paintingBenchmarkState', 'primeTowerProjectionPendingCount', 'trackPrimeTowerProjectionRead', 'exportedSourceGeometries', 'paintingVisualStart', 'paintingVisualStop', 'paintingVisualFrames', 'painting-model-', 'painting-candidate', 'painting-contour', 'painting-cursor-'];
 for (const path of targets) {
   const bytes = await readFile(path);
-  for (const sentinel of sentinels) if (bytes.includes(Buffer.from(sentinel)))
+  for (const sentinel of [...sentinels, 'instanceIsolationEvidence', 'instanceIsolationRaycast']) if (bytes.includes(Buffer.from(sentinel)))
     throw new Error(`production painting-profile sentinel ${sentinel} remains in ${path}`);
 }
 console.log(`painting-profile elision verified in ${targets.length} production artifacts`);

@@ -150,6 +150,8 @@ export interface UserPreferences {
   profileActivation?: ProfileActivation;
   colorPicker?: { favorites: import('./colorPicker').ColorValue[]; ui?: import('./colorPicker').ColorPickerUiState };
   arrangement?: ArrangementPreferences;
+  /** Global Boolean-only policy; absent means disabled. */
+  meshBooleanKeepPainting?: boolean;
   autoFlushPolicy?: import('@slicer/client').AutoFlushPolicy;
   /** Global project-open policy; project bytes and locations never belong here. */
   projectLoadBehaviour?: ProjectLoadBehaviour;
@@ -329,7 +331,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
     return { ...DEFAULT_USER_PREFERENCES, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
-  const v = value as { autoFlushPolicy?: unknown; profileActivation?: unknown; colorPicker?: { favorites?: unknown; ui?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown; rememberedProjectFlows?: unknown; rememberedNozzleCapacities?: unknown };
+  const v = value as { meshBooleanKeepPainting?: unknown; autoFlushPolicy?: unknown; profileActivation?: unknown; colorPicker?: { favorites?: unknown; ui?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown; rememberedProjectFlows?: unknown; rememberedNozzleCapacities?: unknown };
   const profileActivation = normalizeProfileActivation(v.profileActivation);
   const selectedProfiles = v.selectedProfiles ?? {};
   const ui = v.ui ?? {};
@@ -394,6 +396,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
       ...(typeof selectedProfiles.print === 'string' ? { print: selectedProfiles.print } : {}),
     },
     ...(Object.keys(rememberedFilamentRacks).length > 0 ? { rememberedFilamentRacks } : {}),
+    ...(typeof v.meshBooleanKeepPainting === 'boolean' ? { meshBooleanKeepPainting: v.meshBooleanKeepPainting } : {}),
     ...(v.arrangement ? { arrangement: normalizeArrangementPreferences(v.arrangement) } : {}),
     ui: {
       ...(typeof ui.sidebarWidth === 'number' && Number.isFinite(ui.sidebarWidth)

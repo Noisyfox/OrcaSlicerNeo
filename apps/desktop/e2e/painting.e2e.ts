@@ -3,16 +3,38 @@ import { expect, test } from '@playwright/test';
 import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { instanceIsolationJourney } from './instance-isolation-journey';
 
 
 const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
-test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
+test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current production artifacts');
 test.setTimeout(480_000);
 type Evidence = { channel: string; cursor: number[] | null; phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number; vertical: boolean; state: number; erase: boolean }; resources: { id: string; kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
 type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[]; circleSegments?: number[][] };
 type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
   draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[]; color: string; opacity: number; depthWrite: boolean; polygonOffsetFactor: number }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
+
+test('real tools share instance isolation and restore source geometry and Prime Towers', async ({}, info) => {
+  const preferences = join(mkdtempSync(join(tmpdir(), 'orca-instance-isolation-')), 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, projectLoadBehaviour: 'load_all', selectedProfiles: {}, ui: {} }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_MODEL: project!, ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    await instanceIsolationJourney(await app.firstWindow(), async () => {
+      if (process.platform === 'darwin') await app.evaluate(({ Menu, BrowserWindow }) => {
+        const item = Menu.getApplicationMenu()!.getMenuItemById('file-open-project')!;
+        item.click(item, BrowserWindow.getFocusedWindow() ?? undefined, {} as Electron.KeyboardEvent);
+      });
+      else {
+        const page = await app.firstWindow();
+        await page.getByTestId('titlebar-menu-trigger').click(); await page.getByTestId('menu-file-trigger').hover();
+        await page.getByTestId('file-open-project').click();
+      }
+    }, info);
+  } finally { await app.close(); }
+});
 
 test('real MMU painting preserves translucent filament materials', async () => {
   const preferences = join(mkdtempSync(join(tmpdir(), 'orca-painting-alpha-')), 'preferences.json');
@@ -302,7 +324,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await assertBlankStart('mmu');
     const initialPoint = (await read())!.center;
     await page.mouse.move(initialPoint.x, initialPoint.y); await page.mouse.wheel(0, -700); await page.mouse.wheel(0, -700);
-    expect((await read())!.runtime.threaded).toBe(false);
+    expect((await read())!.runtime.threaded).toBe(true);
     expect((await read())!.ordinaryModels).toBe(0);
     expect((await read())!.resources.every((r) => !r.hasBvh)).toBe(true);
     const sessionId = (await read())!.sessionId;

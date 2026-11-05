@@ -18,6 +18,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # refuses to mix the two. Must match the Boost archives (build-boost-wasm64.sh
 # / .bat) and the final module's -m64 link flag. (-m64 is the standard spelling;
 # -sMEMORY64 is deprecated and warns on every em++ invocation.)
+set(WASM_TARGET wasm64)
 add_compile_options(-m64)
 
 option(WASM_THREADING "Use upstream oneTBB and Emscripten pthreads" ON)
@@ -29,6 +30,9 @@ endif()
 set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
 set(NLOPT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/nlopt-2.5.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged NLopt wasm64 prefix (include/ and lib/)")
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone history tests" OFF)
+set(CGAL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/cgal-5.6.3/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "CGAL and numerical WASM prefix")
+option(NEO_MESH_BOOLEAN_TEST "Build real MeshBoolean backend acceptance tests" OFF)
+option(NEO_MESH_BOOLEAN_COMMAND_TEST "Enable Mesh Boolean command fault injection" OFF)
 option(NEO_ARRANGEMENT_TEST "Build arrangement publication fault injection for rollback tests" OFF)
 option(NEO_REAL_PROJECT_PROFILE "Build the dedicated real-project profiling ABI" OFF)
 option(NEO_PAINTING_PROFILE "Build painting-only native timing counters" OFF)
@@ -118,7 +122,6 @@ set(DROP_PATTERNS
   "OpenVDBUtils"          # OpenVDB grid conversion (hollowing)
   "Hollowing"             # OpenVDB
   "CutSurface"            # CGAL
-  "MeshBoolean"           # CGAL boolean ops
   "/Format/svg"           # SVG->mesh needs OpenCASCADE; load_svg stubbed in stubs/format-stubs.cpp
   "/Shape/TextShape"      # OCCT font->mesh; no kept callers
   "GCodeSender"           # serial/network host control; boost::asio signal_blocker
@@ -242,6 +245,8 @@ else()
       -Wno-missing-template-arg-list-after-template-kw)
 endif()
 target_compile_options(slic3r_core PRIVATE ${SLIC3R_COMPILE_OPTS})
+include("${CMAKE_CURRENT_SOURCE_DIR}/dependencies/cgal.cmake")
+target_link_libraries(slic3r_core PRIVATE cgal_dependencies)
 
 # ---- Vendored deps (deps_src/ inside the submodule) ----
 # The upstream two-stage build compiles these as separate static libs; the
@@ -249,7 +254,7 @@ target_compile_options(slic3r_core PRIVATE ${SLIC3R_COMPILE_OPTS})
 # each deps_src/<dep>/CMakeLists.txt source list. Compiled here because they
 # live outside the libslic3r GLOB and the link needs them (expat=3MF XML,
 # miniz=3MF zip, admesh=STL load/repair, clipper2=clipping/offset/triangulation,
-# qhull=convex hull, glu-libtess=tesselation,
+# qhull=convex hull, glu-libtess=tesselation, mcut=mesh boolean,
 # semver=Semver.hpp, qoi=thumbnail PNG). Keep in sync with upstream lists.
 enable_language(C)
 
@@ -269,7 +274,30 @@ target_link_libraries(slic3r_core PRIVATE nlopt)
 set_property(SOURCE "${LIBSLIC3R_ROOT}/Arrange.cpp" APPEND PROPERTY
   COMPILE_DEFINITIONS LIBNEST2D_THREADING_tbb)
 
+# MCUT's Neo serial path is guarded in the committed Orca source. Its optional
+# compute pool is enabled only for threaded builds, without leaking its macros
+# to the other vendored libraries in deps_core.
+set(MCUT_SRC
+  "${ORCA_SRC}/deps_src/mcut/source/mcut.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/kernel.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/hmesh.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/math.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/bvh.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/shewchuk.c"
+  "${ORCA_SRC}/deps_src/mcut/source/frontend.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/preproc.cpp"
+)
+if(WASM_THREADING)
+  set_property(SOURCE ${MCUT_SRC} APPEND PROPERTY
+    COMPILE_DEFINITIONS MCUT_WITH_COMPUTE_HELPER_THREADPOOL=1)
+endif()
+# Preserve the vendored library's C++11 dialect and warning flags while it is
+# compiled into the shared archive.
+set_property(SOURCE ${MCUT_SRC} APPEND PROPERTY COMPILE_OPTIONS
+  -Wall -Wextra "$<$<COMPILE_LANGUAGE:CXX>:-std=gnu++11>")
+
 set(DEPS_CORE_SRC
+  ${MCUT_SRC}
   "${ORCA_SRC}/deps_src/expat/xmlparse.c"
   "${ORCA_SRC}/deps_src/expat/xmlrole.c"
   "${ORCA_SRC}/deps_src/expat/xmltok.c"
@@ -336,6 +364,7 @@ set(DEPS_CORE_SRC
   "${ORCA_SRC}/deps_src/qoi/qoilib.c"
 )
 add_library(deps_core STATIC ${DEPS_CORE_SRC})
+target_include_directories(deps_core SYSTEM PRIVATE "${ORCA_SRC}/deps_src/mcut/include")
 
 if(WASM_THREADING)
   target_include_directories(deps_core PUBLIC "${TBB_INCLUDE_DIR}")
@@ -403,6 +432,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_prime_tower.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_model_operations.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_mesh_boolean.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_profiles.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_plate.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_slicing_pipeline.cpp"
@@ -422,6 +452,10 @@ set(ORCA_SLICE_SRC
   ${ORCA_BRIDGE_SRC}
 )
 add_executable(orca_slice ${ORCA_SLICE_SRC})
+if(NEO_MESH_BOOLEAN_COMMAND_TEST)
+  set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_mesh_boolean.cpp"
+    APPEND PROPERTY COMPILE_DEFINITIONS NEO_MESH_BOOLEAN_COMMAND_TEST=1)
+endif()
 # Original Orca filename folding is independent of the wxWidgets GUI.
 target_sources(orca_slice PRIVATE "${ORCA_SRC}/src/slic3r/Utils/ASCIIFolding.cpp")
 if(NEO_ARRANGEMENT_TEST)
@@ -665,4 +699,25 @@ if(NOT PRELOAD_FILES)
   if(DEFINED PRELOAD_FILE AND NOT "${PRELOAD_FILE}" STREQUAL "")
     target_link_options(orca_slice PRIVATE "--preload-file=${PRELOAD_FILE}")
   endif()
+endif()
+
+# Optional real numerical/wrapper execution, with the production library closure.
+if(NEO_MESH_BOOLEAN_TEST)
+  get_target_property(_boolean_test_libraries orca_slice LINK_LIBRARIES)
+  add_executable(mesh_boolean_backend_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/mesh-boolean/MeshBooleanBackend.test.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/mesh-boolean/NumericalBackend.test.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/mesh-boolean/McutContext.test.cpp")
+  target_link_libraries(mesh_boolean_backend_test PRIVATE ${_boolean_test_libraries} cgal_dependencies)
+  target_include_directories(mesh_boolean_backend_test PRIVATE "${ORCA_SRC}/deps_src/mcut/include")
+  target_compile_options(mesh_boolean_backend_test PRIVATE -fexceptions)
+  target_link_options(mesh_boolean_backend_test PRIVATE -m64 -O2 -fexceptions
+    --no-entry -sDISABLE_EXCEPTION_CATCHING=0 -sEXIT_RUNTIME=0 -sINVOKE_RUN=0
+    -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608
+    -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node
+    -sEXPORTED_RUNTIME_METHODS=HEAPU8)
+  if(WASM_THREADING)
+    target_link_options(mesh_boolean_backend_test PRIVATE -pthread -sPTHREAD_POOL_SIZE=8)
+  endif()
+  set_target_properties(mesh_boolean_backend_test PROPERTIES SUFFIX ".mjs")
 endif()

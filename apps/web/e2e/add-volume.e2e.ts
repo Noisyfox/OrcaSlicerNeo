@@ -68,7 +68,7 @@ test('real WASM adds object volumes from primitives and the browser file picker'
   await expect(modifierFilament).toHaveText('Default');
   await expect(list.locator('[data-testid^="part-"] [role="checkbox"]')).toHaveCount(0);
   await modifierFilament.click();
-  await page.getByRole('option', { name: 'Slot 2', exact: true }).click();
+  await page.getByRole('option', { name: /^2 - / }).click();
   await expect(modifierFilament).toHaveText('2');
   await modifierFilament.click();
   await page.getByRole('option', { name: 'Default', exact: true }).click();
@@ -76,9 +76,10 @@ test('real WASM adds object volumes from primitives and the browser file picker'
   await modifierFilament.click();
   await expect(page.getByRole('option', { name: 'Default', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.keyboard.press('Escape');
-  // Assignment changes never replace the modifier's category rendering.
+  await page.mouse.click(canvas.x + canvas.width - 40, canvas.y + 80);
+  // Assignment changes never replace the unselected modifier's category rendering.
   await expect.poll(materials).toEqual(expect.arrayContaining([
-    expect.objectContaining({ colour: '#ffff80', opacity: 0.6 }),
+    expect.objectContaining({ colour: '#ffff00', opacity: 0.6 }),
   ]));
   await page.screenshot({ path: test.info().outputPath('added-volumes.png') });
 });

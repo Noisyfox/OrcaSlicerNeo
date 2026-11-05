@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useMeshBooleanStore } from '@/stores/useMeshBooleanStore';
 import { EditorSnapshotController } from './usePrintConfigEditor';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -875,4 +876,19 @@ describe('editor snapshot publication', () => {
     expect(h.controller.get().error).toBeNull();
     await h.controller.refresh(); expect(h.read).toHaveBeenCalledTimes(1);
   });
+});
+
+
+it('pauses automatic editor reads during Mesh Boolean publication and refreshes after release', async () => {
+  const h = await setup();
+  const before = h.read.mock.calls.length;
+  await act(async () => {
+    useMeshBooleanStore.setState({ busy: true });
+    useSettingsStore.setState({ printEditorEntry: useSettingsStore.getState().printEditorEntry + 1 });
+  });
+  expect(h.read).toHaveBeenCalledTimes(before);
+  expect(container.textContent).not.toContain('mesh_boolean_busy');
+  await act(async () => useMeshBooleanStore.setState({ busy: false }));
+  expect(h.read.mock.calls.length).toBeGreaterThan(before);
+  expect(container.textContent).not.toContain('Error:');
 });

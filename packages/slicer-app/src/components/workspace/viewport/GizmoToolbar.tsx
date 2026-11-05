@@ -1,10 +1,12 @@
+import { glVolumeCollection } from './GLVolume';
+import { meshBooleanTarget } from './gizmo/meshBoolean/MeshBooleanSession';
 // Left-side vertical scene toolbar: Add Model first, followed by arrangement
 // and the Move / Rotate / Scale gizmo toggles. The gizmos never
 // auto-open on selection — arming happens here, and an emptied selection
 // auto-closes them (see SceneInteractionController.toggleGizmo). The toolbar
 // overlays the canvas (outside the R3F tree). Selection and the armed gizmo
 // are observed separately so transform frames do not rerender the toolbar.
-import { FolderPlus, Move, Rotate3d, Scaling, Paintbrush, Scissors, Sparkles, Blocks } from 'lucide-react';
+import { FolderPlus, Move, Rotate3d, Scaling, Combine, Paintbrush, Scissors, Sparkles, Blocks } from 'lucide-react';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
@@ -26,6 +28,7 @@ const GIZMO_BUTTONS: ReadonlyArray<{
   { mode: 'move', label: 'Move', icon: Move, testId: 'gizmo-btn-move' },
   { mode: 'rotate', label: 'Rotate', icon: Rotate3d, testId: 'gizmo-btn-rotate' },
   { mode: 'scale', label: 'Scale', icon: Scaling, testId: 'gizmo-btn-scale' },
+  { mode: 'mesh-boolean', label: 'Mesh Boolean', icon: Combine, testId: 'gizmo-btn-mesh-boolean' },
 ];
 
 export function GizmoToolbar({
@@ -95,7 +98,9 @@ export function GizmoToolbar({
       {GIZMO_BUTTONS.map(({ mode, label, icon: Icon, testId }) => {
         const towerMode = towerSelected && mode === 'move';
         const armed = sceneInteraction.gizmo === mode;
-        const disabled = (towerSelected ? !towerMode : sceneInteraction.selection.empty) || (paintActive && paintState?.phase !== 'idle');
+        const disabled = (towerSelected ? !towerMode : sceneInteraction.selection.empty) || (paintActive && paintState?.phase !== 'idle') ||
+          (mode === 'mesh-boolean' && ((!armed && !meshBooleanTarget(sceneInteraction.selectedVolumes(), glVolumeCollection.volumes)) ||
+            !!platform.runtime.getRuntimeExecutionState?.().sliceActive));
         return (
           <TooltipFor key={mode} content={label} disabled={disabled}>
             <Button

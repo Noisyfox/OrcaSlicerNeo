@@ -15,11 +15,12 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { projectFilamentPlateInputRevisions, refreshFilamentSession } from '@/stores/useFilamentSessionStore';
-import { acquireProjectMutationLease, enqueueProjectMutationOperation, enqueueProjectReadOperation, enqueuePaintingOperation, type ProjectMutationLease } from '@/history/projectMutationGate';
+import { acquireProjectMutationLease, enqueueProjectMutationOperation, enqueueProjectReadOperation, enqueuePaintingOperation, type ProjectMutationLease, type ProjectMutationAdmission } from '@/history/projectMutationGate';
 import { projectHistoryStatus } from '@/history/projectHistoryStatus';
 import { captureHistoryTransportDiagnostics, historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from '@/history/historyDiagnostics';
 
 export { projectHistoryStatus } from '@/history/projectHistoryStatus';
+export { runExclusiveProjectOperation } from '@/history/projectMutationGate';
 export const coordinatePaintingRpc = enqueuePaintingOperation;
 
 /** Save owns one revision reservation from export through the host write.
@@ -55,15 +56,19 @@ export function historyContextForStructure(sceneInteraction?: SceneInteractionCo
       objectList.highlightLevel,
     )
     : objectList.projection;
-  const mode = sceneInteraction?.selectionMode === 'volume'
-    ? 'part'
-    : sceneInteraction?.selectionMode ?? (projection.volumeIds.size > 0 ? 'part' : 'object');
+  // History records the selected entities, independently of future click
+  // expansion. A result Part can stay selected while normal clicks use Instance.
+  const mode = projection.volumeIds.size > 0 ? 'part'
+    : sceneInteraction?.selectionMode === 'volume' ? 'instance'
+    : sceneInteraction?.selectionMode ?? 'object';
   return {
     selection: {
       mode,
       objectIds: [...projection.objectIds].sort((a, b) => a - b),
       partIds: [...projection.volumeIds].sort((a, b) => a - b),
-      instanceIds: [...projection.instanceIds].sort((a, b) => a - b),
+      instanceIds: [...(mode === 'part' && sceneInteraction
+        ? new Set(sceneInteraction.selectedVolumes().map(volume => volume.buffer.instanceId))
+        : projection.instanceIds)].sort((a, b) => a - b),
     },
     activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
     gizmo: sceneInteraction?.gizmo ? { type: sceneInteraction.gizmo } : null,
@@ -115,6 +120,7 @@ function attachCommittedScopedConfig<T>(result: T, status: HistoryStatus | null)
 }
 
 export interface ProjectHistoryMutationOptions<T extends MutationResponse = MutationResponse> {
+  admission?: ProjectMutationAdmission;
   /** Supply authoritative successor facts already returned by the operation.
    * Omit for compound operations that require a fresh native projection. */
   contextReceipt?: (result: T) => HistoryContextReceipt;
@@ -130,8 +136,8 @@ export interface ProjectHistoryMutationOptions<T extends MutationResponse = Muta
  * lifecycle: acquire fence -> mutate/restore -> refresh projections ->
  * publish -> release fence.
  */
-function enqueueHistoryOperation<T>(operation: () => Promise<T>): Promise<T> {
-  return enqueueProjectMutationOperation(operation);
+function enqueueHistoryOperation<T>(operation: () => Promise<T>, admission?: ProjectMutationAdmission): Promise<T> {
+  return enqueueProjectMutationOperation(operation, admission);
 }
 
 /**
@@ -220,6 +226,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
   /** Transform-only fast path: the committed History/plate receipt advances
    * filament revision tokens without rereading unchanged filament content. */
   filamentProjection: 'snapshot' | 'history-revision' = 'snapshot',
+  admission?: ProjectMutationAdmission,
 ): Promise<HistoryMutationResult<T>> {
   const queuedAt = historyDiagnosticNow();
   return enqueueHistoryOperation(async () => {
@@ -284,7 +291,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
       useHistoryDiagnosticsStore.getState().recordMutation(historyDiagnosticNow() - startedAt);
       captureHistoryTransportDiagnostics(runtime);
     }
-  });
+  }, admission);
 }
 
 /** Run one project mutation through the Worker-owned history transaction. */
@@ -339,6 +346,7 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
       }
       await options.publish?.(result, status, delta);
     },
+    undefined, undefined, undefined, 'snapshot', options.admission,
   );
 }
 
