@@ -9,6 +9,32 @@ import { Ipc } from '../src/shared/ipc';
 import { isBambuControlRequest } from '../src/shared/bambuControl';
 import type * as D from '@orca/printer-control/domain';
 declare global { var printFixture: { requests: unknown[]; submissions: D.PrintSubmissionRequest[]; chunks: number; state: D.PrintSubmissionState | null; holdRead: boolean; releaseRead?: () => void }; }
+test('Send & Print filters Bambu reported models and accepts matching agent catalogue references', async () => {
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1', ORCA_E2E_MODEL: resolve(__dirname, '../../../packages/slicer-wasm/fixtures/cube.stl') } });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await installControlFixture(app);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('btn-add-model').click(); await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 30_000 });
+    await page.getByTestId('output-mode-select').click();
+    await page.getByRole('menuitemradio', { name: 'Send & Print', exact: true }).click();
+    await page.getByTestId('btn-send-and-print').click();
+    const dialog = page.getByTestId('send-gcode-dialog');
+    await expect(dialog.getByText('No printer model matches the project Printer.', { exact: true })).toBeVisible();
+    await expect(dialog.getByTestId('send-printer-select')).not.toContainText('Workshop A');
+    await installControlFixture(app, false, false, 'Bambu Lab X1 Carbon');
+    await expect(dialog.getByTestId('send-printer-select')).toBeEnabled();
+    await dialog.getByTestId('send-printer-select').click();
+    await expect(page.getByRole('option', { name: 'Workshop A', exact: true })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Workshop B', exact: true })).toBeVisible();
+  } finally { await app.close(); }
+});
+
 test('Bambu Send & Print persists options, cancels safely, allows selection after unknown and closes on success', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'neo-print-e2e-')), configPath = join(directory, 'printer-config.json');
   writeFileSync(configPath, JSON.stringify({ version: 1, printers: [] }));
@@ -16,7 +42,7 @@ test('Bambu Send & Print persists options, cancels safely, allows selection afte
   try {
     const page = await app.firstWindow(); await page.setViewportSize({ width: 1280, height: 900 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
-    await installControlFixture(app);
+    await installControlFixture(app, false, false, 'Bambu Lab X1 Carbon');
     await app.evaluate(({ ipcMain, BrowserWindow }, channels) => {
       globalThis.printFixture = { requests: [], submissions: [], chunks: 0, state: null, holdRead: false };
       const changed = () => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channels.bambuChanged, 'control'); };
@@ -104,7 +130,7 @@ test('Bambu Send & Print persists options, cancels safely, allows selection afte
     await expect(dialog).toBeVisible();
     await expect(picker).toHaveCount(0);
     await dialog.getByLabel('Material 1 source', { exact: true }).click();
-    await page.getByRole('button', { name: 'AMS A1 · PLA', exact: true }).click();
+    await page.getByRole('button', { name: 'AMS A4 · PLA', exact: true }).click();
     await dialog.getByRole('group', { name: 'Timelapse', exact: true }).getByRole('button', { name: 'Off', exact: true }).click();
     await expect.poll(() => JSON.parse(readFileSync(configPath, 'utf8')).printPreferences?.['bambu:a']?.timelapse).toBe(false);
     await expect(dialog.getByRole('group', { name: 'Timelapse', exact: true }).getByRole('button', { name: 'Off', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -112,6 +138,20 @@ test('Bambu Send & Print persists options, cancels safely, allows selection afte
     await dialog.getByRole('button', { name: 'Rename print job' }).click();
     await dialog.getByRole('textbox', { name: 'Print job name' }).fill('Cube');
     await dialog.getByRole('textbox', { name: 'Print job name' }).press('Enter');
+    // SSDP may repeatedly announce the same device while this modal is open.
+    // Catalogue refreshes and periodic validation must preserve this session.
+    const panel = await dialog.getByTestId('print-preparation').elementHandle();
+    const countPreparations = () => app.evaluate(() => globalThis.printFixture.requests.filter(request => (request as { method: string }).method === 'print.prepare').length);
+    for (let i = 0; i < 3; i++) {
+      const catalogueReads = await app.evaluate(() => globalThis.bambuControlFixture.catalogueReads);
+      const preparations = await countPreparations();
+      await app.evaluate(({ BrowserWindow }, channel) => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, 'printers'); }, Ipc.bambuChanged);
+      await expect.poll(() => app.evaluate(() => globalThis.bambuControlFixture.catalogueReads)).toBeGreaterThan(catalogueReads);
+      await expect.poll(countPreparations).toBeGreaterThan(preparations);
+      expect(await panel!.evaluate(node => node.isConnected)).toBe(true);
+      await expect(dialog.getByLabel('Material 1 source', { exact: true })).toHaveAttribute('data-source', 'path:0:3:0');
+      await expect(dialog.getByRole('group', { name: 'Timelapse', exact: true }).getByRole('button', { name: 'Off', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    }
     await page.screenshot({ path: '/tmp/neo-print-preparation.png', animations: 'disabled' });
     await dialog.getByTestId('print-submit').click(); await expect(dialog.getByText('Sending print', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeDisabled();

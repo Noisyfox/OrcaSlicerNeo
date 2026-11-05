@@ -13,7 +13,7 @@ function fixture() {
   const state: BambuLocalState = { version: 1, region: 'Others', clientId: 'client', lan: ['a', 'b'].map(deviceId => ({
     deviceId, name: deviceId, model: 'H2D', ip: '192.0.2.1', accessCode: 'private-secret', revision: 'lan-1',
   })) };
-  const devices: BambuDevice[] = ['a', 'b'].map(deviceId => ({ deviceId, name: deviceId, model: 'H2D', routes: [
+  const devices: BambuDevice[] = ['a', 'b'].map(deviceId => ({ deviceId, name: deviceId, model: 'H2D', modelId: 'O1D', routes: [
     { channel: 'cloud', revision: 'cloud-1' }, { channel: 'lan', revision: 'lan-1', address: '192.0.2.1' },
   ] }));
   const native = { installDeviceCertificate: vi.fn(async () => undefined) };

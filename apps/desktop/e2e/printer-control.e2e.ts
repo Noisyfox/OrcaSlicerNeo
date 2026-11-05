@@ -1,6 +1,6 @@
 import { _electron } from './electron-fixture';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -198,6 +198,122 @@ async function chooseSendPrinter(page: Page, printerId: string): Promise<void> {
   await expect(page.getByTestId('send-submit')).toBeEnabled();
 }
 
+test('manual printer model selection persists, reopens and clears without changing project profiles', async () => {
+  test.skip(process.env.ORCA_E2E_REAL === '1', 'Uses the deterministic enabled mock profile catalogue.');
+  const fixture = await startMoonrakerFixture();
+  const printPreferences = { 'bambu:fixture': { timelapse: false } };
+  const { app, fixtureDir } = await launchApp({ version: 1, printers: [], printPreferences });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page);
+    const projectPrinter = await page.getByTestId('preset-select').textContent();
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-add-printer').click();
+    await page.getByTestId('device-display-name').fill('Model fixture');
+    await page.getByTestId('device-api-base-url').fill(fixture.baseUrl);
+    await expect(page.getByTestId('device-printer-model')).toContainText('Not specified');
+    await page.getByTestId('device-printer-model').click();
+    await expect(page.getByRole('option', { name: /Afinia|Hidden/ })).toHaveCount(0);
+    await page.getByLabel('Search printer models', { exact: true }).fill('X1');
+    await expect(page.getByRole('option')).toHaveCount(1);
+    await page.getByRole('option', { name: 'bambulab · X1 Carbon', exact: true }).click();
+    await page.getByTestId('device-save-printer').click();
+    await expect(page.getByTestId('device-config-dialog')).toBeHidden();
+    const saved = () => JSON.parse(readFileSync(join(fixtureDir, 'printer-config.json'), 'utf8'));
+    expect(saved().printers[0].printerModel).toEqual({ vendorId: 'bambulab', model: 'X1 Carbon' });
+    expect(saved().printPreferences).toEqual(printPreferences);
+    const id = saved().printers[0].id;
+    await page.getByTestId('device-printer-select').click();
+    await page.getByTestId(`device-select-${id}`).click();
+    await page.getByTestId(`device-edit-${id}`).click();
+    await expect(page.getByTestId('device-printer-model')).toContainText('X1 Carbon');
+    await page.getByTestId('device-printer-model').click();
+    await page.getByRole('option', { name: 'Not specified', exact: true }).click();
+    await page.getByTestId('device-save-printer').click();
+    await expect(page.getByTestId('device-config-dialog')).toBeHidden();
+    expect(saved().printers[0]).not.toHaveProperty('printerModel');
+    expect(saved().printPreferences).toEqual(printPreferences);
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('preset-select')).toHaveText(projectPrinter!);
+  } finally { await app.close(); await fixture.close(); }
+});
+
+test('device model form follows shared control layout and keyboard behavior', async ({}, testInfo) => {
+  test.skip(process.env.ORCA_E2E_REAL === '1', 'Uses the deterministic enabled mock profile catalogue.');
+  const longModel = 'A printer model with a long descriptive name '.repeat(5);
+  const { app } = await launchApp({ version: 1, printers: [{ id: 'ui-fixture', displayName: 'UI fixture', driverId: 'moonraker',
+    apiBaseUrl: 'http://127.0.0.1:1/', consoleUrl: '', apiKey: '', printerModel: { vendorId: 'Vendor', model: longModel } }] });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByTestId('device-select-ui-fixture').click();
+    const edit = page.getByTestId('device-edit-ui-fixture');
+    await edit.click();
+    const dialog = page.getByRole('dialog', { name: 'Edit printer', exact: true });
+    const trigger = page.getByTestId('device-printer-model');
+    const name = page.getByTestId('device-display-name');
+    await expect(name).toBeFocused();
+    await expect(page.getByTestId('device-adapter').locator('[data-slot="select-value"]')).toHaveText('Moonraker');
+    await expect(trigger).toHaveAccessibleDescription('Not specified allows any project printer model.');
+    await expect(trigger).toHaveAttribute('title', `Vendor · ${longModel.trim()}`);
+    expect(await trigger.locator('span').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+    await page.getByTestId('device-save-printer').focus();
+    await page.keyboard.press('Tab');
+    await expect(name).toBeFocused();
+    await name.press('Shift+Tab');
+    await expect(page.getByTestId('device-save-printer')).toBeFocused();
+
+    for (const control of [trigger, name, dialog.locator('label[for="device-printer-model"]')]) await expect(control).toHaveCSS('font-size', '13px');
+    await expect(trigger).toHaveCSS('height', '28px');
+    const labelBox = (await dialog.locator('label[for="device-printer-model"]').boundingBox())!;
+    const triggerBox = (await trigger.boundingBox())!;
+    expect(triggerBox.x).toBeGreaterThan(labelBox.x + labelBox.width);
+    expect(Math.abs(triggerBox.y - labelBox.y)).toBeLessThan(2);
+    for (const field of ['device-display-name', 'device-adapter', 'device-api-base-url', 'device-console-url', 'device-api-key']) {
+      expect(Math.abs((await page.getByTestId(field).boundingBox())!.x - triggerBox.x)).toBeLessThan(1);
+    }
+    await trigger.focus(); await trigger.press('Enter');
+    const search = page.getByRole('combobox', { name: 'Search printer models', exact: true });
+    await expect(search).toBeFocused();
+    const popup = page.locator('[data-slot="combobox-content"]');
+    await expect(popup).toHaveCSS('opacity', '1');
+    const popupBox = (await popup.boundingBox())!;
+    expect(popupBox.width).toBeGreaterThanOrEqual(triggerBox.width);
+    expect(popupBox.x).toBeGreaterThanOrEqual(0);
+    expect(popupBox.x + popupBox.width).toBeLessThanOrEqual(await page.evaluate(() => innerWidth));
+    await expect(page.getByRole('option').first()).toHaveCSS('font-size', '13px');
+    await page.screenshot({ path: testInfo.outputPath('device-model-popup.png'), animations: 'disabled' });
+    // Exercise the actual shared list's native scrolling with the small mock catalogue.
+    const list = page.locator('[data-slot="combobox-list"]');
+    await list.evaluate(element => { element.style.maxHeight = '40px'; });
+    expect(await list.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+    await expect(list).toHaveCSS('overflow-y', 'auto');
+    expect(await list.evaluate(element => getComputedStyle(element, '::-webkit-scrollbar').width)).toBe('6px');
+    await search.fill('no-such-printer-model');
+    await expect(popup).toContainText('No matching printer models.');
+    await popup.getByRole('button', { name: 'Clear search', exact: true }).click();
+    await expect(search).toBeFocused(); await expect(search).toHaveValue('');
+    await search.press('Escape');
+    await expect(popup).toBeHidden(); await expect(dialog).toBeVisible(); await expect(trigger).toBeFocused();
+    await trigger.press('Enter');
+    await search.fill('X1'); await search.press('ArrowDown'); await search.press('Enter');
+    await expect(trigger).toContainText('X1 Carbon'); await expect(trigger).toBeFocused();
+    await trigger.press('Tab'); await expect(page.getByTestId('device-api-base-url')).toBeFocused();
+    await page.keyboard.press('Escape'); await expect(dialog).toBeHidden(); await expect(edit).toBeFocused();
+    await edit.click();
+    await page.setViewportSize({ width: 420, height: 360 });
+    const bounds = (await dialog.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(420); expect(bounds.y + bounds.height).toBeLessThanOrEqual(360);
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.getByTestId('device-save-printer').scrollIntoViewIfNeeded();
+    await expect(dialog).toHaveCSS('opacity', '1');
+    await page.screenshot({ path: testInfo.outputPath('device-model-small-window.png'), animations: 'disabled' });
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(edit).toBeFocused();
+  } finally { await app.close(); }
+});
+
 test('Device config and Electron console fixture inject the API key', async () => {
   const fixture = await startMoonrakerFixture();
   const { app } = await launchApp({ version: 1, printers: [] });
@@ -335,6 +451,40 @@ test('Device config and Electron console fixture inject the API key', async () =
     await app.close();
     await fixture.close();
   }
+});
+
+test('manual printer model filters Send and Send & Print without hiding devices in Device', async () => {
+  test.skip(process.env.ORCA_E2E_REAL === '1', 'Uses the deterministic enabled mock profile catalogue.');
+  const fixture = await startMoonrakerFixture();
+  const connection = { driverId: 'moonraker', consoleUrl: `${fixture.baseUrl}/console`, apiBaseUrl: fixture.baseUrl, apiKey: '' };
+  const { app } = await launchApp({ version: 1, printers: [
+    { ...connection, id: 'match', displayName: 'Matching model', printerModel: { vendorId: 'bambulab', model: 'X1 Carbon' } },
+    { ...connection, id: 'mismatch', displayName: 'Different model', printerModel: { vendorId: 'bambulab', model: 'P1S' } },
+    { ...connection, id: 'any', displayName: 'Unspecified model' },
+  ] });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await expect(page.getByRole('option')).toHaveCount(3);
+    await page.getByTestId('device-select-mismatch').click();
+    await addFixtureModelAndSlice(page);
+    for (const action of ['Send', 'Send & Print']) {
+      await page.getByTestId('output-mode-select').click();
+      await page.getByRole('menuitemradio', { name: action, exact: true }).click();
+      await page.getByTestId(action === 'Send' ? 'btn-send' : 'btn-send-and-print').click();
+      await expect(page.getByTestId('send-printer-select')).toBeEnabled();
+      await expect(page.getByTestId('send-submit')).toBeDisabled();
+      await page.getByTestId('send-printer-select').click();
+      await expect(page.getByTestId('send-printer-match')).toBeVisible();
+      await expect(page.getByTestId('send-printer-any')).toBeVisible();
+      await expect(page.getByTestId('send-printer-mismatch')).toHaveCount(0);
+      await page.getByTestId('send-printer-match').click();
+      await expect(page.getByTestId('send-submit')).toBeEnabled();
+      await page.getByTestId('send-close').click();
+    }
+    expect(fixture.state.uploadBodies).toHaveLength(0);
+  } finally { await app.close(); await fixture.close(); }
 });
 
 test('Send and Send & Print use Moonraker fixture without re-upload on start failure', async () => {

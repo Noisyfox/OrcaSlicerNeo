@@ -327,7 +327,7 @@ export class BambuTelemetry {
       severity: error === taskCancelledError ? 'info' : 'error',
       message: error === taskCancelledError ? 'The task was canceled.' : `Printer error ${error.toString(16).toUpperCase()}`, actions: [] }] : [];
     return { machine: this.machine, fresh, generation: this.generation, report: merge(p, { capabilities: record(this.info.capabilities) }), values: {
-      descriptor: { revision: topology.revision, identity: { ...identity, externalRefs: [...identity.externalRefs, ...modelCatalogRefs(identity.model)] }, technology: 'fdm', buildVolume: null, firmware: firmware.length ? read(firmware) : unknown, topology },
+      descriptor: { revision: topology.revision, identity: { ...identity, externalRefs: [...identity.externalRefs.filter(ref => ref.namespace !== 'orca-printer-model'), ...modelCatalogRefs(identity.model)] }, technology: 'fdm', buildVolume: null, firmware: firmware.length ? read(firmware) : unknown, topology },
       status: state, thermal, motion, actuators: { fans: fanState, lights: lightState }, sensors: { definitionRevision: topology.revision, definitions, readings },
       materials: material, firmware, cameras, alerts,
     } };

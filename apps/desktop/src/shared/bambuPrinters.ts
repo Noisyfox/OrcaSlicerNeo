@@ -28,7 +28,7 @@ export function savedBambuPrinter(device: BambuDevice): D.SavedPrinter {
   const revision = JSON.stringify(device.routes.map(route => [route.channel, route.revision]).sort((a, b) => a[0].localeCompare(b[0])));
   return {
     identity: { id: printerId, displayName: device.name, manufacturer: 'Bambu Lab', model: device.model, serialNumber: device.deviceId,
-      externalRefs: [{ namespace: 'bambu', value: device.deviceId }] },
+      externalRefs: [{ namespace: 'bambu', value: device.deviceId }, ...(device.modelId ? [{ namespace: 'orca-printer-model', value: device.modelId }] : [])] },
     routes: [{ id: `${printerId}:agent` as D.Id<'route'>, printerId, providerId,
       label: 'Bambu Lab', configurationRevision: revision,
       configuration: { typeId, hostId, channel: 'automatic', address: lan?.address ?? null, webInterfaceUrl: null, credentialRef: lan ? `bambu-lan:${encodeURIComponent(device.deviceId)}` as D.Id<'credential'> : null },

@@ -5,7 +5,7 @@ import type { BambuDevice } from '../../shared/bambuDevices';
 import { BambuDeviceAccess } from './deviceAccess';
 const target = (id: string): D.PrinterTarget => ({ printerId: `bambu:${id}` as D.Id<'printer'>, routeId: `bambu:${id}:agent` as D.Id<'route'> });
 function fixture() {
-  let now = 100; let devices: BambuDevice[] = ['a', 'b'].map(deviceId => ({ deviceId, name: deviceId, model: null, routes: [{ channel: 'cloud', revision: 'r1' }, { channel: 'lan', revision: 'l1', address: '192.0.2.1' }] }));
+  let now = 100; let devices: BambuDevice[] = ['a', 'b'].map(deviceId => ({ deviceId, name: deviceId, model: null, modelId: null, routes: [{ channel: 'cloud', revision: 'r1' }, { channel: 'lan', revision: 'l1', address: '192.0.2.1' }] }));
   const methods = ['setSelectedMachine', 'startSubscribe', 'stopSubscribe', 'sendMessage', 'sendMessageToPrinter', 'disconnectPrinter', 'connectPrinter'];
   const native = Object.fromEntries(methods.map(method => [method, vi.fn(async () => 0)])) as unknown as BambuNative;
   const changed = vi.fn(), release = vi.fn(async () => {});
@@ -53,7 +53,7 @@ it('merges same-printer Cloud and LAN reports and only loses freshness when both
 it('retains the logical target after logout, reconnects authorized LAN, and ignores late Cloud reports', async () => {
   const f = fixture(); try {
     await f.access.start(target('a'), 'view'); f.push('a');
-    f.setDevices([{ deviceId: 'a', name: 'a', model: null, routes: [{ channel: 'lan', revision: 'l1', address: '192.0.2.1' }] }]);
+    f.setDevices([{ deviceId: 'a', name: 'a', model: null, modelId: null, routes: [{ channel: 'lan', revision: 'l1', address: '192.0.2.1' }] }]);
     await f.access.reconcile();
     expect(f.native.connectPrinter).toHaveBeenCalledWith('a', '192.0.2.1', 'bblp', 'SECRET', true);
     f.push('a'); expect(await read(f)).toMatchObject({ value: { values: { status: { kind: 'unknown' } } } });

@@ -43,9 +43,15 @@ export interface PrinterRoute {
   /** Normal capabilities derived locally from type/configuration and retained observations. */
   capabilities: PrinterCapabilities;
 }
+/** Optional local catalogue association chosen by the user, not observed device identity. */
+export interface ConfiguredPrinterModel {
+  vendorId: string;
+  model: string;
+}
 export interface SavedPrinter {
   identity: PrinterIdentity;
   routes: readonly PrinterRoute[];
+  configuredModel?: ConfiguredPrinterModel;
 }
 export type BuildVolume = {
   kind: 'box';

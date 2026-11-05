@@ -133,6 +133,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   function saved({ printer, entry }: ResolvedConfiguration): D.SavedPrinter {
     return {
       identity: { id: printer.id as D.Id<'printer'>, displayName: printer.displayName, manufacturer: null, model: null, serialNumber: null, externalRefs: [] },
+      ...(printer.printerModel ? { configuredModel: { ...printer.printerModel } } : {}),
       routes: [{
         id: routeId(printer.id), printerId: printer.id as D.Id<'printer'>, providerId, label: 'Moonraker',
         configurationRevision: entry.revision,

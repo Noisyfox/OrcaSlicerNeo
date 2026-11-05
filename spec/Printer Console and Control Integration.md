@@ -640,6 +640,64 @@ provider validates commands against fresh observations and their original target
 Missing readings stay unreported; disconnected data is marked stale. Unknown
 outcomes never cause an automatic retry. Video remains outside this delivery.
 
+### Optional model for manually configured printers
+
+The manual Add/Edit printer form includes a searchable, optional **Printer
+model** selector. It starts at **Not specified** and can be cleared. Its choices
+come only from already loaded, enabled **system Printer profiles**, grouped by
+resource vendor and `printer_model`, without separate nozzle variants. User
+profiles, project-embedded profiles and frozen project copies are excluded;
+there is no vendor inference or fallback to local profiles. Opening or using
+this selector neither opens Setup nor downloads or enables additional vendors.
+Selecting a model does not switch the project's Printer.
+
+Persist the vendor/model reference with the physical device's local configuration
+in both hosts. The association survives restart and project/preset changes;
+editing or clearing it is explicit. Existing entries without an association
+remain unrestricted when the provider also has no known model. Saved-device
+enumeration exposes this user-configured association separately from the
+provider's reported identity.
+
+Send and Send & Print first retain their existing route/capability eligibility,
+then filter devices through the existing native Printer/device match query.
+Use the configured association when present, otherwise the provider's reported
+identity, including exact `orca-printer-model` references. Devices with neither
+a model nor an exact catalogue reference pass without a native query.
+Match the model rather than the preset's display name or nozzle variant.
+A selected device excluded by the filter is cleared without choosing a
+replacement. Device's own saved list remains complete.
+
+Matching belongs to the open send modal, where the project Printer is fixed.
+Reuse each device's pending or completed query while its effective manufacturer,
+model and exact catalogue references are unchanged. Repeated catalogue
+notifications, reordering, renaming and changes to other devices must not recreate
+the current print preparation or discard its manual slot mappings, options or
+job name. Checking another device must not interrupt the current matched device.
+Actual model changes invalidate that device's match; removing a device clears
+its selection, and late replies cannot restore an obsolete result. Closing the
+modal ends the matching session. Existing status/material validation continues:
+an unavailable chosen slot stays selected and blocks printing, rather than being
+replaced by an automatic suggestion. No project-change handling inside the modal
+is required.
+
+Bambu's agent resolves its bundled model catalogue locally and exposes the exact
+model reference in the saved-device catalogue as well as live descriptors. This
+does not require device probes, profile downloads or renderer-side Bambu model
+translation. Bambu print validation and existing Printer/Filament synchronization
+decisions are unchanged. This feature does not add Moonraker synchronization
+capabilities, submission-time rechecks, a new
+configuration revision policy, or model-catalogue invalidation handling.
+
+Acceptance covers saving, reopening, editing and clearing the association in both
+host repositories; enabled-only choices without vendor requests; empty/model
+match/mismatch send filtering for configured and provider-reported models,
+including U1 rejecting H2D and H2D accepting its exact catalogue reference;
+unchanged Bambu synchronization; and preservation
+of existing device and print preferences. The shared selector supports keyboard
+and pointer input and uses a bounded, scrollable popup. Mobile product support
+remains deferred; this control uses the existing responsive form and introduces
+no additional profile downloads or native catalogue allocation.
+
 ### Device Storage design
 
 **Decision status:** A shared, capability-driven Storage feature with Bambu as

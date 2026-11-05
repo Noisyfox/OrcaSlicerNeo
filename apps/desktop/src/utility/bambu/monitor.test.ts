@@ -8,7 +8,7 @@ import { prepareCommand } from './commands';
 const target = { printerId: 'bambu:a' as D.Id<'printer'>, routeId: 'bambu:a:agent' as D.Id<'route'> };
 function fixture() {
   const native = Object.fromEntries(['setSelectedMachine', 'startSubscribe', 'stopSubscribe', 'sendMessage', 'disconnectPrinter'].map(method => [method, vi.fn(async () => 0)])) as unknown as BambuNative;
-  const access = new BambuDeviceAccess(native, { list: async () => [{ deviceId: 'a', name: 'Printer', model: 'H2D', routes: [{ channel: 'cloud', revision: 'r1' }] }] },
+  const access = new BambuDeviceAccess(native, { list: async () => [{ deviceId: 'a', name: 'Printer', model: 'H2D', modelId: 'O1D', routes: [{ channel: 'cloud', revision: 'r1' }] }] },
     { read: async () => ({ version: 1, region: 'Others', clientId: 'fixture', lan: [] }) }, async () => {}, () => {}, Date.now, 100);
   const skipping = { projectContext: vi.fn<BambuObjectSkipping['projectContext']>(() => undefined), snapshotContext: vi.fn<BambuObjectSkipping['snapshotContext']>(() => undefined), readCatalogue: vi.fn<BambuObjectSkipping['readCatalogue']>() };
   const monitor = new BambuMonitor(access, skipping);

@@ -1,6 +1,7 @@
 import type { NativeHttpResult } from '@orca/bambu-native';
 import type { BambuDevice } from '../../shared/bambuDevices';
 import type { BambuRepository } from './repository';
+import { modelCatalogRefs } from './printResources';
 interface CloudDevice { deviceId: string; name: string; model: string | null; revision: string }
 /** Transactional complete-list reconciliation; failed/incomplete lists never erase devices. */
 export class BambuDevices {
@@ -37,7 +38,7 @@ export class BambuDevices {
     } catch { return false; }
   }
   async list(): Promise<readonly BambuDevice[]> {
-    const devices = new Map<string, BambuDevice>();
+    const devices = new Map<string, Omit<BambuDevice, 'modelId'>>();
     for (const device of this.cloud.values()) devices.set(device.deviceId, {
       deviceId: device.deviceId, name: device.name, model: device.model, routes: [{ channel: 'cloud', revision: device.revision }],
     });
@@ -48,6 +49,6 @@ export class BambuDevices {
       devices.set(record.deviceId, { deviceId: record.deviceId, name: previous?.name ?? record.name, model: previous?.model ?? record.model,
         routes: [...previous?.routes ?? [], { channel: 'lan', revision: record.revision, address: record.ip }] });
     }
-    return [...devices.values()];
+    return [...devices.values()].map(device => ({ ...device, modelId: modelCatalogRefs(device.model)[0]?.value ?? null }));
   }
 }
