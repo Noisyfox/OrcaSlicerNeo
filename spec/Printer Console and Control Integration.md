@@ -2532,9 +2532,9 @@ memory/size limits require the artifact feasibility check.
 
 ## Snapmaker agent design
 
-**Status:** Accepted design, not implementation authorization or delivered
-functionality. Scope, behavior and acceptance policy are settled below.
-Implementation and physical qualification remain separate work.
+**Status:** Accepted design with implementation in progress. Protocol groundwork
+does not yet deliver the user-facing workflow. Scope, behavior and acceptance
+policy are settled below; physical qualification remains separate.
 Protocol ownership, slicing semantics and evidence limits are maintained in
 [the Snapmaker agent architecture](Printer%20Domain%20and%20Control%20Architecture.md#25-snapmaker-agent-design).
 

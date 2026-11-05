@@ -2047,8 +2047,9 @@ does not establish a device, Cloud or cross-platform delivery claim.
 
 ### 2.5 Snapmaker agent design
 
-**Status:** Accepted design, not implementation authorization or delivered
-capability. Scope, behavior and acceptance policy are settled. The
+**Status:** Accepted design with implementation in progress; the Snapmaker
+provider and user-facing workflow are not yet delivered. Scope, behavior and
+acceptance policy are settled. The
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#snapmaker-agent-design)
 owns the user-facing decisions. Software acceptance can complete implementation
 independently of real-U1 qualification, which remains separately reported.
@@ -2341,6 +2342,16 @@ delivery. The
 owns these accepted scope limits.
 
 #### Reference evidence and qualification limits
+
+The provider-private [U1 preparation encoder](../packages/printer-control/src/snapmaker-protocol.ts)
+implements structured logical-material bindings, physical-head deduplication,
+protocol index validation and print-option command construction. Its protocol
+fixtures cover sparse IDs and many-to-one bindings; no file inspection is used.
+This foundation does not yet register a provider, send commands or qualify
+firmware execution. In particular, the inspected firmware's calibration-subset
+handler references both `flow_calibrate_extruders` and `flow_calib_extruders`;
+successful subset execution needs firmware qualification rather than assuming
+that a well-formed request proves the device applied it.
 
 The comparison distinguishes three separate implementations:
 
