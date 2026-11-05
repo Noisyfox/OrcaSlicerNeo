@@ -461,6 +461,12 @@ of the accepted initial direction.
   than one volume, following Orca's eligibility rule. The panel exposes Union,
   Difference and Intersection, named A/B slots, the applicable Delete input
   option and an explicit operation button.
+- While the Gizmo is open, use the shared
+  [tool instance isolation](Application%20Shell.md#tool-instance-isolation) to
+  show all Parts of its target instance. Follow a valid target change through
+  the Object List and release isolation when the tool closes, changes, or
+  becomes ineligible. Successful operations that retain the Gizmo keep the
+  target instance isolated.
 - Compute and apply the boolean only when that operation button is pressed.
   Picking operands and switching operation modes do not compute a result
   preview. Show operand identification and bounds. Merely picking operands,

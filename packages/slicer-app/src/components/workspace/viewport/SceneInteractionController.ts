@@ -1,4 +1,5 @@
 import { MeshBooleanSession, meshBooleanTarget } from './gizmo/meshBoolean/MeshBooleanSession';
+import { InstanceHider, visibleInstanceVolumes, type InstanceHiderLease } from './InstanceHider';
 import * as THREE from 'three';
 import type { ModelTransform } from '@slicer/client';
 import type { HistoryContext, ModelStructureResult } from '@slicer/client';
@@ -80,7 +81,9 @@ export interface SceneEntityCommitPort<Entity extends GLVolume = GLVolume> {
  */
 export class SceneInteractionController {
   readonly selection = new Selection();
+  readonly instanceHider = new InstanceHider();
   readonly meshBoolean = new MeshBooleanSession(() => this.getVolumes(), () => this.emit());
+  private booleanIsolation: InstanceHiderLease | null = null;
 
   private readonly listeners = new Set<() => void>();
   private selectionModeState: SelectionMode = 'instance';
@@ -359,15 +362,16 @@ export class SceneInteractionController {
   /** The GLVolume IDs a click expands to for a given selection mode (Orca's
    *  part selection is anchored to the clicked instance). */
   private hitModeVolumeIds(hit: GLVolume, mode: SelectionMode): string[] {
-    if (mode === 'object') return this.getVolumes().filter((v) => v.buffer.objectIdx === hit.buffer.objectIdx).map((v) => v.id);
+    const volumes = visibleInstanceVolumes(this.getVolumes(), this.instanceHider.getSnapshot());
+    if (mode === 'object') return volumes.filter((v) => v.buffer.objectIdx === hit.buffer.objectIdx).map((v) => v.id);
     if (mode === 'volume')
-      return this.getVolumes().filter(
+      return volumes.filter(
         (v) => v.buffer.objectIdx === hit.buffer.objectIdx
           && v.buffer.volumeIdx === hit.buffer.volumeIdx
           && v.buffer.instanceIdx === hit.buffer.instanceIdx,
       ).map((v) => v.id);
     const key = instanceKeyOf(hit);
-    return this.getVolumes().filter((v) => instanceKeyOf(v) === key).map((v) => v.id);
+    return volumes.filter((v) => instanceKeyOf(v) === key).map((v) => v.id);
   }
 
   /** The GLVolume IDs a composite target selects (object, part, or instance). */
@@ -384,7 +388,7 @@ export class SceneInteractionController {
   }
 
   selectFromHit(hit: GLVolume, additive: boolean, part = false): boolean {
-    if (this.meshBoolean.publishing) return false;
+    if (this.meshBoolean.publishing || !this.instanceHider.isVisible(hit)) return false;
     if (this.openGizmo === 'mesh-boolean' && this.meshBoolean.assign(hit)) return true;
     if (!hit.selectable) return false;
     if (hit instanceof WipeTowerVolume) {
@@ -401,9 +405,10 @@ export class SceneInteractionController {
     // whole instance — the workspace's per-click override of the selection mode.
     const mode = part ? 'volume' : this.selectionMode;
     if (additive && !this.canToggleVolumeIds(this.hitModeVolumeIds(hit, mode))) return false;
+    const volumes = visibleInstanceVolumes(this.getVolumes(), this.instanceHider.getSnapshot());
     const changed = additive
-      ? this.selection.toggleFromHit(hit, this.getVolumes(), mode)
-      : this.selection.replaceFromHit(hit, this.getVolumes(), mode);
+      ? this.selection.toggleFromHit(hit, volumes, mode)
+      : this.selection.replaceFromHit(hit, volumes, mode);
     this.syncGizmoToSelection();
     if (changed) this.emit();
     return changed;
@@ -445,6 +450,7 @@ export class SceneInteractionController {
    * a model mesh.
    */
   prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean, part = false): boolean {
+    if (!this.instanceHider.isVisible(hit)) return false;
     if (this.openGizmo === 'mesh-boolean' && this.meshBoolean.assign(hit)) return true;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
     this.pendingBodyDragHit = hit;
@@ -631,6 +637,7 @@ export class SceneInteractionController {
    * returns true.
    */
   tryBeginBodyDrag(hit?: GLVolume): boolean {
+    if (hit && !this.instanceHider.isVisible(hit)) return false;
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty) return false;
     // DragControls are always armed so the synchronous first move is not lost
     // while React publishes selection. Only the wrapper whose mesh was hit at
@@ -1055,7 +1062,8 @@ export class SceneInteractionController {
     const projector = this.boxSelectProjector;
     if (!projector) return false;
     const perInstance = new Map<InstanceKey, BoxRect>();
-    for (const volume of this.getVolumes().filter((volume) => volume.selectable)) {
+    const candidates = this.getVolumes().filter(volume => volume.selectable && this.instanceHider.isVisible(volume));
+    for (const volume of candidates) {
       const projected = this.projectVolumeRect(volume, projector);
       if (!projected) continue;
       const key = instanceKeyOf(volume);
@@ -1063,7 +1071,7 @@ export class SceneInteractionController {
       perInstance.set(key, existing ? unionRects(existing, projected) : projected);
     }
     const hits: GLVolume[] = [];
-    for (const volume of this.getVolumes().filter((volume) => volume.selectable)) {
+    for (const volume of candidates) {
       const bounds = perInstance.get(instanceKeyOf(volume));
       if (bounds && rectsOverlap(rect, bounds)) hits.push(volume);
     }
@@ -1364,6 +1372,14 @@ export class SceneInteractionController {
   }
 
   private emit(): void {
+    const target = this.openGizmo === 'mesh-boolean' ? this.meshBoolean.getSnapshot().target : null;
+    if (target) {
+      if (this.booleanIsolation) this.booleanIsolation.update(target);
+      else this.booleanIsolation = this.instanceHider.acquire(target);
+    } else {
+      this.booleanIsolation?.release();
+      this.booleanIsolation = null;
+    }
     for (const listener of this.listeners) listener();
   }
 }

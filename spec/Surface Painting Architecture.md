@@ -435,8 +435,11 @@ affected explicit facet references: a project with more than 16 slots or an
 unpainted part assigned to a higher slot is not itself an invalid paint state.
 
 Painting mode displays only the active editing instance. Other objects and
-other instances of the same object are hidden. The final annotations still
-belong to the shared volumes and therefore affect the other instances too.
+other instances of the same object are hidden through the shared
+[tool instance isolation](Application%20Shell.md#tool-instance-isolation),
+including during initial opening. Isolation follows the displayed target until
+its complete replacement is ready. The final annotations still belong to the
+shared volumes and therefore affect the other instances too.
 
 ### 3.2 Explicit closure and Escape
 

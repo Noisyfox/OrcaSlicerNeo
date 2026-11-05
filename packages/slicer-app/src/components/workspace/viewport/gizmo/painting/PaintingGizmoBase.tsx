@@ -10,6 +10,7 @@ import { PaintingProbe } from '@/e2e/PaintingProbe';
 import type { PaintingDisplay } from './PaintingController';
 import { PaintingCursor, PAINTING_RENDER_ORDER } from './PaintingCursor';
 import { resolvePrepareMaterial } from '../../prepareColourProjection';
+import { visibleInstanceVolumes, type InstanceHider, type InstanceHiderLease, type InstanceHiderTarget } from '../../InstanceHider';
 declare const __ORCA_E2E__: boolean;
 
 /** Adjust encoded RGB/RGBA through the shared Prepare material rules before
@@ -64,7 +65,7 @@ export function paintingPointer(event: Pick<PointerEvent, 'clientX' | 'clientY'>
 /** Borrowed cursor meshes retain identity across equivalent native metadata
  * reads. This also preserves their memoized tight bounds and input listeners. */
 export function paintingCursorMeshes(previous: THREE.Mesh[], volumes: readonly LoadedObject[], session: PaintingSessionMetadata | undefined, material: THREE.Material): THREE.Mesh[] {
-  const parts = session ? volumes.filter((v) => v.buffer.objectId === session.objectId && v.buffer.instanceId === session.instanceId && session.parts.some((p) => p.volumeId === v.buffer.volumeId)) : [];
+  const parts = session ? visibleInstanceVolumes(volumes, session).filter(v => session.parts.some(p => p.volumeId === v.buffer.volumeId)) : [];
   const matrices = parts.map((v) => paintingPartMatrix(session!, v.buffer.volumeId));
   if (previous.length === parts.length && previous.every((mesh, i) => mesh.geometry === parts[i].geometry && mesh.userData.paintingVolumeId === parts[i].buffer.volumeId && mesh.matrix.equals(matrices[i]))) return previous;
   return parts.map((v, i) => {
@@ -110,9 +111,16 @@ export function paintingModelBounds(meshes: readonly THREE.Mesh[]): THREE.Box3 {
   return box;
 }
 
+export interface PaintingGizmoProps {
+  volumes: readonly LoadedObject[];
+  openingVisual: ReactNode;
+  instanceHider: InstanceHider;
+  openingTarget: InstanceHiderTarget | null;
+}
+
 /** Dedicated painting tree: no ordinary model meshes, selection, drag or BVH on
  * subdivided geometry. Native candidates are separate, explicit manifests. */
-export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, openingVisual }: { volumes: readonly LoadedObject[]; resolveColor(display: PaintingDisplay, volumeId: number, state: number): string; resolveCursorColor(display: PaintingDisplay, state: number): THREE.Color; openingVisual: ReactNode }) {
+export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, openingVisual, instanceHider, openingTarget }: PaintingGizmoProps & { resolveColor(display: PaintingDisplay, volumeId: number, state: number): string; resolveCursorColor(display: PaintingDisplay, state: number): THREE.Color }) {
   const owner = usePaintingController()!, state = usePaintingState()!;
   const { camera, gl, invalidate, controls } = useThree();
   const cache = useMemo(() => new PaintingResources(), []);
@@ -121,6 +129,23 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
   const [visual, setVisual] = useState<{ display: PaintingDisplay; resources: PaintingResource[] } | null>(null);
   const [cursor, setCursor] = useState<THREE.Vector3 | null>(null);
   const session = visual?.display.session;
+  // Retain the displayed scope until its complete replacement is on screen.
+  // Initial opening has no native receipt yet, so isolate the selected target.
+  const isolationTarget = session ?? state.session ?? openingTarget;
+  const isolationLease = useRef<InstanceHiderLease | null>(null);
+  useLayoutEffect(() => () => {
+    isolationLease.current?.release();
+    isolationLease.current = null;
+  }, [instanceHider]);
+  useLayoutEffect(() => {
+    if (isolationTarget) {
+      if (isolationLease.current) isolationLease.current.update(isolationTarget);
+      else isolationLease.current = instanceHider.acquire(isolationTarget);
+    } else {
+      isolationLease.current?.release();
+      isolationLease.current = null;
+    }
+  }, [instanceHider, isolationTarget?.objectId, isolationTarget?.instanceId]);
   useLayoutEffect(() => {
     if (!state.display) return;
     try {

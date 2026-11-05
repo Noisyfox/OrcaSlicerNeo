@@ -142,6 +142,40 @@ export async function meshBooleanJourney(page: Page, addCube: () => Promise<void
   await page.getByTestId('objectlist-add-instance').click();
   await expect.poll(async () => (await booleanMeshes(page)).length).toBe(4);
   const instances = [...new Set((await booleanMeshes(page)).map(mesh => mesh.instanceId))].sort();
+  // Keep an unrelated object as well as the target's other instance loaded.
+  // The existing scene probe reads mounted model meshes, not the native list.
+  await addCube();
+  await expect.poll(async () => (await booleanMeshes(page)).length).toBe(5);
+  await expect(objects).toHaveCount(2);
+  const allModels = await booleanMeshes(page);
+  const modelIds = (meshes: Mesh[]) => meshes.map(mesh => `${mesh.objectId}:${mesh.volumeId}:${mesh.instanceId}`).sort();
+  const renderedModelIds = () => page.evaluate(() => [...new Set<string>((window as any).__orcaE2e.modelMaterialColours()
+    .map((material: { id: string }) => material.id))].sort());
+  await expect.poll(renderedModelIds).toEqual(modelIds(allModels));
+  const targetObject = original[0].objectId;
+  if (await page.getByTestId(`instances-${targetObject}`).count() === 0)
+    await page.getByTestId(`object-expand-${targetObject}`).click();
+  if (await page.getByTestId(`instance-${instances[0]}`).count() === 0)
+    await page.getByTestId(`instances-toggle-${targetObject}`).click();
+  await page.getByTestId(`instance-${instances[0]}`).getByRole('button').click();
+  await page.getByTestId('gizmo-btn-mesh-boolean').click();
+  await expect(panel).toBeVisible();
+  await expect.poll(renderedModelIds).toEqual(modelIds(allModels.filter(mesh => mesh.objectId === targetObject && mesh.instanceId === instances[0])));
+  await page.getByTestId(`instance-${instances[1]}`).getByRole('button').click();
+  await expect.poll(renderedModelIds).toEqual(modelIds(allModels.filter(mesh => mesh.objectId === targetObject && mesh.instanceId === instances[1])));
+  expect(await booleanMeshes(page)).toEqual(allModels);
+  await page.screenshot({ path: info.outputPath('mesh-boolean-isolated-instance.png') });
+  await page.getByTestId('gizmo-btn-move').click();
+  await expect(panel).toBeHidden();
+  await expect.poll(renderedModelIds).toEqual(modelIds(allModels));
+  await page.getByTestId('gizmo-btn-mesh-boolean').click();
+  await expect.poll(renderedModelIds).toEqual(modelIds(allModels.filter(mesh => mesh.objectId === targetObject && mesh.instanceId === instances[1])));
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect.poll(renderedModelIds).toEqual(modelIds(allModels));
+  // Undo only the temporary object import, retaining the two-instance fixture.
+  await page.getByTestId('history-undo').click();
+  await expect.poll(async () => (await booleanMeshes(page)).length).toBe(4);
   await objects.first().getByRole('button').first().click({ button: 'right' });
   await page.getByTestId('objectlist-mesh-boolean').click();
   await expect.poll(async () => (await booleanMeshes(page)).length, { timeout: 120_000 }).toBe(2);

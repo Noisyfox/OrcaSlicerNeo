@@ -104,7 +104,7 @@ describe('Mesh Boolean scene interaction', () => {
     expect(scene.gizmo).toBe(null); expect(session.getSnapshot().target).toBe(null);
   });
 
-  it('closes when an Alt-click selects the result Part in a different instance', () => {
+  it('rejects hidden-instance clicks and closes for a list-selected result Part in another instance', () => {
     const { scene, session, volumes } = setup();
     session.publishing = true;
     const replacement = volume(0,2), otherInstance = volume(0,2,1);
@@ -112,10 +112,14 @@ describe('Mesh Boolean scene interaction', () => {
     scene.pruneSelection(); session.completed(202); session.publishing = false;
     scene.selectVolumeIds([replacement.id]);
     expect(scene.gizmo).toBe('mesh-boolean');
-    scene.prepareBodyDragFromPointerDown(otherInstance, false, true);
+    expect(scene.prepareBodyDragFromPointerDown(otherInstance, false, true)).toBe(false);
+    expect(scene.selectedVolumes()).toEqual([replacement]);
+    expect(scene.gizmo).toBe('mesh-boolean');
+    scene.selectComposite(0, 2, 1);
     expect(scene.selectedVolumes()).toEqual([otherInstance]);
     expect(scene.gizmo).toBe(null);
     expect(session.getSnapshot().target).toBe(null);
     expect(session.request(false)).toBe(null);
+    expect(scene.instanceHider.getSnapshot()).toBe(null);
   });
 });

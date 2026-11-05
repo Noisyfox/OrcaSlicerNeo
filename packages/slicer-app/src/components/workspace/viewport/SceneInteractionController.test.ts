@@ -64,6 +64,53 @@ describe('SceneInteractionController', () => {
     controller.registerBoxSelectProjector((world) => ({ x: world.x, y: world.y }));
   }
 
+  it('shares Boolean isolation with pointer and marquee selection while allowing list retargeting', () => {
+    const unrelated = makeVolume(1, 0, 0, [40, 0, 0]); volumes.push(unrelated);
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.toggleGizmo('mesh-boolean')).toBe(true);
+    expect(controller.instanceHider.getSnapshot()).toEqual({ objectId: 100, instanceId: 300 });
+    expect(controller.selectFromHit(volumes[2], false)).toBe(false);
+    expect(controller.prepareBodyDragFromPointerDown(unrelated, false)).toBe(false);
+    expect(controller.tryBeginBodyDrag(unrelated)).toBe(false);
+    registerFlatProjector();
+    controller.beginBoxSelect({ x: -10, y: -10 }, false);
+    controller.updateBoxSelect({ x: 50, y: 10 }); controller.endBoxSelect();
+    expect(controller.selectedVolumes()).toEqual(volumes.slice(0, 2));
+    expect(controller.selectComposite(0, undefined, 1)).toBe(true);
+    expect(controller.instanceHider.getSnapshot()).toEqual({ objectId: 100, instanceId: 301 });
+    expect(controller.instanceHider.isVisible(volumes[0])).toBe(false);
+    expect(controller.instanceHider.isVisible(volumes[2])).toBe(true);
+    controller.toggleGizmo('move');
+    expect(controller.instanceHider.getSnapshot()).toBeNull();
+    controller.toggleGizmo('mesh-boolean'); controller.closeGizmo();
+    expect(controller.instanceHider.getSnapshot()).toBeNull();
+    expect(controller.selectFromHit(unrelated, false)).toBe(true);
+  });
+
+  it('restricts object-mode click expansion to the instance requested by any tool', () => {
+    const lease = controller.instanceHider.acquire(volumes[0].buffer);
+    controller.setSelectionMode('object');
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.selectedVolumes()).toEqual(volumes.slice(0, 2));
+    controller.selectFromHit(volumes[0], true);
+    expect(controller.selection.empty).toBe(true);
+    // Controller notifications from a non-isolating gizmo cannot release a
+    // scope owned by another tool, such as the shared painting base.
+    controller.notifyTransformsChanged();
+    expect(controller.instanceHider.getSnapshot()).not.toBeNull();
+    lease.release(); controller.selectFromHit(volumes[0], false);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+  });
+
+  it('releases Boolean isolation when selection becomes ineligible or the model resets', () => {
+    controller.selectFromHit(volumes[0], false); controller.toggleGizmo('mesh-boolean');
+    controller.selectVolumeIds([volumes[2].id]);
+    expect(controller.gizmo).toBeNull(); expect(controller.instanceHider.getSnapshot()).toBeNull();
+    controller.selectComposite(0, undefined, 1); controller.toggleGizmo('mesh-boolean');
+    controller.resetForModel();
+    expect(controller.instanceHider.getSnapshot()).toBeNull();
+  });
+
   it('starts one history transaction for a drag and commits only on release', async () => {
     const port = {
       begin: vi.fn(),

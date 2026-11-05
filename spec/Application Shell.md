@@ -508,6 +508,27 @@ consuming the scene gesture; interacting inside its options card keeps it open. 
 Arrange closes the armed transform gizmo and first awaits a successful close of any
 active painting session; unfinished painting operations continue to block switching.
 
+### Tool instance isolation
+
+Prepare tools share a scene-owned `InstanceHider`, following Orca's opt-in
+`InstancesHider` lifecycle. Mesh Boolean and all four painting channels request
+one target by stable object and instance IDs. Ordinary transform and Arrange
+tools do not request isolation.
+
+While requested, render only the target instance and hide other objects, other
+instances of the same object, and Prime Towers. Hidden models cannot receive
+viewport clicks, body drags, or marquee selection, including object-mode click
+expansion. The Object List and loaded geometry remain complete; list selection
+can still change a tool's target according to its admission rules. Closing or
+replacing the requesting tool releases its scope and restores normal Prepare
+visibility. A previous tool's delayed cleanup cannot release its successor's
+scope. Isolation does not change printability, geometry ownership, or history.
+
+Painting retains its dedicated draft renderer and native picking rules. Its
+isolation target follows the complete displayed session during an asynchronous
+target handoff, using the selected instance only for initial opening before a
+native session exists. Preview keeps its separate current-plate projection.
+
 ### Sidebar split and lifetime
 
 The sidebar contains two vertically resizable cards. The upper card scrolls

@@ -21,7 +21,8 @@ import { currentPreviewPlate, previewVolumesForCurrentPlate } from './previewSce
 import { WipeTowerVolumes } from './WipeTowerVolumeMesh';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 import { GizmoPivotProbe, SceneE2eProbe } from '@/e2e/SceneProbe';
-import { usePaintingState } from './gizmo/painting/PaintingProvider';
+import { paintingTarget, usePaintingState } from './gizmo/painting/PaintingProvider';
+import { visibleInstanceVolumes } from './InstanceHider';
 import { FuzzyPaintingGizmo } from './gizmo/painting/FuzzyPaintingGizmo';
 import { SeamPaintingGizmo } from './gizmo/painting/SeamPaintingGizmo';
 import { SupportPaintingGizmo } from './gizmo/painting/SupportPaintingGizmo';
@@ -99,7 +100,7 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
   }, [glVolumes, sceneInteraction, wipeTowerVolumes, paintingActive]);
 
   const PaintingGizmo = painting?.channel === 'support' ? SupportPaintingGizmo : painting?.channel === 'seam' ? SeamPaintingGizmo : painting?.channel === 'fuzzy' ? FuzzyPaintingGizmo : MmuPaintingGizmo;
-  if (paintingActive) return <PaintingGizmo volumes={glVolumes} openingVisual={<>
+  if (paintingActive) return <PaintingGizmo volumes={glVolumes} instanceHider={controller.instanceHider} openingTarget={paintingTarget(sceneInteraction)} openingVisual={<>
     {plateSession?.plates?.length ? plateSession.plates.map((plate) => <BedPlate bedModel={bedModel} bedTexture={bedTexture} key={plate.plateId} plate={plate} current={plate.plateId === plateSession.currentPlateId} />) : <BedPlate bedModel={bedModel} bedTexture={bedTexture} />}
     <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive={false} structure={structure} plateSession={plateSession}
       controller={controller} wipeTowerVolumes={wipeTowerVolumes} selectionRevision={controller.selection.revision} bodyDragEnabled={false} />
@@ -186,11 +187,15 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, s
   selectionRevision: number;
   bodyDragEnabled: boolean;
 }) {
+  const isolatedInstance = useSyncExternalStore(controller.instanceHider.subscribe, controller.instanceHider.getSnapshot);
+  // Unmount hidden meshes so their invisible painted pick surfaces also leave
+  // the raycast tree. The loader retains every source geometry and list row.
+  const visibleVolumes = useMemo(() => visibleInstanceVolumes(glVolumes, preview ? null : isolatedInstance), [glVolumes, preview, isolatedInstance]);
   return (
     <>
-      {!preview && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes} interactive={interactive}
+      {!preview && !isolatedInstance && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes} interactive={interactive}
         selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} />}
-      {glVolumes.map((volume) => (
+      {visibleVolumes.map((volume) => (
         <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession}
           selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} />
       ))}
