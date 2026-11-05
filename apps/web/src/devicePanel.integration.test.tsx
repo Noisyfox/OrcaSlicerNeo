@@ -94,30 +94,36 @@ describe('DevicePanel component', () => {
     expect(container.querySelector('[data-testid="device-printer-select"]')?.textContent).toContain('Select a printer');
 
     await click('device-add-printer');
-    expect(container.querySelector('[data-testid="device-config-dialog"]')).not.toBeNull();
-    const form = container.querySelector('[data-testid="device-config-dialog"] form') as HTMLFormElement;
+    // Shared Dialog renders through a portal outside the component container.
+    const dialog = document.querySelector('[data-testid="device-config-dialog"]');
+    expect(dialog).not.toBeNull();
+    const form = dialog!.querySelector('form') as HTMLFormElement;
     const formInputs = [...form.querySelectorAll('input')];
     expect(formInputs.findIndex((input) => input.dataset.testid === 'device-api-base-url'))
       .toBeLessThan(formInputs.findIndex((input) => input.dataset.testid === 'device-console-url'));
     expect((form.querySelector('[data-testid="device-console-url"]') as HTMLInputElement).required).toBe(false);
-    const key = container.querySelector('[data-testid="device-api-key"]') as HTMLInputElement;
+    const key = form.querySelector('[data-testid="device-api-key"]') as HTMLInputElement;
     expect(key.type).toBe('password');
-    expect(container.textContent).not.toContain(printer.apiKey);
+    expect(document.body.textContent).not.toContain(printer.apiKey);
     setInput('device-display-name', 'Second printer');
     setInput('device-console-url', 'http://printer-two.local/console');
     setInput('device-api-base-url', 'http://printer-two.local:7125/');
     setInput('device-api-key', 'second-secret');
     await click('device-save-printer');
     expect(configuration.save).toHaveBeenCalledOnce();
+    expect(document.querySelector('[data-testid="device-config-dialog"]')).toBeNull();
     expect(container.querySelector('[data-testid="device-printer-select"]')?.textContent).toContain('Select a printer');
     expect(configuration.save.mock.calls[0][0].printers).toHaveLength(2);
     expect(configuration.save.mock.calls[0][0].printers[1].apiKey).toBe('second-secret');
 
     await click('device-select-p1');
     await click('device-edit-p1');
+    expect((document.querySelector('[data-testid="device-api-key"]') as HTMLInputElement).value).toBe(printer.apiKey);
+    expect(document.body.textContent).not.toContain(printer.apiKey);
     setInput('device-display-name', 'Edited workshop');
     await click('device-save-printer');
     expect(configuration.save.mock.calls.at(-1)?.[0].printers[0].displayName).toBe('Edited workshop');
+    expect(document.querySelector('[data-testid="device-config-dialog"]')).toBeNull();
   });
 
   it('requires delete confirmation, then disposes the selected console and shows empty state', async () => {
