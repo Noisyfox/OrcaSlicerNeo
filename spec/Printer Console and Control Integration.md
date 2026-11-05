@@ -640,6 +640,41 @@ provider validates commands against fresh observations and their original target
 Missing readings stay unreported; disconnected data is marked stale. Unknown
 outcomes never cause an automatic retry. Video remains outside this delivery.
 
+### Optional model for manually configured printers
+
+The manual Add/Edit printer form includes a searchable, optional **Printer
+model** selector. It starts at **Not specified** and can be cleared. Its choices
+come only from the already loaded, enabled Printer catalogue, grouped by resource
+vendor and `printer_model`, without separate nozzle variants. Opening or using
+this selector neither opens Setup nor downloads or enables additional vendors.
+Selecting a model does not switch the project's Printer.
+
+Persist the vendor/model reference with the physical device's local configuration
+in both hosts. The association survives restart and project/preset changes;
+editing or clearing it is explicit. Existing entries without an association
+remain unrestricted. Saved-device enumeration exposes this user-configured
+association separately from the provider's reported identity.
+
+Send and Send & Print first retain their existing route/capability eligibility,
+then filter devices with a configured model through the existing native
+Printer/device match query. An unspecified association passes this additional
+condition without a native query. Match the model rather than the preset's
+display name or nozzle variant. A selected device excluded by the filter is
+cleared without choosing a replacement. Device's own saved list remains complete.
+
+Bambu's reported identity, catalogue associations, print validation and existing
+Printer/Filament synchronization decisions are unchanged. This feature does not
+add Moonraker synchronization capabilities, submission-time rechecks, a new
+configuration revision policy, or model-catalogue invalidation handling.
+
+Acceptance covers saving, reopening, editing and clearing the association in both
+host repositories; enabled-only choices without vendor requests; empty/model
+match/mismatch send filtering; unchanged Bambu synchronization; and preservation
+of existing device and print preferences. The shared selector supports keyboard
+and pointer input and uses a bounded, scrollable popup. Mobile product support
+remains deferred; this control uses the existing responsive form and introduces
+no additional profile downloads or native catalogue allocation.
+
 ### Device Storage design
 
 **Decision status:** A shared, capability-driven Storage feature with Bambu as
