@@ -649,6 +649,11 @@ vendor and `printer_model`, without separate nozzle variants. Opening or using
 this selector neither opens Setup nor downloads or enables additional vendors.
 Selecting a model does not switch the project's Printer.
 
+A vendorless user or project-embedded preset shares the existing model entry when
+exactly one enabled vendor supplies that model. Vendorless custom models and
+ambiguous same-name models remain separate. This presentation grouping does not
+rewrite a saved association without an explicit selection.
+
 Persist the vendor/model reference with the physical device's local configuration
 in both hosts. The association survives restart and project/preset changes;
 editing or clearing it is explicit. Existing entries without an association
