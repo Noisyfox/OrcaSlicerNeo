@@ -44,6 +44,22 @@ describe('Electron printer configuration persistence', () => {
     await expect(savePrinterConfigurationFile('printer-config.json', { version: 1, printers: [{ ...record, apiKey: 4 }] }, filesystem)).rejects.toThrow();
     expect(filesystem.writeText).not.toHaveBeenCalled();
   });
+
+  it('restores, edits and clears the configured model through the file repository', async () => {
+    let content = '';
+    const filesystem = { readText: async () => content, writeText: async (_path: string, next: string) => { content = next; } };
+    const printerModel = { vendorId: 'Snapmaker', model: 'Snapmaker U1' };
+    await savePrinterConfigurationFile('printer-config.json', { version: 1, printers: [{ ...record, printerModel }] }, filesystem);
+    let document = await loadPrinterConfigurationFile('printer-config.json', filesystem);
+    expect(document.printers[0].printerModel).toEqual(printerModel);
+    document.printers[0].printerModel = { vendorId: 'BBL', model: 'Bambu Lab H2D' };
+    await savePrinterConfigurationFile('printer-config.json', document, filesystem);
+    document = await loadPrinterConfigurationFile('printer-config.json', filesystem);
+    expect(document.printers[0].printerModel?.model).toBe('Bambu Lab H2D');
+    delete document.printers[0].printerModel;
+    await savePrinterConfigurationFile('printer-config.json', document, filesystem);
+    expect((await loadPrinterConfigurationFile('printer-config.json', filesystem)).printers[0]).not.toHaveProperty('printerModel');
+  });
 });
 
 describe('independent print preference edits', () => {

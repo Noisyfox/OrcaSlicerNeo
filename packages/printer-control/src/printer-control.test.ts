@@ -64,6 +64,18 @@ describe('printer configuration', () => {
       ],
     })).toThrow(PrinterConfigurationValidationError);
   });
+
+  it('preserves an optional model association and leaves old or cleared entries unrestricted', () => {
+    const normalize = (printerModel?: unknown) => normalizePrinterConfigurationDocument({ version: 1, printers: [{ ...printer, printerModel }] }).printers[0];
+    expect(normalize()).not.toHaveProperty('printerModel');
+    expect(normalize(null)).not.toHaveProperty('printerModel');
+    expect(normalize({ vendorId: ' Snapmaker ', model: ' Snapmaker U1 ' }).printerModel)
+      .toEqual({ vendorId: 'Snapmaker', model: 'Snapmaker U1' });
+    expect(normalize({ vendorId: '', model: 'Custom printer' }).printerModel)
+      .toEqual({ vendorId: '', model: 'Custom printer' });
+    for (const invalid of ['', [], {}, { vendorId: 3, model: 'U1' }, { vendorId: 'Snapmaker', model: '' }])
+      expect(() => normalize(invalid)).toThrow(PrinterConfigurationValidationError);
+  });
 });
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
@@ -102,6 +114,22 @@ function deferred<T>() {
 }
 
 describe('Moonraker stateless service', () => {
+  it('publishes configured models separately from observations without changing route revisions', async () => {
+    const { service, configuration, transport } = setup();
+    const before = unwrap(await service.listSaved())[0];
+    const printerModel = { vendorId: 'Snapmaker', model: 'Snapmaker U1' };
+    const document = await configuration.load();
+    await configuration.save({ ...document, printers: [{ ...document.printers[0], printerModel }] });
+    const saved = unwrap(await service.listSaved())[0];
+    expect(saved.configuredModel).toEqual(printerModel);
+    expect(saved.identity).toEqual(before.identity);
+    expect(saved.routes).toEqual(before.routes);
+    await service.rename(target, 'Renamed device');
+    expect((await configuration.load()).printers[0].printerModel).toEqual(printerModel);
+    await service.updateRoute({ target, configuration: { ...saved.routes[0].configuration, address: 'http://new-printer.local/' } });
+    expect(unwrap(await service.listSaved())[0].configuredModel).toEqual(printerModel);
+    expect(transport.requests).toEqual([]);
+  });
   it('describes local capabilities and resolves the console without network I/O or credentials', async () => {
     const { service, transport } = setup();
     const saved = unwrap(await service.listSaved());

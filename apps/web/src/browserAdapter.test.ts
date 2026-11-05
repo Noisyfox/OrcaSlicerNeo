@@ -200,6 +200,23 @@ describe('browser adapter', () => {
     expect(JSON.parse(localStorage.getItem(PRINTER_CONFIGURATION_STORAGE_KEY)!)).toEqual(document);
     await expect(repository.load()).resolves.toEqual(document);
   });
+
+  it('restores, edits and clears device model associations across browser repository instances', async () => {
+    const repository = createBrowserPrinterConfigurationRepository();
+    const printerModel = { vendorId: 'Snapmaker', model: 'Snapmaker U1' };
+    await repository.save({ version: 1, printers: [{ id: 'model-printer', displayName: 'Printer', driverId: 'moonraker',
+      consoleUrl: '', apiBaseUrl: 'http://printer.local/', apiKey: '', printerModel }] });
+    const reopened = createBrowserPrinterConfigurationRepository();
+    let document = await reopened.load();
+    expect(document.printers[0].printerModel).toEqual(printerModel);
+    document.printers[0].printerModel = { vendorId: 'BBL', model: 'Bambu Lab H2D' };
+    await reopened.save(document);
+    document = await createBrowserPrinterConfigurationRepository().load();
+    expect(document.printers[0].printerModel?.model).toBe('Bambu Lab H2D');
+    delete document.printers[0].printerModel;
+    await reopened.save(document);
+    expect((await createBrowserPrinterConfigurationRepository().load()).printers[0]).not.toHaveProperty('printerModel');
+  });
 });
 
 it('propagates browser persistence rejection without publishing unsaved in-memory activation', async () => {

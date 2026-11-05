@@ -1,4 +1,5 @@
 import type { PrintPreferences } from './domain/print-options';
+import type { ConfiguredPrinterModel } from './domain/printer';
 import { normalizePrintPreferences } from './print-preferences';
 export const PRINTER_CONFIGURATION_VERSION = 1 as const;
 export const BUILT_IN_PRINTER_DRIVER_IDS = ['moonraker'] as const;
@@ -13,6 +14,8 @@ export interface PrinterConfiguration {
   apiBaseUrl: string;
   /** Kept complete in the configuration document; never included in errors. */
   apiKey: string;
+  /** Omitted means no user-configured model restriction. */
+  printerModel?: ConfiguredPrinterModel;
 }
 
 export interface PrinterConfigurationDocument {
@@ -109,6 +112,14 @@ export function normalizePrinterConfigurationDocument(value: unknown): PrinterCo
     const apiBaseUrl = normalizeUrl(raw.apiBaseUrl, `${prefix}.apiBaseUrl`, issues);
     if (typeof raw.apiKey !== 'string') issues.push(`${prefix}.apiKey must be a string`);
 
+    let printerModel: ConfiguredPrinterModel | undefined;
+    if (raw.printerModel !== undefined && raw.printerModel !== null) {
+      const model = raw.printerModel;
+      if (!isRecord(model) || typeof model.vendorId !== 'string' || typeof model.model !== 'string' || !model.model.trim()) {
+        issues.push(`${prefix}.printerModel must contain a vendorId and non-empty model`);
+      } else printerModel = { vendorId: model.vendorId.trim(), model: model.model.trim() };
+    }
+
     if (id && displayName && BUILT_IN_PRINTER_DRIVER_IDS.includes(driverId as BuiltInPrinterDriverId)
       && apiBaseUrl && typeof raw.apiKey === 'string') {
       printers.push({
@@ -119,6 +130,7 @@ export function normalizePrinterConfigurationDocument(value: unknown): PrinterCo
         apiBaseUrl,
         // Do not trim, truncate, or otherwise alter credentials.
         apiKey: raw.apiKey,
+        ...(printerModel ? { printerModel } : {}),
       });
     }
   }
