@@ -3,7 +3,7 @@ import { PrintPreparationPanel } from './PrintPreparationPanel';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SavedPrinter } from '@orca/printer-control/domain';
-import { usePrinterCatalogue } from '../device/usePrinterCatalogue';
+import { usePrinterCatalogue, usePrinterModelFilter } from '../device/usePrinterCatalogue';
 import type { RemoteFile } from '@orca/printer-control/domain';
 import { SendFailure, uploadForSend, startUploadedPrint, sendRoute } from './printerSend';
 import { gcodeFilenameBasename, updateUserPreferences, usePlatform, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
@@ -14,6 +14,7 @@ import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 
 export type SendGcodeAction = 'send' | 'send-and-print';
@@ -80,7 +81,10 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection, platf
   const sliceReady = activeSliceTarget === null && (targetReceipt ? cachedReceipt?.inputStamp === targetReceipt.inputStamp &&
     cachedReceipt?.resultGeneration === targetReceipt.resultGeneration && cachedReceipt?.sliceTaskId === targetReceipt.sliceTaskId : sliceStatus === 'done');
   const catalogue = usePrinterCatalogue(platform.printers.service, open);
-  const printers = useMemo(() => catalogue.printers.filter(printer => sendRoute(printer, action === 'send-and-print') || action === 'send-and-print' && printer.routes.some(r => r.capabilities.submission?.kind === 'supported')), [catalogue.printers, action]);
+  const candidates = useMemo(() => catalogue.printers.filter(printer => sendRoute(printer, action === 'send-and-print') || action === 'send-and-print' && printer.routes.some(r => r.capabilities.submission?.kind === 'supported')), [catalogue.printers, action]);
+  const projectPrinter = useSettingsStore(s => s.selectedPrinter);
+  const modelFilter = usePrinterModelFilter(platform.runtime, candidates, projectPrinter, open);
+  const printers = modelFilter.printers;
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection ?? (action === 'send-and-print' ? useDeviceSelectionStore.getState().currentPrinterId : null));
   const [preparationBusy, setPreparationBusy] = useState(false);
   const [state, setState] = useState<SendState>('idle');
@@ -107,8 +111,11 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection, platf
     [printers, selectedPrinterId],
   );
   const submissionRoute = action === 'send-and-print' ? selectedPrinter?.routes.find(r => r.capabilities.submission?.kind === 'supported') : undefined;
-  const reason = !catalogue.loaded ? 'Loading printers…' : catalogue.failed ? 'Printer configuration is unavailable. Check Device settings.' : unavailableReason(sliceReady, printers, selectedPrinter);
-  const busy = preparationBusy || !catalogue.loaded || state === 'uploading' || state === 'starting';
+  const reason = !catalogue.loaded ? 'Loading printers…' : catalogue.failed ? 'Printer configuration is unavailable. Check Device settings.'
+    : modelFilter.pending ? 'Checking printer models…'
+    : candidates.length > 0 && printers.length === 0 ? modelFilter.failed ? 'Could not check configured printer models.' : 'No configured printer model matches the project Printer.'
+    : unavailableReason(sliceReady, printers, selectedPrinter);
+  const busy = preparationBusy || !catalogue.loaded || modelFilter.pending || state === 'uploading' || state === 'starting';
   const controlsDisabled = busy || state === 'success';
   const awaitingConfirmation = state === 'uploading' && progress.fraction !== undefined && progress.fraction >= 1;
   const progressValue = state !== 'uploading' || progress.fraction === undefined
@@ -169,9 +176,9 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection, platf
   }, [open]);
 
   useEffect(() => {
-    if (!catalogue.loaded || catalogue.failed || state === 'uploading' || state === 'starting') return;
+    if (!catalogue.loaded || catalogue.failed || modelFilter.pending || state === 'uploading' || state === 'starting') return;
     setSelectedPrinterId(previous => previous && printers.some(printer => printer.identity.id === previous) ? previous : null);
-  }, [catalogue.loaded, catalogue.failed, printers, state]);
+  }, [catalogue.loaded, catalogue.failed, modelFilter.pending, printers, state]);
 
   useEffect(() => {
     if (!open) {

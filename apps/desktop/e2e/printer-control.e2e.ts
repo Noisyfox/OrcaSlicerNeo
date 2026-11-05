@@ -376,6 +376,40 @@ test('Device config and Electron console fixture inject the API key', async () =
   }
 });
 
+test('manual printer model filters Send and Send & Print without hiding devices in Device', async () => {
+  test.skip(process.env.ORCA_E2E_REAL === '1', 'Uses the deterministic enabled mock profile catalogue.');
+  const fixture = await startMoonrakerFixture();
+  const connection = { driverId: 'moonraker', consoleUrl: `${fixture.baseUrl}/console`, apiBaseUrl: fixture.baseUrl, apiKey: '' };
+  const { app } = await launchApp({ version: 1, printers: [
+    { ...connection, id: 'match', displayName: 'Matching model', printerModel: { vendorId: 'bambulab', model: 'X1 Carbon' } },
+    { ...connection, id: 'mismatch', displayName: 'Different model', printerModel: { vendorId: 'bambulab', model: 'P1S' } },
+    { ...connection, id: 'any', displayName: 'Unspecified model' },
+  ] });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await expect(page.getByRole('option')).toHaveCount(3);
+    await page.getByTestId('device-select-mismatch').click();
+    await addFixtureModelAndSlice(page);
+    for (const action of ['Send', 'Send & Print']) {
+      await page.getByTestId('output-mode-select').click();
+      await page.getByRole('menuitemradio', { name: action, exact: true }).click();
+      await page.getByTestId(action === 'Send' ? 'btn-send' : 'btn-send-and-print').click();
+      await expect(page.getByTestId('send-printer-select')).toBeEnabled();
+      await expect(page.getByTestId('send-submit')).toBeDisabled();
+      await page.getByTestId('send-printer-select').click();
+      await expect(page.getByTestId('send-printer-match')).toBeVisible();
+      await expect(page.getByTestId('send-printer-any')).toBeVisible();
+      await expect(page.getByTestId('send-printer-mismatch')).toHaveCount(0);
+      await page.getByTestId('send-printer-match').click();
+      await expect(page.getByTestId('send-submit')).toBeEnabled();
+      await page.getByTestId('send-close').click();
+    }
+    expect(fixture.state.uploadBodies).toHaveLength(0);
+  } finally { await app.close(); await fixture.close(); }
+});
+
 test('Send and Send & Print use Moonraker fixture without re-upload on start failure', async () => {
   const fixture = await startMoonrakerFixture();
   const printerId = 'fixture-printer';
