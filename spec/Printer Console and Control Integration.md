@@ -644,15 +644,12 @@ outcomes never cause an automatic retry. Video remains outside this delivery.
 
 The manual Add/Edit printer form includes a searchable, optional **Printer
 model** selector. It starts at **Not specified** and can be cleared. Its choices
-come only from the already loaded, enabled Printer catalogue, grouped by resource
-vendor and `printer_model`, without separate nozzle variants. Opening or using
+come only from already loaded, enabled **system Printer profiles**, grouped by
+resource vendor and `printer_model`, without separate nozzle variants. User
+profiles, project-embedded profiles and frozen project copies are excluded;
+there is no vendor inference or fallback to local profiles. Opening or using
 this selector neither opens Setup nor downloads or enables additional vendors.
 Selecting a model does not switch the project's Printer.
-
-A vendorless user or project-embedded preset shares the existing model entry when
-exactly one enabled vendor supplies that model. Vendorless custom models and
-ambiguous same-name models remain separate. This presentation grouping does not
-rewrite a saved association without an explicit selection.
 
 Persist the vendor/model reference with the physical device's local configuration
 in both hosts. The association survives restart and project/preset changes;

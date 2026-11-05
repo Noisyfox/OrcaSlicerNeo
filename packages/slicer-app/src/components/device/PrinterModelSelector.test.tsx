@@ -49,25 +49,26 @@ it('offers only enabled models once per vendor/model and supports selection and 
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it.each([false, true])('folds a vendorless H2D preset into its enabled model (user first: %s)', async userFirst => {
-  const user = preset('Bambu Lab H2D', '0.4', { vendor_id: '', is_user: true });
-  const system = preset('Bambu Lab H2D', '0.4', { vendor_id: 'BBL' });
+it('offers the system H2D once and excludes user, embedded and frozen project copies', async () => {
   useSettingsStore.setState({ printers: [
-    ...(userFirst ? [user, system] : [system, user]),
+    preset('Bambu Lab H2D', '0.4', { vendor_id: '', is_user: true }),
+    preset('Bambu Lab H2D', '0.4', { vendor_id: 'BBL' }),
     preset('Bambu Lab H2D', '0.6', { vendor_id: 'BBL' }),
-    preset('Bambu Lab H2D', '0.8', { vendor_id: '', is_project_embedded: true }),
+    preset('Bambu Lab H2D', '0.8', { vendor_id: '' }),
+    preset('Embedded model', '0.4', { is_project_embedded: true }),
+    preset('User model', '0.4', { is_user: true }),
     preset('Homebuilt', '0.4', { vendor_id: '', is_user: true }),
     preset('Homebuilt', '0.4', { vendor_id: 'Hidden vendor', is_visible: false }),
   ] });
   const fetch = vi.spyOn(globalThis, 'fetch');
   const onChange = vi.fn();
   const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-  await act(async () => root!.render(<PrinterModelSelector value={{ vendorId: '', model: 'Bambu Lab H2D' }} onChange={onChange} />));
+  await act(async () => root!.render(<PrinterModelSelector value={{ vendorId: 'BBL', model: 'Bambu Lab H2D' }} onChange={onChange} />));
   const trigger = container.querySelector('[data-testid="device-printer-model"]');
   expect(trigger?.textContent).toContain('BBL · Bambu Lab H2D');
   await click(trigger);
   const options = [...document.querySelectorAll('[role="option"]')];
-  expect(options.map(option => option.textContent)).toEqual(['Not specified', 'BBL · Bambu Lab H2D', 'Homebuilt']);
+  expect(options.map(option => option.textContent)).toEqual(['Not specified', 'BBL · Bambu Lab H2D']);
   expect(options[1].getAttribute('aria-selected')).toBe('true');
   expect(onChange).not.toHaveBeenCalled();
   await click(options[1]);
@@ -75,12 +76,22 @@ it.each([false, true])('folds a vendorless H2D preset into its enabled model (us
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it('keeps distinct vendors separate instead of guessing an ambiguous vendorless association', async () => {
+it('keeps same-name system models from different vendors separate', async () => {
   useSettingsStore.setState({ printers: [preset('Shared model', '0.4', { vendor_id: 'Vendor A' }),
     preset('Shared model', '0.4', { vendor_id: 'Vendor B' }), preset('Shared model', '0.4', { vendor_id: '', is_user: true })] });
   const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   await act(async () => root!.render(<PrinterModelSelector value={undefined} onChange={() => undefined} />));
   await click(container.querySelector('[data-testid="device-printer-model"]'));
   expect([...document.querySelectorAll('[role="option"]')].map(option => option.textContent))
-    .toEqual(['Not specified', 'Vendor A · Shared model', 'Vendor B · Shared model', 'Shared model']);
+    .toEqual(['Not specified', 'Vendor A · Shared model', 'Vendor B · Shared model']);
+});
+
+it('offers no local fallback when there is no enabled system model', async () => {
+  useSettingsStore.setState({ printers: [preset('Bambu Lab H2D', '0.4', { vendor_id: 'BBL', is_visible: false }),
+    preset('Bambu Lab H2D', '0.4', { vendor_id: '' }), preset('Homebuilt', '0.4', { is_user: true }),
+    preset('Embedded model', '0.4', { is_project_embedded: true })] });
+  const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  await act(async () => root!.render(<PrinterModelSelector value={undefined} onChange={() => undefined} />));
+  await click(container.querySelector('[data-testid="device-printer-model"]'));
+  expect([...document.querySelectorAll('[role="option"]')].map(option => option.textContent)).toEqual(['Not specified']);
 });

@@ -9,7 +9,7 @@ import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxGroup, ComboboxInput,
 const unspecified = 'unspecified';
 const keyOf = ({ vendorId, model }: ConfiguredPrinterModel) => JSON.stringify([vendorId, model]);
 
-/** Uses the live enabled catalogue only; opening this field never installs profiles. */
+/** Uses enabled system profiles only; opening this field never installs profiles. */
 export function PrinterModelSelector({ value, onChange }: {
   value: ConfiguredPrinterModel | undefined;
   onChange(value: ConfiguredPrinterModel | undefined): void;
@@ -19,35 +19,27 @@ export function PrinterModelSelector({ value, onChange }: {
   const models = useMemo(() => {
     const entries = new Map<string, ConfiguredPrinterModel>();
     for (const printer of printers) {
-      if (!printer.is_visible || printer.is_default || !printer.model) continue;
+      // Frozen project copies can inherit a system picker classification, but
+      // do not own its resource vendor. They are not system model choices.
+      if (!printer.is_visible || printer.is_default || printer.is_user || printer.is_project_embedded ||
+          !printer.vendor_id || !printer.model) continue;
       const model = { vendorId: printer.vendor_id, model: printer.model };
       entries.set(keyOf(model), model);
     }
-    // User/embedded presets can retain printer_model without a vendor profile.
-    // Fold them into the enabled vendor's model only when that association is unique.
-    const namedModels = new Map<string, string | null>();
-    for (const [key, model] of entries) {
-      if (model.vendorId) namedModels.set(model.model, namedModels.has(model.model) ? null : key);
-    }
-    for (const [key, model] of entries) {
-      if (!model.vendorId && namedModels.get(model.model)) entries.delete(key);
-    }
-    return { entries, namedModels };
+    return entries;
   }, [printers]);
-  const items = useMemo(() => [unspecified, ...models.entries.keys()], [models]);
+  const items = useMemo(() => [unspecified, ...models.keys()], [models]);
   const label = (key: string) => {
-    const model = models.entries.get(key);
+    const model = models.get(key);
     return model ? [model.vendorId, model.model].filter(Boolean).join(' · ') : 'Not specified';
   };
-  const selectedKey = value ? (value.vendorId ? undefined : models.namedModels.get(value.model)) ?? keyOf(value) : unspecified;
-  const selectedModel = models.entries.get(selectedKey) ?? value;
-  const selectedLabel = selectedModel ? [selectedModel.vendorId, selectedModel.model].filter(Boolean).join(' · ') : 'Not specified';
+  const selectedLabel = value ? [value.vendorId, value.model].filter(Boolean).join(' · ') : 'Not specified';
   return <Field orientation="responsive">
     <FieldLabel className="@md/field-group:w-40! @md/field-group:flex-none!" htmlFor="device-printer-model">Printer model <span className="text-muted-foreground">(optional)</span></FieldLabel>
     <FieldContent className="min-w-0">
-      <Combobox items={items} value={selectedKey} itemToStringLabel={label}
+      <Combobox items={items} value={value ? keyOf(value) : unspecified} itemToStringLabel={label}
         inputValue={search} onInputValueChange={setSearch} onOpenChange={open => { if (!open) setSearch(''); }}
-        onValueChange={key => { if (key !== null) onChange(models.entries.get(key)); }}>
+        onValueChange={key => { if (key !== null) onChange(models.get(key)); }}>
         <ComboboxTrigger id="device-printer-model" aria-label="Printer model" data-testid="device-printer-model"
           aria-describedby="device-printer-model-description" title={selectedLabel}
           className="w-full justify-between" render={<Button variant="outline" />}>
