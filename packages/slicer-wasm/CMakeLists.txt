@@ -609,6 +609,12 @@ set(ORCA_LINK_OPTIMIZE -O3)
 if(WASM_DEBUG)
   set(ORCA_LINK_OPTIMIZE -O0 -g)
 endif()
+set(ORCA_RUNTIME_EXPORTS callMain FS ccall cwrap UTF8ToString HEAPU8 addFunction removeFunction getExceptionMessage)
+if(WASM_THREADING)
+  # Emscripten 6.0.13 removed FS.filesystems; expose the linked backend directly.
+  list(APPEND ORCA_RUNTIME_EXPORTS NODEFS)
+endif()
+list(JOIN ORCA_RUNTIME_EXPORTS "," ORCA_RUNTIME_EXPORTS)
 target_link_options(orca_slice PRIVATE
   ${ORCA_LINK_OPTIMIZE}
   -fexceptions
@@ -641,7 +647,7 @@ target_link_options(orca_slice PRIVATE
   # ALLOW_TABLE_GROWTH above makes dynamic allocation safe).
   # getExceptionMessage: M4 diag — decodes a CppException's excPtr into the
   # thrown type name (bridge probe); kept in the export list for CI probes.
-  -sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall,cwrap,UTF8ToString,HEAPU8,addFunction,removeFunction,getExceptionMessage
+  "-sEXPORTED_RUNTIME_METHODS=${ORCA_RUNTIME_EXPORTS}"
   # _main must be exported too: callMain is only generated when main is
   # kept (Emscripten 6 drops it otherwise, breaking Module.callMain).
   -sEXPORTED_FUNCTIONS=_main,_malloc,_free

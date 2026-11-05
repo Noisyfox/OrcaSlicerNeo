@@ -13,8 +13,8 @@ import { setNativeScopedConfig } from './native-scoped-command.mjs';
 const Module = await (await loadModuleFactory(process.argv[2]))({ noInitialRun: true, print: () => {}, printErr: console.error });
 const nativeTmp = process.argv.includes('--native-tmp') ? mkdtempSync(resolve(tmpdir(), 'neo-aux-')) : undefined;
 if (nativeTmp) {
-  assert.ok(Module.FS.filesystems.NODEFS, 'threaded Electron filesystem backend');
-  Module.FS.mount(Module.FS.filesystems.NODEFS, { root: nativeTmp }, '/tmp');
+  assert.ok(Module.NODEFS, 'threaded Electron filesystem backend');
+  Module.FS.mount(Module.NODEFS, { root: nativeTmp }, '/tmp');
   process.on('exit', () => rmSync(nativeTmp, { recursive: true, force: true }));
 }
 await installProfilePackages(Module, createNodeProfileSource(resolve(import.meta.dirname, '../../profile-resources/dist')));

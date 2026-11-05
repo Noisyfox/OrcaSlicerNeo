@@ -19,8 +19,8 @@ const source = `import factory from ${JSON.stringify(pathToFileURL(modulePath).h
 import { join } from 'node:path';
 export default async function(options) {
   const module = await factory({ ...options, locateFile: (file) => join(${JSON.stringify(dirname(modulePath))}, file) });
-  if (!module.FS.filesystems.NODEFS) throw new Error('threaded artifact lacks NODEFS');
-  module.FS.mount(module.FS.filesystems.NODEFS, { root: ${JSON.stringify(native)} }, '/tmp');
+  if (!module.NODEFS) throw new Error('threaded artifact lacks NODEFS');
+  module.FS.mount(module.NODEFS, { root: ${JSON.stringify(native)} }, '/tmp');
   return module;
 }
 `;

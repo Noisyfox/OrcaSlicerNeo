@@ -1,6 +1,6 @@
 # Native Python Plugin Architecture
 
-**Date:** 2026-10-02
+**Date:** 2026-11-06
 
 **Status:** Major architecture specification. Electron utility hosting and threaded NODEFS are delivered with bounded Windows validation; Python is not implemented.
 
@@ -431,7 +431,9 @@ Validate the existing temporary-file workflows using one shared threaded WASM ar
 
 #### Implementation
 
-The existing threaded target links `-lnodefs.js`. Electron main creates one
+The threaded target links `-lnodefs.js` and exports `Module.NODEFS` explicitly;
+Emscripten 6.0.13 [removed the internal `FS.filesystems` registry](https://github.com/emscripten-core/emscripten/pull/27940).
+Electron main creates one
 `os.tmpdir()/orca-slicer-XXXXXX` directory per utility session and passes its
 absolute path privately to the utility's Node Worker. The typed WASM client
 mounts it at `/tmp` after the module factory resolves, before profile installation

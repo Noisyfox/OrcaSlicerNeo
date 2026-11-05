@@ -9,7 +9,7 @@ export function mountNativeTemporaryDirectory(module: OrcaModule, directory: str
     throw new Error('The native temporary directory must be an absolute host path');
   }
   const fs = module.FS;
-  const nodefs = fs.filesystems?.NODEFS;
+  const nodefs = module.NODEFS;
   if (!nodefs || !fs.mount || !fs.readdir) {
     throw new Error('The threaded WASM artifact does not provide NODEFS');
   }

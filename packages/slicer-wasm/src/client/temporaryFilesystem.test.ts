@@ -5,7 +5,7 @@ import type { OrcaModule } from './types';
 
 function nodefsModule(): OrcaModule {
   const module = createMockModule();
-  return { ...module, FS: { ...module.FS, filesystems: { NODEFS: {} }, mount: vi.fn() } };
+  return { ...module, NODEFS: {}, FS: { ...module.FS, mount: vi.fn() } };
 }
 
 describe('native temporary filesystem setup', () => {
@@ -13,7 +13,7 @@ describe('native temporary filesystem setup', () => {
     'mounts an empty /tmp at the exact host path %s', (directory) => {
       const module = nodefsModule();
       mountNativeTemporaryDirectory(module, directory);
-      expect(module.FS.mount).toHaveBeenCalledWith(module.FS.filesystems!.NODEFS, { root: directory }, '/tmp');
+      expect(module.FS.mount).toHaveBeenCalledWith(module.NODEFS, { root: directory }, '/tmp');
     },
   );
 

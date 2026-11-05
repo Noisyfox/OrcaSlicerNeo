@@ -20,6 +20,8 @@ export interface OrcaModule {
   HEAPF32: Float32Array;
   addFunction: (fn: (...args: unknown[]) => void, sig: string) => number;
   removeFunction?: (idx: number) => void;
+  /** Explicitly exported filesystem backend in the shared threaded artifact. */
+  NODEFS?: unknown;
   FS: {
     symlink: (target: string, path: string) => void;
     unlink: (path: string) => void;
@@ -31,8 +33,6 @@ export interface OrcaModule {
     stat?: (path: string) => { mode: number; size: number };
     isDir?: (mode: number) => boolean;
     isFile?: (mode: number) => boolean;
-    /** Optional NODEFS support in the shared threaded artifact. */
-    filesystems?: { NODEFS?: unknown };
     mount?: (filesystem: unknown, options: { root: string }, mountpoint: string) => unknown;
   };
 }
