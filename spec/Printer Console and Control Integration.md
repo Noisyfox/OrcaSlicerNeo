@@ -664,8 +664,21 @@ Use the configured association when present, otherwise the provider's reported
 identity, including exact `orca-printer-model` references. Devices with neither
 a model nor an exact catalogue reference pass without a native query.
 Match the model rather than the preset's display name or nozzle variant.
-A selected device excluded by the filter is
-cleared without choosing a replacement. Device's own saved list remains complete.
+A selected device excluded by the filter is cleared without choosing a
+replacement. Device's own saved list remains complete.
+
+Matching belongs to the open send modal, where the project Printer is fixed.
+Reuse each device's pending or completed query while its effective manufacturer,
+model and exact catalogue references are unchanged. Repeated catalogue
+notifications, reordering, renaming and changes to other devices must not recreate
+the current print preparation or discard its manual slot mappings, options or
+job name. Checking another device must not interrupt the current matched device.
+Actual model changes invalidate that device's match; removing a device clears
+its selection, and late replies cannot restore an obsolete result. Closing the
+modal ends the matching session. Existing status/material validation continues:
+an unavailable chosen slot stays selected and blocks printing, rather than being
+replaced by an automatic suggestion. No project-change handling inside the modal
+is required.
 
 Bambu's agent resolves its bundled model catalogue locally and exposes the exact
 model reference in the saved-device catalogue as well as live descriptors. This

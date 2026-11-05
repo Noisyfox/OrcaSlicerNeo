@@ -23,11 +23,11 @@ export function controlSnapshot(device: string, task = 'External task', fresh = 
   const capabilities = commandCapabilities({ ...telemetry.project(target, printer.identity), target, configurationRevision: printer.routes[0].configurationRevision, model });
   return { snapshot, description: { target, configurationRevision: printer.routes[0].configurationRevision, descriptor: snapshot.values.descriptor, capabilities } };
 }
-interface FixtureState { requests: unknown[]; data: Record<string, ReturnType<typeof controlSnapshot>>; commands: D.CommandRequest[]; tokens: string[]; operations: Record<string, D.CommandOperation>; objectMaps: Record<string, D.PrintObjectMap>; rejectNext?: boolean }
+interface FixtureState { requests: unknown[]; catalogueReads: number; data: Record<string, ReturnType<typeof controlSnapshot>>; commands: D.CommandRequest[]; tokens: string[]; operations: Record<string, D.CommandOperation>; objectMaps: Record<string, D.PrintObjectMap>; rejectNext?: boolean }
 declare global { var bambuControlFixture: FixtureState; }
 export async function installControlFixture(app: ElectronApplication, camera = false, objects = false, model = 'H2D') {
   await app.evaluate(({ ipcMain, BrowserWindow }, { channels, devices, data, regionChoices, objects }) => {
-    globalThis.bambuControlFixture = { data, requests: [], commands: [], tokens: [], operations: {}, objectMaps: {} };
+    globalThis.bambuControlFixture = { data, requests: [], catalogueReads: 0, commands: [], tokens: [], operations: {}, objectMaps: {} };
     if (objects) for (const [printerId, current] of Object.entries(data)) {
       current.description.capabilities.commands['jobs.skipObjects'] = { kind: 'supported', constraints: { maxObjects: 64 } };
       current.description.capabilities.observations.printObjects = { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } };
@@ -41,9 +41,12 @@ export async function installControlFixture(app: ElectronApplication, camera = f
         bytes: new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAMAAAABCAIAAACUgoPjAAAAEklEQVR4nGNgZ2DgZGDgZmAAAACgAByNA9yjAAAAAElFTkSuQmCC', 'base64')) };
     }
     ipcMain.removeHandler(channels.bambuRead);
-    ipcMain.handle(channels.bambuRead, (_event, kind) => kind === 'printers.saved' ? { ok: true, value: devices }
+    ipcMain.handle(channels.bambuRead, (_event, kind) => {
+      if (kind === 'printers.saved') globalThis.bambuControlFixture.catalogueReads++;
+      return kind === 'printers.saved' ? { ok: true, value: devices }
       : kind === 'account.state' ? { status: 'signed-out', error: null }
-      : kind === 'account.settings' ? [{ key: 'region', label: 'Region', value: 'Others', choices: regionChoices }] : { ok: true, value: [] });
+      : kind === 'account.settings' ? [{ key: 'region', label: 'Region', value: 'Others', choices: regionChoices }] : { ok: true, value: [] };
+    });
     ipcMain.removeHandler(channels.bambuControl);
     ipcMain.handle(channels.bambuControl, (_event, request) => {
       const fixture = globalThis.bambuControlFixture, { method, input } = request;

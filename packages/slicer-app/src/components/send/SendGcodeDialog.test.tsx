@@ -157,9 +157,12 @@ describe('SendGcodeDialog', () => {
     expect(transport.requests).toEqual([]);
   });
 
-  it.each(['send', 'send-and-print'] as const)('%s excludes reported H2D for a U1 project and accepts its exact catalogue identity for H2D', async action => {
+  it.each([
+    ['send', 'Snapmaker U1 0.4 nozzle', false], ['send-and-print', 'Snapmaker U1 0.4 nozzle', false],
+    ['send', 'Bambu Lab H2D 0.4 nozzle', true], ['send-and-print', 'Bambu Lab H2D 0.4 nozzle', true],
+  ] as const)('%s matches reported H2D against %s when the modal opens', async (action, projectPrinter, matches) => {
     useSlicerStore.setState({ status: 'done' });
-    useSettingsStore.setState({ selectedPrinter: 'Snapmaker U1 0.4 nozzle' });
+    useSettingsStore.setState({ selectedPrinter: projectPrinter });
     const transport = new FixtureTransport();
     const { platform, runtime } = makePlatform(transport);
     const saved = await platform.printers.service.listSaved(); if (!saved.ok) throw new Error('Fixture failed');
@@ -169,13 +172,9 @@ describe('SendGcodeDialog', () => {
       matches: useSettingsStore.getState().selectedPrinter === 'Bambu Lab H2D 0.4 nozzle'
         && identity.externalRefs.some(ref => ref.namespace === 'orca-printer-model' && ref.value === 'O1D') }));
     const view = await render(platform, action); roots.push(view.root);
-    expect(view.container.querySelector<HTMLButtonElement>('[data-testid="send-submit"]')!.disabled).toBe(true);
+    expect(view.container.querySelector<HTMLButtonElement>('[data-testid="send-submit"]')!.disabled).toBe(!matches);
     await click(view.container, 'send-printer-select');
-    expect(document.querySelector('[data-testid="send-printer-p1"]')).toBeNull();
-    await act(async () => { (document.querySelector('[data-testid="send-printer-p2"]') as HTMLElement).click(); });
-    await act(async () => { useSettingsStore.setState({ selectedPrinter: 'Bambu Lab H2D 0.4 nozzle' }); });
-    await click(view.container, 'send-printer-select');
-    expect(document.querySelector('[data-testid="send-printer-p1"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="send-printer-p1"]') !== null).toBe(matches);
     expect(transport.requests).toEqual([]);
   });
 
@@ -204,17 +203,21 @@ describe('SendGcodeDialog', () => {
     expect(runtime.getPrinterDeviceMatch).toHaveBeenCalledOnce();
   });
 
-  it('ignores an old model query after the project Printer changes', async () => {
+  it('ignores an old model query after the device model changes', async () => {
     useSlicerStore.setState({ status: 'done' });
     const { platform, runtime } = makePlatform(new FixtureTransport(), { version: 1, printers: [
       { ...printers[0], printerModel: { vendorId: 'Vendor', model: 'Alpha' } },
     ] });
+    const saved = await platform.printers.service.listSaved(); if (!saved.ok) throw new Error('Fixture failed');
+    let changed = () => {};
+    platform.printers.service.listSaved = async () => structuredClone(saved);
+    platform.printers.service.onSavedChanged = listener => { changed = listener; return () => {}; };
     let complete!: (value: { ok: true; printer: string; matches: boolean }) => void;
     runtime.getPrinterDeviceMatch.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }))
-      .mockResolvedValueOnce({ ok: true, printer: 'Other printer', matches: false });
+      .mockResolvedValueOnce({ ok: true, printer: 'Project Alpha 0.4 nozzle', matches: false });
     const view = await render(platform, 'send'); roots.push(view.root);
     expect(view.container.textContent).toContain('Checking printer models');
-    await act(async () => { useSettingsStore.setState({ selectedPrinter: 'Other printer' }); });
+    await act(async () => { saved.value[0].configuredModel = { vendorId: 'Vendor', model: 'Beta' }; changed(); });
     await act(async () => { complete({ ok: true, printer: 'Project Alpha 0.4 nozzle', matches: true }); });
     expect(view.container.textContent).toContain('No printer model matches');
     expect(view.container.querySelector<HTMLButtonElement>('[data-testid="send-submit"]')!.disabled).toBe(true);

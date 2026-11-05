@@ -130,7 +130,7 @@ test('Bambu Send & Print persists options, cancels safely, allows selection afte
     await expect(dialog).toBeVisible();
     await expect(picker).toHaveCount(0);
     await dialog.getByLabel('Material 1 source', { exact: true }).click();
-    await page.getByRole('button', { name: 'AMS A1 · PLA', exact: true }).click();
+    await page.getByRole('button', { name: 'AMS A4 · PLA', exact: true }).click();
     await dialog.getByRole('group', { name: 'Timelapse', exact: true }).getByRole('button', { name: 'Off', exact: true }).click();
     await expect.poll(() => JSON.parse(readFileSync(configPath, 'utf8')).printPreferences?.['bambu:a']?.timelapse).toBe(false);
     await expect(dialog.getByRole('group', { name: 'Timelapse', exact: true }).getByRole('button', { name: 'Off', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -138,6 +138,20 @@ test('Bambu Send & Print persists options, cancels safely, allows selection afte
     await dialog.getByRole('button', { name: 'Rename print job' }).click();
     await dialog.getByRole('textbox', { name: 'Print job name' }).fill('Cube');
     await dialog.getByRole('textbox', { name: 'Print job name' }).press('Enter');
+    // SSDP may repeatedly announce the same device while this modal is open.
+    // Catalogue refreshes and periodic validation must preserve this session.
+    const panel = await dialog.getByTestId('print-preparation').elementHandle();
+    const countPreparations = () => app.evaluate(() => globalThis.printFixture.requests.filter(request => (request as { method: string }).method === 'print.prepare').length);
+    for (let i = 0; i < 3; i++) {
+      const catalogueReads = await app.evaluate(() => globalThis.bambuControlFixture.catalogueReads);
+      const preparations = await countPreparations();
+      await app.evaluate(({ BrowserWindow }, channel) => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, 'printers'); }, Ipc.bambuChanged);
+      await expect.poll(() => app.evaluate(() => globalThis.bambuControlFixture.catalogueReads)).toBeGreaterThan(catalogueReads);
+      await expect.poll(countPreparations).toBeGreaterThan(preparations);
+      expect(await panel!.evaluate(node => node.isConnected)).toBe(true);
+      await expect(dialog.getByLabel('Material 1 source', { exact: true })).toHaveAttribute('data-source', 'path:0:3:0');
+      await expect(dialog.getByRole('group', { name: 'Timelapse', exact: true }).getByRole('button', { name: 'Off', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    }
     await page.screenshot({ path: '/tmp/neo-print-preparation.png', animations: 'disabled' });
     await dialog.getByTestId('print-submit').click(); await expect(dialog.getByText('Sending print', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeDisabled();
