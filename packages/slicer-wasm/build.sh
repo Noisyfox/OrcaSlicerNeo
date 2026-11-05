@@ -238,7 +238,7 @@ log "Building (emmake ninja) — expect to iterate on compile errors"
 discard_invalid_link_outputs
 BUILD_JOBS=()
 if [[ -n "${WASM_BUILD_JOBS:-}" ]]; then BUILD_JOBS=(-j "$WASM_BUILD_JOBS"); fi
-emmake ninja -C "$BUILD_DIR" "${BUILD_JOBS[@]}" orca_slice || die "Build failed. Common next steps:
+emmake ninja -C "$BUILD_DIR" ${BUILD_JOBS[@]+"${BUILD_JOBS[@]}"} orca_slice || die "Build failed. Common next steps:
   - Missing <tbb/X.h>: add X to TBB_HEADERS in build.sh and re-run.
   - Undefined symbol from an excluded file (SLA/CGAL/OCCT): add a stub in
     stubs/ or exclude its caller via DROP_PATTERNS in CMakeLists.txt.
