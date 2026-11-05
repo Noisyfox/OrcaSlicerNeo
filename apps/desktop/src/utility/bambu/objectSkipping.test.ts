@@ -21,7 +21,7 @@ function fixture() {
   const png = new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==', 'base64'));
   let report = { msg: 0, gcode_state: 'RUNNING', subtask_id: 'external-task', job_id: '12', plate_idx: 2,
     gcode_file: 'external.gcode.3mf', fun: (1n << 49n).toString(16), s_obj: [] as number[] };
-  let devices: BambuDevice[] = [{ deviceId: 'a', name: 'Printer', model: 'H2D', routes: [{ channel: 'cloud', revision: 'c1' }, { channel: 'lan', revision: 'l1', address: '192.0.2.1' }] }];
+  let devices: BambuDevice[] = [{ deviceId: 'a', name: 'Printer', model: 'H2D', modelId: 'O1D', routes: [{ channel: 'cloud', revision: 'c1' }, { channel: 'lan', revision: 'l1', address: '192.0.2.1' }] }];
   const native = Object.fromEntries(['setSelectedMachine', 'startSubscribe', 'stopSubscribe', 'sendMessage', 'sendMessageToPrinter', 'disconnectPrinter', 'connectPrinter', 'installDeviceCertificate'].map(method => [method, vi.fn(async () => 0)])) as unknown as BambuNative;
   native.getCameraUrl = vi.fn(async () => 'bambu:///tutk/fixture?ticket=PRIVATE');
   native.getVersion = vi.fn(async () => '02.08.01.99');
@@ -213,7 +213,7 @@ it('uses authorized LAN credentials and resolves the Orca-style remote ticket on
 it('invalidates configuration revisions and cancels in-flight resources when the task changes', async () => {
   const f = fixture(); try {
     await f.monitor.start(target, 'view'); const snapshot = await f.read();
-    f.setDevices([{ deviceId: 'a', name: 'Printer', model: 'H2D', routes: [{ channel: 'cloud', revision: 'c2' }] }]);
+    f.setDevices([{ deviceId: 'a', name: 'Printer', model: 'H2D', modelId: 'O1D', routes: [{ channel: 'cloud', revision: 'c2' }] }]);
     await f.objectSkipping.reconcileContext();
     expect(prepareStep(await f.context(), f.command(snapshot)).ok).toBe(false);
   } finally { await f.close(); }

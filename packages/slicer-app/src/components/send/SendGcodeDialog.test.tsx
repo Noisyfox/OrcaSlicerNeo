@@ -52,7 +52,7 @@ function makePlatform(
   const configuration = { load: vi.fn(async () => documentValue), save: vi.fn(async () => undefined) };
   const service = createMoonrakerService({ configuration, transport, host: { id: 'test' as import('@orca/printer-control/domain').Id<'agent-host'>, name: 'Test', execution: 'browser' } });
   const runtime = {
-    getPrinterDeviceMatch: vi.fn(async (identity: { model: string | null }) => ({ ok: true as const,
+    getPrinterDeviceMatch: vi.fn(async (identity: Parameters<PlatformCapabilities['runtime']['getPrinterDeviceMatch']>[0]) => ({ ok: true as const,
       printer: useSettingsStore.getState().selectedPrinter, matches: identity.model === 'Alpha' })),
     getPlateSessionSnapshot: vi.fn(async () => usePlateSessionStore.getState().snapshot!),
     exportGcodePlate: vi.fn(async () => ({ ok: true, fileName: 'output.gcode', bytes: new Uint8Array([1, 2, 3]) })),
@@ -129,28 +129,65 @@ describe('SendGcodeDialog', () => {
     useSettingsStore.setState(useSettingsStore.getInitialState(), true);
   });
 
-  it.each(['send', 'send-and-print'] as const)('%s filters configured models while retaining unconfigured and provider-reported devices', async action => {
+  it.each(['send', 'send-and-print'] as const)('%s filters configured and reported models while retaining devices with no model', async action => {
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
     const { platform, runtime } = makePlatform(transport, { version: 1, printers: [
       { ...printers[0], printerModel: { vendorId: 'Vendor', model: 'Alpha' } },
       { ...printers[1], printerModel: { vendorId: 'Vendor', model: 'Beta' } },
       { ...printers[1], id: 'unconfigured', displayName: 'No configured model' },
+      { ...printers[1], id: 'reported', displayName: 'Reported H2D' },
     ] });
     const saved = await platform.printers.service.listSaved(); if (!saved.ok) throw new Error('Fixture failed');
-    saved.value[2].identity = { ...saved.value[2].identity, manufacturer: 'Bambu Lab', model: 'O1D', externalRefs: [{ namespace: 'orca-printer-model', value: 'O1D' }] };
+    saved.value[0].identity.model = 'Beta'; // The explicit association takes precedence.
+    saved.value[3].identity = { ...saved.value[3].identity, manufacturer: 'Bambu Lab', model: 'O1D', externalRefs: [{ namespace: 'orca-printer-model', value: 'O1D' }] };
     platform.printers.service.listSaved = async () => saved;
     const view = await render(platform, action); roots.push(view.root);
     expect(view.container.querySelector<HTMLButtonElement>('[data-testid="send-submit"]')!.disabled).toBe(false);
     expect(runtime.getPrinterDeviceMatch.mock.calls).toEqual([
       [{ manufacturer: 'Vendor', model: 'Alpha', externalRefs: [] }],
       [{ manufacturer: 'Vendor', model: 'Beta', externalRefs: [] }],
+      [{ manufacturer: 'Bambu Lab', model: 'O1D', externalRefs: [{ namespace: 'orca-printer-model', value: 'O1D' }] }],
     ]);
     await click(view.container, 'send-printer-select');
     expect(document.querySelector('[data-testid="send-printer-p1"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="send-printer-p2"]')).toBeNull();
     expect(document.querySelector('[data-testid="send-printer-unconfigured"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="send-printer-reported"]')).toBeNull();
     expect(transport.requests).toEqual([]);
+  });
+
+  it.each(['send', 'send-and-print'] as const)('%s excludes reported H2D for a U1 project and accepts its exact catalogue identity for H2D', async action => {
+    useSlicerStore.setState({ status: 'done' });
+    useSettingsStore.setState({ selectedPrinter: 'Snapmaker U1 0.4 nozzle' });
+    const transport = new FixtureTransport();
+    const { platform, runtime } = makePlatform(transport);
+    const saved = await platform.printers.service.listSaved(); if (!saved.ok) throw new Error('Fixture failed');
+    saved.value[0].identity = { ...saved.value[0].identity, manufacturer: 'Bambu Lab', model: 'H2D', externalRefs: [{ namespace: 'orca-printer-model', value: 'O1D' }] };
+    platform.printers.service.listSaved = async () => saved;
+    runtime.getPrinterDeviceMatch.mockImplementation(async identity => ({ ok: true, printer: useSettingsStore.getState().selectedPrinter,
+      matches: useSettingsStore.getState().selectedPrinter === 'Bambu Lab H2D 0.4 nozzle'
+        && identity.externalRefs.some(ref => ref.namespace === 'orca-printer-model' && ref.value === 'O1D') }));
+    const view = await render(platform, action); roots.push(view.root);
+    expect(view.container.querySelector<HTMLButtonElement>('[data-testid="send-submit"]')!.disabled).toBe(true);
+    await click(view.container, 'send-printer-select');
+    expect(document.querySelector('[data-testid="send-printer-p1"]')).toBeNull();
+    await act(async () => { (document.querySelector('[data-testid="send-printer-p2"]') as HTMLElement).click(); });
+    await act(async () => { useSettingsStore.setState({ selectedPrinter: 'Bambu Lab H2D 0.4 nozzle' }); });
+    await click(view.container, 'send-printer-select');
+    expect(document.querySelector('[data-testid="send-printer-p1"]')).not.toBeNull();
+    expect(transport.requests).toEqual([]);
+  });
+
+  it('checks an exact catalogue reference even when the descriptive model is null', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const { platform, runtime } = makePlatform(new FixtureTransport());
+    const saved = await platform.printers.service.listSaved(); if (!saved.ok) throw new Error('Fixture failed');
+    saved.value[0].identity.externalRefs = [{ namespace: 'orca-printer-model', value: 'O1D' }];
+    platform.printers.service.listSaved = async () => saved;
+    const view = await render(platform, 'send'); roots.push(view.root);
+    expect(runtime.getPrinterDeviceMatch).toHaveBeenCalledWith({ manufacturer: null, model: null, externalRefs: [{ namespace: 'orca-printer-model', value: 'O1D' }] });
+    expect(view.container.querySelector<HTMLButtonElement>('[data-testid="send-submit"]')!.disabled).toBe(true);
   });
 
   it('clears a mismatching initial device without choosing another and accepts an unspecified model without querying', async () => {
@@ -179,7 +216,7 @@ describe('SendGcodeDialog', () => {
     expect(view.container.textContent).toContain('Checking printer models');
     await act(async () => { useSettingsStore.setState({ selectedPrinter: 'Other printer' }); });
     await act(async () => { complete({ ok: true, printer: 'Project Alpha 0.4 nozzle', matches: true }); });
-    expect(view.container.textContent).toContain('No configured printer model matches');
+    expect(view.container.textContent).toContain('No printer model matches');
     expect(view.container.querySelector<HTMLButtonElement>('[data-testid="send-submit"]')!.disabled).toBe(true);
   });
 

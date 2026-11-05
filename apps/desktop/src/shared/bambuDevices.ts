@@ -5,13 +5,16 @@ export interface BambuDevice {
   deviceId: string;
   name: string;
   model: string | null;
+  /** Exact Orca catalogue model resolved locally by the Bambu agent. */
+  modelId: string | null;
   routes: readonly (BambuCloudRoute | BambuLanRoute)[];
 }
 export function isBambuDevice(value: unknown): value is BambuDevice {
   if (!value || typeof value !== 'object') return false;
   const device = value as BambuDevice;
   if (typeof device.deviceId !== 'string' || !device.deviceId || typeof device.name !== 'string' || (device.model !== null && typeof device.model !== 'string')
-    || Object.keys(device).some(key => !['deviceId', 'name', 'model', 'routes'].includes(key)) || !Array.isArray(device.routes) || !device.routes.length) return false;
+    || (device.modelId !== null && (typeof device.modelId !== 'string' || !device.modelId))
+    || Object.keys(device).some(key => !['deviceId', 'name', 'model', 'modelId', 'routes'].includes(key)) || !Array.isArray(device.routes) || !device.routes.length) return false;
   const channels = new Set<string>();
   return device.routes.every(route => {
     if (!route || typeof route !== 'object' || !['cloud', 'lan'].includes(route.channel) || typeof route.revision !== 'string' || !route.revision || channels.has(route.channel)) return false;

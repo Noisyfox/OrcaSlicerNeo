@@ -9,6 +9,32 @@ import { Ipc } from '../src/shared/ipc';
 import { isBambuControlRequest } from '../src/shared/bambuControl';
 import type * as D from '@orca/printer-control/domain';
 declare global { var printFixture: { requests: unknown[]; submissions: D.PrintSubmissionRequest[]; chunks: number; state: D.PrintSubmissionState | null; holdRead: boolean; releaseRead?: () => void }; }
+test('Send & Print filters Bambu reported models and accepts matching agent catalogue references', async () => {
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1', ORCA_E2E_MODEL: resolve(__dirname, '../../../packages/slicer-wasm/fixtures/cube.stl') } });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await installControlFixture(app);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('btn-add-model').click(); await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 30_000 });
+    await page.getByTestId('output-mode-select').click();
+    await page.getByRole('menuitemradio', { name: 'Send & Print', exact: true }).click();
+    await page.getByTestId('btn-send-and-print').click();
+    const dialog = page.getByTestId('send-gcode-dialog');
+    await expect(dialog.getByText('No printer model matches the project Printer.', { exact: true })).toBeVisible();
+    await expect(dialog.getByTestId('send-printer-select')).not.toContainText('Workshop A');
+    await installControlFixture(app, false, false, 'Bambu Lab X1 Carbon');
+    await expect(dialog.getByTestId('send-printer-select')).toBeEnabled();
+    await dialog.getByTestId('send-printer-select').click();
+    await expect(page.getByRole('option', { name: 'Workshop A', exact: true })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Workshop B', exact: true })).toBeVisible();
+  } finally { await app.close(); }
+});
+
 test('Bambu Send & Print persists options, cancels safely, allows selection after unknown and closes on success', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'neo-print-e2e-')), configPath = join(directory, 'printer-config.json');
   writeFileSync(configPath, JSON.stringify({ version: 1, printers: [] }));
@@ -16,7 +42,7 @@ test('Bambu Send & Print persists options, cancels safely, allows selection afte
   try {
     const page = await app.firstWindow(); await page.setViewportSize({ width: 1280, height: 900 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
-    await installControlFixture(app);
+    await installControlFixture(app, false, false, 'Bambu Lab X1 Carbon');
     await app.evaluate(({ ipcMain, BrowserWindow }, channels) => {
       globalThis.printFixture = { requests: [], submissions: [], chunks: 0, state: null, holdRead: false };
       const changed = () => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channels.bambuChanged, 'control'); };

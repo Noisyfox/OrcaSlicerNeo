@@ -580,9 +580,11 @@ and browser storage events. Device renders discovery-only metadata, limits
 editing to the Moonraker form, and offers forgetting only on permitted routes.
 Manual configurations may retain an optional user-selected vendor/model
 association, exposed separately from observed identity in the saved catalogue.
-The shared application applies its optional model condition using the existing
-runtime match query; the printer domain does not import slicer code or reinterpret
-provider-reported model identifiers. The form, filtering and acceptance contract
+The shared application checks that association, or the provider's reported model
+and exact catalogue references when no association is set, using the existing
+runtime match query. A device with no known model passes. The printer domain
+does not import slicer code or reinterpret provider-reported model identifiers.
+The form, filtering and acceptance contract
 is owned by [optional manual-device models](Printer%20Console%20and%20Control%20Integration.md#optional-model-for-manually-configured-printers).
 Send requires a compatible G-code upload route and, for Send & Print, start
 support on that same route. An in-flight upload retains its operation target

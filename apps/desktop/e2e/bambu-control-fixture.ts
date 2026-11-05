@@ -7,9 +7,10 @@ import { savedBambuPrinter } from '../src/shared/bambuPrinters';
 import type { BambuDevice } from '../src/shared/bambuDevices';
 import { Ipc } from '../src/shared/ipc';
 import { bambuRegionChoices } from '../src/shared/bambu';
-const devices: BambuDevice[] = ['a', 'b'].map(deviceId => ({ deviceId, name: `Workshop ${deviceId.toUpperCase()}`, model: 'H2D', routes: [{ channel: 'cloud', revision: 'r1' }] }));
-export function controlSnapshot(device: string, task = 'External task', fresh = true, camera = false) {
-  const printer = savedBambuPrinter(devices.find(value => value.deviceId === device)!);
+import { modelCatalogRefs } from '../src/utility/bambu/printResources';
+const devices: BambuDevice[] = ['a', 'b'].map(deviceId => ({ deviceId, name: `Workshop ${deviceId.toUpperCase()}`, model: 'H2D', modelId: 'O1D', routes: [{ channel: 'cloud', revision: 'r1' }] }));
+export function controlSnapshot(device: string, task = 'External task', fresh = true, camera = false, model = 'H2D') {
+  const printer = savedBambuPrinter({ ...devices.find(value => value.deviceId === device)!, model, modelId: modelCatalogRefs(model)[0]?.value ?? null });
   const target = { printerId: printer.identity.id, routeId: printer.routes[0].id }, telemetry = new BambuTelemetry();
   telemetry.accept(JSON.stringify({ print: { command: 'push_status', msg: 0, ...(camera ? { ipcam: { ipcam_dev: '1', liveview: { local: 'local' } } } : {}), gcode_state: 'RUNNING', cali_version: 1, flag3: '8', fun2: '800000', subtask_id: task, subtask_name: task, stg_cur: 0, home_flag: 7, fun: ((1n << 32n) | (1n << 38n)).toString(16), spd_lvl: 2, mc_percent: 42, mc_remaining_time: 15, layer_num: 42, total_layer_num: 100,
     device: { airduct: { modeCur: 0, parts: [1, 2, 3, 6].map(index => ({ id: index << 4, state: index === 1 ? 50 : 0, range: 100 << 16 })) }, extruder: { state: 2, info: [{ id: 0, temp: (220 << 16) | 215 }, { id: 1, temp: 25 }] }, bed_temp: (60 << 16) | 60 },
@@ -19,12 +20,12 @@ export function controlSnapshot(device: string, task = 'External task', fresh = 
   } }));
   if (!fresh) telemetry.invalidate();
   const snapshot: D.PrinterSnapshot = telemetry.snapshot(target, printer.identity, printer.routes[0].configurationRevision, ['descriptor', 'status', 'thermal', 'motion', 'actuators', 'materials', 'sensors', 'alerts', 'firmware', 'cameras']);
-  const capabilities = commandCapabilities({ ...telemetry.project(target, printer.identity), target, configurationRevision: printer.routes[0].configurationRevision, model: 'H2D' });
+  const capabilities = commandCapabilities({ ...telemetry.project(target, printer.identity), target, configurationRevision: printer.routes[0].configurationRevision, model });
   return { snapshot, description: { target, configurationRevision: printer.routes[0].configurationRevision, descriptor: snapshot.values.descriptor, capabilities } };
 }
 interface FixtureState { requests: unknown[]; data: Record<string, ReturnType<typeof controlSnapshot>>; commands: D.CommandRequest[]; tokens: string[]; operations: Record<string, D.CommandOperation>; objectMaps: Record<string, D.PrintObjectMap>; rejectNext?: boolean }
 declare global { var bambuControlFixture: FixtureState; }
-export async function installControlFixture(app: ElectronApplication, camera = false, objects = false) {
+export async function installControlFixture(app: ElectronApplication, camera = false, objects = false, model = 'H2D') {
   await app.evaluate(({ ipcMain, BrowserWindow }, { channels, devices, data, regionChoices, objects }) => {
     globalThis.bambuControlFixture = { data, requests: [], commands: [], tokens: [], operations: {}, objectMaps: {} };
     if (objects) for (const [printerId, current] of Object.entries(data)) {
@@ -69,7 +70,8 @@ export async function installControlFixture(app: ElectronApplication, camera = f
       throw new Error('Unexpected fixture call');
     });
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channels.bambuChanged, 'printers');
-  }, { channels: Ipc, devices, objects, regionChoices: bambuRegionChoices, data: { 'bambu:a': controlSnapshot('a', 'External task', true, camera), 'bambu:b': controlSnapshot('b', 'Second task', true, camera) } });
+  }, { channels: Ipc, devices: devices.map(device => ({ ...device, model, modelId: modelCatalogRefs(model)[0]?.value ?? null })), objects,
+    regionChoices: bambuRegionChoices, data: { 'bambu:a': controlSnapshot('a', 'External task', true, camera, model), 'bambu:b': controlSnapshot('b', 'Second task', true, camera, model) } });
 }
 export async function publishControlSnapshot(app: ElectronApplication, device: string, task: string, fresh = true) {
   await app.evaluate(({ BrowserWindow }, { id, data, channel }) => {

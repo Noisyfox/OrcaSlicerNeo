@@ -1557,6 +1557,9 @@ describe('SlicerClient bridge contract', () => {
     expect(await c.getPrinterDeviceMatch(identity)).toEqual({ ok: true, matches: true, printer: 'Bambu Lab X1 Carbon 0.4 nozzle' });
     expect(await c.getPrinterDeviceMatch({ ...identity, manufacturer: 'Other vendor' })).toMatchObject({ ok: true, matches: false });
     expect(await c.getPrinterDeviceMatch({ ...identity, model: null })).toMatchObject({ ok: true, matches: false });
+    expect(await c.getPrinterDeviceMatch({ ...identity, model: 'BL-P001', externalRefs: [{ namespace: 'orca-printer-model', value: 'BL-P001' }] })).toMatchObject({ ok: true, matches: true });
+    expect(await c.getPrinterDeviceMatch({ ...identity, model: 'H2D', externalRefs: [{ namespace: 'orca-printer-model', value: 'O1D' }] })).toMatchObject({ ok: true, matches: false });
+    expect(await c.getPrinterDeviceMatch({ ...identity, model: null, externalRefs: [{ namespace: 'orca-compatible-printer-model', value: 'BL-P001' }] })).toMatchObject({ ok: true, matches: false });
     expect(await c.getHistoryStatus()).toEqual(before);
   });
 

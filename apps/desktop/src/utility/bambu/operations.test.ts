@@ -17,7 +17,7 @@ function prepareSequence(continueOnFailure = true) {
 function fixture(timeout: number | 'default' = 1000) {
   const methods = ['setSelectedMachine', 'startSubscribe', 'stopSubscribe', 'sendMessage', 'sendMessageToPrinter', 'disconnectPrinter', 'connectPrinter'];
   const native = Object.fromEntries(methods.map(method => [method, vi.fn(async () => 0)])) as unknown as BambuNative;
-  const access = new BambuDeviceAccess(native, { list: async () => ['a', 'b'].map(deviceId => ({ deviceId, name: deviceId, model: 'H2D', routes: [{ channel: 'cloud' as const, revision: 'r1' }] })) },
+  const access = new BambuDeviceAccess(native, { list: async () => ['a', 'b'].map(deviceId => ({ deviceId, name: deviceId, model: 'H2D', modelId: 'O1D', routes: [{ channel: 'cloud' as const, revision: 'r1' }] })) },
     { read: async () => ({ version: 1, region: 'Others', clientId: 'test', lan: [] }) }, async () => {}, () => {}, Date.now, 300);
   const monitor = new BambuMonitor(access, { projectContext: () => undefined, snapshotContext: () => undefined, readCatalogue: vi.fn<BambuObjectSkipping['readCatalogue']>() });
   const operations = new BambuOperations(monitor, () => {}, timeout === 'default' ? undefined : timeout);

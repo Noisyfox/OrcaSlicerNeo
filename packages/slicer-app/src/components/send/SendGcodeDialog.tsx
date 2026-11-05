@@ -113,7 +113,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection, platf
   const submissionRoute = action === 'send-and-print' ? selectedPrinter?.routes.find(r => r.capabilities.submission?.kind === 'supported') : undefined;
   const reason = !catalogue.loaded ? 'Loading printers…' : catalogue.failed ? 'Printer configuration is unavailable. Check Device settings.'
     : modelFilter.pending ? 'Checking printer models…'
-    : candidates.length > 0 && printers.length === 0 ? modelFilter.failed ? 'Could not check configured printer models.' : 'No configured printer model matches the project Printer.'
+    : candidates.length > 0 && printers.length === 0 ? modelFilter.failed ? 'Could not check printer models.' : 'No printer model matches the project Printer.'
     : unavailableReason(sliceReady, printers, selectedPrinter);
   const busy = preparationBusy || !catalogue.loaded || modelFilter.pending || state === 'uploading' || state === 'starting';
   const controlsDisabled = busy || state === 'success';

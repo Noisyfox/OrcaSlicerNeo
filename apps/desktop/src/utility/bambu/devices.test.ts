@@ -6,6 +6,7 @@ import type { NativeHttpResult } from '@orca/bambu-native';
 import { BambuDevices } from './devices';
 import { BambuRepository } from './repository';
 import { isBambuReadResult } from '../../shared/bambu';
+import { savedBambuPrinter } from '../../shared/bambuPrinters';
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 const response = (devices: unknown[]): NativeHttpResult => ({ result: 0, httpCode: 200, body: JSON.stringify({ devices }) });
@@ -25,6 +26,22 @@ it('atomically reconciles full and empty lists, follows names, and never publish
   await f.devices.refresh(async () => response([device('a', 'Renamed')])); expect((await f.devices.list())[0].routes[0].revision).toBe(renamed[0].routes[0].revision);
   await f.devices.refresh(async () => response([])); expect(await f.devices.list()).toEqual([]);
 });
+it('projects exact model catalogue identities from Cloud and LAN without querying a device', async () => {
+  const f = await fixture();
+  await f.devices.refresh(async () => response([
+    { ...device('cloud'), dev_model_name: 'H2D' },
+    { ...device('unknown'), dev_model_name: 'unknown model' },
+    { ...device('empty'), dev_model_name: null },
+  ]));
+  await f.repository.update(state => ({ ...state, lan: [{ deviceId: 'lan', name: 'LAN', model: 'O1D', ip: '192.0.2.1', accessCode: 'private', revision: 'r1' }] }));
+  const devices = await f.devices.list();
+  expect(devices.map(({ deviceId, modelId }) => [deviceId, modelId])).toEqual([['cloud', 'O1D'], ['unknown', null], ['empty', null], ['lan', 'O1D']]);
+  expect(savedBambuPrinter(devices[0]).identity).toMatchObject({ model: 'H2D', externalRefs: [{ namespace: 'bambu', value: 'cloud' }, { namespace: 'orca-printer-model', value: 'O1D' }] });
+  expect(isBambuReadResult('printers.saved', { ok: true, value: devices })).toBe(true);
+  for (const modelId of [undefined, '', 123])
+    expect(isBambuReadResult('printers.saved', { ok: true, value: [{ ...devices[0], modelId }] })).toBe(false);
+});
+
 it('retains the last complete list for malformed, incomplete, duplicate and failed responses', async () => {
   const f = await fixture(); await f.devices.refresh(async () => response([device('a')])); const before = await f.devices.list();
   for (const result of [{ result: -1, httpCode: 503, body: '{}' }, { result: 0, httpCode: 200, body: '{}' }, { result: 0, httpCode: 200, body: '{' }, response([device('b'), { dev_name: 'missing id' }]), response([device('b'), device('b')])]) {

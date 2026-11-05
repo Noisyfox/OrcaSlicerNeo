@@ -4,7 +4,7 @@ import { createBambuProvider } from './bambuProvider';
 import type { BambuBridge, BambuChange, BambuPrinterCommand, BambuRead } from '../../../shared/bambu';
 import type { BambuDevice, BambuLanCandidate } from '../../../shared/bambuDevices';
 function fixture() {
-  let devices: readonly BambuDevice[] = [{ deviceId: 'serial-a', name: 'Same name', model: 'X1C', routes: [{ channel: 'cloud', revision: 'r1' }] }];
+  let devices: readonly BambuDevice[] = [{ deviceId: 'serial-a', name: 'Same name', model: 'X1C', modelId: null, routes: [{ channel: 'cloud', revision: 'r1' }] }];
   let candidates: readonly BambuLanCandidate[] = [];
   const listeners = new Set<(change: BambuChange) => void>();
   const command = vi.fn(async () => ({ ok: true as const, value: undefined }));
@@ -33,7 +33,7 @@ it('projects stable provider/printer/route identities and exposes monitoring and
 it('invalidates multiple consumers and keeps account capability notifications separate', async () => {
   const f = fixture(); const first = vi.fn(); const second = vi.fn(); const account = vi.fn();
   const stop = f.provider.printers.onSavedChanged(first); const stopSecond = f.second.printers.onSavedChanged(second); const stopAccount = f.provider.account.onStateChanged(account);
-  f.update([{ deviceId: 'serial-a', name: 'Renamed', model: 'X1C', routes: [{ channel: 'cloud', revision: 'r2' }] }, { deviceId: 'serial-b', name: 'Renamed', model: 'P1S', routes: [{ channel: 'cloud', revision: 'r2' }] }]);
+  f.update([{ deviceId: 'serial-a', name: 'Renamed', model: 'X1C', modelId: null, routes: [{ channel: 'cloud', revision: 'r2' }] }, { deviceId: 'serial-b', name: 'Renamed', model: 'P1S', modelId: 'C12', routes: [{ channel: 'cloud', revision: 'r2' }] }]);
   expect(first).toHaveBeenCalledOnce(); expect(second).toHaveBeenCalledOnce(); expect(account).not.toHaveBeenCalled();
   expect(await f.provider.printers.listSaved()).toEqual(await f.second.printers.listSaved());
   f.listeners.forEach(listener => listener('account')); expect(account).toHaveBeenCalledOnce(); expect(first).toHaveBeenCalledOnce();
@@ -54,7 +54,7 @@ it('discovers LAN candidates, authorizes only the same physical identity, and fo
   expect(await f.provider.printers.authorize({ ...request, existingPrinterId: 'wrong-printer' as never })).toMatchObject({ ok: false, error: { code: 'invalid-target' } });
   expect(f.printerCommand).not.toHaveBeenCalled();
   f.printerCommand.mockImplementation(async command => {
-    f.update([{ deviceId: 'serial-a', name: 'Same name', model: 'X1C', routes: command.action === 'authorize'
+    f.update([{ deviceId: 'serial-a', name: 'Same name', model: 'X1C', modelId: null, routes: command.action === 'authorize'
       ? [{ channel: 'cloud', revision: 'r1' }, { channel: 'lan', revision: 'lan-r1', address: '192.0.2.1' }] : [{ channel: 'cloud', revision: 'r1' }] }]);
     return { ok: true, value: null };
   });

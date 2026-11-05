@@ -10,7 +10,7 @@ test('Storage repairs same-printer LAN access through explicit discovery and ret
     await installControlFixture(app);
     await app.evaluate(({ ipcMain }, channels) => {
       let authorized = false;
-      const devices = ['a', 'b'].map(deviceId => ({ deviceId, name: `Workshop ${deviceId.toUpperCase()}`, model: 'H2D', routes: [{ channel: 'cloud', revision: 'r1' }] as Record<string, string>[] }));
+      const devices = ['a', 'b'].map(deviceId => ({ deviceId, name: `Workshop ${deviceId.toUpperCase()}`, model: 'H2D', modelId: 'O1D', routes: [{ channel: 'cloud', revision: 'r1' }] as Record<string, string>[] }));
       ipcMain.removeHandler(channels.bambuRead);
       ipcMain.handle(channels.bambuRead, (_event, kind) => kind === 'printers.saved' ? { ok: true, value: devices }
         : kind === 'printers.candidates' ? { ok: true, value: devices.map(device => ({ candidateId: device.deviceId, deviceId: device.deviceId, name: `LAN ${device.name}`, model: 'H2D', address: '192.0.2.1', expiresAtMs: Date.now() + 60_000 })) }

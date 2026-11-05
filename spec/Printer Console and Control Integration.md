@@ -654,24 +654,32 @@ Selecting a model does not switch the project's Printer.
 Persist the vendor/model reference with the physical device's local configuration
 in both hosts. The association survives restart and project/preset changes;
 editing or clearing it is explicit. Existing entries without an association
-remain unrestricted. Saved-device enumeration exposes this user-configured
-association separately from the provider's reported identity.
+remain unrestricted when the provider also has no known model. Saved-device
+enumeration exposes this user-configured association separately from the
+provider's reported identity.
 
 Send and Send & Print first retain their existing route/capability eligibility,
-then filter devices with a configured model through the existing native
-Printer/device match query. An unspecified association passes this additional
-condition without a native query. Match the model rather than the preset's
-display name or nozzle variant. A selected device excluded by the filter is
+then filter devices through the existing native Printer/device match query.
+Use the configured association when present, otherwise the provider's reported
+identity, including exact `orca-printer-model` references. Devices with neither
+a model nor an exact catalogue reference pass without a native query.
+Match the model rather than the preset's display name or nozzle variant.
+A selected device excluded by the filter is
 cleared without choosing a replacement. Device's own saved list remains complete.
 
-Bambu's reported identity, catalogue associations, print validation and existing
-Printer/Filament synchronization decisions are unchanged. This feature does not
-add Moonraker synchronization capabilities, submission-time rechecks, a new
+Bambu's agent resolves its bundled model catalogue locally and exposes the exact
+model reference in the saved-device catalogue as well as live descriptors. This
+does not require device probes, profile downloads or renderer-side Bambu model
+translation. Bambu print validation and existing Printer/Filament synchronization
+decisions are unchanged. This feature does not add Moonraker synchronization
+capabilities, submission-time rechecks, a new
 configuration revision policy, or model-catalogue invalidation handling.
 
 Acceptance covers saving, reopening, editing and clearing the association in both
 host repositories; enabled-only choices without vendor requests; empty/model
-match/mismatch send filtering; unchanged Bambu synchronization; and preservation
+match/mismatch send filtering for configured and provider-reported models,
+including U1 rejecting H2D and H2D accepting its exact catalogue reference;
+unchanged Bambu synchronization; and preservation
 of existing device and print preferences. The shared selector supports keyboard
 and pointer input and uses a bounded, scrollable popup. Mobile product support
 remains deferred; this control uses the existing responsive form and introduces

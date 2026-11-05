@@ -3147,7 +3147,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const identity = JSON.parse(requestJson);
       const printer = candidates('printer').find(p => p.name === selected.printer);
       const manufacturer = String(identity.manufacturer ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      return { ok: true, printer: selected.printer, matches: !!printer?.model && printer.model === identity.model
+      const modelId = ({ 'X1 Carbon': 'BL-P001', P1S: 'C12' } as Record<string, string>)[printer?.model ?? ''];
+      const modelMatches = printer?.model === identity.model || (modelId && identity.externalRefs?.some((ref: { namespace: string; value: string }) => ref.namespace === 'orca-printer-model' && ref.value === modelId));
+      return { ok: true, printer: selected.printer, matches: !!printer?.model && !!modelMatches
         && (!manufacturer || manufacturer === printer.vendor_id || manufacturer === String(printer.vendor).toLowerCase().replace(/[^a-z0-9]/g, '')) };
     },
     orc_synchronize_printer(requestJson: string) {

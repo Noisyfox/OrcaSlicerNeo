@@ -37,7 +37,7 @@ export function usePrinterCatalogue(service: PrinterService, enabled = true) {
   return { printers, loaded, failed, refresh };
 }
 
-/** Optional user association only; provider identities and sync policy stay with their existing owners. */
+/** Resolve manual associations or provider identities through the existing native model matcher. */
 export function usePrinterModelFilter(
   runtime: Pick<PlatformCapabilities['runtime'], 'getPrinterDeviceMatch'>,
   printers: readonly SavedPrinter[], projectPrinter: string, enabled: boolean,
@@ -45,25 +45,31 @@ export function usePrinterModelFilter(
   const [result, setResult] = useState<{
     source: readonly SavedPrinter[]; projectPrinter: string; matches: ReadonlySet<string>; failed: boolean;
   } | null>(null);
-  const configured = useMemo(() => printers.filter(printer => printer.configuredModel), [printers]);
+  const identities = useMemo(() => new Map(printers.flatMap(printer => {
+    const configured = printer.configuredModel;
+    const identity = configured
+      ? { manufacturer: configured.vendorId || null, model: configured.model, externalRefs: [] }
+      : printer.identity;
+    return identity.model?.trim() || identity.externalRefs.some(ref => ref.namespace === 'orca-printer-model' && ref.value)
+      ? [[printer.identity.id, { manufacturer: identity.manufacturer, model: identity.model, externalRefs: identity.externalRefs }] as const] : [];
+  })), [printers]);
   useEffect(() => {
-    if (!enabled || !configured.length) return;
+    if (!enabled || !identities.size) return;
     let active = true;
-    void Promise.all(configured.map(async printer => {
-      const { vendorId, model } = printer.configuredModel!;
+    void Promise.all([...identities].map(async ([id, identity]) => {
       try {
-        const match = await runtime.getPrinterDeviceMatch({ manufacturer: vendorId || null, model, externalRefs: [] });
-        return { id: printer.identity.id, matches: match.ok && match.matches, failed: !match.ok };
-      } catch { return { id: printer.identity.id, matches: false, failed: true }; }
+        const match = await runtime.getPrinterDeviceMatch(identity);
+        return { id, matches: match.ok && match.matches, failed: !match.ok };
+      } catch { return { id, matches: false, failed: true }; }
     })).then(matches => {
       if (active) setResult({ source: printers, projectPrinter,
         matches: new Set(matches.filter(match => match.matches).map(match => match.id)), failed: matches.some(match => match.failed) });
     });
     return () => { active = false; };
-  }, [runtime, printers, configured, projectPrinter, enabled]);
+  }, [runtime, printers, identities, projectPrinter, enabled]);
   const current = result?.source === printers && result.projectPrinter === projectPrinter ? result : null;
-  const filtered = useMemo(() => configured.length
-    ? printers.filter(printer => !printer.configuredModel || current?.matches.has(printer.identity.id)) : printers,
-  [printers, configured, current]);
-  return { printers: filtered, pending: enabled && configured.length > 0 && current === null, failed: current?.failed ?? false };
+  const filtered = useMemo(() => identities.size
+    ? printers.filter(printer => !identities.has(printer.identity.id) || current?.matches.has(printer.identity.id)) : printers,
+  [printers, identities, current]);
+  return { printers: filtered, pending: enabled && identities.size > 0 && current === null, failed: current?.failed ?? false };
 }

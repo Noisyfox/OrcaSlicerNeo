@@ -11,7 +11,7 @@ import type { BambuHostConfig } from '../../shared/bambu';
 const owners: BambuMedia[] = [];
 afterEach(async () => { for (const owner of owners.splice(0)) await owner.close(); });
 function fixture() {
-  const device: BambuDevice = { deviceId: 'printer', name: 'Printer', model: null, routes: [{ channel: 'lan', address: '192.0.2.1', revision: 'r1' }] };
+  const device: BambuDevice = { deviceId: 'printer', name: 'Printer', model: null, modelId: null, routes: [{ channel: 'lan', address: '192.0.2.1', revision: 'r1' }] };
   const devices = { list: vi.fn(async () => [device]) };
   const repository = { read: vi.fn(async () => ({ version: 1 as const, region: 'Others' as const, clientId: 'client', lan: [{ deviceId: 'printer', name: 'Printer', model: '', ip: '192.0.2.1', accessCode: 'secret', revision: 'r1' }] })) };
   const printer = savedBambuPrinter(device), route = printer.routes[0];
