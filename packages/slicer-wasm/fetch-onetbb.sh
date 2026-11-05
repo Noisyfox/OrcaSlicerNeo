@@ -21,9 +21,8 @@ if [[ -f "$TBB_DIR/CMakeLists.txt" ]]; then
 fi
 
 echo "[onetbb] Fetching pinned oneTBB $TBB_COMMIT"
-curl --fail --location --retry 3 --silent --show-error \
-  --output "$ARCHIVE" \
-  "https://github.com/uxlfoundation/oneTBB/archive/$TBB_COMMIT.tar.gz"
+node "$PKG_DIR/../../scripts/download-dependency.mjs" \
+  "https://github.com/uxlfoundation/oneTBB/archive/$TBB_COMMIT.tar.gz" "$ARCHIVE"
 tar xzf "$ARCHIVE" -C "$DEPS"
 
 EXTRACTED="$DEPS/oneTBB-$TBB_COMMIT"

@@ -26,31 +26,17 @@ OCCT_SHA256="28334f0e98f1b1629799783e9b4d21e05349d89e695809d7e6dfa45ea43e1dbc"
 log() { printf '\033[1;36m[deps]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[deps]\033[0m ERROR: %s\n' "$*" >&2; exit 1; }
 
-verify_sha256() {
-  local actual
-  if command -v sha256sum >/dev/null 2>&1; then
-    actual="$(sha256sum "$1" | awk '{print $1}')"
-  elif command -v shasum >/dev/null 2>&1; then
-    actual="$(shasum -a 256 "$1" | awk '{print $1}')"
-  else
-    die "sha256sum or shasum is required to verify $1"
-  fi
-  [[ "$actual" == "$2" ]] || die "SHA-256 mismatch for $1 (got $actual)"
-}
-
 # ---- Eigen (header-only) ----
 if [[ ! -d "$DEPS/eigen-$EIGEN_VER/Eigen" ]]; then
   log "Fetching Eigen $EIGEN_VER"
-  curl -sL -o "$DEPS/eigen.zip" \
-    "https://gitlab.com/libeigen/eigen/-/archive/$EIGEN_VER/eigen-$EIGEN_VER.zip"
+  node "$SPIKE_DIR/../../scripts/download-dependency.mjs" "https://gitlab.com/libeigen/eigen/-/archive/$EIGEN_VER/eigen-$EIGEN_VER.zip" "$DEPS/eigen.zip"
   unzip -q -o "$DEPS/eigen.zip" -d "$DEPS"
 fi
 
 # ---- Boost (modular release -> assemble unified boost/ header tree) ----
 if [[ ! -f "$DEPS/boost-$BOOST_VER/boost/version.hpp" ]]; then
   log "Fetching Boost $BOOST_VER"
-  curl -sL -o "$DEPS/boost.tar.gz" \
-    "https://github.com/boostorg/boost/releases/download/boost-$BOOST_VER/boost-$BOOST_VER.tar.gz"
+  node "$SPIKE_DIR/../../scripts/download-dependency.mjs" "https://github.com/boostorg/boost/releases/download/boost-$BOOST_VER/boost-$BOOST_VER.tar.gz" "$DEPS/boost.tar.gz"
   tar xzf "$DEPS/boost.tar.gz" -C "$DEPS"
   log "Assembling unified Boost headers (b2 headers)"
   ( cd "$DEPS/boost-$BOOST_VER" && ./bootstrap.sh >/dev/null 2>&1 && ./b2 headers >/dev/null 2>&1 )
@@ -59,8 +45,7 @@ fi
 # ---- cereal (header-only) ----
 if [[ ! -d "$DEPS/cereal-$CEREAL_VER/include/cereal" ]]; then
   log "Fetching cereal $CEREAL_VER"
-  curl -sL -o "$DEPS/cereal.tar.gz" \
-    "https://github.com/USCiLab/cereal/archive/refs/tags/v$CEREAL_VER.tar.gz"
+  node "$SPIKE_DIR/../../scripts/download-dependency.mjs" "https://github.com/USCiLab/cereal/archive/refs/tags/v$CEREAL_VER.tar.gz" "$DEPS/cereal.tar.gz"
   tar xzf "$DEPS/cereal.tar.gz" -C "$DEPS"
 fi
 
@@ -68,9 +53,7 @@ fi
 if [[ ! -f "$DEPS/draco-$DRACO_VER/CMakeLists.txt" ]]; then
   DRACO_ARCHIVE="$DEPS/draco-$DRACO_VER.zip"
   log "Fetching Draco $DRACO_VER"
-  curl -fsSL --retry 3 -o "$DRACO_ARCHIVE" \
-    "https://github.com/google/draco/archive/refs/tags/$DRACO_VER.zip"
-  verify_sha256 "$DRACO_ARCHIVE" "$DRACO_SHA256"
+  node "$SPIKE_DIR/../../scripts/download-dependency.mjs" "https://github.com/google/draco/archive/refs/tags/$DRACO_VER.zip" "$DRACO_ARCHIVE" "$DRACO_SHA256"
   unzip -q -o "$DRACO_ARCHIVE" -d "$DEPS"
 fi
 
@@ -78,9 +61,7 @@ fi
 if [[ ! -f "$DEPS/nlopt-$NLOPT_VER/CMakeLists.txt" ]]; then
   NLOPT_ARCHIVE="$DEPS/nlopt-$NLOPT_VER.tar.gz"
   log "Fetching NLopt $NLOPT_VER"
-  curl -fsSL --retry 3 -o "$NLOPT_ARCHIVE" \
-    "https://github.com/stevengj/nlopt/archive/v$NLOPT_VER.tar.gz"
-  verify_sha256 "$NLOPT_ARCHIVE" "$NLOPT_SHA256"
+  node "$SPIKE_DIR/../../scripts/download-dependency.mjs" "https://github.com/stevengj/nlopt/archive/v$NLOPT_VER.tar.gz" "$NLOPT_ARCHIVE" "$NLOPT_SHA256"
   tar xzf "$NLOPT_ARCHIVE" -C "$DEPS"
 fi
 
@@ -88,9 +69,7 @@ fi
 if [[ ! -f "$DEPS/occt-$OCCT_VER/CMakeLists.txt" ]]; then
   OCCT_ARCHIVE="$DEPS/occt-$OCCT_VER.zip"
   log "Fetching OCCT $OCCT_VER"
-  curl -fsSL --retry 3 -o "$OCCT_ARCHIVE" \
-    "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_6_0.zip"
-  verify_sha256 "$OCCT_ARCHIVE" "$OCCT_SHA256"
+  node "$SPIKE_DIR/../../scripts/download-dependency.mjs" "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_6_0.zip" "$OCCT_ARCHIVE" "$OCCT_SHA256"
   unzip -q -o "$OCCT_ARCHIVE" -d "$DEPS"
   [[ -d "$DEPS/OCCT-7_6_0" ]] || die "OCCT archive did not contain OCCT-7_6_0"
   rm -rf "$DEPS/occt-$OCCT_VER"

@@ -7,9 +7,7 @@ import { cp, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/pr
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pipeline } from 'node:stream/promises';
-import { Readable } from 'node:stream';
-import { createWriteStream } from 'node:fs';
+import { downloadDependency } from '../../../../scripts/download-dependency.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -62,29 +60,7 @@ export async function source(recipe, work) {
   const downloads = join(work, 'deps/downloads');
   await mkdir(downloads, { recursive: true });
   const archive = join(downloads, recipe.archive);
-  let valid = false;
-  try { valid = await digest(archive) === recipe.sha256; } catch { /* cold cache */ }
-  if (!valid) {
-    for (let attempt = 1; attempt <= 3; ++attempt) {
-      try {
-        const response = await fetch(recipe.url, { signal: AbortSignal.timeout(120_000) });
-        if (!response.ok || !response.body) {
-          await response.body?.cancel();
-          throw new Error(`HTTP ${response.status}`);
-        }
-        await pipeline(Readable.fromWeb(response.body), createWriteStream(`${archive}.part`));
-        if (await digest(`${archive}.part`) !== recipe.sha256) throw new Error('Checksum mismatch');
-        await rename(`${archive}.part`, archive);
-        break;
-      } catch (error) {
-        await rm(`${archive}.part`, { force: true });
-        const reason = [error.message, error.cause?.message].filter(Boolean).join(': ');
-        if (attempt === 3) throw new Error(`Download failed after ${attempt} attempts: ${recipe.url}: ${reason}`, { cause: error });
-        console.warn(`[cgal] Download attempt ${attempt} failed for ${recipe.url}: ${reason}; retrying`);
-        await delay(attempt * 1000);
-      }
-    }
-  }
+  await downloadDependency(recipe.url, archive, { sha256: recipe.sha256 });
   const parent = join(work, 'deps', `${recipe.name}-${recipe.version}`);
   const directory = join(parent, `src-${recipe.sha256.slice(0, 12)}`);
   const marker = recipe.sha256 + (recipe.name === 'gmp' ? `:${await digest(join(pkg, 'cpp/deps/GMP/0001-GMP_GCC15.patch'))}` : '');

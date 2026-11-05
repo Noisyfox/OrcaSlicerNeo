@@ -5,10 +5,10 @@ REM
 REM Fetches the header-only deps (Eigen 5.0.1 / Boost 1.84 / cereal)
 REM into .work\deps and writes the generated/stub headers into
 REM .work\gen. Idempotent. No Git Bash required - pure cmd:
-REM curl (PATH, else System32) + Windows tar.exe (bsdtar, handles
+REM Node.js + Windows tar.exe (bsdtar, handles
 REM both .zip and .tar.gz) + Boost's own bootstrap.bat/b2.exe.
 REM
-REM The .sh original needs MSYS (curl, unzip, ./bootstrap.sh). Here
+REM The .sh original needs MSYS (unzip, ./bootstrap.sh). Here
 REM every piece is a native Windows binary; bootstrap.bat tries MSVC
 REM first, then MinGW gcc, then clang (bootstrap.bat gcc/clang).
 REM ================================================================
@@ -33,21 +33,10 @@ set "OCCT_SHA256=28334f0e98f1b1629799783e9b4d21e05349d89e695809d7e6dfa45ea43e1db
 if not exist "%DEPS%" mkdir "%DEPS%"
 if not exist "%GEN%\openssl" mkdir "%GEN%\openssl"
 
-REM ---- curl: PATH first (Git for Windows), else the Windows system curl ----
-set "CURL=curl"
-where curl >nul 2>nul
-if errorlevel 1 set "CURL="
-if not defined CURL if exist "%SystemRoot%\System32\curl.exe" set "CURL=%SystemRoot%\System32\curl.exe"
-if not defined CURL if exist "%SystemRoot%\SysWOW64\curl.exe" set "CURL=%SystemRoot%\SysWOW64\curl.exe"
-if not defined CURL (
-  echo [deps] ERROR: curl not found on PATH or in System32.
-  exit /b 1
-)
-
 REM ---- Eigen (header-only) ----
 if not exist "%DEPS%\eigen-%EIGEN_VER%\Eigen" (
   echo [deps] Fetching Eigen %EIGEN_VER%
-  "%CURL%" -sL -o "%DEPS%\eigen.zip" "https://gitlab.com/libeigen/eigen/-/archive/%EIGEN_VER%/eigen-%EIGEN_VER%.zip"
+  node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://gitlab.com/libeigen/eigen/-/archive/%EIGEN_VER%/eigen-%EIGEN_VER%.zip" "%DEPS%\eigen.zip"
   if errorlevel 1 (
     echo [deps] ERROR: Eigen download failed.
     exit /b 1
@@ -62,7 +51,7 @@ if not exist "%DEPS%\eigen-%EIGEN_VER%\Eigen" (
 REM ---- Boost (modular release -> assemble unified boost/ header tree) ----
 if not exist "%DEPS%\boost-%BOOST_VER%\boost\version.hpp" (
   echo [deps] Fetching Boost %BOOST_VER%
-  "%CURL%" -sL -o "%DEPS%\boost.tar.gz" "https://github.com/boostorg/boost/releases/download/boost-%BOOST_VER%/boost-%BOOST_VER%.tar.gz"
+  node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://github.com/boostorg/boost/releases/download/boost-%BOOST_VER%/boost-%BOOST_VER%.tar.gz" "%DEPS%\boost.tar.gz"
   if errorlevel 1 (
     echo [deps] ERROR: Boost download failed.
     exit /b 1
@@ -138,7 +127,7 @@ REM Why explicit toolset + flag juggling: Boost 1.84's auto-detect cannot
 REM ---- cereal (header-only) ----
 if not exist "%DEPS%\cereal-%CEREAL_VER%\include\cereal" (
   echo [deps] Fetching cereal %CEREAL_VER%
-  "%CURL%" -sL -o "%DEPS%\cereal.tar.gz" "https://github.com/USCiLab/cereal/archive/refs/tags/v%CEREAL_VER%.tar.gz"
+  node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://github.com/USCiLab/cereal/archive/refs/tags/v%CEREAL_VER%.tar.gz" "%DEPS%\cereal.tar.gz"
   if errorlevel 1 (
     echo [deps] ERROR: cereal download failed.
     exit /b 1
@@ -153,13 +142,11 @@ if not exist "%DEPS%\cereal-%CEREAL_VER%\include\cereal" (
 REM ---- Draco (native C++ codec source; built separately per wasm variant) ----
 if not exist "%DEPS%\draco-%DRACO_VER%\CMakeLists.txt" (
   echo [deps] Fetching Draco %DRACO_VER%
-  "%CURL%" -fsSL --retry 3 -o "%DEPS%\draco-%DRACO_VER%.zip" "https://github.com/google/draco/archive/refs/tags/%DRACO_VER%.zip"
+  node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://github.com/google/draco/archive/refs/tags/%DRACO_VER%.zip" "%DEPS%\draco-%DRACO_VER%.zip" "%DRACO_SHA256%"
   if errorlevel 1 (
     echo [deps] ERROR: Draco download failed.
     exit /b 1
   )
-  call :verify_draco_hash "%DEPS%\draco-%DRACO_VER%.zip"
-  if errorlevel 1 exit /b 1
   tar -xf "%DEPS%\draco-%DRACO_VER%.zip" -C "%DEPS%"
   if errorlevel 1 (
     echo [deps] ERROR: Draco extract failed.
@@ -170,9 +157,7 @@ if not exist "%DEPS%\draco-%DRACO_VER%\CMakeLists.txt" (
 REM ---- NLopt (pinned Orca release; built separately per wasm variant) ----
 if not exist "%DEPS%\nlopt-%NLOPT_VER%\CMakeLists.txt" (
   echo [deps] Fetching NLopt %NLOPT_VER%
-  "%CURL%" -fsSL --retry 3 -o "%DEPS%\nlopt-%NLOPT_VER%.tar.gz" "https://github.com/stevengj/nlopt/archive/v%NLOPT_VER%.tar.gz"
-  if errorlevel 1 exit /b 1
-  call :verify_nlopt_hash "%DEPS%\nlopt-%NLOPT_VER%.tar.gz"
+  node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://github.com/stevengj/nlopt/archive/v%NLOPT_VER%.tar.gz" "%DEPS%\nlopt-%NLOPT_VER%.tar.gz" "%NLOPT_SHA256%"
   if errorlevel 1 exit /b 1
   tar -xf "%DEPS%\nlopt-%NLOPT_VER%.tar.gz" -C "%DEPS%"
   if errorlevel 1 exit /b 1
@@ -182,13 +167,11 @@ REM ---- OCCT (source; built separately per wasm variant) ----
 if not exist "%DEPS%\occt-%OCCT_VER%\CMakeLists.txt" (
   set "OCCT_ARCHIVE=%DEPS%\occt-%OCCT_VER%.zip"
   echo [deps] Fetching OCCT %OCCT_VER%
-  "%CURL%" -fsSL --retry 3 -o "%DEPS%\occt-%OCCT_VER%.zip" "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_6_0.zip"
+  node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_6_0.zip" "%DEPS%\occt-%OCCT_VER%.zip" "%OCCT_SHA256%"
   if errorlevel 1 (
     echo [deps] ERROR: OCCT download failed.
     exit /b 1
   )
-  call :verify_occt_hash "%DEPS%\occt-%OCCT_VER%.zip"
-  if errorlevel 1 exit /b 1
   tar -xf "%DEPS%\occt-%OCCT_VER%.zip" -C "%DEPS%"
   if errorlevel 1 (
     echo [deps] ERROR: OCCT extract failed.
@@ -243,31 +226,4 @@ REM small MD5 implementation).
 >> "%GEN%\openssl\md5.h" echo #endif
 
 echo [deps] Done. deps in %DEPS%, generated headers in %GEN%
-exit /b 0
-
-:verify_draco_hash
-set "DRACO_ACTUAL_SHA256="
-for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "%~1" SHA256') do if not defined DRACO_ACTUAL_SHA256 set "DRACO_ACTUAL_SHA256=%%H"
-if /i not "%DRACO_ACTUAL_SHA256%"=="%DRACO_SHA256%" (
-  echo [deps] ERROR: Draco SHA-256 mismatch.
-  exit /b 1
-)
-exit /b 0
-
-:verify_nlopt_hash
-set "NLOPT_ACTUAL_SHA256="
-for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "%~1" SHA256') do if not defined NLOPT_ACTUAL_SHA256 set "NLOPT_ACTUAL_SHA256=%%H"
-if /i not "%NLOPT_ACTUAL_SHA256%"=="%NLOPT_SHA256%" (
-  echo [deps] ERROR: NLopt SHA-256 mismatch.
-  exit /b 1
-)
-exit /b 0
-
-:verify_occt_hash
-set "OCCT_ACTUAL_SHA256="
-for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "%~1" SHA256') do if not defined OCCT_ACTUAL_SHA256 set "OCCT_ACTUAL_SHA256=%%H"
-if /i not "%OCCT_ACTUAL_SHA256%"=="%OCCT_SHA256%" (
-  echo [deps] ERROR: OCCT SHA-256 mismatch.
-  exit /b 1
-)
 exit /b 0

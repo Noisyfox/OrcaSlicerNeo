@@ -1,11 +1,10 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { access, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { basename, join, resolve } from 'node:path';
-import { pipeline } from 'node:stream/promises';
-import { createWriteStream } from 'node:fs';
+import { downloadDependency } from '../../../scripts/download-dependency.mjs';
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 export const manifest = JSON.parse(await readFile(new URL('../artifacts.json', import.meta.url), 'utf8'));
 export async function checksum(path) {
@@ -19,14 +18,7 @@ export async function acquire(target = `${process.platform}-${process.arch}`, ca
   await mkdir(cache, { recursive: true });
   const archive = join(cache, `${manifest.release}-${basename(artifact.url)}`);
   try { await access(archive); } catch {
-    const temporary = `${archive}.download`;
-    try {
-      const response = await fetch(artifact.url);
-      if (!response.ok || !response.body) throw new Error(`Plugin download failed (${response.status})`);
-      await pipeline(response.body, createWriteStream(temporary));
-      if (await checksum(temporary) !== artifact.sha256) throw new Error('Plugin archive checksum mismatch');
-      await rename(temporary, archive);
-    } finally { await rm(temporary, { force: true }); }
+    await downloadDependency(artifact.url, archive, { sha256: artifact.sha256 });
   }
   if (await checksum(archive) !== artifact.sha256) throw new Error('Cached plugin archive checksum mismatch');
   const staging = join(cache, `extract-${target}`);

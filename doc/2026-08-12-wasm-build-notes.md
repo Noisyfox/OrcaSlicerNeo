@@ -52,6 +52,15 @@ CMake own exact versions, library sets and feature exclusions. OCCT builds with
 rebuilds older OCCT stages automatically. A `quick` build rejects them with a
 rebuild instruction before linking.
 
+All build-time dependency archive downloads, including the Bambu plugin, use
+[`scripts/download-dependency.mjs`](../scripts/download-dependency.mjs).
+Shell and cmd recipes invoke its Node CLI; Node recipes import the same helper.
+It rejects HTTP errors, follows redirects and retries failed transfers or
+checksum checks up to three total attempts, with a ten-minute timeout per
+attempt. Downloads use temporary files; only complete, successfully verified
+archives replace the destination. Existing pinned SHA-256 checks remain
+mandatory, and only digest-verified archives can be reused by the helper.
+
 The production source build uses two static archives: `slic3r_core` for Orca
 code and `deps_core` for bundled dependencies. The complete pinned
 `MeshBoolean.cpp` belongs to `slic3r_core`, retaining the original libigl code

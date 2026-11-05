@@ -80,7 +80,7 @@ jobs:
       - name: Select compiled dependency cache key
         id: dependency-key
         env:
-          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/cgal/**/*.test.*') }}
+          DEPS_INPUT_HASH: ${{ hashFiles('scripts/download-dependency.mjs', 'packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/cgal/**/*.test.*') }}
         run: echo "key=${{ runner.os }}-wasm64-deps-emsdk-${EMSDK_VERSION}-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Select tested WASM artifact cache key
         id: build-key
@@ -88,7 +88,7 @@ jobs:
           # Hash native build inputs only; tests, fixtures, JS dependencies and
           # workflow test steps do not invalidate production artifacts. The
           # submodule is identified by its recorded gitlink, never file hashes.
-          WASM_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', '!packages/slicer-wasm/dependencies/**/*.test.*') }}
+          WASM_INPUT_HASH: ${{ hashFiles('scripts/download-dependency.mjs', 'packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', '!packages/slicer-wasm/dependencies/**/*.test.*') }}
         run: |
           orca_pin=$(git rev-parse HEAD:packages/slicer-wasm/cpp)
           echo "key=${{ runner.os }}-${{ runner.arch }}-wasm64-tested-v2-emsdk-${EMSDK_VERSION}-${orca_pin}-${WASM_INPUT_HASH}" >> "$GITHUB_OUTPUT"
@@ -368,12 +368,12 @@ jobs:
       - name: Select compiled wasm32 dependency cache key
         id: dependency-key
         env:
-          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/cgal/**/*.test.*', 'scripts/build-wasm32.mjs') }}
+          DEPS_INPUT_HASH: ${{ hashFiles('scripts/download-dependency.mjs', 'packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/cgal/**/*.test.*', 'scripts/build-wasm32.mjs') }}
         run: echo "key=${{ runner.os }}-wasm32-deps-emsdk-${EMSDK_VERSION}-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Select tested wasm32 artifact cache key
         id: build-key
         env:
-          WASM_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', '!packages/slicer-wasm/dependencies/**/*.test.*', 'scripts/build-wasm32.mjs') }}
+          WASM_INPUT_HASH: ${{ hashFiles('scripts/download-dependency.mjs', 'packages/slicer-wasm/*.sh', 'packages/slicer-wasm/CMakeLists.txt', 'packages/slicer-wasm/dependencies/**', 'packages/slicer-wasm/src/**/*.cpp', 'packages/slicer-wasm/src/**/*.hpp', 'packages/slicer-wasm/src/**/*.h', 'packages/slicer-wasm/shim/**/*.hpp', 'packages/slicer-wasm/shim/**/*.h', 'packages/slicer-wasm/stubs/*.cpp', 'packages/slicer-wasm/patches/**', '!packages/slicer-wasm/src/**/*.test.*', '!packages/slicer-wasm/dependencies/**/*.test.*', 'scripts/build-wasm32.mjs') }}
         run: |
           orca_pin=$(git rev-parse HEAD:packages/slicer-wasm/cpp)
           echo "key=${{ runner.os }}-${{ runner.arch }}-wasm32-tested-v1-emsdk-${EMSDK_VERSION}-${orca_pin}-${WASM_INPUT_HASH}" >> "$GITHUB_OUTPUT"
@@ -502,7 +502,7 @@ jobs:
       - run: pnpm -r test
       - run: pnpm -r typecheck
       - name: Verify wasm32 build scaffold and host/Pages artifact boundaries
-        run: node --test packages/slicer-wasm/dependencies/cgal/build.test.mjs scripts/build-wasm32.test.mjs scripts/stage.test.mjs scripts/prepare-web-pages.test.mjs
+        run: node --test scripts/download-dependency.test.mjs packages/slicer-wasm/dependencies/cgal/build.test.mjs scripts/build-wasm32.test.mjs scripts/stage.test.mjs scripts/prepare-web-pages.test.mjs
 
   e2e-mock:
     name: e2e (mock module)

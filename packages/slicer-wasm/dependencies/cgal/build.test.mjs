@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, writeFile, rm, symlink } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -43,7 +43,7 @@ for (const [extension, flags] of [['zip', ['cf', '--format=zip']], ['tar.bz2', [
     recipe.sha256 = '0'.repeat(64);
     await assert.rejects(source(recipe, work), /Download failed after 3 attempts:.*Checksum mismatch/);
     assert.equal(requests, 5);
-    await assert.rejects(readFile(join(work, 'deps/downloads', `${recipe.archive}.part`)), { code: 'ENOENT' });
+    assert.deepEqual(await readdir(join(work, 'deps/downloads')), [recipe.archive]);
     assert.deepEqual(await readFile(join(work, 'deps/downloads', recipe.archive)), bytes);
   });
 }

@@ -19,17 +19,8 @@ if exist "%TBB_DIR%\CMakeLists.txt" (
 )
 
 if not exist "%DEPS%" mkdir "%DEPS%"
-set "CURL="
-for /f "delims=" %%i in ('where curl 2^>nul') do if not defined CURL set "CURL=%%i"
-if not defined CURL if exist "%SystemRoot%\System32\curl.exe" set "CURL=%SystemRoot%\System32\curl.exe"
-if not defined CURL if exist "%SystemRoot%\SysWOW64\curl.exe" set "CURL=%SystemRoot%\SysWOW64\curl.exe"
-if not defined CURL (
-  echo [onetbb] ERROR: curl not found.
-  exit /b 1
-)
-
 echo [onetbb] Fetching pinned oneTBB %TBB_COMMIT%
-"%CURL%" --fail --location --retry 3 --silent --show-error -o "%ARCHIVE%" "https://github.com/uxlfoundation/oneTBB/archive/%TBB_COMMIT%.tar.gz"
+node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://github.com/uxlfoundation/oneTBB/archive/%TBB_COMMIT%.tar.gz" "%ARCHIVE%"
 if errorlevel 1 (
   echo [onetbb] ERROR: download failed.
   exit /b 1

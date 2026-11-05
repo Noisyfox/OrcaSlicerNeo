@@ -56,6 +56,7 @@ export async function prepareWasm32() {
     await writeFile(join(generatedPackage, name.replaceAll('wasm64', 'wasm32')), wasm32Source(source, name));
   }
   await copyFile(join(root, 'scripts/validate-wasm.mjs'), join(scaffold, 'scripts/validate-wasm.mjs'));
+  await copyFile(join(root, 'scripts/download-dependency.mjs'), join(scaffold, 'scripts/download-dependency.mjs'));
   const driver = await readFile(join(root, 'scripts/build-windows.bat'), 'utf8');
   await writeFile(join(scaffold, 'scripts/build-windows.bat'), driver.replaceAll('wasm64', 'wasm32').replace('  pause', '  REM non-interactive build'));
   // Invoke the repository's cmd-native driver, but collect only the requested
