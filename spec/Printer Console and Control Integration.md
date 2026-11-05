@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-11-03
+**Updated:** 2026-11-05
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
@@ -1965,6 +1965,41 @@ printer selector and this option are disabled while sending and during the
 success countdown. Close remains available for early dismissal. Errors,
 cancellation, and a failed print start never navigate to Device.
 
+## Application exit with unfinished sends
+
+**Status:** Accepted design pending implementation and qualification. Apply this
+policy to all sending flows, including the existing Moonraker Send / Send & Print
+and Bambu submission paths, their manual retries, and the planned Snapmaker
+agent. It does not extend any provider's supported hosts or protocols.
+
+While a send is unfinished, closing the main desktop window or explicitly
+quitting must offer returning to wait or stopping unfinished sending and exiting.
+Coordinate this with project-save and managed-download close guards. Track
+actual sends independently of the currently visible page or dialog, from their
+active artifact preparation through upload, preparation commands, start dispatch
+and pending completion/cancellation. An open but idle preparation dialog alone
+is not an unfinished send. A printer already printing independently after the
+send has settled does not keep this exit guard active.
+
+If the user confirms exit, stop unfinished local sending through each provider's
+cancellation/shutdown contract and prevent later unsent stages from running.
+Preserve required native callback and worker lifetime safety during teardown.
+This does not promise to recall commands already dispatched or stop a physical
+print; print-stop remains a separate user action. Existing provider-specific
+outcome, settings and remote-file cleanup rules remain applicable.
+
+For Web, closing/reloading the tab or leaving the application uses best-effort
+browser-native leave confirmation while sending is unfinished. Browser wording,
+activation requirements and whether the event runs are outside application
+control; do not promise custom prompt text or completion of asynchronous
+cancellation during page teardown. See the
+[beforeunload constraints](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event).
+
+After application restart or page reload, do not automatically resume an
+interrupted send, re-upload its file or reissue preparation/start commands.
+The user initiates a new valid sending flow when needed. This application-exit
+rule is distinct from each provider's ordinary send-dialog closure behavior.
+
 ## Print preparation and submission
 
 The shared preparation modal and initial Bambu-only submission capability are
@@ -2483,9 +2518,8 @@ unknown outcomes explicitly. A plugin success or transfer completion is not
 proof of physical print start. Reconciliation timing and operation retention
 are implementation validation items under the domain contract; they must not
 turn timeout, lost observation or an expired record into proof of non-start.
-Application-exit behavior during submission is explicitly deferred from this
-clarification round; no quit-confirmation or restart/resume policy is accepted
-here. The
+The shared [application-exit contract](#application-exit-with-unfinished-sends)
+applies to this submission path as well as the existing Moonraker flow. The
 existing Moonraker speed/countdown/retry behavior above is not automatically
 the specification for a combined Bambu submission.
 
@@ -2495,6 +2529,363 @@ this direction. Mobile support remains deferred under the shared application
 policy. Artifact packaging stays off the renderer thread, and binary transport
 must avoid unnecessary copies and keep temporary files host-private; exact
 memory/size limits require the artifact feasibility check.
+
+## Snapmaker agent design
+
+**Status:** Accepted design, not implementation authorization or delivered
+functionality. Scope, behavior and acceptance policy are settled below.
+Implementation and physical qualification remain separate work.
+Protocol ownership, slicing semantics and evidence limits are maintained in
+[the Snapmaker agent architecture](Printer%20Domain%20and%20Control%20Architecture.md#25-snapmaker-agent-design).
+
+### Accepted Snapmaker delivery and connection
+
+- Support Electron and static Web with shared agent logic. Web connects directly
+  under browser CORS, mixed-content and local-network permission restrictions;
+  this delivery does not add a gateway.
+- Add `snapmaker` to the manual printer agent dropdown. Reuse the existing API
+  base URL, optional API key and optional Console URL. Do not add automatic
+  discovery in this delivery.
+- Initially support and qualify U1. Other Snapmaker models are not included
+  merely because the agent has a vendor-wide name.
+- Keep model association optional. A connection can be saved and supported
+  device information viewed before associating a U1 profile; enabling that
+  profile is not a prerequisite for saving the connection. Model selection
+  does not change the agent or the project's Printer. Missing association
+  does not waive send-time protocol and slice-requirement validation.
+  Follow the existing model-filter priority: use the configured association
+  when present, otherwise the provider-reported model. Do not add a separate
+  configured-versus-reported model conflict block. This priority does not
+  replace observed toolhead, nozzle or material data.
+- Deliver the SnapSend functional scope with the explicit top-cover deferral,
+  individual-only loading/unloading and the accepted Neo behavior differences.
+  Implementation may be incremental, but a basic sending workflow alone does
+  not complete this scope.
+
+The accepted functional scope includes automatic/manual filament mapping,
+upload and upload-and-print, bed leveling, flow calibration for selected used
+heads, timelapse, device filament brand/type/color editing, individual toolhead
+loading and unloading with progress, device-page top-cover status and live fan control,
+live printer status, and firmware-supported printer preferences. These include spaghetti,
+foreign-object and air-printing detection with sensitivity, auto-refill and its
+different-color allowance, and turning off lighting after printing. Feature
+behavior, persistence and failure policy follow the accepted sections below.
+Use Neo's shared UI and capability contracts; completing the selected scope
+does not require copying plugin-specific installation or presentation. Automatic
+top-cover mode selection and job-specific top-cover preparation are deferred
+and are not completion requirements for this delivery.
+
+Determine availability per function rather than imposing a minimum firmware
+version on the whole connection. A confirmed unsupported optional feature
+disables its corresponding entry without disabling unrelated supported
+functions. Missing required submission capabilities, such as material mapping
+for Send & Print, block that submission; upload-only retains its own requirements.
+Unknown support remains unknown rather than being inferred solely from a
+firmware version. Use the shared capability and parameter contracts to present
+the choices supported by each function. A capability decision does not waive
+the existing failure rules: an explicit preparation-command failure stops print
+start, and device operations retain their error and manual-retry behavior.
+
+### Accepted Snapmaker mapping and compatibility
+
+U1 profiles gain offline independent project-filament editing and plate manual
+mapping, retaining 64 project slots. Firmware logical-ID and metadata limits
+are enforced at sending rather than imposing a 32-slot project limit. The
+[project specification](Multi-Filament%20Support.md#148-u1-independent-project-filaments)
+owns this U1-only extension and its unchanged automatic-mode boundary.
+
+The plate mapping editor remains useful: it selects slicing tool parameters,
+changes the generated G-code where those parameters differ, and requires
+re-slicing. Seed the send dialog from that completed slice's tool assignments.
+Keep this default even when another head has a closer material/color match;
+the user explicitly invokes automatic matching or changes a head manually.
+Each newly opened dialog starts from its slice's plate mapping; do not persist
+temporary send bindings as defaults for the next dialog.
+Device refresh preserves manual choices while updating compatibility and
+availability diagnostics. A send-time change selects the physical head that
+executes the existing G-code; it does not recalculate sliced paths.
+
+Allow multiple project filaments to use one physical head. Explain that all
+such regions print with that head's loaded filament. Differing temperatures
+and other shared-heater conflicts require explicit confirmation. Retain the
+original G-code, including logical temperature, retraction and tower actions;
+do not imply that the slicer merged those project materials or removed redundant
+tool changes.
+
+Automatic material matching stays within supported material families. Manual
+selection may cross families after the user confirms the difference; execution
+continues with the project's original material settings. The agent owns material
+normalization and classification rather than placing vendor rules in shared UI.
+
+For hardware attributes, the accepted Snapmaker policy is:
+
+| Condition | Sending behavior |
+| --- | --- |
+| Reported nozzle diameter differs from the slice | Explain the values and allow explicit acknowledgement to continue. |
+| Reported flow type conflicts with the slice | Explain the conflict and allow explicit acknowledgement to continue. |
+| Known nozzle hardness is below the material requirement | Explain the deficiency and allow explicit acknowledgement to continue. |
+| Nozzle diameter, flow type or hardness is unreported/unverifiable | Preserve the unknown value, explain which check cannot be performed and allow explicit acknowledgement to continue. |
+
+These confirmations do not modify the retained slice, substitute a new material
+profile or turn unknown attributes into observed values. A user who wants the
+toolpaths/parameters adapted changes the project or plate and re-slices. This
+Snapmaker policy intentionally differs from the Bambu flow-type/hardness blocking
+rules; those rules remain unchanged. The decisions above do not waive protocol
+address validity, receipt freshness or operation-outcome handling.
+
+### Accepted Snapmaker print options and material readiness
+
+Remember bed leveling, flow calibration and timelapse choices in Neo per
+physical printer, rather than per model or project. These are defaults for a
+submission; changing a local choice does not immediately change the device.
+Apply the selected options as part of Send & Print, with the unchanged-G-code
+policy below. Treat successful command responses as the application result for
+submission mapping, used heads, bed leveling, flow calibration/head selection
+and timelapse. Do not add a field-by-field device readback comparison before
+starting. An explicit preparation-command failure stops automatic print start;
+the submission failure and retry rules below apply.
+
+Persistent device preferences, including detection, auto-refill and lighting,
+have an independent Save action. Read their current values from the device,
+write only changed fields and read back to verify the saved result. Canceling
+the send dialog does not undo device preferences already saved. Preserve
+unsaved edits during refresh while reporting changed availability.
+
+Send (upload only) transfers the file without applying the current submission's
+tool mapping, bed leveling, flow calibration or timelapse choices, and without
+starting a print. It does not require loading filament first. An independent
+device-preference Save retains its own effect, including its readback rule.
+
+This delivery accepts only a current valid Neo slice result for submission.
+Defer starting a file already stored on the printer and history-based reprint
+entry points. Repeating a print may re-send the current valid slice through the
+normal preparation flow. Upload-only does not create a later-start/reprint
+workflow in Neo or persist a prepared remote-file binding for such a workflow.
+
+When flow calibration is enabled, default its head selection to every physical
+head used by the current send mapping. Allow the user to deselect individual
+heads. List only used heads and deduplicate many logical filaments assigned to
+one physical head. Do not remember this head subset across dialogs. Within a
+dialog, a mapping edit preserves selections for heads that remain in use,
+removes unused heads and selects newly used heads by default. This is separate
+from the remembered flow-calibration on/off choice.
+
+Allow a head explicitly reported as having inserted but not yet loaded filament
+to be selected for Send & Print. Explain that the U1 print-start workflow will
+load it automatically; do not require a separate completed manual load before
+submission. Manual loading remains available. Distinguish this observed state
+from empty, unknown or stale data; those states are not evidence that filament
+is inserted. Qualification must verify the selected firmware and supported
+startup G-code actually perform the automatic loading.
+
+### Accepted Snapmaker submission order and failure behavior
+
+After ordinary validation of the retained slice, target and structured request,
+Send & Print uploads the file first, without starting it. Only after successful
+upload does it apply the submission's tool mapping, used heads and selected
+print options, then dispatch print start after successful preparation responses.
+An upload failure therefore does not apply those job settings. Independent
+Device preference saves are outside this sequence.
+
+If preparation partially succeeds and a later command fails explicitly, stop
+the submission without starting the print. Do not automatically restore the
+previous mapping or settings; report that device settings may have been partly
+applied. No rollback snapshot or compensating settings writes are required.
+
+Use the generic **Send print task failed, please try again** presentation for
+submission errors, including a lost response after start may have been sent.
+Do not add a separate start-outcome-unknown screen, a mandatory Device visit or
+an extra confirmation step before manual retry. Preserve the preparation choices
+and offer the ordinary manual Retry action. Retry re-enters the complete normal
+flow with a current valid slice: validate, upload, apply mapping/options and
+start. It does not offer start-only retry or starting an arbitrary remote file.
+Automatic reconnection must never trigger this retry or replay a device command.
+
+The generic presentation does not prove that a dispatched start was rejected or
+that the printer is idle. Preserve the actual execution evidence internally;
+manual retry remains subject to normal current-state and receipt validation.
+This is Snapmaker-specific behavior and does not change the existing Bambu or
+Moonraker unknown-outcome presentation and retry rules.
+
+Provide an explicit **Cancel sending** action until print start is dispatched.
+Cancellation attempts to interrupt an active upload and prevents subsequent
+preparation/start commands. Check cancellation between stages, including after
+an in-flight preparation command returns; do not dispatch the next stage merely
+because that command succeeded. Already applied settings remain in place.
+Ordinary dialog closure remains separate from this explicit cancellation action.
+
+Once print start has been dispatched, Cancel sending cannot recall it. Stopping
+a print is a separate user action on Device; cancellation must not automatically
+send a print-stop command. Do not report that printing was prevented merely
+because a cancellation request raced with dispatch. Preserve execution evidence
+and use the accepted ordinary submission result/failure presentation.
+
+Do not actively delete remote files after a canceled or failed submission.
+Explain that an uploaded file may remain on the printer for later user management.
+This also avoids promising cleanup of partially transferred files; the device's
+own temporary-file handling is independent. A successful upload-only operation
+continues to retain its file normally.
+
+Application shutdown follows the shared
+[unfinished-send exit contract](#application-exit-with-unfinished-sends): offer
+waiting or stopping local sending and exiting, with browser-native limitations
+on Web. Do not stop a physical print or automatically resume sending on restart.
+
+### Accepted Snapmaker G-code and top-cover boundaries
+
+Transmit the existing G-code unchanged. The Snapmaker send workflow must not
+scan, parse or rewrite its contents, or prepend/append preparation or cancellation
+commands. Obtain preparation inputs from structured retained-slice metadata and
+device observations. Do not add checks for conflicts between device options
+and startup G-code, or require re-slicing because of such conflicts. Assume
+the submitted G-code needs no conflict handling and send the selected device
+commands normally; commands already in the file execute as written.
+
+Keep top-cover presence/status, current circulation-mode display and live fan
+speed controls on the Device page, subject to the device's current supported
+controls and limits. These operate directly on the printer, independently of
+submission. Do not add manual circulation-mode switching as part of this scope.
+
+Defer automatic circulation-mode calculation from either project or device
+filaments, and all job-specific top-cover preparation. This delivery does not
+introduce `chamber_cooling_mode` or its supporting high-temperature filament
+field for that purpose. Existing top-cover commands in submitted files remain
+unchanged, with no inspection or adaptation by the send workflow.
+
+### Accepted Snapmaker control placement and status observation
+
+Place device filament metadata editing, loading/unloading and persistent device
+preferences on the Device page only. The send dialog presents device status,
+submission mapping and print options; it does not duplicate those device
+operations as quick actions. Device metadata edits remain distinct from the
+project's filament profiles and do not silently replace slicing settings.
+
+Loading/unloading operates on one explicitly selected physical toolhead at a
+time. After that operation finishes, the user may select a head and start
+another operation. Do not offer multi-selection, batch execution or a pending
+load/unload queue. Show progress and the result for the individual operation.
+This deliberately excludes SnapSend's multi-head batch controls from the
+accepted delivery; no batch continuation or skip-on-failure policy is needed.
+Do not provide a cancel-load/unload action in this delivery. Keep showing the
+individual operation's progress and result; closing its page does not cancel
+the device action. Cancel sending and Device print-stop remain separate controls.
+
+For individual loading/unloading, device filament metadata edits, persistent
+preference saves and live top-cover fan controls, let the printer decide whether
+the requested action can execute. Do not add an idle-only requirement or disable
+these controls because Neo observes printing, paused or busy state, or predicts
+a conflict with another device activity. Submit the requested command and show
+the printer's acceptance or rejection. Do not add a readiness query solely to
+enforce such a state gate. Preserve valid targets/parameters, supported-capability
+boundaries and the individual load/unload workflow above. Preference saves still
+write changed fields and verify them by readback; this decision does not change
+the separate submission validation rules.
+
+For Device operation errors, including rejection, transport failure or a
+preference-save readback mismatch, report the error and retain the user's edits.
+Do not automatically retry or roll back device changes that already took effect.
+The user may initiate another operation manually. A save whose verification
+fails is not presented as successfully verified, and an interrupted response
+does not prove that no device change occurred. Preserve the actual response and
+execution evidence without adding an automatic recovery sequence.
+
+Keep status acquisition active while the relevant Device view is visible, a
+send dialog needs the printer's state, or an unfinished upload/device operation
+needs tracking. When no such consumer remains, stop ordinary status acquisition
+and retain the last snapshot with its observation time and non-live indication.
+Reopening a relevant surface reacquires current state. Leaving the page or
+closing the dialog does not cancel a submitted operation or stop printing on
+the device. A print already running on the printer does not by itself require
+continuous background observation after those consumers have gone.
+
+While observation is needed, connection loss triggers a bounded sequence of
+automatic reconnection attempts with backoff. Keep manual retry available;
+after automatic attempts are exhausted, wait for manual retry. Mark retained
+readings stale and make operations that require live state unavailable until
+current state has been reacquired. Preserve manual send mappings and unsaved
+device edits, then revalidate compatibility and availability against the new
+observations. Reconnection must not automatically replay device commands or
+start printing. This policy restores observation; it does not resolve an
+interrupted command's outcome or authorize retrying that command.
+
+### Snapmaker interaction boundaries and exclusions
+
+Reuse the existing Device configuration and shared Send / Send & Print surfaces.
+The configured model and native model matcher narrow the target list, while
+fresh agent observations supply actual toolheads, nozzles, loaded materials
+and readiness. Model equality alone does not validate a material binding.
+
+Defer live camera preview and printer-file browsing/management in this delivery.
+Do not add a Snapmaker Storage browser, file-list/thumbnail browsing, remote-file
+downloads or user-triggered file deletion. These features are not completion
+requirements for the accepted SnapSend scope. Keep the accepted timelapse
+recording switch, upload and Send & Print paths. Starting remote files and
+history-based reprinting remain deferred above; retaining an uploaded file does
+not imply that Neo provides a browser for managing it.
+
+Persistent printer preferences, the current submission's choices and Neo's
+remembered defaults retain the separate save/apply behavior above. UI state
+refresh should preserve user assignments and unsaved edits, while reporting
+changed compatibility or availability.
+
+### Snapmaker acceptance and physical qualification
+
+Implementation may be delivered and marked complete after the full accepted
+scope passes automated acceptance, including protocol fixtures and the affected
+Electron and Web host boundaries. Real U1 qualification is a separate track;
+unavailable hardware does not block code delivery. Record unrun physical cases
+as unverified, never as passed or implied by mocks. A basic upload-only increment
+does not complete the broader accepted scope.
+
+Follow the [testing guidelines](../doc/testing_guidelines.md) for execution
+levels. Prove shared behavior at its lowest practical layer and exercise each
+affected host seam; do not duplicate the whole shared matrix in both hosts.
+Real-WASM checks cover the changed native project/mapping contract and actual
+logical tool/temperature numbering. Neither those exports nor a simulated
+printer establish physical printing behavior.
+
+| Area | Required software acceptance |
+| --- | --- |
+| Configuration and project editing | Manual `snapmaker` selection, optional model association and its priority; offline U1 1–64-slot editing, manual plate mapping, persistence/invalidation, and unchanged eligibility for other printers and automatic modes. |
+| Mapping and options | Retained-slice defaults, explicit automatic matching, manual overrides and acknowledgements, many-to-one bindings, logical-ID boundary rejection, deduplicated calibration heads and per-printer remembered switches. |
+| Submission protocol | Unchanged artifact transfer; upload-only versus upload/preparation/start ordering; failure at each stage, partial application without rollback, cancellation/dispatch races, generic failure and explicit full-flow retry, and no automatic remote-file cleanup or command replay. |
+| Device operations | Individual load/unload and progress, metadata editing, supported preference fields and ranges, changed-field writes/readback, device-decided state admission, preserved edits and manual retry after errors, and the retained top-cover controls. |
+| Observation and hosts | Consumer-owned acquisition, stale/unknown state, bounded reconnect without mutation replay, preserved drafts, host transport boundaries and browser networking failures. Web tests do not imply unrestricted access from every deployed origin. |
+| Application exit | All existing Moonraker and Bambu sends plus Snapmaker: wait versus stop-and-exit, hidden-dialog ownership, pending work and teardown races, Web leave limitations, and no physical print-stop or automatic resume after restart. |
+
+Maintain a separate real-U1 checklist covering actual upload/print start,
+more than four logical filaments, multiple logical materials using one loaded
+physical head, and the retained logical temperature/tool-change behavior and
+shared-heater effects. Include inserted-but-unloaded startup, individual
+loading/unloading, preference application/readback, and the retained device
+controls. Record the tested firmware, printer/profile configuration and host,
+with passed, failed and unrun cases distinguished. Physical tests qualify those
+conditions only; they do not create a universal firmware or platform claim.
+
+### Comparison baseline and evidence limits
+
+Distinguish inspected source or shipped client code from public documentation
+and unverified behavior. Plugin documentation cannot establish undocumented
+implementation details. The inspected references do not establish the products'
+complete release-qualification criteria.
+
+Upstream Orca has a distinct Snapmaker agent that inherits Moonraker upload/start
+and adds Snapmaker filament synchronization. Its native desktop integration is
+separate from the plugin's setup window; see the source references in the
+[architecture evidence](Printer%20Domain%20and%20Control%20Architecture.md#reference-evidence-and-qualification-limits).
+
+[SnapSend 0.9.58](https://cloud.orcaslicer.com/p/51b695a195de) documents desktop
+Windows/macOS/Linux support, uses the active Orca printer connection, and runs
+before upload or upload-and-print. It prepares mappings/settings and delegates
+the transfer/start to Orca. Its documented material operations and printer
+preferences are additional to upstream Orca's built-in Snapmaker agent.
+No browser-host implementation or source-level verification of SnapSend is
+established by this investigation.
+
+The comparison is a reference for decisions, not a requirement to reproduce
+plugin installation, desktop-specific UI, or legacy cancellation workarounds.
+Mobile product support remains deferred under the shared application policy;
+shared code does not imply additional mobile or browser networking guarantees.
 
 ## Platform differences
 

@@ -14,6 +14,8 @@ projection, atomic edits, Plate-aware slicing, persistence and UI are delivered
 under sections 14.1–14.6. Section 14.7's Convenience Mode extension is implemented
 with real-WASM, host fixture and LAN read-only hardware-backed grouping acceptance;
 physical printing qualification remains pending.
+Section 14.8 records the accepted U1 rack/mapping extension under the Snapmaker
+agent design; that extension is not implemented or physically qualified.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -280,6 +282,10 @@ renumbers assignments or edits flush arrays independently.
   violate that requirement.
 - Command availability comes from the authoritative session snapshot. React
   does not infer a printer category from profile names or vendors.
+
+The accepted U1 exception to the fixed-multi-extruder count rule is defined in
+[section 14.8](#148-u1-independent-project-filaments); it is design scope, not
+delivered behavior.
 
 ### 8.2 Adding a slot
 
@@ -974,6 +980,10 @@ delivered baseline and its qualification; section 14.7 records the extension's
 separate implementation and acceptance evidence.
 
 ### 14.1 Accepted scope and entry points
+
+This section describes the delivered base scope. The accepted U1 extension in
+[section 14.8](#148-u1-independent-project-filaments) adds offline manual mapping
+without changing the existing automatic-mode eligibility rules.
 
 - Provide manual project-filament-to-nozzle mapping for printers that combine
   SEMM (`single_extruder_multi_material`) with multiple physical extruders,
@@ -2023,3 +2033,36 @@ no files, invoked no Send/Send & Print action, and performed no heating, motion,
 extrusion or material controls. The independent profile's submission directory
 remained empty. Physical printing/feeding/nozzle switching, mixed-nozzle hardware,
 Cloud, forced network loss/recovery and the full release matrix remain unqualified.
+
+### 14.8 U1 independent project filaments
+
+**Status:** Accepted design, not implemented. This is the project-editing part
+of the [Snapmaker agent design](Printer%20Domain%20and%20Control%20Architecture.md#25-snapmaker-agent-design).
+
+For a U1 Printer profile, allow project filament addition/removal independently
+of its four physical heads, retaining the existing project range of 1–64 slots
+on both Electron and Web. Keep `single_extruder_multi_material=false`; exposing
+this feature must not change the core's extrusion-state mode. The native session
+projects the capability to shared UI. No saved device, live connection or agent
+selection is required to edit or slice the project.
+
+Enable the existing plate manual-mapping editor for U1. Mapping selects slicing
+tool parameters and participates in the normal invalidation, history and project
+persistence lifecycle. It is not the firmware send map. Existing eligibility
+rules for automatic grouping remain authoritative; enabling U1 manual mapping
+does not make unsupported automatic algorithms available. Other fixed
+multi-extruder models retain their current behavior in this delivery.
+
+Keep the project limit separate from target-protocol limits. The inspected U1
+firmware exposes 32 logical slots, with valid logical indices 0–31; do not reduce
+the project rack to 32. The Snapmaker agent validates the retained artifact's
+logical IDs and submission metadata against firmware capability and blocks
+unrepresentable submissions. Checking only the number of used materials is
+insufficient: a single used slot may have an out-of-range logical ID. These
+protocol limits are not nozzle-compatibility warnings that confirmation can
+override. Do not silently discard slots to make a project fit a printer.
+
+Send-time defaults and manually acknowledged differences are owned by the
+[Snapmaker mapping rules](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-mapping-and-compatibility).
+The project-count boundary, offline controls, mapping persistence/invalidation
+and protocol-boundary rejection require separate acceptance from real U1 printing.
