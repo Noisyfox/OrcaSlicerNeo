@@ -125,8 +125,11 @@ void wrappers() {
 } // namespace
 extern "C" EMSCRIPTEN_KEEPALIVE int neo_test_mesh_boolean() {
     try {
+        std::puts("{\"kind\":\"mesh-boolean-phase\",\"phase\":\"numeric\"}");
         run_numeric_backend_tests();
+        std::puts("{\"kind\":\"mesh-boolean-phase\",\"phase\":\"mcut-contexts\"}");
         run_mcut_context_tests();
+        std::puts("{\"kind\":\"mesh-boolean-phase\",\"phase\":\"wrappers\"}");
         wrappers();
         std::puts("{\"kind\":\"mesh-boolean-backend\",\"passed\":true}");
         return 0;

@@ -10,12 +10,18 @@ import { createRequire } from 'node:module';
 
 async function run(create) {
   const output = [];
-  const module = await create({ print: line => output.push(line), printErr: line => output.push(line) });
+  const record = line => {
+    output.push(line);
+    if (line.startsWith('{"kind":')) parentPort.postMessage({ progress: line });
+  };
+  parentPort.postMessage({ progress: '[mesh-boolean-backend] Initializing Node module' });
+  const module = await create({ print: record, printErr: record });
   const code = module._neo_test_mesh_boolean();
   return { code, shared: module.HEAPU8.buffer instanceof SharedArrayBuffer, output };
 }
 if (!isMainThread) {
   try {
+    parentPort.postMessage({ progress: '[mesh-boolean-backend] Importing Node module' });
     const { default: create } = await import(workerData);
     parentPort.postMessage(await run(create));
   } catch (error) { parentPort.postMessage({ error: String(error), code: -1 }); }
@@ -32,7 +38,11 @@ if (!isMainThread) {
   const worker = new Worker(new URL(import.meta.url), { workerData: pathToFileURL(path).href });
   try {
     const result = await new Promise((resolveResult, reject) => {
-      worker.once('message', resolveResult); worker.once('error', reject);
+      worker.on('message', result => {
+        if (typeof result.progress === 'string') console.log(result.progress);
+        else resolveResult(result);
+      });
+      worker.once('error', reject);
       worker.once('exit', code => reject(new Error(`Test Worker exited before reporting (${code})`)));
       setTimeout(() => reject(new Error('Backend test timed out')), 120_000).unref();
     });
@@ -42,10 +52,13 @@ if (!isMainThread) {
   if (process.argv.includes('--browser')) {
     const browserWorker = `
       const output=[]; let nestedWorkers=0;
+      const record=s=>{output.push(s); if(s.startsWith('{"kind":')) console.log(s)};
       if(globalThis.Worker) globalThis.Worker=new Proxy(globalThis.Worker,{construct(t,a,n){nestedWorkers++; return Reflect.construct(t,a,n)}});
       try {
+        console.log('[mesh-boolean-backend] Importing browser module');
         const {default:create}=await import('./${basename(path)}');
-        const m=await create({print:s=>output.push(s),printErr:s=>output.push(s)});
+        console.log('[mesh-boolean-backend] Initializing browser module');
+        const m=await create({print:record,printErr:record});
         const code=m._neo_test_mesh_boolean();
         postMessage({code,output,nestedWorkers,shared:typeof SharedArrayBuffer!=='undefined' && m.HEAPU8.buffer instanceof SharedArrayBuffer,crossOriginIsolated,sharedArrayBufferAvailable:typeof SharedArrayBuffer!=='undefined'});
       } catch(e){postMessage({code:-1,error:String(e),output,nestedWorkers})}`;
@@ -70,6 +83,11 @@ if (!isMainThread) {
     try {
       browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true });
       const page = await browser.newPage();
+      page.on('console', message => {
+        const text = message.text();
+        if (text.startsWith('{"kind":') || text.startsWith('[mesh-boolean-backend]'))
+          console.log('[browser]', text);
+      });
       await page.goto(`http://127.0.0.1:${server.address().port}`);
       const result = await page.evaluate(() => new Promise((resolveResult, reject) => {
         const worker = new Worker('/worker.mjs', { type: 'module' });
