@@ -40,7 +40,7 @@ test('native printer grouping and nozzle variants preserve canonical history and
   const nozzle = page.getByTestId('nozzle-variant-select');
   await expect(nozzle).toBeEnabled();
   await nozzle.click();
-  expect(await page.getByRole('option').allTextContents()).toEqual(['0.2', '0.4', '0.4+0.6', '0.6', '0.8']);
+  await expect(page.getByRole('option')).toHaveText(['0.2', '0.4', '0.4+0.6', '0.6', '0.8']);
   await page.getByRole('option', { name: '0.4', exact: true }).click();
   await expect(nozzle).toBeEnabled();
   await nozzle.click();
@@ -126,7 +126,7 @@ test('real bed selector uses native labels, global/local scope, keyboard and com
   await local.click();
   const localPopup = page.locator('[data-slot="select-content"][data-open]');
   await expect(localPopup).toBeVisible();
-  expect(await localPopup.getByRole('option').allTextContents()).toEqual(labels);
+  await expect(localPopup.getByRole('option')).toHaveText(labels);
   await localPopup.getByRole('option', { name: 'Engineering Plate', exact: true }).click();
   await expect(local).toContainText('Engineering Plate');
   await expect(global).toContainText(last);
