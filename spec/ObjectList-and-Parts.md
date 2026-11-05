@@ -638,17 +638,17 @@ triangulations across native and WASM targets.
 The selected build keeps the CGAL prechecks deferred and the native disabled
 CGAL retry disabled, as accepted in 10.1.
 
-Orca wrapper/source changes belong in the committed Orca submodule, followed
-by a deliberate pin update when implementation is approved. Changes to the
-third-party MCUT scheduler belong to an external dependency patch. Prepare a
-build-local copy from the pinned MCUT source, apply that patch to the copy,
-and leave the checked-out Orca source unchanged during dependency preparation.
+Orca wrapper/source changes and the bundled MCUT scheduler adaptation belong
+in the committed Orca submodule, followed by a deliberate pin update. Guard
+the MCUT adaptation with `ORC_NEO_WASM` so ordinary Orca builds retain their
+original behavior. Compile the committed sources directly; dependency
+preparation must not copy or patch MCUT sources.
 The [native build reference](../doc/2026-08-12-wasm-build-notes.md#source-and-dependency-ownership)
 owns source and patch policy.
 
-The MCUT adaptation adds a manager-thread build switch that defaults
-to the existing threaded behavior. Serial builds disable both API manager
-threads and compute-helper threads. Context creation and shutdown then skip
+The MCUT adaptation selects inline execution only for `ORC_NEO_WASM` builds
+without `ORCA_WASM_THREADING`. Serial builds disable both API manager threads
+and compute-helper threads. Context creation and shutdown then skip
 the manager threads, while task submission executes the existing packaged
 task inline on the slicer Worker. Retain its completion event, error status
 and cleanup; do not leave tasks queued without an executor.
@@ -762,10 +762,10 @@ of the next piece starts.
 
 1. **Native dependency and source closure.** Integrate the full pinned CGAL,
    GMP/GMPXX, MPFR and CORE closure into the existing WASM build drivers and
-   source collection. Compile the original complete `MeshBoolean.cpp` and
-   apply the MCUT serial adaptation to a build-local dependency copy, including
-   Context-owned perturbation state. Verify actual linked wrapper execution
-   and serial/threaded startup with the intended numerical and thread settings;
+   source collection. Compile the original complete `MeshBoolean.cpp` into
+   `slic3r_core` and the committed, Neo-guarded MCUT adaptation into `deps_core`,
+   including Context-owned perturbation state. Verify actual linked wrapper
+   execution and serial/threaded startup with the intended numerical and thread settings;
    building an unused object alone is insufficient.
 
    **Accepted foundation scope:** complete wasm64 serial/threaded module

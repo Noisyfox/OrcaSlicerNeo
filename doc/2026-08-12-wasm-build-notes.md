@@ -52,8 +52,15 @@ CMake own exact versions, library sets and feature exclusions. OCCT builds with
 rebuilds older OCCT stages automatically. A `quick` build rejects them with a
 rebuild instruction before linking.
 
-Mesh Boolean compiles the complete pinned `MeshBoolean.cpp` in its own
-target, retaining the original libigl code and both CGAL and MCUT wrappers.
+The production source build uses two static archives: `slic3r_core` for Orca
+code and `deps_core` for bundled dependencies. The complete pinned
+`MeshBoolean.cpp` belongs to `slic3r_core`, retaining the original libigl code
+and both CGAL and MCUT wrappers; MCUT sources belong to `deps_core`. The
+headless bridge and entrypoint link these archives and the prebuilt dependency
+stages into the same WASM module. CGAL's
+[shared CMake interface](../packages/slicer-wasm/dependencies/cgal.cmake)
+carries its headers, numerical policy and library closure without a separate
+compiled target. The backend acceptance target consumes that same interface.
 The normal shell and cmd build drivers invoke the same
 [`dependencies/cgal/build.mjs`](../packages/slicer-wasm/dependencies/cgal/build.mjs)
 helper. It verifies source archive hashes and stages static numerical
@@ -68,11 +75,12 @@ or MSYS runtime is needed by this helper on Windows.
 The numerical recipe and manifests are owned by that helper. CGAL TUs use
 `CGAL_USE_GMPXX=1` and `CGAL_ALWAYS_ROUND_TO_NEAREST=1`; serial builds also
 use `CGAL_HAS_NO_THREADS=1` and MPFR without TLS/shared caches. The MCUT
-external-dependency patch is applied to a private source copy under the
-variant build directory. Its API manager threads default to enabled and
-remain enabled in the threaded artifact; serial builds execute packaged
-tasks inline with Context-owned perturbation state. The checked-out Orca
-submodule is not patched by dependency preparation.
+adaptation is committed in the Orca submodule and guarded by `ORC_NEO_WASM`.
+Without that macro its original manager-thread and perturbation paths remain
+unchanged. Neo's threaded artifact also retains those paths; serial builds
+execute packaged tasks inline with Context-owned perturbation state. The
+compute-helper macro applies only to MCUT source files in threaded builds.
+Dependency preparation does not copy or patch the checked-out MCUT source.
 
 To prepare or verify a numerical stage directly, use the same command on
 any build host (select `wasm32` or `threaded` as needed):

@@ -7,10 +7,11 @@
   to WebAssembly; the wxWidgets GUI is neither ported nor built for WASM. The
   authoritative architecture is
   [`spec/Web-Electron Shared Application Architecture.md`](spec/Web-Electron%20Shared%20Application%20Architecture.md).
-- Make Orca source changes directly in `packages/slicer-wasm/cpp/` on its
-  `dev/orcaslicerneo-wasm` branch. Validate and commit the submodule change,
-  then deliberately update the superproject pin. Do not add Orca source
-  patches; `packages/slicer-wasm/patches/` is for external dependencies.
+- Make Orca source changes, including the bundled MCUT adaptation, directly in
+  `packages/slicer-wasm/cpp/` on its `dev/orcaslicerneo-wasm` branch. Validate
+  and commit the submodule change, then deliberately update the superproject
+  pin. Do not add Orca source patches; `packages/slicer-wasm/patches/` is for
+  separately fetched external dependencies.
 - `packages/slicer-wasm/src/client/` is the only JavaScript allowed to talk
   directly to the Emscripten module. Application code must use
   `packages/slicer-runtime/`; never import module URLs or Emscripten globals

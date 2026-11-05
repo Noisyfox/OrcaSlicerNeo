@@ -122,7 +122,6 @@ set(DROP_PATTERNS
   "OpenVDBUtils"          # OpenVDB grid conversion (hollowing)
   "Hollowing"             # OpenVDB
   "CutSurface"            # CGAL
-  "MeshBoolean"           # Complete TU compiled separately by dependencies/mesh-boolean.cmake
   "/Format/svg"           # SVG->mesh needs OpenCASCADE; load_svg stubbed in stubs/format-stubs.cpp
   "/Shape/TextShape"      # OCCT font->mesh; no kept callers
   "GCodeSender"           # serial/network host control; boost::asio signal_blocker
@@ -246,7 +245,8 @@ else()
       -Wno-missing-template-arg-list-after-template-kw)
 endif()
 target_compile_options(slic3r_core PRIVATE ${SLIC3R_COMPILE_OPTS})
-include("${CMAKE_CURRENT_SOURCE_DIR}/dependencies/mesh-boolean.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/dependencies/cgal.cmake")
+target_link_libraries(slic3r_core PRIVATE cgal_dependencies)
 
 # ---- Vendored deps (deps_src/ inside the submodule) ----
 # The upstream two-stage build compiles these as separate static libs; the
@@ -254,7 +254,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/dependencies/mesh-boolean.cmake")
 # each deps_src/<dep>/CMakeLists.txt source list. Compiled here because they
 # live outside the libslic3r GLOB and the link needs them (expat=3MF XML,
 # miniz=3MF zip, admesh=STL load/repair, clipper2=clipping/offset/triangulation,
-# qhull=convex hull, glu-libtess=tesselation,
+# qhull=convex hull, glu-libtess=tesselation, mcut=mesh boolean,
 # semver=Semver.hpp, qoi=thumbnail PNG). Keep in sync with upstream lists.
 enable_language(C)
 
@@ -274,7 +274,30 @@ target_link_libraries(slic3r_core PRIVATE nlopt)
 set_property(SOURCE "${LIBSLIC3R_ROOT}/Arrange.cpp" APPEND PROPERTY
   COMPILE_DEFINITIONS LIBNEST2D_THREADING_tbb)
 
+# MCUT's Neo serial path is guarded in the committed Orca source. Its optional
+# compute pool is enabled only for threaded builds, without leaking its macros
+# to the other vendored libraries in deps_core.
+set(MCUT_SRC
+  "${ORCA_SRC}/deps_src/mcut/source/mcut.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/kernel.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/hmesh.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/math.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/bvh.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/shewchuk.c"
+  "${ORCA_SRC}/deps_src/mcut/source/frontend.cpp"
+  "${ORCA_SRC}/deps_src/mcut/source/preproc.cpp"
+)
+if(WASM_THREADING)
+  set_property(SOURCE ${MCUT_SRC} APPEND PROPERTY
+    COMPILE_DEFINITIONS MCUT_WITH_COMPUTE_HELPER_THREADPOOL=1)
+endif()
+# Preserve the vendored library's C++11 dialect and warning flags while it is
+# compiled into the shared archive.
+set_property(SOURCE ${MCUT_SRC} APPEND PROPERTY COMPILE_OPTIONS
+  -Wall -Wextra "$<$<COMPILE_LANGUAGE:CXX>:-std=gnu++11>")
+
 set(DEPS_CORE_SRC
+  ${MCUT_SRC}
   "${ORCA_SRC}/deps_src/expat/xmlparse.c"
   "${ORCA_SRC}/deps_src/expat/xmlrole.c"
   "${ORCA_SRC}/deps_src/expat/xmltok.c"
@@ -341,6 +364,7 @@ set(DEPS_CORE_SRC
   "${ORCA_SRC}/deps_src/qoi/qoilib.c"
 )
 add_library(deps_core STATIC ${DEPS_CORE_SRC})
+target_include_directories(deps_core SYSTEM PRIVATE "${ORCA_SRC}/deps_src/mcut/include")
 
 if(WASM_THREADING)
   target_include_directories(deps_core PUBLIC "${TBB_INCLUDE_DIR}")
@@ -684,12 +708,8 @@ if(NEO_MESH_BOOLEAN_TEST)
     "${CMAKE_CURRENT_SOURCE_DIR}/src/mesh-boolean/MeshBooleanBackend.test.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/mesh-boolean/NumericalBackend.test.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/mesh-boolean/McutContext.test.cpp")
-  target_link_libraries(mesh_boolean_backend_test PRIVATE ${_boolean_test_libraries})
-  target_include_directories(mesh_boolean_backend_test PRIVATE "${CGAL_ROOT}/include" "${mcut_source}/include")
-  target_compile_definitions(mesh_boolean_backend_test PRIVATE CGAL_ALWAYS_ROUND_TO_NEAREST=1 CGAL_USE_GMPXX=1)
-  if(NOT WASM_THREADING)
-    target_compile_definitions(mesh_boolean_backend_test PRIVATE CGAL_HAS_NO_THREADS=1)
-  endif()
+  target_link_libraries(mesh_boolean_backend_test PRIVATE ${_boolean_test_libraries} cgal_dependencies)
+  target_include_directories(mesh_boolean_backend_test PRIVATE "${ORCA_SRC}/deps_src/mcut/include")
   target_compile_options(mesh_boolean_backend_test PRIVATE -fexceptions)
   target_link_options(mesh_boolean_backend_test PRIVATE -m64 -O2 -fexceptions
     --no-entry -sDISABLE_EXCEPTION_CATCHING=0 -sEXIT_RUNTIME=0 -sINVOKE_RUN=0
