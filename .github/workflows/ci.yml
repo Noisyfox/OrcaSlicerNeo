@@ -28,11 +28,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Must be >= 24: emsdk 6.0.4's MEMORY64 glue hard-requires node v24.0.0
+  # Must be >= 24: emsdk's MEMORY64 glue hard-requires node v24.0.0
   # (table64 binaries fail to instantiate on older V8 — "invalid table
   # elements limits flags"). Volta-pinned in root package.json.
   NODE_VERSION: "24.19.0"
-  EMSDK_VERSION: "6.0.4"
+  # Requires >= 6.0.7 to clear stale pthread waitAsync waiters before memory reuse.
+  # https://github.com/emscripten-core/emscripten/pull/27501
+  EMSDK_VERSION: "6.0.13"
 
 jobs:
   profile-pack:

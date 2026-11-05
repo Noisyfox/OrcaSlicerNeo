@@ -1,6 +1,6 @@
 # WASM Build and Runtime Reference
 
-**Updated:** 2026-10-28
+**Updated:** 2026-11-05
 **Status:** Current engineering reference
 **Scope:** Native build ownership, artifacts and runtime constraints.
 
@@ -223,6 +223,13 @@ headers. Native desktop builds leave `ORC_NEO_WASM` undefined (equivalent to
 zero in these `#if` conditions), preserving the desktop branches.
 
 ## Threading, shims and memory
+
+Use Emscripten 6.0.7 or later. Earlier releases leave pending `Atomics.waitAsync`
+waiters on exited pthread structures. When that memory is reused for a lock,
+the stale waiter can consume its wakeup and permanently block a live thread,
+including during repeated MCUT Context creation and release. The upstream
+[pthread cleanup fix](https://github.com/emscripten-core/emscripten/pull/27501)
+clears the waiter before freeing the thread structure.
 
 Threaded builds compile and link with pthread support, use upstream oneTBB,
 a precreated worker pool and mimalloc. Default pool size follows exposed logical

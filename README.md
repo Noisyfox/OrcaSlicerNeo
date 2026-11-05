@@ -60,7 +60,10 @@ See the [WASM build reference](doc/2026-08-12-wasm-build-notes.md).
   the workspace also declares `packageManager: pnpm@11.21.0`)
 - **Git** — the C++ core is a submodule
   (`packages/slicer-wasm/cpp` → `Noisyfox/OrcaSlicer`)
-- **Emscripten (emsdk)** — only needed for the WASM build. The build driver
+- **Emscripten (emsdk) ≥ 6.0.7** — only needed for the WASM build. Earlier
+  versions can deadlock after pthread teardown; see the
+  [WASM build reference](doc/2026-08-12-wasm-build-notes.md#threading-shims-and-memory).
+  The build driver
   uses `emcc`/`emcmake` already on PATH (e.g. Homebrew emscripten), or
   auto-activates an emsdk install found via the `EMSDK` env var or
   `emsdk_env.bat`/`emsdk_env.sh` on PATH. Run `<driver> env` to see the
