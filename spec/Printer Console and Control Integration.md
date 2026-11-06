@@ -879,7 +879,8 @@ destination prompt. Configure it under Preferences → Downloads; it is shared b
 all printer agents and committed with the Preferences Save button. Choosing a
 folder edits the dialog's draft; cancelling the chooser preserves that draft,
 and cancelling Preferences leaves the saved location unchanged. Storage has no default-folder
-configuration action. The initial desktop location is the OS Downloads folder;
+configuration action. The setting displays the full current path, with the full
+value available on hover when the text is truncated. The initial desktop location is the OS Downloads folder;
 Web explains that browser facilities manage the location. A separate Save As action chooses a file destination for a
 single item or one destination folder for a batch. Ordinary downloads preserve
 existing files by adding a numeric suffix on name collisions. Save As requires

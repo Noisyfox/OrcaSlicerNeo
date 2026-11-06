@@ -119,7 +119,10 @@ test('Preferences uses top category tabs and preserves edits across categories',
     const abnormalStorage = dialog.getByRole('checkbox', { name: 'Allow Abnormal Storage' });
     await expect(dialog.getByRole('button', { name: 'Change…', exact: true })).toBeEnabled();
     const initialDirectory = await dialog.getByLabel('Default download folder', { exact: true }).textContent();
+    expect(initialDirectory).toBe(await app.evaluate(({ app }) => app.getPath('downloads')));
     await dialog.getByRole('button', { name: 'Change…', exact: true }).click();
+    await expect(dialog.getByLabel('Default download folder', { exact: true })).toHaveText(chosenDirectory);
+    await expect(dialog.getByLabel('Default download folder', { exact: true })).toHaveAttribute('title', chosenDirectory);
     await online.click();
     await region.click(); await page.getByRole('option', { name: 'China', exact: true }).click();
     await developer.click(); await abnormalStorage.check();
@@ -167,6 +170,7 @@ test('Preferences uses top category tabs and preserves edits across categories',
 
     await open();
     await expect(general).toHaveAttribute('aria-selected', 'true');
+    await expect(dialog.getByLabel('Default download folder', { exact: true })).toHaveText(chosenDirectory);
     await control.click();
     await expect(dialog.getByRole('combobox', { name: 'Auto flush after changing' })).toContainText('None');
     await categories.getByRole('tab', { name: 'Online', exact: true }).click();

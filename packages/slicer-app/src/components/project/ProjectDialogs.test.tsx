@@ -58,8 +58,8 @@ describe('project dialogs', () => {
 
   function downloadFixture(): PrinterDownloads {
     return { ...unavailablePrinterDownloads(), capability: { kind: 'supported', constraints: {} },
-      directory: vi.fn(async () => ({ ok: true as const, value: { label: 'Downloads' } })),
-      chooseDirectory: vi.fn(async () => ({ ok: true as const, value: { status: 'selected' as const, label: 'Shared files', id: 'directory-choice' as DownloadDirectorySelectionId } })),
+      directory: vi.fn(async () => ({ ok: true as const, value: { label: '/configured/downloads' } })),
+      chooseDirectory: vi.fn(async () => ({ ok: true as const, value: { status: 'selected' as const, label: '/selected/shared/files', id: 'directory-choice' as DownloadDirectorySelectionId } })),
       saveDirectory: vi.fn(async () => ({ ok: true as const, value: null })),
     };
   }
@@ -216,8 +216,11 @@ describe('project dialogs', () => {
     const downloads = downloadFixture(), provider = accountFixture(), onSave = vi.fn(), onClose = vi.fn();
     const dialog = (open = true) => <ProjectPreferencesDialog open={open} preferences={null} onSave={onSave} onClose={onClose} />;
     const f = await renderDialog(dialog(), undefined, { downloads, accounts: [provider] });
+    expect(document.querySelector('output')?.textContent).toBe('/configured/downloads');
+    expect(document.querySelector('output')?.title).toBe('/configured/downloads');
     await chooseDownloadFolder();
-    expect(document.querySelector('output')?.textContent).toBe('Shared files');
+    expect(document.querySelector('output')?.textContent).toBe('/selected/shared/files');
+    expect(document.querySelector('output')?.title).toBe('/selected/shared/files');
     await selectPreferencesTab('Online');
     await chooseOption('#account-bambu-region', 'China');
     expect(provider.account.setSetting).not.toHaveBeenCalled();
@@ -226,7 +229,7 @@ describe('project dialogs', () => {
     await clickPreferencesButton('cancel');
     await f.render(dialog(false));
     await f.render(dialog());
-    expect(document.querySelector('output')?.textContent).toBe('Downloads');
+    expect(document.querySelector('output')?.textContent).toBe('/configured/downloads');
     await selectPreferencesTab('Online');
     expect(document.querySelector('#account-bambu-region')?.textContent).toContain('Others');
     await chooseOption('#account-bambu-region', 'China');
@@ -244,10 +247,10 @@ describe('project dialogs', () => {
     await chooseDownloadFolder();
     vi.mocked(downloads.chooseDirectory).mockResolvedValueOnce({ ok: true, value: { status: 'cancelled' } });
     await chooseDownloadFolder();
-    expect(document.querySelector('output')?.textContent).toBe('Shared files');
+    expect(document.querySelector('output')?.textContent).toBe('/selected/shared/files');
     vi.mocked(downloads.chooseDirectory).mockRejectedValueOnce(new Error('private path'));
     await chooseDownloadFolder();
-    expect(document.querySelector('output')?.textContent).toBe('Shared files');
+    expect(document.querySelector('output')?.textContent).toBe('/selected/shared/files');
     expect(document.body.textContent).toContain('The download folder could not be selected');
     expect(document.body.textContent).not.toContain('private path');
     expect(downloads.saveDirectory).not.toHaveBeenCalled();

@@ -8,7 +8,7 @@ import { withFileLock } from './fileLock';
 import type { DownloadHost } from './printerDownloads';
 export function downloadDestinationHost(configurationDirectory: string, window: () => BrowserWindow | null): DownloadHost {
   const settings = join(configurationDirectory, 'download-directory.json');
-  // Only the latest picker selection is retained, bounded to one host-private path.
+  // Only the latest picker selection is retained; saving resolves its opaque ID.
   let selection: { id: DownloadDirectorySelectionId; path: string } | null = null;
   const directory = async () => {
     try {
@@ -23,11 +23,11 @@ export function downloadDestinationHost(configurationDirectory: string, window: 
     return result.canceled ? null : result.filePaths[0] ?? null;
   };
   return {
-    directory: async () => ({ label: basename(await directory()) || 'Download folder' }),
+    directory: async () => ({ label: await directory() }),
     chooseDirectory: async () => {
       const selected = await chooseFolder(); if (!selected) return { status: 'cancelled' };
       selection = { id: randomUUID() as DownloadDirectorySelectionId, path: selected };
-      return { status: 'selected', label: basename(selected) || 'Download folder', id: selection.id };
+      return { status: 'selected', label: selected, id: selection.id };
     },
     saveDirectory: async id => {
       if (!selection || selection.id !== id) throw new Error('The download folder selection is no longer available.');

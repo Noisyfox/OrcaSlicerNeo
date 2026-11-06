@@ -16,13 +16,13 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'neo-download-dialog-')); roots.push(root);
   return { root, host: downloadDestinationHost(root, () => ({} as BrowserWindow)) };
 }
-it('keeps a chosen directory private and unchanged until explicitly saved', async () => {
-  const { root, host } = await fixture(); expect(await host.directory()).toEqual({ label: 'downloads' });
+it('displays the full current directory path and keeps it unchanged until explicitly saved', async () => {
+  const { root, host } = await fixture(); expect(await host.directory()).toEqual({ label: '/default/downloads' });
   electron.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [join(root, 'chosen')] });
   const selected = await host.chooseDirectory();
-  expect(selected).toMatchObject({ status: 'selected', label: 'chosen', id: expect.any(String) });
+  expect(selected).toMatchObject({ status: 'selected', label: join(root, 'chosen'), id: expect.any(String) });
   if (selected.status !== 'selected') throw new Error('Expected a folder selection');
-  expect(JSON.stringify(selected)).not.toContain(root);
+  expect(selected.id).not.toContain(root);
   expect(await host.destination(files, false)).toEqual({ kind: 'directory', directory: '/default/downloads' });
   await expect(readFile(join(root, 'download-directory.json'))).rejects.toMatchObject({ code: 'ENOENT' });
   await host.saveDirectory(selected.id);
@@ -36,7 +36,7 @@ it('keeps a chosen directory private and unchanged until explicitly saved', asyn
   }
   electron.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
   expect(await reopened.chooseDirectory()).toEqual({ status: 'cancelled' });
-  expect(await reopened.directory()).toEqual({ label: 'chosen' });
+  expect(await reopened.directory()).toEqual({ label: join(root, 'chosen') });
 
 });
 it('rejects arbitrary, superseded and other-host selection IDs and permits retry after a failed write', async () => {
@@ -52,7 +52,7 @@ it('rejects arbitrary, superseded and other-host selection IDs and permits retry
   await expect(host.saveDirectory(second.id)).rejects.toThrow();
   await rm(settings, { recursive: true });
   await host.saveDirectory(second.id);
-  expect(await host.directory()).toEqual({ label: 'chosen' });
+  expect(await host.directory()).toEqual({ label: join(root, 'chosen') });
 });
 it('sanitizes a suggested name and explicitly confirms replacement before admitting it', async () => {
   const { root, host } = await fixture(), path = join(root, 'video.mp4'); await writeFile(path, 'original');

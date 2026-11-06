@@ -1,4 +1,4 @@
-/** Host-owned save tasks. No local paths, credentials, native handles or byte buffers. */
+/** Host-owned save tasks. Task snapshots contain no local paths, credentials, native handles or byte buffers. */
 import type { Capability, Id, NoConstraints, PrinterError, Result } from './common';
 import type { RemoteFileRef } from './files';
 export type DownloadTaskId = Id<'download-task'>;
@@ -30,7 +30,8 @@ export interface PrinterDownloads {
   continue(id: DownloadTaskId): Promise<Result<null>>;
   open(id: DownloadTaskId): Promise<Result<null>>;
   /** Application-wide setting shared by all agents, presented in Preferences.
-   * Display label only; the configured filesystem location stays host-private. */
+   * Desktop labels show the full current directory path as display-only metadata.
+   * Filesystem operations use host-owned selections, never this label. */
   directory(): Promise<Result<{ label: string }>>;
   /** Choose a draft location without changing the configured directory. */
   chooseDirectory(): Promise<Result<{ status: 'selected'; label: string; id: DownloadDirectorySelectionId } | { status: 'cancelled' }>>;
