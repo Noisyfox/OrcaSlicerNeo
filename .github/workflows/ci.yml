@@ -684,7 +684,7 @@ jobs:
             suffix: -mac-x64.dmg
             unpacked: release/mac/OrcaSlicerNeo.app
           - id: mac-arm64-dmg
-            os: macos-14
+            os: macos-15
             arch: arm64
             args: --mac --arm64
             suffix: -mac-arm64.dmg
