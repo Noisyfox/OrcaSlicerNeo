@@ -16,9 +16,9 @@ Interface availability alone does not establish device support or runtime delive
 Section 2.4 records the selected local-artifact print-submission direction;
 its product decisions are accepted, with explicit implementation gates and
 deferred scope. That design record does not authorize implementation.
-Section 2.5 records the accepted Snapmaker agent design and separate software
-acceptance/physical qualification boundaries; no Snapmaker execution is delivered
-by that design record.
+Section 2.5 records the delivered Snapmaker agent and its separate software
+acceptance and physical qualification boundaries, including non-printing U1 LAN
+acceptance. Actual printing remains unqualified.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
 capabilities, controls, material systems, read-only sensors, cameras, remote
@@ -2051,8 +2051,9 @@ does not establish a device, Cloud or cross-platform delivery claim.
 **Status:** Implemented and software-qualified in independently tested commits.
 Manual connection, U1 project/mapping integration, prepared submission, Device
 controls and preferences, scoped monitoring and shared unfinished-send exit
-handling are delivered. The software results and baseline test limitations are
-recorded in the interaction specification; real U1 qualification is unrun.
+handling are delivered. Software checks and bounded non-printing real-U1 LAN
+acceptance are recorded in the interaction specification; actual printing
+remains unqualified.
 Scope, behavior and
 acceptance policy are settled. The
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#snapmaker-agent-design)
@@ -2377,6 +2378,15 @@ next; final host acceptance checks their composition.
 | 9. Integration | Shared capability-driven metadata editor, package exports and final documentation. | Workspace typechecks, affected packages, Electron/Web HTTP fixtures and existing Bambu/Moonraker regressions. |
 
 #### Reference evidence and qualification limits
+
+Real U1 firmware `2.0.0.205_20260914173503` exposed a command-discovery
+correction: the `gcode` object's `commands` map lists registered commands even
+without a help description; `/printer/gcode/help` does not. Acquisition queries
+that map alongside device status, without probing commands by execution. The
+[non-printing LAN acceptance](Printer%20Console%20and%20Control%20Integration.md#real-u1-non-printing-acceptance-2026-11-06)
+records observations, preparation-only mappings, restored settings/fans and
+unchanged upload verification; no physical print behavior is inferred.
+
 
 The provider-private [U1 preparation encoder](../packages/printer-control/src/snapmaker-protocol.ts)
 implements structured logical-material bindings, physical-head deduplication,

@@ -2538,7 +2538,8 @@ memory/size limits require the artifact feasibility check.
 The selected scope includes U1 independent project materials, preparation and
 submission, Device metadata/individual material controls, persistent preferences,
 consumer-owned monitoring and all-agent unfinished-send exit handling.
-Real U1 qualification remains unrun and separate from software acceptance.
+Non-printing real-U1 LAN acceptance is recorded below; physical printing remains
+unqualified and separate from software acceptance.
 Protocol ownership, slicing semantics and evidence limits are maintained in
 [the Snapmaker agent architecture](Printer%20Domain%20and%20Control%20Architecture.md#25-snapmaker-agent-design).
 
@@ -2890,7 +2891,7 @@ is in the existing native bridge; send code does not inspect G-code contents.
 | Verification | Result and boundary |
 | --- | --- |
 | `pnpm typecheck` | Pass across the workspace. |
-| `pnpm --filter @orca/printer-control test` | 199 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. |
+| `pnpm --filter @orca/printer-control test` | 200 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. |
 | `pnpm --filter @orca/slicer-app test` | 1684 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
 | Affected package tests | Web 46; WASM client/bridge contracts 699 with 28 skipped; runtime 65 with 3 skipped; platform contracts 57; profile resources 4 passed. Skips remain excluded from acceptance. |
 | Electron production-path E2E build | `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` passed; this test build uses the mock slicer and real host IPC/HTTP transport. |
@@ -2926,14 +2927,74 @@ one skipped after making the download-path expectation platform-aware. The
 Bambu print-submission suite, including cancellation plus callback/file lifetime
 at shutdown, retains its 34 passing tests.
 
-All real-U1 cases remain **unrun**: actual start and printing; more than four
-logical materials; many-to-one mappings and shared-heater effects; inserted
-but unloaded startup; calibration head subsets; individual load/unload;
-metadata, detection/refill/lighting preference persistence; top-cover fans;
-and disconnect/cancel/exit races on real firmware. The calibration-subset field
-name discrepancy recorded in the architecture remains a hardware qualification
-item. No other Snapmaker model, installer platform or physical firmware revision
-is qualified by these software fixtures.
+### Real U1 non-printing acceptance (2026-11-06)
+
+Tested one LAN U1 on Windows, reporting Klipper firmware
+`2.0.0.205_20260914173503` and Moonraker `2.0.0`. The printer began and ended in
+`standby` with no active filename, all heater targets zero, all tested fan
+speeds zero and the cavity light off. The four nozzles reported 0.4 mm,
+`standard` flow, with four loaded Snapmaker PLA-SnapSpeed filaments. The top
+cover reported disconnected (`power_detected=false`, mode 0).
+
+The opt-in [hardware acceptance](../apps/desktop/e2e/snapmaker-hardware.e2e.ts)
+uses the actual provider and real HTTP responses. Its Electron case uses the
+real threaded WASM worker and renderer/preload/main transport. Configuration is
+copied into an isolated host directory and selects `snapmaker`; the user's
+existing Moonraker connection is not rewritten. Service-level preparation and
+write probes use Node HTTP transport, separately from the Electron UI case.
+
+| Case | Result and exact boundary |
+| --- | --- |
+| Read-only acquisition | Four heads, material colors/types/presence/loading, five temperatures/targets, fan/light states, top-cover state and all ten persistent preference fields read successfully. |
+| Shared monitoring | Live subscriptions repeatedly acquired device state. Releasing the last subscription stopped further reads; cached inventory was retained as stale. This did not disconnect the printer's network. |
+| Electron Monitor | Real data and enabled per-head controls rendered. Manual Refresh preserved an unsaved preference draft; leaving Device and closing the host required no printer action. |
+| Six logical materials | Structured requirements produced plate-derived head defaults `[0,1,2,3,0,1]`. Manually binding all six to head 0 preserved the bindings, reported warnings and deduplicated calibration to one head. No mapping/calibration command was applied and no print was started. This does not establish physical shared-heater behavior. |
+| Cavity light | Toggled on, observed the reported white channel, then restored it to off. No visual brightness claim is inferred from the status response. |
+| Persistent preferences | All ten reported booleans/sensitivity fields were changed to another advertised value, verified through fresh reads, then restored and verified. This proves command/readback, not detection accuracy, auto-refill during printing or persistence across a firmware reboot. |
+| Fans | Four part fans and the cavity fan accepted 20%, reported 20%, then were restored to 0 and verified. RPM, airflow and cooling effectiveness were not measured. Disconnected top-cover fans were not operated. |
+| Upload only | Uploaded the existing real-WASM artifact unchanged (871,406 bytes), downloaded it for exact byte comparison, and verified unchanged print state and job preferences/mapping. The only file write was upload; no preparation/start/delete request was sent. |
+
+The upload intentionally remains on the printer as
+`NEO_acceptance_DO_NOT_PRINT_1793936034438.gcode`. No cleanup or print was
+performed. Source bytes came from the prior six-material real-WASM slice;
+the acceptance harness compared bytes and did not parse or rewrite G-code.
+
+Real hardware exposed a capability-discovery defect: `/printer/gcode/help`
+omits registered commands without help text, including U1 preparation,
+preferences, feed and purifier commands. Discovery now queries the `gcode`
+object's `commands` map. The firmware reported 391 registered commands,
+including the previously hidden commands. A regression explicitly covers
+empty command descriptions; updated Electron and Web protocol fixtures pass.
+Repository `pnpm test` and `pnpm typecheck` pass after the correction.
+
+To run the explicitly selected hardware cases (requires an accessible idle U1
+and a configuration containing exactly one U1):
+
+```powershell
+$env:VITE_USE_MOCK = '0'
+pnpm --filter @orca/desktop exec electron-vite build --mode e2e
+$env:NEO_U1_ACCEPTANCE_CONFIG = '<absolute-path-to-printer-config.json>'
+pnpm --filter @orca/desktop exec playwright test e2e/snapmaker-hardware.e2e.ts
+# Optional writes: restored lights/preferences/fans and an upload retained on the printer.
+$env:NEO_U1_ACCEPTANCE_WRITES = '1'
+$env:NEO_U1_ACCEPTANCE_GCODE = '<absolute-path-to-existing-sliced.gcode>'
+pnpm --filter @orca/desktop exec playwright test e2e/snapmaker-hardware.e2e.ts
+```
+
+Without explicit configuration, the hardware cases skip. Without the write
+opt-in, only the read/Monitor cases run. The write transport rejects print-start,
+heater, movement, material-feed and deletion requests. Test reports retain
+observation snapshots, command/upload evidence and a Monitor screenshot; they
+must not include API keys.
+
+Still **unrun**: actual start/printing; physical many-to-one material and
+shared-heater behavior; inserted-but-unloaded startup; flow-calibration subsets;
+individual load/unload; heating/motion; material-metadata writes (which may alter
+the association with RFID-reported metadata); disconnected top-cover controls;
+physical disconnect/cancel/exit races; real-Web-to-U1 networking; other models,
+firmware or installer platforms. The calibration-subset field discrepancy
+remains a physical qualification item. No claim of universal U1 compatibility
+is made by this bounded acceptance.
 
 ### Comparison baseline and evidence limits
 
