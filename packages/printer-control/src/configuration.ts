@@ -2,7 +2,7 @@ import type { PrintPreferences } from './domain/print-options';
 import type { ConfiguredPrinterModel } from './domain/printer';
 import { normalizePrintPreferences } from './print-preferences';
 export const PRINTER_CONFIGURATION_VERSION = 1 as const;
-export const BUILT_IN_PRINTER_DRIVER_IDS = ['moonraker'] as const;
+export const BUILT_IN_PRINTER_DRIVER_IDS = ['moonraker', 'snapmaker'] as const;
 export type BuiltInPrinterDriverId = typeof BUILT_IN_PRINTER_DRIVER_IDS[number];
 export type PrinterDriverId = BuiltInPrinterDriverId;
 

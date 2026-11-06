@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-11-05
+**Updated:** 2026-11-06
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
@@ -2532,9 +2532,10 @@ memory/size limits require the artifact feasibility check.
 
 ## Snapmaker agent design
 
-**Status:** Accepted design with implementation in progress. Protocol groundwork
-does not yet deliver the user-facing workflow. Scope, behavior and acceptance
-policy are settled below; physical qualification remains separate.
+**Status:** Accepted design with implementation in progress. Manual Snapmaker
+configuration and provider routing are implemented in Electron and Web; the
+prepared sending and remaining Device workflow are pending. Scope, behavior
+and acceptance policy are settled below; physical qualification remains separate.
 Protocol ownership, slicing semantics and evidence limits are maintained in
 [the Snapmaker agent architecture](Printer%20Domain%20and%20Control%20Architecture.md#25-snapmaker-agent-design).
 

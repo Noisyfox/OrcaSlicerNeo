@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-11-05
+**Updated:** 2026-11-06
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -2047,8 +2047,10 @@ does not establish a device, Cloud or cross-platform delivery claim.
 
 ### 2.5 Snapmaker agent design
 
-**Status:** Accepted design with implementation in progress; the Snapmaker
-provider and user-facing workflow are not yet delivered. Scope, behavior and
+**Status:** Accepted design with implementation in progress; manual Snapmaker
+configuration, provider routing and on-demand material reads are implemented in
+both hosts. Prepared submission and the remaining device workflow are pending.
+Scope, behavior and
 acceptance policy are settled. The
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#snapmaker-agent-design)
 owns the user-facing decisions. Software acceptance can complete implementation
@@ -2347,8 +2349,16 @@ The provider-private [U1 preparation encoder](../packages/printer-control/src/sn
 implements structured logical-material bindings, physical-head deduplication,
 protocol index validation and print-option command construction. Its protocol
 fixtures cover sparse IDs and many-to-one bindings; no file inspection is used.
-This foundation does not yet register a provider, send commands or qualify
-firmware execution. In particular, the inspected firmware's calibration-subset
+The [HTTP provider](../packages/printer-control/src/service.ts) registers distinct
+Moonraker and Snapmaker routes in both hosts, sharing the configuration write
+queue while isolating operations by provider. The manual Device form can save
+and reopen Snapmaker connections without a model or network probe. On-demand
+[U1 inventory normalization](../packages/printer-control/src/snapmaker-observation.ts)
+keeps inserted, empty and unknown material observations distinct from the
+motion sensor's loaded state. Unreported hardware is not filled from presets.
+Prepared submission and remote-file start remain unavailable at this stage;
+these foundations do not qualify firmware execution.
+In particular, the inspected firmware's calibration-subset
 handler references both `flow_calibrate_extruders` and `flow_calib_extruders`;
 successful subset execution needs firmware qualification rather than assuming
 that a well-formed request proves the device applied it.

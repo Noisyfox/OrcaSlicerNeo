@@ -1,5 +1,6 @@
+import { u1MaterialInventory } from './snapmaker-observation';
 import { unsupportedSubmissions } from './submission';
-/** Moonraker migration: request-only domain service over the existing host HTTP/configuration seams. */
+/** Shared request-based HTTP service with provider-owned routes and operation records. */
 import { normalizePrinterConfigurationDocument, type PrinterConfiguration, type PrinterConfigurationDocument } from './configuration';
 import type { PrinterTransport } from './transport';
 import type * as D from './domain';
@@ -11,17 +12,12 @@ export interface MoonrakerServiceOptions {
   transport: PrinterTransport;
   host: D.AgentHost;
 }
-const providerId = 'moonraker' as D.Id<'provider'>;
-const typeId = 'moonraker' as D.Id<'printer-type'>;
 const storageId = 'gcodes' as D.Id<'storage'>;
-const webId = 'moonraker-web' as D.Id<'web-interface'>;
-const unsupported = { kind: 'unsupported', layer: 'adapter', reason: 'Not implemented by the Moonraker adapter' } as const;
+const unsupported = { kind: 'unsupported', layer: 'adapter', reason: 'Not implemented by this HTTP adapter' } as const;
 const unknown = { kind: 'unknown', reason: 'not-reported' } as const;
 const rejected = (): D.Result<never> => ({ ok: false, error: { code: 'unsupported', message: unsupported.reason } });
 const unsupportedStream = async function* (): AsyncIterable<never> { throw streamError(unsupported.reason); };
 const supported = <C extends object>(constraints: C): D.Capability<C> => ({ kind: 'supported', constraints });
-const routeId = (id: string) => `moonraker:${id}` as D.Id<'route'>;
-const targetFor = (id: string): D.PrinterTarget => ({ printerId: id as D.Id<'printer'>, routeId: routeId(id) });
 const known = <T>(target: D.PrinterTarget, value: T): D.Reading<T> => ({ kind: 'known', value, freshness: 'fresh', sourceRouteId: target.routeId, observedAtMs: null, receivedAtMs: Date.now() });
 /** Cached projections retain original timestamps and mark nested readings stale too. */
 function retained<T>(value: T): T {
@@ -52,17 +48,32 @@ interface ConfigurationSnapshot {
   readonly printers: readonly ResolvedConfiguration[];
 }
 /** Shared by fresh service facades on the same host repository; never a caller session. */
-const authorities = new WeakMap<object, { configurations: Map<string, ConfigurationEntry>; operations: OperationStore; additions: Map<string, { signature: string; printerId: string }>; configurationQueue: Promise<void>; listeners: Set<() => void> }>();
+const authorities = new WeakMap<object, { configurations: Map<string, ConfigurationEntry>; operations: Map<string, OperationStore>; additions: Map<string, { signature: string; printerId: string }>; configurationQueue: Promise<void>; listeners: Set<() => void> }>();
 
 export function createMoonrakerService(options: MoonrakerServiceOptions): D.PrinterService {
+  return createHttpPrinterService(options, 'moonraker');
+}
+export function createSnapmakerService(options: MoonrakerServiceOptions): D.PrinterService {
+  return createHttpPrinterService(options, 'snapmaker');
+}
+function createHttpPrinterService(options: MoonrakerServiceOptions, driver: PrinterConfiguration['driverId']): D.PrinterService {
+  const providerId = driver as D.Id<'provider'>;
+  const typeId = driver as D.Id<'printer-type'>;
+  const webId = `${driver}-web` as D.Id<'web-interface'>;
+  const name = driver === 'snapmaker' ? 'Snapmaker' : 'Moonraker';
+  const routeId = (id: string) => `${driver}:${id}` as D.Id<'route'>;
+  const targetFor = (id: string): D.PrinterTarget => ({ printerId: id as D.Id<'printer'>, routeId: routeId(id) });
+  const filePrefix = `${driver}-file:`;
+
   let authority = authorities.get(options.configuration);
   if (!authority) {
-    authority = { configurations: new Map(), operations: new OperationStore(), additions: new Map(), configurationQueue: Promise.resolve(), listeners: new Set() };
+    authority = { configurations: new Map(), operations: new Map(), additions: new Map(), configurationQueue: Promise.resolve(), listeners: new Set() };
     authorities.set(options.configuration, authority);
   }
   const state = authority;
   const http = new MoonrakerHttp(options.transport);
-  const operations = state.operations;
+  if (!state.operations.has(driver)) state.operations.set(driver, new OperationStore());
+  const operations = state.operations.get(driver)!;
   /** Only local repository work is queued; printer I/O retains its resolved snapshot. */
   function withConfiguration<T>(work: () => T | Promise<T>): Promise<T> {
     const next = state.configurationQueue.then(work);
@@ -72,7 +83,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   /** Called within the configuration queue, with a normalized, owned document. */
   function bindConfiguration(doc: PrinterConfigurationDocument): ConfigurationSnapshot {
     for (const id of state.configurations.keys()) if (!doc.printers.some(p => p.id === id)) state.configurations.delete(id);
-    const printers = doc.printers.map(printer => {
+    const printers = doc.printers.filter(printer => printer.driverId === driver).map(printer => {
       const signature = JSON.stringify([printer.driverId, printer.apiBaseUrl, printer.consoleUrl, printer.apiKey]);
       let entry = state.configurations.get(printer.id);
       if (entry?.signature !== signature) {
@@ -108,9 +119,9 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   }
   function capabilities(): D.PrinterCapabilities {
     return {
-      revision: 'moonraker-domain-3', submission: unsupported,
+      revision: `${driver}-domain-3`, submission: unsupported,
       commands: {
-        'jobs.start': supported({ sources: [{ storageId }], formats: ['gcode'], materialMapping: 'none', jobTimelapse: [] }),
+        'jobs.start': driver === 'snapmaker' ? unsupported : supported({ sources: [{ storageId }], formats: ['gcode'], materialMapping: 'none', jobTimelapse: [] }),
         'jobs.pause': supported({}), 'jobs.resume': supported({}), 'jobs.cancel': supported({}), 'jobs.setSpeed': unsupported, 'jobs.skipObjects': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
         'thermal.setTarget': unsupported, 'fans.setSpeed': unsupported, 'lights.set': unsupported,
         'motion.home': unsupported, 'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
@@ -119,14 +130,14 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
         'drying.start': unsupported, 'drying.stop': unsupported, 'camera.setEnabled': unsupported,
         'camera.setDeviceTimelapse': unsupported, 'files.delete': unsupported,
       },
-      cameras: [], currentPrintPreview: unsupported, webInterface: supported({ id: webId, name: 'Moonraker Web interface' }),
+      cameras: [], currentPrintPreview: unsupported, webInterface: supported({ id: webId, name: `${name} Web interface` }),
       files: {
         upload: supported([{ destination: { kind: 'default' }, formats: ['gcode'], maxBytes: 0x7fffffff, collisionPolicies: ['overwrite'] }]),
         list: unsupported, stat: unsupported, download: unsupported, preview: unsupported, changes: unsupported,
       },
       observations: {
         descriptor: supported({ delivery: ['on-demand'] }), firmware: supported({ delivery: ['on-demand'] }), status: supported({ delivery: ['on-demand'] }),
-        thermal: unsupported, motion: unsupported, actuators: unsupported, materials: unsupported, cameras: unsupported, sensors: unsupported, alerts: unsupported, printObjects: unsupported,
+        thermal: unsupported, motion: unsupported, actuators: unsupported, materials: driver === 'snapmaker' ? supported({ delivery: ['on-demand'] }) : unsupported, cameras: unsupported, sensors: unsupported, alerts: unsupported, printObjects: unsupported,
       },
     };
   }
@@ -135,12 +146,12 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
       identity: { id: printer.id as D.Id<'printer'>, displayName: printer.displayName, manufacturer: null, model: null, serialNumber: null, externalRefs: [] },
       ...(printer.printerModel ? { configuredModel: { ...printer.printerModel } } : {}),
       routes: [{
-        id: routeId(printer.id), printerId: printer.id as D.Id<'printer'>, providerId, label: 'Moonraker',
+        id: routeId(printer.id), printerId: printer.id as D.Id<'printer'>, providerId, label: name,
         configurationRevision: entry.revision,
         management: { rename: true, configure: true, forget: true },
         configuration: { typeId, hostId: options.host.id, channel: 'lan', address: printer.apiBaseUrl,
           webInterfaceUrl: (printer.consoleUrl || null) as D.PrinterRouteConfiguration['webInterfaceUrl'],
-          credentialRef: printer.apiKey ? `moonraker-key:${printer.id}` as D.Id<'credential'> : null },
+          credentialRef: printer.apiKey ? `${driver}-key:${printer.id}` as D.Id<'credential'> : null },
         capabilities: capabilities(),
       }],
     };
@@ -151,14 +162,14 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
   }
   function fileRef(printer: PrinterConfiguration, entry: ConfigurationEntry, path: string): D.RemoteFileRef {
     return { ...targetFor(printer.id), configurationRevision: entry.revision, storageId,
-      fileId: `moonraker-file:${encodeURIComponent(path)}` as D.Id<'remote-file'> };
+      fileId: `${filePrefix}${encodeURIComponent(path)}` as D.Id<'remote-file'> };
   }
   function filePath(file: D.RemoteFileRef, target: D.TargetRequest, entry: ConfigurationEntry): string {
     if (file.printerId !== target.printerId || file.routeId !== target.routeId || file.storageId !== storageId) fail('invalid-target', 'File belongs to another route or storage');
     if (file.configurationRevision !== entry.revision) fail('stale-context', 'File configuration changed');
-    if (!file.fileId.startsWith('moonraker-file:')) fail('invalid-target', 'Invalid Moonraker file reference');
+    if (!file.fileId.startsWith(filePrefix)) fail('invalid-target', 'Invalid Moonraker file reference');
     let path: string;
-    try { path = decodeURIComponent(file.fileId.slice('moonraker-file:'.length)); } catch { fail('invalid-target', 'Invalid Moonraker file reference'); }
+    try { path = decodeURIComponent(file.fileId.slice(filePrefix.length)); } catch { fail('invalid-target', 'Invalid Moonraker file reference'); }
     if (!path || path.includes('\0') || path.split('/').includes('..')) fail('invalid-target', 'Invalid Moonraker file path');
     return path;
   }
@@ -200,6 +211,16 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
           observed.descriptor = known(request.target, nextDescriptor);
           entry.cache.firmware = retained(observed.firmware);
           entry.cache.descriptor = retained(observed.descriptor);
+        }
+        if (driver === 'snapmaker' && request.topics.some(topic => topic === 'materials')) {
+          const listing = await http.get(printer, '/printer/objects/list', options?.signal);
+          const objects = Array.isArray(listing.objects) ? listing.objects : [];
+          if (!objects.includes('print_task_config')) fail('unsupported', 'U1 material information is unavailable');
+          const sensors = [0, 1, 2, 3].map(i => `filament_motion_sensor e${i}_filament`).filter(name => objects.includes(name));
+          const query = ['print_task_config', ...sensors].map(encodeURIComponent).join('&');
+          const result = await http.get(printer, `/printer/objects/query?${query}`, options?.signal);
+          observed.materials = known(request.target, u1MaterialInventory(record(result.status), request.target, entry.revision));
+          entry.cache.materials = retained(observed.materials);
         }
         if (request.topics.some(topic => topic === 'status')) {
           observed.status = known(request.target, await readStatus(printer, options?.signal));
@@ -274,7 +295,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
         const prior = operations.existing({ ...request.target, requestId: request.requestId }, signature);
         if (prior) return prior;
         const { printer, entry } = await resolve(request.target);
-        if (request.destination.kind !== 'default' || request.format !== 'gcode' || request.collisionPolicy !== 'overwrite') fail('unsupported', 'Moonraker supports default G-code upload with explicit overwrite');
+        if (request.destination.kind !== 'default' || request.format !== 'gcode' || request.collisionPolicy !== 'overwrite') fail('unsupported', 'This adapter supports default G-code upload with explicit overwrite');
         if (!Number.isSafeInteger(request.sizeBytes) || request.sizeBytes < 0 || request.sizeBytes > 0x7fffffff || !request.fileName || /[\0]/.test(request.fileName)) fail('invalid-request', 'Invalid upload name or size');
         const repeated = operations.existing({ ...request.target, requestId: request.requestId }, signature);
         if (repeated) return repeated;
@@ -333,17 +354,17 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
     return safe(() => withConfiguration(async () => work(await loadConfiguration())));
   }
   function configuration(config: D.PrinterRouteConfiguration, previous?: PrinterConfiguration): Omit<PrinterConfiguration, 'id' | 'displayName'> {
-    if (config.typeId !== typeId || config.hostId !== options.host.id || config.channel !== 'lan') fail('unsupported', 'Unsupported Moonraker route configuration');
-    if (config.credentialRef !== null && (!previous || config.credentialRef !== `moonraker-key:${previous.id}`)) fail('invalid-target', 'Credential reference is not available on this host');
-    return { driverId: 'moonraker', apiBaseUrl: config.address ?? '', consoleUrl: config.webInterfaceUrl ?? '', apiKey: config.credentialRef === null ? '' : previous!.apiKey };
+    if (config.typeId !== typeId || config.hostId !== options.host.id || config.channel !== 'lan') fail('unsupported', 'Unsupported HTTP printer route configuration');
+    if (config.credentialRef !== null && (!previous || config.credentialRef !== `${driver}-key:${previous.id}`)) fail('invalid-target', 'Credential reference is not available on this host');
+    return { driverId: driver, apiBaseUrl: config.address ?? '', consoleUrl: config.webInterfaceUrl ?? '', apiKey: config.credentialRef === null ? '' : previous!.apiKey };
   }
   const service: D.PrinterService = {
     submissions: unsupportedSubmissions,
     remotePrints: { inspect: async () => rejected(), prepare: async () => rejected(), release: async () => rejected() },
     operations: operations.api, controls, files, observations,
     media: { readPrintObjectMap: async () => rejected(), readStream: unsupportedStream, readCurrentPrintPreview: async () => rejected(), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },
-    listProviders: async () => ({ ok: true, value: [{ id: providerId, name: 'Moonraker', hosts: [{ ...options.host, discovery: unsupported }] }] }),
-    listTypes: async () => ({ ok: true, value: [{ id: typeId, providerId, name: 'Moonraker', description: 'Request-based Moonraker HTTP and native Web interface' }] }),
+    listProviders: async () => ({ ok: true, value: [{ id: providerId, name, hosts: [{ ...options.host, discovery: unsupported }] }] }),
+    listTypes: async () => ({ ok: true, value: [{ id: typeId, providerId, name, description: `${name} HTTP and Web interface` }] }),
     listSaved: () => safe(async () => (await withConfiguration(loadConfiguration)).printers.map(saved)),
     onSavedChanged: listener => {
       if (options.configuration.onChanged) return options.configuration.onChanged(listener);
@@ -357,9 +378,9 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
     },
     add: request => mutate(async snapshot => {
       const doc = snapshot.document;
-      if (request.routes.length !== 1) fail('unsupported', 'Moonraker configuration supports one route per saved entry');
+      if (request.routes.length !== 1) fail('unsupported', 'HTTP printer configuration supports one route per saved entry');
       const signature = requestSignature([request.displayName, request.routes]);
-      const previous = state.additions.get(request.requestId);
+      const previous = state.additions.get(`${driver}:${request.requestId}`);
       if (previous) {
         if (previous.signature !== signature) fail('invalid-request', 'Request identity was already used with different parameters');
         const printer = snapshot.printers.find(p => p.printer.id === previous.printerId);
@@ -369,7 +390,7 @@ export function createMoonrakerService(options: MoonrakerServiceOptions): D.Prin
       const id = newId<'printer'>();
       const printer = { id, displayName: request.displayName, ...configuration(request.routes[0]) };
       const next = await saveConfiguration({ ...doc, printers: [...doc.printers, printer] });
-      state.additions.set(request.requestId, { signature, printerId: id });
+      state.additions.set(`${driver}:${request.requestId}`, { signature, printerId: id });
       return saved(resolveSnapshot(next, targetFor(id)));
     }),
     updateRoute: request => mutate(async snapshot => {

@@ -198,6 +198,28 @@ async function chooseSendPrinter(page: Page, printerId: string): Promise<void> {
   await expect(page.getByTestId('send-submit')).toBeEnabled();
 }
 
+test('Snapmaker manual connection persists and reopens without a model', async () => {
+  const { app, fixtureDir } = await launchApp({ version: 1, printers: [] });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-add-printer').click();
+    await page.getByTestId('device-adapter').click();
+    await page.getByRole('option', { name: 'Snapmaker', exact: true }).click();
+    await page.getByTestId('device-display-name').fill('U1 offline');
+    await page.getByTestId('device-api-base-url').fill('http://127.0.0.1:9');
+    await page.getByTestId('device-save-printer').click();
+    await expect(page.getByTestId('device-config-dialog')).toBeHidden();
+    const saved = JSON.parse(readFileSync(join(fixtureDir, 'printer-config.json'), 'utf8')).printers[0];
+    expect(saved.driverId).toBe('snapmaker'); expect(saved.printerModel).toBeUndefined();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByTestId(`device-select-${saved.id}`).click();
+    await page.getByTestId(`device-edit-${saved.id}`).click();
+    await expect(page.getByTestId('device-adapter')).toContainText('Snapmaker');
+    await expect(page.getByTestId('device-printer-model')).toContainText('Not specified');
+  } finally { await app.close(); }
+});
+
 test('manual printer model selection persists, reopens and clears without changing project profiles', async () => {
   test.skip(process.env.ORCA_E2E_REAL === '1', 'Uses the deterministic enabled mock profile catalogue.');
   const fixture = await startMoonrakerFixture();
