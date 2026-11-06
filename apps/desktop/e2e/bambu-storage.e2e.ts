@@ -153,7 +153,14 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
       (request as { method: string }).method.startsWith('storage.')) as { method: string }[]);
     const openPreferences = async () => {
       if (process.platform === 'darwin') await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById('file-preferences')!.click());
-      else { await page.getByTestId('titlebar-menu-trigger').click(); await page.getByTestId('menu-file-trigger').hover(); await page.getByTestId('file-preferences').click(); }
+      else {
+        await page.getByTestId('titlebar-menu-trigger').click();
+        // Traverse the submenu with keyboard input; pointer hover timing
+        // is independent of this download-preference persistence scenario.
+        await page.getByTestId('menu-file-trigger').press('ArrowRight');
+        await expect(page.getByTestId('file-preferences')).toBeVisible();
+        await page.getByTestId('file-preferences').press('Enter');
+      }
       return page.getByTestId('project-preferences-dialog');
     };
     const preferences = await openPreferences();
@@ -161,10 +168,12 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await preferences.getByRole('button', { name: 'Change…', exact: true }).click();
     await expect(preferences.getByLabel('Default download folder', { exact: true })).toHaveText('Shared downloads');
     await preferences.getByTestId('project-preferences-cancel').click();
+    await expect(preferences).not.toBeVisible();
     await openPreferences();
     await expect(preferences.getByLabel('Default download folder', { exact: true })).toHaveText('Shared downloads');
     await preferences.screenshot({ path: test.info().outputPath('download-preferences.png') });
     await preferences.getByTestId('project-preferences-cancel').click();
+    await expect(preferences).not.toBeVisible();
 
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
     await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
