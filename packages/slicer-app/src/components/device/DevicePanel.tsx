@@ -128,7 +128,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
   const [remembered, setRemembered] = useState<string | null | undefined>(undefined);
   const selectionTouched = useRef(initialSelection !== null);
-  const [selectedPage, setSelectedPage] = useState<'web' | 'monitor' | 'storage'>('web');
+  const [selectedPage, setSelectedPage] = useState<'web' | 'monitor' | 'storage' | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
   const dialogOpener = useRef<HTMLButtonElement>(null);
   const [draft, setDraft] = useState<PrinterDraft>(EMPTY_DRAFT);
@@ -249,7 +249,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
     if (remembered && printers.some(printer => printer.identity.id === remembered)) setSelectedPrinterId(remembered);
   }, [remembered, configurationLoaded, loadFailed, printers]);
   function selectPrinter(value: string | null) {
-    selectionTouched.current = true; setSelectedPrinterId(value); setSelectedPage('web');
+    selectionTouched.current = true; setSelectedPrinterId(value); setSelectedPage(null);
     void updateUserPreferences(platform.preferences, prefs => ({ ...prefs, ui: { ...prefs.ui, lastDevicePrinterId: value ?? undefined } })).catch(() => undefined);
   }
   // Successful absence clears only the live selection; never choose a replacement.
@@ -271,7 +271,10 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   const monitorRoute = selectedPrinter?.routes.find(route => supportsMonitor(route.capabilities));
   const storageRoute = selectedPrinter?.routes.find(route => route.capabilities.files.list.kind !== 'unsupported');
   useEffect(() => { useDeviceSelectionStore.getState().selectGroupingSource(selectedPrinter, monitorRoute ?? selectedPrinter?.routes[0] ?? null); }, [selectedPrinter, monitorRoute]);
-  const activePage = selectedPage === 'storage' && storageRoute ? 'storage' : selectedPage === 'web' && consoleRoute ? 'web' : selectedPage === 'monitor' && monitorRoute ? 'monitor' : consoleRoute ? 'web' : monitorRoute ? 'monitor' : null;
+  const pages = [{ id: 'web', label: 'Web Interface', available: !!consoleRoute }, { id: 'monitor', label: 'Monitor', available: !!monitorRoute }, { id: 'storage', label: 'Storage', available: !!storageRoute }] as const;
+  const orderedPages = selectedPrinter?.routes.some(route => route.providerId === 'snapmaker') ? [pages[1], pages[0], pages[2]] : pages;
+  const activePage = orderedPages.find(page => page.id === selectedPage && page.available)?.id
+    ?? orderedPages.find(page => page.id !== 'storage' && page.available)?.id ?? null;
 
   // Mount without a URL first, register the fixed built-in script, then load
   // the configured URL. This ordering is required for Electron document_start.
@@ -421,7 +424,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
                   const next = event.key === 'ArrowDown' ? (index + 1) % tabs.length : event.key === 'ArrowUp' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
                   if (next >= 0 && tabs[next]) { event.preventDefault(); tabs[next].focus(); tabs[next].click(); }
                 }}>
-                  {([{ id: 'web', label: 'Web Interface', available: !!consoleRoute }, { id: 'monitor', label: 'Monitor', available: !!monitorRoute }, { id: 'storage', label: 'Storage', available: !!storageRoute }] as const).filter(page => page.available).map(page => <button
+                  {orderedPages.filter(page => page.available).map(page => <button
                     key={page.id} id={`device-tab-${page.id}`} role="tab" aria-selected={activePage === page.id} aria-controls="device-content" tabIndex={activePage === page.id ? 0 : -1}
                     className={cn('rounded-md border px-3 py-2 text-left text-sm', activePage === page.id ? 'border-primary bg-accent/20' : 'border-transparent hover:bg-muted/60')}
                     onClick={() => setSelectedPage(page.id)}>{page.label}</button>)}

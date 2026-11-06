@@ -2737,6 +2737,12 @@ selection behavior is preserved. The initial Monitor exposes status, sensors,
 heater targets and basic print controls; camera viewing and other monitor cards
 remain future work.
 
+For Snapmaker-agent printers, the Device UI orders Monitor before Web Interface
+and opens Monitor by default when eligible, including remembered device
+restoration. Users can still select Web Interface explicitly; choosing another
+printer applies that printer's default again. Other agents retain their current
+tab order and default selection.
+
 ### 4.3 Firmware observations
 
 Firmware version reading is an observation capability, exposed through the

@@ -616,6 +616,11 @@ test('Snapmaker Device uses Electron transport for physical controls and verifie
   try {
     const page = await app.firstWindow(); await waitForReady(page);
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click(); await page.getByTestId('device-select-u1').click();
+    const tabs = page.getByRole('tablist', { name: 'Printer features' }).getByRole('tab');
+    await expect(tabs.nth(0)).toHaveText('Monitor'); await expect(tabs.nth(1)).toHaveText('Web Interface');
+    await expect(page.locator('#device-tab-monitor')).toHaveAttribute('aria-selected', 'true');
+    await page.locator('#device-tab-web').click();
+    await expect(page.locator('#device-tab-web')).toHaveAttribute('aria-selected', 'true');
     await page.locator('#device-tab-monitor').click();
     await expect(page.getByRole('button', { name: 'Load to Toolhead 1', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'Load to Toolhead 1', exact: true }).click({ noWaitAfter: true });
