@@ -23,12 +23,12 @@ export async function readU1Device(http: MoonrakerHttp, printer: PrinterConfigur
   const list = await http.get(printer, '/printer/objects/list', signal);
   if (!Array.isArray(list.objects) || !list.objects.every(x => typeof x === 'string')) fail('device-failed', 'Invalid device object list');
   const objects: string[] = list.objects;
-  const names = ['print_task_config', 'print_stats', 'virtual_sdcard', 'defect_detection', 'configfile', 'purifier', 'heater_bed', 'fan', 'led cavity_led', 'filament_feed left', 'filament_feed right',
+  // gcode/help omits registered commands without descriptions (including U1 commands).
+  const names = ['gcode', 'print_task_config', 'print_stats', 'virtual_sdcard', 'defect_detection', 'configfile', 'purifier', 'heater_bed', 'fan', 'led cavity_led', 'filament_feed left', 'filament_feed right',
     ...heads.flatMap(i => [extruder(i), `fan_generic e${i}_fan`, `filament_motion_sensor e${i}_filament`]), 'fan_generic cavity_fan'];
   const query = names.filter(name => objects.includes(name));
-  const help = await http.get(printer, '/printer/gcode/help', signal);
   const result = query.length ? await http.get(printer, `/printer/objects/query?${query.map(encodeURIComponent).join('&')}`, signal) : { status: {} };
-  return { objects, commands: Object.keys(help), status: record(result.status), receivedAtMs: Date.now() };
+  return { objects, commands: Object.keys(record(record(record(result.status).gcode).commands)), status: record(result.status), receivedAtMs: Date.now() };
 }
 function fans(snapshot: U1DeviceSnapshot) {
   return [

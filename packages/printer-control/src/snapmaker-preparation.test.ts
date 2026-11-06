@@ -84,14 +84,15 @@ describe('U1 structured print preparation', () => {
 
 it('reads actual extruder hardware, not logical job nozzle settings, and never submits a command while preparing', async () => {
   const request = vi.fn(async ({ url }: { url: string }) => ({ status: 200, json: async () => url.endsWith('/objects/list')
-    ? { result: { objects: ['print_task_config', 'extruder', 'filament_motion_sensor e0_filament'] } }
-    : url.endsWith('/gcode/help') ? { result: { SET_PRINT_EXTRUDER_MAP: '', SET_PRINT_USED_EXTRUDERS: '', SET_PRINT_PREFERENCES: '' } }
-      : { result: { status: { print_task_config: { filament_exist: [true], nozzle_diameter: [.8] },
+    ? { result: { objects: ['gcode', 'print_task_config', 'extruder', 'filament_motion_sensor e0_filament'] } }
+      : { result: { status: { gcode: { commands: { SET_PRINT_EXTRUDER_MAP: {}, SET_PRINT_USED_EXTRUDERS: {}, SET_PRINT_PREFERENCES: {} } }, print_task_config: { filament_exist: [true], nozzle_diameter: [.8] },
         extruder: { nozzle_diameter: .4, nozzle_volume_type: 'standard' } } } } }));
   const printer = normalizePrinterConfigurationDocument({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1', apiBaseUrl: 'http://printer/proxy', apiKey: '', consoleUrl: '' }] }).printers[0];
   const snapshot = await readU1Preparation(new MoonrakerHttp({ request }), printer, target, 'revision');
+  expect(snapshot.commands).toEqual(['SET_PRINT_EXTRUDER_MAP', 'SET_PRINT_USED_EXTRUDERS', 'SET_PRINT_PREFERENCES']);
+  expect(request.mock.calls.every(([r]) => !r.url.includes('/gcode/help'))).toBe(true);
   expect(snapshot.tools[0]).toEqual({ diameter: .4, flow: 'standard', hardness: null });
   expect(snapshot.tools[1]).toEqual({ diameter: null, flow: null, hardness: null });
-  expect(request.mock.calls.map(([r]) => r.url)).toHaveLength(3);
+  expect(request.mock.calls.map(([r]) => r.url)).toHaveLength(2);
   expect(request.mock.calls[1][0].url).not.toContain('extruder1');
 });

@@ -48,12 +48,12 @@ describe('Snapmaker provider foundation', () => {
     expect(state.slots[1].material).toMatchObject({ kind: 'known', value: null });
     expect(state.slots[2].presence.kind).toBe('unknown');
     expect(state.tools[2].loadedPathId.kind).toBe('unknown');
-    expect(f.request.mock.calls[2][0].url).toContain('/proxy/printer/objects/query?print_task_config&filament_motion_sensor%20e0_filament');
+    expect(f.request.mock.calls[1][0].url).toContain('/proxy/printer/objects/query?print_task_config&filament_motion_sensor%20e0_filament');
     const cached = await f.snapmaker.observations.read({ target: f.target, source: 'cache', topics: ['materials'] });
     expect(cached.ok && cached.value.values.materials).toMatchObject({ freshness: 'stale' });
     if (!cached.ok || cached.value.values.materials.kind !== 'known') throw new Error('Expected cached inventory');
     expect(cached.value.values.materials.value.state.slots[0].presence).toMatchObject({ freshness: 'stale' });
-    expect(f.request).toHaveBeenCalledTimes(3);
+    expect(f.request).toHaveBeenCalledTimes(2);
   });
 
   it('reports missing protocol objects as unsupported rather than an empty successful inventory', async () => {
@@ -67,9 +67,8 @@ describe('Snapmaker provider foundation', () => {
 it('shares prepared submissions across service facades and keeps upload-only free of job settings', async () => {
   const f = fixture();
   f.request.mockImplementation(async request => ({ status: 200, json: async () => request.url.endsWith('/objects/list')
-    ? { result: { objects: ['print_task_config', 'extruder'] } }
-    : request.url.endsWith('/gcode/help') ? { result: { SET_PRINT_EXTRUDER_MAP: '', SET_PRINT_USED_EXTRUDERS: '', SET_PRINT_PREFERENCES: '' } }
-      : request.url.includes('/objects/query?') ? { result: { status: { print_task_config: { filament_exist: [true], filament_type: ['PLA'] }, extruder: { nozzle_diameter: .4, nozzle_volume_type: 'standard' } } } }
+    ? { result: { objects: ['gcode', 'print_task_config', 'extruder'] } }
+      : request.url.includes('/objects/query?') ? { result: { status: { gcode: { commands: { SET_PRINT_EXTRUDER_MAP: {}, SET_PRINT_USED_EXTRUDERS: {}, SET_PRINT_PREFERENCES: {} } }, print_task_config: { filament_exist: [true], filament_type: ['PLA'] }, extruder: { nozzle_diameter: .4, nozzle_volume_type: 'standard' } } } }
         : request.body?.kind === 'multipart' ? { item: { root: 'gcodes', path: 'unchanged.gcode' } } : { result: 'ok' } }));
   const request: D.PrintPreparationRequest = { target: f.target, options: {}, suggest: true, bindings: [], allowAbnormalStorage: false,
     requirements: { contentId: 'receipt', plateId: 'plate', printerModel: 'Snapmaker U1', printerModelId: 'U1', materials: [{ key: 'filament-5', index: 5, toolIndex: 0, type: 'PLA', color: '#ff0000', brand: 'Generic', presetId: 'pla', presetName: 'PLA', nozzleDiameter: .4, nozzleFlowType: 'Standard', nozzleTemperature: 210, initialLayerNozzleTemperature: 215, chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 0, usedGrams: 1, usedMeters: 1 }],
@@ -97,9 +96,8 @@ it('retains one individual load operation across observers and rejects a second 
   const wait = new Promise<void>(resolve => { finish = resolve; });
   f.request.mockImplementation(async request => {
     if (request.method === 'POST') await wait;
-    return { status: 200, json: async () => request.url.endsWith('/objects/list') ? { result: { objects: ['print_task_config', 'filament_feed left', 'filament_feed right'] } }
-      : request.url.endsWith('/gcode/help') ? { result: { FEED_AUTO: '' } }
-        : request.method === 'POST' ? { result: 'ok' } : { result: { status: { print_task_config: { filament_exist: [true] } } } } };
+    return { status: 200, json: async () => request.url.endsWith('/objects/list') ? { result: { objects: ['gcode', 'print_task_config', 'filament_feed left', 'filament_feed right'] } }
+        : request.method === 'POST' ? { result: 'ok' } : { result: { status: { gcode: { commands: { FEED_AUTO: {} } }, print_task_config: { filament_exist: [true] } } } } };
   });
   const first = await f.snapmaker.controls.submit({ target: f.target, requestId: id('load-1'), command: { type: 'materials.load', params: { pathId: id('snapmaker-path:0') } } });
   expect(first.kind).toBe('recorded');
@@ -123,9 +121,8 @@ it('saves preferences with fresh comparison and readback, and retains partial ef
       if (script.includes('AUTO_REPLENISH_FILAMENT=1')) autoRefill = true;
       // Simulate an ACK which failed to apply the color preference.
     }
-    return { status: 200, json: async () => request.url.endsWith('/objects/list') ? { result: { objects: ['print_task_config'] } }
-      : request.url.endsWith('/gcode/help') ? { result: { SET_PRINT_PREFERENCES: '' } }
-        : request.method === 'POST' ? { result: 'ok' } : { result: { status: { print_task_config: { auto_replenish_filament: autoRefill, replenish_ignore_color: ignoreColor } } } } };
+    return { status: 200, json: async () => request.url.endsWith('/objects/list') ? { result: { objects: ['gcode', 'print_task_config'] } }
+        : request.method === 'POST' ? { result: 'ok' } : { result: { status: { gcode: { commands: { SET_PRINT_PREFERENCES: {} } }, print_task_config: { auto_replenish_filament: autoRefill, replenish_ignore_color: ignoreColor } } } } };
   });
   async function save(key: 'autoRefill' | 'allowDifferentColors') {
     const submitted = await f.snapmaker.controls.submit({ target: f.target, requestId: id(crypto.randomUUID()), command: { type: 'preferences.set', params: { changes: [{ key, value: true }] } } });

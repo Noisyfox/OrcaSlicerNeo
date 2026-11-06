@@ -15,10 +15,10 @@ export async function readU1Preparation(http: MoonrakerHttp, printer: PrinterCon
   const listing = await http.get(printer, '/printer/objects/list', signal);
   const objects = Array.isArray(listing.objects) ? listing.objects : [];
   if (!objects.includes('print_task_config')) fail('unsupported', 'U1 print configuration is unavailable');
-  const names = ['print_task_config', 'extruder', 'extruder1', 'extruder2', 'extruder3',
+  const names = ['gcode', 'print_task_config', 'extruder', 'extruder1', 'extruder2', 'extruder3',
     ...[0, 1, 2, 3].map(i => `filament_motion_sensor e${i}_filament`)].filter(name => objects.includes(name));
   const status = record((await http.get(printer, `/printer/objects/query?${names.map(encodeURIComponent).join('&')}`, signal)).status);
-  const commands = Object.keys(await http.get(printer, '/printer/gcode/help', signal));
+  const commands = Object.keys(record(record(status.gcode).commands));
   return u1PreparationFromDevice(status, commands, target, revision, Date.now());
 }
 export function u1PreparationFromDevice(status: Record<string, unknown>, commands: readonly string[], target: D.PrinterTarget, revision: string, receivedAtMs: number): U1PreparationSnapshot {

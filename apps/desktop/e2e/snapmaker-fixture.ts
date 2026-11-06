@@ -2,7 +2,7 @@
 import { createServer } from 'node:http';
 export async function startSnapmakerFixture() {
   const scripts: string[] = []; let queries = 0, autoRefill = false;
-  const objects = ['print_task_config', 'print_stats', 'virtual_sdcard', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_bed', 'purifier', 'configfile', 'filament_feed left', 'filament_feed right'];
+  const objects = ['gcode', 'print_task_config', 'print_stats', 'virtual_sdcard', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_bed', 'purifier', 'configfile', 'filament_feed left', 'filament_feed right'];
   const commands = ['SET_PRINT_PREFERENCES', 'SET_PRINT_EXTRUDER_MAP', 'SET_PRINT_USED_EXTRUDERS', 'SET_PRINT_FILAMENT_CONFIG', 'FEED_AUTO', 'SET_HEATER_TEMPERATURE', 'SET_PURIFIER'];
   const server = createServer(async (request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*'); response.setHeader('Access-Control-Allow-Headers', 'content-type,x-api-key'); response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -10,10 +10,9 @@ export async function startSnapmakerFixture() {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
     let value: unknown;
     if (path === '/printer/objects/list') value = { result: { objects } };
-    else if (path === '/printer/gcode/help') value = { result: Object.fromEntries(commands.map(c => [c, 'Fixture command'])) };
     else if (path === '/printer/objects/query') {
       queries++;
-      value = { result: { status: { print_stats: { state: 'printing', filename: 'external.gcode' }, virtual_sdcard: { progress: .4 },
+      value = { result: { status: { gcode: { commands: Object.fromEntries(commands.map(c => [c, {}])) }, print_stats: { state: 'printing', filename: 'external.gcode' }, virtual_sdcard: { progress: .4 },
         print_task_config: { filament_exist: [true, true, true, true], filament_type: ['PLA', 'PLA', 'PETG', 'ABS'], filament_color_rgba: ['FF0000FF', '00FF00FF', '0000FFFF', 'FFFFFFFF'], auto_replenish_filament: autoRefill, replenish_ignore_color: false, end_led_turn_off: false },
         ...Object.fromEntries([0, 1, 2, 3].map(i => [i ? `extruder${i}` : 'extruder', { nozzle_diameter: .4, nozzle_volume_type: 'standard', temperature: 210, target: 215 }])),
         heater_bed: { temperature: 60, target: 60 }, purifier: { power_detected: true, mode: 1, inner_fan: { speed: .2 }, exhaust_fan: { speed: .4 } },

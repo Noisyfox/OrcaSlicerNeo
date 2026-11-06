@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type * as D from './domain';
-import { u1DeviceCapabilities, u1DeviceCommand, u1DeviceValues, type U1DeviceSnapshot } from './snapmaker-device';
+import { MoonrakerHttp } from './moonraker-http';
+import { normalizePrinterConfigurationDocument } from './configuration';
+import { readU1Device, u1DeviceCapabilities, u1DeviceCommand, u1DeviceValues, type U1DeviceSnapshot } from './snapmaker-device';
 const id = <K extends string>(s: string) => s as D.Id<K>;
 const snapshot: U1DeviceSnapshot = { receivedAtMs: 123, objects: ['print_task_config', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_bed', 'purifier', 'led cavity_led', 'filament_feed left', 'filament_feed right'],
   commands: ['SET_HEATER_TEMPERATURE', 'SET_PURIFIER', 'SET_LED', 'FEED_AUTO', 'SET_PRINT_FILAMENT_CONFIG'], status: {
@@ -40,4 +42,22 @@ describe('U1 physical Device controls', () => {
     expect(() => u1DeviceCommand(snapshot, { type: 'materials.writeMetadata', params: { ...params, patch: { manufacturer: 'bad\nCANCEL_PRINT', materialType: 'PLA' } } })).toThrow();
     expect(() => u1DeviceCommand(snapshot, { type: 'materials.writeMetadata', params: { ...params, patch: { diameterMm: 2 } } })).toThrow();
   });
+});
+
+it('discovers registered commands without help text from the gcode status object', async () => {
+  const urls: string[] = [];
+  const commands = { FEED_AUTO: {}, SET_PRINT_FILAMENT_CONFIG: {}, M106: {}, SET_PRINT_PREFERENCES: {} };
+  const http = new MoonrakerHttp({ async request(request) {
+    urls.push(request.url);
+    expect(request.method).toBe('GET');
+    if (request.url.endsWith('/objects/list')) return { status: 200, json: async () => ({ result: { objects: ['gcode', ...snapshot.objects] } }) };
+    if (request.url.includes('/objects/query?gcode&')) return { status: 200, json: async () => ({ result: { status: { ...snapshot.status, gcode: { commands } } } }) };
+    throw new Error('Unexpected request; help is not the registered-command catalogue');
+  } });
+  const printer = normalizePrinterConfigurationDocument({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1', apiBaseUrl: 'http://printer', apiKey: '', consoleUrl: '' }] }).printers[0];
+  const observed = await readU1Device(http, printer);
+  expect(observed.commands).toEqual(Object.keys(commands));
+  expect(u1DeviceCapabilities(observed)['materials.load']?.kind).toBe('supported');
+  expect(u1DeviceCapabilities(observed)['materials.writeMetadata']?.kind).toBe('supported');
+  expect(urls).toHaveLength(2);
 });
