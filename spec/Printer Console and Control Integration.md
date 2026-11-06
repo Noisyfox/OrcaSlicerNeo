@@ -146,6 +146,12 @@ Canceling a necessary Printer confirmation or the Filament dialog leaves the
 selected device connected and current in Device; it cancels only the pending
 project mutation. Selection in Device alone must not be treated as permission
 to rewrite Prepare configuration.
+The Printer model-switch confirmation also offers **Choose another printer**.
+It returns to the supported-device chooser with another device selected when
+available, discards the pending source and releases its temporary observation
+lease. The current Device selection and project stay unchanged until the user
+chooses **Connect and sync**. The original Printer/Filament workflow then runs
+against that device; any necessary model-switch confirmation still applies.
 Changing the selected/connected printer in Device never automatically changes
 Prepare's Printer preset or materials. A subsequent manual sync invocation uses
 the latest connected printer rather than retaining the previous sync source.
@@ -2896,7 +2902,7 @@ is in the existing native bridge; send code does not inspect G-code contents.
 | --- | --- |
 | `pnpm typecheck` | Pass across the workspace. |
 | `pnpm --filter @orca/printer-control test` | 218 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. |
-| `pnpm --filter @orca/slicer-app test` | 1690 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
+| `pnpm --filter @orca/slicer-app test` | 1692 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
 | Affected package tests | Web 46; WASM client/bridge contracts 700 with 28 skipped; runtime 65 with 3 skipped; platform contracts 57; profile resources 4 passed. Skips remain excluded from acceptance. |
 | Electron production-path E2E build | `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` passed; this test build uses the mock slicer and real host IPC/HTTP transport. |
 | Electron printer E2E | All nine cases passed for Snapmaker manual setup, physical-head control while printing, metadata without a model, verified preference save, hidden-view polling release, model filtering, Moonraker send/start retry, and dirty-project then unfinished-send exit decisions. |

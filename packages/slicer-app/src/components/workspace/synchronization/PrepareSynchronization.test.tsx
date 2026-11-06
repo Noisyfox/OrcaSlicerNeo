@@ -108,6 +108,34 @@ async function choose(trigger: HTMLElement, label: string) {
   });
 }
 describe('Prepare synchronization workflow', () => {
+  it.each(['printer', 'filament'] as const)('can choose another device from a %s model-switch confirmation without applying the old source', async kind => {
+    const f = await fixture({ model: 'P1S', stream: true, reviewModel: true });
+    const synchronize = vi.spyOn(f.runtime, 'synchronizePrinter');
+    await start(kind);
+    if (kind === 'filament') await click(f.container, 'Sync Printer first');
+    expect(f.container.textContent).toContain('Switch the project Printer');
+    const other: D.SavedPrinter = { ...f.printer, identity: { ...f.printer.identity, id: id('other'),
+      displayName: 'Other printer', model: 'X1 Carbon' }, routes: [{ ...f.printer.routes[0], id: id('other-route'), printerId: id('other') }] };
+    vi.mocked(f.service.listSaved).mockResolvedValue({ ok: true, value: [f.printer, other] });
+    const read = f.read.getMockImplementation()!;
+    f.read.mockImplementation(async request => {
+      const result = await read(request);
+      return request.target.printerId === 'other' ? JSON.parse(JSON.stringify(result)
+        .replaceAll('"device"', '"other"').replaceAll('"route"', '"other-route"')
+        .replaceAll('"P1S"', '"X1 Carbon"').replaceAll('"Generic fixture"', '"Other printer"')) as typeof result : result;
+    });
+    await click(f.container, 'Choose another printer');
+    expect(f.container.querySelector('[aria-label="Synchronization device"]')?.textContent).toContain('Other printer');
+    expect(f.container.textContent).not.toContain('The connected device requires switching');
+    expect(f.watch.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    expect(useDeviceSelectionStore.getState().currentPrinterId).toBe('device');
+    expect((await f.runtime.getHistoryStatus()).undoEntries).toHaveLength(0);
+    expect(synchronize.mock.calls.every(([request]) => !request.confirmModelChange)).toBe(true);
+    await click(f.container, 'Connect and sync');
+    expect(useDeviceSelectionStore.getState().currentPrinterId).toBe('other');
+    expect(f.read.mock.calls.some(([request]) => request.target.printerId === 'other')).toBe(true);
+    expect(f.container.textContent).toContain(kind === 'printer' ? 'Printer synchronized.' : 'Apply Filament sync');
+  });
   it.each([['printer', 'missing'], ['filament', 'missing'], ['printer', 'stale'], ['filament', 'stale']] as const)
   ('skips device selection for %s when the selected device cache is %s', async (kind, cacheMode) => {
     const f = await fixture({ connected: true, stream: true, reviewModel: true });

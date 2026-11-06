@@ -46,6 +46,14 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await expect(page.getByTestId('printer-connection-indicator')).toHaveCount(0);
     await expect(dialog).toHaveCSS('opacity', '1');
     await page.screenshot({ path: test.info().outputPath('sync-printer-confirmation.png'), fullPage: true });
+    await dialog.getByRole('button', { name: 'Choose another printer', exact: true }).click({ noWaitAfter: true });
+    const chooser = dialog.getByRole('combobox', { name: 'Synchronization device' });
+    await expect(chooser.locator('[data-slot="select-value"]')).toHaveText('Workshop B');
+    await expect(dialog.getByRole('button', { name: 'Switch Printer and sync' })).toHaveCount(0);
+    await chooser.click({ noWaitAfter: true });
+    await page.getByRole('option', { name: 'Workshop A', exact: true }).click({ noWaitAfter: true });
+    await dialog.getByRole('button', { name: 'Connect and sync' }).click({ noWaitAfter: true });
+    await expect(dialog.getByRole('button', { name: 'Switch Printer and sync' })).toBeVisible();
     const materialDeviceReadCount = () => app.evaluate(() => {
       const requests = globalThis.bambuControlFixture.requests as { method: string; input: { source?: string; topics?: string[] } }[];
       return requests.filter(r => r.method === 'read' && r.input.source === 'device' && r.input.topics?.includes('materials')).length;
