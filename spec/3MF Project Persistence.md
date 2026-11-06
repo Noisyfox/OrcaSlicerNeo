@@ -28,8 +28,9 @@
 
 - **Preferences…** is available from the File menu on every host, including
   macOS, and opens a shared lightweight modal dialog.
-- In the first release, this dialog contains only **Project Load Behaviour**:
-  Load All, Ask When Relevant, Always Ask, or Load Geometry Only.
+- **General → Project Load Behaviour** offers Load All, Ask When Relevant,
+  Always Ask, or Load Geometry Only. The shared dialog layout and other
+  categories are owned by [Application Shell](Application%20Shell.md#preferences).
 - This is a global user preference, not a project setting. It is persisted
   through the existing cross-host preferences repository.
 

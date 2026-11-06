@@ -8,6 +8,8 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, renameSync, writeF
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readProjectThumbnail } from '../src/utility/projectThumbnail';
+import { Ipc } from '../src/shared/ipc';
+import { bambuRegionChoices } from '../src/shared/bambu';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
@@ -26,6 +28,8 @@ async function launchProjectApp(directory?: string, sourcePath = MODEL_PATH): Pr
     ORCA_E2E_PROJECT_SAVE: savePath,
     ORCA_E2E_LIFECYCLE: '1',
     ORCA_E2E_PREFERENCES: join(dir, 'preferences.json'),
+    ORCA_E2E_PRINTER_CONFIG: join(dir, 'printer-config.json'),
+    ORCA_E2E_BAMBU_DIRECTORY: join(dir, 'bambu'),
   } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   return { app: await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env }), projectPath, savePath, dir };
@@ -69,6 +73,121 @@ async function makeDirty(page: Page): Promise<void> {
   await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
 }
+
+test('Preferences uses top category tabs and preserves edits across categories', async () => {
+  const { app, dir } = await launchProjectApp();
+  try {
+    const page = await app.firstWindow();
+    await ready(page);
+    const chosenDirectory = join(dir, 'chosen-downloads');
+    const directorySettings = join(dir, 'bambu', 'downloads', 'download-directory.json');
+    await app.evaluate(({ ipcMain, dialog }, { channels, choices, chosenDirectory }) => {
+      const account = { region: 'Others', saves: 0 };
+      (globalThis as any).preferencesAccount = account;
+      ipcMain.removeHandler(channels.bambuRead);
+      ipcMain.handle(channels.bambuRead, (_event, kind) => {
+        if (kind === 'account.settings') return [{ key: 'region', label: 'Region', value: account.region, choices }];
+        if (kind === 'account.state') return { status: 'signed-out', error: null };
+        return { ok: true, value: [] };
+      });
+      ipcMain.removeHandler(channels.bambuCommand);
+      ipcMain.handle(channels.bambuCommand, (_event, request) => {
+        if (request.action !== 'setting' || request.key !== 'region') throw new Error('Unexpected account action');
+        account.region = request.value; account.saves += 1;
+        return { ok: true, value: undefined };
+      });
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [chosenDirectory] })) as typeof dialog.showOpenDialog;
+    }, { channels: Ipc, choices: bambuRegionChoices, chosenDirectory });
+    const accountState = () => app.evaluate(() => (globalThis as any).preferencesAccount as { region: string; saves: number });
+    const open = async () => {
+      if (process.platform === 'darwin') {
+        await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById('file-preferences')!.click());
+      } else {
+        await page.getByTestId('titlebar-menu-trigger').click();
+        await page.getByTestId('menu-file-trigger').hover();
+        await page.getByTestId('file-preferences').click();
+      }
+    };
+    await open();
+    const dialog = page.getByTestId('project-preferences-dialog');
+    const categories = dialog.getByRole('tablist', { name: 'Preferences categories' });
+    const general = categories.getByRole('tab', { name: 'General', exact: true });
+    const control = categories.getByRole('tab', { name: 'Control', exact: true });
+    const developer = categories.getByRole('tab', { name: 'Developer', exact: true });
+    const online = categories.getByRole('tab', { name: 'Online', exact: true });
+    const region = dialog.getByRole('combobox', { name: 'Bambu Lab Region' });
+    const abnormalStorage = dialog.getByRole('checkbox', { name: 'Allow Abnormal Storage' });
+    await expect(dialog.getByRole('button', { name: 'Change…', exact: true })).toBeEnabled();
+    const initialDirectory = await dialog.getByLabel('Default download folder', { exact: true }).textContent();
+    expect(initialDirectory).toBe(await app.evaluate(({ app }) => app.getPath('downloads')));
+    await dialog.getByRole('button', { name: 'Change…', exact: true }).click();
+    await expect(dialog.getByLabel('Default download folder', { exact: true })).toHaveText(chosenDirectory);
+    await expect(dialog.getByLabel('Default download folder', { exact: true })).toHaveAttribute('title', chosenDirectory);
+    await online.click();
+    await region.click(); await page.getByRole('option', { name: 'China', exact: true }).click();
+    await developer.click(); await abnormalStorage.check();
+    expect(await accountState()).toEqual({ region: 'Others', saves: 0 });
+    expect(existsSync(directorySettings)).toBe(false);
+    await dialog.getByTestId('project-preferences-cancel').click();
+    await expect(dialog).toBeHidden();
+    await open();
+    await expect(dialog.getByLabel('Default download folder', { exact: true })).toHaveText(initialDirectory!);
+    await online.click(); await expect(region).toContainText('Others');
+    await developer.click(); await expect(abnormalStorage).not.toBeChecked();
+    await general.click();
+    await expect(general).toHaveAttribute('aria-selected', 'true');
+    const generalBox = (await general.boundingBox())!;
+    const controlBox = (await control.boundingBox())!;
+    expect(controlBox.y).toBe(generalBox.y);
+    expect(controlBox.x).toBeGreaterThan(generalBox.x);
+    await expect(dialog.getByRole('tabpanel')).toHaveCount(1);
+    await dialog.screenshot({ path: test.info().outputPath('preferences-general.png') });
+    await general.focus();
+    await general.press('ArrowRight');
+    await expect(control).toBeFocused();
+    await expect(dialog.getByRole('combobox', { name: 'Auto flush after changing' })).toBeVisible();
+    await dialog.getByRole('combobox', { name: 'Auto flush after changing' }).click();
+    await page.getByRole('option', { name: 'None', exact: true }).click();
+    await developer.click();
+    const painting = dialog.getByRole('checkbox', { name: 'Keep painting', exact: true });
+    await painting.check();
+    await general.click();
+    await dialog.getByRole('button', { name: 'Change…', exact: true }).click();
+    await online.click();
+    await region.click(); await page.getByRole('option', { name: 'China', exact: true }).click();
+    await developer.click();
+    await abnormalStorage.check();
+    await expect(painting).toBeChecked();
+    await dialog.screenshot({ path: test.info().outputPath('preferences-developer.png') });
+    await dialog.getByTestId('project-preferences-save').click();
+    await expect(dialog).toBeHidden();
+    const saved = JSON.parse(readFileSync(join(dir, 'preferences.json'), 'utf8'));
+    expect(saved.autoFlushPolicy).toBe('disabled');
+    expect(saved.meshBooleanKeepPainting).toBe(true);
+    expect(JSON.parse(readFileSync(directorySettings, 'utf8')).directory).toBe(chosenDirectory);
+    expect(JSON.parse(readFileSync(join(dir, 'printer-config.json'), 'utf8')).allowAbnormalStorage).toBe(true);
+    expect(await accountState()).toEqual({ region: 'China', saves: 1 });
+
+    await open();
+    await expect(general).toHaveAttribute('aria-selected', 'true');
+    await expect(dialog.getByLabel('Default download folder', { exact: true })).toHaveText(chosenDirectory);
+    await control.click();
+    await expect(dialog.getByRole('combobox', { name: 'Auto flush after changing' })).toContainText('None');
+    await categories.getByRole('tab', { name: 'Online', exact: true }).click();
+    await expect(dialog.getByRole('combobox', { name: /Bambu Lab/ })).toBeVisible();
+    await developer.click();
+    await painting.uncheck();
+    await page.setViewportSize({ width: 640, height: 400 });
+    const save = dialog.getByTestId('project-preferences-save');
+    await expect(save).toBeInViewport();
+    const tabsBox = (await categories.boundingBox())!;
+    const contentBox = (await dialog.getByRole('tabpanel').boundingBox())!;
+    expect(contentBox.y).toBeGreaterThanOrEqual(tabsBox.y + tabsBox.height);
+    await dialog.screenshot({ path: test.info().outputPath('preferences-small-window.png') });
+    await dialog.getByTestId('project-preferences-cancel').click();
+    expect(JSON.parse(readFileSync(join(dir, 'preferences.json'), 'utf8')).meshBooleanKeepPainting).toBe(true);
+  } finally { await app.close(); }
+});
 
 test('a new project with parameter changes and no models can be saved', async () => {
   const { app, savePath } = await launchProjectApp();

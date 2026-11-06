@@ -88,13 +88,15 @@ test('Bambu Send & Print persists options, cancels safely, allows selection afte
     const preferences = page.getByTestId('project-preferences-dialog');
     const storage = preferences.getByRole('checkbox', { name: 'Allow Abnormal Storage' });
     await expect(preferences).toBeVisible();
+    await preferences.getByRole('tab', { name: 'Developer', exact: true }).click();
     await expect(storage).toBeEnabled();
     await expect(storage).not.toBeChecked();
     await storage.check();
-    await expect.poll(() => JSON.parse(readFileSync(configPath, 'utf8')).allowAbnormalStorage).toBe(true);
+    expect(JSON.parse(readFileSync(configPath, 'utf8')).allowAbnormalStorage).not.toBe(true);
     await page.screenshot({ path: '/tmp/neo-storage-preferences.png' });
-    await preferences.getByTestId('project-preferences-cancel').click();
+    await preferences.getByTestId('project-preferences-save').click();
     await expect(preferences).toHaveCount(0);
+    expect(JSON.parse(readFileSync(configPath, 'utf8')).allowAbnormalStorage).toBe(true);
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click(); await page.getByRole('option', { name: 'Workshop A', exact: true }).click();
     await page.locator('#app-tab-prepare').click(); await page.getByTestId('btn-add-model').click(); await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 30_000 });

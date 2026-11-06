@@ -876,9 +876,11 @@ Saving uses the injected host download service, exposing task progress and
 results without exposing private destination paths or Bambu protocol payloads.
 Ordinary downloads use an application-wide default download directory without a
 destination prompt. Configure it under Preferences → Downloads; it is shared by
-all printer agents and saved immediately when the folder chooser succeeds.
-Cancelling the chooser retains the previous location. Storage has no default-folder
-configuration action. The initial desktop location is the OS Downloads folder;
+all printer agents and committed with the Preferences Save button. Choosing a
+folder edits the dialog's draft; cancelling the chooser preserves that draft,
+and cancelling Preferences leaves the saved location unchanged. Storage has no default-folder
+configuration action. The setting displays the full current path, with the full
+value available on hover when the text is truncated. The initial desktop location is the OS Downloads folder;
 Web explains that browser facilities manage the location. A separate Save As action chooses a file destination for a
 single item or one destination folder for a batch. Ordinary downloads preserve
 existing files by adding a numeric suffix on name collisions. Save As requires
@@ -2384,8 +2386,8 @@ Follow Orca's model- and transport-dependent print-file storage checks, includin
 the supported internal-storage exceptions. Add a persistent application-wide
 **Allow Abnormal Storage** option, default off, under **Preferences → Developer
 → Storage**, matching Orca's placement. It is not shown in the print-preparation
-modal. Changes save immediately to the existing global `printer-config.json`
-field, including when Preferences is subsequently closed with Cancel. Printing
+modal. Changes are staged in Preferences and written to the existing global
+`printer-config.json` field only on Save. Cancel discards unsaved changes. Printing
 reads the saved value without offering a per-submission override.
 When enabled, apply Orca's abnormal-storage override conditions; it does not
 waive separate missing-card, read-only or unrelated readiness checks. This is
