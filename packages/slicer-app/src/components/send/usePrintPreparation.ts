@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as D from '@orca/printer-control/domain';
 import type { SliceResultReceipt } from '@slicer/client';
-import type { PlatformCapabilities } from '@orca/platform-contract';
+import { gcodeFilenameBasename, type PlatformCapabilities } from '@orca/platform-contract';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 
 export function usePrintPreparation(platform: PlatformCapabilities, printer: D.SavedPrinter, route: D.PrinterRoute, receipt: SliceResultReceipt | undefined, onSent: () => void) {
+  const submissionCapability = route.capabilities.submission;
+  const plainGcode = submissionCapability?.kind === 'supported' && submissionCapability.constraints.formats.includes('gcode');
+  const retryFailure = submissionCapability?.kind === 'supported' && submissionCapability.constraints.failurePolicy === 'retry';
+  const failureMessage = 'Send print task failed, please try again';
   const [requirements, setRequirements] = useState<D.PrintRequirements | null>(null);
   const [jobName, setJobName] = useState(() => projectFilenameBase(useProjectStore.getState()));
   const [prepared, setPrepared] = useState<D.PrintPreparation | null>(null);
@@ -17,6 +21,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   const [refreshing, setRefreshing] = useState(true);
   const reading = useRef(false), loaded = useRef(false);
   const [exporting, setExporting] = useState(false);
+  const [retryableFailure, setRetryableFailure] = useState(false);
   const [operation, setOperation] = useState<D.PrintSubmissionState | null>(null);
   const [confirmation, setConfirmation] = useState<D.PrintPreparation | null>(null);
   const [recordingAction, setRecordingAction] = useState<D.PrintSubmissionRequest['recordingSpaceAction']>();
@@ -29,7 +34,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   if (requirements) request.current = { target, requirements, bindings, options, allowAbnormalStorage: allowAbnormal, suggest: !initialized.current };
   const active = exporting || !!operation && !['failed', 'cancelled', 'unknown', 'sent'].includes(operation.phase);
   const activeRef = useRef(active); activeRef.current = active;
-  const canPrint = !!prepared && !prepared.issues.some(i => i.severity === 'block') && !error && !active && operation?.phase !== 'unknown';
+  const canPrint = !!prepared && !prepared.issues.some(i => i.severity === 'block') && (!error || retryableFailure && error === failureMessage) && !active && operation?.phase !== 'unknown';
 
   useEffect(() => {
     live.current = true; watchAbort.current = new AbortController();
@@ -58,7 +63,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
       const next = await platform.printers.service.submissions.prepare(request.current);
       if (!live.current || version !== refreshVersion.current || activeRef.current) return;
       if (!next.ok) { setError(next.error.message); return; }
-      setPrepared(next.value); setError(null);
+      setPrepared(next.value); if (!retryableFailure) setError(null);
       if (!initialized.current && !next.value.issues.some(i => i.id === 'offline')) {
         initialized.current = true; setBindings(next.value.bindings);
       }
@@ -139,7 +144,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   }
   async function send(confirmed = false) {
     if (!canPrint || activeRef.current || !request.current || !sourceReceipt.current) return;
-    setExporting(true); activeRef.current = true; setError(null);
+    setExporting(true); activeRef.current = true; setError(null); setRetryableFailure(false);
     let submission: D.PrintSubmissionRef | null = null;
     try {
       if (!live.current) return;
@@ -155,12 +160,21 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
         setConfirmation(checked.value); return;
       }
       const submittedName = jobName.trim() || projectFilenameBase(useProjectStore.getState()) || 'Print job';
-      const exported = await platform.runtime.exportPrintPlate({ receipt: sourceReceipt.current, filenameBase: submittedName, materialCatalogIds: checked.value.materialCatalogIds });
+      let artifacts: D.PrintArtifactSource[];
+      const source = (role: D.PrintArtifactSource['role'], fileName: string, bytes: Uint8Array): D.PrintArtifactSource =>
+        ({ role, fileName, sizeBytes: bytes.byteLength, chunks: (async function* () { yield bytes; })() });
+      if (plainGcode) {
+        const exported = await platform.runtime.exportGcodePlate({ receipt: sourceReceipt.current, filenameBase: submittedName });
+        if (!exported.ok) throw new Error(exported.error);
+        artifacts = [source('print', gcodeFilenameBasename(exported.fileName), exported.bytes)];
+      } else {
+        const exported = await platform.runtime.exportPrintPlate({ receipt: sourceReceipt.current, filenameBase: submittedName, materialCatalogIds: checked.value.materialCatalogIds });
+        if (!exported.ok) throw new Error(exported.error);
+        artifacts = [source('print', exported.fileName, exported.bytes), source('configuration', exported.fileName, exported.configBytes)];
+      }
       if (!live.current) return;
-      if (!exported.ok) throw new Error(exported.error);
       const { suggest: _suggest, ...input } = request.current;
-      const submitted = await platform.printers.service.submissions.submit({ ...input, requestId: crypto.randomUUID() as D.Id<'request'>, jobName: submittedName, acknowledgedIssues: acknowledged, recordingSpaceAction: recordingAction },
-        ([['print', exported.bytes], ['configuration', exported.configBytes]] as const).map(([role, bytes]) => ({ role, fileName: exported.fileName, sizeBytes: bytes.byteLength, chunks: (async function* () { yield bytes; })() })));
+      const submitted = await platform.printers.service.submissions.submit({ ...input, requestId: crypto.randomUUID() as D.Id<'request'>, jobName: submittedName, acknowledgedIssues: acknowledged, recordingSpaceAction: recordingAction }, artifacts);
       if (!submitted.ok) throw new Error(submitted.error.message);
       submission = submitted.value;
       setConfirmation(null);
@@ -171,8 +185,9 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
       }
     } catch {
       if (live.current) {
-        if (submission) setOperation({ ref: submission, requestId: '' as D.Id<'request'>, phase: 'unknown', route: prepared?.route ?? null, progress: null, canCancel: false, message: 'The print outcome could not be checked. Inspect the printer before sending another job.' });
-        else setError('Print preparation or sending failed. Check the current printer status before retrying.');
+        setRetryableFailure(retryFailure);
+        if (submission) setOperation({ ref: submission, requestId: '' as D.Id<'request'>, phase: retryFailure ? 'failed' : 'unknown', route: prepared?.route ?? null, progress: null, canCancel: false, message: retryFailure ? failureMessage : 'The print outcome could not be checked. Inspect the printer before sending another job.' });
+        else setError(retryFailure ? failureMessage : 'Print preparation or sending failed. Check the current printer status before retrying.');
       }
     } finally { if (live.current) { setExporting(false); activeRef.current = false; } }
   }
@@ -181,7 +196,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
     const result = await platform.printers.service.submissions.cancel(operation.ref);
     if (live.current) { if (result.ok) setOperation(result.value); else setError(result.error.message); }
   }
-  return { requirements, prepared, bindings, options, error, saveError, refreshing, active, canPrint, operation, confirmation, recordingAction, jobName, setJobName, refresh,
+  return { requirements, prepared, bindings, options, error, saveError, refreshing, active, canPrint, operation, retryableFailure, confirmation, recordingAction, jobName, setJobName, refresh,
     changeOption, changeBinding, autoMatch, changeCalibration, send, cancel, setRecordingAction,
     dismissConfirmation: () => { setConfirmation(null); setRecordingAction(undefined); },
   };

@@ -1,3 +1,4 @@
+import { U1Submissions } from './snapmaker-submissions';
 import { prepareU1Submission, readU1Preparation, type U1PreparationSnapshot } from './snapmaker-preparation';
 import { u1MaterialInventory } from './snapmaker-observation';
 import { unsupportedSubmissions } from './submission';
@@ -50,7 +51,7 @@ interface ConfigurationSnapshot {
   readonly printers: readonly ResolvedConfiguration[];
 }
 /** Shared by fresh service facades on the same host repository; never a caller session. */
-const authorities = new WeakMap<object, { configurations: Map<string, ConfigurationEntry>; operations: Map<string, OperationStore>; additions: Map<string, { signature: string; printerId: string }>; configurationQueue: Promise<void>; listeners: Set<() => void> }>();
+const authorities = new WeakMap<object, { configurations: Map<string, ConfigurationEntry>; operations: Map<string, OperationStore>; snapmakerSubmissions?: U1Submissions; additions: Map<string, { signature: string; printerId: string }>; configurationQueue: Promise<void>; listeners: Set<() => void> }>();
 
 export function createMoonrakerService(options: MoonrakerServiceOptions): D.PrinterService {
   return createHttpPrinterService(options, 'moonraker');
@@ -121,7 +122,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
   }
   function capabilities(): D.PrinterCapabilities {
     return {
-      revision: `${driver}-domain-3`, submission: unsupported,
+      revision: `${driver}-domain-4`, submission: driver === 'snapmaker' ? supported({ formats: ['gcode'] as const, failurePolicy: 'retry' as const }) : unsupported,
       commands: {
         'jobs.start': driver === 'snapmaker' ? unsupported : supported({ sources: [{ storageId }], formats: ['gcode'], materialMapping: 'none', jobTimelapse: [] }),
         'jobs.pause': supported({}), 'jobs.resume': supported({}), 'jobs.cancel': supported({}), 'jobs.setSpeed': unsupported, 'jobs.skipObjects': unsupported, 'hardware.refreshNozzles': unsupported, 'actions.invoke': unsupported,
@@ -361,15 +362,17 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
     if (config.credentialRef !== null && (!previous || config.credentialRef !== `${driver}-key:${previous.id}`)) fail('invalid-target', 'Credential reference is not available on this host');
     return { driverId: driver, apiBaseUrl: config.address ?? '', consoleUrl: config.webInterfaceUrl ?? '', apiKey: config.credentialRef === null ? '' : previous!.apiKey };
   }
+  if (driver === 'snapmaker' && !state.snapmakerSubmissions) state.snapmakerSubmissions = new U1Submissions({ http,
+    resolve: async target => { const { printer, entry } = await resolve(target); return { printer, revision: entry.revision }; },
+    prepare: (request, readOptions) => safe(async () => {
+      const { printer, entry } = await resolve(request.target);
+      if (!entry.snapmakerPreparation || request.checkRecording)
+        entry.snapmakerPreparation = await readU1Preparation(http, printer, request.target, entry.revision, readOptions?.signal);
+      return prepareU1Submission(request, entry.snapmakerPreparation, entry.revision);
+    }),
+  });
   const service: D.PrinterService = {
-    submissions: driver === 'snapmaker' ? { ...unsupportedSubmissions,
-      prepare: (request, readOptions) => safe(async () => {
-        const { printer, entry } = await resolve(request.target);
-        if (!entry.snapmakerPreparation || request.checkRecording)
-          entry.snapmakerPreparation = await readU1Preparation(http, printer, request.target, entry.revision, readOptions?.signal);
-        return prepareU1Submission(request, entry.snapmakerPreparation, entry.revision);
-      }),
-    } : unsupportedSubmissions,
+    submissions: driver === 'snapmaker' ? state.snapmakerSubmissions! : unsupportedSubmissions,
     remotePrints: { inspect: async () => rejected(), prepare: async () => rejected(), release: async () => rejected() },
     operations: operations.api, controls, files, observations,
     media: { readPrintObjectMap: async () => rejected(), readStream: unsupportedStream, readCurrentPrintPreview: async () => rejected(), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },

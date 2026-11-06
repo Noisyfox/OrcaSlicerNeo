@@ -22,7 +22,8 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
   return <PrintPreparationView state={state} printer={printer} onClose={onClose} onBusyChange={onBusyChange} printerControl={printerControl} />;
 }
 
-export type PrintPreparationViewState = Omit<ReturnType<typeof usePrintPreparation>, 'operation' | 'autoMatch' | 'changeCalibration'> & {
+export type PrintPreparationViewState = Omit<ReturnType<typeof usePrintPreparation>, 'operation' | 'autoMatch' | 'changeCalibration' | 'retryableFailure'> & {
+  retryableFailure?: boolean;
   autoMatch?(): Promise<void>;
   changeCalibration?(index: number, selected: boolean): void;
   operation: Pick<D.PrintSubmissionState, 'phase' | 'message' | 'progress' | 'canCancel'> | null;
@@ -92,7 +93,7 @@ export function PrintPreparationView({ state, printer, onClose, onBusyChange, pr
       <Button variant="ghost" onClick={onClose} disabled={state.active}>Close</Button>
       {operation?.phase === 'unknown' && <Button variant="secondary" onClick={() => { useDeviceSelectionStore.getState().showPrinter(printer.identity.id); onClose(); }}>View printer</Button>}
       {operation?.canCancel && <Button variant="secondary" onClick={() => void state.cancel()}>Cancel sending</Button>}
-      {!confirmation && <Button disabled={!state.canPrint} onClick={() => void state.send()} className="min-w-24" data-testid="print-submit">{operation?.phase === 'failed' ? 'Retry' : 'Send'}</Button>}
+      {!confirmation && <Button disabled={!state.canPrint} onClick={() => void state.send()} className="min-w-24" data-testid="print-submit">{operation?.phase === 'failed' || state.retryableFailure ? 'Retry' : 'Send'}</Button>}
     </div>
   </div>;
 }

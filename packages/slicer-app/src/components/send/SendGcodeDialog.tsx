@@ -323,7 +323,10 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection, platf
       startCloseCountdown();
     } catch (error) {
       if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
-      if (error instanceof SendFailure && error.code === 'outcome-unknown') {
+      const retryFailure = selectedPrinter.routes.some(r => r.capabilities.submission.kind === 'supported' && r.capabilities.submission.constraints.failurePolicy === 'retry');
+      if (retryFailure && !(error instanceof SendFailure && error.code === 'cancelled')) {
+        setState('error'); setMessage('Send print task failed, please try again');
+      } else if (error instanceof SendFailure && error.code === 'outcome-unknown') {
         setState('outcome-unknown');
         setMessage(safeErrorMessage(error));
       } else if (uploadedRef.current && action === 'send-and-print') {

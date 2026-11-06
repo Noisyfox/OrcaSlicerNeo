@@ -2535,7 +2535,7 @@ memory/size limits require the artifact feasibility check.
 **Status:** Accepted design with implementation in progress. Manual Snapmaker
 configuration and provider routing are implemented in Electron and Web; the
 U1 project rack, manual plate mapping and structured preparation policy are implemented.
-The submission executor and remaining Device workflow are pending. Scope, behavior
+Prepared submission is implemented; the remaining Device workflow is pending. Scope, behavior
 and acceptance policy are settled below; physical qualification remains separate.
 Protocol ownership, slicing semantics and evidence limits are maintained in
 [the Snapmaker agent architecture](Printer%20Domain%20and%20Control%20Architecture.md#25-snapmaker-agent-design).
@@ -2640,8 +2640,8 @@ addresses. `snapmaker-preparation.ts` reads actual extruder diameter/flow fields
 keeps unreported hardness unknown, and checks command availability separately.
 The retained-slice manifest supplies nozzle and first-layer nozzle temperatures;
 shared-heater diagnostics do not inspect the exported G-code. Remote-file
-inspection may report these temperatures as unknown (`null`). Preparation is
-read-only; submission remains unavailable until its executor is installed.
+inspection may report these temperatures as unknown (`null`). Preparation is read-only. The agent advertises a plain-G-code submission format;
+the shared view exports the retained slice directly and transfers only that artifact.
 
 ### Accepted Snapmaker print options and material readiness
 
@@ -2689,6 +2689,12 @@ is inserted. Qualification must verify the selected firmware and supported
 startup G-code actually perform the automatic loading.
 
 ### Accepted Snapmaker submission order and failure behavior
+
+`U1Submissions` owns the host-lifetime operation, independently of its observers.
+Repeated request IDs with the same parameters resolve to the same operation;
+altered parameters reject. A second unfinished local submission to the same
+saved printer rejects instead of interleaving mapping/start transactions or
+creating a queue. This is independent of observed printer busy/idle state.
 
 After ordinary validation of the retained slice, target and structured request,
 Send & Print uploads the file first, without starting it. Only after successful

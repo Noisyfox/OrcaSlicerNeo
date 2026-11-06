@@ -14,7 +14,7 @@ const manifest: PrintManifest = { plateId: 'plate-1', printerModel: 'Fixture', p
   materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FF0000', presetId: 'fixture', presetName: 'PLA', brand: 'Generic', toolIndex: 0, nozzleDiameter: .4, nozzleFlowType: 'Standard', nozzleTemperature: null, initialLayerNozzleTemperature: null, chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3 }] };
 let root: Root | undefined, container: HTMLDivElement;
 afterEach(async () => { await act(async () => root?.unmount()); root = undefined; container?.remove(); vi.useRealTimers(); useDeviceSelectionStore.setState({ currentPrinterId: null, requestedPrinterId: null, selectionRequestVersion: 0, navigationRequestVersion: 0 }); });
-async function setup(allowAbnormalStorage = false, manifestValue = manifest, readStatus = async (): Promise<D.Result<null>> => ({ ok: true, value: null })) {
+async function setup(allowAbnormalStorage = false, manifestValue = manifest, readStatus = async (): Promise<D.Result<null>> => ({ ok: true, value: null }), plainGcode = false) {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   let configDocument = { allowAbnormalStorage, version: 1 as const, printers: [], printPreferences: { fixture: { timelapse: true, timelapseStorage: 'external' as const } } };
   let issues: D.PrintIssue[] = [], candidates: D.PrintMaterialSource[] = manifestValue.materials.map((material, index) => ({ materialKey: material.key, pathId: id<'path'>(index ? 'source-b' : 'source-a'), label: index ? 'AMS B1' : 'AMS A1', color: index ? '#00FFFF' : '#FF0000', materialType: material.type, unit: { id: id('unit-a'), name: 'AMS', kind: 'automatic-feeder', categoryLabel: 'AMS' }, slot: { id: id(index ? 'slot-b' : 'slot-a'), name: index ? 'B1' : 'A1' }, tool: { id: id('tool-a'), name: 'Nozzle' }, presence: 'present', remainingFraction: null, disabledReason: null }));
@@ -33,11 +33,11 @@ async function setup(allowAbnormalStorage = false, manifestValue = manifest, rea
     cancel: vi.fn(async () => { current = { ...current, phase: 'cancelling', canCancel: false, message: 'Cancelling sending…' }; wake?.(); return { ok: true as const, value: current }; }),
   };
   const configuration = { load: vi.fn(async () => structuredClone(configDocument)), save: vi.fn(async next => { configDocument = next; }) };
-  const runtime = { describePrintPlate: vi.fn(async () => ({ ok: true, receipt, manifest: manifestValue })), exportPrintPlate: vi.fn(async (): Promise<ExportPrintResult> => ({ ok: true, receipt, manifest: manifestValue, fileName: 'fixture.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]), plateIndex: 1, gcodePath: 'Metadata/plate_1.gcode' })) };
+  const runtime = { exportGcodePlate: vi.fn(async () => ({ ok: true as const, fileName: 'fixture.gcode', bytes: new Uint8Array([255, 0, 10]) })), describePrintPlate: vi.fn(async () => ({ ok: true, receipt, manifest: manifestValue })), exportPrintPlate: vi.fn(async (): Promise<ExportPrintResult> => ({ ok: true, receipt, manifest: manifestValue, fileName: 'fixture.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]), plateIndex: 1, gcodePath: 'Metadata/plate_1.gcode' })) };
   const read = vi.fn(readStatus);
   const platform = { runtime, printers: { configuration, service: { submissions, observations: { read, watch: async function* (_request: unknown, options: { signal: AbortSignal }) { await new Promise<void>(resolve => options.signal.addEventListener('abort', () => resolve(), { once: true })); } } } } } as unknown as PlatformCapabilities;
   const printer = { identity: { id: id('fixture'), displayName: 'Fixture' } } as D.SavedPrinter;
-  const route = { id: id('route'), configurationRevision: 'r1', capabilities: { observations: { status: { kind: 'supported', constraints: { delivery: ['push'] } } } } } as unknown as D.PrinterRoute;
+  const route = { id: id('route'), configurationRevision: 'r1', capabilities: { submission: { kind: 'supported', constraints: { formats: [plainGcode ? 'gcode' : 'print-3mf'], ...(plainGcode ? { failurePolicy: 'retry' } : {}) } }, observations: { status: { kind: 'supported', constraints: { delivery: ['push'] } } } } } as unknown as D.PrinterRoute;
   const close = vi.fn(), busy = vi.fn();
   await act(async () => { root!.render(<PrintPreparationPanel platform={platform} printer={printer} route={route} receipt={receipt} onClose={close} onBusyChange={busy} />); });
   const click = async (label: string) => { await act(async () => { const button = [...container.querySelectorAll('button')].find(b => b.textContent === label); if (!button) throw new Error(`No button ${label}`); button.click(); }); };
@@ -298,4 +298,25 @@ it('keeps calibration choices for surviving heads, selects new heads, and never 
   expect(checks()[0].getAttribute('aria-checked')).toBe('true');
   expect(f.submissions.prepare.mock.calls.at(-1)?.[0].options.calibrationToolIndices).toEqual([3]);
   expect(f.configuration.save).not.toHaveBeenCalled();
+});
+
+it('exports unchanged plain G-code for a plain-artifact agent and retries the complete flow after failure', async () => {
+  const f = await setup(false, manifest, undefined, true);
+  await f.click('Send');
+  expect(f.runtime.exportPrintPlate).not.toHaveBeenCalled();
+  expect(f.runtime.exportGcodePlate).toHaveBeenCalledOnce();
+  const [, artifacts] = f.submissions.submit.mock.calls[0] as unknown as [D.PrintSubmissionRequest, D.PrintArtifactSource[]];
+  expect(artifacts).toHaveLength(1); expect(artifacts[0].role).toBe('print'); expect(artifacts[0].fileName).toBe('fixture.gcode');
+  for await (const bytes of artifacts[0].chunks) expect(bytes).toEqual(new Uint8Array([255, 0, 10]));
+  await act(async () => f.update('failed'));
+  await f.click('Retry'); expect(f.runtime.exportGcodePlate).toHaveBeenCalledTimes(2); expect(f.submissions.submit).toHaveBeenCalledTimes(2);
+});
+
+it('offers ordinary retry after plain-artifact admission failure without an unknown-outcome screen', async () => {
+  const f = await setup(false, manifest, undefined, true);
+  f.submissions.submit.mockRejectedValueOnce(new Error('connection lost'));
+  await f.click('Send');
+  expect(container.textContent).toContain('Send print task failed, please try again');
+  expect(container.textContent).not.toContain('View printer');
+  await f.click('Retry'); expect(f.submissions.submit).toHaveBeenCalledTimes(2); expect(f.runtime.exportGcodePlate).toHaveBeenCalledTimes(2);
 });
