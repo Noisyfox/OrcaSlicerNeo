@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./domain": "./src/domain/index.ts",
+    "./send-activity": "./src/send-activity.ts",
     "./downloads": "./src/downloads.ts",
     "./download-tasks": "./src/downloadTasks.ts",
     "./transfer-queue": "./src/transferQueue.ts"

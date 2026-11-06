@@ -279,3 +279,14 @@ it('cancelling during authorized cleanup prevents the subsequent print call', as
   await vi.waitFor(() => expect(f.state().phase).toBe('cancelled'));
   expect(f.native.startPrint).not.toHaveBeenCalled();
 });
+
+
+it('cancels local native sending at shutdown and joins the callback before releasing artifacts', async () => {
+  const f = await fixture(); await f.send();
+  let closed = false;
+  const closing = f.service.close().then(() => { closed = true; });
+  await Promise.resolve(); expect(f.native.cancelPrint).toHaveBeenCalledOnce(); expect(closed).toBe(false);
+  expect((await readdir(f.directory)).length).toBeGreaterThan(0);
+  f.complete({ code: -18, mayHaveStarted: false, cancelRequested: true });
+  await closing; expect(closed).toBe(true); expect(await readdir(f.directory)).toEqual([]);
+});

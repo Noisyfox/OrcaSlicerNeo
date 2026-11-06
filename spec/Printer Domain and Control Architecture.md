@@ -1963,8 +1963,9 @@ user confirms exit, request supported cancellation, prevent unsent stages and
 complete required provider/worker teardown without treating shutdown as a
 physical print-stop request. Web leave confirmation and teardown remain
 best-effort under browser constraints. Restart must not automatically resume or
-replay interrupted sends. This is accepted design pending implementation; it
-does not replace provider-specific outcome or cleanup contracts.
+replay interrupted sends. The shared service tracks admitted sends independently of UI observers, and
+application leases cover artifact preparation before admission. This does not
+replace provider-specific outcome or cleanup contracts.
 Progress must represent the evidence available: native stage/percentage reports do not justify
 inventing byte counts or transfer speeds.
 
@@ -2051,7 +2052,8 @@ does not establish a device, Cloud or cross-platform delivery claim.
 configuration, provider routing and on-demand material reads are implemented in
 both hosts. U1 independent project materials, manual plate mapping and structured
 preparation policy are implemented. Prepared submission and physical Device controls are implemented. Persistent
-preferences and consumer-scoped monitoring are implemented; shared exit handling remains pending.
+preferences, consumer-scoped monitoring and shared unfinished-send exit handling
+are implemented. Integrated software acceptance is in progress.
 Scope, behavior and
 acceptance policy are settled. The
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#snapmaker-agent-design)

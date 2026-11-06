@@ -1,3 +1,4 @@
+import { sendActivity } from '@orca/printer-control/send-activity';
 import { useProjectModal } from '../useProjectModal';
 import { PrintPreparationPanel } from './PrintPreparationPanel';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
@@ -269,6 +270,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection, platf
     const operation = ++operationRef.current;
     const controller = new AbortController();
     abortRef.current = controller;
+    const activity = sendActivity(platform.printers.service).begin(() => controller.abort());
     setMessage(null);
     setProgress({ loaded: 0 });
     setUploadSpeed(0);
@@ -293,7 +295,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection, platf
           receipt.resultGeneration !== liveReceipt.resultGeneration || receipt.sliceTaskId !== liveReceipt.sliceTaskId)
         throw new Error('current plate slice result is stale or unavailable');
       const exported = await platform.runtime.exportGcodePlate({ receipt, filenameBase: projectFilenameBase(useProjectStore.getState()) });
-      if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
+      if (controller.signal.aborted || operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
       if (!exported.ok) {
         setState('error');
         setMessage(exported.error);
@@ -312,17 +314,17 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection, platf
         setProgress(next);
       }, controller.signal, action === 'send-and-print');
       uploadedRef.current = uploaded;
-      if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
+      if (controller.signal.aborted || operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
       if (action === 'send-and-print') {
         setState('starting');
         await startUploadedPrint(service, uploaded);
       }
-      if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
+      if (controller.signal.aborted || operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
       setState('success');
       setMessage(action === 'send' ? 'G-code uploaded to the printer.' : 'G-code uploaded and print started.');
       startCloseCountdown();
     } catch (error) {
-      if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
+      if (controller.signal.aborted || operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
       const retryFailure = selectedPrinter.routes.some(r => r.capabilities.submission.kind === 'supported' && r.capabilities.submission.constraints.failurePolicy === 'retry');
       if (retryFailure && !(error instanceof SendFailure && error.code === 'cancelled')) {
         setState('error'); setMessage('Send print task failed, please try again');
@@ -337,6 +339,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection, platf
         setMessage(safeErrorMessage(error));
       }
     } finally {
+      activity.finish();
       if (operation === operationRef.current) abortRef.current = null;
     }
   }

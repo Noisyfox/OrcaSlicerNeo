@@ -1,3 +1,4 @@
+import { trackPrinterSends } from './send-activity';
 /** Dispatch by provider-owned route identity; account/session state never participates. */
 import type * as D from './domain';
 
@@ -65,7 +66,7 @@ export function createPrinterService(providers: readonly D.PrinterProvider[]): D
     if (failed && !failed.ok) return failed;
     return { ok: true, value: results.flatMap(result => result.ok ? [...result.value] : []) };
   }
-  return {
+  return trackPrinterSends({
     listProviders: options => list(s => s.listProviders(options)),
     listTypes: options => list(s => s.listTypes(options)),
     listSaved: async options => { try { return { ok: true, value: await collect(options) }; } catch (error) { return { ok: false, error: errorOf(error) }; } },
@@ -117,5 +118,5 @@ export function createPrinterService(providers: readonly D.PrinterProvider[]): D
       sendSignal: (r, signal) => call(r, s => s.media.sendSignal(r, signal)), readContent: (r, o) => call(r.media, s => s.media.readContent(r, o)),
       close: r => call(r, s => s.media.close(r)), captureSnapshot: (t, camera, o) => call(t, s => s.media.captureSnapshot(t, camera, o)),
     },
-  };
+  });
 }

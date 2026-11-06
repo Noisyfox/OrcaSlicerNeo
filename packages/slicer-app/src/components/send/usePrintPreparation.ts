@@ -1,3 +1,4 @@
+import { sendActivity } from '@orca/printer-control/send-activity';
 import { useEffect, useRef, useState } from 'react';
 import type * as D from '@orca/printer-control/domain';
 import type { SliceResultReceipt } from '@slicer/client';
@@ -145,12 +146,13 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   async function send(confirmed = false) {
     if (!canPrint || activeRef.current || !request.current || !sourceReceipt.current) return;
     setExporting(true); activeRef.current = true; setError(null); setRetryableFailure(false);
+    const activity = sendActivity(platform.printers.service).begin();
     let submission: D.PrintSubmissionRef | null = null;
     try {
-      if (!live.current) return;
+      if (!live.current || activity.signal.aborted) return;
       const checked = confirmed && confirmation ? { ok: true as const, value: confirmation }
         : await platform.printers.service.submissions.prepare({ ...request.current, suggest: false, checkRecording: true });
-      if (!live.current) return;
+      if (!live.current || activity.signal.aborted) return;
       if (!checked.ok) throw new Error(checked.error.message);
       setPrepared(checked.value);
       if (checked.value.issues.some(i => i.severity === 'block')) { setConfirmation(null); return; }
@@ -172,14 +174,14 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
         if (!exported.ok) throw new Error(exported.error);
         artifacts = [source('print', exported.fileName, exported.bytes), source('configuration', exported.fileName, exported.configBytes)];
       }
-      if (!live.current) return;
+      if (!live.current || activity.signal.aborted) return;
       const { suggest: _suggest, ...input } = request.current;
       const submitted = await platform.printers.service.submissions.submit({ ...input, requestId: crypto.randomUUID() as D.Id<'request'>, jobName: submittedName, acknowledgedIssues: acknowledged, recordingSpaceAction: recordingAction }, artifacts);
       if (!submitted.ok) throw new Error(submitted.error.message);
       submission = submitted.value;
       setConfirmation(null);
       for await (const state of platform.printers.service.submissions.watch(submitted.value, { signal: watchAbort.current.signal })) {
-        if (!live.current) return;
+        if (!live.current || activity.signal.aborted) return;
         setOperation(state);
         if (state.phase === 'sent') { sent.current(); return; }
       }
@@ -189,7 +191,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
         if (submission) setOperation({ ref: submission, requestId: '' as D.Id<'request'>, phase: retryFailure ? 'failed' : 'unknown', route: prepared?.route ?? null, progress: null, canCancel: false, message: retryFailure ? failureMessage : 'The print outcome could not be checked. Inspect the printer before sending another job.' });
         else setError(retryFailure ? failureMessage : 'Print preparation or sending failed. Check the current printer status before retrying.');
       }
-    } finally { if (live.current) { setExporting(false); activeRef.current = false; } }
+    } finally { activity.finish(); if (live.current) { setExporting(false); activeRef.current = false; } }
   }
   async function cancel() {
     if (!operation?.canCancel) return;

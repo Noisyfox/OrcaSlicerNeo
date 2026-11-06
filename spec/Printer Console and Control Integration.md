@@ -1967,7 +1967,8 @@ cancellation, and a failed print start never navigate to Device.
 
 ## Application exit with unfinished sends
 
-**Status:** Accepted design pending implementation and qualification. Apply this
+**Status:** Implemented with shared service tracking and artifact-preparation
+leases; host integration qualification is tracked separately. Apply this
 policy to all sending flows, including the existing Moonraker Send / Send & Print
 and Bambu submission paths, their manual retries, and the planned Snapmaker
 agent. It does not extend any provider's supported hosts or protocols.
