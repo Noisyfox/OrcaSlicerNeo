@@ -2891,7 +2891,7 @@ is in the existing native bridge; send code does not inspect G-code contents.
 | Verification | Result and boundary |
 | --- | --- |
 | `pnpm typecheck` | Pass across the workspace. |
-| `pnpm --filter @orca/printer-control test` | 202 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. |
+| `pnpm --filter @orca/printer-control test` | 203 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. |
 | `pnpm --filter @orca/slicer-app test` | 1684 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
 | Affected package tests | Web 46; WASM client/bridge contracts 699 with 28 skipped; runtime 65 with 3 skipped; platform contracts 57; profile resources 4 passed. Skips remain excluded from acceptance. |
 | Electron production-path E2E build | `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` passed; this test build uses the mock slicer and real host IPC/HTTP transport. |
@@ -2947,6 +2947,7 @@ write probes use Node HTTP transport, separately from the Electron UI case.
 | --- | --- |
 | Read-only acquisition | Four heads, material colors/types/presence/loading, five temperatures/targets, fan/light states, top-cover state and all ten persistent preference fields read successfully. |
 | Printer sync identity | The Snapmaker agent publishes the manufacturer/model selected manually in Device settings in its descriptor. Hardware objects never infer the model; an absent selection remains unknown. Existing observation streams use the latest selection on their next acquisition. Generic sync consumes the agent descriptor without substituting models. A real LAN read supplied the identity and four nozzle parameters to the real threaded-WASM Printer sync transaction, which selected `Snapmaker U1 (0.4 nozzle)` successfully. No printer write was sent. |
+| Filament sync identity | The agent publishes namespaced Snapmaker SKU and vendor/type/series identities when reported; type/color alone remains unidentified. Known Snapmaker PLA SnapSpeed additionally carries the bundled Orca filament ID `OFwhLMs4`, shared across U1 nozzle variants. Four real LAN supplies matched `Snapmaker PLA SnapSpeed @U1` and retained all four RGBA colors through native rebuild. Unknown vendor catalogue entries follow the existing warned Generic fallback. No generic eligibility rule or slicing core was changed. |
 | Shared monitoring | Live subscriptions repeatedly acquired device state. Releasing the last subscription stopped further reads; cached inventory was retained as stale. This did not disconnect the printer's network. |
 | Electron Monitor | Real data and enabled per-head controls rendered. Manual Refresh preserved an unsaved preference draft; leaving Device and closing the host required no printer action. |
 | Six logical materials | Structured requirements produced plate-derived head defaults `[0,1,2,3,0,1]`. Manually binding all six to head 0 preserved the bindings, reported warnings and deduplicated calibration to one head. No mapping/calibration command was applied and no print was started. This does not establish physical shared-heater behavior. |

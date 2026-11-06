@@ -30,11 +30,23 @@ export function u1MaterialInventory(status: Record<string, unknown>, target: D.P
       const type = text('filament_type', i);
       const subtype = text('filament_sub_type', i);
       const color = text('filament_color_rgba', i);
+      const vendor = text('filament_vendor', i);
+      const sku = value('filament_sku', i);
+      const catalogRefs: D.MaterialMetadata['catalogRefs'][number][] = [];
+      // Firmware SKU and vendor/type/series are Snapmaker catalogue identities,
+      // not Orca filament IDs. Keep unreported/type-only supplies unidentified.
+      if (typeof sku === 'number' && Number.isSafeInteger(sku) && sku > 0)
+        catalogRefs.push({ namespace: 'snapmaker-filament-sku', value: String(sku) });
+      if (vendor && type)
+        catalogRefs.push({ namespace: 'snapmaker-filament', value: JSON.stringify([vendor, type, subtype]) });
+      // The bundled Snapmaker catalogue shares this ID across U1 nozzle variants.
+      if (vendor === 'Snapmaker' && type === 'PLA' && subtype === 'SnapSpeed')
+        catalogRefs.push({ namespace: 'orca-filament', value: 'OFwhLMs4' });
       const metadata: D.MaterialMetadata = {
         materialType: type && subtype && !['Basic', 'BASIC', 'STANDARD', type].includes(subtype) ? `${type}-${subtype}` : type,
-        manufacturer: text('filament_vendor', i),
+        manufacturer: vendor,
         color: color && /^[0-9a-f]{8}$/i.test(color) ? { kind: 'solid', rgba: `#${color}` } : null,
-        diameterMm: null, nozzleTemperatureRangeC: null, presetRef: null, catalogRefs: [],
+        diameterMm: null, nozzleTemperatureRangeC: null, presetRef: null, catalogRefs,
       };
       return { slotId: topology.slots[i].id,
         presence: typeof present === 'boolean' ? known(present ? 'present' as const : 'empty' as const) : unknown,
