@@ -23,12 +23,14 @@ describe('U1 physical Device controls', () => {
     expect(u1DeviceCapabilities({ ...snapshot, commands: [] })['materials.load']?.kind).toBe('unsupported');
     const descriptor: D.PrinterDescriptor = { revision: 'r', identity: { id: id('p'), displayName: 'U1', manufacturer: null, model: null, serialNumber: null, externalRefs: [] }, technology: 'fdm', firmware: { kind: 'unknown', reason: 'not-reported' }, buildVolume: null,
       topology: { revision: 'r', completeness: 'partial', motionGroups: [], extruders: [], nozzles: [], tools: [], heaters: [], fans: [], lights: [], cameras: [], sensors: [], materials: { units: [], slots: [], paths: [], dryers: [] } } };
-    const values = u1DeviceValues(snapshot, { printerId: id('p'), routeId: id('r') }, 'r', descriptor);
+    const values = u1DeviceValues(snapshot, { printerId: id('p'), routeId: id('r') }, 'r', descriptor,
+      { vendorId: 'Snapmaker', model: 'Snapmaker U1' });
     expect(values.descriptor?.identity).toMatchObject({ manufacturer: 'Snapmaker', model: 'Snapmaker U1' });
-    const unrecognized = u1DeviceValues({ ...snapshot, objects: snapshot.objects.filter(name => name !== 'print_task_config') },
-      { printerId: id('p'), routeId: id('r') }, 'r', { ...structuredClone(descriptor),
-        identity: { ...descriptor.identity, manufacturer: null, model: null } });
-    expect(unrecognized.descriptor?.identity).toMatchObject({ manufacturer: null, model: null });
+    const unconfigured = u1DeviceValues(snapshot, { printerId: id('p'), routeId: id('r') }, 'r', structuredClone(descriptor), undefined);
+    expect(unconfigured.descriptor?.identity).toMatchObject({ manufacturer: null, model: null });
+    const configured = u1DeviceValues({ ...snapshot, objects: [] }, { printerId: id('p'), routeId: id('r') }, 'r', structuredClone(descriptor),
+      { vendorId: 'Selected vendor', model: 'Selected model' });
+    expect(configured.descriptor?.identity).toMatchObject({ manufacturer: 'Selected vendor', model: 'Selected model' });
     expect(values.descriptor?.topology.nozzles[0]).toMatchObject({ diameterMm: .6, flowType: 'high_flow', constructionMaterial: null });
     expect(values.descriptor?.topology.nozzles[1].diameterMm).toBeNull();
     expect(values.materials?.state.tools.map(t => t.activity)).toMatchObject([{ value: 'loading' }, { value: 'error' }, { kind: 'unknown' }, { kind: 'unknown' }]);

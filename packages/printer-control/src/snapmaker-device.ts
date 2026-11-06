@@ -38,17 +38,16 @@ function fans(snapshot: U1DeviceSnapshot) {
     ...['inner', 'exhaust'].map(name => ({ object: `purifier:${name}`, name: `Top cover ${name} fan`, role: 'chamber' as const, command: 'SET_PURIFIER', script: (n: number) => `SET_PURIFIER FAN=${name} SPEED=${n}` })),
   ].filter(f => f.object.startsWith('purifier:') ? snapshot.objects.includes('purifier') : snapshot.objects.includes(f.object));
 }
-export function u1DeviceValues(snapshot: U1DeviceSnapshot, target: D.PrinterTarget, revision: string, descriptor: D.PrinterDescriptor) {
+export function u1DeviceValues(snapshot: U1DeviceSnapshot, target: D.PrinterTarget, revision: string, descriptor: D.PrinterDescriptor,
+  model: PrinterConfiguration['printerModel']) {
   const known = <T>(value: T): D.Reading<T> => ({ kind: 'known', value, freshness: 'fresh', sourceRouteId: target.routeId, observedAtMs: null, receivedAtMs: snapshot.receivedAtMs });
   const number = (value: unknown) => finite(value) === null ? unknown : known(value as number);
   const status = snapshot.status;
   const topology = descriptor.topology;
   const installed = heads.filter(i => snapshot.objects.includes(extruder(i)));
-  // This agent currently implements the U1 protocol. Publish its recognized
-  // identity with the observation so all consumers use the same model source.
-  if (installed.length === 4 && snapshot.objects.includes('print_task_config')) {
-    descriptor.identity = { ...descriptor.identity, manufacturer: 'Snapmaker', model: 'Snapmaker U1', externalRefs: [] };
-  }
+  // Device settings are authoritative; hardware objects do not identify a model.
+  descriptor.identity = { ...descriptor.identity, manufacturer: model?.vendorId || null,
+    model: model?.model ?? null, externalRefs: [] };
   const heaters = [...installed.map(extruder), ...(snapshot.objects.includes('heater_bed') ? ['heater_bed'] : [])];
   topology.motionGroups = [{ id: id('snapmaker-motion'), name: 'Printer', axes: ['x', 'y', 'z'] }];
   topology.extruders = installed.map(i => ({ id: id(`snapmaker-extruder:${i}`), name: `Toolhead ${i + 1}`, filamentDiametersMm: null }));

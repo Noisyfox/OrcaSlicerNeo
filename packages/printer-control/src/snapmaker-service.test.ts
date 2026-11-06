@@ -23,22 +23,60 @@ function fixture() {
 }
 
 describe('Snapmaker provider foundation', () => {
-  it('reports the recognized U1 model to Printer sync without a configured model association', async () => {
+  it('uses the latest Device model selection in an already running observation stream', async () => {
+    const f = fixture();
+    const doc = await f.configuration.load();
+    await f.configuration.save({ ...doc, printers: doc.printers.map(p => p.driverId === 'snapmaker'
+      ? { ...p, printerModel: { vendorId: 'Snapmaker', model: 'Snapmaker U1' } } : p) });
+    const controller = new AbortController();
+    const stream = f.snapmaker.observations.watch({ target: f.target, topics: ['descriptor'] }, { signal: controller.signal })[Symbol.asyncIterator]();
+    const nextModel = async () => {
+      for (let i = 0; i < 3; i++) {
+        const event = await stream.next();
+        const reading = event.value?.snapshot.values.descriptor;
+        if (reading?.kind === 'known' && reading.freshness === 'fresh') return reading.value.identity.model;
+      }
+      throw new Error('No fresh descriptor');
+    };
+    try {
+      expect(await nextModel()).toBe('Snapmaker U1');
+      const current = await f.configuration.load();
+      await f.configuration.save({ ...current, printers: current.printers.map(p => p.driverId === 'snapmaker'
+        ? { ...p, printerModel: { vendorId: 'Manual', model: 'New selection' } } : p) });
+      expect(await nextModel()).toBe('New selection');
+    } finally { controller.abort(); await stream.return?.(); }
+  });
+  it('reports the Device model selection to Printer sync and follows changes without hardware inference', async () => {
     const f = fixture();
     f.request.mockImplementation(async ({ url }) => ({ status: 200, json: async () => url.endsWith('/objects/list')
       ? { result: { objects: ['print_task_config', 'extruder', 'extruder1', 'extruder2', 'extruder3'] } }
       : { result: { status: { print_task_config: { filament_exist: [true, true, true, true] },
         ...Object.fromEntries(['extruder', 'extruder1', 'extruder2', 'extruder3'].map(name => [name, { nozzle_diameter: .4, nozzle_volume_type: 'standard' }])) } } } }));
+    const doc = await f.configuration.load();
+    await f.configuration.save({ ...doc, printers: doc.printers.map(p => p.driverId === 'snapmaker'
+      ? { ...p, printerModel: { vendorId: 'Snapmaker', model: 'Snapmaker U1' } } : p) });
     const saved = await f.snapmaker.listSaved();
     if (!saved.ok) throw new Error('Expected saved printer');
     const printer = saved.value[0];
-    expect(printer.configuredModel).toBeUndefined();
+    expect(printer.configuredModel).toEqual({ vendorId: 'Snapmaker', model: 'Snapmaker U1' });
     expect(printer.identity.model).toBeNull();
     const source = await readSynchronizationSource(f.snapmaker, printer, printer.routes[0], 'printer', { refresh: true });
     expect(source).toMatchObject({ ok: true, value: {
       identity: { manufacturer: 'Snapmaker', model: 'Snapmaker U1' },
       tools: Array.from({ length: 4 }, () => ({ diameterMm: .4 })),
     } });
+    for (const model of [{ vendorId: 'Other vendor', model: 'Other model' }, undefined]) {
+      const current = await f.configuration.load();
+      await f.configuration.save({ ...current, printers: current.printers.map(p => {
+        if (p.driverId !== 'snapmaker') return p;
+        const { printerModel: _previous, ...rest } = p;
+        return model ? { ...rest, printerModel: model } : rest;
+      }) });
+      const updated = await readSynchronizationSource(f.snapmaker, printer, printer.routes[0], 'printer', { refresh: true });
+      expect(updated).toMatchObject({ ok: true, value: { identity: {
+        manufacturer: model?.vendorId ?? null, model: model?.model ?? null,
+      } } });
+    }
     expect(f.request.mock.calls.every(([request]) => request.method === 'GET')).toBe(true);
   });
   it('isolates routes without probing on enumeration and preserves both providers during edits', async () => {
