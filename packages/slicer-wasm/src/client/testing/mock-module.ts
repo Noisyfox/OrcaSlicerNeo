@@ -2634,6 +2634,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         saved: { mode: null, filamentMap: null, volumeMap: null, nozzleMap: null },
         effective: { mode: 0, filamentMap: [1], volumeMap: [0], nozzleMap: [0] }, diagnostics: [] };
     },
+    orc_match_filament_presets(requestJson: string) {
+      const materials = JSON.parse(requestJson);
+      return { ok: true, filamentIds: materials.map(() => 'OFZGmLwF') };
+    },
     orc_get_device_material_catalogue(requestJson: string) {
       const request = JSON.parse(requestJson);
       if (!request.identity || !Number.isInteger(request.toolIndex) || request.toolIndex < 0) return { ok: false, error: 'Invalid device material catalogue context' };
@@ -4233,6 +4237,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_filament_routing: { ret: 'number', args: ['string'] },
     orc_prepare_material_import: { ret: 'number', args: ['string'] },
     orc_get_device_material_catalogue: { ret: 'number', args: ['string'] },
+    orc_match_filament_presets: { ret: 'number', args: ['string'] },
     orc_get_device_filament_options: { ret: 'number', args: ['string'] },
     orc_apply_material_import: { ret: 'number', args: ['string'] },
     orc_get_flushing_volumes: { ret: 'number', args: ['string'] },

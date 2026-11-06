@@ -1894,6 +1894,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   ): Promise<PrinterTransitionResult>;
   /** Read installed material choices without changing project or preset visibility. */
   getDeviceFilamentOptions(request: MaterialImportRequest): Promise<DeviceFilamentOptions>;
+  matchFilamentPresets(materials: readonly import('./deviceMaterials').FilamentPresetMatchInput[]): Promise<readonly (string | null)[]>;
   getDeviceMaterialCatalogue(request: import('./deviceMaterials').DeviceMaterialCatalogueRequest): Promise<import('./deviceMaterials').DeviceMaterialCatalogue>;
   prepareMaterialImport(request: MaterialImportPreparationRequest): Promise<MaterialImportPreparation>;
   applyMaterialImport(request: MaterialImportApplication): Promise<FilamentMutationResultOrError>;

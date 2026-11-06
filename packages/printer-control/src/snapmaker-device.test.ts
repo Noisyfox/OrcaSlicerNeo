@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type * as D from './domain';
 import { MoonrakerHttp } from './moonraker-http';
 import { normalizePrinterConfigurationDocument } from './configuration';
-import { u1MaterialInventory } from './snapmaker-observation';
+import { u1MaterialInventory, u1FilamentType, matchU1Materials } from './snapmaker-observation';
 import { readU1Device, u1DeviceCapabilities, u1DeviceCommand, u1DeviceValues, type U1DeviceSnapshot } from './snapmaker-device';
 const id = <K extends string>(s: string) => s as D.Id<K>;
 const snapshot: U1DeviceSnapshot = { receivedAtMs: 123, objects: ['print_task_config', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_bed', 'purifier', 'led cavity_led', 'filament_feed left', 'filament_feed right'],
@@ -13,21 +13,31 @@ const snapshot: U1DeviceSnapshot = { receivedAtMs: 123, objects: ['print_task_co
     'filament_feed left': { extruder0: { channel_state: 'load_heating' }, extruder1: { channel_state: 'unload_fail' } },
   } };
 describe('U1 physical Device controls', () => {
-  it('normalizes reported material identities without treating SKU or color as an Orca preset ID', () => {
+  it.each([
+    [null, 'CF', 'PLA'], [' pla ', 'SnapSpeed', 'PLA HIGH SPEED'], ['PETG', 'HS', 'PETG HIGH SPEED'],
+    ['PA', 'CF', 'PA-CF'], ['PA', 'GF', 'PA-GF'], ['PLA', 'Silk', 'PLA SILK'], ['PLA', 'Wood', 'PLA WOOD'],
+    ['PLA', 'Matte', 'PLA MATTE'], ['PLA', 'Marble', 'PLA MARBLE'], ['PLA', 'Basic', 'PLA'], ['PLA', 'Polylite', 'PLA'],
+    ['PETG', 'NONE', 'PETG'], ['ABS', '', 'ABS'],
+  ])('combines %s / %s as Orca does: %s', (type, sub, expected) => {
+    expect(u1FilamentType(type, sub)).toBe(expected);
+  });
+  it('matches only present materials through the native catalogue, ignoring SKU and allowing an unknown vendor', async () => {
     const inventory = u1MaterialInventory({ print_task_config: {
-      filament_exist: [true, true, true, true], filament_type: ['PLA', 'PETG', 'PLA', 'PLA'],
+      filament_exist: [true, false, true], filament_type: ['PLA', 'PETG', '', 'PLA'],
       filament_vendor: ['Snapmaker', 'Third party', '', ''], filament_sub_type: ['SnapSpeed', 'HF', '', ''],
       filament_sku: [900001, 0, 123456, 0], filament_color_rgba: ['080A0DFF', 'FF0000FF', 'FFFFFFFF', '000000FF'],
     } }, { printerId: id('p'), routeId: id('r') }, 'r');
-    const materials = inventory.state.slots.map(s => s.material.kind === 'known' ? s.material.value : null);
-    expect(materials[0]?.catalogRefs).toEqual([
-      { namespace: 'snapmaker-filament-sku', value: '900001' },
-      { namespace: 'snapmaker-filament', value: '["Snapmaker","PLA","SnapSpeed"]' },
-      { namespace: 'orca-filament', value: 'OFwhLMs4' },
+    let inputs: unknown;
+    await matchU1Materials(inventory, async materials => { inputs = materials; return ['native-id-a', 'native-id-b']; });
+    expect(inputs).toEqual([
+      { manufacturer: 'Snapmaker', materialType: 'PLA HIGH SPEED', colorRgba: '#080A0DFF' },
+      { manufacturer: '', materialType: 'PLA', colorRgba: '#FFFFFFFF' },
     ]);
-    expect(materials[1]?.catalogRefs).toEqual([{ namespace: 'snapmaker-filament', value: '["Third party","PETG","HF"]' }]);
-    expect(materials[2]?.catalogRefs).toEqual([{ namespace: 'snapmaker-filament-sku', value: '123456' }]);
-    expect(materials[3]?.catalogRefs).toEqual([]);
+    const materials = inventory.state.slots.map(s => s.material.kind === 'known' ? s.material.value : null);
+    expect(materials[0]?.catalogRefs).toEqual([{ namespace: 'orca-filament', value: 'native-id-a' }]);
+    expect(materials[1]).toBeNull();
+    expect(materials[2]?.catalogRefs).toEqual([{ namespace: 'orca-filament', value: 'native-id-b' }]);
+    expect(materials[3]).toBeNull();
   });
   it('addresses all four physical feed channels independent of print state or logical mappings', () => {
     const commands = [0, 1, 2, 3].map(i => u1DeviceCommand(snapshot, { type: 'materials.load', params: { pathId: id(`snapmaker-path:${i}`) } }));

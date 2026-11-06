@@ -281,6 +281,7 @@ export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorA
       }, {
         id: 'snapmaker' as Id<'provider'>, name: 'Snapmaker',
         printers: createSnapmakerService({
+          matchFilaments: materials => runtime.matchFilamentPresets(materials),
           configuration: printerConfiguration,
           transport: createElectronPrinterTransport(host),
           host: { id: 'desktop' as Id<'agent-host'>, name: 'Desktop', execution: 'desktop' },

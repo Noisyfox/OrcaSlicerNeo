@@ -171,6 +171,7 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
       }, {
         id: 'snapmaker' as Id<'provider'>, name: 'Snapmaker',
         printers: createSnapmakerService({
+          matchFilaments: materials => runtime.matchFilamentPresets(materials),
           configuration: printerConfiguration,
           transport: createBrowserPrinterTransport(),
           host: { id: 'browser' as Id<'agent-host'>, name: 'Browser', execution: 'browser' },

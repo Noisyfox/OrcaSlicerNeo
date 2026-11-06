@@ -7,6 +7,27 @@ const unknown = { kind: 'unknown', reason: 'not-reported' } as const;
 export const u1ToolId = (index: number) => id<'tool'>(`snapmaker-tool:${index}`);
 export const u1PathId = (index: number) => id<'path'>(`snapmaker-path:${index}`);
 
+/** SnapmakerPrinterAgent::combine_filament_type, including its base-PLA default. */
+export function u1FilamentType(type: string | null, subtype: string | null): string {
+  const base = type?.trim().toUpperCase() || 'PLA';
+  if (!type?.trim()) return base;
+  const sub = subtype?.trim().toUpperCase();
+  if (sub === 'CF' || sub === 'GF') return `${base}-${sub}`;
+  if (sub === 'SNAPSPEED' || sub === 'HS') return `${base} HIGH SPEED`;
+  if (sub && ['SILK', 'WOOD', 'MATTE', 'MARBLE'].includes(sub)) return `${base} ${sub}`;
+  return base;
+}
+export interface FilamentMatchInput { manufacturer: string; materialType: string; colorRgba: string }
+export type FilamentMatcher = (materials: readonly FilamentMatchInput[]) => Promise<readonly (string | null)[]>;
+export async function matchU1Materials(inventory: D.MaterialInventory, match: FilamentMatcher): Promise<void> {
+  const materials = inventory.state.slots.flatMap(slot => slot.material.kind === 'known' && slot.material.value ? [slot.material.value] : []);
+  if (!materials.length) return;
+  const ids = await match(materials.map(m => ({ manufacturer: m.manufacturer ?? '', materialType: m.materialType!,
+    colorRgba: m.color?.kind === 'solid' ? m.color.rgba : '#FFFFFFFF' })));
+  if (ids.length !== materials.length) fail('invalid-request', 'Invalid native filament matching result');
+  materials.forEach((material, i) => { material.catalogRefs = ids[i] ? [{ namespace: 'orca-filament', value: ids[i]! }] : []; });
+}
+
 export function u1MaterialInventory(status: Record<string, unknown>, target: D.PrinterTarget, revision: string): D.MaterialInventory {
   const config = record(status.print_task_config);
   if (!Object.keys(config).length) fail('unsupported', 'U1 material information is unavailable');
@@ -31,26 +52,15 @@ export function u1MaterialInventory(status: Record<string, unknown>, target: D.P
       const subtype = text('filament_sub_type', i);
       const color = text('filament_color_rgba', i);
       const vendor = text('filament_vendor', i);
-      const sku = value('filament_sku', i);
-      const catalogRefs: D.MaterialMetadata['catalogRefs'][number][] = [];
-      // Firmware SKU and vendor/type/series are Snapmaker catalogue identities,
-      // not Orca filament IDs. Keep unreported/type-only supplies unidentified.
-      if (typeof sku === 'number' && Number.isSafeInteger(sku) && sku > 0)
-        catalogRefs.push({ namespace: 'snapmaker-filament-sku', value: String(sku) });
-      if (vendor && type)
-        catalogRefs.push({ namespace: 'snapmaker-filament', value: JSON.stringify([vendor, type, subtype]) });
-      // The bundled Snapmaker catalogue shares this ID across U1 nozzle variants.
-      if (vendor === 'Snapmaker' && type === 'PLA' && subtype === 'SnapSpeed')
-        catalogRefs.push({ namespace: 'orca-filament', value: 'OFwhLMs4' });
       const metadata: D.MaterialMetadata = {
-        materialType: type && subtype && !['Basic', 'BASIC', 'STANDARD', type].includes(subtype) ? `${type}-${subtype}` : type,
+        materialType: u1FilamentType(type, subtype),
         manufacturer: vendor,
-        color: color && /^[0-9a-f]{8}$/i.test(color) ? { kind: 'solid', rgba: `#${color}` } : null,
-        diameterMm: null, nozzleTemperatureRangeC: null, presetRef: null, catalogRefs,
+        color: { kind: 'solid', rgba: color ? `#${color}` : '#FFFFFFFF' },
+        diameterMm: null, nozzleTemperatureRangeC: null, presetRef: null, catalogRefs: [],
       };
       return { slotId: topology.slots[i].id,
         presence: typeof present === 'boolean' ? known(present ? 'present' as const : 'empty' as const) : unknown,
-        material: present === false ? known(null) : type ? known(metadata) : unknown,
+        material: present === true ? known(metadata) : present === false ? known(null) : unknown,
         remaining: unknown, spoolIdentity: unknown };
     }),
     tools: heads.map(i => {

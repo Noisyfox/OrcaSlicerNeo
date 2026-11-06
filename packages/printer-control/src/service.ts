@@ -3,7 +3,7 @@ import { u1PreferenceScripts, verifyU1Preferences } from './snapmaker-preference
 import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, type U1DeviceSnapshot } from './snapmaker-device';
 import { U1Submissions } from './snapmaker-submissions';
 import { prepareU1Submission, u1PreparationFromDevice, type U1PreparationSnapshot } from './snapmaker-preparation';
-import { u1MaterialInventory } from './snapmaker-observation';
+import { u1MaterialInventory, matchU1Materials, type FilamentMatcher } from './snapmaker-observation';
 import { unsupportedSubmissions } from './submission';
 /** Shared request-based HTTP service with provider-owned routes and operation records. */
 import { normalizePrinterConfigurationDocument, type PrinterConfiguration, type PrinterConfigurationDocument } from './configuration';
@@ -13,6 +13,8 @@ import { MoonrakerHttp, MoonrakerFailure, fail, publicError, record } from './mo
 import { OperationStore, copy, newId, requestSignature, streamError } from './operations';
 
 export interface MoonrakerServiceOptions {
+  /** Snapmaker's read-only native preset matcher; raw device controls need no catalogue. */
+  matchFilaments?: FilamentMatcher;
   configuration: { onChanged?(listener: () => void): () => void; load(): Promise<PrinterConfigurationDocument>; save(document: PrinterConfigurationDocument): Promise<void> };
   transport: PrinterTransport;
   host: D.AgentHost;
@@ -81,6 +83,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
   }
   const state = authority;
   const http = new MoonrakerHttp(options.transport);
+  const matchFilaments = options.matchFilaments;
   if (!state.operations.has(driver)) state.operations.set(driver, new OperationStore());
   const operations = state.operations.get(driver)!;
   /** Only local repository work is queued; printer I/O retains its resolved snapshot. */
@@ -213,6 +216,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
       entry.snapmakerDevice = snapshot;
       const target = targetFor(printer.id);
       const values = u1DeviceValues(snapshot, target, entry.revision, descriptor(currentPrinter, entry, entry.cache.firmware ?? unknown), currentPrinter.printerModel);
+      if (values.materials && matchFilaments) await matchU1Materials(values.materials, matchFilaments);
       values.status = await readStatus(currentPrinter, signal, snapshot.status);
       for (const [topic, value] of Object.entries(values)) Object.assign(entry.cache, { [topic]: known(target, value) });
       if (values.materials) entry.snapmakerPreparation = u1PreparationFromDevice(snapshot.status, snapshot.commands, target, entry.revision, snapshot.receivedAtMs);
@@ -236,6 +240,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
           Object.assign(observed, entry.cache);
           // Explicit reads return current values even when there is no ongoing consumer.
           const values = u1DeviceValues(entry.snapmakerDevice!, request.target, entry.revision, descriptor(printer, entry, entry.cache.firmware ?? unknown), printer.printerModel);
+          if (values.materials && matchFilaments) await matchU1Materials(values.materials, matchFilaments);
           values.status = await readStatus(printer, options?.signal, entry.snapmakerDevice!.status);
           for (const [topic, value] of Object.entries(values)) Object.assign(observed, { [topic]: known(request.target, value) });
           if (request.topics.some(topic => topic === 'materials') && !values.materials) fail('unsupported', 'U1 material information is unavailable');

@@ -2083,3 +2083,43 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_device_material_catalogue(co
     try { return duplicate_json(device_material_catalogue_json(json::parse(request ? request : "")).dump()); }
     catch (const std::exception& error) { return duplicate_json(json{{"ok", false}, {"error", error.what()}}.dump()); }
 }
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_match_filament_presets(const char* request)
+{
+    using namespace Slic3r;
+    using namespace Slic3r::Neo::Bridge;
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    try {
+        const auto materials = json::parse(request ? request : "");
+        if (!materials.is_array()) throw std::runtime_error("Invalid material matching inputs");
+        const auto& filaments = state().presets.filaments;
+        json ids = json::array();
+        for (const auto& material : materials) {
+            const auto vendor = material.at("manufacturer").get<std::string>();
+            const auto type = material.at("materialType").get<std::string>();
+            const auto rgba = material.at("colorRgba").get<std::string>();
+            if (rgba.size() != 9 || rgba[0] != '#' || !std::all_of(rgba.begin() + 1, rgba.end(),
+                [](unsigned char c) { return std::isxdigit(c); })) throw std::runtime_error("Invalid material RGBA color");
+            const auto color = std::stoul(rgba.substr(1, 6), nullptr, 16);
+            unsigned long best = std::numeric_limits<unsigned long>::max();
+            std::string id;
+            // SnapmakerPrinterAgent::find_closest_color_preset_by_vendor_and_type.
+            // Collection order breaks ties. Alpha does not participate in RGB distance.
+            for (const auto& preset : filaments.get_presets()) {
+                if (!preset.is_visible || !preset.is_compatible || filaments.get_preset_base(preset) != &preset ||
+                    preset.config.opt_string("filament_vendor", 0u) != vendor || preset.config.opt_string("filament_type", 0u) != type) continue;
+                auto text = preset.config.opt_string("default_filament_colour", 0u);
+                const auto rgb = text.empty() ? 0ul : std::stoul(text.substr(text[0] == '#' ? 1 : 0), nullptr, 16);
+                unsigned long distance = 0;
+                for (const int shift : {0, 8, 16}) {
+                    const int delta = int((color >> shift) & 255) - int((rgb >> shift) & 255);
+                    distance += delta * delta;
+                }
+                if (distance < best) { best = distance; id = preset.filament_id; }
+            }
+            if (id.empty()) id = filaments.filament_id_by_type(type);
+            ids.push_back(id.empty() ? json(nullptr) : json(id));
+        }
+        return duplicate_json(json{{"ok", true}, {"filamentIds", ids}}.dump());
+    } catch (const std::exception& error) { return duplicate_json(json{{"ok", false}, {"error", error.what()}}.dump()); }
+}

@@ -208,30 +208,30 @@ assert.equal(rack().slots[0].preset.name, installed.preset);
 assert.equal(history().undoEntries.length, 1);
 console.log('PASS device Filament sync: native exact/fallback matching, mapping identities, append deduplication, explicit Merge replacement, late rollback, Undo/Redo, parallel colors, 3MF, preserved custom drafts and single-material dual-nozzle proposal dimensions, shared append planning, nullable model associations and hidden admission rollback');
 
-// U1's firmware SKU belongs to Snapmaker. The agent additionally associates
-// known materials with Orca catalogue IDs; never interpret a SKU as filament_id.
+// The agent normalizes the type, then uses Orca's native catalogue search.
 ok(call('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 ok(call('orc_clear_model'));
 ok(command('orc_select_printer_with_remembered_rack', { printer: 'Snapmaker U1 (0.4 nozzle)',
   remembered_rack: null, remembered_bed_type: null, history_context: context }));
-const u1Sources = ['#080A0D', '#E72F1D', '#E2DEDB', '#F4C032'].map((color, i) => ({
-  slotId: `snapmaker-slot:${i}`, materialType: 'PLA-SnapSpeed', colour: { kind: 'solid', color }, toolIndices: [i],
-  catalogRefs: [{ namespace: 'snapmaker-filament-sku', value: String(900000 + i) },
-    { namespace: 'snapmaker-filament', value: '["Snapmaker","PLA","SnapSpeed"]' },
-    { namespace: 'orca-filament', value: 'OFwhLMs4' }],
-}));
+const match = materials => ok(command('orc_match_filament_presets', materials)).filamentIds;
+const input = (manufacturer, materialType, colorRgba = '#080A0DFF') => ({ manufacturer, materialType, colorRgba });
+const pureBefore = JSON.stringify(observe());
+assert.deepEqual(match([]), []);
+assert.deepEqual(match([input('Snapmaker', 'PLA')]), ['OFnmp2pO'], 'chooses the nearest-color visible compatible Snapmaker PLA base');
+assert.deepEqual(match([input('Snapmaker', 'PLA', '#E72F1D00')]), match([input('Snapmaker', 'PLA', '#E72F1DFF')]), 'RGB matching ignores alpha');
+assert.deepEqual(match([input('Unknown', 'PLA HIGH SPEED')]), match([input('Unknown', 'PLA')]), 'Orca strips space modifiers for type fallback');
+assert.notEqual(match([input('Unknown', 'PA-CF')])[0], null, 'dash-modified type uses its native fallback');
+assert.equal(command('orc_match_filament_presets', [input('Snapmaker', 'PLA', 'bad')]).ok, false);
+assert.equal(JSON.stringify(observe()), pureBefore, 'matching leaves project, preset visibility and history unchanged');
+const colors = ['#080A0D', '#E72F1D', '#E2DEDB', '#F4C032'];
+const ids = match(colors.map(c => input('Snapmaker', 'PLA HIGH SPEED', `${c}FF`)));
+const u1Sources = colors.map((color, i) => ({ slotId: `snapmaker-slot:${i}`, materialType: 'PLA HIGH SPEED',
+  colour: { kind: 'solid', color }, toolIndices: [i], catalogRefs: [{ namespace: 'orca-filament', value: ids[i] }] }));
 const u1Request = extra => request({ identity: { manufacturer: 'Snapmaker', model: 'Snapmaker U1', externalRefs: [] }, sources: u1Sources, ...extra });
 const u1Prepared = ok(command('orc_prepare_material_import', u1Request({ mapping: null })));
 assert.equal(u1Prepared.sources.length, 4);
-assert.ok(u1Prepared.sources.every(s => s.preset === 'Snapmaker PLA SnapSpeed @U1' && !s.warning));
 ok(command('orc_apply_material_import', u1Request({ mode: 'rebuild', colourOnly: false, appendUnused: true,
   mapping: [], replacements: rack().slots.map(() => null) })));
-assert.deepEqual(rack().slots.map(s => s.colour.effective), u1Sources.map(s => s.colour.color));
-assert.ok(rack().slots.every(s => s.preset.name === 'Snapmaker PLA SnapSpeed @U1'));
-const unknownU1 = u1Request({ sources: [{ ...u1Sources[0], materialType: 'PETG-HF', catalogRefs: [
-  { namespace: 'snapmaker-filament', value: '["Third party","PETG","HF"]' }] }], mapping: null });
-const fallbackU1 = ok(command('orc_prepare_material_import', unknownU1));
-assert.equal(fallbackU1.sources.length, 1);
-assert.match(fallbackU1.sources[0].preset, /^Generic PETG/);
-assert.ok(fallbackU1.sources[0].warning);
-console.log('PASS U1 filament sync: four SnapSpeed catalogue matches/colors and unknown vendor Generic fallback');
+assert.deepEqual(rack().slots.map(s => s.colour.effective), colors);
+assert.deepEqual(rack().slots.map(s => s.preset.name), u1Prepared.sources.map(s => s.preset));
+console.log('PASS Orca-aligned U1 dynamic catalogue matching, native type fallback, purity and four-color import');

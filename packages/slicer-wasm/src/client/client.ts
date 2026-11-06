@@ -2733,6 +2733,13 @@ export function createClient(
         [JSON.stringify({ index, flow, expected_revision: expectedRevision, history_context: context })]), 'set-project-flow');
     },
 
+    async matchFilamentPresets(materials) {
+      const raw = callJson(await module(), 'orc_match_filament_presets', ['string'], [JSON.stringify(materials)]);
+      if (!isRecord(raw) || raw.ok !== true || !Array.isArray(raw.filamentIds) || raw.filamentIds.length !== materials.length
+        || !raw.filamentIds.every(id => id === null || typeof id === 'string' && id.length > 0))
+        throw new Error(isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid native filament matching result');
+      return raw.filamentIds as (string | null)[];
+    },
     async getDeviceMaterialCatalogue(request) {
       return normalizeDeviceMaterialCatalogue(callJson(await module(), 'orc_get_device_material_catalogue', ['string'], [JSON.stringify(request)]));
     },

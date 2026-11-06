@@ -7,7 +7,7 @@ import type * as D from './domain';
 import type { PrinterTransportRequest, PrinterTransportResponse } from './transport';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
-function fixture() {
+function fixture(matchFilaments?: import('./snapmaker-observation').FilamentMatcher) {
   let doc: PrinterConfigurationDocument = normalizePrinterConfigurationDocument({ version: 1, printers: ['moonraker', 'snapmaker'].map(driverId => ({
     id: driverId, driverId, displayName: 'Same name', apiBaseUrl: 'http://printer/proxy', apiKey: 'secret', consoleUrl: '',
   })) });
@@ -16,13 +16,27 @@ function fixture() {
     ? { result: { objects: ['print_task_config', 'filament_motion_sensor e0_filament'] } }
     : { result: { status: { print_task_config: { filament_exist: [true, false], filament_type: ['PLA', 'PETG'], filament_color_rgba: ['ff0000ff'] },
       'filament_motion_sensor e0_filament': { enabled: true, filament_detected: false } } } } }));
-  const options = { configuration, host: { id: id<'agent-host'>('host'), name: 'Host', execution: 'browser' as const }, transport: { request } };
+  const options = { configuration, matchFilaments, host: { id: id<'agent-host'>('host'), name: 'Host', execution: 'browser' as const }, transport: { request } };
   const snapmaker = createSnapmakerService(options), moonraker = createMoonrakerService(options);
   const target = { printerId: id<'printer'>('snapmaker'), routeId: id<'route'>('snapmaker:snapmaker') };
   return { configuration, request, snapmaker, moonraker, target, options };
 }
 
 describe('Snapmaker provider foundation', () => {
+  it('publishes native matching results through live and cached material observations', async () => {
+    const matcher = vi.fn(async () => ['native-filament-id']);
+    const f = fixture(matcher);
+    const result = await f.snapmaker.observations.read({ target: f.target, source: 'device', topics: ['materials'] });
+    expect(matcher).toHaveBeenCalledWith([{ manufacturer: '', materialType: 'PLA', colorRgba: '#ff0000ff' }]);
+    expect(result).toMatchObject({ ok: true, value: { values: { materials: { value: { state: { slots: [
+      { material: { value: { catalogRefs: [{ namespace: 'orca-filament', value: 'native-filament-id' }] } } },
+      { material: { value: null } }, {}, {},
+    ] } } } } } });
+    const cache = await f.snapmaker.observations.read({ target: f.target, source: 'cache', topics: ['materials'] });
+    expect(cache).toMatchObject({ ok: true, value: { values: { materials: { value: { state: { slots: [
+      { material: { value: { catalogRefs: [{ namespace: 'orca-filament', value: 'native-filament-id' }] } } }, {}, {}, {},
+    ] } } } } } });
+  });
   it('uses the latest Device model selection in an already running observation stream', async () => {
     const f = fixture();
     const doc = await f.configuration.load();
