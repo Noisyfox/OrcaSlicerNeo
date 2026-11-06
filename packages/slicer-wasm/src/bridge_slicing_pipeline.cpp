@@ -818,7 +818,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // keys are applied on top, then normalized like slice_main.cpp:30.
         NozzleMapping::validate_slice(plate_id);
         const auto printer = PresetDrafts::effective_printer_config();
-        const bool nozzle_mapping = printer.opt_bool("single_extruder_multi_material") &&
+        const bool nozzle_mapping = Filament::State::supports_independent_materials(printer) &&
             printer.opt<ConfigOptionFloats>("nozzle_diameter")->size() > 1;
         // Like Orca's Plater, preserve filament variants until native Print
         // resolves the Plate's manual/automatic mapping.

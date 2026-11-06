@@ -15,6 +15,18 @@
 
 namespace Slic3r::Neo::Bridge::Filament::State {
 
+bool is_snapmaker_u1(const DynamicPrintConfig& printer)
+{
+    const auto* model = printer.opt<ConfigOptionString>("printer_model");
+    return model && model->value == "Snapmaker U1";
+}
+
+bool supports_independent_materials(const DynamicPrintConfig& printer)
+{
+    // This is a project/UI capability, not the native SEMM extrusion mode.
+    return printer.opt_bool("single_extruder_multi_material") || is_snapmaker_u1(printer);
+}
+
 std::size_t material_slot_count(const DynamicPrintConfig& project)
 {
     const auto* colours = project.opt<ConfigOptionStrings>("filament_colour");
@@ -1048,7 +1060,7 @@ void validate_filament_candidate(PresetBundle& bundle, Model& model,
         bundle, state().preset_drafts, Preset::TYPE_PRINTER, bundle.printers.get_selected_preset_name());
     validate_filament_candidate_components(bundle.filament_presets, bundle.project_config, printer,
         static_cast<int>(std::max<size_t>(1, printer.opt<ConfigOptionFloats>("nozzle_diameter")->size())),
-        printer.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor(),
+        State::supports_independent_materials(printer) || bundle.is_bbl_vendor(),
         model, plates, snapshot, strict_slot_arrays, require_all_slot_arrays);
 }
 
@@ -1960,7 +1972,7 @@ json add_filament_command(const json& request, const Runtime& runtime)
     RuntimeScope scope(runtime);
     return run_filament_slot_mutation(request, "Add Filament Slot", false,
         [](PresetBundle& bundle, Model&, auto& plates, auto&, std::size_t count) {
-        const bool flexible = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
+        const bool flexible = State::supports_independent_materials(bundle.printers.get_edited_preset().config) || bundle.is_bbl_vendor();
         if (!flexible || count >= 64) throw FilamentCommandFailure("capability_rejected", "filament slot capacity or capability rejected");
         const std::string colour = kNativeFilamentColours[state().next_filament_colour_index++ % kNativeFilamentColours.size()];
         State::resize_slots_preserving_colours(bundle, static_cast<unsigned int>(count + 1), colour);
@@ -1988,7 +2000,7 @@ void repair_nozzle_mapping_targets(const DynamicPrintConfig& printer)
     const auto* actual_flow = bundle.project_config.opt<ConfigOptionEnumsGeneric>("nozzle_volume_type");
     const int first_flow = actual_flow && !actual_flow->empty() && actual_flow->get_at(0) != int(nvtHybrid)
         ? actual_flow->get_at(0) : int(nvtStandard);
-    auto repair_maps = [nozzles, count, first_flow](DynamicPrintConfig& config, const bool project) {
+    auto repair_maps = [nozzles, count, first_flow, u1 = State::is_snapmaker_u1(printer)](DynamicPrintConfig& config, const bool project) {
         for (const auto* key : {"filament_map", "filament_map_2"})
             if (auto* map = config.option<ConfigOptionInts>(key))
                 for (size_t i = 0; i < map->size(); ++i)
@@ -1999,6 +2011,11 @@ void repair_nozzle_mapping_targets(const DynamicPrintConfig& printer)
                         if (auto* tips = config.option<ConfigOptionInts>("filament_nozzle_map"); tips && i < tips->size())
                             tips->values[i] = 0;
                     }
+        if (u1 && nozzles > 1) {
+            const auto* mode = config.opt<ConfigOptionEnum<FilamentMapMode>>("filament_map_mode");
+            if (!mode || (mode->value != fmmManual && mode->value != fmmNozzleManual))
+                config.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(fmmManual));
+        }
         if (nozzles == 1) {
             if (project) {
                 config.option<ConfigOptionInts>("filament_map", true)->values.assign(count, 1);
@@ -2033,7 +2050,7 @@ void transition_printer_topology(const DynamicPrintConfig& printer,
     native_printer = printer;
     try {
         const auto nozzles = printer.opt<ConfigOptionFloats>("nozzle_diameter")->size();
-        const bool flexible = bundle.is_bbl_vendor() || printer.opt_bool("single_extruder_multi_material");
+        const bool flexible = bundle.is_bbl_vendor() || State::supports_independent_materials(printer);
         auto count = State::material_slot_count(bundle.project_config);
         const auto target = flexible ? count : nozzles;
         auto scoped = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
@@ -2098,7 +2115,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
     if (!merge)
         return run_filament_slot_mutation(request, "Delete Filament Slot", true,
             [request](PresetBundle& bundle, Model& model, auto& plates, auto& snapshot, std::size_t count) {
-            const bool flexible = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
+            const bool flexible = State::supports_independent_materials(bundle.printers.get_edited_preset().config) || bundle.is_bbl_vendor();
             if (!flexible || count <= 1) throw FilamentCommandFailure("capability_rejected", "filament slot capability rejected");
             std::string error;
             const auto source = filament_command_slot(request, "slot", count, error);
@@ -2110,7 +2127,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
         });
     return run_filament_mutation(request, merge ? "Merge Filament Slots" : "Delete Filament Slot",
         [request, merge](PresetBundle& bundle, Model& model, auto& plates, auto& snapshot, std::size_t count) {
-        const bool flexible = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
+        const bool flexible = State::supports_independent_materials(bundle.printers.get_edited_preset().config) || bundle.is_bbl_vendor();
         if (!flexible || count <= 1) throw FilamentCommandFailure("capability_rejected", "filament slot capability rejected");
         std::string error;
         const auto source = filament_command_slot(request, merge ? "source" : "slot", count, error);
@@ -2408,7 +2425,7 @@ json apply_material_import_command(const json& request, const Runtime& runtime)
         }
         bool presets_changed = false;
         const auto append = [&]() {
-            const bool flexible = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
+            const bool flexible = State::supports_independent_materials(bundle.printers.get_edited_preset().config) || bundle.is_bbl_vendor();
             if (!flexible || count >= 64) throw FilamentCommandFailure("capability_rejected", "Material rack capacity exceeded");
             State::resize_slots_preserving_colours(bundle, static_cast<unsigned>(count + 1));
             add_plate_filament_references(plates, bundle, count);
@@ -2654,7 +2671,7 @@ json filament_session_snapshot_json(const bool include_references)
                      {"matrix_dimension", matrix_dimension}, {"plane_count", matrix_plane_count},
                      {"source", matrix_is_native ? "native" : "default"}};
 
-    const bool flexible_slots = printer.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
+    const bool flexible_slots = State::supports_independent_materials(printer) || bundle.is_bbl_vendor();
     const int min_slots = flexible_slots ? 1 : printer_nozzles;
     json capabilities = {
         {"min_slots", min_slots}, {"max_slots", 64}, {"nozzle_count", printer_nozzles},

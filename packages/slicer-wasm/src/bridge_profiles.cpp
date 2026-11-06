@@ -112,7 +112,7 @@ void validate_profile_transition(const DynamicPrintConfig& previous, size_t prev
     // Native preset padding does not add project materials. Fixed multi-extruder
     // printers still require a material for each nozzle.
     const bool flexible = bundle.is_bbl_vendor() ||
-        bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material");
+        Filament::State::supports_independent_materials(bundle.printers.get_edited_preset().config);
     const auto slot_count = Filament::State::material_slot_count(bundle.project_config);
     Filament::State::resize_slots_preserving_colours(
         bundle, static_cast<unsigned int>(flexible ? slot_count :
@@ -833,7 +833,7 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
         const auto* nozzles = bundle.printers.get_edited_preset().config.opt<ConfigOptionFloats>("nozzle_diameter");
         const std::size_t nozzle_count = nozzles == nullptr ? 1 : std::max<std::size_t>(1, nozzles->values.size());
         const bool flexible = bundle.is_bbl_vendor() ||
-            bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material");
+            Filament::State::supports_independent_materials(bundle.printers.get_edited_preset().config);
         const std::size_t final_count = flexible ? slots.size() : std::max(slots.size(), nozzle_count);
         if (final_count > 64) throw std::runtime_error("Printer transition exceeds the filament slot limit");
 
@@ -1417,7 +1417,7 @@ json set_project_flow_json(const json& request)
     try {
         apply_project_flow(index, flow);
         Filament::Commands::validate_filament_candidate_components(bundle.filament_presets, bundle.project_config,
-            printer, int(choices.size()), printer.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor(),
+            printer, int(choices.size()), Filament::State::supports_independent_materials(printer) || bundle.is_bbl_vendor(),
             bridge.model, bridge.plate_session_plates, ScopedConfig::native_scoped_config_snapshot());
         const auto affected = PlateSession::all_plate_ids();
         auto plates = PlateSession::configuration_mutation_snapshot(affected, {"project-flow"});

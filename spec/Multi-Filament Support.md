@@ -2036,7 +2036,7 @@ Cloud, forced network loss/recovery and the full release matrix remain unqualifi
 
 ### 14.8 U1 independent project filaments
 
-**Status:** Accepted design, not implemented. This is the project-editing part
+**Status:** Implemented in the shared native bridge. This is the project-editing part
 of the [Snapmaker agent design](Printer%20Domain%20and%20Control%20Architecture.md#25-snapmaker-agent-design).
 
 For a U1 Printer profile, allow project filament addition/removal independently
@@ -2064,5 +2064,14 @@ override. Do not silently discard slots to make a project fit a printer.
 
 Send-time defaults and manually acknowledged differences are owned by the
 [Snapmaker mapping rules](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-mapping-and-compatibility).
-The project-count boundary, offline controls, mapping persistence/invalidation
-and protocol-boundary rejection require separate acceptance from real U1 printing.
+The bridge centralizes this capability in `Filament::State::supports_independent_materials`
+and identifies U1 by the preset's `printer_model` value `Snapmaker U1`. Slot
+commands, profile transitions, history restoration and mapping eligibility use
+the same predicate. U1 initializes manual mapping and preserves filament variants
+until native Print resolves the plate map. No SEMM flag or libslic3r G-code
+algorithm is changed. `u1-material-mapping-smoke.mjs` checks the 1–64 range,
+manual mapping, logical T5 with different physical heads, retained slice tool
+metadata and 3MF roundtrip against real WASM.
+
+These software checks are separate from real U1 printing and send-time protocol
+boundary validation.
