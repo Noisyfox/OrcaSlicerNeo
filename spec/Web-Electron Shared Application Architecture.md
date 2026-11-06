@@ -276,6 +276,9 @@ Expose Bambu login-region selection in application settings, following Orca's
 Home initiates login using the saved region; it does not provide a separate
 region selector. The setting belongs to the Bambu provider, while account
 cleanup on region changes follows the rules below.
+Preferences stages region changes until Save; selecting a region or cancelling
+the dialog does not sign out the account. Only a saved change reaches the
+provider's setting operation.
 After login, Home shows the account avatar next to the prominent display name,
 with the provider name underneath as secondary text and a default icon when the
 avatar is absent or unavailable. The Bambu host loads the public image

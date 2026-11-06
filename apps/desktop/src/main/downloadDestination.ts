@@ -1,4 +1,6 @@
 import { basename, isAbsolute, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import type { DownloadDirectorySelectionId } from '@orca/printer-control/domain';
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import { app, dialog, shell, type BrowserWindow } from 'electron';
 import { writeFileAtomically } from './atomicFile';
@@ -6,6 +8,8 @@ import { withFileLock } from './fileLock';
 import type { DownloadHost } from './printerDownloads';
 export function downloadDestinationHost(configurationDirectory: string, window: () => BrowserWindow | null): DownloadHost {
   const settings = join(configurationDirectory, 'download-directory.json');
+  // Only the latest picker selection is retained, bounded to one host-private path.
+  let selection: { id: DownloadDirectorySelectionId; path: string } | null = null;
   const directory = async () => {
     try {
       const value = JSON.parse(await readFile(settings, 'utf8'));
@@ -22,9 +26,15 @@ export function downloadDestinationHost(configurationDirectory: string, window: 
     directory: async () => ({ label: basename(await directory()) || 'Download folder' }),
     chooseDirectory: async () => {
       const selected = await chooseFolder(); if (!selected) return { status: 'cancelled' };
+      selection = { id: randomUUID() as DownloadDirectorySelectionId, path: selected };
+      return { status: 'selected', label: basename(selected) || 'Download folder', id: selection.id };
+    },
+    saveDirectory: async id => {
+      if (!selection || selection.id !== id) throw new Error('The download folder selection is no longer available.');
+      const selected = selection.path;
       await mkdir(configurationDirectory, { recursive: true });
       await withFileLock(settings, () => writeFileAtomically(settings, new TextEncoder().encode(JSON.stringify({ directory: selected }))));
-      return { status: 'selected', label: basename(selected) || 'Download folder' };
+      return null;
     },
     destination: async (files, choose) => {
       if (!choose) return { kind: 'directory', directory: await directory() };

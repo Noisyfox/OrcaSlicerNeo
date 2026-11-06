@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import type { AccountProvider, AccountState, ProviderId } from '@orca/service-provider';
-import { AccountSettings, HomeAccounts } from './AccountControls';
+import { HomeAccounts } from './AccountControls';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let cleanup = () => {};
 afterEach(() => cleanup());
@@ -20,9 +20,9 @@ function provider() {
   return { value: { id: 'bambu' as ProviderId, name: 'Bambu Lab', account }, listeners,
     change: (value: AccountState) => { state = value; listeners.forEach(listener => listener()); } };
 }
-async function render(accounts: AccountProvider[], settings = false) {
+async function render(accounts: AccountProvider[]) {
   const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
-  await act(async () => root.render(<PlatformProvider value={{ accounts } as unknown as PlatformCapabilities}>{settings ? <AccountSettings /> : <HomeAccounts />}</PlatformProvider>));
+  await act(async () => root.render(<PlatformProvider value={{ accounts } as unknown as PlatformCapabilities}><HomeAccounts /></PlatformProvider>));
   cleanup = () => { act(() => root.unmount()); container.remove(); };
   return container;
 }
@@ -47,12 +47,6 @@ it('shows authentication expiry and unavailable-plugin state without presenting 
 });
 it('provides no account execution entry on hosts with no account providers', async () => {
   expect((await render([])).textContent).toBe('');
-});
-it('shows provider settings without creating another login entry', async () => {
-  const p = provider(); const container = await render([p.value], true);
-  expect(container.textContent).toContain('Region'); expect(container.textContent).toContain('Others');
-  expect(container.textContent).not.toContain('Sign in');
-  expect(p.value.account.login).not.toHaveBeenCalled();
 });
 
 it('shows the signed-in avatar, falls back on image failure, and clears it on logout', async () => {

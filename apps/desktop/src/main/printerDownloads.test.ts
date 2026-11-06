@@ -6,7 +6,7 @@ const file: D.RemoteFileRef = { printerId: 'printer' as D.Id<'printer'>, routeId
   configurationRevision: 'config', storageId: 'sd' as D.Id<'storage'>, fileId: 'file' as D.Id<'remote-file'> };
 const request = { destination: 'default' as const, files: [{ file, name: 'model.3mf', printerName: 'Printer' }] };
 const host = (): DownloadHost => ({ destination: vi.fn<DownloadHost['destination']>(async () => ({ kind: 'directory', directory: '/private/saved' })),
-  directory: async () => ({ label: 'saved' }), chooseDirectory: async () => ({ status: 'cancelled' }), open: vi.fn(async () => {}) });
+  directory: async () => ({ label: 'saved' }), chooseDirectory: async () => ({ status: 'cancelled' }), saveDirectory: async () => null, open: vi.fn(async () => {}) });
 const binding = (): DownloadBinding => ({ resolve: vi.fn<DownloadBinding['resolve']>(async () => ({ ok: true, value: { physicalPrinterKey: 'physical' } })),
   execute: vi.fn<DownloadBinding['execute']>(async () => ({ status: 'saved', writtenBytes: 3, value: { path: '/private/saved/model.3mf', fileName: 'model.3mf', cleanupPending: false } })) });
 async function waitFor(service: DesktopPrinterDownloads, state: string) {
@@ -62,5 +62,7 @@ it('rejects paths, URLs, credentials and arbitrary task actions at the public bo
   expect(isDownloadRequest({ method: 'start', args: [{ ...request, files: [{ ...request.files[0], file: { ...file, url: 'http://other' } }] }] })).toBe(false);
   expect(isDownloadRequest({ method: 'download.run', args: [request] })).toBe(false);
   expect(isDownloadRequest({ method: 'open', args: [{ path: '/private' }] })).toBe(false);
+  expect(isDownloadRequest({ method: 'saveDirectory', args: ['selection-id'] })).toBe(true);
+  expect(isDownloadRequest({ method: 'saveDirectory', args: [{ path: '/private' }] })).toBe(false);
   expect(isDownloadRequest({ method: 'start', args: [{ ...request, files: Array(501).fill(request.files[0]) }] })).toBe(false);
 });

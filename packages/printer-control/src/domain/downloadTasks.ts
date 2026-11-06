@@ -3,6 +3,7 @@ import type { Capability, Id, NoConstraints, PrinterError, Result } from './comm
 import type { RemoteFileRef } from './files';
 export type DownloadTaskId = Id<'download-task'>;
 export type DownloadBatchId = Id<'download-batch'>;
+export type DownloadDirectorySelectionId = Id<'download-directory-selection'>;
 export interface DownloadSelection { file: RemoteFileRef; name: string; printerName: string }
 export interface DownloadTaskSnapshot extends DownloadSelection {
   id: DownloadTaskId;
@@ -31,5 +32,8 @@ export interface PrinterDownloads {
   /** Application-wide setting shared by all agents, presented in Preferences.
    * Display label only; the configured filesystem location stays host-private. */
   directory(): Promise<Result<{ label: string }>>;
-  chooseDirectory(): Promise<Result<{ status: 'selected'; label: string } | { status: 'cancelled' }>>;
+  /** Choose a draft location without changing the configured directory. */
+  chooseDirectory(): Promise<Result<{ status: 'selected'; label: string; id: DownloadDirectorySelectionId } | { status: 'cancelled' }>>;
+  /** Commit an opaque selection issued by this host; never accepts a filesystem path. */
+  saveDirectory(id: DownloadDirectorySelectionId): Promise<Result<null>>;
 }

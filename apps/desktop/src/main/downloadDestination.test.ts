@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { BrowserWindow } from 'electron';
-import type { DownloadSelection } from '@orca/printer-control/domain';
+import type { DownloadDirectorySelectionId, DownloadSelection } from '@orca/printer-control/domain';
 const electron = vi.hoisted(() => ({ app: { getPath: vi.fn(() => '/default/downloads') }, dialog: {
   showOpenDialog: vi.fn(), showSaveDialog: vi.fn(), showMessageBox: vi.fn(),
 }, shell: { openPath: vi.fn(async () => '') } }));
@@ -16,10 +16,16 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'neo-download-dialog-')); roots.push(root);
   return { root, host: downloadDestinationHost(root, () => ({} as BrowserWindow)) };
 }
-it('defaults to the OS downloads folder and persists a chosen directory privately', async () => {
+it('keeps a chosen directory private and unchanged until explicitly saved', async () => {
   const { root, host } = await fixture(); expect(await host.directory()).toEqual({ label: 'downloads' });
   electron.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [join(root, 'chosen')] });
-  expect(await host.chooseDirectory()).toEqual({ status: 'selected', label: 'chosen' });
+  const selected = await host.chooseDirectory();
+  expect(selected).toMatchObject({ status: 'selected', label: 'chosen', id: expect.any(String) });
+  if (selected.status !== 'selected') throw new Error('Expected a folder selection');
+  expect(JSON.stringify(selected)).not.toContain(root);
+  expect(await host.destination(files, false)).toEqual({ kind: 'directory', directory: '/default/downloads' });
+  await expect(readFile(join(root, 'download-directory.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+  await host.saveDirectory(selected.id);
   expect(await host.destination(files, false)).toEqual({ kind: 'directory', directory: join(root, 'chosen') });
   expect(JSON.parse(await readFile(join(root, 'download-directory.json'), 'utf8')).directory).toBe(join(root, 'chosen'));
   // Reopening Preferences/the application and changing the source agent share the same host preference.
@@ -32,6 +38,21 @@ it('defaults to the OS downloads folder and persists a chosen directory privatel
   expect(await reopened.chooseDirectory()).toEqual({ status: 'cancelled' });
   expect(await reopened.directory()).toEqual({ label: 'chosen' });
 
+});
+it('rejects arbitrary, superseded and other-host selection IDs and permits retry after a failed write', async () => {
+  const { root, host } = await fixture();
+  electron.dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [join(root, 'chosen')] });
+  const first = await host.chooseDirectory(), second = await host.chooseDirectory();
+  if (first.status !== 'selected' || second.status !== 'selected') throw new Error('Expected folder selections');
+  await expect(host.saveDirectory('/arbitrary/path' as DownloadDirectorySelectionId)).rejects.toThrow();
+  await expect(host.saveDirectory(first.id)).rejects.toThrow();
+  await expect(downloadDestinationHost(root, () => ({} as BrowserWindow)).saveDirectory(second.id)).rejects.toThrow();
+  const settings = join(root, 'download-directory.json');
+  await mkdir(settings);
+  await expect(host.saveDirectory(second.id)).rejects.toThrow();
+  await rm(settings, { recursive: true });
+  await host.saveDirectory(second.id);
+  expect(await host.directory()).toEqual({ label: 'chosen' });
 });
 it('sanitizes a suggested name and explicitly confirms replacement before admitting it', async () => {
   const { root, host } = await fixture(), path = join(root, 'video.mp4'); await writeFile(path, 'original');
