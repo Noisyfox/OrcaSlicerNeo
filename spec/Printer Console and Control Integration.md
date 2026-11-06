@@ -2534,7 +2534,8 @@ memory/size limits require the artifact feasibility check.
 
 **Status:** Accepted design with implementation in progress. Manual Snapmaker
 configuration and provider routing are implemented in Electron and Web; the
-prepared sending and remaining Device workflow are pending. Scope, behavior
+U1 project rack, manual plate mapping and structured preparation policy are implemented.
+The submission executor and remaining Device workflow are pending. Scope, behavior
 and acceptance policy are settled below; physical qualification remains separate.
 Protocol ownership, slicing semantics and evidence limits are maintained in
 [the Snapmaker agent architecture](Printer%20Domain%20and%20Control%20Architecture.md#25-snapmaker-agent-design).
@@ -2633,6 +2634,14 @@ toolpaths/parameters adapted changes the project or plate and re-slices. This
 Snapmaker policy intentionally differs from the Bambu flow-type/hardness blocking
 rules; those rules remain unchanged. The decisions above do not waive protocol
 address validity, receipt freshness or operation-outcome handling.
+
+The shared preparation view consumes agent-provided candidates and calibration
+addresses. `snapmaker-preparation.ts` reads actual extruder diameter/flow fields,
+keeps unreported hardness unknown, and checks command availability separately.
+The retained-slice manifest supplies nozzle and first-layer nozzle temperatures;
+shared-heater diagnostics do not inspect the exported G-code. Remote-file
+inspection may report these temperatures as unknown (`null`). Preparation is
+read-only; submission remains unavailable until its executor is installed.
 
 ### Accepted Snapmaker print options and material readiness
 

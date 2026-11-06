@@ -2049,7 +2049,9 @@ does not establish a device, Cloud or cross-platform delivery claim.
 
 **Status:** Accepted design with implementation in progress; manual Snapmaker
 configuration, provider routing and on-demand material reads are implemented in
-both hosts. Prepared submission and the remaining device workflow are pending.
+both hosts. U1 independent project materials, manual plate mapping and structured
+preparation policy are implemented. Submission execution and the remaining device
+workflow are pending.
 Scope, behavior and
 acceptance policy are settled. The
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#snapmaker-agent-design)

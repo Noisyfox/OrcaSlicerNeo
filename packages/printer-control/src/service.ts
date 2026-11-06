@@ -1,3 +1,4 @@
+import { prepareU1Submission, readU1Preparation, type U1PreparationSnapshot } from './snapmaker-preparation';
 import { u1MaterialInventory } from './snapmaker-observation';
 import { unsupportedSubmissions } from './submission';
 /** Shared request-based HTTP service with provider-owned routes and operation records. */
@@ -35,6 +36,7 @@ const safe = async <T>(work: () => T | Promise<T>): Promise<D.Result<T>> => {
   try { return { ok: true, value: await work() }; } catch (error) { return { ok: false, error: publicError(error) }; }
 };
 interface ConfigurationEntry {
+  snapmakerPreparation?: U1PreparationSnapshot;
   readonly signature: string;
   readonly revision: D.Revision;
   readonly cache: Partial<{ [K in D.StateTopic]: D.Reading<D.PrinterObservationMap[K]> }>;
@@ -221,6 +223,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
           const result = await http.get(printer, `/printer/objects/query?${query}`, options?.signal);
           observed.materials = known(request.target, u1MaterialInventory(record(result.status), request.target, entry.revision));
           entry.cache.materials = retained(observed.materials);
+          entry.snapmakerPreparation = undefined;
         }
         if (request.topics.some(topic => topic === 'status')) {
           observed.status = known(request.target, await readStatus(printer, options?.signal));
@@ -359,7 +362,14 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
     return { driverId: driver, apiBaseUrl: config.address ?? '', consoleUrl: config.webInterfaceUrl ?? '', apiKey: config.credentialRef === null ? '' : previous!.apiKey };
   }
   const service: D.PrinterService = {
-    submissions: unsupportedSubmissions,
+    submissions: driver === 'snapmaker' ? { ...unsupportedSubmissions,
+      prepare: (request, readOptions) => safe(async () => {
+        const { printer, entry } = await resolve(request.target);
+        if (!entry.snapmakerPreparation || request.checkRecording)
+          entry.snapmakerPreparation = await readU1Preparation(http, printer, request.target, entry.revision, readOptions?.signal);
+        return prepareU1Submission(request, entry.snapmakerPreparation, entry.revision);
+      }),
+    } : unsupportedSubmissions,
     remotePrints: { inspect: async () => rejected(), prepare: async () => rejected(), release: async () => rejected() },
     operations: operations.api, controls, files, observations,
     media: { readPrintObjectMap: async () => rejected(), readStream: unsupportedStream, readCurrentPrintPreview: async () => rejected(), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },

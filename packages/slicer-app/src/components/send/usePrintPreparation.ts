@@ -21,6 +21,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   const [confirmation, setConfirmation] = useState<D.PrintPreparation | null>(null);
   const [recordingAction, setRecordingAction] = useState<D.PrintSubmissionRequest['recordingSpaceAction']>();
   const live = useRef(true), initialized = useRef(false), sourceReceipt = useRef(receipt);
+  const mappingVersion = useRef(0);
   const refreshVersion = useRef(0), saveChain = useRef(Promise.resolve()), saveVersion = useRef(0);
   const watchAbort = useRef(new AbortController()), sent = useRef(onSent); sent.current = onSent;
   const request = useRef<D.PrintPreparationRequest | null>(null);
@@ -78,8 +79,9 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   const validateRef = useRef(validate); validateRef.current = validate;
   useEffect(() => { void (loaded.current ? validate() : refresh()); }, [requirements, options, bindings, allowAbnormal, route.configurationRevision, active]);
   useEffect(() => {
+    const monitoring = Object.values(route.capabilities.observations).some(capability => capability.kind === 'supported' && capability.constraints.delivery.some(delivery => delivery !== 'on-demand'));
     const abort = new AbortController();
-    void (async () => {
+    if (monitoring) void (async () => {
       for await (const _event of platform.printers.service.observations.watch({ target: { printerId: target.printerId, routeId: target.routeId }, topics: ['status', 'materials', 'descriptor', 'firmware'] }, { signal: abort.signal })) {
         if (abort.signal.aborted) return;
         void validateRef.current();
@@ -102,8 +104,37 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
     setOptions(previous => ({ ...previous, [key]: value })); setConfirmation(null); setRecordingAction(undefined);
     if (key !== 'externalChangeAssist') persist({ [key]: value });
   }
+  function replaceBindings(next: readonly D.PrintMaterialBinding[]) {
+    // Physical heads newly entering the mapping default to selected. Surviving
+    // heads keep their per-dialog choice; this subset is never persisted.
+    if (prepared?.calibrationTools) {
+      const headFor = (binding: D.PrintMaterialBinding) => prepared.candidates.find(c => c.materialKey === binding.materialKey && c.pathId === binding.pathId)?.calibrationToolIndex;
+      const previousHeads = new Set(bindings.map(headFor));
+      const nextHeads = new Set(next.map(headFor));
+      const indices = [...new Set(prepared.candidates.flatMap(c => c.calibrationToolIndex === undefined ? [] : [c.calibrationToolIndex]))];
+      setOptions(previous => ({ ...previous, calibrationToolIndices: indices.flatMap(index =>
+        nextHeads.has(index) && (!previousHeads.has(index) || (previous.calibrationToolIndices ?? prepared.calibrationTools!.filter(t => t.selected).map(t => t.index)).includes(index)) ? [index] : []) }));
+    }
+    setBindings(next);
+  }
+  function changeCalibration(index: number, selected: boolean) {
+    const current = options.calibrationToolIndices ?? prepared?.calibrationTools?.filter(t => t.selected).map(t => t.index) ?? [];
+    setOptions(previous => ({ ...previous, calibrationToolIndices: selected ? [...new Set([...current, index])] : current.filter(i => i !== index) }));
+    setConfirmation(null);
+  }
+  async function autoMatch() {
+    if (!request.current || activeRef.current) return;
+    const version = ++mappingVersion.current;
+    try {
+      const next = await platform.printers.service.submissions.prepare({ ...request.current, autoMatch: true });
+      if (!live.current || version !== mappingVersion.current) return;
+      if (!next.ok) { setError(next.error.message); return; }
+      replaceBindings(next.value.bindings); setConfirmation(null);
+    } catch { if (live.current && version === mappingVersion.current) setError('Material matching failed. Refresh the printer and try again.'); }
+  }
   function changeBinding(materialKey: string, pathId: string) {
-    setBindings(previous => [...previous.filter(b => b.materialKey !== materialKey), ...(pathId ? [{ materialKey, pathId: pathId as D.Id<'path'> }] : [])]);
+    mappingVersion.current++;
+    replaceBindings([...bindings.filter(b => b.materialKey !== materialKey), ...(pathId ? [{ materialKey, pathId: pathId as D.Id<'path'> }] : [])]);
     setConfirmation(null); setRecordingAction(undefined);
   }
   async function send(confirmed = false) {
@@ -151,7 +182,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
     if (live.current) { if (result.ok) setOperation(result.value); else setError(result.error.message); }
   }
   return { requirements, prepared, bindings, options, error, saveError, refreshing, active, canPrint, operation, confirmation, recordingAction, jobName, setJobName, refresh,
-    changeOption, changeBinding, send, cancel, setRecordingAction,
+    changeOption, changeBinding, autoMatch, changeCalibration, send, cancel, setRecordingAction,
     dismissConfirmation: () => { setConfirmation(null); setRecordingAction(undefined); },
   };
 }

@@ -198,7 +198,7 @@ function normalizePlate(archive: RemotePrintMetadata, plate: RemotePrintMetadata
     materials: plate.materials.map(m => ({ key: `filament-${m.index}`, index: m.index, type: m.type, color: m.color,
       presetId: m.presetId, presetName: text('filament_settings_id', m.index), brand: m.brand || text('filament_vendor', m.index),
       toolIndex: map[m.index] - 1, nozzleDiameter: diameters[map[m.index] - 1], nozzleFlowType: flows[map[m.index] - 1],
-      chamberTemperature: scalar(array('chamber_temperature')[m.index]), softeningTemperature: scalar(array('temperature_vitrification')[m.index]),
+      nozzleTemperature: null, initialLayerNozzleTemperature: null, chamberTemperature: scalar(array('chamber_temperature')[m.index]), softeningTemperature: scalar(array('temperature_vitrification')[m.index]),
       requiredNozzleHardness: scalar(array('required_nozzle_HRC')[m.index]), usedGrams: scalar(m.usedGrams), usedMeters: scalar(m.usedMeters) })) };
   return { target: { id, label: `Plate ${plate.plateIndex + 1}`, requirements, availability: { kind: 'available' } }, warnings: incomplete ? [{
     id: 'remote-material-metadata', severity: 'warning', message: 'This device file omits some filament temperature or nozzle-hardness requirements. Check material and nozzle compatibility before printing.',

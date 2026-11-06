@@ -1,4 +1,6 @@
-import { useEffect, type ReactNode } from 'react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { useEffect, useId, type ReactNode } from 'react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { MaterialSourcePicker } from './MaterialSourcePicker';
 import { PrintJobSummary } from './PrintJobSummary';
@@ -20,7 +22,9 @@ export function PrintPreparationPanel({ platform, printer, route, receipt, onClo
   return <PrintPreparationView state={state} printer={printer} onClose={onClose} onBusyChange={onBusyChange} printerControl={printerControl} />;
 }
 
-export type PrintPreparationViewState = Omit<ReturnType<typeof usePrintPreparation>, 'operation'> & {
+export type PrintPreparationViewState = Omit<ReturnType<typeof usePrintPreparation>, 'operation' | 'autoMatch' | 'changeCalibration'> & {
+  autoMatch?(): Promise<void>;
+  changeCalibration?(index: number, selected: boolean): void;
   operation: Pick<D.PrintSubmissionState, 'phase' | 'message' | 'progress' | 'canCancel'> | null;
 };
 /** Shared mapping/options presentation; the source-specific hooks own reads and sending. */
@@ -29,6 +33,7 @@ export function PrintPreparationView({ state, printer, onClose, onBusyChange, pr
   printerControl?: ReactNode; thumbnail?: ReactNode; nameReadOnly?: boolean;
 }) {
   const { requirements, prepared, operation, confirmation } = state;
+  const calibrationId = useId();
   useEffect(() => { onBusyChange(state.active); }, [state.active, onBusyChange]);
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
   return <div className="flex flex-col gap-4" data-testid="print-preparation">
@@ -37,6 +42,7 @@ export function PrintPreparationView({ state, printer, onClose, onBusyChange, pr
       onNameChange={state.setJobName} disabled={state.active || operation?.phase === 'unknown'} onRefresh={() => void state.refresh()} route={prepared?.route} thumbnail={thumbnail} nameReadOnly={nameReadOnly} />
     {requirements && <fieldset disabled={state.active || operation?.phase === 'unknown'} className="min-w-0 space-y-4">
       <legend className="mb-3 flex w-full items-center gap-2 text-sm text-muted-foreground">Filament<span className="h-px flex-1 bg-border" /></legend>
+      {prepared?.autoMatchAvailable && state.autoMatch && <Button variant="outline" size="sm" onClick={() => void state.autoMatch?.()}>Auto-match materials</Button>}
       <div className={`grid gap-4 ${requirements.nozzleDiameters.length > 1 ? 'sm:grid-cols-2' : ''}`} data-testid="print-nozzle-groups">
         {requirements.nozzleDiameters.map((_, toolIndex) => <section key={toolIndex} className="min-w-0 bg-control-background/50 p-3" aria-label={prepared?.nozzleLabels[toolIndex] ?? `Nozzle ${toolIndex + 1}`}>
           {requirements.nozzleDiameters.length > 1 && <h3 className="mb-3 text-sm font-semibold">{prepared?.nozzleLabels[toolIndex] ?? `Nozzle ${toolIndex + 1}`}</h3>}
@@ -61,6 +67,12 @@ export function PrintPreparationView({ state, printer, onClose, onBusyChange, pr
           const choice = option.choices.find(c => String(c.value) === values[0]); if (choice) state.changeOption(option.key, choice.value);
         }}>{option.choices.map(choice => <ToggleGroupItem key={String(choice.value)} value={String(choice.value)} aria-label={choice.label} className="h-6 min-w-10 rounded-sm! px-2 text-xs transition-none aria-pressed:bg-background aria-pressed:text-primary aria-pressed:shadow-[inset_0_0_0_1px_var(--primary)]">{choice.label}</ToggleGroupItem>)}</ToggleGroup>
       </div>)}
+    </fieldset>}
+    {prepared?.calibrationTools && prepared.options.flowCalibration !== 'off' && <fieldset disabled={state.active} className="space-y-2" aria-label="Flow calibration toolheads">
+      <legend className="text-sm">Flow calibration toolheads</legend>
+      {prepared.calibrationTools.map(tool => <Field key={tool.index} orientation="horizontal">
+        <Checkbox id={`${calibrationId}-${tool.index}`} checked={tool.selected} onCheckedChange={selected => state.changeCalibration?.(tool.index, selected === true)} /><FieldLabel htmlFor={`${calibrationId}-${tool.index}`}>{tool.label}</FieldLabel>
+      </Field>)}
     </fieldset>}
     {state.error && (!requirements || !state.refreshing) && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
     {state.saveError && <p role="alert" className="text-sm text-destructive">Print preferences could not be saved. You can still print with the current options. Adjust an option to retry saving.</p>}

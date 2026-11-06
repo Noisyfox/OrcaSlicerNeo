@@ -7,10 +7,11 @@ import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { ExportPrintResult, PrintManifest, SliceResultReceipt } from '@slicer/client';
 import { PrintPreparationPanel } from './PrintPreparationPanel';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
+if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
 const id = <T extends string>(s: string) => s as D.Id<T>;
 const receipt: SliceResultReceipt = { plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' };
 const manifest: PrintManifest = { plateId: 'plate-1', printerModel: 'Fixture', printerModelId: 'fixture', nozzleDiameters: [.4], nozzleFlowTypes: ['Standard'], filamentMap: [1], requiresDynamicMapping: false, bedType: 'High Temp Plate', durationSeconds: 60, weightGrams: 1, layerCount: 10, toolpathOutside: false, timelapseWarningCode: 0, warnings: [],
-  materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FF0000', presetId: 'fixture', presetName: 'PLA', brand: 'Generic', toolIndex: 0, nozzleDiameter: .4, nozzleFlowType: 'Standard', chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3 }] };
+  materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FF0000', presetId: 'fixture', presetName: 'PLA', brand: 'Generic', toolIndex: 0, nozzleDiameter: .4, nozzleFlowType: 'Standard', nozzleTemperature: null, initialLayerNozzleTemperature: null, chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3 }] };
 let root: Root | undefined, container: HTMLDivElement;
 afterEach(async () => { await act(async () => root?.unmount()); root = undefined; container?.remove(); vi.useRealTimers(); useDeviceSelectionStore.setState({ currentPrinterId: null, requestedPrinterId: null, selectionRequestVersion: 0, navigationRequestVersion: 0 }); });
 async function setup(allowAbnormalStorage = false, manifestValue = manifest, readStatus = async (): Promise<D.Result<null>> => ({ ok: true, value: null })) {
@@ -36,7 +37,7 @@ async function setup(allowAbnormalStorage = false, manifestValue = manifest, rea
   const read = vi.fn(readStatus);
   const platform = { runtime, printers: { configuration, service: { submissions, observations: { read, watch: async function* (_request: unknown, options: { signal: AbortSignal }) { await new Promise<void>(resolve => options.signal.addEventListener('abort', () => resolve(), { once: true })); } } } } } as unknown as PlatformCapabilities;
   const printer = { identity: { id: id('fixture'), displayName: 'Fixture' } } as D.SavedPrinter;
-  const route = { id: id('route'), configurationRevision: 'r1' } as D.PrinterRoute;
+  const route = { id: id('route'), configurationRevision: 'r1', capabilities: { observations: { status: { kind: 'supported', constraints: { delivery: ['push'] } } } } } as unknown as D.PrinterRoute;
   const close = vi.fn(), busy = vi.fn();
   await act(async () => { root!.render(<PrintPreparationPanel platform={platform} printer={printer} route={route} receipt={receipt} onClose={close} onBusyChange={busy} />); });
   const click = async (label: string) => { await act(async () => { const button = [...container.querySelectorAll('button')].find(b => b.textContent === label); if (!button) throw new Error(`No button ${label}`); button.click(); }); };
@@ -263,4 +264,38 @@ it('still refuses a stale receipt rejected by the runtime export', async () => {
   await f.click('Send');
   expect(f.runtime.exportPrintPlate).toHaveBeenCalledWith(expect.objectContaining({ receipt }));
   expect(f.submissions.submit).not.toHaveBeenCalled();
+});
+
+it('keeps calibration choices for surviving heads, selects new heads, and never persists the subset', async () => {
+  const materials = [manifest.materials[0], { ...manifest.materials[0], key: 'filament-5', index: 5, toolIndex: 1 }];
+  const f = await setup(false, { ...manifest, materials, nozzleDiameters: [.4, .4, .4, .4] });
+  const original = await f.submissions.prepare.mock.results[0].value;
+  if (!original.ok) throw new Error('Expected preparation');
+  const sources: D.PrintMaterialSource[] = materials.flatMap(material => [0, 1, 2, 3].map(index => ({ ...original.value.candidates[0],
+    materialKey: material.key, pathId: id<'path'>(`source-${String.fromCharCode(97 + index)}`), calibrationToolIndex: index,
+    label: `Head ${index + 1}`, tool: { id: id<'tool'>(`head-${index}`), name: `Head ${index + 1}` },
+    slot: { id: id<'slot'>(`slot-${index}`), name: `Head ${index + 1}` },
+  })));
+  f.submissions.prepare.mockImplementation(async request => {
+    const bindings = request.autoMatch ? materials.map(m => ({ materialKey: m.key, pathId: id<'path'>('source-d') })) : request.bindings;
+    const used = [...new Set(bindings.map(b => sources.find(c => c.materialKey === b.materialKey && c.pathId === b.pathId)!.calibrationToolIndex!))];
+    return { ok: true, value: { ...original.value, bindings, candidates: sources, autoMatchAvailable: true,
+      options: { ...request.options, flowCalibration: 'on' },
+      calibrationTools: used.map(index => ({ index, label: `Calibrate head ${index + 1}`, selected: (request.options.calibrationToolIndices ?? used).includes(index) })) } };
+  });
+  await act(async () => (container.querySelector('[aria-label="Refresh printer status"]') as HTMLElement).click());
+  const checks = () => [...container.querySelectorAll('[aria-label="Flow calibration toolheads"] [role="checkbox"]')] as HTMLElement[];
+  expect(checks()).toHaveLength(2);
+  await act(async () => checks()[0].click());
+  expect(checks()[0].getAttribute('aria-checked')).toBe('false');
+  await act(async () => (container.querySelector('[aria-label="Material 6 source"]') as HTMLElement).click());
+  await act(async () => (document.querySelector('[aria-label="Head 3 · PLA"]') as HTMLElement).click());
+  expect(checks().map(c => c.getAttribute('aria-checked'))).toEqual(['false', 'true']);
+  expect(container.querySelector('[aria-label="Flow calibration toolheads"]')?.textContent).not.toContain('Calibrate head 2');
+  expect(f.configuration.save).not.toHaveBeenCalled();
+  await f.click('Auto-match materials');
+  expect(checks()).toHaveLength(1);
+  expect(checks()[0].getAttribute('aria-checked')).toBe('true');
+  expect(f.submissions.prepare.mock.calls.at(-1)?.[0].options.calibrationToolIndices).toEqual([3]);
+  expect(f.configuration.save).not.toHaveBeenCalled();
 });

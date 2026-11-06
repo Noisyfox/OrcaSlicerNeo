@@ -59,7 +59,7 @@ async function setup() {
       filamentMap: [1], requiresDynamicMapping: false, bedType: 'High Temp Plate', durationSeconds: 60, weightGrams: 1,
       layerCount: 10, toolpathOutside: false, timelapseWarningCode: 0, warnings: [], materials: [{
         key: 'filament-0', index: 0, type: 'PLA', color: '#FF0000', presetId: 'fixture', presetName: 'PLA', brand: 'Generic',
-        toolIndex: 0, nozzleDiameter: .4, nozzleFlowType: 'Standard', chamberTemperature: 0, softeningTemperature: 55,
+        toolIndex: 0, nozzleDiameter: .4, nozzleFlowType: 'Standard', nozzleTemperature: null, initialLayerNozzleTemperature: null, chamberTemperature: 0, softeningTemperature: 55,
         requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3,
       }],
     } })),

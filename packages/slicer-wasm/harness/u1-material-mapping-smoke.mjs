@@ -55,6 +55,8 @@ async function slice(head) {
   assert.equal(manifest.materials[0].index, 5);
   assert.equal(manifest.materials[0].toolIndex, head - 1);
   assert.equal(manifest.materials.length, 1);
+  assert.equal(manifest.materials[0].nozzleTemperature, native.nozzle_temperature[5]);
+  assert.ok(manifest.materials[0].initialLayerNozzleTemperature > 0);
   return sliced.receipt;
 }
 const previousReceipt = await slice(3);

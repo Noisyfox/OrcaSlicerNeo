@@ -17,6 +17,8 @@ export interface PrintMaterialRequirement {
   toolIndex: number;
   nozzleDiameter: number;
   nozzleFlowType: string;
+  nozzleTemperature: number | null;
+  initialLayerNozzleTemperature: number | null;
   chamberTemperature: number;
   softeningTemperature: number;
   requiredNozzleHardness: number;
@@ -50,6 +52,8 @@ export interface PrintPreparationRequest {
   options: PrintOptions;
   /** Only initial open/printer change requests suggestions. Refresh never replaces selections. */
   suggest: boolean;
+  /** Explicit user action, separate from initial plate-derived defaults. */
+  autoMatch?: boolean;
   checkRecording?: boolean;
   allowAbnormalStorage: boolean;
 }
@@ -68,6 +72,8 @@ export interface PrintOptionDescriptor {
 /** Includes unavailable paths so the picker can show the physical slot layout. */
 export interface PrintMaterialSource {
   materialKey: string;
+  /** Agent-owned calibration address; optional for agents without per-head selection. */
+  calibrationToolIndex?: number;
   pathId: Id<'path'>;
   label: string;
   color: string | null;
@@ -83,6 +89,8 @@ export interface PrintMaterialSource {
   disabledReason: string | null;
 }
 export interface PrintPreparation {
+  autoMatchAvailable?: boolean;
+  calibrationTools?: readonly { index: number; label: string; selected: boolean }[];
   /** Display labels in slice tool-index order; vendor physical ordering stays in the agent. */
   nozzleLabels: readonly string[];
   recordingSpace?: { status: 'enough' | 'insufficient' | 'unknown'; canClean: boolean };
