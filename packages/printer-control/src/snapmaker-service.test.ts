@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createMoonrakerService, createSnapmakerService } from './service';
 import { createPrinterService } from './providers';
+import { readSynchronizationSource } from './synchronization';
 import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocument } from './configuration';
 import type * as D from './domain';
 import type { PrinterTransportRequest, PrinterTransportResponse } from './transport';
@@ -22,6 +23,24 @@ function fixture() {
 }
 
 describe('Snapmaker provider foundation', () => {
+  it('reports the recognized U1 model to Printer sync without a configured model association', async () => {
+    const f = fixture();
+    f.request.mockImplementation(async ({ url }) => ({ status: 200, json: async () => url.endsWith('/objects/list')
+      ? { result: { objects: ['print_task_config', 'extruder', 'extruder1', 'extruder2', 'extruder3'] } }
+      : { result: { status: { print_task_config: { filament_exist: [true, true, true, true] },
+        ...Object.fromEntries(['extruder', 'extruder1', 'extruder2', 'extruder3'].map(name => [name, { nozzle_diameter: .4, nozzle_volume_type: 'standard' }])) } } } }));
+    const saved = await f.snapmaker.listSaved();
+    if (!saved.ok) throw new Error('Expected saved printer');
+    const printer = saved.value[0];
+    expect(printer.configuredModel).toBeUndefined();
+    expect(printer.identity.model).toBeNull();
+    const source = await readSynchronizationSource(f.snapmaker, printer, printer.routes[0], 'printer', { refresh: true });
+    expect(source).toMatchObject({ ok: true, value: {
+      identity: { manufacturer: 'Snapmaker', model: 'Snapmaker U1' },
+      tools: Array.from({ length: 4 }, () => ({ diameterMm: .4 })),
+    } });
+    expect(f.request.mock.calls.every(([request]) => request.method === 'GET')).toBe(true);
+  });
   it('isolates routes without probing on enumeration and preserves both providers during edits', async () => {
     const f = fixture();
     const service = createPrinterService([{ id: id('moonraker'), name: 'Moonraker', printers: f.moonraker }, { id: id('snapmaker'), name: 'Snapmaker', printers: f.snapmaker }]);

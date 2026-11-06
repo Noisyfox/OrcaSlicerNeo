@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { _electron } from './electron-fixture';
-import { createSnapmakerService, normalizePrinterConfigurationDocument, type PrinterTransportRequest } from '@orca/printer-control';
+import { createSnapmakerService, normalizePrinterConfigurationDocument, readSynchronizationSource, type PrinterTransportRequest } from '@orca/printer-control';
 import type * as D from '@orca/printer-control/domain';
 
 const configPath = process.env.NEO_U1_ACCEPTANCE_CONFIG;
@@ -44,6 +44,14 @@ test('real U1 reads hardware, inventory, preferences and consumer-owned monitori
   expect(result.value.values.preferences?.kind).toBe('known');
   if (result.value.values.preferences?.kind === 'known') expect(result.value.values.preferences.value.fields.length).toBeGreaterThan(0);
   expect(description.value.capabilities.commands['materials.load'].kind).toBe('supported');
+  const saved = await service.listSaved();
+  if (!saved.ok) throw new Error('Saved U1 unavailable');
+  const source = await readSynchronizationSource(service, saved.value[0], saved.value[0].routes[0], 'printer', { refresh: true });
+  expect(source).toMatchObject({ ok: true, value: {
+    identity: { manufacturer: 'Snapmaker', model: 'Snapmaker U1' },
+    tools: Array.from({ length: 4 }, () => ({ diameterMm: .4 })),
+  } });
+  writeFileSync(info.outputPath('synchronization.json'), JSON.stringify(source, null, 2));
   const abort = new AbortController();
   let events = 0;
   const watching = (async () => { for await (const _ of service.observations.watch({ target, topics }, { signal: abort.signal })) events++; })();

@@ -44,6 +44,11 @@ export function u1DeviceValues(snapshot: U1DeviceSnapshot, target: D.PrinterTarg
   const status = snapshot.status;
   const topology = descriptor.topology;
   const installed = heads.filter(i => snapshot.objects.includes(extruder(i)));
+  // This agent currently implements the U1 protocol. Publish its recognized
+  // identity with the observation so all consumers use the same model source.
+  if (installed.length === 4 && snapshot.objects.includes('print_task_config')) {
+    descriptor.identity = { ...descriptor.identity, manufacturer: 'Snapmaker', model: 'Snapmaker U1', externalRefs: [] };
+  }
   const heaters = [...installed.map(extruder), ...(snapshot.objects.includes('heater_bed') ? ['heater_bed'] : [])];
   topology.motionGroups = [{ id: id('snapmaker-motion'), name: 'Printer', axes: ['x', 'y', 'z'] }];
   topology.extruders = installed.map(i => ({ id: id(`snapmaker-extruder:${i}`), name: `Toolhead ${i + 1}`, filamentDiametersMm: null }));
