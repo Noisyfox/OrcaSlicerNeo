@@ -119,6 +119,8 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
         expect(slot).toBeLessThanOrEqual(4);
         if ((await row.textContent())?.includes(`Nozzle ${slot}`)) continue;
         await row.click();
+        await expect(row).toHaveAttribute('aria-expanded', 'true');
+        await expect(row).toHaveAttribute('aria-controls', /.+/);
         const list = page.locator(`[id="${await row.getAttribute('aria-controls')}"]`);
         await list.getByRole('option', { name: `Nozzle ${slot}`, exact: true }).click();
         await expect(row).toHaveAttribute('aria-expanded', 'false');
