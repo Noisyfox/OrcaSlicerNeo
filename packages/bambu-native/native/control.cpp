@@ -5,6 +5,7 @@
 #include "../../slicer-wasm/cpp/src/slic3r/GUI/Printer/BambuTunnel.h"
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -16,12 +17,17 @@ struct ControlState {
     bool storage = false;
     std::atomic<bool> stop{false};
     std::mutex mutex;
+    std::condition_variable wake;
     std::thread thread;
     std::deque<std::string> outgoing;
     std::deque<std::vector<unsigned char>> incoming;
     bool ready = false;
     std::string error;
-    ~ControlState() { stop = true; if (thread.joinable()) thread.join(); }
+    void request_stop() {
+        { std::lock_guard<std::mutex> lock(mutex); stop = true; }
+        wake.notify_all();
+    }
+    ~ControlState() { request_stop(); if (thread.joinable()) thread.join(); }
     void fail(const char* message) { std::lock_guard<std::mutex> lock(mutex); error = message; incoming.clear(); }
     void run(const std::string& path, const std::string& url) {
         try {
@@ -58,12 +64,21 @@ struct ControlState {
                 }
                 // CTRL readers use downstream demand instead of overflowing their
                 // application queue. The plugin's own queue still needs qualification.
-                bool full;
-                { std::lock_guard<std::mutex> lock(mutex); full = incoming.size() >= 2; }
-                if (full) { std::this_thread::sleep_for(std::chrono::milliseconds(2)); continue; }
+                {
+                    std::unique_lock<std::mutex> lock(mutex);
+                    // Resume on consumer demand, without a platform timer tick per batch.
+                    const auto demand = [&] { return stop || incoming.size() < 2; };
+                    if (storage) wake.wait(lock, demand);
+                    else if (!wake.wait_until(lock, deadline, demand)) continue;
+                }
+                if (stop) return;
                 Bambu_Sample sample{};
                 const int result = api.Bambu_ReadSample(tunnel, &sample);
-                if (result == Bambu_would_block) { std::this_thread::sleep_for(std::chrono::milliseconds(2)); continue; }
+                if (result == Bambu_would_block) {
+                    std::unique_lock<std::mutex> lock(mutex);
+                    if (!stop) wake.wait_for(lock, std::chrono::milliseconds(2));
+                    continue;
+                }
                 if (result != Bambu_success || !sample.buffer || sample.size <= 0) { fail("Task resource packet unavailable"); return; }
                 std::vector<unsigned char> owned(sample.buffer, sample.buffer + sample.size);
                 std::lock_guard<std::mutex> lock(mutex);
@@ -102,7 +117,7 @@ public:
         state_ = std::make_shared<ControlState>(); state_->storage = purpose == "storage"; auto state = state_;
         state_->thread = std::thread([state, path, url] { state->run(path, url); });
     }
-    ~ControlWrap() override { if (state_) { state_->stop = true; if (close_.IsEmpty() && state_->thread.joinable()) state_->thread.join(); } }
+    ~ControlWrap() override { if (state_) { state_->request_stop(); if (close_.IsEmpty() && state_->thread.joinable()) state_->thread.join(); } }
     Napi::Value Send(const Napi::CallbackInfo& info) {
         if (!state_ || state_->stop) throw Napi::Error::New(info.Env(), "Task resource stream closed");
         if (info.Length() != 1 || !info[0].IsString()) throw Napi::TypeError::New(info.Env(), "Expected a control message");
@@ -111,7 +126,7 @@ public:
         std::lock_guard<std::mutex> lock(state_->mutex);
         if (!state_->error.empty()) throw Napi::Error::New(info.Env(), state_->error);
         if (state_->outgoing.size() >= 16) throw Napi::Error::New(info.Env(), "Task resource request queue full");
-        state_->outgoing.push_back(std::move(message)); return info.Env().Undefined();
+        state_->outgoing.push_back(std::move(message)); state_->wake.notify_all(); return info.Env().Undefined();
     }
     Napi::Value Poll(const Napi::CallbackInfo& info) {
         if (!state_ || state_->stop) throw Napi::Error::New(info.Env(), "Task resource stream closed");
@@ -120,11 +135,11 @@ public:
         auto result = Napi::Object::New(info.Env()); result.Set("ready", state_->ready);
         auto messages = Napi::Array::New(info.Env(), state_->incoming.size()); uint32_t i = 0;
         for (const auto& packet : state_->incoming) messages.Set(i++, Napi::Buffer<unsigned char>::Copy(info.Env(), packet.data(), packet.size()));
-        state_->incoming.clear(); result.Set("messages", messages); return result;
+        state_->incoming.clear(); state_->wake.notify_all(); result.Set("messages", messages); return result;
     }
     Napi::Value Close(const Napi::CallbackInfo& info) {
         if (!close_.IsEmpty()) return close_.Value();
-        state_->stop = true;
+        state_->request_stop();
         auto worker = new CloseWorker(info.Env(), state_); auto promise = worker->promise();
         close_ = Napi::Persistent(promise); worker->Queue(); return promise;
     }
