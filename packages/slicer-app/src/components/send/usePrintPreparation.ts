@@ -21,6 +21,8 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   const [saveError, setSaveError] = useState(false);
   const [refreshing, setRefreshing] = useState(true);
   const reading = useRef(false), loaded = useRef(false);
+  const observationStopped = useRef(false);
+  const [observationEpoch, setObservationEpoch] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [retryableFailure, setRetryableFailure] = useState(false);
   const [operation, setOperation] = useState<D.PrintSubmissionState | null>(null);
@@ -78,6 +80,7 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
       if (!live.current) return;
       loaded.current = true;
       if (!result.ok) { setError(result.error.message); return; }
+      if (observationStopped.current) setObservationEpoch(epoch => epoch + 1);
       await validate();
     } catch { if (live.current) { loaded.current = true; setError('Printer status is unavailable. Waiting for automatic recovery.'); } }
     finally { reading.current = false; if (live.current) setRefreshing(false); }
@@ -87,16 +90,23 @@ export function usePrintPreparation(platform: PlatformCapabilities, printer: D.S
   useEffect(() => {
     const monitoring = Object.values(route.capabilities.observations).some(capability => capability.kind === 'supported' && capability.constraints.delivery.some(delivery => delivery !== 'on-demand'));
     const abort = new AbortController();
+    observationStopped.current = false;
     if (monitoring) void (async () => {
       for await (const _event of platform.printers.service.observations.watch({ target: { printerId: target.printerId, routeId: target.routeId }, topics: ['status', 'materials', 'descriptor', 'firmware'] }, { signal: abort.signal })) {
         if (abort.signal.aborted) return;
         void validateRef.current();
       }
-    })().catch(() => { if (!abort.signal.aborted) setError('Printer monitoring is unavailable. Waiting for automatic recovery.'); });
+      if (!abort.signal.aborted) throw new Error('Observation ended');
+    })().catch(() => {
+      if (!abort.signal.aborted) {
+        observationStopped.current = true;
+        setError('Printer monitoring is unavailable. Refresh to reconnect.');
+      }
+    });
     // Validation reads cached agent state; it does not poll or reconnect the printer.
     const timer = setInterval(() => { void validateRef.current(); }, 2000);
     return () => { abort.abort(); clearInterval(timer); };
-  }, [platform, target.printerId, target.routeId, route.configurationRevision]);
+  }, [platform, target.printerId, target.routeId, route.configurationRevision, observationEpoch]);
 
   function persist(patch: Partial<D.PrintPreferences>) {
     const version = ++saveVersion.current; setSaveError(false);

@@ -14,7 +14,7 @@ const manifest: PrintManifest = { plateId: 'plate-1', printerModel: 'Fixture', p
   materials: [{ key: 'filament-0', index: 0, type: 'PLA', color: '#FF0000', presetId: 'fixture', presetName: 'PLA', brand: 'Generic', toolIndex: 0, nozzleDiameter: .4, nozzleFlowType: 'Standard', nozzleTemperature: null, initialLayerNozzleTemperature: null, chamberTemperature: 0, softeningTemperature: 55, requiredNozzleHardness: 3, usedGrams: 1, usedMeters: .3 }] };
 let root: Root | undefined, container: HTMLDivElement;
 afterEach(async () => { await act(async () => root?.unmount()); root = undefined; container?.remove(); vi.useRealTimers(); useDeviceSelectionStore.setState({ currentPrinterId: null, requestedPrinterId: null, selectionRequestVersion: 0, navigationRequestVersion: 0 }); });
-async function setup(allowAbnormalStorage = false, manifestValue = manifest, readStatus = async (): Promise<D.Result<null>> => ({ ok: true, value: null }), plainGcode = false) {
+async function setup(allowAbnormalStorage = false, manifestValue = manifest, readStatus = async (): Promise<D.Result<null>> => ({ ok: true, value: null }), plainGcode = false, watchStatus?: PlatformCapabilities['printers']['service']['observations']['watch']) {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   let configDocument = { allowAbnormalStorage, version: 1 as const, printers: [], printPreferences: { fixture: { timelapse: true, timelapseStorage: 'external' as const } } };
   let issues: D.PrintIssue[] = [], candidates: D.PrintMaterialSource[] = manifestValue.materials.map((material, index) => ({ materialKey: material.key, pathId: id<'path'>(index ? 'source-b' : 'source-a'), label: index ? 'AMS B1' : 'AMS A1', color: index ? '#00FFFF' : '#FF0000', materialType: material.type, unit: { id: id('unit-a'), name: 'AMS', kind: 'automatic-feeder', categoryLabel: 'AMS' }, slot: { id: id(index ? 'slot-b' : 'slot-a'), name: index ? 'B1' : 'A1' }, tool: { id: id('tool-a'), name: 'Nozzle' }, presence: 'present', remainingFraction: null, disabledReason: null }));
@@ -35,13 +35,14 @@ async function setup(allowAbnormalStorage = false, manifestValue = manifest, rea
   const configuration = { load: vi.fn(async () => structuredClone(configDocument)), save: vi.fn(async next => { configDocument = next; }) };
   const runtime = { exportGcodePlate: vi.fn(async () => ({ ok: true as const, fileName: 'fixture.gcode', bytes: new Uint8Array([255, 0, 10]) })), describePrintPlate: vi.fn(async () => ({ ok: true, receipt, manifest: manifestValue })), exportPrintPlate: vi.fn(async (): Promise<ExportPrintResult> => ({ ok: true, receipt, manifest: manifestValue, fileName: 'fixture.3mf', bytes: new Uint8Array([1]), configBytes: new Uint8Array([2]), plateIndex: 1, gcodePath: 'Metadata/plate_1.gcode' })) };
   const read = vi.fn(readStatus);
-  const platform = { runtime, printers: { configuration, service: { submissions, observations: { read, watch: async function* (_request: unknown, options: { signal: AbortSignal }) { await new Promise<void>(resolve => options.signal.addEventListener('abort', () => resolve(), { once: true })); } } } } } as unknown as PlatformCapabilities;
+  const watch = vi.fn(watchStatus ?? (async function* (_request: unknown, options: { signal: AbortSignal }) { await new Promise<void>(resolve => options.signal.addEventListener('abort', () => resolve(), { once: true })); }));
+  const platform = { runtime, printers: { configuration, service: { submissions, observations: { read, watch } } } } as unknown as PlatformCapabilities;
   const printer = { identity: { id: id('fixture'), displayName: 'Fixture' } } as D.SavedPrinter;
   const route = { id: id('route'), configurationRevision: 'r1', capabilities: { submission: { kind: 'supported', constraints: { formats: [plainGcode ? 'gcode' : 'print-3mf'], ...(plainGcode ? { failurePolicy: 'retry' } : {}) } }, observations: { status: { kind: 'supported', constraints: { delivery: ['push'] } } } } } as unknown as D.PrinterRoute;
   const close = vi.fn(), busy = vi.fn();
   await act(async () => { root!.render(<PrintPreparationPanel platform={platform} printer={printer} route={route} receipt={receipt} onClose={close} onBusyChange={busy} />); });
   const click = async (label: string) => { await act(async () => { const button = [...container.querySelectorAll('button')].find(b => b.textContent === label); if (!button) throw new Error(`No button ${label}`); button.click(); }); };
-  return { recordingSpace: (value: D.PrintPreparation['recordingSpace']) => { recordingSpace = value; }, read, setSources: (value: D.PrintMaterialSource[]) => { candidates = value; }, close, busy, runtime, submissions, configuration, click, update: (phase: D.PrintSubmissionState['phase']) => { current = { ...current, phase, canCancel: false }; wake?.(); }, issues: (value: D.PrintIssue[]) => { issues = value; }, removeSources: () => { candidates = []; }, document: () => configDocument };
+  return { watch, recordingSpace: (value: D.PrintPreparation['recordingSpace']) => { recordingSpace = value; }, read, setSources: (value: D.PrintMaterialSource[]) => { candidates = value; }, close, busy, runtime, submissions, configuration, click, update: (phase: D.PrintSubmissionState['phase']) => { current = { ...current, phase, canCancel: false }; wake?.(); }, issues: (value: D.PrintIssue[]) => { issues = value; }, removeSources: () => { candidates = []; }, document: () => configDocument };
 }
 it('waits for printer information before validating or displaying initial diagnostics', async () => {
   vi.useFakeTimers(); let release!: () => void;
@@ -70,6 +71,67 @@ it('hides intermediate diagnostics during explicit refresh without losing mappin
   await act(async () => release());
   expect(container.textContent).toContain('Source unavailable');
   expect(container.querySelector('[aria-label="Material 1 source"]')?.getAttribute('data-source')).toBe('source-a');
+});
+it.each(['error', 'end'] as const)('restores stopped monitoring after manual refresh (%s) and preserves manual mappings', async termination => {
+  vi.useFakeTimers();
+  let emit: (() => void) | undefined, attempts = 0, stopped = false;
+  const watch: D.PrinterObservations['watch'] = async function* <K extends D.StateTopic>(request: D.ObservationRequest<K>, options?: D.ReadOptions) {
+    const attempt = ++attempts, signal = options?.signal;
+    try {
+      while (!signal?.aborted) {
+        await new Promise<void>(resolve => {
+          const done = () => { signal?.removeEventListener('abort', done); resolve(); };
+          emit = done; signal?.addEventListener('abort', done, { once: true });
+        });
+        if (signal?.aborted) return;
+        if (attempt === 1) {
+          if (termination === 'error') throw new Error('Recovery exhausted');
+          return;
+        }
+        yield { type: 'snapshot', cursor: 'fixture' as D.ObservationCursor, snapshot: { target: { printerId: id('fixture'), routeId: id('route') }, configurationRevision: 'r1', values: Object.fromEntries(request.topics.map(topic => [topic, { kind: 'unknown', reason: 'not-reported' }])) as D.ObservationValues<K> } };
+      }
+    } finally { stopped = true; }
+  };
+  const f = await setup(false, manifest, undefined, true, watch);
+  const initial = await f.submissions.prepare.mock.results[0].value;
+  if (!initial.ok) throw new Error('Fixture preparation failed');
+  const source = initial.value.candidates[0];
+  f.setSources([source, { ...source, pathId: id('manual'), label: 'Head 2', slot: { id: id('slot-2'), name: 'Head 2' } }]);
+  const refresh = async () => { await act(async () => (container.querySelector('[aria-label="Refresh printer status"]') as HTMLElement).click()); };
+  const mapping = () => container.querySelector('[aria-label="Material 1 source"]') as HTMLElement;
+  await refresh();
+  expect(f.watch).toHaveBeenCalledOnce(); // A healthy watcher is not replaced by Refresh.
+  await act(async () => mapping().click());
+  await act(async () => (document.querySelector('[aria-label="Head 2 · PLA"]') as HTMLElement).click());
+  expect(mapping().getAttribute('data-source')).toBe('manual');
+
+  await act(async () => emit?.());
+  expect(stopped).toBe(true);
+  await act(async () => { await vi.advanceTimersByTimeAsync(16000); });
+  expect(f.watch).toHaveBeenCalledOnce(); // Exhaustion waits for explicit recovery.
+  f.read.mockResolvedValueOnce({ ok: false, error: { code: 'offline', message: 'Still offline' } });
+  await refresh();
+  expect(f.watch).toHaveBeenCalledOnce();
+  await refresh();
+  expect(f.watch).toHaveBeenCalledTimes(2);
+  expect(mapping().getAttribute('data-source')).toBe('manual');
+
+  // Later observations, not another manual read, revalidate the retained mapping.
+  f.issues([{ id: 'mapping', severity: 'block', message: 'Head 2 is unavailable' }]);
+  const reads = f.read.mock.calls.length;
+  await act(async () => emit?.());
+  expect(container.textContent).toContain('Head 2 is unavailable');
+  expect((container.querySelector('[data-testid="print-submit"]') as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => { await vi.advanceTimersByTimeAsync(16000); });
+  f.issues([]);
+  await act(async () => emit?.());
+  expect((container.querySelector('[data-testid="print-submit"]') as HTMLButtonElement).disabled).toBe(false);
+  expect(mapping().getAttribute('data-source')).toBe('manual');
+  expect(f.read).toHaveBeenCalledTimes(reads);
+  expect(f.submissions.submit).not.toHaveBeenCalled();
+  stopped = false;
+  await act(async () => root!.unmount()); root = undefined;
+  expect(stopped).toBe(true);
 });
 it('shows a completed read failure and recovers through cached monitoring without another device read', async () => {
   vi.useFakeTimers();
