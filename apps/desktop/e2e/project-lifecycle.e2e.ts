@@ -70,6 +70,72 @@ async function makeDirty(page: Page): Promise<void> {
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
 }
 
+test('Preferences uses top category tabs and preserves edits across categories', async () => {
+  const { app, dir } = await launchProjectApp();
+  try {
+    const page = await app.firstWindow();
+    await ready(page);
+    const open = async () => {
+      if (process.platform === 'darwin') {
+        await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById('file-preferences')!.click());
+      } else {
+        await page.getByTestId('titlebar-menu-trigger').click();
+        await page.getByTestId('menu-file-trigger').hover();
+        await page.getByTestId('file-preferences').click();
+      }
+    };
+    await open();
+    const dialog = page.getByTestId('project-preferences-dialog');
+    const categories = dialog.getByRole('tablist', { name: 'Preferences categories' });
+    const general = categories.getByRole('tab', { name: 'General', exact: true });
+    const control = categories.getByRole('tab', { name: 'Control', exact: true });
+    const developer = categories.getByRole('tab', { name: 'Developer', exact: true });
+    await expect(general).toHaveAttribute('aria-selected', 'true');
+    const generalBox = (await general.boundingBox())!;
+    const controlBox = (await control.boundingBox())!;
+    expect(controlBox.y).toBe(generalBox.y);
+    expect(controlBox.x).toBeGreaterThan(generalBox.x);
+    await expect(dialog.getByRole('tabpanel')).toHaveCount(1);
+    await dialog.screenshot({ path: test.info().outputPath('preferences-general.png') });
+    await general.focus();
+    await general.press('ArrowRight');
+    await expect(control).toBeFocused();
+    await expect(dialog.getByRole('combobox', { name: 'Auto flush after changing' })).toBeVisible();
+    await dialog.getByRole('combobox', { name: 'Auto flush after changing' }).click();
+    await page.getByRole('option', { name: 'None', exact: true }).click();
+    await developer.click();
+    const painting = dialog.getByRole('checkbox', { name: 'Keep painting', exact: true });
+    await painting.check();
+    await general.click();
+    await developer.click();
+    await expect(painting).toBeChecked();
+    await dialog.screenshot({ path: test.info().outputPath('preferences-developer.png') });
+    await dialog.getByTestId('project-preferences-save').click();
+    await expect(dialog).toBeHidden();
+    const saved = JSON.parse(readFileSync(join(dir, 'preferences.json'), 'utf8'));
+    expect(saved.autoFlushPolicy).toBe('disabled');
+    expect(saved.meshBooleanKeepPainting).toBe(true);
+
+    await open();
+    await expect(general).toHaveAttribute('aria-selected', 'true');
+    await control.click();
+    await expect(dialog.getByRole('combobox', { name: 'Auto flush after changing' })).toContainText('None');
+    await categories.getByRole('tab', { name: 'Online', exact: true }).click();
+    await expect(dialog.getByRole('combobox', { name: /Bambu Lab/ })).toBeVisible();
+    await developer.click();
+    await painting.uncheck();
+    await page.setViewportSize({ width: 640, height: 400 });
+    const save = dialog.getByTestId('project-preferences-save');
+    await expect(save).toBeInViewport();
+    const tabsBox = (await categories.boundingBox())!;
+    const contentBox = (await dialog.getByRole('tabpanel').boundingBox())!;
+    expect(contentBox.y).toBeGreaterThanOrEqual(tabsBox.y + tabsBox.height);
+    await dialog.screenshot({ path: test.info().outputPath('preferences-small-window.png') });
+    await dialog.getByTestId('project-preferences-cancel').click();
+    expect(JSON.parse(readFileSync(join(dir, 'preferences.json'), 'utf8')).meshBooleanKeepPainting).toBe(true);
+  } finally { await app.close(); }
+});
+
 test('a new project with parameter changes and no models can be saved', async () => {
   const { app, savePath } = await launchProjectApp();
   try {

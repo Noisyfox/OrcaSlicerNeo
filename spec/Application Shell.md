@@ -153,6 +153,24 @@ install a competing native File/Help menu. Real packaged macOS verification
 is required for traffic-light insets, menu ownership, availability transitions,
 window dragging, Quit and source opening; a mock browser is insufficient.
 
+## Preferences
+
+Preferences uses horizontal category tabs above a scrollable content area,
+following Orca's layout. General opens initially and contains project-load
+behaviour and Downloads. Control contains automatic flushing behaviour. Online
+contains account-provider settings and is omitted when no account provider is
+available. Developer contains Experimental Features (Keep painting) and Storage
+(Allow Abnormal Storage). Categories without implemented settings are omitted.
+
+Switching tabs preserves edits and in-flight setting operations. Save and
+Cancel remain visible below the content. Project-load behaviour, automatic
+flushing and Keep painting apply together on Save; Cancel discards those edits.
+Download, account and storage settings retain their immediate-save behaviour,
+as indicated beside those controls. Keyboard users can navigate categories with
+the arrow keys and move into their panels with Tab. The shared desktop layout
+fits within the window with internal scrolling; mobile support remains deferred.
+Tab switching introduces no slicing or geometry work.
+
 ## Workspace and controls
 
 The shared Workspace owns the sidebar/viewport split. Sidebar width defaults

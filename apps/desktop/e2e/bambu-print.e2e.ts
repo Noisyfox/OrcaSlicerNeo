@@ -88,6 +88,7 @@ test('Bambu Send & Print persists options, cancels safely, allows selection afte
     const preferences = page.getByTestId('project-preferences-dialog');
     const storage = preferences.getByRole('checkbox', { name: 'Allow Abnormal Storage' });
     await expect(preferences).toBeVisible();
+    await preferences.getByRole('tab', { name: 'Developer', exact: true }).click();
     await expect(storage).toBeEnabled();
     await expect(storage).not.toBeChecked();
     await storage.check();

@@ -8,6 +8,7 @@ import type {
   ProjectLoadBehaviour,
   UserPreferences,
 } from '@orca/platform-contract';
+import { usePlatform } from '@orca/platform-contract';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectNotice, ProjectOperation } from '@/stores/useProjectStore';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   RadioGroup,
   RadioGroupItem,
@@ -139,6 +141,7 @@ export function ProjectPreferencesDialog({
   onSave: (behaviour: ProjectLoadBehaviour, autoFlushPolicy: NonNullable<UserPreferences['autoFlushPolicy']>, keepPainting: boolean) => Promise<void> | void;
   onClose: () => void;
 }) {
+  const { accounts } = usePlatform();
   const [behaviour, setBehaviour] = useState<ProjectLoadBehaviour>('ask_when_relevant');
   const [autoFlushPolicy, setAutoFlushPolicy] = useState<NonNullable<UserPreferences['autoFlushPolicy']>>('all');
   const [keepPainting, setKeepPainting] = useState(false);
@@ -146,6 +149,7 @@ export function ProjectPreferencesDialog({
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (open) {
+      setSaveError(null);
       setBehaviour(preferences?.projectLoadBehaviour ?? 'ask_when_relevant');
       setAutoFlushPolicy(preferences?.autoFlushPolicy ?? 'all');
       setKeepPainting(preferences?.meshBooleanKeepPainting ?? false);
@@ -157,53 +161,81 @@ export function ProjectPreferencesDialog({
     try { setSaveError(null); await onSave(behaviour, autoFlushPolicy, keepPainting); onClose(); } catch (e) { setSaveError(String(e)); } finally { setSaving(false); }
   };
   return (
-    <Modal title="Preferences" testId="project-preferences-dialog">
-      {saveError && <Alert variant="destructive"><AlertDescription>{saveError}</AlertDescription></Alert>}
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="project-load-behaviour">Project Load Behaviour</Label>
-        <Select
-          value={behaviour}
-          items={LOAD_BEHAVIOUR_OPTIONS}
-          onValueChange={(value) => setBehaviour(value as ProjectLoadBehaviour)}
-          disabled={saving}
-        >
-          <SelectTrigger id="project-load-behaviour" data-testid="project-load-behaviour" aria-label="Project Load Behaviour" className="h-8 w-full text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {LOAD_BEHAVIOUR_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </div>
-      <FieldGroup><Field>
-        <FieldLabel htmlFor="auto-flush-policy">Auto flush after changing…</FieldLabel>
-        <Select value={autoFlushPolicy} items={[{ value: 'all', label: 'All' }, { value: 'color change', label: 'Color' }, { value: 'disabled', label: 'None' }]}
-          onValueChange={value => setAutoFlushPolicy(value as NonNullable<UserPreferences['autoFlushPolicy']>)} disabled={saving}>
-          <SelectTrigger id="auto-flush-policy" aria-label="Auto flush after changing"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectGroup><SelectItem value="all">All</SelectItem><SelectItem value="color change">Color</SelectItem><SelectItem value="disabled">None</SelectItem></SelectGroup></SelectContent>
-        </Select>
-        <FieldDescription>All recalculates after colour or material changes; Color recalculates after colour changes; None preserves manual values. Adding a material initializes its new pairs in every mode.</FieldDescription>
-      </Field></FieldGroup>
-      <Field orientation="horizontal">
-        <Checkbox id="mesh-boolean-keep-painting" checked={keepPainting} disabled={saving}
-          onCheckedChange={checked => setKeepPainting(checked === true)} aria-describedby="mesh-boolean-keep-painting-description" />
-        <FieldContent>
-          <FieldLabel htmlFor="mesh-boolean-keep-painting">Keep painting</FieldLabel>
-          <FieldDescription id="mesh-boolean-keep-painting-description">Preserve support, seam, color and fuzzy-skin painting when applying Mesh Boolean.</FieldDescription>
-        </FieldContent>
-      </Field>
-      <DownloadPreferences />
-      <AccountSettings />
-      <PrinterStoragePreferences />
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={onClose} disabled={saving} data-testid="project-preferences-cancel">Cancel</Button>
-        <Button type="button" onClick={() => void save()} disabled={saving} data-testid="project-preferences-save">{saving ? 'Saving…' : 'Save'}</Button>
-      </div>
-    </Modal>
+    <Dialog open onOpenChange={() => undefined}>
+      <DialogContent data-testid="project-preferences-dialog" className="flex h-[min(600px,calc(100dvh-2rem))] w-[calc(100vw-2rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0">
+        <DialogTitle id="project-preferences-dialog-title" className="shrink-0 px-5 py-4">Preferences</DialogTitle>
+        <Tabs defaultValue="general" className="min-h-0 flex-1 flex-col gap-0">
+          <TabsList aria-label="Preferences categories" activateOnFocus variant="line" className="h-9 w-full shrink-0 justify-start overflow-x-auto border-b px-5">
+            <TabsTrigger value="general" className="h-full flex-none px-3 after:inset-x-0 after:bottom-0 after:h-0.5">General</TabsTrigger>
+            <TabsTrigger value="control" className="h-full flex-none px-3 after:inset-x-0 after:bottom-0 after:h-0.5">Control</TabsTrigger>
+            {accounts.length > 0 && <TabsTrigger value="online" className="h-full flex-none px-3 after:inset-x-0 after:bottom-0 after:h-0.5">Online</TabsTrigger>}
+            <TabsTrigger value="developer" className="h-full flex-none px-3 after:inset-x-0 after:bottom-0 after:h-0.5">Developer</TabsTrigger>
+          </TabsList>
+          <TabsContent value="general" keepMounted className="min-h-0 space-y-6 overflow-y-auto p-5 hidden:hidden">
+            <section aria-label="Project" className="space-y-3">
+              <h3 className="font-medium">Project</h3>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="project-load-behaviour">Project Load Behaviour</Label>
+                <Select
+                  value={behaviour}
+                  items={LOAD_BEHAVIOUR_OPTIONS}
+                  onValueChange={(value) => setBehaviour(value as ProjectLoadBehaviour)}
+                  disabled={saving}
+                >
+                  <SelectTrigger id="project-load-behaviour" data-testid="project-load-behaviour" aria-label="Project Load Behaviour" className="h-8 w-full text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {LOAD_BEHAVIOUR_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+            </section>
+            <DownloadPreferences />
+          </TabsContent>
+          <TabsContent value="control" keepMounted className="min-h-0 space-y-6 overflow-y-auto p-5 hidden:hidden">
+            <section aria-label="Behaviour" className="space-y-3">
+              <h3 className="font-medium">Behaviour</h3>
+              <FieldGroup><Field>
+                <FieldLabel htmlFor="auto-flush-policy">Auto flush after changing…</FieldLabel>
+                <Select value={autoFlushPolicy} items={[{ value: 'all', label: 'All' }, { value: 'color change', label: 'Color' }, { value: 'disabled', label: 'None' }]}
+                  onValueChange={value => setAutoFlushPolicy(value as NonNullable<UserPreferences['autoFlushPolicy']>)} disabled={saving}>
+                  <SelectTrigger id="auto-flush-policy" aria-label="Auto flush after changing"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectGroup><SelectItem value="all">All</SelectItem><SelectItem value="color change">Color</SelectItem><SelectItem value="disabled">None</SelectItem></SelectGroup></SelectContent>
+                </Select>
+                <FieldDescription>All recalculates after colour or material changes; Color recalculates after colour changes; None preserves manual values. Adding a material initializes its new pairs in every mode.</FieldDescription>
+              </Field></FieldGroup>
+            </section>
+          </TabsContent>
+          {accounts.length > 0 && <TabsContent value="online" keepMounted className="min-h-0 space-y-6 overflow-y-auto p-5 hidden:hidden">
+            <AccountSettings />
+          </TabsContent>}
+          <TabsContent value="developer" keepMounted className="min-h-0 space-y-6 overflow-y-auto p-5 hidden:hidden">
+            <section aria-label="Experimental Features" className="space-y-3">
+              <h3 className="font-medium">Experimental Features</h3>
+              <Field orientation="horizontal">
+                <Checkbox id="mesh-boolean-keep-painting" checked={keepPainting} disabled={saving}
+                  onCheckedChange={checked => setKeepPainting(checked === true)} aria-describedby="mesh-boolean-keep-painting-description" />
+                <FieldContent>
+                  <FieldLabel htmlFor="mesh-boolean-keep-painting">Keep painting</FieldLabel>
+                  <FieldDescription id="mesh-boolean-keep-painting-description">Preserve support, seam, color and fuzzy-skin painting when applying Mesh Boolean.</FieldDescription>
+                </FieldContent>
+              </Field>
+            </section>
+            <PrinterStoragePreferences />
+          </TabsContent>
+        </Tabs>
+        {saveError && <Alert variant="destructive" className="mx-5 mb-3 w-auto shrink-0"><AlertDescription>{saveError}</AlertDescription></Alert>}
+        <div className="flex shrink-0 justify-end gap-2 border-t px-5 py-3">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={saving} data-testid="project-preferences-cancel">Cancel</Button>
+          <Button type="button" onClick={() => void save()} disabled={saving} data-testid="project-preferences-save">{saving ? 'Saving…' : 'Save'}</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

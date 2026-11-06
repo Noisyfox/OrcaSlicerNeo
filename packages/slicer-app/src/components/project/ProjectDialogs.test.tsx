@@ -7,6 +7,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DirtyProjectDialog, ProjectLoadChoiceDialog, ProjectNoticeDialog, ProjectPreferencesDialog, ProjectProgressDialog } from './ProjectDialogs';
 
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
 if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
 
 describe('project dialogs', () => {
@@ -24,6 +26,13 @@ describe('project dialogs', () => {
     root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={{ accounts: [], printers: { configuration, downloads: unavailablePrinterDownloads() } } as unknown as PlatformCapabilities}>{element}</PlatformProvider>); });
     return container;
+  }
+
+  async function selectPreferencesTab(name: string) {
+    const tab = Array.from(document.querySelectorAll<HTMLElement>('[role="tab"]')).find(tab => tab.textContent === name)!;
+    await act(async () => tab.click());
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    return document.querySelector<HTMLElement>(`[id="${tab.getAttribute('aria-controls')}"]`)!;
   }
 
   it('defaults load choice to geometry-only and exposes the replacement option', async () => {
@@ -73,6 +82,7 @@ describe('project dialogs', () => {
     const onSave = vi.fn();
     await renderDialog(<ProjectPreferencesDialog open preferences={{ version: 1, rememberedBedTypes: {}, projectLoadBehaviour: 'always_ask', selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } }} onSave={onSave} onClose={vi.fn()} />);
     expect(document.body.textContent).toContain('Project Load Behaviour');
+    expect(Array.from(document.querySelectorAll('[role="tab"]')).map(tab => tab.textContent)).toEqual(['General', 'Control', 'Developer']);
     const trigger = document.querySelector('[data-testid="project-load-behaviour"]');
     expect(trigger?.getAttribute('role')).toBe('combobox');
     expect(trigger?.textContent).toContain('Always Ask');
@@ -83,12 +93,26 @@ describe('project dialogs', () => {
     expect(document.body.textContent).toContain('Load Geometry Only');
     expect(document.querySelectorAll('[role="option"]')).toHaveLength(4);
     await act(async () => { (document.querySelector('[role="option"][aria-selected="true"]') as HTMLElement).click(); });
-    const keepPainting = document.querySelector('#mesh-boolean-keep-painting') as HTMLElement;
+    const developer = await selectPreferencesTab('Developer');
+    expect(developer.hidden).toBe(false);
+    expect(trigger?.closest('[role="tabpanel"]')?.hasAttribute('hidden')).toBe(true);
+    const keepPainting = document.querySelector('[role="checkbox"][aria-describedby="mesh-boolean-keep-painting-description"]') as HTMLElement;
     expect(keepPainting.hasAttribute('data-checked')).toBe(false);
     await act(async () => keepPainting.click());
+    await selectPreferencesTab('Control');
+    await act(async () => (document.querySelector('#auto-flush-policy') as HTMLElement).click());
+    const none = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find(option => option.textContent === 'None')!;
+    await act(async () => {
+      none.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      none.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
+    await selectPreferencesTab('General');
+    expect(trigger?.textContent).toContain('Always Ask');
+    await selectPreferencesTab('Developer');
+    expect(keepPainting.hasAttribute('data-checked')).toBe(true);
     expect(onSave).not.toHaveBeenCalled();
     await act(async () => { (document.querySelector('[data-testid="project-preferences-save"]') as HTMLElement).click(); });
-    expect(onSave).toHaveBeenCalledWith('always_ask', 'all', true);
+    expect(onSave).toHaveBeenCalledWith('always_ask', 'disabled', true);
   });
 
   it('saves the global storage preference immediately while preserving printer preferences and Cancel', async () => {
@@ -96,13 +120,16 @@ describe('project dialogs', () => {
     const configuration = { load: vi.fn(async () => structuredClone(saved)), save: vi.fn(async (next: PrinterConfigurationDocument) => { saved = next; }) };
     const onSave = vi.fn(), onClose = vi.fn();
     await renderDialog(<ProjectPreferencesDialog open preferences={null} onSave={onSave} onClose={onClose} />, configuration);
-    const checkbox = document.querySelector('section[aria-label="Developer"] [data-slot="checkbox"]') as HTMLElement;
+    await selectPreferencesTab('Developer');
+    const checkbox = document.querySelector('section[aria-label="Storage"] [role="checkbox"]') as HTMLElement;
     expect(checkbox.hasAttribute('data-checked')).toBe(true);
-    expect(checkbox.closest('section')?.getAttribute('aria-label')).toBe('Developer');
-    expect(checkbox.closest('fieldset')?.querySelector('legend')?.textContent).toBe('Storage');
+    expect(checkbox.closest('section')?.getAttribute('aria-label')).toBe('Storage');
     // A concurrent unrelated change must survive the targeted save.
     saved.printPreferences!.printer.bedLeveling = 'off';
     await act(async () => checkbox.click());
+    await selectPreferencesTab('General');
+    await selectPreferencesTab('Developer');
+    expect(checkbox.hasAttribute('data-checked')).toBe(false);
     await act(async () => (document.querySelector('[data-testid="project-preferences-cancel"]') as HTMLElement).click());
     expect(saved).toEqual({ version: 1, printers: [], printPreferences: { printer: { timelapse: true, bedLeveling: 'off' } }, allowAbnormalStorage: false });
     expect(onSave).not.toHaveBeenCalled(); expect(onClose).toHaveBeenCalledOnce();
@@ -111,7 +138,8 @@ describe('project dialogs', () => {
   it('keeps the default off and reports a failed storage-preference save without claiming success', async () => {
     const configuration = { load: vi.fn(async (): Promise<PrinterConfigurationDocument> => ({ version: 1, printers: [] })), save: vi.fn(async (_next: PrinterConfigurationDocument) => { throw new Error('private storage details'); }) };
     await renderDialog(<ProjectPreferencesDialog open preferences={null} onSave={vi.fn()} onClose={vi.fn()} />, configuration);
-    const checkbox = document.querySelector('section[aria-label="Developer"] [data-slot="checkbox"]') as HTMLElement;
+    await selectPreferencesTab('Developer');
+    const checkbox = document.querySelector('section[aria-label="Storage"] [role="checkbox"]') as HTMLElement;
     expect(checkbox.hasAttribute('data-checked')).toBe(false);
     await act(async () => checkbox.click());
     expect(checkbox.hasAttribute('data-checked')).toBe(false);

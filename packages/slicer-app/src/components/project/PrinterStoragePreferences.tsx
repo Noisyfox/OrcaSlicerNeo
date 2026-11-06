@@ -32,17 +32,14 @@ export function PrinterStoragePreferences() {
     } finally { if (mounted.current) setSaving(false); }
   }
 
-  return <section aria-label="Developer" className="flex flex-col gap-2 border-t pt-3">
-    <h3 className="font-medium">Developer</h3>
-    <fieldset className="flex flex-col gap-2">
-      <legend className="mb-2 text-sm font-medium">Storage</legend>
-      <div className="flex items-center gap-2">
-        <Checkbox id="allow-abnormal-storage" checked={value} disabled={!loaded || saving}
-          onCheckedChange={checked => void change(checked === true)} aria-describedby="allow-abnormal-storage-description" />
-        <Label htmlFor="allow-abnormal-storage">Allow Abnormal Storage</Label>
-      </div>
-      <p id="allow-abnormal-storage-description" className="text-sm text-muted-foreground">Allow printing with storage marked abnormal by the printer. This can cause printing problems. Changes are saved immediately.</p>
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    </fieldset>
+  return <section aria-label="Storage" className="flex flex-col gap-2 border-t pt-3">
+    <h3 className="font-medium">Storage</h3>
+    <div className="flex items-center gap-2">
+      <Checkbox id="allow-abnormal-storage" checked={value} disabled={!loaded || saving}
+        onCheckedChange={checked => void change(checked === true)} aria-describedby="allow-abnormal-storage-description" />
+      <Label htmlFor="allow-abnormal-storage">Allow Abnormal Storage</Label>
+    </div>
+    <p id="allow-abnormal-storage-description" className="text-sm text-muted-foreground">Allow printing with storage marked abnormal by the printer. This can cause printing problems. Changes are saved immediately.</p>
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </section>;
 }
