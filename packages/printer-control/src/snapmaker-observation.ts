@@ -44,8 +44,11 @@ export function u1MaterialInventory(status: Record<string, unknown>, target: D.P
     tools: heads.map(i => {
       const sensor = record(status[`filament_motion_sensor e${i}_filament`]);
       const loaded = sensor.enabled === true && typeof sensor.filament_detected === 'boolean' ? sensor.filament_detected : null;
+      const feed = record(record(status[`filament_feed ${i < 2 ? 'left' : 'right'}`])[`extruder${i}`]);
+      const stage = typeof feed.channel_state === 'string' ? feed.channel_state : '';
+      const activity: D.MaterialState['tools'][number]['activity'] = !stage ? unknown : known(stage.endsWith('_fail') ? 'error' : stage.startsWith('load_') && stage !== 'load_finish' ? 'loading' : stage.startsWith('unload_') && stage !== 'unload_finish' ? 'unloading' : 'idle');
       return { toolId: u1ToolId(i), selectedPathId: unknown,
-        loadedPathId: loaded === null ? unknown : known(loaded ? u1PathId(i) : null), activity: unknown };
+        loadedPathId: loaded === null ? unknown : known(loaded ? u1PathId(i) : null), activity };
     }), dryers: [],
   } };
 }

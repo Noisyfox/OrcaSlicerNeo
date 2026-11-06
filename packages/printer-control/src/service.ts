@@ -1,3 +1,4 @@
+import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, type U1DeviceSnapshot } from './snapmaker-device';
 import { U1Submissions } from './snapmaker-submissions';
 import { prepareU1Submission, readU1Preparation, type U1PreparationSnapshot } from './snapmaker-preparation';
 import { u1MaterialInventory } from './snapmaker-observation';
@@ -38,6 +39,8 @@ const safe = async <T>(work: () => T | Promise<T>): Promise<D.Result<T>> => {
 };
 interface ConfigurationEntry {
   snapmakerPreparation?: U1PreparationSnapshot;
+  snapmakerDevice?: U1DeviceSnapshot;
+  materialOperationActive?: boolean;
   readonly signature: string;
   readonly revision: D.Revision;
   readonly cache: Partial<{ [K in D.StateTopic]: D.Reading<D.PrinterObservationMap[K]> }>;
@@ -120,7 +123,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
   async function resolve(target: D.TargetRequest) {
     return resolveSnapshot(await withConfiguration(loadConfiguration), target);
   }
-  function capabilities(): D.PrinterCapabilities {
+  function capabilities(entry?: ConfigurationEntry): D.PrinterCapabilities {
     return {
       revision: `${driver}-domain-4`, submission: driver === 'snapmaker' ? supported({ formats: ['gcode'] as const, failurePolicy: 'retry' as const }) : unsupported,
       commands: {
@@ -132,6 +135,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
         'materials.writeMetadata': unsupported, 'materials.configure': unsupported, 'materials.refreshTag': unsupported,
         'drying.start': unsupported, 'drying.stop': unsupported, 'camera.setEnabled': unsupported,
         'camera.setDeviceTimelapse': unsupported, 'files.delete': unsupported,
+        ...(driver === 'snapmaker' ? u1DeviceCapabilities(entry?.snapmakerDevice) : {}),
       },
       cameras: [], currentPrintPreview: unsupported, webInterface: supported({ id: webId, name: `${name} Web interface` }),
       files: {
@@ -140,7 +144,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
       },
       observations: {
         descriptor: supported({ delivery: ['on-demand'] }), firmware: supported({ delivery: ['on-demand'] }), status: supported({ delivery: ['on-demand'] }),
-        thermal: unsupported, motion: unsupported, actuators: unsupported, materials: driver === 'snapmaker' ? supported({ delivery: ['on-demand'] }) : unsupported, cameras: unsupported, sensors: unsupported, alerts: unsupported, printObjects: unsupported,
+        thermal: driver === 'snapmaker' ? supported({ delivery: ['on-demand'] }) : unsupported, motion: unsupported, actuators: driver === 'snapmaker' ? supported({ delivery: ['on-demand'] }) : unsupported, materials: driver === 'snapmaker' ? supported({ delivery: ['on-demand'] }) : unsupported, cameras: unsupported, sensors: driver === 'snapmaker' ? supported({ delivery: ['on-demand'] }) : unsupported, alerts: unsupported, printObjects: unsupported,
       },
     };
   }
@@ -155,7 +159,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
         configuration: { typeId, hostId: options.host.id, channel: 'lan', address: printer.apiBaseUrl,
           webInterfaceUrl: (printer.consoleUrl || null) as D.PrinterRouteConfiguration['webInterfaceUrl'],
           credentialRef: printer.apiKey ? `${driver}-key:${printer.id}` as D.Id<'credential'> : null },
-        capabilities: capabilities(),
+        capabilities: capabilities(entry),
       }],
     };
   }
@@ -206,7 +210,15 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
       const observed: ConfigurationEntry['cache'] = {};
       if (request.source === 'device') {
         if (request.topics.some(topic => capabilities().observations[topic].kind !== 'supported')) fail('unsupported', unsupported.reason);
-        if (request.topics.some(topic => topic === 'firmware') || request.topics.some(topic => topic === 'descriptor')) {
+        if (driver === 'snapmaker' && request.topics.some(topic => ['descriptor', 'thermal', 'actuators', 'sensors'].includes(topic))) {
+          entry.snapmakerDevice = await readU1Device(http, printer, options?.signal);
+          const values = u1DeviceValues(entry.snapmakerDevice, request.target, entry.revision, descriptor(printer, entry, entry.cache.firmware ?? unknown));
+          for (const [topic, value] of Object.entries(values)) {
+            Object.assign(observed, { [topic]: known(request.target, value) });
+            Object.assign(entry.cache, { [topic]: retained(known(request.target, value)) });
+          }
+        }
+        if (request.topics.some(topic => topic === 'firmware') || driver !== 'snapmaker' && request.topics.some(topic => topic === 'descriptor')) {
           const info = await http.get(printer, '/server/info', options?.signal);
           const firmware = typeof info.moonraker_version === 'string' ? known(request.target, [{ name: 'Moonraker', version: info.moonraker_version }]) : unknown;
           const nextDescriptor = descriptor(printer, entry, firmware);
@@ -215,7 +227,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
           entry.cache.firmware = retained(observed.firmware);
           entry.cache.descriptor = retained(observed.descriptor);
         }
-        if (driver === 'snapmaker' && request.topics.some(topic => topic === 'materials')) {
+        if (driver === 'snapmaker' && !observed.materials && request.topics.some(topic => topic === 'materials')) {
           const listing = await http.get(printer, '/printer/objects/list', options?.signal);
           const objects = Array.isArray(listing.objects) ? listing.objects : [];
           if (!objects.includes('print_task_config')) fail('unsupported', 'U1 material information is unavailable');
@@ -241,7 +253,11 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
   };
   async function validateCommand(target: D.TargetRequest, command: D.PrinterCommand, guard?: D.CommandEvaluation['basis']) {
     const resolved = await resolve(target);
-    const cap = capabilities().commands[command.type];
+    if (driver === 'snapmaker' && !command.type.startsWith('jobs.')) {
+      if (!resolved.entry.snapmakerDevice) resolved.entry.snapmakerDevice = await readU1Device(http, resolved.printer);
+      u1DeviceCommand(resolved.entry.snapmakerDevice, command);
+    }
+    const cap = capabilities(resolved.entry).commands[command.type];
     if (!cap || cap.kind !== 'supported') fail('unsupported', unsupported.reason);
     if (guard?.capabilityRevision !== undefined && guard.capabilityRevision !== capabilities().revision) fail('stale-context', 'Capability description changed');
     if (guard?.topologyRevision !== undefined && guard.topologyRevision !== resolved.entry.revision) fail('stale-context', 'Topology changed');
@@ -269,6 +285,9 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
         const { printer, entry } = await validateCommand(request.target, request.command, request.guard);
         const repeated = operations.existing({ ...request.target, requestId: request.requestId }, signature);
         if (repeated) return repeated;
+        const materialOperation = driver === 'snapmaker' && ['materials.load', 'materials.unload'].includes(request.command.type);
+        if (materialOperation && entry.materialOperationActive) fail('busy', 'Another individual material operation is still running');
+        if (materialOperation) entry.materialOperationActive = true;
         const ref: D.OperationRef = { ...targetFor(printer.id), id: newId<'operation'>() };
         const operation = { ref, requestId: request.requestId, configurationRevision: entry.revision, revision: 0, updatedAtMs: Date.now(), kind: 'command', steps: [], commandType: request.command.type, phase: { kind: 'queued' } } as D.CommandOperation;
         const submission = operations.register(operation, signature);
@@ -277,6 +296,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
           try {
             operations.update(ref, previous => ({ ...previous, phase: { kind: 'sent' } }));
             if (command.type === 'jobs.start') await http.post(printer, '/printer/print/start', { filename: filePath(command.params.source, request.target, entry) });
+            else if (driver === 'snapmaker' && !command.type.startsWith('jobs.')) await http.post(printer, '/printer/gcode/script', { script: u1DeviceCommand(entry.snapmakerDevice!, command) });
             else await http.post(printer, '/printer/gcode/script', { script: { 'jobs.pause': 'PAUSE', 'jobs.resume': 'RESUME', 'jobs.cancel': 'CANCEL_PRINT' }[command.type as 'jobs.pause' | 'jobs.resume' | 'jobs.cancel'] });
             // Moonraker's HTTP acknowledgement does not establish physical completion.
             operations.update(ref, previous => ({ ...previous, phase: { kind: 'acknowledged' } }));
@@ -284,7 +304,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
             operations.update(ref, previous => ({ ...previous, phase: error instanceof MoonrakerFailure && error.uncertain
               ? { kind: 'outcome-unknown', reason: 'Printer command response was interrupted' }
               : { kind: 'failed', error: publicError(error) } }));
-          }
+          } finally { if (materialOperation) entry.materialOperationActive = false; }
         })();
         return submission;
       } catch (error) { return { kind: 'rejected', error: publicError(error) }; }
@@ -384,7 +404,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
       state.listeners.add(listener);
       return () => { state.listeners.delete(listener); };
     },
-    describe: target => safe(async () => { const { entry } = await resolve(target); return copy({ target, configurationRevision: entry.revision, capabilities: capabilities(), descriptor: entry.cache.descriptor?.kind === 'known' ? { ...entry.cache.descriptor, freshness: 'stale' } : unknown }); }),
+    describe: target => safe(async () => { const { entry } = await resolve(target); return copy({ target, configurationRevision: entry.revision, capabilities: capabilities(entry), descriptor: entry.cache.descriptor?.kind === 'known' ? { ...entry.cache.descriptor, freshness: 'stale' } : unknown }); }),
     webInterfaces: {
       describe: target => safe(async () => { await resolve(target); return { ...target, capability: capabilities().webInterface, availability: { kind: 'unknown', reason: 'Not probed' }, assessedAtMs: Date.now(), freshness: 'fresh' } as D.WebInterfaceDescription; }),
       resolve: request => safe(async () => { const { printer } = await resolve(request.target); if (request.interfaceId !== undefined && request.interfaceId !== webId) fail('invalid-target', 'Web interface entry changed'); return { ...request.target, interfaceId: webId, url: (printer.consoleUrl || printer.apiBaseUrl) as D.WebInterfaceLaunch['url'], expiresAtMs: null }; }),

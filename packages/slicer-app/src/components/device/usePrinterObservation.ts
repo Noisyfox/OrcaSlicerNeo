@@ -81,6 +81,8 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
       if (result.ok) {
         if (manual.includes('materials')) useDeviceSelectionStore.getState().publishGrouping(result.value, true);
         accept(result.value); reportError('manual', null);
+        const description = await service.describe(target, { signal: abort.signal });
+        if (!abort.signal.aborted && description.ok) { latestCapabilities.current = description.value.capabilities; setCapabilities(description.value.capabilities); }
       }
       else {
         if (manual.includes('materials')) useDeviceSelectionStore.getState().failGroupingPull(target, route.configurationRevision);

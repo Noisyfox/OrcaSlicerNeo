@@ -89,3 +89,25 @@ it('shares prepared submissions across service facades and keeps upload-only fre
   expect(f.request.mock.calls).toHaveLength(1);
   expect(f.request.mock.calls[0][0].url).toContain('/server/files/upload');
 });
+
+
+it('retains one individual load operation across observers and rejects a second without queuing', async () => {
+  const f = fixture(); let finish!: () => void;
+  const wait = new Promise<void>(resolve => { finish = resolve; });
+  f.request.mockImplementation(async request => {
+    if (request.method === 'POST') await wait;
+    return { status: 200, json: async () => request.url.endsWith('/objects/list') ? { result: { objects: ['print_task_config', 'filament_feed left', 'filament_feed right'] } }
+      : request.url.endsWith('/gcode/help') ? { result: { FEED_AUTO: '' } }
+        : request.method === 'POST' ? { result: 'ok' } : { result: { status: { print_task_config: { filament_exist: [true] } } } } };
+  });
+  const first = await f.snapmaker.controls.submit({ target: f.target, requestId: id('load-1'), command: { type: 'materials.load', params: { pathId: id('snapmaker-path:0') } } });
+  expect(first.kind).toBe('recorded');
+  const reopened = createSnapmakerService(f.options);
+  const second = await reopened.controls.submit({ target: f.target, requestId: id('load-2'), command: { type: 'materials.unload', params: { toolId: id('snapmaker-tool:1') } } });
+  expect(second).toMatchObject({ kind: 'rejected', error: { code: 'busy' } });
+  finish();
+  if (first.kind !== 'recorded') throw new Error('Expected command');
+  const phases = []; for await (const operation of reopened.operations.watch(first.operation)) phases.push(operation.phase.kind);
+  expect(phases.at(-1)).toBe('acknowledged');
+  expect(f.request.mock.calls.filter(([r]) => r.method === 'POST')).toHaveLength(1);
+});

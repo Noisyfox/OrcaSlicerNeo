@@ -30,10 +30,11 @@ export function MaterialControlCard({ snapshot, capabilities, disabled, send, on
         </details>
         {inventory.topology.paths.filter(path => path.slotId === slot.id).map(path => {
           const tool = inventory.state.tools.find(tool => tool.toolId === path.toolId), loaded = valueOf(tool?.loadedPathId) === path.id;
-          const capability = valueOf(tool?.loadedPathId) ? change : load;
+          const deviceAdmission = load.kind === 'supported' && load.constraints.admission === 'device';
+          const capability = !deviceAdmission && valueOf(tool?.loadedPathId) ? change : load;
           const supported = capability.kind === 'supported' && capability.constraints.pathIds.includes(path.id);
           return <div key={path.id} className="printer-material-path"><p className="text-xs">{toolName(path.toolId)}{loaded ? ' · Loaded' : ''} · {display(tool?.activity)}</p>
-            <Button size="sm" variant="secondary" aria-label={`Load to ${toolName(path.toolId)}`} disabled={disabled || !supported || loaded} onClick={() => send({ type: valueOf(tool?.loadedPathId) ? 'materials.switch' : 'materials.load', params: { pathId: path.id } })}>Load</Button></div>;
+            <Button size="sm" variant="secondary" aria-label={`Load to ${toolName(path.toolId)}`} disabled={disabled || !supported || loaded && !deviceAdmission} onClick={() => send({ type: !deviceAdmission && valueOf(tool?.loadedPathId) ? 'materials.switch' : 'materials.load', params: { pathId: path.id } })}>Load</Button></div>;
         })}
         {!inventory.topology.paths.some(path => path.slotId === slot.id) && <p className="text-xs text-muted-foreground">No available tool path reported.</p>}
       </div>;

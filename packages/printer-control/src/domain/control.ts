@@ -120,6 +120,8 @@ export interface PrinterCommandSpecs {
   'materials.load': CommandSpec<{
     pathId: Id<'path'>;
   }, {
+    /** Device decides whether a supported load is appropriate, including an already loaded head. */
+    admission?: 'device';
     pathIds: NonEmptyReadonlyArray<Id<'path'>>;
   }>;
   'materials.unload': CommandSpec<{
