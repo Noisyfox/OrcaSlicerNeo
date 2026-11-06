@@ -22,16 +22,17 @@ describe('U1 physical Device controls', () => {
     expect(u1FilamentType(type, sub)).toBe(expected);
   });
   it('matches only present materials through the native catalogue, ignoring SKU and allowing an unknown vendor', async () => {
-    const inventory = u1MaterialInventory({ print_task_config: {
+    const status = { print_task_config: {
       filament_exist: [true, false, true], filament_type: ['PLA', 'PETG', '', 'PLA'],
       filament_vendor: ['Snapmaker', 'Third party', '', ''], filament_sub_type: ['SnapSpeed', 'HF', '', ''],
       filament_sku: [900001, 0, 123456, 0], filament_color_rgba: ['080A0DFF', 'FF0000FF', 'FFFFFFFF', '000000FF'],
-    } }, { printerId: id('p'), routeId: id('r') }, 'r');
+    } };
+    const inventory = u1MaterialInventory(status, { printerId: id('p'), routeId: id('r') }, 'r');
     let inputs: unknown;
-    await matchU1Materials(inventory, async materials => { inputs = materials; return ['native-id-a', 'native-id-b']; });
+    await matchU1Materials(inventory, async materials => { inputs = materials; return ['native-id-a', 'native-id-b']; }, status);
     expect(inputs).toEqual([
-      { manufacturer: 'Snapmaker', materialType: 'PLA HIGH SPEED', colorRgba: '#080A0DFF' },
-      { manufacturer: '', materialType: 'PLA', colorRgba: '#FFFFFFFF' },
+      { presetName: 'Snapmaker PLA SnapSpeed', manufacturer: 'Snapmaker', materialType: 'PLA HIGH SPEED', colorRgba: '#080A0DFF' },
+      { presetName: null, manufacturer: '', materialType: 'PLA', colorRgba: '#FFFFFFFF' },
     ]);
     const materials = inventory.state.slots.map(s => s.material.kind === 'known' ? s.material.value : null);
     expect(materials[0]?.catalogRefs).toEqual([{ namespace: 'orca-filament', value: 'native-id-a' }]);
@@ -75,6 +76,14 @@ describe('U1 physical Device controls', () => {
     expect(u1DeviceCommand(snapshot, { type: 'materials.writeMetadata', params })).toBe('SET_PRINT_FILAMENT_CONFIG CONFIG_EXTRUDER=3 VENDOR="Generic Brand" FILAMENT_TYPE="PLA" FILAMENT_SUBTYPE="Silk" FILAMENT_COLOR_RGBA=FF00FF80');
     expect(() => u1DeviceCommand(snapshot, { type: 'materials.writeMetadata', params: { ...params, patch: { manufacturer: 'bad\nCANCEL_PRINT', materialType: 'PLA' } } })).toThrow();
     expect(() => u1DeviceCommand(snapshot, { type: 'materials.writeMetadata', params: { ...params, patch: { diameterMm: 2 } } })).toThrow();
+  });
+  it('preserves the device series when saving an unchanged normalized type', () => {
+    const current = { ...snapshot, status: { ...snapshot.status, print_task_config: {
+      filament_vendor: ['Snapmaker'], filament_type: ['PLA'], filament_sub_type: ['SnapSpeed'],
+    } } };
+    expect(u1DeviceCommand(current, { type: 'materials.writeMetadata', params: { slotId: id('snapmaker-slot:0'),
+      patch: { manufacturer: 'Snapmaker', materialType: 'PLA HIGH SPEED' } } }))
+      .toBe('SET_PRINT_FILAMENT_CONFIG CONFIG_EXTRUDER=0 VENDOR="Snapmaker" FILAMENT_TYPE="PLA" FILAMENT_SUBTYPE="SnapSpeed"');
   });
 });
 

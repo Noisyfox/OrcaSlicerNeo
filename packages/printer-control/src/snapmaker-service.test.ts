@@ -27,7 +27,7 @@ describe('Snapmaker provider foundation', () => {
     const matcher = vi.fn(async () => ['native-filament-id']);
     const f = fixture(matcher);
     const result = await f.snapmaker.observations.read({ target: f.target, source: 'device', topics: ['materials'] });
-    expect(matcher).toHaveBeenCalledWith([{ manufacturer: '', materialType: 'PLA', colorRgba: '#ff0000ff' }]);
+    expect(matcher).toHaveBeenCalledWith([{ presetName: null, manufacturer: '', materialType: 'PLA', colorRgba: '#ff0000ff' }]);
     expect(result).toMatchObject({ ok: true, value: { values: { materials: { value: { state: { slots: [
       { material: { value: { catalogRefs: [{ namespace: 'orca-filament', value: 'native-filament-id' }] } } },
       { material: { value: null } }, {}, {},

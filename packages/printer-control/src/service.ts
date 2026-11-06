@@ -216,7 +216,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
       entry.snapmakerDevice = snapshot;
       const target = targetFor(printer.id);
       const values = u1DeviceValues(snapshot, target, entry.revision, descriptor(currentPrinter, entry, entry.cache.firmware ?? unknown), currentPrinter.printerModel);
-      if (values.materials && matchFilaments) await matchU1Materials(values.materials, matchFilaments);
+      if (values.materials && matchFilaments) await matchU1Materials(values.materials, matchFilaments, snapshot.status);
       values.status = await readStatus(currentPrinter, signal, snapshot.status);
       for (const [topic, value] of Object.entries(values)) Object.assign(entry.cache, { [topic]: known(target, value) });
       if (values.materials) entry.snapmakerPreparation = u1PreparationFromDevice(snapshot.status, snapshot.commands, target, entry.revision, snapshot.receivedAtMs);
@@ -240,7 +240,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
           Object.assign(observed, entry.cache);
           // Explicit reads return current values even when there is no ongoing consumer.
           const values = u1DeviceValues(entry.snapmakerDevice!, request.target, entry.revision, descriptor(printer, entry, entry.cache.firmware ?? unknown), printer.printerModel);
-          if (values.materials && matchFilaments) await matchU1Materials(values.materials, matchFilaments);
+          if (values.materials && matchFilaments) await matchU1Materials(values.materials, matchFilaments, entry.snapmakerDevice!.status);
           values.status = await readStatus(printer, options?.signal, entry.snapmakerDevice!.status);
           for (const [topic, value] of Object.entries(values)) Object.assign(observed, { [topic]: known(request.target, value) });
           if (request.topics.some(topic => topic === 'materials') && !values.materials) fail('unsupported', 'U1 material information is unavailable');

@@ -2097,15 +2097,33 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_match_filament_presets(const cha
         for (const auto& material : materials) {
             const auto vendor = material.at("manufacturer").get<std::string>();
             const auto type = material.at("materialType").get<std::string>();
+            const auto name = material.at("presetName");
+            if (!name.is_null() && !name.is_string()) throw std::runtime_error("Invalid material preset name");
             const auto rgba = material.at("colorRgba").get<std::string>();
             if (rgba.size() != 9 || rgba[0] != '#' || !std::all_of(rgba.begin() + 1, rgba.end(),
                 [](unsigned char c) { return std::isxdigit(c); })) throw std::runtime_error("Invalid material RGBA color");
             const auto color = std::stoul(rgba.substr(1, 6), nullptr, 16);
             unsigned long best = std::numeric_limits<unsigned long>::max();
             std::string id;
+            // Snapmaker Orca's resolve_filament_preset: exact base name before
+            // generic matching, case-insensitive and without the @variant suffix.
+            auto normalize_name = [](std::string text) {
+                const auto first = text.find_first_not_of(" \t\r\n");
+                if (first == std::string::npos) return std::string{};
+                text = text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1);
+                std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+                return text;
+            };
+            if (name.is_string() && !normalize_name(name.get<std::string>()).empty()) {
+                const auto wanted = normalize_name(name.get<std::string>());
+                for (const auto& preset : filaments.get_presets())
+                    if (preset.is_system && preset.is_compatible && normalize_name(preset.name.substr(0, preset.name.find('@'))) == wanted) {
+                        id = preset.filament_id; break;
+                    }
+            }
             // SnapmakerPrinterAgent::find_closest_color_preset_by_vendor_and_type.
             // Collection order breaks ties. Alpha does not participate in RGB distance.
-            for (const auto& preset : filaments.get_presets()) {
+            if (id.empty()) for (const auto& preset : filaments.get_presets()) {
                 if (!preset.is_visible || !preset.is_compatible || filaments.get_preset_base(preset) != &preset ||
                     preset.config.opt_string("filament_vendor", 0u) != vendor || preset.config.opt_string("filament_type", 0u) != type) continue;
                 auto text = preset.config.opt_string("default_filament_colour", 0u);

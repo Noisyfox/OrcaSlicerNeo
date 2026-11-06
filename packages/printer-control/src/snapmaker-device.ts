@@ -3,7 +3,7 @@ import { u1Preferences, u1PreferenceCapability, u1PreferenceScripts } from './sn
 import type * as D from './domain';
 import type { PrinterConfiguration } from './configuration';
 import { MoonrakerHttp, record, fail } from './moonraker-http';
-import { u1MaterialInventory, u1PathId, u1ToolId } from './snapmaker-observation';
+import { u1MaterialInventory, u1PathId, u1ToolId, u1FilamentType } from './snapmaker-observation';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
 const unknown = { kind: 'unknown', reason: 'not-reported' } as const;
@@ -146,7 +146,11 @@ export function u1DeviceCommand(snapshot: U1DeviceSnapshot, command: D.PrinterCo
         const previousSubtype = Array.isArray(config.filament_sub_type) ? config.filament_sub_type[i] : null;
         const type = p.patch.materialType !== undefined ? p.patch.materialType : previousType && previousSubtype ? `${previousType}-${previousSubtype}` : previousType;
         if (typeof vendor !== 'string' || typeof type !== 'string') fail('invalid-request', 'Specify the material brand and type');
-        const [family, ...variant] = type.split('-');
+        // The displayed sync type is normalized (e.g. PLA HIGH SPEED). Retain
+        // the actual device type/series when that displayed value is unchanged.
+        const original = typeof previousType === 'string' && typeof previousSubtype === 'string'
+          && type === u1FilamentType(previousType, previousSubtype);
+        const [family, ...variant] = original ? [previousType, previousSubtype] : type.split('-');
         script += ` VENDOR=${text(vendor)} FILAMENT_TYPE=${text(family)} FILAMENT_SUBTYPE=${text(variant.join('-') || 'Basic')}`;
       }
       if (p.patch.color !== undefined) {

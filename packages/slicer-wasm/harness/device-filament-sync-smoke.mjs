@@ -214,17 +214,23 @@ ok(call('orc_clear_model'));
 ok(command('orc_select_printer_with_remembered_rack', { printer: 'Snapmaker U1 (0.4 nozzle)',
   remembered_rack: null, remembered_bed_type: null, history_context: context }));
 const match = materials => ok(command('orc_match_filament_presets', materials)).filamentIds;
-const input = (manufacturer, materialType, colorRgba = '#080A0DFF') => ({ manufacturer, materialType, colorRgba });
+const input = (manufacturer, materialType, colorRgba = '#080A0DFF', presetName = null) => ({ presetName, manufacturer, materialType, colorRgba });
 const pureBefore = JSON.stringify(observe());
 assert.deepEqual(match([]), []);
 assert.deepEqual(match([input('Snapmaker', 'PLA')]), ['OFnmp2pO'], 'chooses the nearest-color visible compatible Snapmaker PLA base');
+assert.deepEqual(match([input('Snapmaker', 'PLA HIGH SPEED', '#080A0DFF', 'Snapmaker PLA SnapSpeed')]), ['OFwhLMs4'], 'exact complete base name takes precedence over type fallback');
+assert.deepEqual(match([input('Snapmaker', 'PLA HIGH SPEED', '#080A0DFF', '  snapmaker pla snapspeed  ')]), ['OFwhLMs4'], 'name matching trims whitespace and ignores case');
+assert.deepEqual(match([input('Snapmaker', 'PLA HIGH SPEED', '#080A0DFF', 'Snapmaker PLA SnapSpeed @not-a-device-name')]),
+  match([input('Snapmaker', 'PLA HIGH SPEED')]), 'strip the preset variant, never part of the reported material name');
+assert.deepEqual(match([input('Snapmaker', 'PLA', '#080A0DFF', 'Snapmaker PLA SnapSpee')]), match([input('Snapmaker', 'PLA')]), 'base names must match exactly, never by prefix');
+assert.deepEqual(match([input('Unknown', 'PLA', '#080A0DFF', 'Uninstalled vendor Uninstalled material')]), match([input('Unknown', 'PLA')]), 'unmatched names fall through to the original search');
 assert.deepEqual(match([input('Snapmaker', 'PLA', '#E72F1D00')]), match([input('Snapmaker', 'PLA', '#E72F1DFF')]), 'RGB matching ignores alpha');
 assert.deepEqual(match([input('Unknown', 'PLA HIGH SPEED')]), match([input('Unknown', 'PLA')]), 'Orca strips space modifiers for type fallback');
 assert.notEqual(match([input('Unknown', 'PA-CF')])[0], null, 'dash-modified type uses its native fallback');
 assert.equal(command('orc_match_filament_presets', [input('Snapmaker', 'PLA', 'bad')]).ok, false);
 assert.equal(JSON.stringify(observe()), pureBefore, 'matching leaves project, preset visibility and history unchanged');
 const colors = ['#080A0D', '#E72F1D', '#E2DEDB', '#F4C032'];
-const ids = match(colors.map(c => input('Snapmaker', 'PLA HIGH SPEED', `${c}FF`)));
+const ids = match(colors.map(c => input('Snapmaker', 'PLA HIGH SPEED', `${c}FF`, 'Snapmaker PLA SnapSpeed')));
 const u1Sources = colors.map((color, i) => ({ slotId: `snapmaker-slot:${i}`, materialType: 'PLA HIGH SPEED',
   colour: { kind: 'solid', color }, toolIndices: [i], catalogRefs: [{ namespace: 'orca-filament', value: ids[i] }] }));
 const u1Request = extra => request({ identity: { manufacturer: 'Snapmaker', model: 'Snapmaker U1', externalRefs: [] }, sources: u1Sources, ...extra });

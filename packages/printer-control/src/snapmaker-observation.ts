@@ -17,12 +17,20 @@ export function u1FilamentType(type: string | null, subtype: string | null): str
   if (sub && ['SILK', 'WOOD', 'MATTE', 'MARBLE'].includes(sub)) return `${base} ${sub}`;
   return base;
 }
-export interface FilamentMatchInput { manufacturer: string; materialType: string; colorRgba: string }
+export interface FilamentMatchInput { presetName: string | null; manufacturer: string; materialType: string; colorRgba: string }
 export type FilamentMatcher = (materials: readonly FilamentMatchInput[]) => Promise<readonly (string | null)[]>;
-export async function matchU1Materials(inventory: D.MaterialInventory, match: FilamentMatcher): Promise<void> {
-  const materials = inventory.state.slots.flatMap(slot => slot.material.kind === 'known' && slot.material.value ? [slot.material.value] : []);
+export async function matchU1Materials(inventory: D.MaterialInventory, match: FilamentMatcher, status: Record<string, unknown>): Promise<void> {
+  const config = record(status.print_task_config);
+  const field = (key: string, i: number) => Array.isArray(config[key]) && typeof config[key][i] === 'string' && config[key][i] !== 'NONE'
+    ? config[key][i].trim() as string : '';
+  const entries = inventory.state.slots.flatMap((slot, i) => {
+    if (slot.material.kind !== 'known' || !slot.material.value) return [];
+    const vendor = field('filament_vendor', i), type = field('filament_type', i), series = field('filament_sub_type', i);
+    return [{ material: slot.material.value, presetName: vendor && type ? [vendor, type, series].filter(Boolean).join(' ') : null }];
+  });
+  const materials = entries.map(e => e.material);
   if (!materials.length) return;
-  const ids = await match(materials.map(m => ({ manufacturer: m.manufacturer ?? '', materialType: m.materialType!,
+  const ids = await match(entries.map(({ material: m, presetName }) => ({ presetName, manufacturer: m.manufacturer ?? '', materialType: m.materialType!,
     colorRgba: m.color?.kind === 'solid' ? m.color.rgba : '#FFFFFFFF' })));
   if (ids.length !== materials.length) fail('invalid-request', 'Invalid native filament matching result');
   materials.forEach((material, i) => { material.catalogRefs = ids[i] ? [{ namespace: 'orca-filament', value: ids[i]! }] : []; });

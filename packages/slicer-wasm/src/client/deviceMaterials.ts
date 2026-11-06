@@ -1,7 +1,7 @@
 import type { PrinterSynchronizationRequest } from './types';
 
 /** Orca's visible/compatible base-preset vendor/type/RGB match, then type fallback. */
-export interface FilamentPresetMatchInput { manufacturer: string; materialType: string; colorRgba: string }
+export interface FilamentPresetMatchInput { presetName: string | null; manufacturer: string; materialType: string; colorRgba: string }
 
 /** Read-only catalogue for a physical device, independent of the active project printer. */
 export interface DeviceMaterialCatalogueRequest {

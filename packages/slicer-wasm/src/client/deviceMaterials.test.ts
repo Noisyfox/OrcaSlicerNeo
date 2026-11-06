@@ -22,7 +22,7 @@ it('rejects incomplete, duplicate or invalid temperature results instead of cons
 it('routes pure vendor/type/RGB matching through the native client', async () => {
   const client = createClient(async () => createMockModule());
   const before = await client.getHistoryStatus();
-  expect(await client.matchFilamentPresets([{ manufacturer: 'Snapmaker', materialType: 'PLA HIGH SPEED', colorRgba: '#FF000080' }]))
+  expect(await client.matchFilamentPresets([{ presetName: null, manufacturer: 'Snapmaker', materialType: 'PLA HIGH SPEED', colorRgba: '#FF000080' }]))
     .toEqual(['OFZGmLwF']);
   expect(await client.getHistoryStatus()).toEqual(before);
 });
