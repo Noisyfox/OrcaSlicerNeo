@@ -399,6 +399,15 @@ handling and native connection operations remain behind the public domain
 boundary. This access-code workflow does not remove generic local-only manual
 configuration or make device discovery a prerequisite for manual configuration.
 
+The ordinary Discover LAN printers dialog lists only devices absent from the
+saved printer catalogue, including printers already present through Cloud.
+Match the provider and physical external identity, not display name, model or
+current IP address. Catalogue changes update the open list without restarting
+discovery and clear a selection that has already been added. Forgetting a
+device makes its announcements eligible again when no saved routes remain.
+The explicitly targeted Storage authorization-recovery dialog still shows its
+existing printer so the user can repair its LAN access.
+
 Automatically remember user-entered LAN access codes in host-owned local device
 configuration and restore them after application restart. This is independent
 of the plugin's private account/session persistence. Follow Orca's
@@ -894,7 +903,8 @@ revision and removes only its LAN record, preserving independent Cloud routes.
 
 The shared [Device discovery UI](../packages/slicer-app/src/components/device/PrinterDiscovery.tsx)
 uses public provider discovery/authorization operations, shows masked transient
-access input and provides verification of saved access. It does not select a
+access input and hides already saved devices in ordinary discovery. Targeted
+Storage recovery retains authorization for the existing device. It does not select a
 print target. Deterministic native/host/provider/UI fixtures cover this boundary,
 including code rejection, callback order, expiry, restart reuse, address rules
 and Cloud/LAN cleanup. The real plugin's ordinary startup remains qualified;

@@ -13,7 +13,7 @@ test('Storage repairs same-printer LAN access through explicit discovery and ret
       const devices = ['a', 'b'].map(deviceId => ({ deviceId, name: `Workshop ${deviceId.toUpperCase()}`, model: 'H2D', modelId: 'O1D', routes: [{ channel: 'cloud', revision: 'r1' }] as Record<string, string>[] }));
       ipcMain.removeHandler(channels.bambuRead);
       ipcMain.handle(channels.bambuRead, (_event, kind) => kind === 'printers.saved' ? { ok: true, value: devices }
-        : kind === 'printers.candidates' ? { ok: true, value: devices.map(device => ({ candidateId: device.deviceId, deviceId: device.deviceId, name: `LAN ${device.name}`, model: 'H2D', address: '192.0.2.1', expiresAtMs: Date.now() + 60_000 })) }
+        : kind === 'printers.candidates' ? { ok: true, value: [...devices, { deviceId: 'c', name: 'Unadded H2D' }].map(device => ({ candidateId: device.deviceId, deviceId: device.deviceId, name: `LAN ${device.name}`, model: 'H2D', address: '192.0.2.1', expiresAtMs: Date.now() + 60_000 })) }
           : kind === 'account.state' ? { status: 'signed-out', error: null } : []);
       ipcMain.removeHandler(channels.bambuPrinterCommand);
       ipcMain.handle(channels.bambuPrinterCommand, (event, request) => {
@@ -30,10 +30,17 @@ test('Storage repairs same-printer LAN access through explicit discovery and ret
         return { ok: true, value: null };
       });
     }, Ipc);
-    await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
+    await page.getByTestId('tab-device').click();
+    await page.getByRole('button', { name: 'Discover printers', exact: true }).click();
+    const dialog = page.getByTestId('printer-discovery-dialog');
+    await expect(dialog.getByText('LAN Unadded H2D', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('LAN Workshop A', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByText('LAN Workshop B', { exact: true })).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.getByTestId('device-printer-select').click();
     await page.getByRole('option', { name: 'Workshop A', exact: true }).click(); await page.getByRole('tab', { name: 'Storage', exact: true }).click();
     await page.getByRole('button', { name: 'Authorize storage access', exact: true }).click();
-    const dialog = page.getByTestId('printer-discovery-dialog'); await expect(dialog.getByText('LAN Workshop A', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('LAN Workshop A', { exact: true })).toBeVisible();
     await expect(dialog.getByText('LAN Workshop B', { exact: true })).toHaveCount(0);
     await dialog.getByText('LAN Workshop A', { exact: true }).click(); await dialog.getByLabel('Access code', { exact: true }).fill('ABCDEFGH');
     await expect(dialog.getByLabel('Access code', { exact: true })).toHaveAttribute('type', 'password'); await dialog.getByRole('button', { name: 'Authorize access', exact: true }).click();
