@@ -181,16 +181,16 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
       if (!saved.ok) throw new Error(saved.error.message);
       const eligible = saved.value.filter(p => synchronizationRoute(p, kind));
       setPrinters(eligible);
-      const current = eligible.find(p => p.identity.id === useDeviceSelectionStore.getState().currentPrinterId);
-      if (current) for (const route of current.routes) {
-        if (!synchronizationRoute({ ...current, routes: [route] }, kind)) continue;
-        const cached = await service.observations.read({ target: { printerId: current.identity.id, routeId: route.id }, topics: ['materials'], source: 'cache' });
-        if (lifetime.signal.aborted) return;
-        const reading = cached.ok && cached.value.values.materials;
-        if (reading && reading.kind === 'known' && reading.freshness === 'fresh' && reading.sourceRouteId === route.id
-          && cached.ok && cached.value.configurationRevision === route.configurationRevision) {
-          await readDevice({ ...current, routes: [route] }, kind); return;
-        }
+      const selection = useDeviceSelectionStore.getState();
+      const current = eligible.find(p => p.identity.id === selection.currentPrinterId);
+      if (current) {
+        // Device remains the chosen source when its visible-only monitor pauses.
+        // Observation freshness determines acquisition, never device selection.
+        const active = selection.connection ?? selection.groupingSource;
+        const preferred = active?.target.printerId === current.identity.id
+          ? current.routes.find(route => route.id === active.target.routeId && synchronizationRoute({ ...current, routes: [route] }, kind)) : null;
+        const route = preferred ?? synchronizationRoute(current, kind)!;
+        await readDevice({ ...current, routes: [route] }, kind); return;
       }
       if (live.current) { setChoice(eligible[0]?.identity.id ?? ''); setPhase('choose'); }
     })().catch(cause => { if (!lifetime.signal.aborted) failure(cause); });

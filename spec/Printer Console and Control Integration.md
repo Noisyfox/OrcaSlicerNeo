@@ -125,7 +125,11 @@ existing independent eligibility of Flushing Volumes. Detailed layout ownership
 remains in [Application Shell](Application%20Shell.md).
 
 At each manual sync invocation, automatically use the currently connected
-printer. If no printer is connected, open a device chooser. Choosing a device
+printer. A paused Device monitor or missing/stale material cache must not open
+the chooser or substitute the first saved printer; the acquisition rules below
+determine whether a device read is needed. Preserve the connected route when
+available. If no device is selected, or its agent does not support the required
+sync observations, open a device chooser. Choosing a device
 connects it and makes it Device's current printer before starting the selected
 sync workflow. Failure to connect/read does not apply project changes.
 For a source whose required observation topics support push/poll delivery, use
@@ -2892,7 +2896,7 @@ is in the existing native bridge; send code does not inspect G-code contents.
 | --- | --- |
 | `pnpm typecheck` | Pass across the workspace. |
 | `pnpm --filter @orca/printer-control test` | 217 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. |
-| `pnpm --filter @orca/slicer-app test` | 1684 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
+| `pnpm --filter @orca/slicer-app test` | 1690 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
 | Affected package tests | Web 46; WASM client/bridge contracts 700 with 28 skipped; runtime 65 with 3 skipped; platform contracts 57; profile resources 4 passed. Skips remain excluded from acceptance. |
 | Electron production-path E2E build | `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` passed; this test build uses the mock slicer and real host IPC/HTTP transport. |
 | Electron printer E2E | All nine cases passed for Snapmaker manual setup, physical-head control while printing, metadata without a model, verified preference save, hidden-view polling release, model filtering, Moonraker send/start retry, and dirty-project then unfinished-send exit decisions. |
