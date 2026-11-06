@@ -19,6 +19,7 @@ interface Dependencies {
   http: MoonrakerHttp;
   resolve(target: D.TargetRequest): Promise<{ printer: PrinterConfiguration; revision: string }>;
   prepare: D.PrinterSubmissions['prepare'];
+  retainObservation?(target: D.TargetRequest): Promise<() => void>;
 }
 const terminal = (phase: D.PrintSubmissionState['phase']) => ['sent', 'failed', 'cancelled', 'unknown'].includes(phase);
 export class U1Submissions implements D.PrinterSubmissions {
@@ -79,7 +80,9 @@ export class U1Submissions implements D.PrinterSubmissions {
     return prepared.value;
   }
   private async execute(entry: Entry, request: D.PrintSubmissionRequest, artifact: D.PrintArtifactSource, printer: PrinterConfiguration) {
+    let release: (() => void) | undefined;
     try {
+      release = await this.dependencies.retainObservation?.(request.target);
       await this.validate(entry, request);
       const bytes = await collectArtifact(artifact, entry.abort.signal);
       await this.dependencies.resolve(request.target); this.check(entry);
@@ -116,7 +119,7 @@ export class U1Submissions implements D.PrinterSubmissions {
       if (entry.abort.signal.aborted && !entry.evidence.startDispatched)
         this.update(entry, { phase: 'cancelled', canCancel: false, message: 'Sending cancelled. An uploaded file or applied settings may remain on the printer.' });
       else this.update(entry, { phase: 'failed', canCancel: false, message: U1_SEND_FAILURE });
-    }
+    } finally { release?.(); }
   }
   private find(ref: D.PrintSubmissionRef) {
     const entry = this.entries.get(ref.id);

@@ -390,3 +390,15 @@ it('queries with the reported catalogue model association and identifies the phy
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('AMS 0 · Bay 2 · Left head');
   } finally { await f.close(); }
 });
+
+
+it('releases visible-consumer monitoring while hidden and reacquires on return', async () => {
+  const f = await fixture();
+  f.caps.observationLifetime = 'visible-consumers';
+  try {
+    await f.render(); expect(f.watch).toHaveBeenCalledOnce();
+    const signal = f.watch.mock.calls[0][1].signal;
+    await f.render(false, true); expect(signal.aborted).toBe(true);
+    await f.render(true); expect(f.watch).toHaveBeenCalledTimes(2);
+  } finally { await f.close(); }
+});

@@ -19,7 +19,10 @@ export async function readU1Preparation(http: MoonrakerHttp, printer: PrinterCon
     ...[0, 1, 2, 3].map(i => `filament_motion_sensor e${i}_filament`)].filter(name => objects.includes(name));
   const status = record((await http.get(printer, `/printer/objects/query?${names.map(encodeURIComponent).join('&')}`, signal)).status);
   const commands = Object.keys(await http.get(printer, '/printer/gcode/help', signal));
-  return { receivedAtMs: Date.now(), inventory: u1MaterialInventory(status, target, revision), commands,
+  return u1PreparationFromDevice(status, commands, target, revision, Date.now());
+}
+export function u1PreparationFromDevice(status: Record<string, unknown>, commands: readonly string[], target: D.PrinterTarget, revision: string, receivedAtMs: number): U1PreparationSnapshot {
+  return { receivedAtMs, inventory: u1MaterialInventory(status, target, revision), commands,
     tools: [0, 1, 2, 3].map(i => {
       const tool = record(status[i ? `extruder${i}` : 'extruder']);
       return { diameter: typeof tool.nozzle_diameter === 'number' && tool.nozzle_diameter > 0 ? tool.nozzle_diameter : null,

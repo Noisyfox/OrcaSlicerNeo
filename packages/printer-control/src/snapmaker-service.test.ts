@@ -48,12 +48,12 @@ describe('Snapmaker provider foundation', () => {
     expect(state.slots[1].material).toMatchObject({ kind: 'known', value: null });
     expect(state.slots[2].presence.kind).toBe('unknown');
     expect(state.tools[2].loadedPathId.kind).toBe('unknown');
-    expect(f.request.mock.calls[1][0].url).toContain('/proxy/printer/objects/query?print_task_config&filament_motion_sensor%20e0_filament');
+    expect(f.request.mock.calls[2][0].url).toContain('/proxy/printer/objects/query?print_task_config&filament_motion_sensor%20e0_filament');
     const cached = await f.snapmaker.observations.read({ target: f.target, source: 'cache', topics: ['materials'] });
     expect(cached.ok && cached.value.values.materials).toMatchObject({ freshness: 'stale' });
     if (!cached.ok || cached.value.values.materials.kind !== 'known') throw new Error('Expected cached inventory');
     expect(cached.value.values.materials.value.state.slots[0].presence).toMatchObject({ freshness: 'stale' });
-    expect(f.request).toHaveBeenCalledTimes(2);
+    expect(f.request).toHaveBeenCalledTimes(3);
   });
 
   it('reports missing protocol objects as unsupported rather than an empty successful inventory', async () => {
@@ -86,8 +86,9 @@ it('shares prepared submissions across service facades and keeps upload-only fre
   const uploaded = await reopened.files.upload({ target: f.target, requestId: id('upload-only'), destination: { kind: 'default' }, format: 'gcode', collisionPolicy: 'overwrite', fileName: 'unchanged.gcode', sizeBytes: 3 }, { chunks: (async function* () { yield new Uint8Array([255, 0, 10]); })() });
   if (uploaded.kind !== 'recorded') throw new Error('Expected upload');
   for await (const _state of reopened.operations.watch(uploaded.operation)) { /* drain */ }
-  expect(f.request.mock.calls).toHaveLength(1);
-  expect(f.request.mock.calls[0][0].url).toContain('/server/files/upload');
+  const writes = f.request.mock.calls.filter(([r]) => r.method === 'POST');
+  expect(writes).toHaveLength(1);
+  expect(writes[0][0].url).toContain('/server/files/upload');
 });
 
 

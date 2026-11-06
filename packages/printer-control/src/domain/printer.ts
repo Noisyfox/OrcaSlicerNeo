@@ -207,6 +207,8 @@ export interface PrinterState {
   }[]>;
 }
 export interface PrinterCapabilities {
+  /** Ordinary observation belongs to visible consumers; operations retain their own acquisition. */
+  observationLifetime?: 'visible-consumers';
   /** Capability to prepare and submit local artifacts through the agent. */
   submission: Capability<{ formats: NonEmptyReadonlyArray<'print-3mf' | 'gcode'>; failurePolicy?: 'retry' }>;
   revision: Revision;

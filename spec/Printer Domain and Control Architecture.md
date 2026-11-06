@@ -2051,7 +2051,7 @@ does not establish a device, Cloud or cross-platform delivery claim.
 configuration, provider routing and on-demand material reads are implemented in
 both hosts. U1 independent project materials, manual plate mapping and structured
 preparation policy are implemented. Prepared submission and physical Device controls are implemented. Persistent
-preferences are implemented; consumer-scoped monitoring and shared exit handling remain pending.
+preferences and consumer-scoped monitoring are implemented; shared exit handling remains pending.
 Scope, behavior and
 acceptance policy are settled. The
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#snapmaker-agent-design)
@@ -2317,7 +2317,11 @@ operation before submission.
 Preparation currently assumes observation watching; the extension must honor
 each agent's advertised delivery modes. Scope Snapmaker observation to active
 Device/send consumers and independent tracking for unfinished upload/device
-operations. Share acquisition when consumers need the same printer, and release
+operations. The implemented U1 acquisition hub shares concurrent reads and uses a two-second
+normal poll interval. Failed reads mark retained snapshots stale; recovery stops
+after three consecutive failures with exponential delay. Explicit Refresh or a
+new consumer restarts acquisition without replaying commands.
+Share acquisition when consumers need the same printer, and release
 ordinary acquisition when none remain; a running physical print alone does not
 require an application-lifetime monitor. Retain the last snapshot with its
 actual observation time and non-live state. These internal lifetimes do not
