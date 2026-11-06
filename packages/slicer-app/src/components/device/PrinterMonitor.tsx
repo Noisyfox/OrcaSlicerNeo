@@ -1,3 +1,4 @@
+import { DevicePreferencesCard } from './DevicePreferencesCard';
 import { useEffect, useRef, useState } from 'react';
 import { Pause, Play, Square } from 'lucide-react';
 import { PrinterMonitorLayout, PrintProgressCard } from './PrinterMonitorLayout';
@@ -94,6 +95,7 @@ export function PrinterMonitor({ printer, route, visible = true, observeWhileHid
       {capabilities.commands['hardware.refreshNozzles'].kind === 'supported' && <Button size="sm" variant="secondary" disabled={controls.disabled} onClick={() => void send({ type: 'hardware.refreshNozzles', params: {} })}>Refresh nozzle identification</Button>}
     </ControlCard></details>}
   />
+    {!!valueOf(snapshot?.values.preferences)?.fields.length && <DevicePreferencesCard key={`${target.printerId}:${target.routeId}:${target.expectedConfigurationRevision}`} service={service} target={target} preferences={valueOf(snapshot?.values.preferences)!} onSaved={() => void refresh()} />}
     {editor && editing && visible && <MaterialInformationDialog key={`${editor.target.printerId}:${editor.target.routeId}:${editor.target.expectedConfigurationRevision}:${editor.slot.id}`}
       service={service} target={editor.target} printer={editor.printer} slot={editor.slot} slotLabel={editor.slotLabel} material={editor.material} configuration={editing}
       capabilityRevision={capabilities.revision} disabled={controls.disabled} onClose={() => setEditor(null)} onSubmitted={acceptSubmission} />}

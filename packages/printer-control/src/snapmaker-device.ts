@@ -1,3 +1,4 @@
+import { u1Preferences, u1PreferenceCapability, u1PreferenceScripts } from './snapmaker-preferences';
 /** Observed U1 hardware and physical Device commands. Job mappings never enter this module. */
 import type * as D from './domain';
 import type { PrinterConfiguration } from './configuration';
@@ -22,7 +23,7 @@ export async function readU1Device(http: MoonrakerHttp, printer: PrinterConfigur
   const list = await http.get(printer, '/printer/objects/list', signal);
   if (!Array.isArray(list.objects) || !list.objects.every(x => typeof x === 'string')) fail('device-failed', 'Invalid device object list');
   const objects: string[] = list.objects;
-  const names = ['print_task_config', 'configfile', 'purifier', 'heater_bed', 'fan', 'led cavity_led', 'filament_feed left', 'filament_feed right',
+  const names = ['print_task_config', 'defect_detection', 'configfile', 'purifier', 'heater_bed', 'fan', 'led cavity_led', 'filament_feed left', 'filament_feed right',
     ...heads.flatMap(i => [extruder(i), `fan_generic e${i}_fan`, `filament_motion_sensor e${i}_filament`]), 'fan_generic cavity_fan'];
   const query = names.filter(name => objects.includes(name));
   const help = await http.get(printer, '/printer/gcode/help', signal);
@@ -65,7 +66,7 @@ export function u1DeviceValues(snapshot: U1DeviceSnapshot, target: D.PrinterTarg
   topology.sensors = sensors.definitions;
   const light = record(status['led cavity_led']).color_data;
   const white = Array.isArray(light) && Array.isArray(light[0]) ? finite(light[0][3]) : null;
-  const values: Partial<D.PrinterObservationMap> = { descriptor, sensors, thermal: heaters.map(name => ({ heaterId: heaterId(name), targetC: number(record(status[name]).target) })),
+  const values: Partial<D.PrinterObservationMap> = { preferences: u1Preferences(snapshot, target), descriptor, sensors, thermal: heaters.map(name => ({ heaterId: heaterId(name), targetC: number(record(status[name]).target) })),
     actuators: { fans: fans(snapshot).map(f => ({ fanId: fanId(f.object), speedFraction: number(f.object.startsWith('purifier:') ? record(record(status.purifier)[`${f.object.split(':')[1]}_fan`]).speed : record(status[f.object]).speed) })),
       lights: topology.lights.map(l => ({ lightId: l.id, on: white === null ? unknown : known(white > 0) })) } };
   if (snapshot.objects.includes('print_task_config')) { values.materials = u1MaterialInventory(status, target, revision); topology.materials = values.materials.topology; }
@@ -73,7 +74,7 @@ export function u1DeviceValues(snapshot: U1DeviceSnapshot, target: D.PrinterTarg
 }
 /** Capability support is independent of idle/printing/paused and the top cover's presence. */
 export function u1DeviceCapabilities(snapshot?: U1DeviceSnapshot): Partial<D.CommandCapabilities> {
-  const result: Partial<D.CommandCapabilities> = {};
+  const result: Partial<D.CommandCapabilities> = { 'preferences.set': u1PreferenceCapability(snapshot) };
   const names: D.CommandName[] = ['thermal.setTarget', 'fans.setSpeed', 'lights.set', 'materials.load', 'materials.unload', 'materials.configure'];
   for (const name of names) Object.assign(result, { [name]: snapshot ? { kind: 'unsupported', layer: 'device', reason: 'Required firmware command or object is not reported' } : { kind: 'unknown', reason: 'Device capabilities have not been read' } });
   if (!snapshot) return result;
@@ -108,6 +109,7 @@ export function u1DeviceCommand(snapshot: U1DeviceSnapshot, command: D.PrinterCo
   const cap = u1DeviceCapabilities(snapshot)[command.type];
   if (!cap || cap.kind !== 'supported') fail('unsupported', 'Device command is unavailable');
   switch (command.type) {
+    case 'preferences.set': return u1PreferenceScripts(snapshot, command.params.changes).join('\n');
     case 'materials.load': case 'materials.unload': {
       const i = command.type === 'materials.load' ? head(command.params.pathId, 'path') : head(command.params.toolId, 'tool');
       return `FEED_AUTO MODULE=${i < 2 ? 'left' : 'right'} CHANNEL=${[1, 0, 0, 1][i]} ${command.type === 'materials.load' ? 'LOAD' : 'UNLOAD'}=1`;

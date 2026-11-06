@@ -1,3 +1,4 @@
+import { u1PreferenceScripts, verifyU1Preferences } from './snapmaker-preferences';
 import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, type U1DeviceSnapshot } from './snapmaker-device';
 import { U1Submissions } from './snapmaker-submissions';
 import { prepareU1Submission, readU1Preparation, type U1PreparationSnapshot } from './snapmaker-preparation';
@@ -134,7 +135,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
         'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,
         'materials.writeMetadata': unsupported, 'materials.configure': unsupported, 'materials.refreshTag': unsupported,
         'drying.start': unsupported, 'drying.stop': unsupported, 'camera.setEnabled': unsupported,
-        'camera.setDeviceTimelapse': unsupported, 'files.delete': unsupported,
+        'camera.setDeviceTimelapse': unsupported, 'preferences.set': unsupported, 'files.delete': unsupported,
         ...(driver === 'snapmaker' ? u1DeviceCapabilities(entry?.snapmakerDevice) : {}),
       },
       cameras: [], currentPrintPreview: unsupported, webInterface: supported({ id: webId, name: `${name} Web interface` }),
@@ -143,6 +144,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
         list: unsupported, stat: unsupported, download: unsupported, preview: unsupported, changes: unsupported,
       },
       observations: {
+        preferences: driver === 'snapmaker' ? supported({ delivery: ['on-demand'] }) : unsupported,
         descriptor: supported({ delivery: ['on-demand'] }), firmware: supported({ delivery: ['on-demand'] }), status: supported({ delivery: ['on-demand'] }),
         thermal: driver === 'snapmaker' ? supported({ delivery: ['on-demand'] }) : unsupported, motion: unsupported, actuators: driver === 'snapmaker' ? supported({ delivery: ['on-demand'] }) : unsupported, materials: driver === 'snapmaker' ? supported({ delivery: ['on-demand'] }) : unsupported, cameras: unsupported, sensors: driver === 'snapmaker' ? supported({ delivery: ['on-demand'] }) : unsupported, alerts: unsupported, printObjects: unsupported,
       },
@@ -210,7 +212,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
       const observed: ConfigurationEntry['cache'] = {};
       if (request.source === 'device') {
         if (request.topics.some(topic => capabilities().observations[topic].kind !== 'supported')) fail('unsupported', unsupported.reason);
-        if (driver === 'snapmaker' && request.topics.some(topic => ['descriptor', 'thermal', 'actuators', 'sensors'].includes(topic))) {
+        if (driver === 'snapmaker' && request.topics.some(topic => ['descriptor', 'thermal', 'actuators', 'sensors', 'preferences'].includes(topic))) {
           entry.snapmakerDevice = await readU1Device(http, printer, options?.signal);
           const values = u1DeviceValues(entry.snapmakerDevice, request.target, entry.revision, descriptor(printer, entry, entry.cache.firmware ?? unknown));
           for (const [topic, value] of Object.entries(values)) {
@@ -296,6 +298,12 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
           try {
             operations.update(ref, previous => ({ ...previous, phase: { kind: 'sent' } }));
             if (command.type === 'jobs.start') await http.post(printer, '/printer/print/start', { filename: filePath(command.params.source, request.target, entry) });
+            else if (driver === 'snapmaker' && command.type === 'preferences.set') {
+              entry.snapmakerDevice = await readU1Device(http, printer);
+              for (const script of u1PreferenceScripts(entry.snapmakerDevice, command.params.changes)) await http.post(printer, '/printer/gcode/script', { script });
+              entry.snapmakerDevice = await readU1Device(http, printer);
+              verifyU1Preferences(entry.snapmakerDevice, command.params.changes);
+            }
             else if (driver === 'snapmaker' && !command.type.startsWith('jobs.')) await http.post(printer, '/printer/gcode/script', { script: u1DeviceCommand(entry.snapmakerDevice!, command) });
             else await http.post(printer, '/printer/gcode/script', { script: { 'jobs.pause': 'PAUSE', 'jobs.resume': 'RESUME', 'jobs.cancel': 'CANCEL_PRINT' }[command.type as 'jobs.pause' | 'jobs.resume' | 'jobs.cancel'] });
             // Moonraker's HTTP acknowledgement does not establish physical completion.

@@ -2051,7 +2051,7 @@ does not establish a device, Cloud or cross-platform delivery claim.
 configuration, provider routing and on-demand material reads are implemented in
 both hosts. U1 independent project materials, manual plate mapping and structured
 preparation policy are implemented. Prepared submission and physical Device controls are implemented. Persistent
-preferences, consumer-scoped monitoring and shared exit handling remain pending.
+preferences are implemented; consumer-scoped monitoring and shared exit handling remain pending.
 Scope, behavior and
 acceptance policy are settled. The
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#snapmaker-agent-design)
@@ -2260,6 +2260,13 @@ print-option switches per physical printer. The flow-calibration head subset
 belongs to one preparation session, uses deduplicated physical heads from the
 current mapping and follows the defaults and mapping-edit rules in the
 [accepted interaction contract](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-print-options-and-material-readiness).
+The typed `preferences` observation and `preferences.set` command own persistent
+Device edits. The U1 agent maps visual detection to `DEFECT_DETECTION_CONFIG`,
+and refill, lighting and filament-motion detection to `SET_PRINT_PREFERENCES`.
+The latter detection uses the firmware's `filament_entangle_*` fields (feed-wheel
+motion versus requested extrusion), not camera-based visual detection. Visual
+sensitivity offers low/high; filament-motion sensitivity offers low/medium/high.
+Only reported fields with the corresponding command are editable.
 An independent device-preference Save reads current values, writes changed
 fields only and verifies them by readback; canceling preparation does not roll
 back that save. Upload-only does not apply the current job's mapping/options.

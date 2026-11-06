@@ -111,3 +111,29 @@ it('retains one individual load operation across observers and rejects a second 
   expect(phases.at(-1)).toBe('acknowledged');
   expect(f.request.mock.calls.filter(([r]) => r.method === 'POST')).toHaveLength(1);
 });
+
+
+it('saves preferences with fresh comparison and readback, and retains partial effects on mismatch', async () => {
+  const f = fixture(); let autoRefill = false, ignoreColor = false;
+  const scripts: string[] = [];
+  f.request.mockImplementation(async request => {
+    if (request.method === 'POST' && request.body?.kind === 'json') {
+      const script = (JSON.parse(request.body.json) as { script: string }).script; scripts.push(script);
+      if (script.includes('AUTO_REPLENISH_FILAMENT=1')) autoRefill = true;
+      // Simulate an ACK which failed to apply the color preference.
+    }
+    return { status: 200, json: async () => request.url.endsWith('/objects/list') ? { result: { objects: ['print_task_config'] } }
+      : request.url.endsWith('/gcode/help') ? { result: { SET_PRINT_PREFERENCES: '' } }
+        : request.method === 'POST' ? { result: 'ok' } : { result: { status: { print_task_config: { auto_replenish_filament: autoRefill, replenish_ignore_color: ignoreColor } } } } };
+  });
+  async function save(key: 'autoRefill' | 'allowDifferentColors') {
+    const submitted = await f.snapmaker.controls.submit({ target: f.target, requestId: id(crypto.randomUUID()), command: { type: 'preferences.set', params: { changes: [{ key, value: true }] } } });
+    if (submitted.kind !== 'recorded') throw new Error('Expected command');
+    const phases = []; for await (const operation of f.snapmaker.operations.watch(submitted.operation)) phases.push(operation.phase);
+    return phases.at(-1);
+  }
+  expect(await save('autoRefill')).toMatchObject({ kind: 'acknowledged' });
+  expect(await save('allowDifferentColors')).toMatchObject({ kind: 'failed', error: { code: 'device-failed' } });
+  expect(autoRefill).toBe(true);
+  expect(scripts).toEqual(['SET_PRINT_PREFERENCES AUTO_REPLENISH_FILAMENT=1', 'SET_PRINT_PREFERENCES REPLENISH_IGNORE_COLOR=1']);
+});

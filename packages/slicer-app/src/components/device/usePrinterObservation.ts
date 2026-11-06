@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type * as D from '@orca/printer-control/domain';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 
-const contentTopics: D.StateTopic[] = ['status', 'sensors', 'thermal', 'motion', 'actuators', 'materials', 'alerts', 'cameras', 'printObjects'];
+const contentTopics: D.StateTopic[] = ['preferences', 'status', 'sensors', 'thermal', 'motion', 'actuators', 'materials', 'alerts', 'cameras', 'printObjects'];
 /** Select only topics consumed by this screen. A metadata capability alone never starts device access. */
 export function monitorTopics(capabilities: D.PrinterCapabilities) {
   const topics = contentTopics.filter(topic => capabilities.observations[topic].kind === 'supported');

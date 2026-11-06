@@ -223,6 +223,7 @@ export interface PrinterCapabilities {
 }
 /** Topic-scoped data avoids requiring a complete printer snapshot for a single read. */
 export interface PrinterObservationMap {
+  preferences: import('./preferences').DevicePreferences;
   /** Device reads obtain the current catalogue independently; cache/watch never initiate file reads. */
   printObjects: PrintObjectSnapshot;
   descriptor: PrinterDescriptor;

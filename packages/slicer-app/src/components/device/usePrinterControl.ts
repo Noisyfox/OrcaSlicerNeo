@@ -24,13 +24,15 @@ export function usePrinterCommands(service: D.PrinterService, target: D.TargetRe
         if (found.ok && found.value.kind === 'found') ref = found.value.operation.ref;
       }
       if (!ref) { if (active(abort)) setFeedback(unknownOutcome); return; }
+      let acknowledged = false;
       for await (const operation of service.operations.watch(ref, { signal: abort.signal })) {
         if (!active(abort)) return;
         if (operation.phase.kind === 'submitted' || operation.phase.kind === 'accepted' || operation.phase.kind === 'completed') { setFeedback(null); return; }
+        if (operation.phase.kind === 'acknowledged') acknowledged = true;
         if (operation.phase.kind === 'failed') { setFeedback(operation.phase.error.message); return; }
         if (operation.phase.kind === 'outcome-unknown') { setFeedback(operation.phase.reason); return; }
       }
-      if (active(abort)) setFeedback(unknownOutcome);
+      if (active(abort)) setFeedback(acknowledged ? null : unknownOutcome);
     } catch { if (active(abort)) setFeedback(unknownOutcome); }
     finally { if (active(abort)) { busy.current = false; setPending(false); } }
   }
