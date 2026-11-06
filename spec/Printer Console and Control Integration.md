@@ -2882,7 +2882,7 @@ conditions only; they do not create a universal firmware or platform claim.
 
 ### Software acceptance record (2026-11-06)
 
-The implementation was integrated on main `23414bc3` with Orca submodule
+The implementation was rebased onto main `84f5c420` with Orca submodule
 `e2cd10ba84a6f96e23827d2f851d0c4064a9eea3`. No libslic3r source or
 submodule pin changed for this feature. U1 eligibility/configuration adaptation
 is in the existing native bridge; send code does not inspect G-code contents.
@@ -2891,29 +2891,40 @@ is in the existing native bridge; send code does not inspect G-code contents.
 | --- | --- |
 | `pnpm typecheck` | Pass across the workspace. |
 | `pnpm --filter @orca/printer-control test` | 199 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. |
-| `pnpm --filter @orca/slicer-app test` | 1682 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
+| `pnpm --filter @orca/slicer-app test` | 1684 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
 | Affected package tests | Web 46; WASM client/bridge contracts 699 with 28 skipped; runtime 65 with 3 skipped; platform contracts 57; profile resources 4 passed. Skips remain excluded from acceptance. |
 | Electron production-path E2E build | `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` passed; this test build uses the mock slicer and real host IPC/HTTP transport. |
-| Electron printer E2E | Five focused cases passed for Snapmaker manual setup, physical-head control while printing, metadata without a model, verified preference save, hidden-view polling release, model filtering, Moonraker send/start retry, and dirty-project then unfinished-send exit decisions. |
+| Electron printer E2E | All nine cases passed for Snapmaker manual setup, physical-head control while printing, metadata without a model, verified preference save, hidden-view polling release, model filtering, Moonraker send/start retry, and dirty-project then unfinished-send exit decisions. |
 | Bambu submission E2E | Both `bambu-print.e2e.ts` cases passed for model selection, remembered options, cancellation, unknown outcome and successful closure. |
+| Bambu Storage E2E | Both `bambu-storage.e2e.ts` cases passed. The preference-persistence fixture uses keyboard submenu navigation and waits for dialog closure; the initial mouse-hover version was blocked by an inert overlay when reopening Preferences. This is not physical transport qualification. |
 | Web E2E | Both `snapmaker.e2e.ts` cases passed using real Web WASM and a CORS-enabled loopback printer: manual persistence/reload, direct transport, individual load and verified preferences. No gateway or U1 hardware is involved. |
 | Native U1 project/mapping | Both threaded and serial quick builds/validation/staging and `u1-material-mapping-smoke.mjs` passed: 1–64 project slots, more than four materials, sparse logical `T5`, mapped physical parameters, temperatures, invalidation, undo/redo and 3MF roundtrip with SEMM false. Existing threaded nozzle-mapping projection smoke also passed. |
 
 The exact focused host commands are:
 
 ```powershell
-pnpm --filter @orca/desktop exec playwright test e2e/printer-control.e2e.ts --grep 'Snapmaker|unfinished sending guards|Send and Send'
+pnpm --filter @orca/desktop exec playwright test e2e/printer-control.e2e.ts
 pnpm --filter @orca/desktop exec playwright test e2e/bambu-print.e2e.ts
+pnpm --filter @orca/desktop exec playwright test e2e/bambu-storage.e2e.ts
 pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts snapmaker.e2e.ts
 ```
 
-Repository-wide `pnpm test` remains blocked by the pre-existing Windows
-`bambu-native` baseline: 43 of 49 pass, four CRLF trace comparisons and two
-native stream/progress timing tests fail. The desktop unit suite has 567 passed,
-one skipped and the existing `downloadDestination.test.ts:41` Windows-versus-POSIX
-path assertion failure. These failures were reproduced, are outside this diff,
-and are not reported as passing. The affected Bambu print-submission unit suite,
-including cancellation plus callback/file lifetime at shutdown, has 34 passing tests.
+Independent review found that a stopped preparation watcher was not restarted
+by manual Refresh. The fix restarts only a stopped watcher after a successful
+read, preserving manual mappings and never replaying submissions. Component
+regressions cover both thrown errors and ended streams, failed refresh, later
+observations, retained mapping and unmount cleanup.
+
+Repository-wide `pnpm test` and `pnpm typecheck` now pass. The initial seven
+Windows failures were reproduced and fixed in separate Bambu-native and desktop
+test commits. Bambu-native has 50 passing tests: trace assertions accept LF/CRLF;
+bounded native reads resume on consumer demand; project-resource reads yield to
+I/O after progress instead of delaying each batch; and storage reads inspect
+arrived packets before declaring inactivity. Deadlines, queue bounds, integrity
+checks and cancellation remain covered. The desktop suite has 568 passed and
+one skipped after making the download-path expectation platform-aware. The
+Bambu print-submission suite, including cancellation plus callback/file lifetime
+at shutdown, retains its 34 passing tests.
 
 All real-U1 cases remain **unrun**: actual start and printing; more than four
 logical materials; many-to-one mappings and shared-heater effects; inserted
