@@ -52,8 +52,7 @@ export function u1MaterialInventory(status: Record<string, unknown>, target: D.P
     slots: heads.map(i => ({ id: id<'slot'>(`snapmaker-slot:${i}`), unitId: id<'material-unit'>(`snapmaker-holder:${i}`), name: `Filament ${i + 1}` })),
     paths: heads.map(i => ({ id: u1PathId(i), slotId: id<'slot'>(`snapmaker-slot:${i}`), toolId: u1ToolId(i), loading: 'automatic' })), dryers: [],
   };
-  return { topologyRevision: revision, topology, toolIds: heads.map(u1ToolId), state: {
-    inventoryRevision: JSON.stringify([revision, status]),
+  const state: Omit<D.MaterialState, 'inventoryRevision'> = {
     slots: heads.map(i => {
       const present = value('filament_exist', i);
       const type = text('filament_type', i);
@@ -80,5 +79,11 @@ export function u1MaterialInventory(status: Record<string, unknown>, target: D.P
       return { toolId: u1ToolId(i), selectedPathId: unknown,
         loadedPathId: loaded === null ? unknown : known(loaded ? u1PathId(i) : null), activity };
     }), dryers: [],
-  } };
+  };
+  // Only material content invalidates a reviewed mapping. Temperatures, print
+  // progress and observation timestamps change on otherwise identical polls.
+  // Keep the raw type/series too: native preset-name matching uses both.
+  const inventoryRevision = JSON.stringify([revision, heads.map(i => [text('filament_type', i), text('filament_sub_type', i)]), state],
+    (key, value) => key === 'receivedAtMs' || key === 'observedAtMs' ? undefined : value);
+  return { topologyRevision: revision, topology, toolIds: heads.map(u1ToolId), state: { inventoryRevision, ...state } };
 }

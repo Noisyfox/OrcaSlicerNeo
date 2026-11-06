@@ -2,6 +2,7 @@
 import { createServer } from 'node:http';
 export async function startSnapmakerFixture() {
   const scripts: string[] = []; let queries = 0, autoRefill = false;
+  const filamentColors = ['FF0000FF', '00FF00FF', '0000FFFF', 'FFFFFFFF'];
   const objects = ['gcode', 'print_task_config', 'print_stats', 'virtual_sdcard', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_bed', 'purifier', 'configfile', 'filament_feed left', 'filament_feed right'];
   const commands = ['SET_PRINT_PREFERENCES', 'SET_PRINT_EXTRUDER_MAP', 'SET_PRINT_USED_EXTRUDERS', 'SET_PRINT_FILAMENT_CONFIG', 'FEED_AUTO', 'SET_HEATER_TEMPERATURE', 'SET_PURIFIER'];
   const server = createServer(async (request, response) => {
@@ -13,8 +14,8 @@ export async function startSnapmakerFixture() {
     else if (path === '/printer/objects/query') {
       queries++;
       value = { result: { status: { gcode: { commands: Object.fromEntries(commands.map(c => [c, {}])) }, print_stats: { state: 'printing', filename: 'external.gcode' }, virtual_sdcard: { progress: .4 },
-        print_task_config: { filament_exist: [true, true, true, true], filament_type: ['PLA', 'PLA', 'PETG', 'ABS'], filament_color_rgba: ['FF0000FF', '00FF00FF', '0000FFFF', 'FFFFFFFF'], auto_replenish_filament: autoRefill, replenish_ignore_color: false, end_led_turn_off: false },
-        ...Object.fromEntries([0, 1, 2, 3].map(i => [i ? `extruder${i}` : 'extruder', { nozzle_diameter: .4, nozzle_volume_type: 'standard', temperature: 210, target: 215 }])),
+        print_task_config: { filament_exist: [true, true, true, true], filament_type: ['PLA', 'PLA', 'PETG', 'ABS'], filament_color_rgba: filamentColors, auto_replenish_filament: autoRefill, replenish_ignore_color: false, end_led_turn_off: false },
+        ...Object.fromEntries([0, 1, 2, 3].map(i => [i ? `extruder${i}` : 'extruder', { nozzle_diameter: .4, nozzle_volume_type: 'standard', temperature: 210 + queries / 10, target: 215 }])),
         heater_bed: { temperature: 60, target: 60 }, purifier: { power_detected: true, mode: 1, inner_fan: { speed: .2 }, exhaust_fan: { speed: .4 } },
         configfile: { settings: { extruder: { max_temp: 300 }, heater_bed: { max_temp: 100 } } },
       } } };
@@ -30,5 +31,6 @@ export async function startSnapmakerFixture() {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('Fixture address');
   return { baseUrl: `http://127.0.0.1:${address.port}`, scripts, queryCount: () => queries,
+    setFilamentColor: (head: number, rgba: string) => { filamentColors[head] = rgba; },
     close: () => new Promise<void>((resolve, reject) => { server.closeAllConnections(); server.close(error => error ? reject(error) : resolve()); }) };
 }

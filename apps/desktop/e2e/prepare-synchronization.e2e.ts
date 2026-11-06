@@ -2,6 +2,47 @@ import { expect, test } from '@playwright/test';
 import { _electron, desktopLaunchOptions } from './electron-fixture';
 import { installControlFixture, publishControlSnapshot } from './bambu-control-fixture';
 import { Ipc } from '../src/shared/ipc';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { startSnapmakerFixture } from './snapmaker-fixture';
+
+test('U1 Printer-to-Filament sync keeps a nonempty project mapping valid across telemetry polls', async () => {
+  const fixture = await startSnapmakerFixture();
+  const directory = mkdtempSync(join(tmpdir(), 'neo-u1-sync-'));
+  const config = join(directory, 'printers.json');
+  writeFileSync(config, JSON.stringify({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture',
+    apiBaseUrl: fixture.baseUrl, apiKey: '', consoleUrl: '', printerModel: { vendorId: 'Snapmaker', model: 'Snapmaker U1' } }] }));
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PRINTER_CONFIG: config } });
+  try {
+    const page = await app.firstWindow(); await page.setViewportSize({ width: 1440, height: 1000 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.locator('#app-tab-prepare').click();
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const bounds = await canvas.boundingBox(); if (!bounds) throw new Error('Missing viewport');
+    await canvas.click({ button: 'right', position: { x: bounds.width - 40, y: 140 } });
+    await page.getByTestId('btn-add-primitive').click(); await page.getByTestId('btn-add-cube').click();
+    await page.getByTestId('printer-sync').click();
+    const dialog = page.getByTestId('prepare-synchronization-dialog');
+    await dialog.getByRole('button', { name: 'Connect and sync', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Switch Printer and sync', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Continue to Filament sync', exact: true }).click();
+    const apply = dialog.getByRole('button', { name: 'Apply Filament sync', exact: true });
+    await expect(dialog.getByLabel('Material synchronization mapping')).toBeVisible();
+    await expect(apply).toBeEnabled();
+    const before = fixture.queryCount();
+    await expect.poll(() => fixture.queryCount(), { timeout: 10_000 }).toBeGreaterThanOrEqual(before + 2);
+    await expect(apply).toBeEnabled();
+    await expect(dialog.getByText('The source is disconnected or its materials changed.', { exact: false })).toHaveCount(0);
+    fixture.setFilamentColor(3, '123456FF');
+    await expect(apply).toBeDisabled({ timeout: 10_000 });
+    await expect(dialog.getByText('The source is disconnected or its materials changed.', { exact: false })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Refresh device', exact: true }).click();
+    await expect(apply).toBeEnabled();
+    await apply.click(); await expect(dialog).toHaveCount(0);
+    expect(fixture.scripts).toEqual([]);
+  } finally { await app.close(); await fixture.close(); }
+});
 
 test('Prepare sync uses Bambu observations, commits mixed hardware and reviews one native material batch', async () => {
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1' } });

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type * as D from './domain';
 import { createMoonrakerService } from './service';
 import { readSynchronizationSource, synchronizationSource, validateSynchronizationSource } from './synchronization';
+import { u1MaterialInventory } from './snapmaker-observation';
 const id = <K extends string>(value: string) => value as D.Id<K>;
 const target: D.PrinterTarget = { printerId: id('printer'), routeId: id('route') };
 const identity: D.PrinterIdentity = { id: target.printerId, displayName: 'Fixture', manufacturer: 'Fixture vendor', model: 'Three tools', serialNumber: null, externalRefs: [] };
@@ -49,6 +50,21 @@ async function fixture(s = snapshot(), live = false) {
   return { service, read, printer, route, s };
 }
 describe('project synchronization source boundary', () => {
+  it('keeps a reviewed U1 source valid after telemetry polls but rejects an actual material change', async () => {
+    const s = snapshot(); delete s.values.descriptor;
+    const status = { print_task_config: { filament_exist: [true, true, true, true], filament_type: ['PLA', 'PLA', 'PLA', 'PLA'],
+      filament_color_rgba: ['FFFFFFFF', 'FFFFFFFF', 'FFFFFFFF', 'FFFFFFFF'] }, extruder: { temperature: 25 } };
+    s.values.materials = known(u1MaterialInventory(status, target, 'topology'));
+    const f = await fixture(s, true);
+    const source = await readSynchronizationSource(f.service, f.printer, f.route, 'filament');
+    if (!source.ok) throw new Error(source.error.message);
+    status.extruder.temperature = 25.1;
+    s.values.materials = known(u1MaterialInventory(status, target, 'topology'));
+    expect(await validateSynchronizationSource(f.service, source.value)).toEqual({ ok: true, value: null });
+    status.print_task_config.filament_color_rgba[3] = '000000FF';
+    s.values.materials = known(u1MaterialInventory(status, target, 'topology'));
+    expect(await validateSynchronizationSource(f.service, source.value)).toMatchObject({ ok: false, error: { code: 'stale-context' } });
+  });
   it.each(['printer', 'filament'] as const)('uses a coherent live cache for %s without waiting for a device read', async kind => {
     const f = await fixture(snapshot(), true);
     expect(await readSynchronizationSource(f.service, f.printer, f.route, kind)).toMatchObject({ ok: true });

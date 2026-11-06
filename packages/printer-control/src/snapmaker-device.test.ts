@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type * as D from './domain';
 import { MoonrakerHttp } from './moonraker-http';
 import { normalizePrinterConfigurationDocument } from './configuration';
@@ -13,6 +13,39 @@ const snapshot: U1DeviceSnapshot = { receivedAtMs: 123, objects: ['print_task_co
     'filament_feed left': { extruder0: { channel_state: 'load_heating' }, extruder1: { channel_state: 'unload_fail' } },
   } };
 describe('U1 physical Device controls', () => {
+  it('keeps material revisions stable across telemetry polls and new observation timestamps', () => {
+    const target = { printerId: id<'printer'>('p'), routeId: id<'route'>('r') };
+    const clock = vi.spyOn(Date, 'now').mockReturnValueOnce(100).mockReturnValueOnce(200);
+    const first = u1MaterialInventory(snapshot.status, target, 'r');
+    const polled = u1MaterialInventory({ ...snapshot.status,
+      extruder: { ...snapshot.status.extruder as object, temperature: 209.8, target: 220 },
+      print_stats: { state: 'standby', print_duration: 5 }, purifier: { mode: 0 },
+      print_task_config: { ...snapshot.status.print_task_config as object, bed_mesh: true },
+    }, target, 'r');
+    clock.mockRestore();
+    expect(first.state.slots[0].material).toMatchObject({ receivedAtMs: 100 });
+    expect(polled.state.slots[0].material).toMatchObject({ receivedAtMs: 200 });
+    expect(polled.state.inventoryRevision).toBe(first.state.inventoryRevision);
+  });
+  it.each(['filament_exist', 'filament_vendor', 'filament_type', 'filament_sub_type', 'filament_color_rgba',
+    'loaded', 'sensor-enabled', 'feed-stage', 'configuration'])(
+    'invalidates material revisions when %s changes on any physical head', change => {
+      for (const head of [0, 1, 2, 3]) {
+        const status: Record<string, unknown> = { print_task_config: {
+          filament_exist: [true, true, true, true], filament_vendor: ['A', 'A', 'A', 'A'], filament_type: ['PLA', 'PLA', 'PLA', 'PLA'],
+          filament_sub_type: ['Basic', 'Basic', 'Basic', 'Basic'], filament_color_rgba: ['FFFFFFFF', 'FFFFFFFF', 'FFFFFFFF', 'FFFFFFFF'],
+        }, [`filament_motion_sensor e${head}_filament`]: { enabled: true, filament_detected: true },
+        [`filament_feed ${head < 2 ? 'left' : 'right'}`]: { [`extruder${head}`]: { channel_state: 'load_finish' } } };
+        const target = { printerId: id<'printer'>('p'), routeId: id<'route'>('r') };
+        const first = u1MaterialInventory(status, target, 'r');
+        if (change.startsWith('filament_')) (status.print_task_config as Record<string, unknown[]>)[change][head] = change === 'filament_exist' ? false : 'Changed';
+        else if (change === 'loaded' || change === 'sensor-enabled')
+          (status[`filament_motion_sensor e${head}_filament`] as Record<string, boolean>)[change === 'loaded' ? 'filament_detected' : 'enabled'] = false;
+        else if (change === 'feed-stage') status[`filament_feed ${head < 2 ? 'left' : 'right'}`] = { [`extruder${head}`]: { channel_state: 'unload_start' } };
+        expect(u1MaterialInventory(status, target, change === 'configuration' ? 'r2' : 'r').state.inventoryRevision)
+          .not.toBe(first.state.inventoryRevision);
+      }
+    });
   it.each([
     [null, 'CF', 'PLA'], [' pla ', 'SnapSpeed', 'PLA HIGH SPEED'], ['PETG', 'HS', 'PETG HIGH SPEED'],
     ['PA', 'CF', 'PA-CF'], ['PA', 'GF', 'PA-GF'], ['PLA', 'Silk', 'PLA SILK'], ['PLA', 'Wood', 'PLA WOOD'],

@@ -165,6 +165,10 @@ A synchronization modal locks project interaction while retaining the Device
 monitor and its existing connection. For streaming-capable sources, retain one
 source-scoped material observation across reads and review; refreshing the
 proposal updates its validation basis without replacing that subscription.
+Snapmaker material inventory revisions track material metadata and load state,
+including the raw type/series used for preset matching. Unrelated temperature,
+print-progress, preference and observation-time updates do not invalidate an
+open mapping review. Actual material changes still require an explicit refresh.
 An explicit chooser selection activates the Device observation owner even when
 its page is hidden, so canceling the proposal does not undo the connection.
 On-demand-only sources still perform no background read or subscription. The
@@ -2901,11 +2905,12 @@ is in the existing native bridge; send code does not inspect G-code contents.
 | Verification | Result and boundary |
 | --- | --- |
 | `pnpm typecheck` | Pass across the workspace. |
-| `pnpm --filter @orca/printer-control test` | 218 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. |
+| `pnpm --filter @orca/printer-control test` | 229 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. Includes stable U1 material revisions across telemetry/timestamp updates and invalidation for real material/load changes. |
 | `pnpm --filter @orca/slicer-app test` | 1692 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
 | Affected package tests | Web 46; WASM client/bridge contracts 700 with 28 skipped; runtime 65 with 3 skipped; platform contracts 57; profile resources 4 passed. Skips remain excluded from acceptance. |
 | Electron production-path E2E build | `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` passed; this test build uses the mock slicer and real host IPC/HTTP transport. |
 | Electron printer E2E | All nine cases passed for Snapmaker manual setup, physical-head control while printing, metadata without a model, verified preference save, hidden-view polling release, model filtering, Moonraker send/start retry, and dirty-project then unfinished-send exit decisions. |
+| Electron Prepare synchronization E2E | Both `prepare-synchronization.e2e.ts` cases passed with real WASM: Bambu mixed-hardware import and a nonempty U1 project continuing from Printer to Filament sync. U1 review stays valid across two telemetry polls, invalidates on actual color change, and applies after explicit Refresh. Uses a loopback protocol fixture; no printer commands or real hardware access. |
 | Bambu submission E2E | Both `bambu-print.e2e.ts` cases passed for model selection, remembered options, cancellation, unknown outcome and successful closure. |
 | Bambu Storage E2E | Both `bambu-storage.e2e.ts` cases passed. The preference-persistence fixture uses keyboard submenu navigation and waits for dialog closure; the initial mouse-hover version was blocked by an inert overlay when reopening Preferences. This is not physical transport qualification. |
 | Web E2E | Both `snapmaker.e2e.ts` cases passed using real Web WASM and a CORS-enabled loopback printer: manual persistence/reload, direct transport, individual load and verified preferences. No gateway or U1 hardware is involved. |
