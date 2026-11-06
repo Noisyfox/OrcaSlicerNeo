@@ -7,3 +7,5 @@ export * from './synchronization';
 export * from './materialGrouping';
 
 export { unavailablePrinterDownloads } from './unavailableDownloads';
+
+export { sendActivity } from './send-activity';

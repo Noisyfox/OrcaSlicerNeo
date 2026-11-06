@@ -1,4 +1,4 @@
-import { sendActivity } from '@orca/printer-control/send-activity';
+import { sendActivity } from '@orca/printer-control';
 import { useSendExitGuard } from './components/send/SendExitGuard';
 import { MeshBooleanWait } from './components/workspace/viewport/gizmo/meshBoolean/MeshBooleanControls';
 import { PrinterDownloadNotifications } from './components/device/PrinterDownloadNotifications';

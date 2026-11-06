@@ -10,7 +10,7 @@ export function MaterialControlCard({ snapshot, capabilities, disabled, send, on
   const inventory = valueOf(snapshot?.values.materials), sensors = valueOf(snapshot?.values.sensors);
   const tools = valueOf(snapshot?.values.descriptor)?.topology.tools;
   const toolName = (id: string) => tools?.find(tool => tool.id === id)?.name ?? 'Unknown tool';
-  const configure = capabilities.commands['materials.configure'];
+  const configure = capabilities.commands['materials.configure'], metadata = capabilities.commands['materials.writeMetadata'];
   const load = capabilities.commands['materials.load'], change = capabilities.commands['materials.switch'], unload = capabilities.commands['materials.unload'];
   return <ControlCard title="Material system"><div className="printer-material-units">{inventory?.topology.units.map(unit => <section className="printer-material-unit" data-kind={unit.kind} key={unit.id}>
     <h4 className="text-sm font-medium">{unit.name}</h4><div className="printer-material-sensors">{unit.sensorIds.map(id => {
@@ -21,7 +21,7 @@ export function MaterialControlCard({ snapshot, capabilities, disabled, send, on
       const state = inventory.state.slots.find(item => item.slotId === slot.id), material = valueOf(state?.material), color = material?.color;
       return <div className="printer-material-slot" key={slot.id}>
         <div className="flex items-center justify-between gap-1"><span className="flex min-w-0 items-center gap-1">{color && <span aria-label="Material color" className="printer-material-color" style={colorSwatchStyle(materialColorSwatch(color))} />}<strong>{slot.name}</strong></span>
-        {configure.kind === 'supported' && configure.constraints.some(target => target.slotId === slot.id) && <TooltipFor content="Material information" disabled={disabled} nonInteractive><Button size="icon-xs" variant="ghost" className="shrink-0" aria-label={`Material information for ${unit.name} · ${slot.name}`} disabled={disabled} onClick={() => onEdit?.(slot, material ?? undefined)}><Pencil className="size-3" /></Button></TooltipFor>}</div>
+        {(configure.kind === 'supported' && configure.constraints.some(target => target.slotId === slot.id) || metadata.kind === 'supported' && metadata.constraints.some(target => target.slotId === slot.id)) && <TooltipFor content="Material information" disabled={disabled} nonInteractive><Button size="icon-xs" variant="ghost" className="shrink-0" aria-label={`Material information for ${unit.name} · ${slot.name}`} disabled={disabled} onClick={() => onEdit?.(slot, material ?? undefined)}><Pencil className="size-3" /></Button></TooltipFor>}</div>
         <p className="printer-slot-material">{material?.materialType || 'Unknown material'}</p>
         <details className="printer-slot-details"><summary>Details</summary>
           <p>Presence: {display(state?.presence)}</p>

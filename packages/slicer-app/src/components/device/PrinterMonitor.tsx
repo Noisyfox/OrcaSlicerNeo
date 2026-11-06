@@ -1,3 +1,4 @@
+import { MaterialMetadataDialog } from './MaterialMetadataDialog';
 import { DevicePreferencesCard } from './DevicePreferencesCard';
 import { useEffect, useRef, useState } from 'react';
 import { Pause, Play, Square } from 'lucide-react';
@@ -33,7 +34,9 @@ export function PrinterMonitor({ printer, route, visible = true, observeWhileHid
     && editor.target.expectedConfigurationRevision === target.expectedConfigurationRevision
     && inventory?.topology.slots.some(slot => slot.id === editor.slot.id)
     && configure.kind === 'supported' ? configure.constraints.find(item => item.slotId === editor.slot.id) : undefined;
-  useEffect(() => { if (editor && (!editing || !visible)) setEditor(null); }, [editor, editing, visible]);
+  const metadata = capabilities.commands['materials.writeMetadata'];
+  const metadataEditing = editor && editor.target.printerId === target.printerId && editor.target.routeId === target.routeId && editor.target.expectedConfigurationRevision === target.expectedConfigurationRevision && metadata.kind === 'supported' ? metadata.constraints.find(item => item.slotId === editor.slot.id) : undefined;
+  useEffect(() => { if (editor && ((!editing && !metadataEditing) || !visible)) setEditor(null); }, [editor, editing, metadataEditing, visible]);
   const [cancel, setCancel] = useState<{ name: string; taskId?: D.Id<'device-task'> } | null>(null);
   const status = valueOf(snapshot?.values.status), topology = valueOf(snapshot?.values.descriptor)?.topology;
   const fresh = snapshot?.values.status?.kind === 'known' && snapshot.values.status.freshness === 'fresh' && !error;
@@ -96,6 +99,7 @@ export function PrinterMonitor({ printer, route, visible = true, observeWhileHid
     </ControlCard></details>}
   />
     {!!valueOf(snapshot?.values.preferences)?.fields.length && <DevicePreferencesCard key={`${target.printerId}:${target.routeId}:${target.expectedConfigurationRevision}`} service={service} target={target} preferences={valueOf(snapshot?.values.preferences)!} onSaved={() => void refresh()} />}
+    {editor && !editing && metadataEditing && visible && <MaterialMetadataDialog key={`${editor.target.printerId}:${editor.target.routeId}:${editor.slot.id}`} service={service} target={editor.target} slot={editor.slot} material={editor.material} fields={metadataEditing.writableFields} onClose={() => { setEditor(null); void refresh(); }} />}
     {editor && editing && visible && <MaterialInformationDialog key={`${editor.target.printerId}:${editor.target.routeId}:${editor.target.expectedConfigurationRevision}:${editor.slot.id}`}
       service={service} target={editor.target} printer={editor.printer} slot={editor.slot} slotLabel={editor.slotLabel} material={editor.material} configuration={editing}
       capabilityRevision={capabilities.revision} disabled={controls.disabled} onClose={() => setEditor(null)} onSubmitted={acceptSubmission} />}

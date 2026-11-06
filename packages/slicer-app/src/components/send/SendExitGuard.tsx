@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { PrinterService } from '@orca/printer-control/domain';
-import { sendActivity } from '@orca/printer-control/send-activity';
+import { sendActivity } from '@orca/printer-control';
 import { Button } from '@/components/ui/button';
 /** The desktop close handshake reaches this after the project-save decision. */
 export function useSendExitGuard(service: PrinterService) {

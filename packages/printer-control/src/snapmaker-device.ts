@@ -75,7 +75,7 @@ export function u1DeviceValues(snapshot: U1DeviceSnapshot, target: D.PrinterTarg
 /** Capability support is independent of idle/printing/paused and the top cover's presence. */
 export function u1DeviceCapabilities(snapshot?: U1DeviceSnapshot): Partial<D.CommandCapabilities> {
   const result: Partial<D.CommandCapabilities> = { 'preferences.set': u1PreferenceCapability(snapshot) };
-  const names: D.CommandName[] = ['thermal.setTarget', 'fans.setSpeed', 'lights.set', 'materials.load', 'materials.unload', 'materials.configure'];
+  const names: D.CommandName[] = ['thermal.setTarget', 'fans.setSpeed', 'lights.set', 'materials.load', 'materials.unload', 'materials.writeMetadata'];
   for (const name of names) Object.assign(result, { [name]: snapshot ? { kind: 'unsupported', layer: 'device', reason: 'Required firmware command or object is not reported' } : { kind: 'unknown', reason: 'Device capabilities have not been read' } });
   if (!snapshot) return result;
   const has = (command: string) => snapshot.commands.includes(command);
@@ -92,8 +92,7 @@ export function u1DeviceCapabilities(snapshot?: U1DeviceSnapshot): Partial<D.Com
     result['materials.load'] = supported({ pathIds: heads.map(u1PathId) as unknown as D.NonEmptyReadonlyArray<D.Id<'path'>>, admission: 'device' as const });
     result['materials.unload'] = supported({ toolIds: heads.map(u1ToolId) as unknown as D.NonEmptyReadonlyArray<D.Id<'tool'>> });
   }
-  if (has('SET_PRINT_FILAMENT_CONFIG') && snapshot.objects.includes('print_task_config')) result['materials.configure'] = supported(heads.map(i => ({ slotId: slotId(i), informationWritable: true, maxGradientColors: null, actions: ['confirm'], restriction: null,
-    catalogue: { mainNozzleDiameterMm: finite(record(snapshot.status[extruder(i)]).nozzle_diameter), toolIndex: i, nozzleFlowType: typeof record(snapshot.status[extruder(i)]).nozzle_volume_type === 'string' ? record(snapshot.status[extruder(i)]).nozzle_volume_type as string : null, supportsUserPresets: true } })) as unknown as D.NonEmptyReadonlyArray<D.MaterialConfigurationTarget>);
+  if (has('SET_PRINT_FILAMENT_CONFIG') && snapshot.objects.includes('print_task_config')) result['materials.writeMetadata'] = supported(heads.map(i => ({ slotId: slotId(i), writableFields: ['manufacturer', 'materialType', 'color'] })) as unknown as D.NonEmptyReadonlyArray<{ slotId: D.Id<'slot'>; writableFields: D.NonEmptyReadonlyArray<keyof D.MaterialMetadata> }>);
   return result;
 }
 function head(value: string, prefix: string): number {
@@ -132,17 +131,23 @@ export function u1DeviceCommand(snapshot: U1DeviceSnapshot, command: D.PrinterCo
     case 'lights.set':
       if (command.params.lightId !== 'snapmaker-light' || typeof command.params.on !== 'boolean') fail('invalid-request', 'Invalid light');
       return `SET_LED LED=cavity_led WHITE=${command.params.on ? 1 : 0}`;
-    case 'materials.configure': {
+    case 'materials.writeMetadata': {
       const p = command.params, i = head(p.slotId, 'slot');
-      if (p.intent !== 'confirm' || !p.preset && !p.color) fail('invalid-request', 'Select a material or color');
+      if (!p.patch || !Object.keys(p.patch).length || Object.keys(p.patch).some(key => !['manufacturer', 'materialType', 'color'].includes(key))) fail('invalid-request', 'Unsupported material fields');
       let script = `SET_PRINT_FILAMENT_CONFIG CONFIG_EXTRUDER=${i}`;
-      if (p.preset) {
-        const [family, ...variant] = p.preset.materialType.split('-');
-        script += ` VENDOR=${text(p.preset.manufacturer || 'Generic')} FILAMENT_TYPE=${text(family)} FILAMENT_SUBTYPE=${text(variant.join('-') || 'Basic')}`;
+      if (p.patch.manufacturer !== undefined || p.patch.materialType !== undefined) {
+        const config = record(snapshot.status.print_task_config);
+        const vendor = p.patch.manufacturer !== undefined ? p.patch.manufacturer : Array.isArray(config.filament_vendor) ? config.filament_vendor[i] : null;
+        const previousType = Array.isArray(config.filament_type) ? config.filament_type[i] : null;
+        const previousSubtype = Array.isArray(config.filament_sub_type) ? config.filament_sub_type[i] : null;
+        const type = p.patch.materialType !== undefined ? p.patch.materialType : previousType && previousSubtype ? `${previousType}-${previousSubtype}` : previousType;
+        if (typeof vendor !== 'string' || typeof type !== 'string') fail('invalid-request', 'Specify the material brand and type');
+        const [family, ...variant] = type.split('-');
+        script += ` VENDOR=${text(vendor)} FILAMENT_TYPE=${text(family)} FILAMENT_SUBTYPE=${text(variant.join('-') || 'Basic')}`;
       }
-      if (p.color) {
-        if (p.color.kind !== 'solid' || !/^#[0-9a-f]{8}$/i.test(p.color.rgba)) fail('invalid-request', 'Select a solid RGBA color');
-        script += ` FILAMENT_COLOR_RGBA=${p.color.rgba.slice(1)}`;
+      if (p.patch.color !== undefined) {
+        if (!p.patch.color || p.patch.color.kind !== 'solid' || !/^#[0-9a-f]{8}$/i.test(p.patch.color.rgba)) fail('invalid-request', 'Select a solid RGBA color');
+        script += ` FILAMENT_COLOR_RGBA=${p.patch.color.rgba.slice(1)}`;
       }
       return script;
     }

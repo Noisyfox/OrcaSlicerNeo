@@ -1,4 +1,4 @@
-import { sendActivity } from '@orca/printer-control/send-activity';
+import { sendActivity } from '@orca/printer-control';
 import { useProjectModal } from '../useProjectModal';
 import { PrintPreparationPanel } from './PrintPreparationPanel';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';

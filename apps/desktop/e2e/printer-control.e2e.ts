@@ -1,3 +1,4 @@
+import { startSnapmakerFixture } from './snapmaker-fixture';
 import { _electron } from './electron-fixture';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -605,5 +606,59 @@ test('Send & Print works with a keyless Moonraker printer and sends no API-key h
   } finally {
     await app.close();
     await fixture.close();
+  }
+});
+
+
+test('Snapmaker Device uses Electron transport for physical controls and verified preferences', async () => {
+  const fixture = await startSnapmakerFixture();
+  const { app } = await launchApp({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture', apiBaseUrl: fixture.baseUrl, apiKey: '', consoleUrl: '' }] });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page);
+    await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click(); await page.getByTestId('device-select-u1').click();
+    await page.locator('#device-tab-monitor').click();
+    await expect(page.getByRole('button', { name: 'Load to Toolhead 1', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Load to Toolhead 1', exact: true }).click({ noWaitAfter: true });
+    await expect.poll(() => fixture.scripts).toContain('FEED_AUTO MODULE=left CHANNEL=1 LOAD=1');
+    await page.getByRole('button', { name: 'Material information for Toolhead 1 · Filament 1', exact: true }).click({ noWaitAfter: true });
+    await page.getByLabel('Brand', { exact: true }).fill('Generic');
+    await page.getByLabel('Material type', { exact: true }).fill('PLA-Silk');
+    await page.getByRole('button', { name: 'Save material information', exact: true }).click({ noWaitAfter: true });
+    await expect(page.getByRole('heading', { name: 'Material information', exact: true })).toBeHidden();
+    expect(fixture.scripts.some(script => script.includes('FILAMENT_TYPE="PLA" FILAMENT_SUBTYPE="Silk"'))).toBe(true);
+    await page.getByLabel('Auto-refill', { exact: true }).selectOption('true');
+    await page.getByRole('button', { name: 'Save printer preferences' }).click({ noWaitAfter: true });
+    await expect(page.getByText('Printer preferences saved and verified.')).toBeVisible();
+    expect(fixture.scripts).toContain('SET_PRINT_PREFERENCES AUTO_REPLENISH_FILAMENT=1');
+    await page.locator('#app-tab-prepare').click();
+    await page.waitForTimeout(500); const count = fixture.queryCount(); await page.waitForTimeout(2300); expect(fixture.queryCount()).toBe(count);
+  } finally { await app.close(); await fixture.close(); }
+});
+
+
+test('unfinished sending guards desktop close after the project decision and cancels before exit', async () => {
+  const fixture = await startMoonrakerFixture(0);
+  const { app } = await launchApp({ version: 1, printers: [{ id: 'exit-printer', driverId: 'moonraker', displayName: 'Exit fixture', apiBaseUrl: fixture.baseUrl, apiKey: '', consoleUrl: '' }] });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page); await addFixtureModelAndSlice(page);
+    await page.getByTestId('output-mode-select').click(); await page.getByRole('menuitemradio', { name: 'Send & Print', exact: true }).click();
+    await page.getByTestId('btn-send-and-print').click(); await chooseSendPrinter(page, 'exit-printer');
+    fixture.holdUploadResponse(); await page.getByTestId('send-submit').click({ noWaitAfter: true });
+    await expect.poll(() => fixture.state.uploadBodies.length).toBe(1);
+    async function requestClose() {
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
+      await expect(page.getByTestId('project-dirty-dialog')).toBeVisible();
+      await page.getByTestId('project-dirty-dont-save').click({ noWaitAfter: true });
+      await expect(page.getByText('Sending is still in progress', { exact: true })).toBeVisible();
+    }
+    await requestClose(); await page.getByRole('button', { name: 'Return to app', exact: true }).click();
+    expect(page.isClosed()).toBe(false); expect(fixture.state.startPaths).toHaveLength(0);
+    await requestClose(); const closed = page.waitForEvent('close');
+    await page.getByRole('button', { name: 'Stop sending and exit', exact: true }).click({ noWaitAfter: true });
+    await closed; expect(fixture.state.startPaths).toHaveLength(0);
+  } finally {
+    fixture.releaseUploadResponse();
+    if (app.windows().some(window => !window.isClosed())) await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach(window => window.destroy()));
+    await app.close(); await fixture.close();
   }
 });

@@ -1,8 +1,7 @@
 # Application Shell
 
 **Updated:** 2026-11-05
-**Status:** Delivered shared behavior; unfinished-send exit handling is accepted
-design pending implementation. Notification qualification boundaries are
+**Status:** Delivered shared behavior, including unfinished-send exit handling. Notification qualification boundaries are
 recorded in its verification section.
 **Scope:** Shared layout, desktop window chrome, menus and diagnostics.
 
@@ -42,7 +41,7 @@ in the utility process, as specified by
 The accepted
 [unfinished-send exit contract](Printer%20Console%20and%20Control%20Integration.md#application-exit-with-unfinished-sends)
 applies to all sending flows, including existing Moonraker and Bambu paths and
-the planned Snapmaker agent. Coordinate its desktop confirmation with project
+the Snapmaker agent. Coordinate its desktop confirmation with project
 and managed-download close guards. Returning to wait keeps the application
 running; confirming exit stops unfinished local sending through the provider's
 cancellation/shutdown boundary. Web uses best-effort browser-native leave

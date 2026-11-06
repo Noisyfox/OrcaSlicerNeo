@@ -2048,12 +2048,11 @@ does not establish a device, Cloud or cross-platform delivery claim.
 
 ### 2.5 Snapmaker agent design
 
-**Status:** Accepted design with implementation in progress; manual Snapmaker
-configuration, provider routing and on-demand material reads are implemented in
-both hosts. U1 independent project materials, manual plate mapping and structured
-preparation policy are implemented. Prepared submission and physical Device controls are implemented. Persistent
-preferences, consumer-scoped monitoring and shared unfinished-send exit handling
-are implemented. Integrated software acceptance is in progress.
+**Status:** Implemented and software-qualified in independently tested commits.
+Manual connection, U1 project/mapping integration, prepared submission, Device
+controls and preferences, scoped monitoring and shared unfinished-send exit
+handling are delivered. The software results and baseline test limitations are
+recorded in the interaction specification; real U1 qualification is unrun.
 Scope, behavior and
 acceptance policy are settled. The
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#snapmaker-agent-design)
@@ -2358,6 +2357,25 @@ delivery. The
 [interaction contract](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-g-code-and-top-cover-boundaries)
 owns these accepted scope limits.
 
+#### Independently accepted implementation units
+
+The dependency order and acceptance boundaries below own this feature's
+implementation plan. Each unit is validated and committed before starting the
+next; final host acceptance checks their composition.
+
+| Unit | Delivered responsibility | Independent acceptance |
+| --- | --- | --- |
+| 1. Protocol encoder | Structured logical IDs, physical bindings, used heads and job options. | Sparse IDs, range rejection, many-to-one maps, deduplicated subsets and exact command payloads. |
+| 2. Provider entry | Manual Snapmaker registration, both host transports, optional model and normalized inventory. | Configuration persistence, provider isolation, absent readings and host setup. |
+| 3. U1 project contract | Offline 1–64 rack, manual plate mapping, unchanged SEMM and logical numbering. | Dual-WASM real slicing, invalidation, history and roundtrip. |
+| 4. Preparation | Retained-slice mapping, explicit matching, diagnostics, confirmation and calibration choices. | Structured requirements, matching/override rules and shared UI tests. |
+| 5. Submission | Unchanged upload, preparation, start, cancellation and explicit fresh retry. | Injected failures at each stage, admission/cancel races, opaque bytes and host-owned state. |
+| 6a. Device controls | Physical addressing, individual load/unload, hardware readings and metadata editing. | All four feed channels, one local material operation, parameter validation and retained operation ownership. |
+| 6b. Persistent preferences | Independent changed-field Save and readback. | Supported choices, stale/current comparison, partial application, mismatch and draft retention. |
+| 7. Observation lifetime | Shared consumers, independent operation leases, stale cache and bounded reconnect. | Concurrent consumers, hidden/reopened Device, last-consumer release and manual recovery. |
+| 8. Exit protection | All-provider send registry, pre-admission artifact leases and host shutdown. | Return/stop decisions, late admission, lost observers, native callback joining and no physical stop. |
+| 9. Integration | Shared capability-driven metadata editor, package exports and final documentation. | Workspace typechecks, affected packages, Electron/Web HTTP fixtures and existing Bambu/Moonraker regressions. |
+
 #### Reference evidence and qualification limits
 
 The provider-private [U1 preparation encoder](../packages/printer-control/src/snapmaker-protocol.ts)
@@ -2371,8 +2389,13 @@ and reopen Snapmaker connections without a model or network probe. On-demand
 [U1 inventory normalization](../packages/printer-control/src/snapmaker-observation.ts)
 keeps inserted, empty and unknown material observations distinct from the
 motion sensor's loaded state. Unreported hardware is not filled from presets.
-Prepared submission and remote-file start remain unavailable at this stage;
-these foundations do not qualify firmware execution.
+Prepared submission uploads unchanged G-code before applying the structured
+map/options and requesting start. Remote-file start remains intentionally
+unavailable for Snapmaker. These implementations do not qualify physical
+firmware execution. Device metadata editing uses `materials.writeMetadata` and
+the shared capability-driven editor, so an absent model association does not
+require a fabricated preset or block brand/type/color edits. Device rejection
+retains the draft; official-filament restrictions are not bypassed with `FORCE`.
 In particular, the inspected firmware's calibration-subset
 handler references both `flow_calibrate_extruders` and `flow_calib_extruders`;
 successful subset execution needs firmware qualification rather than assuming
@@ -2427,8 +2450,8 @@ Real printing, firmware behavior and shared-heater effects remain unverified
 until corresponding physical cases pass. Missing hardware evidence does not
 block software delivery, and mock/host/slicing evidence must not be promoted to
 a physical or broader firmware/platform claim. Record firmware, profile and
-host conditions when physical evidence becomes available. Neither accepting
-this design nor its existing source research changes delivered roadmap status.
+host conditions when physical evidence becomes available. The roadmap records software delivery separately from this physical
+qualification boundary.
 
 ## 3. Identity, configuration and stateless access
 

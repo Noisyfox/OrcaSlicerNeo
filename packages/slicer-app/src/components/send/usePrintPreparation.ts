@@ -1,4 +1,4 @@
-import { sendActivity } from '@orca/printer-control/send-activity';
+import { sendActivity } from '@orca/printer-control';
 import { useEffect, useRef, useState } from 'react';
 import type * as D from '@orca/printer-control/domain';
 import type { SliceResultReceipt } from '@slicer/client';

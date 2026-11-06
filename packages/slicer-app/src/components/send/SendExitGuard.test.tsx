@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { it, expect, vi } from 'vitest';
 import type { PrinterService } from '@orca/printer-control/domain';
-import { sendActivity } from '@orca/printer-control/send-activity';
+import { sendActivity } from '@orca/printer-control';
 import { useSendExitGuard } from './SendExitGuard';
 it('offers return without cancellation, then requests local cancellation before allowing exit', async () => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

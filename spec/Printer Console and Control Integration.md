@@ -1968,7 +1968,8 @@ cancellation, and a failed print start never navigate to Device.
 ## Application exit with unfinished sends
 
 **Status:** Implemented with shared service tracking and artifact-preparation
-leases; host integration qualification is tracked separately. Apply this
+leases. Windows Electron close-handshake acceptance passes; Web uses the
+browser-limited behavior below. Apply this
 policy to all sending flows, including the existing Moonraker Send / Send & Print
 and Bambu submission paths, their manual retries, and the planned Snapmaker
 agent. It does not extend any provider's supported hosts or protocols.
@@ -2533,11 +2534,11 @@ memory/size limits require the artifact feasibility check.
 
 ## Snapmaker agent design
 
-**Status:** Accepted design with implementation in progress. Manual Snapmaker
-configuration and provider routing are implemented in Electron and Web; the
-U1 project rack, manual plate mapping and structured preparation policy are implemented.
-Prepared submission is implemented; the remaining Device workflow is pending. Scope, behavior
-and acceptance policy are settled below; physical qualification remains separate.
+**Status:** Implemented and software-qualified on Windows in Electron and Web.
+The selected scope includes U1 independent project materials, preparation and
+submission, Device metadata/individual material controls, persistent preferences,
+consumer-owned monitoring and all-agent unfinished-send exit handling.
+Real U1 qualification remains unrun and separate from software acceptance.
 Protocol ownership, slicing semantics and evidence limits are maintained in
 [the Snapmaker agent architecture](Printer%20Domain%20and%20Control%20Architecture.md#25-snapmaker-agent-design).
 
@@ -2878,6 +2879,50 @@ loading/unloading, preference application/readback, and the retained device
 controls. Record the tested firmware, printer/profile configuration and host,
 with passed, failed and unrun cases distinguished. Physical tests qualify those
 conditions only; they do not create a universal firmware or platform claim.
+
+### Software acceptance record (2026-11-06)
+
+The implementation was integrated on main `23414bc3` with Orca submodule
+`e2cd10ba84a6f96e23827d2f851d0c4064a9eea3`. No libslic3r source or
+submodule pin changed for this feature. U1 eligibility/configuration adaptation
+is in the existing native bridge; send code does not inspect G-code contents.
+
+| Verification | Result and boundary |
+| --- | --- |
+| `pnpm typecheck` | Pass across the workspace. |
+| `pnpm --filter @orca/printer-control test` | 199 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. |
+| `pnpm --filter @orca/slicer-app test` | 1682 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
+| Affected package tests | Web 46; WASM client/bridge contracts 699 with 28 skipped; runtime 65 with 3 skipped; platform contracts 57; profile resources 4 passed. Skips remain excluded from acceptance. |
+| Electron production-path E2E build | `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` passed; this test build uses the mock slicer and real host IPC/HTTP transport. |
+| Electron printer E2E | Five focused cases passed for Snapmaker manual setup, physical-head control while printing, metadata without a model, verified preference save, hidden-view polling release, model filtering, Moonraker send/start retry, and dirty-project then unfinished-send exit decisions. |
+| Bambu submission E2E | Both `bambu-print.e2e.ts` cases passed for model selection, remembered options, cancellation, unknown outcome and successful closure. |
+| Web E2E | Both `snapmaker.e2e.ts` cases passed using real Web WASM and a CORS-enabled loopback printer: manual persistence/reload, direct transport, individual load and verified preferences. No gateway or U1 hardware is involved. |
+| Native U1 project/mapping | Both threaded and serial quick builds/validation/staging and `u1-material-mapping-smoke.mjs` passed: 1–64 project slots, more than four materials, sparse logical `T5`, mapped physical parameters, temperatures, invalidation, undo/redo and 3MF roundtrip with SEMM false. Existing threaded nozzle-mapping projection smoke also passed. |
+
+The exact focused host commands are:
+
+```powershell
+pnpm --filter @orca/desktop exec playwright test e2e/printer-control.e2e.ts --grep 'Snapmaker|unfinished sending guards|Send and Send'
+pnpm --filter @orca/desktop exec playwright test e2e/bambu-print.e2e.ts
+pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts snapmaker.e2e.ts
+```
+
+Repository-wide `pnpm test` remains blocked by the pre-existing Windows
+`bambu-native` baseline: 43 of 49 pass, four CRLF trace comparisons and two
+native stream/progress timing tests fail. The desktop unit suite has 567 passed,
+one skipped and the existing `downloadDestination.test.ts:41` Windows-versus-POSIX
+path assertion failure. These failures were reproduced, are outside this diff,
+and are not reported as passing. The affected Bambu print-submission unit suite,
+including cancellation plus callback/file lifetime at shutdown, has 34 passing tests.
+
+All real-U1 cases remain **unrun**: actual start and printing; more than four
+logical materials; many-to-one mappings and shared-heater effects; inserted
+but unloaded startup; calibration head subsets; individual load/unload;
+metadata, detection/refill/lighting preference persistence; top-cover fans;
+and disconnect/cancel/exit races on real firmware. The calibration-subset field
+name discrepancy recorded in the architecture remains a hardware qualification
+item. No other Snapmaker model, installer platform or physical firmware revision
+is qualified by these software fixtures.
 
 ### Comparison baseline and evidence limits
 

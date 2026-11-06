@@ -35,8 +35,9 @@ describe('U1 physical Device controls', () => {
     expect(() => u1DeviceCommand(snapshot, { type: 'fans.setSpeed', params: { fanId: id('snapmaker-fan:purifier:inner'), speedFraction: NaN } })).toThrow();
   });
   it('edits metadata without forcing official material overrides or changing print settings', () => {
-    const params: D.CommandOf<'materials.configure'>['params'] = { slotId: id('snapmaker-slot:3'), intent: 'confirm', acknowledgedWarningIds: [], preset: { key: 'pla', label: 'PLA Silk', materialType: 'PLA-Silk', manufacturer: 'Generic Brand', catalogRefs: [], presetRef: null, nozzleTemperatureRangeC: null }, color: { kind: 'solid', rgba: '#FF00FF80' } };
-    expect(u1DeviceCommand(snapshot, { type: 'materials.configure', params })).toBe('SET_PRINT_FILAMENT_CONFIG CONFIG_EXTRUDER=3 VENDOR="Generic Brand" FILAMENT_TYPE="PLA" FILAMENT_SUBTYPE="Silk" FILAMENT_COLOR_RGBA=FF00FF80');
-    expect(() => u1DeviceCommand(snapshot, { type: 'materials.configure', params: { ...params, preset: { ...params.preset!, manufacturer: 'bad\nCANCEL_PRINT' } } })).toThrow();
+    const params: D.CommandOf<'materials.writeMetadata'>['params'] = { slotId: id('snapmaker-slot:3'), patch: { materialType: 'PLA-Silk', manufacturer: 'Generic Brand', color: { kind: 'solid', rgba: '#FF00FF80' } } };
+    expect(u1DeviceCommand(snapshot, { type: 'materials.writeMetadata', params })).toBe('SET_PRINT_FILAMENT_CONFIG CONFIG_EXTRUDER=3 VENDOR="Generic Brand" FILAMENT_TYPE="PLA" FILAMENT_SUBTYPE="Silk" FILAMENT_COLOR_RGBA=FF00FF80');
+    expect(() => u1DeviceCommand(snapshot, { type: 'materials.writeMetadata', params: { ...params, patch: { manufacturer: 'bad\nCANCEL_PRINT', materialType: 'PLA' } } })).toThrow();
+    expect(() => u1DeviceCommand(snapshot, { type: 'materials.writeMetadata', params: { ...params, patch: { diameterMm: 2 } } })).toThrow();
   });
 });
