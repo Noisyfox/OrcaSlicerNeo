@@ -42,6 +42,8 @@ export type MaterialColor = {
 /** Explicit #RRGGBBAA edits; null in a configure command retains the reported color tuple. */
 export type MaterialColorConfiguration = { kind: 'solid'; rgba: string } | { kind: 'gradient'; rgba: readonly string[] };
 export interface MaterialMetadata {
+  /** Complete device-reported material name, when supplied; independent of a project preset. */
+  displayName?: string;
   materialType: string | null;
   manufacturer: string | null;
   color: MaterialColor | null;

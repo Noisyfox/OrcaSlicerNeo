@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startSnapmakerFixture } from './snapmaker-fixture';
 
-test('U1 reuses the existing material information catalogue and writes the selected series to the physical head', async () => {
-  const fixture = await startSnapmakerFixture();
+test('U1 displays and preselects its reported SnapSpeed material independently of the project printer', async () => {
+  const fixture = await startSnapmakerFixture({ vendor: 'Snapmaker', type: 'PLA', subtype: 'SnapSpeed' });
   const directory = mkdtempSync(join(tmpdir(), 'neo-u1-material-editor-'));
   const config = join(directory, 'printers.json');
   writeFileSync(config, JSON.stringify({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture',
@@ -17,18 +17,24 @@ test('U1 reuses the existing material information catalogue and writes the selec
   try {
     const page = await app.firstWindow(); await page.setViewportSize({ width: 1440, height: 1000 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('preset-select')).not.toContainText('Snapmaker');
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
     await page.getByTestId('device-select-u1').click();
+    await expect(page.getByText('Snapmaker PLA SnapSpeed', { exact: true })).toHaveCount(4);
     await page.getByRole('button', { name: 'Material information for Toolhead 3 · Filament 3', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Material information', exact: true });
     await expect(dialog.getByRole('combobox', { name: 'Material preset', exact: true })).toBeEnabled();
     await expect(dialog.getByLabel('Brand', { exact: true })).toHaveCount(0);
     await expect(dialog.getByLabel('Material type', { exact: true })).toHaveCount(0);
-    await dialog.getByRole('combobox', { name: 'Material preset', exact: true }).click();
-    await page.getByRole('option', { name: 'Snapmaker PLA SnapSpeed', exact: true }).click();
+    await expect(dialog.getByRole('combobox', { name: 'Material preset', exact: true })).toHaveText('Snapmaker PLA SnapSpeed');
+    expect(await dialog.getByRole('combobox', { name: 'Material preset', exact: true }).evaluate(control => {
+      const label = control.querySelector('span'); return !!label && label.scrollWidth <= label.clientWidth;
+    })).toBe(true);
     await expect(dialog.getByLabel('Nozzle temperature range', { exact: true })).not.toHaveText('Not reported');
     await expect(dialog.getByRole('button', { name: 'Change material color', exact: true })).toHaveText('#0000FFFF');
     await expect(dialog.getByRole('button', { name: 'Reset', exact: true })).toBeDisabled();
+    await page.screenshot({ path: test.info().outputPath('u1-material-names.png'), fullPage: true });
     await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await expect.poll(() => fixture.scripts).toEqual(['SET_PRINT_FILAMENT_CONFIG CONFIG_EXTRUDER=2 VENDOR="Snapmaker" FILAMENT_TYPE="PLA" FILAMENT_SUBTYPE="SnapSpeed"']);

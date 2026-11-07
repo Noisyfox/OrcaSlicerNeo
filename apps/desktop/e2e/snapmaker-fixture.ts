@@ -1,6 +1,6 @@
 /** Loopback U1 protocol fixture shared by host transport acceptance. No hardware claims. */
 import { createServer } from 'node:http';
-export async function startSnapmakerFixture() {
+export async function startSnapmakerFixture(filament?: { vendor: string; type: string; subtype: string }) {
   const scripts: string[] = []; let queries = 0, autoRefill = false;
   const filamentColors = ['FF0000FF', '00FF00FF', '0000FFFF', 'FFFFFFFF'];
   const objects = ['gcode', 'print_task_config', 'print_stats', 'virtual_sdcard', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_bed', 'purifier', 'configfile', 'filament_feed left', 'filament_feed right'];
@@ -14,7 +14,9 @@ export async function startSnapmakerFixture() {
     else if (path === '/printer/objects/query') {
       queries++;
       value = { result: { status: { gcode: { commands: Object.fromEntries(commands.map(c => [c, {}])) }, print_stats: { state: 'printing', filename: 'external.gcode' }, virtual_sdcard: { progress: .4 },
-        print_task_config: { filament_exist: [true, true, true, true], filament_type: ['PLA', 'PLA', 'PETG', 'ABS'], filament_color_rgba: filamentColors, auto_replenish_filament: autoRefill, replenish_ignore_color: false, end_led_turn_off: false },
+        print_task_config: { filament_exist: [true, true, true, true], filament_type: filament ? Array(4).fill(filament.type) : ['PLA', 'PLA', 'PETG', 'ABS'],
+          filament_vendor: filament ? Array(4).fill(filament.vendor) : undefined, filament_sub_type: filament ? Array(4).fill(filament.subtype) : undefined,
+          filament_color_rgba: filamentColors, auto_replenish_filament: autoRefill, replenish_ignore_color: false, end_led_turn_off: false },
         ...Object.fromEntries([0, 1, 2, 3].map(i => [i ? `extruder${i}` : 'extruder', { nozzle_diameter: .4, nozzle_volume_type: 'standard', temperature: 210 + queries / 10, target: 215 }])),
         heater_bed: { temperature: 60, target: 60 }, purifier: { power_detected: true, mode: 1, inner_fan: { speed: .2 }, exhaust_fan: { speed: .4 } },
         configfile: { settings: { extruder: { max_temp: 300 }, heater_bed: { max_temp: 100 } } },

@@ -95,7 +95,7 @@ export function MaterialInformationDialog({ service, target, printer, slot, slot
         {!configuration.informationWritable && <p className="text-sm">RFID material information is read-only. Confirm applies the automatic calibration parameters or association; Reset resets calibration only. These actions cannot clear RFID material information.</p>}
         {configuration.restriction && <p role="status" className="text-sm">{configuration.restriction}</p>}
         <FieldGroup className="gap-3">
-          <Field orientation="horizontal" className="gap-3">
+          <Field orientation="horizontal" className="gap-3 *:data-[slot=field-label]:flex-none">
             <FieldLabel className="w-40 shrink-0 flex-none" htmlFor={selectId}>Material</FieldLabel>
             <Combobox items={presets} value={preset ?? null} itemToStringLabel={item => item.label} itemToStringValue={item => item.key}
               inputValue={search} onInputValueChange={setSearch} onOpenChange={open => { if (!open) setSearch(''); }}

@@ -60,6 +60,7 @@ export function u1MaterialInventory(status: Record<string, unknown>, target: D.P
       const color = text('filament_color_rgba', i);
       const vendor = text('filament_vendor', i);
       const metadata: D.MaterialMetadata = {
+        ...(type ? { displayName: [vendor, type, subtype].filter(Boolean).join(' ') } : {}),
         materialType: u1FilamentType(type, subtype),
         manufacturer: vendor,
         color: { kind: 'solid', rgba: color ? `#${color}` : '#FFFFFFFF' },

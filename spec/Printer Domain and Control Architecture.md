@@ -2424,6 +2424,12 @@ in the shared editor. Without a model association, `materials.writeMetadata`
 retains direct brand/type/color editing without a fabricated preset; device
 rejection retains that draft. Official-filament restrictions are not bypassed
 with `FORCE` in either path.
+Material metadata retains an optional device-reported full display name apart
+from the normalized material type. Snapmaker supplies vendor/type/series for
+Monitor cards. Exact system-name matching returns a library filament identity
+independently of the project's selected Printer; the device editor resolves
+that identity within its own compatible catalogue. Project-side import still
+validates the target model and material compatibility before applying changes.
 In particular, the inspected firmware's calibration-subset
 handler references both `flow_calibrate_extruders` and `flow_calib_extruders`;
 successful subset execution needs firmware qualification rather than assuming

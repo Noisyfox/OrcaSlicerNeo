@@ -69,8 +69,10 @@ describe('U1 physical Device controls', () => {
     ]);
     const materials = inventory.state.slots.map(s => s.material.kind === 'known' ? s.material.value : null);
     expect(materials[0]?.catalogRefs).toEqual([{ namespace: 'orca-filament', value: 'native-id-a' }]);
+    expect(materials[0]).toMatchObject({ displayName: 'Snapmaker PLA SnapSpeed', materialType: 'PLA HIGH SPEED' });
     expect(materials[1]).toBeNull();
     expect(materials[2]?.catalogRefs).toEqual([{ namespace: 'orca-filament', value: 'native-id-b' }]);
+    expect(materials[2]?.displayName).toBeUndefined();
     expect(materials[3]).toBeNull();
   });
   it('addresses all four physical feed channels independent of print state or logical mappings', () => {
