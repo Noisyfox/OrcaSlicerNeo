@@ -93,7 +93,7 @@ function assertStale(receipt) {
 async function slice(id, previous) {
   ok(call('orc_select_plate', ['string'], [id]));
   const stamp = plates().input_revisions[id];
-  const result = ok(await callAsyncTask(call, 'orc_slice_plate', ['string','string','number'], ['{}', id, stamp]));
+  const result = ok(await callAsyncTask(call, 'orc_slice_plate', ['string','string','number', 'string'], ['{}', id, stamp, 'null']));
   assert.equal(result.receipt.input_stamp, stamp);
   if (previous) assert.notEqual(result.receipt.result_generation, previous.result_generation);
   const freshPreview = ok(preview(result.receipt));

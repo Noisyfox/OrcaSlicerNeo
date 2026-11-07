@@ -35,7 +35,7 @@ function summary() {
 }
 async function slice() {
   const session = must(call('orc_get_plate_session_snapshot'));
-  return callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'], ['{}', session.current_plate_id, session.input_revisions[session.current_plate_id]]);
+  return callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'], ['{}', session.current_plate_id, session.input_revisions[session.current_plate_id], 'null']);
 }
 const activation = { models: [{ vendor: 'Creality', model: 'Creality Ender-3', nozzle_diameter: ['0.2', '0.4', '0.6', '0.8'] }],
   filaments: ['Generic PLA @System'] };

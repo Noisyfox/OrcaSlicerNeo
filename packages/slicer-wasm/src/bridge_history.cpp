@@ -383,7 +383,7 @@ void validate_filament_history_candidate(
     const auto* nozzle_diameter = printer.opt<ConfigOptionFloats>("nozzle_diameter");
     validate_filament_candidate_components(filament_presets, project_config, printer,
         std::max(1, nozzle_diameter ? static_cast<int>(nozzle_diameter->values.size()) : 1),
-        printer.opt_bool("single_extruder_multi_material") || catalog.is_bbl_vendor(),
+        Filament::State::supports_independent_materials(printer) || catalog.is_bbl_vendor(),
         model, plates, snapshot);
 }
 

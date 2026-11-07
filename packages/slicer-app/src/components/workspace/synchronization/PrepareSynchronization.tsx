@@ -167,6 +167,23 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
     else await prepareFilament(result.value, preserve);
     if (live.current) setBusy(false);
   }
+  async function chooseAnotherPrinter() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const saved = await service.listSaved();
+      if (!live.current) return;
+      if (!saved.ok) throw new Error(saved.error.message);
+      const eligible = saved.value.filter(printer => synchronizationRoute(printer, kind));
+      observation.current?.abort.abort(); observation.current = null;
+      setPrinters(eligible);
+      setChoice((eligible.find(printer => printer.identity.id !== source?.target.printerId) ?? eligible[0])?.identity.id ?? '');
+      setSource(null); setSelected(null); setPrepared(null); setRack(null);
+      setMapping([]); setReplacements([]); setAppendPlan(null); setReady(false); setError(null);
+      setPhase('choose');
+    } catch (cause) { if (live.current) failure(cause); }
+    finally { if (live.current) setBusy(false); }
+  }
   useEffect(() => {
     const lifetime = new AbortController();
     live.current = true; controller.current = lifetime;
@@ -181,16 +198,16 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
       if (!saved.ok) throw new Error(saved.error.message);
       const eligible = saved.value.filter(p => synchronizationRoute(p, kind));
       setPrinters(eligible);
-      const current = eligible.find(p => p.identity.id === useDeviceSelectionStore.getState().currentPrinterId);
-      if (current) for (const route of current.routes) {
-        if (!synchronizationRoute({ ...current, routes: [route] }, kind)) continue;
-        const cached = await service.observations.read({ target: { printerId: current.identity.id, routeId: route.id }, topics: ['materials'], source: 'cache' });
-        if (lifetime.signal.aborted) return;
-        const reading = cached.ok && cached.value.values.materials;
-        if (reading && reading.kind === 'known' && reading.freshness === 'fresh' && reading.sourceRouteId === route.id
-          && cached.ok && cached.value.configurationRevision === route.configurationRevision) {
-          await readDevice({ ...current, routes: [route] }, kind); return;
-        }
+      const selection = useDeviceSelectionStore.getState();
+      const current = eligible.find(p => p.identity.id === selection.currentPrinterId);
+      if (current) {
+        // Device remains the chosen source when its visible-only monitor pauses.
+        // Observation freshness determines acquisition, never device selection.
+        const active = selection.connection ?? selection.groupingSource;
+        const preferred = active?.target.printerId === current.identity.id
+          ? current.routes.find(route => route.id === active.target.routeId && synchronizationRoute({ ...current, routes: [route] }, kind)) : null;
+        const route = preferred ?? synchronizationRoute(current, kind)!;
+        await readDevice({ ...current, routes: [route] }, kind); return;
       }
       if (live.current) { setChoice(eligible[0]?.identity.id ?? ''); setPhase('choose'); }
     })().catch(cause => { if (!lifetime.signal.aborted) failure(cause); });
@@ -397,7 +414,9 @@ function SynchronizationDialog({ kind, scene, onClose }: { kind: Synchronization
           })}
         </>}
       </div>
-      <DialogFooter className="shrink-0">
+      <DialogFooter className="shrink-0 flex-wrap">
+        {phase === 'confirm-printer' && <Button variant="secondary" className="mr-auto" disabled={busy}
+          onClick={() => void chooseAnotherPrinter()}>Choose another printer</Button>}
         <Button variant="ghost" disabled={busy} onClick={onClose}>{phase === 'continue-filament' ? 'Done' : 'Cancel'}</Button>
         {phase === 'choose' && <Button disabled={!choice || busy} onClick={() => {
           const printer = printers.find(p => p.identity.id === choice)!;

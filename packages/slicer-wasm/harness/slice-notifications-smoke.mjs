@@ -23,7 +23,7 @@ must(call('orc_add_shape', ['string', 'string'], ['Cube', 'Notification fixture'
 async function slice() {
   const snapshot = must(call('orc_get_plate_session_snapshot'));
   const plate = snapshot.current_plate_id;
-  const accepted = call('orc_slice_plate', ['string', 'string', 'number'], ['{}', plate, snapshot.input_revisions[plate]]);
+  const accepted = call('orc_slice_plate', ['string', 'string', 'number', 'string'], ['{}', plate, snapshot.input_revisions[plate], 'null']);
   const messages = [];
   const result = await awaitAsyncTask(call, accepted, 120000, batch => messages.push(...batch));
   const diagnostics = messages.filter(m => m.type === 'slice-diagnostics' && m.task_id === accepted.task_id);

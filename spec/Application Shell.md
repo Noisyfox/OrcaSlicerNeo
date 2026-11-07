@@ -1,7 +1,7 @@
 # Application Shell
 
-**Updated:** 2026-10-27
-**Status:** Delivered shared behavior; notification qualification boundaries are
+**Updated:** 2026-11-05
+**Status:** Delivered shared behavior, including unfinished-send exit handling. Notification qualification boundaries are
 recorded in its verification section.
 **Scope:** Shared layout, desktop window chrome, menus and diagnostics.
 
@@ -33,10 +33,21 @@ product support remains deferred.
 Electron uses a hidden native titlebar. Windows/Linux retain native overlay
 window controls; macOS retains traffic lights and its native application menu.
 Interactive renderer controls are excluded from drag regions. Closing the last
-window quits Electron on all platforms after the project-close guard succeeds.
+window quits Electron on all platforms after the applicable close guards succeed.
 The packaged renderer uses a guarded loopback HTTP origin; Electron WASM runs
 in the utility process, as specified by
 [Native Python Plugin Architecture](Native%20Python%20Plugin%20Architecture.md).
+
+The accepted
+[unfinished-send exit contract](Printer%20Console%20and%20Control%20Integration.md#application-exit-with-unfinished-sends)
+applies to all sending flows, including existing Moonraker and Bambu paths and
+the Snapmaker agent. Coordinate its desktop confirmation with project
+and managed-download close guards. Returning to wait keeps the application
+running; confirming exit stops unfinished local sending through the provider's
+cancellation/shutdown boundary. Web uses best-effort browser-native leave
+confirmation. Application exit does not cancel a physical print, and restarting
+does not automatically resume interrupted sending. This rule is not specific
+to the Device page or to whichever send dialog is currently visible.
 
 ## Home page
 

@@ -172,8 +172,8 @@ assert.equal(projection.plates[0].eligible, true, JSON.stringify(projection));
 // deliberately exercise each accepted tower collision class independently.
 async function sliceCurrentPlate() {
   const current = assertNoPlateCoordinates();
-  const result = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-    ['{}', current.current_plate_id, current.input_revisions[current.current_plate_id]]);
+  const result = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+    ['{}', current.current_plate_id, current.input_revisions[current.current_plate_id], 'null']);
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.ok(Array.isArray(result.warnings), JSON.stringify(result));
   return result;
@@ -191,25 +191,25 @@ const rejectedPrinterOption = setProject('bed_exclude_area', collisionArea);
 assert.equal(rejectedPrinterOption.ok, false, JSON.stringify(rejectedPrinterOption));
 assert.equal(rejectedPrinterOption.error_code, 'unsupported_reference', JSON.stringify(rejectedPrinterOption));
 const exclusionContext = assertNoPlateCoordinates();
-const exclusionSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+const exclusionSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
   [JSON.stringify({ bed_exclude_area: collisionArea }), exclusionContext.current_plate_id,
-    exclusionContext.input_revisions[exclusionContext.current_plate_id]]);
+    exclusionContext.input_revisions[exclusionContext.current_plate_id], 'null']);
 assert.notEqual(exclusionSlice.ok, true, JSON.stringify(exclusionSlice));
 assert.match(exclusionSlice.error ?? '', /Prime Tower is too close to an exclusion area, and collisions will be caused/,
   JSON.stringify(exclusionSlice));
 const combinedPlate = assertNoPlateCoordinates();
-const combinedCollisionAndInvalidConfig = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+const combinedCollisionAndInvalidConfig = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
   [JSON.stringify({ nozzle_temperature: [1, 2] }), combinedPlate.current_plate_id,
-    combinedPlate.input_revisions[combinedPlate.current_plate_id]]);
+    combinedPlate.input_revisions[combinedPlate.current_plate_id], 'null']);
 assert.notEqual(combinedCollisionAndInvalidConfig.ok, true, JSON.stringify(combinedCollisionAndInvalidConfig));
 
 const rejectedWrappingOption = setProject('wrapping_exclude_area', collisionArea);
 assert.equal(rejectedWrappingOption.ok, false, JSON.stringify(rejectedWrappingOption));
 assert.equal(rejectedWrappingOption.error_code, 'unsupported_reference', JSON.stringify(rejectedWrappingOption));
 const wrappingContext = assertNoPlateCoordinates();
-const wrappingSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+const wrappingSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
   [JSON.stringify({ enable_wrapping_detection: '1', wrapping_exclude_area: collisionArea }), wrappingContext.current_plate_id,
-    wrappingContext.input_revisions[wrappingContext.current_plate_id]]);
+    wrappingContext.input_revisions[wrappingContext.current_plate_id], 'null']);
 assert.notEqual(wrappingSlice.ok, true, JSON.stringify(wrappingSlice));
 assert.match(wrappingSlice.error ?? '', /Prime Tower is too close to clumping detection area, and collisions will be caused/,
   JSON.stringify(wrappingSlice));

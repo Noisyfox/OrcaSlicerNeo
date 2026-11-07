@@ -38,7 +38,7 @@ for (const plateId of [plateA, plateB, plateC]) {
   requireOk(`select ${plateId}`, callJson('orc_select_plate', ['string'], [plateId]));
   const session = callJson('orc_get_plate_session_snapshot');
   const sliced = requireOk(`slice ${plateId}`, await callAsyncTask(callJson, 'orc_slice_plate',
-    ['string', 'string', 'number'], ['{}', plateId, session.input_revisions[plateId]]));
+    ['string', 'string', 'number', 'string'], ['{}', plateId, session.input_revisions[plateId], 'null']));
   receipts.set(plateId, sliced.receipt);
 }
 

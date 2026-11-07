@@ -18,6 +18,7 @@ import { SettingsPanel } from './SettingsPanel';
 import * as paintingCommands from '../viewport/gizmo/painting/projectCommands';
 
 vi.mock('./MovePanel', () => ({ MovePanel: () => null }));
+vi.mock('../projectThumbnails', () => ({ captureSliceThumbnail: vi.fn(async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) })) }));
 vi.mock('./RotatePanel', () => ({ RotatePanel: () => null }));
 vi.mock('./ScalePanel', () => ({ ScalePanel: () => null }));
 

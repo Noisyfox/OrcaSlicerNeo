@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type * as D from '@orca/printer-control/domain';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 
-const contentTopics: D.StateTopic[] = ['status', 'sensors', 'thermal', 'motion', 'actuators', 'materials', 'alerts', 'cameras', 'printObjects'];
+const contentTopics: D.StateTopic[] = ['preferences', 'status', 'sensors', 'thermal', 'motion', 'actuators', 'materials', 'alerts', 'cameras', 'printObjects'];
 /** Select only topics consumed by this screen. A metadata capability alone never starts device access. */
 export function monitorTopics(capabilities: D.PrinterCapabilities) {
   const topics = contentTopics.filter(topic => capabilities.observations[topic].kind === 'supported');
@@ -29,6 +29,9 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
   const [started, setStarted] = useState(visible || observeWhileHidden);
   const readController = useRef<AbortController | null>(null), reading = useRef(false);
   const { stream, manual } = monitorTopics(capabilities);
+  const [watchEpoch, setWatchEpoch] = useState(0);
+  const watching = capabilities.observationLifetime === 'visible-consumers' ? visible : started;
+  const refreshTopics = capabilities.observationLifetime === 'visible-consumers' ? [...stream, ...manual] : manual;
   const streamKey = stream.join(',');
   // Observation/description contracts accept identity only; revision guards belong to commands/previews.
   const target: D.PrinterTarget = { printerId: printer.identity.id, routeId: route.id };
@@ -48,7 +51,7 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
   useEffect(() => () => readController.current?.abort(), []);
   useEffect(() => () => useDeviceSelectionStore.getState().clearConnection(connectionOwner.current), []);
   useEffect(() => {
-    if (!started || !streamKey) return;
+    if (!watching || !streamKey) return;
     const abort = new AbortController();
     const topics = streamKey.split(',') as [D.StateTopic, ...D.StateTopic[]];
     void (async () => {
@@ -70,17 +73,20 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
       }
     });
     return () => { abort.abort(); useDeviceSelectionStore.getState().clearConnection(connectionOwner.current); };
-  }, [service, target.printerId, target.routeId, route.configurationRevision, started, streamKey]);
+  }, [service, target.printerId, target.routeId, route.configurationRevision, watching, streamKey, watchEpoch]);
   async function refresh() {
-    if (reading.current || !manual.length) return;
+    if (reading.current || !refreshTopics.length) return;
     reading.current = true; setRefreshing(true);
     const abort = new AbortController(); readController.current = abort;
     try {
-      const result = await service.observations.read({ target, source: 'device', topics: manual as [D.StateTopic, ...D.StateTopic[]] }, { signal: abort.signal });
+      const result = await service.observations.read({ target, source: 'device', topics: refreshTopics as [D.StateTopic, ...D.StateTopic[]] }, { signal: abort.signal });
       if (abort.signal.aborted) return;
       if (result.ok) {
         if (manual.includes('materials')) useDeviceSelectionStore.getState().publishGrouping(result.value, true);
         accept(result.value); reportError('manual', null);
+        if (capabilities.observationLifetime === 'visible-consumers' && latestErrors.current.stream) { reportError('stream', null); setWatchEpoch(epoch => epoch + 1); }
+        const description = await service.describe(target, { signal: abort.signal });
+        if (!abort.signal.aborted && description.ok) { latestCapabilities.current = description.value.capabilities; setCapabilities(description.value.capabilities); }
       }
       else {
         if (manual.includes('materials')) useDeviceSelectionStore.getState().failGroupingPull(target, route.configurationRevision);
@@ -92,5 +98,5 @@ export function usePrinterObservation(service: D.PrinterService, printer: D.Save
     } }
     finally { reading.current = false; if (!abort.signal.aborted) setRefreshing(false); }
   }
-  return { snapshot, capabilities, error, refreshing, refresh, live: stream.length > 0, liveStatus: stream.includes('status'), canRefresh: manual.length > 0 };
+  return { snapshot, capabilities, error, refreshing, refresh, live: stream.length > 0, liveStatus: stream.includes('status'), canRefresh: refreshTopics.length > 0 };
 }

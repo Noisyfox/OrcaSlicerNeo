@@ -59,7 +59,7 @@ if (targetInstances.length === 0)
   throw new Error(`deletion target has no member models: ${JSON.stringify(beforeDelete.instances)}`);
 
 const targetSlice = requireOk('slice deletion target', await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', target, targetRevision]));
+  ['string', 'string', 'number', 'string'], ['{}', target, targetRevision, 'null']));
 requireOk('deletion target result starts publishable', getSliceResult(callJson, targetSlice.receipt));
 
 const deleted = requireOk('delete active current plate',

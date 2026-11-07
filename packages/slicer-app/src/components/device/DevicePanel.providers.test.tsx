@@ -82,6 +82,39 @@ it('publishes Bambu to two Device views, hides unsupported actions and forgets r
   expect(listeners.size).toBe(0);
 });
 
+it.each(['moonraker', 'snapmaker', 'custom-agent'])('uses the %s agent configuration capability to show and hide editing', async providerId => {
+  const { printer, moonraker } = await seed();
+  printer.routes[0].providerId = providerId as Id<'provider'>;
+  let notify = () => {};
+  const readConfiguration = vi.fn(moonraker.configurations.read);
+  const service = {
+    ...moonraker,
+    configurations: { ...moonraker.configurations, read: readConfiguration },
+    listSaved: async () => ({ ok: true, value: [structuredClone(printer)] }),
+    onSavedChanged: (listener: () => void) => { notify = listener; return () => {}; },
+  } as PrinterService;
+  const platform = { printers: { service }, preferences: { load: async () => ({ ui: {} }) },
+    webview: { mount: vi.fn() } } as unknown as PlatformCapabilities;
+  const view = root();
+  await act(async () => { view.renderer.render(<PlatformProvider value={platform}><DevicePanel initialSelection={printer.identity.id} /></PlatformProvider>); });
+  const editSelector = '[data-testid="device-edit-bambu-device"]';
+  expect(view.element.querySelector(editSelector)).toBeNull();
+
+  await act(async () => { printer.routes[0].management.configure = true; notify(); });
+  const edit = view.element.querySelector<HTMLButtonElement>(editSelector);
+  expect(edit).not.toBeNull();
+  await act(async () => { edit!.click(); });
+  expect(readConfiguration).toHaveBeenCalledWith({ printerId: printer.identity.id, routeId: printer.routes[0].id,
+    expectedConfigurationRevision: printer.routes[0].configurationRevision });
+  expect(document.querySelector<HTMLInputElement>('#device-display-name')?.value).toBe('Bambu');
+  const cancel = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="device-config-dialog"] button')]
+    .find(button => button.textContent === 'Cancel');
+  await act(async () => { cancel!.click(); });
+
+  await act(async () => { printer.routes[0].management.configure = false; notify(); });
+  expect(view.element.querySelector(editSelector)).toBeNull();
+});
+
 it('ignores stale reads and retains the current catalogue on failure', async () => {
   const { printer } = await seed();
   const pending: ((result: Result<readonly SavedPrinter[]>) => void)[] = [];

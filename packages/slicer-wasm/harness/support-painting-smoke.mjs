@@ -131,7 +131,7 @@ const towers=()=>ok(call('orc_get_prime_tower_projection'));
 const settle=()=>ok(command('orc_painting_settle',{version:1}));
 async function slice(label){
   const p=plates(),id=p.current_plate_id;
-  const result=ok(await callAsyncTask(call,'orc_slice_plate',['string','string','number'],['{}',id,p.input_revisions[id]]));
+  const result=ok(await callAsyncTask(call,'orc_slice_plate',['string','string','number', 'string'],['{}',id,p.input_revisions[id], 'null']));
   const exported=ok(exportGcode(call, { receipt: result.receipt, filenameBase: '' }));const gcode=Module.FS.readFile(exported.path,{encoding:'utf8'});if(exported.bytes_ptr)Module._free(exported.bytes_ptr);
   await writeFile(resolve(output,label+'.gcode'),gcode);
   let feature='',count=0,tool=0;const supportTools=new Set();for(const line of gcode.split('\n')){if(/^T\d+$/.test(line))tool=Number(line.slice(1));if(line.startsWith(';TYPE:'))feature=line.slice(6);if(feature.includes('Support')&&/^G[0123] /.test(line)&&/\bE[\d.]+/.test(line)){count++;supportTools.add(tool);}}

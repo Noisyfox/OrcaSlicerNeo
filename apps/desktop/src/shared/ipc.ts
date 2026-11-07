@@ -160,6 +160,7 @@ export interface ElectronBridge {
 export interface PrinterTransportIpcRequest {
   method: 'GET' | 'POST';
   url: string;
+  responseType?: 'json' | 'bytes';
   headers?: Readonly<Record<string, string>>;
   body?: PrinterTransportBody;
 }
@@ -168,6 +169,7 @@ export interface PrinterTransportIpcResponse {
   status: number;
   json?: unknown;
   jsonError?: boolean;
+  bytes?: Uint8Array;
 }
 
 export interface PrinterTransportProgress {

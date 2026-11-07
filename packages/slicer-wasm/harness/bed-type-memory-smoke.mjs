@@ -79,7 +79,7 @@ for (const [key, value] of Object.entries({ hot_plate_temp_initial_layer: '58', 
 async function sliceBed(bed) {
   must(setNativeScopedConfig(call, 'project', undefined, 'curr_bed_type', bed));
   const stamp = must(call('orc_get_plate_session_snapshot')).input_revisions[plate];
-  const result = must(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'], ['{}', plate, stamp]));
+  const result = must(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'], ['{}', plate, stamp, 'null']));
   must(getSliceResult(call, result.receipt));
   const path = must(exportGcode(call, { receipt: result.receipt, filenameBase: '' })).path;
   return Module.FS.readFile(path, { encoding: 'utf8' });

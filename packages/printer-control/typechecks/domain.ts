@@ -441,7 +441,7 @@ const unknownCommands = {
   'materials.load': unknown, 'materials.unload': unknown, 'materials.switch': unknown,
   'materials.writeMetadata': unknown, 'materials.configure': unknown, 'materials.refreshTag': unknown,
   'drying.start': unknown, 'drying.stop': unknown,
-  'camera.setEnabled': unknown, 'camera.setDeviceTimelapse': unknown, 'files.delete': unknown,
+  'camera.setEnabled': unknown, 'camera.setDeviceTimelapse': unknown, 'preferences.set': unknown, 'files.delete': unknown,
 } satisfies CommandCapabilities;
 export const moonrakerCapabilities: PrinterCapabilities = {
   submission: unknown, revision: 'type-1', commands: unknownCommands, cameras: [], currentPrintPreview: unknown,
@@ -455,6 +455,7 @@ export const moonrakerCapabilities: PrinterCapabilities = {
   },
   webInterface: { kind: 'supported', constraints: { id: interfaceId, name: 'Native console' } },
   observations: {
+    preferences: unknown,
     descriptor: unknown, status: unknown, thermal: unknown, motion: unknown,
     actuators: unknown, materials: unknown, cameras: unknown, sensors: unknown,
     alerts: unknown, firmware: unknown, printObjects: unknown,

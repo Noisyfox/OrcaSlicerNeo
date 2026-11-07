@@ -1,3 +1,4 @@
+import type { DevicePreferenceKey, DevicePreferenceValue } from './preferences';
 /** Typed commands, capability constraints and asynchronous outcomes. This module defines no executor. */
 import type { Id, Revision, UnixMs, Axis, Range, PrinterError, Result, ReadOptions, Capability, Availability, NonEmptyReadonlyArray, NoConstraints, PrinterTarget, TargetRequest } from './common';
 import type { MaterialMetadata, MaterialMetadataPatch, PrintMaterialBinding, MaterialColorConfiguration, MaterialPresetConfiguration, MaterialConfigurationTarget } from './materials';
@@ -30,6 +31,8 @@ export interface PrinterAction {
 
 /** One source for command parameters, support constraints and confirmed results. */
 export interface PrinterCommandSpecs {
+  'preferences.set': CommandSpec<{ changes: readonly { key: DevicePreferenceKey; value: DevicePreferenceValue }[] }, { fields: readonly DevicePreferenceKey[] }>;
+
   'jobs.start': CommandSpec<{
     source: RemoteFileRef;
     bindings: readonly PrintMaterialBinding[];
@@ -120,6 +123,8 @@ export interface PrinterCommandSpecs {
   'materials.load': CommandSpec<{
     pathId: Id<'path'>;
   }, {
+    /** Device decides whether a supported load is appropriate, including an already loaded head. */
+    admission?: 'device';
     pathIds: NonEmptyReadonlyArray<Id<'path'>>;
   }>;
   'materials.unload': CommandSpec<{

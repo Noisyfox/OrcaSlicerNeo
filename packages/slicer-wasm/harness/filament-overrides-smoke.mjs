@@ -118,7 +118,7 @@ for (const [key,value] of [['ironing_type','top'],['ironing_speed','12']])
 ok(call('orc_add_shape', ['Cube','Filament overrides proof']));
 async function sliceMoves() {
   const session=ok(call('orc_get_plate_session_snapshot')), plate=session.current_plate_id;
-  const sliced=ok(await callAsyncTask(call,'orc_slice_plate',['string','string','number'],['{}',plate,session.input_revisions[plate]]));
+  const sliced=ok(await callAsyncTask(call,'orc_slice_plate',['string','string','number', 'string'],['{}',plate,session.input_revisions[plate], 'null']));
   const exported=ok(exportGcode(call,{receipt:sliced.receipt,filenameBase:''}));
   const gcode=new TextDecoder().decode(Module.FS.readFile(exported.path));
   if (exported.bytes_ptr) Module._free(Number(exported.bytes_ptr));

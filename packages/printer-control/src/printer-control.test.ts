@@ -23,7 +23,7 @@ class FixtureTransport implements PrinterTransport {
     this.requests.push(request);
     if (this.handle) return this.handle(request);
     const body = this.responses.shift() ?? { result: {} };
-    return { status: this.statuses.shift() ?? (request.url.endsWith('/server/files/upload') ? 201 : 200), json: async () => body };
+    return { status: this.statuses.shift() ?? (request.url.endsWith('/server/files/upload') ? 201 : 200), bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => body };
   }
 }
 
@@ -199,7 +199,7 @@ describe('Moonraker stateless service', () => {
 
   it('keeps an interrupted upload response outcome-unknown without resending', async () => {
     const { service, transport } = setup();
-    transport.handle = async () => ({ status: 201, json: async () => { throw new Error('response interrupted'); } });
+    transport.handle = async () => ({ status: 201, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => { throw new Error('response interrupted'); } });
     const submission = await service.files.upload(uploadRequest(), source());
     expect(await finished(service, submission)).toMatchObject({ remoteFileMayExist: true, phase: { kind: 'outcome-unknown' } });
     expect(transport.requests).toHaveLength(1);
@@ -288,7 +288,7 @@ describe('Moonraker stateless service', () => {
     await vi.waitFor(() => expect(transport.requests).toHaveLength(1));
     await configuration.save(documentWith({ ...printer, apiBaseUrl: 'http://replacement.local/' }));
     const next = unwrap(await service.describe(target));
-    complete({ status: 201, json: async () => uploadResponse('cube.gcode') });
+    complete({ status: 201, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => uploadResponse('cube.gcode') });
     const op = await finished(service, submission);
     if (op.kind !== 'upload' || op.phase.kind !== 'completed') throw new Error('Upload failed');
     expect(op.configurationRevision).not.toBe(next.configurationRevision);
@@ -387,9 +387,9 @@ describe('Moonraker stateless service', () => {
     if (change === 'forget-and-readd') await fresh().forget(target);
     await configuration.save(documentWith({ ...printer, apiBaseUrl: 'http://replacement.local/', apiKey: 'replacement-key' }));
     const current = unwrap(await fresh().listSaved())[0].routes[0];
-    transport.handle = async () => ({ status: 200, json: async () => ({ result: { moonraker_version: 'new-device' } }) });
+    transport.handle = async () => ({ status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => ({ result: { moonraker_version: 'new-device' } }) });
     await fresh().observations.read({ target, topics: ['descriptor', 'firmware'], source: 'device' });
-    oldResponse.resolve({ status: 200, json: async () => ({ result: { moonraker_version: 'old-device' } }) });
+    oldResponse.resolve({ status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => ({ result: { moonraker_version: 'old-device' } }) });
     const older = unwrap(await pending);
     expect(older.configurationRevision).toBe(original.configurationRevision);
     expect(older.values.firmware).toMatchObject({ value: [{ version: 'old-device' }] });

@@ -18,6 +18,7 @@ import {
 import type { Id } from '@orca/printer-control/domain';
 import {
   createMoonrakerService,
+  createSnapmakerService,
   normalizePrinterConfigurationDocument,
   type PrinterConfigurationDocument,
 } from '@orca/printer-control';
@@ -163,6 +164,14 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
       service: createPrinterService([{
         id: 'moonraker' as Id<'provider'>, name: 'Moonraker',
         printers: createMoonrakerService({
+          configuration: printerConfiguration,
+          transport: createBrowserPrinterTransport(),
+          host: { id: 'browser' as Id<'agent-host'>, name: 'Browser', execution: 'browser' },
+        }),
+      }, {
+        id: 'snapmaker' as Id<'provider'>, name: 'Snapmaker',
+        printers: createSnapmakerService({
+          matchFilaments: materials => runtime.matchFilamentPresets(materials),
           configuration: printerConfiguration,
           transport: createBrowserPrinterTransport(),
           host: { id: 'browser' as Id<'agent-host'>, name: 'Browser', execution: 'browser' },

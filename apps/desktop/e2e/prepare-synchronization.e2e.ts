@@ -2,6 +2,86 @@ import { expect, test } from '@playwright/test';
 import { _electron, desktopLaunchOptions } from './electron-fixture';
 import { installControlFixture, publishControlSnapshot } from './bambu-control-fixture';
 import { Ipc } from '../src/shared/ipc';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { startSnapmakerFixture } from './snapmaker-fixture';
+
+test('U1 displays normalized material types and preselects SnapSpeed independently of the project printer', async () => {
+  const fixture = await startSnapmakerFixture({ vendor: 'Snapmaker', type: 'PLA', subtype: 'SnapSpeed' });
+  const directory = mkdtempSync(join(tmpdir(), 'neo-u1-material-editor-'));
+  const config = join(directory, 'printers.json');
+  writeFileSync(config, JSON.stringify({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture',
+    apiBaseUrl: fixture.baseUrl, apiKey: '', consoleUrl: '', printerModel: { vendorId: 'Snapmaker', model: 'Snapmaker U1' } }] }));
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PRINTER_CONFIG: config } });
+  try {
+    const page = await app.firstWindow(); await page.setViewportSize({ width: 1440, height: 1000 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('preset-select')).not.toContainText('Snapmaker');
+    await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
+    await page.getByTestId('device-select-u1').click();
+    await expect(page.getByText('PLA HIGH SPEED', { exact: true })).toHaveCount(4);
+    await page.getByRole('button', { name: 'Material information for Toolhead 3 · Filament 3', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Material information', exact: true });
+    await expect(dialog.getByRole('combobox', { name: 'Material preset', exact: true })).toBeEnabled();
+    await expect(dialog.getByLabel('Brand', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByLabel('Material type', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole('combobox', { name: 'Material preset', exact: true })).toHaveText('Snapmaker PLA SnapSpeed');
+    expect(await dialog.getByRole('combobox', { name: 'Material preset', exact: true }).evaluate(control => {
+      const label = control.querySelector('span'); return !!label && label.scrollWidth <= label.clientWidth;
+    })).toBe(true);
+    await expect(dialog.getByLabel('Nozzle temperature range', { exact: true })).not.toHaveText('Not reported');
+    await expect(dialog.getByRole('button', { name: 'Change material color', exact: true })).toHaveText('#0000FFFF');
+    await expect(dialog.getByRole('button', { name: 'Reset', exact: true })).toBeDisabled();
+    await page.screenshot({ path: test.info().outputPath('u1-material-names.png'), fullPage: true });
+    await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(() => fixture.scripts).toEqual(['SET_PRINT_FILAMENT_CONFIG CONFIG_EXTRUDER=2 VENDOR="Snapmaker" FILAMENT_TYPE="PLA" FILAMENT_SUBTYPE="SnapSpeed"']);
+  } finally { await app.close(); await fixture.close(); }
+});
+
+test('U1 Printer-to-Filament sync keeps a nonempty project mapping valid across telemetry polls', async () => {
+  const fixture = await startSnapmakerFixture();
+  const directory = mkdtempSync(join(tmpdir(), 'neo-u1-sync-'));
+  const config = join(directory, 'printers.json');
+  writeFileSync(config, JSON.stringify({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture',
+    apiBaseUrl: fixture.baseUrl, apiKey: '', consoleUrl: '', printerModel: { vendorId: 'Snapmaker', model: 'Snapmaker U1' } }] }));
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PRINTER_CONFIG: config } });
+  try {
+    const page = await app.firstWindow(); await page.setViewportSize({ width: 1440, height: 1000 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.locator('#app-tab-prepare').click();
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const bounds = await canvas.boundingBox(); if (!bounds) throw new Error('Missing viewport');
+    await canvas.click({ button: 'right', position: { x: bounds.width - 40, y: 140 } });
+    await page.getByTestId('btn-add-primitive').click(); await page.getByTestId('btn-add-cube').click();
+    await page.getByTestId('printer-sync').click();
+    const dialog = page.getByTestId('prepare-synchronization-dialog');
+    await dialog.getByRole('button', { name: 'Connect and sync', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Switch Printer and sync', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Continue to Filament sync', exact: true }).click();
+    const apply = dialog.getByRole('button', { name: 'Apply Filament sync', exact: true });
+    await expect(dialog.getByLabel('Material synchronization mapping')).toBeVisible();
+    await expect(apply).toBeEnabled();
+    const before = fixture.queryCount();
+    await expect.poll(() => fixture.queryCount(), { timeout: 10_000 }).toBeGreaterThanOrEqual(before + 2);
+    await expect(apply).toBeEnabled();
+    await expect(dialog.getByText('The source is disconnected or its materials changed.', { exact: false })).toHaveCount(0);
+    fixture.setFilamentColor(3, '123456FF');
+    await expect(apply).toBeDisabled({ timeout: 10_000 });
+    await expect(dialog.getByText('The source is disconnected or its materials changed.', { exact: false })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Refresh device', exact: true }).click();
+    await expect(apply).toBeEnabled();
+    await apply.click(); await expect(dialog).toHaveCount(0);
+    const indicator = page.getByTestId('preset-select').getByTestId('printer-connection-indicator');
+    await expect(indicator).toBeVisible();
+    const connected = fixture.queryCount();
+    await expect.poll(() => fixture.queryCount(), { timeout: 10_000 }).toBeGreaterThanOrEqual(connected + 2);
+    await expect(indicator).toBeVisible();
+    expect(fixture.scripts).toEqual([]);
+  } finally { await app.close(); await fixture.close(); }
+});
 
 test('Prepare sync uses Bambu observations, commits mixed hardware and reviews one native material batch', async () => {
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1' } });
@@ -46,6 +126,14 @@ test('Prepare sync uses Bambu observations, commits mixed hardware and reviews o
     await expect(page.getByTestId('printer-connection-indicator')).toHaveCount(0);
     await expect(dialog).toHaveCSS('opacity', '1');
     await page.screenshot({ path: test.info().outputPath('sync-printer-confirmation.png'), fullPage: true });
+    await dialog.getByRole('button', { name: 'Choose another printer', exact: true }).click({ noWaitAfter: true });
+    const chooser = dialog.getByRole('combobox', { name: 'Synchronization device' });
+    await expect(chooser.locator('[data-slot="select-value"]')).toHaveText('Workshop B');
+    await expect(dialog.getByRole('button', { name: 'Switch Printer and sync' })).toHaveCount(0);
+    await chooser.click({ noWaitAfter: true });
+    await page.getByRole('option', { name: 'Workshop A', exact: true }).click({ noWaitAfter: true });
+    await dialog.getByRole('button', { name: 'Connect and sync' }).click({ noWaitAfter: true });
+    await expect(dialog.getByRole('button', { name: 'Switch Printer and sync' })).toBeVisible();
     const materialDeviceReadCount = () => app.evaluate(() => {
       const requests = globalThis.bambuControlFixture.requests as { method: string; input: { source?: string; topics?: string[] } }[];
       return requests.filter(r => r.method === 'read' && r.input.source === 'device' && r.input.topics?.includes('materials')).length;

@@ -20,15 +20,17 @@ async function render(remembered = false, failure = false, recovery = false) {
       await new Promise<void>(resolve => { options.signal.addEventListener('abort', () => { stopped(); resolve(); }, { once: true }); });
     }, authorize,
   } as unknown as PrinterService;
-  const saved = remembered || recovery ? [{ identity: { id: 'printer', displayName: 'Selected printer', externalRefs: candidate.externalRefs }, routes: [{ providerId: 'provider', configuration: { hostId: 'host', channel: 'automatic', credentialRef: remembered ? 'opaque-reference' : null } }] }] as unknown as SavedPrinter[] : [];
+  const existing = [{ identity: { id: 'printer', displayName: 'Selected printer', externalRefs: candidate.externalRefs }, routes: [{ providerId: 'provider', configuration: { hostId: 'host', channel: 'automatic', credentialRef: remembered ? 'opaque-reference' : null } }] }] as unknown as SavedPrinter[];
+  let saved = remembered || recovery ? existing : [];
   const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
   const authorized = vi.fn();
-  await act(async () => root.render(<PlatformProvider value={{ printers: { service } } as unknown as PlatformCapabilities}><PrinterDiscovery saved={saved} target={recovery ? saved[0] : undefined} onAuthorized={authorized} /></PlatformProvider>));
+  const mount = async () => { await act(async () => root.render(<PlatformProvider value={{ printers: { service } } as unknown as PlatformCapabilities}><PrinterDiscovery saved={saved} target={recovery ? saved[0] : undefined} onAuthorized={authorized} /></PlatformProvider>)); };
+  await mount();
   cleanup = () => { act(() => root.unmount()); container.remove(); };
   await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="device-discover"]')!.click());
   const select = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('LAN printer'))!;
-  await act(async () => select.click());
-  return { authorize, stopped, authorized };
+  if (select) await act(async () => select.click());
+  return { authorize, stopped, authorized, existing, updateSaved: async (next: SavedPrinter[]) => { saved = next; await mount(); } };
 }
 async function click(text: string) { const button = [...document.querySelectorAll('button')].find(button => button.textContent === text)!; expect(button).toBeDefined(); await act(async () => button.click()); }
 async function enterCode() {
@@ -41,9 +43,32 @@ it('submits transient masked access input through the common provider API and re
   expect(f.authorize).toHaveBeenCalledWith(expect.objectContaining({ candidate, accessCode: 'ABCDEFGH' }));
   expect(document.querySelector('#printer-access-code')).toBeNull(); await click('Close'); expect(f.stopped).toHaveBeenCalledOnce();
 });
-it('reuses a host-owned credential reference without returning a saved code to the form', async () => {
-  const f = await render(true); expect(document.querySelector('#printer-access-code')).toBeNull(); await click('Verify saved access');
-  expect(f.authorize).toHaveBeenCalledWith(expect.objectContaining({ existingPrinterId: 'printer', accessCode: '' }));
+it('hides an already added LAN printer instead of offering to verify saved access', async () => {
+  const f = await render(true);
+  expect(document.querySelector('button[aria-pressed]')).toBeNull();
+  expect(document.querySelector('#printer-access-code')).toBeNull();
+  expect(f.authorize).not.toHaveBeenCalled();
+});
+it.each(['cloud', 'lan'])('removes a selected candidate when it is added through %s and shows it again after forgetting', async channel => {
+  const f = await render(); await enterCode();
+  const saved = structuredClone(f.existing); saved[0].routes[0].configuration.channel = channel as 'cloud' | 'lan';
+  await f.updateSaved(saved);
+  expect(document.querySelector('button[aria-pressed]')).toBeNull();
+  expect(document.querySelector('#printer-access-code')).toBeNull();
+  expect([...document.querySelectorAll('button')].find(button => button.textContent === 'Add LAN connection')?.disabled).toBe(true);
+  expect(f.authorize).not.toHaveBeenCalled(); expect(f.stopped).not.toHaveBeenCalled();
+  await f.updateSaved([]);
+  expect(document.querySelector('button[aria-pressed]')).not.toBeNull();
+  expect(document.querySelector('#printer-access-code')).toBeNull();
+});
+it.each(['different-identity', 'different-provider'])('does not hide an unadded printer with a %s', async difference => {
+  const f = await render();
+  const saved = structuredClone(f.existing);
+  if (difference === 'different-identity') saved[0].identity.externalRefs = [{ namespace: 'fixture', value: 'different' }];
+  else saved[0].routes[0].providerId = 'other-provider' as typeof saved[0]['routes'][0]['providerId'];
+  await f.updateSaved(saved);
+  expect(document.querySelector('button[aria-pressed]')).not.toBeNull();
+  expect(document.querySelector('#printer-access-code')).not.toBeNull();
 });
 it('shows a safe authentication failure and clears the submitted code for a retry', async () => {
   await render(false, true); await enterCode(); await click('Add LAN connection');

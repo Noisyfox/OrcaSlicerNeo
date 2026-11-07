@@ -92,6 +92,7 @@ function validRequest(value: unknown): value is PrinterTransportIpcRequest {
   if (!value || typeof value !== 'object') return false;
   const request = value as Record<string, unknown>;
   if ((request.method !== 'GET' && request.method !== 'POST') || typeof request.url !== 'string') return false;
+  if (request.responseType !== undefined && request.responseType !== 'json' && request.responseType !== 'bytes') return false;
   if (request.headers !== undefined && (!request.headers || typeof request.headers !== 'object' ||
       Object.values(request.headers as Record<string, unknown>).some((header) => typeof header !== 'string'))) return false;
   const body = request.body as Record<string, unknown> | undefined;
@@ -180,6 +181,7 @@ export function createPrinterTransportIpcHandlers(deps: PrinterTransportIpcDepen
               const bytes = new Uint8Array(size);
               let offset = 0;
               for (const chunk of responseBody) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+              if (payload.responseType === 'bytes') { resolve({ status: response.statusCode, bytes }); return; }
               let json: unknown;
               try { json = bytes.byteLength === 0 ? undefined : JSON.parse(new TextDecoder().decode(bytes)); }
               catch { resolve({ status: response.statusCode, jsonError: true }); return; }

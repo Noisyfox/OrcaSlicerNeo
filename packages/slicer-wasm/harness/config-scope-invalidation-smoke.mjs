@@ -57,7 +57,7 @@ const slice = async (plateId) => {
   select(plateId);
   const revision = stamps()[plateId];
   const sliced = requireOk(`slice ${plateId}`, await callAsyncTask(callJson, 'orc_slice_plate',
-    ['string', 'string', 'number'], ['{}', plateId, revision]));
+    ['string', 'string', 'number', 'string'], ['{}', plateId, revision, 'null']));
   receipts.set(plateId, sliced.receipt);
   requireOk(`materialize ${plateId}`, getSliceResult(callJson, sliced.receipt));
 };

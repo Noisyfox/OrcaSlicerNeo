@@ -1,3 +1,4 @@
+import { startSnapmakerFixture } from './snapmaker-fixture';
 import { _electron } from './electron-fixture';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -197,6 +198,28 @@ async function chooseSendPrinter(page: Page, printerId: string): Promise<void> {
   await page.getByTestId(`send-printer-${printerId}`).click();
   await expect(page.getByTestId('send-submit')).toBeEnabled();
 }
+
+test('Snapmaker manual connection persists and reopens without a model', async () => {
+  const { app, fixtureDir } = await launchApp({ version: 1, printers: [] });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page);
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-add-printer').click();
+    await page.getByTestId('device-adapter').click();
+    await page.getByRole('option', { name: 'Snapmaker', exact: true }).click();
+    await page.getByTestId('device-display-name').fill('U1 offline');
+    await page.getByTestId('device-api-base-url').fill('http://127.0.0.1:9');
+    await page.getByTestId('device-save-printer').click();
+    await expect(page.getByTestId('device-config-dialog')).toBeHidden();
+    const saved = JSON.parse(readFileSync(join(fixtureDir, 'printer-config.json'), 'utf8')).printers[0];
+    expect(saved.driverId).toBe('snapmaker'); expect(saved.printerModel).toBeUndefined();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByTestId(`device-select-${saved.id}`).click();
+    await page.getByTestId(`device-edit-${saved.id}`).click();
+    await expect(page.getByTestId('device-adapter')).toContainText('Snapmaker');
+    await expect(page.getByTestId('device-printer-model')).toContainText('Not specified');
+  } finally { await app.close(); }
+});
 
 test('manual printer model selection persists, reopens and clears without changing project profiles', async () => {
   test.skip(process.env.ORCA_E2E_REAL === '1', 'Uses the deterministic enabled mock profile catalogue.');
@@ -583,5 +606,98 @@ test('Send & Print works with a keyless Moonraker printer and sends no API-key h
   } finally {
     await app.close();
     await fixture.close();
+  }
+});
+
+
+test('Snapmaker Device uses Electron transport for physical controls and verified preferences', async ({}, testInfo) => {
+  const fixture = await startSnapmakerFixture();
+  const { app } = await launchApp({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture', apiBaseUrl: fixture.baseUrl, apiKey: '', consoleUrl: '' }] });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page);
+    await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click(); await page.getByTestId('device-select-u1').click();
+    const tabs = page.getByRole('tablist', { name: 'Printer features' }).getByRole('tab');
+    await expect(tabs.nth(0)).toHaveText('Monitor'); await expect(tabs.nth(1)).toHaveText('Web Interface');
+    await expect(page.locator('#device-tab-monitor')).toHaveAttribute('aria-selected', 'true');
+    await page.locator('#device-tab-web').click();
+    await expect(page.locator('#device-tab-web')).toHaveAttribute('aria-selected', 'true');
+    await page.locator('#device-tab-monitor').click();
+    const preview = page.getByRole('img', { name: 'Current print preview', exact: true });
+    await expect(preview).toBeVisible();
+    await expect.poll(() => preview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
+    const fans = page.getByTestId('device-monitor').locator('details').filter({ has: page.locator('summary').filter({ hasText: /^Fans ·/ }) });
+    await fans.locator('summary').click();
+    const fanSpeed = fans.getByRole('combobox', { name: 'Top cover inner fan speed', exact: true });
+    await expect(fanSpeed).toHaveAttribute('data-slot', 'select-trigger');
+    await fanSpeed.click();
+    await page.screenshot({ path: testInfo.outputPath('snapmaker-fan-select.png'), fullPage: true, animations: 'disabled' });
+    await page.getByRole('option', { name: '30%', exact: true }).click();
+    await expect.poll(() => fixture.scripts).toContain('SET_PURIFIER FAN=inner SPEED=0.3');
+    await expect(page.getByRole('button', { name: 'Load to Toolhead 1', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Load to Toolhead 1', exact: true }).click({ noWaitAfter: true });
+    await expect.poll(() => fixture.scripts).toContain('FEED_AUTO MODULE=left CHANNEL=1 LOAD=1');
+    await page.getByRole('button', { name: 'Material information for Toolhead 1 · Filament 1', exact: true }).click({ noWaitAfter: true });
+    await page.getByLabel('Brand', { exact: true }).fill('Generic');
+    await page.getByLabel('Material type', { exact: true }).fill('PLA-Silk');
+    await page.screenshot({ path: testInfo.outputPath('snapmaker-material-editor.png'), fullPage: true, animations: 'disabled' });
+    await page.getByRole('button', { name: 'Save material information', exact: true }).click({ noWaitAfter: true });
+    await expect(page.getByRole('heading', { name: 'Material information', exact: true })).toBeHidden();
+    expect(fixture.scripts.some(script => script.includes('FILAMENT_TYPE="PLA" FILAMENT_SUBTYPE="Silk"'))).toBe(true);
+    const autoRefill = page.getByRole('combobox', { name: 'Auto-refill', exact: true });
+    await autoRefill.click();
+    await page.getByRole('option', { name: 'On', exact: true }).click();
+    await expect(autoRefill).toContainText('On');
+    await page.getByRole('button', { name: 'Save printer preferences' }).click({ noWaitAfter: true });
+    await expect(page.getByText('Printer preferences saved and verified.')).toBeVisible();
+    await expect(page.locator('[data-testid="device-monitor"] .printer-control-column').getByRole('heading', { name: 'Printer preferences', exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('snapmaker-preferences.png'), fullPage: true, animations: 'disabled' });
+    expect(fixture.scripts).toContain('SET_PRINT_PREFERENCES AUTO_REPLENISH_FILAMENT=1');
+    await page.locator('#app-tab-prepare').click();
+    const count = fixture.queryCount();
+    await expect.poll(() => fixture.queryCount()).toBeGreaterThan(count);
+  } finally { await app.close(); await fixture.close(); }
+});
+
+
+test('unfinished sending guards desktop close after the project decision and cancels before exit', async ({}, testInfo) => {
+  const fixture = await startMoonrakerFixture(0);
+  const { app } = await launchApp({ version: 1, printers: [{ id: 'exit-printer', driverId: 'moonraker', displayName: 'Exit fixture', apiBaseUrl: fixture.baseUrl, apiKey: '', consoleUrl: '' }] });
+  try {
+    const page = await app.firstWindow(); await waitForReady(page); await addFixtureModelAndSlice(page);
+    await page.getByTestId('output-mode-select').click(); await page.getByRole('menuitemradio', { name: 'Send & Print', exact: true }).click();
+    await page.getByTestId('btn-send-and-print').click(); await chooseSendPrinter(page, 'exit-printer');
+    fixture.holdUploadResponse(); await page.getByTestId('send-submit').click({ noWaitAfter: true });
+    await expect.poll(() => fixture.state.uploadBodies.length).toBe(1);
+    async function requestClose() {
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
+      await expect(page.getByTestId('project-dirty-dialog')).toBeVisible();
+      await page.getByTestId('project-dirty-dont-save').click({ noWaitAfter: true });
+      await expect(page.getByText('Sending is still in progress', { exact: true })).toBeVisible();
+    }
+    await requestClose();
+    const dialog = page.getByRole('alertdialog', { name: 'Sending is still in progress', exact: true });
+    const returnButton = dialog.getByRole('button', { name: 'Return to app', exact: true });
+    const stopButton = dialog.getByRole('button', { name: 'Stop sending and exit', exact: true });
+    await expect(returnButton).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(stopButton).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(returnButton).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath('unfinished-send-dialog.png'), fullPage: true, animations: 'disabled' });
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    expect(page.isClosed()).toBe(false); expect(fixture.state.startPaths).toHaveLength(0);
+    await requestClose(); await returnButton.click();
+    expect(page.isClosed()).toBe(false); expect(fixture.state.startPaths).toHaveLength(0);
+    await requestClose(); const closed = page.waitForEvent('close');
+    await stopButton.click({ noWaitAfter: true }).catch(error => {
+      // Successful exit can close the renderer before the click acknowledgement.
+      if (!page.isClosed()) throw error;
+    });
+    await closed; expect(fixture.state.startPaths).toHaveLength(0);
+  } finally {
+    fixture.releaseUploadResponse();
+    if (app.windows().some(window => !window.isClosed())) await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach(window => window.destroy()));
+    await app.close(); await fixture.close();
   }
 });

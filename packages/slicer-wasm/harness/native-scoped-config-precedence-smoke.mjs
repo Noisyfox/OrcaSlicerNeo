@@ -102,7 +102,7 @@ if (nativeScopedConfig.project?.layer_height !== '0.24' ||
   throw new Error(`native project/plate values were not retained: ${JSON.stringify(nativeScopedConfig)}`);
 
 let sliced = await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', plateId, revision]);
+  ['string', 'string', 'number', 'string'], ['{}', plateId, revision, 'null']);
 requireOk('slice before round-trip', sliced);
 let first = firstExportedLayerSteps(sliced.receipt);
 if (Math.abs(first.steps[0] - 0.24) >= 0.005)
@@ -158,7 +158,7 @@ session = requireOk('round-tripped plate session', callJson('orc_get_plate_sessi
 const reloadedPlate = session.current_plate_id;
 const reloadedRevision = session.input_revisions[reloadedPlate];
 sliced = await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', reloadedPlate, reloadedRevision]);
+  ['string', 'string', 'number', 'string'], ['{}', reloadedPlate, reloadedRevision, 'null']);
 requireOk('slice after round-trip', sliced);
 const second = firstExportedLayerSteps(sliced.receipt);
 if (Math.abs(second.steps[0] - 0.24) >= 0.005)

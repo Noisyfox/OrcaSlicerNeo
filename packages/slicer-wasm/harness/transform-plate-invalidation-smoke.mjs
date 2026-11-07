@@ -65,11 +65,11 @@ requireStatus('commit B', callJson('orc_history_commit', ['string', 'string'],
 requireOk('select A', callJson('orc_select_plate', ['string'], [plateA]));
 let snapshot = callJson('orc_get_plate_session_snapshot');
 let sliceA = requireOk('slice A', await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', plateA, snapshot.input_revisions[plateA]]));
+  ['string', 'string', 'number', 'string'], ['{}', plateA, snapshot.input_revisions[plateA], 'null']));
 requireOk('select B', callJson('orc_select_plate', ['string'], [plateB]));
 snapshot = callJson('orc_get_plate_session_snapshot');
 const sliceB = requireOk('slice B', await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', plateB, snapshot.input_revisions[plateB]]));
+  ['string', 'string', 'number', 'string'], ['{}', plateB, snapshot.input_revisions[plateB], 'null']));
 requireOk('B result before Move', getSliceResult(callJson, sliceB.receipt));
 const beforeMoveStamps = stampMap();
 
@@ -122,7 +122,7 @@ requireStale('A presentation invalid after Redo', getSliceResult(callJson, slice
 // presentation lifecycle.  The native core allocation is retained throughout.
 snapshot = callJson('orc_get_plate_session_snapshot');
 sliceA = requireOk('reslice A for abort proof', await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', plateA, snapshot.input_revisions[plateA]]));
+  ['string', 'string', 'number', 'string'], ['{}', plateA, snapshot.input_revisions[plateA], 'null']));
 requireOk('A valid before abort', getSliceResult(callJson, sliceA.receipt));
 const beforeAbortStamps = stampMap();
 const abortMove = requireOk('begin abort Move', callJson('orc_history_begin',

@@ -86,6 +86,57 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     page.on('console', (message) => {
       if (message.type() === 'error') recordRendererError(`console: ${message.text()}`);
     });
+    const expectSliceCompleted = async () => {
+      const status = page.getByTestId('slicer-status');
+      await expect(status).toHaveText(/^(Sliced|Error)$/, { timeout: 600_000 });
+      if (await status.textContent() === 'Error') {
+        const diagnostics = { rendererErrors, body: await page.locator('body').innerText() };
+        await test.info().attach('slice-error', {
+          body: Buffer.from(JSON.stringify(diagnostics, null, 2)), contentType: 'application/json',
+        });
+        throw new Error(`Native slice failed: ${JSON.stringify(diagnostics)}`);
+      }
+      await expect(status).toHaveText('Sliced');
+    };
+    const configureU1ManualMapping = async () => {
+      await page.getByTestId('config-mode-plates').click();
+      await page.getByTestId('plate-properties-mapping').click();
+      // The archive retains Auto For Flush. U1 now exposes independent
+      // materials, but the automatic algorithm is still unsupported. Make
+      // the required user choice rather than silently rewriting the fixture.
+      await expect(page.getByTestId('mapping-mode-0')).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('mapping-mode-0')).toBeDisabled();
+      await expect(page.getByTestId('mapping-mode-1')).toBeDisabled();
+      await page.getByTestId('mapping-mode-2').click();
+      await expect(page.getByTestId('mapping-mode-2')).toHaveAttribute('aria-pressed', 'true');
+      // Preserve the fixture's original one-head-per-filament setup through
+      // the public editor; the imported dormant map assigned every slot to 1.
+      const rows = page.getByTestId(/^mapping-filament-\d+$/);
+      await expect(rows.first()).toBeVisible();
+      for (const row of await rows.all()) {
+        const slot = Number((await row.getAttribute('data-testid'))!.split('-').at(-1));
+        expect(slot).toBeGreaterThanOrEqual(1);
+        expect(slot).toBeLessThanOrEqual(4);
+        if ((await row.textContent())?.includes(`Nozzle ${slot}`)) continue;
+        await row.click();
+        await expect(row).toHaveAttribute('aria-expanded', 'true');
+        await expect(row).toHaveAttribute('aria-controls', /.+/);
+        const list = page.locator(`[id="${await row.getAttribute('aria-controls')}"]`);
+        await list.getByRole('option', { name: `Nozzle ${slot}`, exact: true }).click();
+        await expect(row).toHaveAttribute('aria-expanded', 'false');
+        await expect(row).toContainText(`Nozzle ${slot}`);
+        await expect(row).toBeEnabled();
+      }
+      await page.getByTestId('config-mode-project').click();
+    };
+    const startManualSlice = async () => {
+      await page.getByTestId('btn-slice').click({ noWaitAfter: true });
+      const dialog = page.getByTestId('mapping-confirmation');
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByTestId('mapping-mode-2')).toHaveAttribute('aria-pressed', 'true');
+      await dialog.getByTestId('mapping-confirm').click({ noWaitAfter: true });
+      await expect(dialog).toHaveCount(0);
+    };
     const clickPreviewTab = async (label: string) => {
       try {
         const previewTab = page.getByRole('tab', { name: 'Preview', exact: true });
@@ -168,6 +219,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await expect(page.getByTestId('config-field-enable_prime_tower').getByRole('checkbox')).toBeChecked();
     await expect(page.locator('#wipe_tower_x')).toHaveCount(0);
     await expect(page.locator('#wipe_tower_y')).toHaveCount(0);
+    await configureU1ManualMapping();
 
     const readTowers = () => page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { primeTowerStates?: () => Array<{
@@ -393,8 +445,8 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await expect.poll(readCurrentPlateId).toBe(current!.plateId);
     const firstTowerAfterOperations = (await readTowers()).find((tower) => tower.current);
     expect(firstTowerAfterOperations).toBeDefined();
-    await page.getByTestId('btn-slice').click();
-    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 600_000 });
+    await startManualSlice();
+    await expectSliceCompleted();
     await expect.poll(readCurrentPlateId).toBe(current!.plateId);
     const gcode = await exportCompletedGcode(page, exportPath);
     // Match emitted toolpath markers, rather than configuration headers or
@@ -555,17 +607,18 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     // Select and really slice the next eligible plate. The export path is
     // overwritten by the same Electron save boundary, then parsed from disk.
     await clickPlateBed(indexedSecond.plateId);
+    await configureU1ManualMapping();
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     await expect.poll(async () => (await readTowers()).find((tower) => tower.plateId === indexedSecond.plateId), { timeout: 30_000 }).toBeDefined();
     const secondTowerBeforeSlice = (await readTowers()).find((tower) => tower.plateId === indexedSecond.plateId);
     expect(secondTowerBeforeSlice).toBeDefined();
     expect(secondTowerBeforeSlice!.plateId).toBe(indexedSecond.plateId);
-    await page.getByTestId('btn-slice').click();
+    await startManualSlice();
     // Do not accept the previous plate's already-Sliced status as proof that
     // the second target ran.  Wait for the real native slice transition and
     // for the Electron export file to be replaced.
     await expect.poll(() => page.getByTestId('slicer-status').textContent(), { timeout: 30_000 }).toMatch(/^Slicing/);
-    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 600_000 });
+    await expectSliceCompleted();
     const secondGcode = await exportCompletedGcode(page, exportPath);
     const secondEvidence = expectPrimeTowerPosition(secondGcode, secondTowerBeforeSlice!, `plate ${indexedSecond.displayIndex + 1}`);
     // Distinct native plate identity is the isolation contract; two plates

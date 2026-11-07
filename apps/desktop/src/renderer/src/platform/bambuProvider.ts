@@ -30,10 +30,11 @@ export function createBambuProvider(bridge: BambuBridge): AccountProvider & D.Pr
     catch { return { ok: false, error: { code: 'transport', message: 'The Bambu device catalogue is unavailable.' } }; }
   };
   const printers: D.PrinterService = {
+    configurations: { read: reject, save: reject },
     submissions: bambuSubmissions(bridge),
     remotePrints: bambuRemotePrints(bridge),
     listProviders: async () => ({ ok: true, value: [{ id: providerId, name: 'Bambu Lab', hosts: [{ id: hostId, name: 'Desktop', execution: 'desktop', discovery: { kind: 'supported', constraints: { kinds: ['account', 'lan'] } } }] }] }),
-    listTypes: async () => ({ ok: true, value: [{ id: typeId, providerId, name: 'Bambu Lab', description: 'Bambu printer monitoring and control' }] }),
+    listTypes: async () => ({ ok: true, value: [{ id: typeId, providerId, name: 'Bambu Lab', description: 'Bambu printer monitoring and control', manualConfiguration: unsupported }] }),
     listSaved, onSavedChanged: listener => bridge.onChanged(change => { if (change === 'printers') listener(); }),
     describe: async target => {
       try { return await bridge.control('describe', target); }

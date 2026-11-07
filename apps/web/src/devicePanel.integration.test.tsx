@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities, type WebViewPanel, type WebViewPanelCapabilities, type WebViewHost } from '@orca/platform-contract';
 import { DevicePanel } from '../../../packages/slicer-app/src/components/device/DevicePanel';
-import { createMoonrakerService, type PrinterConfiguration, type PrinterConfigurationDocument } from '@orca/printer-control';
+import { createMoonrakerService, createSnapmakerService, createPrinterService, type PrinterConfiguration, type PrinterConfigurationDocument } from '@orca/printer-control';
 
 const printer: PrinterConfiguration = {
   id: 'p1', displayName: 'Workshop', driverId: 'moonraker',
@@ -49,7 +49,7 @@ function makePlatform(calls: string[]) {
   // fields are inert typed seams for this component-level test.
   return {
     platform: {
-      printers: { configuration, service: createMoonrakerService({ configuration, transport: { request: async () => { throw new Error('Device console must not issue HTTP requests'); } }, host: { id: 'test' as import('@orca/printer-control/domain').Id<'agent-host'>, name: 'Test', execution: 'browser' } }) },
+      printers: { configuration, service: createPrinterService(([['moonraker', createMoonrakerService], ['snapmaker', createSnapmakerService]] as const).map(([name, create]) => ({ id: name as import('@orca/printer-control/domain').Id<'provider'>, name, printers: create({ configuration, transport: { request: async () => { throw new Error('Device console must not issue HTTP requests'); } }, host: { id: 'test' as import('@orca/printer-control/domain').Id<'agent-host'>, name: 'Test', execution: 'browser' } }) }))) },
       webview,
       preferences: userPreferences,
     } as unknown as PlatformCapabilities,
@@ -70,7 +70,9 @@ function setInput(testId: string, value: string) {
 async function click(testId: string) {
   if (testId.startsWith('device-select-')) await click('device-printer-select');
   await act(async () => {
-    (document.querySelector(`[data-testid="${testId}"]`) as HTMLElement).click();
+    const element = document.querySelector(`[data-testid="${testId}"]`) as HTMLElement;
+    if (testId.startsWith('device-select-')) element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    element.click();
   });
 }
 
@@ -124,6 +126,30 @@ describe('DevicePanel component', () => {
     await click('device-save-printer');
     expect(configuration.save.mock.calls.at(-1)?.[0].printers[0].displayName).toBe('Edited workshop');
     expect(document.querySelector('[data-testid="device-config-dialog"]')).toBeNull();
+  });
+
+  it('adds and reopens a Snapmaker connection without requiring a model or querying the device', async () => {
+    const { platform, configuration } = makePlatform([]);
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><DevicePanel /></PlatformProvider>); });
+    await click('device-add-printer');
+    await click('device-adapter');
+    await act(async () => {
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent === 'Snapmaker');
+      expect(option).toBeDefined(); option!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); option!.click();
+    });
+    await act(async () => { setInput('device-display-name', 'U1'); });
+    await act(async () => { setInput('device-api-base-url', 'http://u1.local:7125'); });
+    await click('device-save-printer');
+    const saved = (await configuration.load()).printers.find(item => item.driverId === 'snapmaker')!;
+    expect(saved).toMatchObject({ displayName: 'U1', consoleUrl: '', apiKey: '' });
+    expect(saved.printerModel).toBeUndefined();
+    await click(`device-select-${saved.id}`);
+    await click(`device-edit-${saved.id}`);
+    expect(document.querySelector('[data-testid="device-adapter"]')?.textContent).toContain('Snapmaker');
+    expect((document.querySelector('[data-testid="device-api-base-url"]') as HTMLInputElement).value).toBe('http://u1.local:7125/');
   });
 
   it('requires delete confirmation, then disposes the selected console and shows empty state', async () => {

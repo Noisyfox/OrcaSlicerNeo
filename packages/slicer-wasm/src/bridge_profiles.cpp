@@ -112,7 +112,7 @@ void validate_profile_transition(const DynamicPrintConfig& previous, size_t prev
     // Native preset padding does not add project materials. Fixed multi-extruder
     // printers still require a material for each nozzle.
     const bool flexible = bundle.is_bbl_vendor() ||
-        bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material");
+        Filament::State::supports_independent_materials(bundle.printers.get_edited_preset().config);
     const auto slot_count = Filament::State::material_slot_count(bundle.project_config);
     Filament::State::resize_slots_preserving_colours(
         bundle, static_cast<unsigned int>(flexible ? slot_count :
@@ -833,7 +833,7 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
         const auto* nozzles = bundle.printers.get_edited_preset().config.opt<ConfigOptionFloats>("nozzle_diameter");
         const std::size_t nozzle_count = nozzles == nullptr ? 1 : std::max<std::size_t>(1, nozzles->values.size());
         const bool flexible = bundle.is_bbl_vendor() ||
-            bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material");
+            Filament::State::supports_independent_materials(bundle.printers.get_edited_preset().config);
         const std::size_t final_count = flexible ? slots.size() : std::max(slots.size(), nozzle_count);
         if (final_count > 64) throw std::runtime_error("Printer transition exceeds the filament slot limit");
 
@@ -964,7 +964,7 @@ json device_material_catalogue_json(const json& request)
     const std::string diameter_text = diameter == 0. ? "0.4" : text.str();
     const Preset* machine = nullptr;
     for (const auto& preset : bundle.printers) {
-        if (!preset.is_system || !device_model_matches(preset, identity) || preset.name.find(diameter_text) == std::string::npos) continue;
+        if (!preset.is_system || !device_model_matches(preset, identity) || preset.config.opt_string("printer_variant") != diameter_text) continue;
         if (machine) throw std::runtime_error("Device model and nozzle do not identify one system printer preset");
         machine = &preset;
     }
@@ -1417,7 +1417,7 @@ json set_project_flow_json(const json& request)
     try {
         apply_project_flow(index, flow);
         Filament::Commands::validate_filament_candidate_components(bundle.filament_presets, bundle.project_config,
-            printer, int(choices.size()), printer.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor(),
+            printer, int(choices.size()), Filament::State::supports_independent_materials(printer) || bundle.is_bbl_vendor(),
             bridge.model, bridge.plate_session_plates, ScopedConfig::native_scoped_config_snapshot());
         const auto affected = PlateSession::all_plate_ids();
         auto plates = PlateSession::configuration_mutation_snapshot(affected, {"project-flow"});
@@ -2082,4 +2082,65 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_device_material_catalogue(co
     using namespace Slic3r::Neo::Bridge::Profiles;
     try { return duplicate_json(device_material_catalogue_json(json::parse(request ? request : "")).dump()); }
     catch (const std::exception& error) { return duplicate_json(json{{"ok", false}, {"error", error.what()}}.dump()); }
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_match_filament_presets(const char* request)
+{
+    using namespace Slic3r;
+    using namespace Slic3r::Neo::Bridge;
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    try {
+        const auto materials = json::parse(request ? request : "");
+        if (!materials.is_array()) throw std::runtime_error("Invalid material matching inputs");
+        const auto& filaments = state().presets.filaments;
+        json ids = json::array();
+        for (const auto& material : materials) {
+            const auto vendor = material.at("manufacturer").get<std::string>();
+            const auto type = material.at("materialType").get<std::string>();
+            const auto name = material.at("presetName");
+            if (!name.is_null() && !name.is_string()) throw std::runtime_error("Invalid material preset name");
+            const auto rgba = material.at("colorRgba").get<std::string>();
+            if (rgba.size() != 9 || rgba[0] != '#' || !std::all_of(rgba.begin() + 1, rgba.end(),
+                [](unsigned char c) { return std::isxdigit(c); })) throw std::runtime_error("Invalid material RGBA color");
+            const auto color = std::stoul(rgba.substr(1, 6), nullptr, 16);
+            unsigned long best = std::numeric_limits<unsigned long>::max();
+            std::string id;
+            // Snapmaker Orca's resolve_filament_preset: exact base name before
+            // generic matching, case-insensitive and without the @variant suffix.
+            auto normalize_name = [](std::string text) {
+                const auto first = text.find_first_not_of(" \t\r\n");
+                if (first == std::string::npos) return std::string{};
+                text = text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1);
+                std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+                return text;
+            };
+            if (name.is_string() && !normalize_name(name.get<std::string>()).empty()) {
+                const auto wanted = normalize_name(name.get<std::string>());
+                for (const auto& preset : filaments.get_presets())
+                    // A reported full name identifies a library filament, not
+                    // a variant of the active project printer. Device editors
+                    // resolve that identity in their own physical catalogue.
+                    if (preset.is_system && !preset.filament_id.empty() && normalize_name(preset.name.substr(0, preset.name.find('@'))) == wanted) {
+                        id = preset.filament_id; break;
+                    }
+            }
+            // SnapmakerPrinterAgent::find_closest_color_preset_by_vendor_and_type.
+            // Collection order breaks ties. Alpha does not participate in RGB distance.
+            if (id.empty()) for (const auto& preset : filaments.get_presets()) {
+                if (!preset.is_visible || !preset.is_compatible || filaments.get_preset_base(preset) != &preset ||
+                    preset.config.opt_string("filament_vendor", 0u) != vendor || preset.config.opt_string("filament_type", 0u) != type) continue;
+                auto text = preset.config.opt_string("default_filament_colour", 0u);
+                const auto rgb = text.empty() ? 0ul : std::stoul(text.substr(text[0] == '#' ? 1 : 0), nullptr, 16);
+                unsigned long distance = 0;
+                for (const int shift : {0, 8, 16}) {
+                    const int delta = int((color >> shift) & 255) - int((rgb >> shift) & 255);
+                    distance += delta * delta;
+                }
+                if (distance < best) { best = distance; id = preset.filament_id; }
+            }
+            if (id.empty()) id = filaments.filament_id_by_type(type);
+            ids.push_back(id.empty() ? json(nullptr) : json(id));
+        }
+        return duplicate_json(json{{"ok", true}, {"filamentIds", ids}}.dump());
+    } catch (const std::exception& error) { return duplicate_json(json{{"ok", false}, {"error", error.what()}}.dump()); }
 }

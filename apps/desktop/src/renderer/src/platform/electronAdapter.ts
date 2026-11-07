@@ -20,6 +20,7 @@ import {
 import type { Id } from '@orca/printer-control/domain';
 import {
   createMoonrakerService,
+  createSnapmakerService,
   normalizePrinterConfigurationDocument,
   type PrinterConfigurationDocument,
 } from '@orca/printer-control';
@@ -273,6 +274,14 @@ export function createElectronAdapter(runtime: SlicerRuntime, nativeScreenColorA
       service: createPrinterService([bambu, {
         id: 'moonraker' as Id<'provider'>, name: 'Moonraker',
         printers: createMoonrakerService({
+          configuration: printerConfiguration,
+          transport: createElectronPrinterTransport(host),
+          host: { id: 'desktop' as Id<'agent-host'>, name: 'Desktop', execution: 'desktop' },
+        }),
+      }, {
+        id: 'snapmaker' as Id<'provider'>, name: 'Snapmaker',
+        printers: createSnapmakerService({
+          matchFilaments: materials => runtime.matchFilamentPresets(materials),
           configuration: printerConfiguration,
           transport: createElectronPrinterTransport(host),
           host: { id: 'desktop' as Id<'agent-host'>, name: 'Desktop', execution: 'desktop' },

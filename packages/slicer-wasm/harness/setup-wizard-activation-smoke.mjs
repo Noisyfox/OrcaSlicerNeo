@@ -351,8 +351,8 @@ for (const memory of [{ remembered_filament_racks: { [A]: null }, remembered_bed
 // even with existing dirty state; successful activation still clears history.
 const receipts = [];
 for (const plate of [plateA, plateB]) {
-  const sliced = must(await callAsyncTask(c, 'orc_slice_plate', ['string', 'string', 'number'],
-    ['{}', plate, plates().input_revisions[plate]]));
+  const sliced = must(await callAsyncTask(c, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+    ['{}', plate, plates().input_revisions[plate], 'null']));
   must(getSliceResult(c, sliced.receipt)); must(exportGcode(c, { receipt: sliced.receipt, filenameBase: '' }));
   receipts.push(sliced.receipt);
 }

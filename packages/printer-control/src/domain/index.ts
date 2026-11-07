@@ -3,6 +3,7 @@
  * Concrete providers, validation, transport and project mutation are not implemented here.
  */
 export type * from './common';
+export type * from './configuration';
 export type * from './printer';
 export type * from './materials';
 export type * from './sensors';
@@ -16,3 +17,5 @@ export type * from './web-interface';
 export * from './print-options';
 export * from './submission';
 export type * from './remote-print';
+
+export type * from './preferences';

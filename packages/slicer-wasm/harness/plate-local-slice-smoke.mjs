@@ -40,7 +40,7 @@ check('add empty plate selects plate 3', addedEmpty.ok === true);
 const empty = callJson('orc_get_plate_session_snapshot');
 const emptyTarget = { id: empty.current_plate_id, revision: empty.input_revisions[empty.current_plate_id] };
 const emptySlice = await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', emptyTarget.id, emptyTarget.revision]);
+  ['string', 'string', 'number', 'string'], ['{}', emptyTarget.id, emptyTarget.revision, 'null']);
 check('empty current plate rejected', emptySlice.ok !== true && /empty/.test(emptySlice.error ?? ''));
 let second = callJson('orc_select_plate', ['string'], [first.plates[1].plate_id]);
 check('return to plate 2', second.ok === true);
@@ -55,7 +55,7 @@ check('unsliced plate 2 result rejected', unslicedSecondResult.ok !== true &&
   unslicedSecondResult.status === 'stale', JSON.stringify(unslicedSecondResult));
 const modelBeforeSlice = callJson('orc_get_model_structure');
 const sliceFirst = await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', firstTarget.id, firstTarget.revision]);
+  ['string', 'string', 'number', 'string'], ['{}', firstTarget.id, firstTarget.revision, 'null']);
 check('slice plate 1', sliceFirst.ok === true, JSON.stringify(sliceFirst));
 check('slice non-current plate preserves selection',
   callJson('orc_get_plate_session_snapshot').current_plate_id === secondTarget.id);
@@ -71,7 +71,7 @@ const firstGcode = exportFirst.ok ? Buffer.from(Module.FS.readFile(exportFirst.p
 check('export plate 1', exportFirst.ok === true, JSON.stringify(exportFirst));
 
 const resliceFirst = await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', firstTarget.id, firstTarget.revision]);
+  ['string', 'string', 'number', 'string'], ['{}', firstTarget.id, firstTarget.revision, 'null']);
 check('explicit re-slice keeps plate 1 revision', resliceFirst.ok === true, JSON.stringify(resliceFirst));
 const staleFirstGeneration = getSliceResult(callJson, sliceFirst.receipt);
 check('re-slice retires the prior result generation', staleFirstGeneration.ok !== true,
@@ -89,7 +89,7 @@ check('export a retained non-current plate without switching selection', inactiv
   JSON.stringify(inactiveFirstExport));
 check('select plate 2', selectSecond.ok === true && selectSecond.current_plate_id === secondTarget.id);
 const sliceSecond = await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', secondTarget.id, secondTarget.revision]);
+  ['string', 'string', 'number', 'string'], ['{}', secondTarget.id, secondTarget.revision, 'null']);
 check('slice plate 2', sliceSecond.ok === true, JSON.stringify(sliceSecond));
 const secondPreview = getSliceResult(callJson, sliceSecond.receipt);
 check('preview plate 2 uses its print', secondPreview.ok === true && secondPreview.objects === 1,
@@ -127,7 +127,7 @@ check('other plate mutation preserves non-current export', nonCurrent.ok === tru
 check('distinct plate previews have distinct result storage',
   firstPreview.metadata?.result_id !== secondPreview.metadata?.result_id);
 const sliceSecondChanged = await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', secondChangedTarget.id, secondChangedTarget.revision]);
+  ['string', 'string', 'number', 'string'], ['{}', secondChangedTarget.id, secondChangedTarget.revision, 'null']);
 check('slice changed plate 2', sliceSecondChanged.ok === true, JSON.stringify(sliceSecondChanged));
 const changedSecondPreview = getSliceResult(callJson, sliceSecondChanged.receipt);
 check('changed plate 2 preview is still selected',
@@ -147,7 +147,7 @@ check('returning to plate 1 reads plate 1 print',
 const changed = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Revision change']);
 check('revision change accepted', changed.ok === true);
 const stale = await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', firstTarget.id, firstTarget.revision]);
+  ['string', 'string', 'number', 'string'], ['{}', firstTarget.id, firstTarget.revision, 'null']);
 check('stale slice rejected', stale.ok !== true && /stale/.test(stale.error ?? ''));
 
 // Step 13: once a current plate has a fresh native result, Delete Plate must
@@ -164,7 +164,7 @@ const deleteTargetInstances = beforeDelete.instances
   .filter((instance) => instance.plate_id === deleteTarget.id)
   .map((instance) => instance.instance_id);
 const freshBeforeDelete = await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', deleteTarget.id, deleteTarget.revision]);
+  ['string', 'string', 'number', 'string'], ['{}', deleteTarget.id, deleteTarget.revision, 'null']);
 check('slice current plate before deletion', freshBeforeDelete.ok === true, JSON.stringify(freshBeforeDelete));
 const resultBeforeDelete = getSliceResult(callJson, freshBeforeDelete.receipt);
 check('deleted plate starts with a publishable result', resultBeforeDelete.ok === true,

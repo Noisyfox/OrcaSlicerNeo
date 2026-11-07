@@ -13,12 +13,12 @@ export function bambuCapabilities(): D.PrinterCapabilities {
       'motion.jog': unsupported, 'extrusion.move': unsupported, 'tools.select': unsupported,
       'materials.load': unsupported, 'materials.unload': unsupported, 'materials.switch': unsupported,
       'materials.writeMetadata': unsupported, 'materials.configure': unsupported, 'materials.refreshTag': unsupported, 'drying.start': unsupported, 'drying.stop': unsupported,
-      'camera.setEnabled': unsupported, 'camera.setDeviceTimelapse': unsupported, 'files.delete': { kind: 'unknown', reason: 'Open Storage to discover available file actions.' },
+      'camera.setEnabled': unsupported, 'camera.setDeviceTimelapse': unsupported, 'preferences.set': unsupported, 'files.delete': { kind: 'unknown', reason: 'Open Storage to discover available file actions.' },
     },
     cameras: [], currentPrintPreview: unsupported, webInterface: unsupported,
     files: { upload: unsupported, list: { kind: 'unknown', reason: 'Open Storage to discover available printer storage.' },
       stat: { kind: 'unknown', reason: 'File information requires authorized storage access.' }, download: unsupported, preview: { kind: 'unknown', reason: 'Open Storage to resolve available file previews.' }, changes: unsupported },
-    observations: { printObjects: unsupported, descriptor: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, status: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, firmware: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, thermal: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, motion: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } },
+    observations: { preferences: unsupported, printObjects: unsupported, descriptor: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, status: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, firmware: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, thermal: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, motion: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } },
       actuators: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, materials: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, cameras: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, sensors: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } }, alerts: { kind: 'supported', constraints: { delivery: ['push', 'on-demand'] } } },
   };
 }

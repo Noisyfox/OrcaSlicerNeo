@@ -223,6 +223,7 @@ json configure_memory(const json& request)
 
 DynamicPrintConfig full_config(const std::string& plate_id, bool apply_extruder)
 {
+    const auto printer = PresetDrafts::effective_printer_config();
     const auto* plate = PlateSession::find_plate(plate_id);
     if (!plate) throw std::invalid_argument("Plate no longer exists");
     const auto& project = state().presets.project_config;
@@ -238,7 +239,7 @@ DynamicPrintConfig full_config(const std::string& plate_id, bool apply_extruder)
     const auto mode = saved_mode(plate->settings);
     const auto project_mode = saved_mode(project);
     const int effective_mode = mode.is_null() || mode == int(fmmDefault)
-        ? (project_mode.is_null() || project_mode == int(fmmDefault) ? int(fmmAutoForFlush) : project_mode.get<int>())
+        ? (project_mode.is_null() || project_mode == int(fmmDefault) ? (Filament::State::is_snapmaker_u1(printer) ? int(fmmManual) : int(fmmAutoForFlush)) : project_mode.get<int>())
         : mode.get<int>();
     config.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(FilamentMapMode(effective_mode)));
     // Orca supplies this session-only inventory through its GUI/device layer.
@@ -267,7 +268,7 @@ DynamicPrintConfig full_config(const std::string& plate_id, bool apply_extruder)
 void validate_slice(const std::string& plate_id)
 {
     const auto printer = PresetDrafts::effective_printer_config();
-    if (printer.opt<ConfigOptionFloats>("nozzle_diameter")->size() <= 1 || !printer.opt_bool("single_extruder_multi_material")) return;
+    if (printer.opt<ConfigOptionFloats>("nozzle_diameter")->size() <= 1 || !Filament::State::supports_independent_materials(printer)) return;
     const auto input = projection(plate_id);
     if (!input.value("ok", false)) throw std::invalid_argument(input.value("error", "Invalid mapping inputs"));
     const int mode = input["effective"]["mode"].get<int>();
@@ -281,7 +282,7 @@ void initialize_plate(DynamicPrintConfig& settings)
 {
     const auto printer = PresetDrafts::effective_printer_config();
     const auto* diameters = printer.opt<ConfigOptionFloats>("nozzle_diameter");
-    if (!diameters || diameters->size() < 2 || !printer.opt_bool("single_extruder_multi_material")) return;
+    if (!diameters || diameters->size() < 2 || !Filament::State::supports_independent_materials(printer)) return;
     const bool automatic = diameters->size() == 2 && state().presets.is_bbl_vendor();
     settings.set_key_value("filament_map_mode", new ConfigOptionEnum<FilamentMapMode>(automatic ? fmmAutoForFlush : fmmManual));
 }
@@ -294,9 +295,9 @@ json projection(const std::string& plate_id)
     const auto printer = PresetDrafts::effective_printer_config();
     const auto* diameters = printer.opt<ConfigOptionFloats>("nozzle_diameter");
     const std::size_t nozzles = diameters ? diameters->size() : 0;
-    const bool eligible = nozzles > 1 && printer.opt_bool("single_extruder_multi_material");
+    const bool eligible = nozzles > 1 && Filament::State::supports_independent_materials(printer);
     const bool automatic = eligible && nozzles == 2 && state().presets.is_bbl_vendor();
-    const std::string automatic_reason = !eligible ? "Requires SEMM and multiple extruders"
+    const std::string automatic_reason = !eligible ? "Requires multiple extruders with independent project materials"
         : !automatic ? "Automatic filament saving is unavailable for this printer topology" : "";
     const bool match_supported = automatic && match_topology_supported(printer);
     const bool match_available = match_supported && selected_device_matches();
@@ -310,7 +311,7 @@ json projection(const std::string& plate_id)
     const auto mode = saved_mode(plate->settings);
     const auto project_mode = saved_mode(project);
     const int effective_mode = mode.is_null() || mode == int(fmmDefault)
-        ? (project_mode.is_null() || project_mode == int(fmmDefault) ? int(fmmAutoForFlush) : project_mode.get<int>())
+        ? (project_mode.is_null() || project_mode == int(fmmDefault) ? (Filament::State::is_snapmaker_u1(printer) ? int(fmmManual) : int(fmmAutoForFlush)) : project_mode.get<int>())
         : mode.get<int>();
     json heads = json::array();
     for (std::size_t i = 0; i < nozzles; ++i)
@@ -338,8 +339,8 @@ json projection(const std::string& plate_id)
         {"modes", json::array({
             {{"mode", int(fmmAutoForFlush)}, {"available", automatic}, {"reason", automatic_reason}},
             {{"mode", int(fmmAutoForMatch)}, {"available", match_available}, {"reason", match_reason}},
-            {{"mode", int(fmmManual)}, {"available", eligible}, {"reason", eligible ? "" : "Requires SEMM and multiple extruders"}},
-            {{"mode", int(fmmNozzleManual)}, {"available", eligible}, {"reason", eligible ? "" : "Requires SEMM and multiple extruders"}}
+            {{"mode", int(fmmManual)}, {"available", eligible}, {"reason", eligible ? "" : "Requires multiple extruders with independent project materials"}},
+            {{"mode", int(fmmNozzleManual)}, {"available", eligible}, {"reason", eligible ? "" : "Requires multiple extruders with independent project materials"}}
         })},
         {"saved", {{"mode", mode}, {"filamentMap", saved_map(plate->settings, "filament_map")},
             {"volumeMap", saved_map(plate->settings, "filament_volume_map")},
@@ -373,7 +374,7 @@ json mutate(const json& request)
     if (!before.value("ok", false)) return before;
     if (request["revision"] != bridge.history_revision || request["plateRevision"] != before["revision"])
         return failure("stale_revision", "Nozzle mapping inputs changed; refresh before editing");
-    if (!before["eligible"].get<bool>()) return failure("unavailable", "Requires SEMM and multiple extruders");
+    if (!before["eligible"].get<bool>()) return failure("unavailable", "Requires multiple extruders with independent project materials");
     if (bridge.active_history_transaction || bridge.history_disabled)
         return failure("history_unavailable", "Nozzle mapping requires an independent history transaction");
     const auto context = HistoryMetadata::parse_history_context(request["history_context"].dump().c_str());

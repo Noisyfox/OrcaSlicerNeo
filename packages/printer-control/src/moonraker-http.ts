@@ -56,6 +56,20 @@ export class MoonrakerHttp {
       return record(payload.result);
     });
   }
+  async getBytes(printer: PrinterConfiguration, path: string, signal?: AbortSignal): Promise<Uint8Array> {
+    if (signal?.aborted) fail('cancelled', 'Printer request cancelled');
+    let response;
+    try {
+      response = await this.transport.request({ method: 'GET', url: endpoint(printer.apiBaseUrl, path), responseType: 'bytes', signal,
+        headers: printer.apiKey ? { 'X-Api-Key': printer.apiKey } : {} });
+    } catch {
+      fail(signal?.aborted ? 'cancelled' : 'transport', 'Printer request interrupted');
+    }
+    if (response.status < 200 || response.status >= 300) {
+      fail(response.status === 401 ? 'authentication-required' : response.status === 403 ? 'permission-denied' : 'preview-unavailable', 'Printer image is unavailable');
+    }
+    return response.bytes();
+  }
   post(printer: PrinterConfiguration, path: string, json: unknown) {
     return this.request(printer, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: { kind: 'json', json: JSON.stringify(json) } }, payload => {
       if (payload.result !== 'ok') throw new Error('Missing acknowledgement');

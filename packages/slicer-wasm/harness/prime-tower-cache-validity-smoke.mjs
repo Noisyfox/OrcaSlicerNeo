@@ -125,8 +125,8 @@ assertCached(projection(), [first, second]);
 // retain input-derived caches. A following move still reuses usage summaries.
 if (call('orc_get_threading_info').threaded) {
   const current = snapshot();
-  const accepted = call('orc_slice_plate', ['string', 'string', 'number'],
-    ['{}', first, current.input_revisions[first]]);
+  const accepted = call('orc_slice_plate', ['string', 'string', 'number', 'string'],
+    ['{}', first, current.input_revisions[first], 'null']);
   call('orc_cancel');
   assertCached(projection(), [first, second]);
   const terminal = await awaitAsyncTask((name, types, args) => call(name, types, args), accepted);

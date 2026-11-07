@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { getEventListeners } from 'node:events';
+import { openStorageChannel } from '../dist/storageChannel.js';
 import { readBambuStorageResource, readBambuStorageResources, openBambuStorageResourceReader, loadBambuControlStream, readBambuStorageFile, discoverBambuStorage, listBambuStorageFiles, deleteBambuStorageFile } from '../dist/index.js';
 
 const addon = fileURLToPath(new URL('../build/Release/bambu.node', import.meta.url));
@@ -43,6 +44,23 @@ test('consumer pauses do not count as printer inactivity; abort closes an unread
   assert.equal(getEventListeners(signal.signal, 'abort').length, 1);
   signal.abort(); assert.equal(getEventListeners(signal.signal, 'abort').length, 0);
   await assert.rejects(second.chunks[Symbol.asyncIterator]().next(), error => error.code === 'cancelled');
+});
+
+test('checks arrived packets before timing out a delayed host turn', async t => {
+  const channel = await openStorageChannel(addon, source, 'bambu:///local/fixture', 4,
+    { path: '/storage-file' }, { ...options, inactivityTimeoutMs: 10 });
+  try {
+    await delay(50); // Let the native producer fill its bounded queue.
+    let clock = 0;
+    const now = t.mock.method(performance, 'now', () => (clock += 100));
+    try {
+      const first = await channel.read();
+      assert.equal(Buffer.from(first.body).toString(), 'a');
+      const last = await channel.read();
+      assert.equal(Buffer.from(last.body).toString(), 'bc');
+      assert.equal(last.result, 0);
+    } finally { now.mock.restore(); }
+  } finally { await channel.close(); }
 });
 
 test('return before the first consumer pull releases the primed native reader', async () => {
