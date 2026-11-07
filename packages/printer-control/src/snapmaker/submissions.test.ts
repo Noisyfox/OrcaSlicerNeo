@@ -1,9 +1,9 @@
 import { expect, it, vi } from 'vitest';
-import type * as D from './domain';
-import { MoonrakerHttp } from './moonraker-http';
-import { U1Submissions, U1_SEND_FAILURE } from './snapmaker-submissions';
-import type { PrinterTransportRequest } from './transport';
-import { normalizePrinterConfigurationDocument } from './configuration';
+import type * as D from '../domain';
+import { MoonrakerHttp } from '../moonraker-http';
+import { U1Submissions, U1_SEND_FAILURE } from './submissions';
+import type { PrinterTransportRequest } from '../transport';
+import { normalizePrinterConfigurationDocument } from '../configuration';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
 const target = { printerId: id<'printer'>('u1'), routeId: id<'route'>('snapmaker:u1') };

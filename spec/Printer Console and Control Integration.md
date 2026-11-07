@@ -2675,7 +2675,7 @@ rules; those rules remain unchanged. The decisions above do not waive protocol
 address validity, receipt freshness or operation-outcome handling.
 
 The shared preparation view consumes agent-provided candidates and calibration
-addresses. `snapmaker-preparation.ts` reads actual extruder diameter/flow fields,
+addresses. `snapmaker/preparation.ts` reads actual extruder diameter/flow fields,
 keeps unreported hardness unknown, and checks command availability separately.
 The retained-slice manifest supplies nozzle and first-layer nozzle temperatures;
 shared-heater diagnostics do not inspect the exported G-code. Remote-file

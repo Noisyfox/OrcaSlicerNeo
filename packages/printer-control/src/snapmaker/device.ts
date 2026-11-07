@@ -1,9 +1,9 @@
-import { u1Preferences, u1PreferenceCapability, u1PreferenceScripts } from './snapmaker-preferences';
+import { u1Preferences, u1PreferenceCapability, u1PreferenceScripts } from './preferences';
 /** Observed U1 hardware and physical Device commands. Job mappings never enter this module. */
-import type * as D from './domain';
-import type { PrinterConfiguration } from './configuration';
-import { MoonrakerHttp, record, fail } from './moonraker-http';
-import { u1MaterialInventory, u1PathId, u1ToolId, u1FilamentType } from './snapmaker-observation';
+import type * as D from '../domain';
+import type { PrinterConfiguration } from '../configuration';
+import { MoonrakerHttp, record, fail } from '../moonraker-http';
+import { u1MaterialInventory, u1PathId, u1ToolId, u1FilamentType } from './observation';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
 const unknown = { kind: 'unknown', reason: 'not-reported' } as const;

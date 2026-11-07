@@ -7,7 +7,7 @@ import type * as D from './domain';
 import type { PrinterTransportRequest, PrinterTransportResponse } from './transport';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
-function fixture(matchFilaments?: import('./snapmaker-observation').FilamentMatcher) {
+function fixture(matchFilaments?: import('./snapmaker/observation').FilamentMatcher) {
   let doc: PrinterConfigurationDocument = normalizePrinterConfigurationDocument({ version: 1, printers: ['moonraker', 'snapmaker'].map(driverId => ({
     id: driverId, driverId, displayName: 'Same name', apiBaseUrl: 'http://printer/proxy', apiKey: 'secret', consoleUrl: '',
   })) });

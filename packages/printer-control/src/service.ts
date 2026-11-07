@@ -1,9 +1,9 @@
-import { U1ObservationHub } from './snapmaker-monitor';
-import { u1PreferenceScripts, verifyU1Preferences } from './snapmaker-preferences';
-import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, u1PrintStage, U1PrintTime, type U1DeviceSnapshot } from './snapmaker-device';
-import { U1Submissions } from './snapmaker-submissions';
-import { prepareU1Submission, u1PreparationFromDevice, type U1PreparationSnapshot } from './snapmaker-preparation';
-import { u1MaterialInventory, matchU1Materials, type FilamentMatcher } from './snapmaker-observation';
+import { U1ObservationHub } from './snapmaker/monitor';
+import { u1PreferenceScripts, verifyU1Preferences } from './snapmaker/preferences';
+import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, u1PrintStage, U1PrintTime, type U1DeviceSnapshot } from './snapmaker/device';
+import { U1Submissions } from './snapmaker/submissions';
+import { prepareU1Submission, u1PreparationFromDevice, type U1PreparationSnapshot } from './snapmaker/preparation';
+import { u1MaterialInventory, matchU1Materials, type FilamentMatcher } from './snapmaker/observation';
 import { unsupportedSubmissions } from './submission';
 /** Shared request-based HTTP service with provider-owned routes and operation records. */
 import { BUILT_IN_PRINTER_DRIVER_IDS, normalizePrinterConfiguration, normalizePrinterConfigurationDocument, type PrinterConfiguration, type PrinterConfigurationDocument } from './configuration';

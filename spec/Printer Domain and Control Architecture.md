@@ -2407,7 +2407,7 @@ records observations, preparation-only mappings, restored settings/fans and
 unchanged upload verification; no physical print behavior is inferred.
 
 
-The provider-private [U1 preparation encoder](../packages/printer-control/src/snapmaker-protocol.ts)
+The provider-private [U1 preparation encoder](../packages/printer-control/src/snapmaker/protocol.ts)
 implements structured logical-material bindings, physical-head deduplication,
 protocol index validation and print-option command construction. Its protocol
 fixtures cover sparse IDs and many-to-one bindings; no file inspection is used.
@@ -2415,7 +2415,7 @@ The [HTTP provider](../packages/printer-control/src/service.ts) registers distin
 Moonraker and Snapmaker routes in both hosts, sharing the configuration write
 queue while isolating operations by provider. The manual Device form can save
 and reopen Snapmaker connections without a model or network probe. On-demand
-[U1 inventory normalization](../packages/printer-control/src/snapmaker-observation.ts)
+[U1 inventory normalization](../packages/printer-control/src/snapmaker/observation.ts)
 keeps inserted, empty and unknown material observations distinct from the
 motion sensor's loaded state. Unreported hardware is not filled from presets.
 Prepared submission uploads unchanged G-code before applying the structured

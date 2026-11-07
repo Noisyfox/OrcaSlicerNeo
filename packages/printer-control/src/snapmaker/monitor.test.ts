@@ -1,5 +1,5 @@
 import { it, expect, vi } from 'vitest';
-import { U1ObservationHub } from './snapmaker-monitor';
+import { U1ObservationHub } from './monitor';
 it('shares acquisition, stops after the last consumer and preserves independent operation retention', async () => {
   vi.useFakeTimers();
   const read = vi.fn(async () => 'state'), stale = vi.fn();

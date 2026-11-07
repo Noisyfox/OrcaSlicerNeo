@@ -1,7 +1,7 @@
 import { it, expect } from 'vitest';
-import { u1Preferences, u1PreferenceScripts, verifyU1Preferences } from './snapmaker-preferences';
-import type { U1DeviceSnapshot } from './snapmaker-device';
-import type * as D from './domain';
+import { u1Preferences, u1PreferenceScripts, verifyU1Preferences } from './preferences';
+import type { U1DeviceSnapshot } from './device';
+import type * as D from '../domain';
 const snapshot: U1DeviceSnapshot = { objects: ['defect_detection', 'print_task_config'], commands: ['DEFECT_DETECTION_CONFIG', 'SET_PRINT_PREFERENCES'], receivedAtMs: 100, status: {
   defect_detection: { main_enable: true, noodle: { enable: false, sensitivity: 'low' }, clean_bed: { enable: true, sensitivity: 'high' } },
   print_task_config: { auto_replenish_filament: false, replenish_ignore_color: false, filament_entangle_detect: true, filament_entangle_sen: 'medium', end_led_turn_off: true },

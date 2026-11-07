@@ -1,10 +1,10 @@
 /** Host-lifetime U1 delivery. Observing/closing a dialog never cancels this executor. */
-import type * as D from './domain';
-import type { PrinterConfiguration } from './configuration';
-import { MoonrakerFailure, MoonrakerHttp, fail, publicError } from './moonraker-http';
-import { copy, newId, requestSignature } from './operations';
-import { prepareU1Print } from './snapmaker-protocol';
-import { u1BindingHead } from './snapmaker-preparation';
+import type * as D from '../domain';
+import type { PrinterConfiguration } from '../configuration';
+import { MoonrakerFailure, MoonrakerHttp, fail, publicError } from '../moonraker-http';
+import { copy, newId, requestSignature } from '../operations';
+import { prepareU1Print } from './protocol';
+import { u1BindingHead } from './preparation';
 
 export const U1_SEND_FAILURE = 'Send print task failed, please try again';
 interface Entry {

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import type * as D from './domain';
-import { readU1Preparation, prepareU1Submission, type U1PreparationSnapshot } from './snapmaker-preparation';
-import { MoonrakerHttp } from './moonraker-http';
-import { normalizePrinterConfigurationDocument } from './configuration';
-import { u1MaterialInventory, u1PathId } from './snapmaker-observation';
+import type * as D from '../domain';
+import { readU1Preparation, prepareU1Submission, type U1PreparationSnapshot } from './preparation';
+import { MoonrakerHttp } from '../moonraker-http';
+import { normalizePrinterConfigurationDocument } from '../configuration';
+import { u1MaterialInventory, u1PathId } from './observation';
 
 const target = { printerId: 'u1' as D.Id<'printer'>, routeId: 'snapmaker:u1' as D.Id<'route'> };
 const material = (index: number, toolIndex = 0): D.PrintMaterialRequirement => ({ key: `filament-${index}`, index, toolIndex,

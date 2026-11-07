@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import type * as D from './domain';
-import { MoonrakerHttp } from './moonraker-http';
-import { normalizePrinterConfigurationDocument } from './configuration';
-import { u1MaterialInventory, u1FilamentType, matchU1Materials } from './snapmaker-observation';
-import { readU1Device, u1DeviceCapabilities, u1DeviceCommand, u1DeviceValues, type U1DeviceSnapshot } from './snapmaker-device';
+import type * as D from '../domain';
+import { MoonrakerHttp } from '../moonraker-http';
+import { normalizePrinterConfigurationDocument } from '../configuration';
+import { u1MaterialInventory, u1FilamentType, matchU1Materials } from './observation';
+import { readU1Device, u1DeviceCapabilities, u1DeviceCommand, u1DeviceValues, type U1DeviceSnapshot } from './device';
 const id = <K extends string>(s: string) => s as D.Id<K>;
 const snapshot: U1DeviceSnapshot = { receivedAtMs: 123, objects: ['print_task_config', 'extruder', 'extruder1', 'extruder2', 'extruder3', 'heater_bed', 'purifier', 'led cavity_led', 'filament_feed left', 'filament_feed right'],
   commands: ['SET_HEATER_TEMPERATURE', 'SET_PURIFIER', 'SET_LED', 'FEED_AUTO', 'SET_PRINT_FILAMENT_CONFIG'], status: {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { prepareU1Print, type U1PrintPreparation } from './snapmaker-protocol';
+import { prepareU1Print, type U1PrintPreparation } from './protocol';
 
 const preparation = (overrides: Partial<U1PrintPreparation> = {}): U1PrintPreparation => ({
   usedFilamentIds: [0, 5, 31],

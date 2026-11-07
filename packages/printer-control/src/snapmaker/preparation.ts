@@ -1,8 +1,8 @@
 /** U1 preparation consumes structured slice/device data; it never reads G-code. */
-import type * as D from './domain';
-import type { PrinterConfiguration } from './configuration';
-import { MoonrakerHttp, fail, record } from './moonraker-http';
-import { u1MaterialInventory, u1PathId, u1ToolId } from './snapmaker-observation';
+import type * as D from '../domain';
+import type { PrinterConfiguration } from '../configuration';
+import { MoonrakerHttp, fail, record } from '../moonraker-http';
+import { u1MaterialInventory, u1PathId, u1ToolId } from './observation';
 
 export interface U1PreparationSnapshot {
   receivedAtMs: number;

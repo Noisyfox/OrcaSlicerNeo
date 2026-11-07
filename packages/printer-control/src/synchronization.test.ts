@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type * as D from './domain';
 import { createMoonrakerService } from './service';
 import { readSynchronizationSource, synchronizationSource, validateSynchronizationSource } from './synchronization';
-import { u1MaterialInventory } from './snapmaker-observation';
+import { u1MaterialInventory } from './snapmaker/observation';
 const id = <K extends string>(value: string) => value as D.Id<K>;
 const target: D.PrinterTarget = { printerId: id('printer'), routeId: id('route') };
 const identity: D.PrinterIdentity = { id: target.printerId, displayName: 'Fixture', manufacturer: 'Fixture vendor', model: 'Three tools', serialNumber: null, externalRefs: [] };
