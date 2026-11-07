@@ -112,7 +112,7 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     for (const name of ['Parts', 'Aux', 'Exhaust', 'Heat']) {
       await expect(panel.getByRole('combobox', { name: `${name} speed`, exact: true })).toBeVisible();
     }
-    await expect(panel.getByRole('combobox', { name: 'Heat speed', exact: true })).toHaveValue('0');
+    await expect(panel.getByRole('combobox', { name: 'Heat speed', exact: true }).locator('[data-slot="select-value"]')).toHaveText('0%');
     await expect(panel.getByRole('combobox', { name: 'Fan 6 speed', exact: true })).toHaveCount(0);
     await panel.getByText('Fans · 4', { exact: true }).click();
     await expect(panel.getByText('AMS 2 Pro 128', { exact: true })).toBeVisible();
@@ -179,7 +179,7 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     expect((await commands())[1]).toMatchObject({ target: { printerId: 'bambu:b' }, command: { type: 'jobs.pause' } });
     await expect(panel.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
     await expect(page.getByRole('option', { name: 'Workshop B', exact: true })).toBeHidden();
-    await expect(panel.locator('label').filter({ has: page.getByRole('combobox', { name: 'Print speed', exact: true }) })).toContainText('Print speed');
+    await expect(panel.locator('[data-slot="field"]').filter({ has: page.getByRole('combobox', { name: 'Print speed', exact: true }) })).toContainText('Print speed');
     const lightingBounds = await panel.getByRole('heading', { name: 'Fans and lighting', exact: true }).locator('..').boundingBox();
     const speedBounds = await panel.getByRole('combobox', { name: 'Print speed', exact: true }).boundingBox();
     expect(lightingBounds).not.toBeNull(); expect(speedBounds).not.toBeNull();
