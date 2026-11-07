@@ -8,6 +8,7 @@ import type * as D from '@orca/printer-control/domain';
 import { PrinterMonitor } from './PrinterMonitor';
 import { TemperatureInput } from './PrinterControlCards';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
+if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
 const unknown = { kind: 'unknown', reason: 'not-reported' } as const;
 async function fixture() {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -86,7 +87,9 @@ it('collapses lights independently and places speed below fans and lighting', as
     await act(async () => summary.click());
     expect(disclosure.open).toBe(true);
     expect([...f.element.querySelectorAll('summary')].find(item => item.textContent === 'Fans · 1')?.closest('details')?.open).toBe(false);
-    const light = f.element.querySelector<HTMLInputElement>('[aria-label="Chamber light"]')!;
+    const light = f.element.querySelector<HTMLElement>('[aria-label="Chamber light"]')!;
+    expect(light.getAttribute('data-slot')).toBe('checkbox');
+    expect(light.getAttribute('aria-checked')).toBe('false');
     await act(async () => light.click());
     expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'lights.set', params: { lightId, on: true } } });
     const speed = f.element.querySelector<HTMLSelectElement>('[aria-label="Print speed"]')!;
@@ -96,6 +99,9 @@ it('collapses lights independently and places speed below fans and lighting', as
     expect(f.element.querySelector('.printer-print-column [aria-label="Print speed"]')).toBeNull();
     await f.update('External task');
     expect(disclosure.open).toBe(true);
+    f.caps.commands['lights.set'] = { kind: 'unsupported', layer: 'adapter', reason: 'Not supported' };
+    await f.render();
+    expect(light.getAttribute('aria-disabled')).toBe('true');
   } finally { await f.close(); }
 });
 

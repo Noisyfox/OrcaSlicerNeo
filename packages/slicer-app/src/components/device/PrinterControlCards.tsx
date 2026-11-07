@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Home } from 'lucide-react';
 import type * as D from '@orca/printer-control/domain';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 export function valueOf<T>(reading: D.Reading<T> | undefined): T | undefined { return reading?.kind === 'known' ? reading.value : undefined; }
 export function display<T>(reading: D.Reading<T> | undefined, format: (value: T) => string = String) { return reading?.kind === 'known' ? `${format(reading.value)}${reading.freshness === 'stale' ? ' (stale)' : ''}` : 'Not reported'; }
 export function ControlCard({ title, children }: { title: string; children: ReactNode }) { return <section className="printer-control-card"><h3 className="text-sm font-semibold">{title}</h3>{children}</section>; }
@@ -38,6 +40,7 @@ export function ThermalCard({ capabilities, snapshot, disabled, send }: CardCont
   }) : <p className="text-sm text-muted-foreground">Waiting for heater information.</p>}</ControlCard>;
 }
 export function ActuatorCard({ capabilities, snapshot, disabled, send }: CardControls) {
+  const lightFieldId = useId();
   const topology = valueOf(snapshot?.values.descriptor)?.topology, actuators = valueOf(snapshot?.values.actuators);
   const fans = capabilities.commands['fans.setSpeed'], lights = capabilities.commands['lights.set'];
   return <ControlCard title="Fans and lighting">{!!topology?.fans.length && <details className="printer-actuator-controls"><summary>Fans · {topology.fans.length}</summary><div>{topology.fans.map(fan => {
@@ -54,7 +57,19 @@ export function ActuatorCard({ capabilities, snapshot, disabled, send }: CardCon
         onChange={event => send({ type: 'fans.setSpeed', params: { fanId: fan.id, speedFraction: Number(event.target.value) / 100 } })}>
         <option value="-1" disabled>Not reported</option>{options.map(value => <option key={value} value={value} disabled={!allowed(value)}>{value}%</option>)}</select></label>;
   })}</div></details>}
-    {!!topology?.lights.length && <details className="printer-actuator-controls"><summary>Lights · {topology.lights.length}</summary><div>{topology.lights.map(light => <label key={light.id} className="flex items-center justify-between text-sm"><span>{light.name.replaceAll('_', ' ')}</span><input type="checkbox" aria-label={light.name.replaceAll('_', ' ')} disabled={disabled || lights.kind !== 'supported' || !lights.constraints.lightIds.includes(light.id)} checked={valueOf(actuators?.lights.find(item => item.lightId === light.id)?.on) ?? false} onChange={event => send({ type: 'lights.set', params: { lightId: light.id, on: event.target.checked } })} /></label>)}</div></details>}
+    {!!topology?.lights.length && <details className="printer-actuator-controls"><summary>Lights · {topology.lights.length}</summary>
+      <FieldGroup className="gap-2">{topology.lights.map(light => {
+        const id = `${lightFieldId}-${light.id}`;
+        const label = light.name.replaceAll('_', ' ');
+        const blocked = disabled || lights.kind !== 'supported' || !lights.constraints.lightIds.includes(light.id);
+        return <Field key={light.id} orientation="horizontal" data-disabled={blocked}>
+          <FieldLabel htmlFor={id}>{label}</FieldLabel>
+          <Checkbox id={id} aria-label={label} disabled={blocked}
+            checked={valueOf(actuators?.lights.find(item => item.lightId === light.id)?.on) ?? false}
+            onCheckedChange={on => send({ type: 'lights.set', params: { lightId: light.id, on } })} />
+        </Field>;
+      })}</FieldGroup>
+    </details>}
     {!topology?.fans.length && !topology?.lights.length && <p className="text-sm text-muted-foreground">No actuators reported.</p>}</ControlCard>;
 }
 /** Prefer a short 10 mm move, constrained to the reported range and increment.

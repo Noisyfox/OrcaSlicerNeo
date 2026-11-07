@@ -90,6 +90,10 @@ test('real U1 Device displays current materials, controls and preferences throug
     for (let i = 1; i <= 4; i++) await expect(page.getByRole('button', { name: `Load to Toolhead ${i}`, exact: true })).toBeEnabled();
     await expect(page.getByRole('combobox', { name: 'Auto-refill', exact: true })).toContainText('On');
     await expect(page.getByRole('combobox', { name: 'Filament motion sensitivity', exact: true })).toContainText('medium');
+    const lighting = page.getByRole('heading', { name: 'Fans and lighting', exact: true }).locator('..');
+    await lighting.locator('summary').filter({ hasText: /^Lights ·/ }).click();
+    await expect(lighting.getByRole('checkbox', { name: 'Chamber light', exact: true })).toHaveAttribute('data-slot', 'checkbox');
+    await lighting.screenshot({ path: info.outputPath('u1-light-checkbox.png'), animations: 'disabled' });
     await page.screenshot({ path: info.outputPath('u1-monitor.png'), fullPage: true });
     writeFileSync(info.outputPath('u1-monitor.txt'), await page.locator('body').innerText());
     // Editing a local draft and refreshing must not mutate the printer or discard the draft.

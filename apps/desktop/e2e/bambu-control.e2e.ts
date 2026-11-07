@@ -80,7 +80,7 @@ test('material configuration supports alpha and four-stop gradients while preser
     for (const request of await app.evaluate(() => globalThis.bambuControlFixture.requests)) expect(isBambuControlRequest(request)).toBe(true);
   } finally { await app.close(); }
 });
-test('Bambu control cards retain selection, bind edits and cancellation, and disable stale controls', async () => {
+test('Bambu control cards retain selection, bind edits and cancellation, and disable stale controls', async ({}, testInfo) => {
   const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1' } });
   try {
     const page = await app.firstWindow();
@@ -105,6 +105,8 @@ test('Bambu control cards retain selection, bind edits and cancellation, and dis
     await expect(lighting.getByRole('checkbox').first()).toBeHidden();
     await lightsSummary.click();
     await expect(lighting.getByRole('checkbox').first()).toBeVisible();
+    await expect(lighting.getByRole('checkbox').first()).toHaveAttribute('data-slot', 'checkbox');
+    await lighting.screenshot({ path: testInfo.outputPath('monitor-light-checkboxes.png'), animations: 'disabled' });
     await expect(lighting.getByRole('combobox', { name: 'Parts speed', exact: true })).toBeVisible();
     await lightsSummary.click();
     for (const name of ['Parts', 'Aux', 'Exhaust', 'Heat']) {
