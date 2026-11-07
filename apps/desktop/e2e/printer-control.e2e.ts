@@ -635,10 +635,10 @@ test('Snapmaker Device uses Electron transport for physical controls and verifie
     await page.getByRole('button', { name: 'Save material information', exact: true }).click({ noWaitAfter: true });
     await expect(page.getByRole('heading', { name: 'Material information', exact: true })).toBeHidden();
     expect(fixture.scripts.some(script => script.includes('FILAMENT_TYPE="PLA" FILAMENT_SUBTYPE="Silk"'))).toBe(true);
-    await page.getByRole('combobox', { name: 'Auto-refill', exact: true }).focus();
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('End');
-    await page.keyboard.press('Enter');
+    const autoRefill = page.getByRole('combobox', { name: 'Auto-refill', exact: true });
+    await autoRefill.click();
+    await page.getByRole('option', { name: 'On', exact: true }).click();
+    await expect(autoRefill).toContainText('On');
     await page.getByRole('button', { name: 'Save printer preferences' }).click({ noWaitAfter: true });
     await expect(page.getByText('Printer preferences saved and verified.')).toBeVisible();
     await expect(page.locator('[data-testid="device-monitor"] .printer-control-column').getByRole('heading', { name: 'Printer preferences', exact: true })).toBeVisible();

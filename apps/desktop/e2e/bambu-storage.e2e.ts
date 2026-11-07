@@ -165,12 +165,13 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     const openPreferences = async () => {
       if (process.platform === 'darwin') await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById('file-preferences')!.click());
       else {
-        await page.getByTestId('titlebar-menu-trigger').click();
-        // Traverse the submenu with keyboard input; pointer hover timing
-        // is independent of this download-preference persistence scenario.
-        await page.getByTestId('menu-file-trigger').press('ArrowRight');
-        await expect(page.getByTestId('file-preferences')).toBeVisible();
-        await page.getByTestId('file-preferences').press('Enter');
+        if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+          await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+          await page.getByTestId('titlebar-menu-trigger').click();
+        }
+        await page.getByTestId('menu-file-trigger').hover();
+        await page.locator('[data-slot="menubar-sub-content"]').hover({ position: { x: 8, y: 8 } });
+        await page.getByTestId('file-preferences').click();
       }
       return page.getByTestId('project-preferences-dialog');
     };
