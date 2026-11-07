@@ -28,6 +28,8 @@ export interface HttpServiceBehavior {
   capabilities(entry?: ConfigurationEntry): D.PrinterCapabilities;
   observations?: D.PrinterObservations;
   submissions?: D.PrinterSubmissions;
+  readCurrentPrintPreview?: D.PrinterMedia['readCurrentPrintPreview'];
+  validateTask?(resolved: ResolvedConfiguration, taskId: D.Id<'device-task'>): Promise<void>;
   validateCommand?(resolved: ResolvedConfiguration, command: D.PrinterCommand): Promise<void>;
   retainOperation?(resolved: ResolvedConfiguration, command?: D.PrinterCommand): () => void;
   executeCommand(resolved: ResolvedConfiguration, command: D.PrinterCommand, filePath: (file: D.RemoteFileRef) => string): Promise<void>;
@@ -199,7 +201,10 @@ export function createHttpPrinterService(options: HttpServiceOptions, driver: Pr
     if (!cap || cap.kind !== 'supported') fail('unsupported', unsupported.reason);
     if (guard?.capabilityRevision !== undefined && guard.capabilityRevision !== capabilities().revision) fail('stale-context', 'Capability description changed');
     if (guard?.topologyRevision !== undefined && guard.topologyRevision !== resolved.entry.revision) fail('stale-context', 'Topology changed');
-    if (guard?.expectedTaskId !== undefined) fail('unsupported', 'Device task identity comparison is unavailable');
+    if (guard?.expectedTaskId !== undefined) {
+      if (!behavior.validateTask) fail('unsupported', 'Device task identity comparison is unavailable');
+      await behavior.validateTask(resolved, guard.expectedTaskId);
+    }
     if (guard?.inventoryRevision !== undefined) fail('unsupported', 'Inventory comparison is unavailable');
     if (command.type === 'jobs.start') {
       filePath(command.params.source, target, resolved.entry);
@@ -321,7 +326,7 @@ export function createHttpPrinterService(options: HttpServiceOptions, driver: Pr
     submissions: behavior.submissions ?? unsupportedSubmissions,
     remotePrints: { inspect: async () => rejected(), prepare: async () => rejected(), release: async () => rejected() },
     operations: operations.api, controls, files, observations,
-    media: { readPrintObjectMap: async () => rejected(), readStream: unsupportedStream, readCurrentPrintPreview: async () => rejected(), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },
+    media: { readPrintObjectMap: async () => rejected(), readStream: unsupportedStream, readCurrentPrintPreview: behavior.readCurrentPrintPreview ?? (async () => rejected()), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },
     listProviders: async () => ({ ok: true, value: [{ id: providerId, name, hosts: [{ ...options.host, discovery: unsupported }] }] }),
     configurations: {
       read: target => mutate(async snapshot => {

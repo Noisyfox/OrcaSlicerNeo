@@ -83,7 +83,7 @@ describe('U1 structured print preparation', () => {
 });
 
 it('reads actual extruder hardware, not logical job nozzle settings, and never submits a command while preparing', async () => {
-  const request = vi.fn(async ({ url }: { url: string }) => ({ status: 200, json: async () => url.endsWith('/objects/list')
+  const request = vi.fn(async ({ url }: { url: string }) => ({ status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => url.endsWith('/objects/list')
     ? { result: { objects: ['gcode', 'print_task_config', 'extruder', 'filament_motion_sensor e0_filament'] } }
       : { result: { status: { gcode: { commands: { SET_PRINT_EXTRUDER_MAP: {}, SET_PRINT_USED_EXTRUDERS: {}, SET_PRINT_PREFERENCES: {} } }, print_task_config: { filament_exist: [true], nozzle_diameter: [.8] },
         extruder: { nozzle_diameter: .4, nozzle_volume_type: 'standard' } } } } }));

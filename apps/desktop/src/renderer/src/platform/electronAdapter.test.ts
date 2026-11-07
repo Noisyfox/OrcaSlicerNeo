@@ -348,6 +348,15 @@ describe('Electron adapter', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     expect(transport.cancel).toHaveBeenCalledWith('printer-request-2');
   });
+
+  it('passes binary responses through the printer IPC boundary unchanged', async () => {
+    const { host, transport } = setup();
+    const bytes = new Uint8Array([137, 80, 78, 71, 0, 255]);
+    transport.request.mockResolvedValue({ status: 200, bytes } as never);
+    const response = await createElectronPrinterTransport(host as never).request({ method: 'GET', url: 'http://printer.local/image.png', responseType: 'bytes' });
+    expect(transport.request).toHaveBeenCalledWith('printer-request-1', expect.objectContaining({ responseType: 'bytes' }));
+    await expect(response.bytes()).resolves.toEqual(bytes);
+  });
 });
 
 it('propagates host preferences save rejection and setup cannot apply an unsaved candidate', async () => {

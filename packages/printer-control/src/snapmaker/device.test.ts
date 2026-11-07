@@ -154,8 +154,8 @@ it('discovers registered commands without help text from the gcode status object
   const http = new MoonrakerHttp({ async request(request) {
     urls.push(request.url);
     expect(request.method).toBe('GET');
-    if (request.url.endsWith('/objects/list')) return { status: 200, json: async () => ({ result: { objects: ['gcode', ...snapshot.objects] } }) };
-    if (request.url.includes('/objects/query?gcode&')) return { status: 200, json: async () => ({ result: { status: { ...snapshot.status, gcode: { commands } } } }) };
+    if (request.url.endsWith('/objects/list')) return { status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => ({ result: { objects: ['gcode', ...snapshot.objects] } }) };
+    if (request.url.includes('/objects/query?gcode&')) return { status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => ({ result: { status: { ...snapshot.status, gcode: { commands } } } }) };
     throw new Error('Unexpected request; help is not the registered-command catalogue');
   } });
   const printer = normalizePrinterConfigurationDocument({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1', apiBaseUrl: 'http://printer', apiKey: '', consoleUrl: '' }] }).printers[0];

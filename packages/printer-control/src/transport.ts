@@ -21,6 +21,8 @@ export type PrinterTransportBody = PrinterJsonBody | PrinterMultipartBody;
 export interface PrinterTransportRequest {
   method: PrinterHttpMethod;
   url: string;
+  /** Defaults to JSON. Binary responses bypass host text/JSON decoding. */
+  responseType?: 'json' | 'bytes';
   headers?: Readonly<Record<string, string>>;
   body?: PrinterTransportBody;
   signal?: AbortSignal;
@@ -29,7 +31,9 @@ export interface PrinterTransportRequest {
 
 export interface PrinterTransportResponse {
   status: number;
+  /** Read the body in the requested response mode. */
   json(): Promise<unknown>;
+  bytes(): Promise<Uint8Array>;
 }
 
 /** Host-owned HTTP seam. Implementations may use fetch, Electron IPC, or a test fixture. */

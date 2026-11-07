@@ -49,6 +49,7 @@ export class BrowserPrinterTransport implements PrinterTransport {
       request.signal?.addEventListener('abort', onAbort, { once: true });
       try {
         xhr.open(request.method, request.url, true);
+        xhr.responseType = request.responseType === 'bytes' ? 'arraybuffer' : 'text';
         for (const [name, value] of Object.entries(request.headers ?? {})) xhr.setRequestHeader(name, value);
         if (request.body?.kind === 'json' && !Object.keys(request.headers ?? {}).some((name) => name.toLowerCase() === 'content-type')) {
           xhr.setRequestHeader('Content-Type', 'application/json');
@@ -65,7 +66,9 @@ export class BrowserPrinterTransport implements PrinterTransport {
           settled = true;
           cleanup();
           const status = xhr.status;
-          const text = xhr.responseText;
+          const binary = request.responseType === 'bytes';
+          const bytes = binary ? new Uint8Array(xhr.response as ArrayBuffer) : undefined;
+          const text = binary ? '' : xhr.responseText;
           resolve({
             status,
             async json() {
@@ -74,6 +77,10 @@ export class BrowserPrinterTransport implements PrinterTransport {
               } catch {
                 throw safeError();
               }
+            },
+            async bytes() {
+              if (!bytes) throw safeError();
+              return bytes;
             },
           });
         });

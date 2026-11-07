@@ -6,7 +6,8 @@ import { fail } from '../moonraker-http';
 import { copy, newId } from '../operations';
 import { U1ObservationHub } from './monitor';
 import { u1PreferenceScripts, verifyU1Preferences } from './preferences';
-import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, u1PrintStage, U1PrintTime, type U1DeviceSnapshot } from './device';
+import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, u1PrintStage, type U1DeviceSnapshot } from './device';
+import { U1PrintTask } from './task';
 import { U1Submissions } from './submissions';
 import { prepareU1Submission, u1PreparationFromDevice, type U1PreparationSnapshot } from './preparation';
 import { matchU1Materials, type FilamentMatcher } from './observation';
@@ -20,6 +21,7 @@ interface U1State {
   device?: U1DeviceSnapshot;
   materialOperationActive?: boolean;
   observationHub?: U1ObservationHub<U1DeviceSnapshot>;
+  task?: U1PrintTask;
 }
 const generations = new WeakMap<ConfigurationEntry, U1State>();
 const submissions = new WeakMap<HttpServiceOptions['configuration'], U1Submissions>();
@@ -35,12 +37,19 @@ export function createSnapmakerService(options: SnapmakerServiceOptions): D.Prin
 function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: HttpServiceContext): HttpServiceBehavior {
   const { http, resolve, targetFor, descriptor, readFirmware } = context;
   const matchFilaments = options.matchFilaments;
-  const readStatus = (printer: PrinterConfiguration, signal?: AbortSignal, status?: Record<string, unknown>, remainingSeconds?: number) =>
-    context.readStatus(printer, signal, status, remainingSeconds, status ? u1PrintStage(status) : undefined);
+  async function readStatus(printer: PrinterConfiguration, snapshot: U1DeviceSnapshot, signal?: AbortSignal) {
+    const status = await context.readStatus(printer, signal, snapshot.status, snapshot.remainingSeconds, u1PrintStage(snapshot.status));
+    if (snapshot.taskId) status.printStatus.taskId = known(targetFor(printer.id), snapshot.taskId);
+    return status;
+  }
+  function task(printer: PrinterConfiguration, entry: ConfigurationEntry) {
+    return deviceState(entry).task ??= new U1PrintTask(http, printer);
+  }
   function capabilities(entry?: ConfigurationEntry): D.PrinterCapabilities {
     const result = context.capabilities();
     result.observationLifetime = 'visible-consumers';
     result.submission = supported({ formats: ['gcode'], failurePolicy: 'retry' });
+    result.currentPrintPreview = supported({ mimeTypes: ['image/png', 'image/jpeg'] });
     result.commands = { ...result.commands, 'jobs.start': unsupported, ...u1DeviceCapabilities(entry ? deviceState(entry).device : undefined) };
     for (const topic of ['preferences', 'descriptor', 'status', 'thermal', 'actuators', 'materials', 'sensors'] as const)
       result.observations[topic] = supported({ delivery: ['poll', 'on-demand'] });
@@ -49,7 +58,6 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
   function hub(printer: PrinterConfiguration, entry: ConfigurationEntry) {
     const state = deviceState(entry);
     if (!state.observationHub) {
-      const printTime = new U1PrintTime(http, printer);
       state.observationHub = new U1ObservationHub(async signal => {
         const { printer: currentPrinter } = await resolve({ ...targetFor(printer.id), expectedConfigurationRevision: entry.revision });
         const snapshot = await readU1Device(http, currentPrinter, signal);
@@ -57,8 +65,8 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
         const target = targetFor(printer.id);
         const values = u1DeviceValues(snapshot, target, entry.revision, descriptor(currentPrinter, entry, entry.cache.firmware ?? unknown), currentPrinter.printerModel);
         if (values.materials && matchFilaments) await matchU1Materials(values.materials, matchFilaments, snapshot.status);
-        snapshot.remainingSeconds = await printTime.read(snapshot.status, signal);
-        values.status = await readStatus(currentPrinter, signal, snapshot.status, snapshot.remainingSeconds);
+        Object.assign(snapshot, await task(currentPrinter, entry).observe(snapshot.status, signal));
+        values.status = await readStatus(currentPrinter, snapshot, signal);
         for (const [topic, value] of Object.entries(values)) Object.assign(entry.cache, { [topic]: known(target, value) });
         if (values.materials) state.preparation = u1PreparationFromDevice(snapshot.status, snapshot.commands, target, entry.revision, snapshot.receivedAtMs);
         return snapshot;
@@ -83,7 +91,7 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
         // Explicit reads return current values even when there is no ongoing consumer.
         const values = u1DeviceValues(state.device!, request.target, entry.revision, descriptor(printer, entry, entry.cache.firmware ?? unknown), printer.printerModel);
         if (values.materials && matchFilaments) await matchU1Materials(values.materials, matchFilaments, state.device!.status);
-        values.status = await readStatus(printer, options?.signal, state.device!.status, state.device!.remainingSeconds);
+        values.status = await readStatus(printer, state.device!, options?.signal);
         for (const [topic, value] of Object.entries(values)) Object.assign(observed, { [topic]: known(request.target, value) });
         if (request.topics.some(topic => topic === 'materials') && !values.materials) fail('unsupported', 'U1 material information is unavailable');
         if (request.topics.some(topic => topic === 'firmware')) {
@@ -124,6 +132,18 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
   }
   return {
     capabilities, observations, submissions: executor,
+    readCurrentPrintPreview: (target, readOptions) => safe(async () => {
+      const signal = AbortSignal.any([AbortSignal.timeout(15000), ...(readOptions?.signal ? [readOptions.signal] : [])]);
+      const { printer, entry } = await resolve(target);
+      const preview = await task(printer, entry).preview(target, entry.revision, signal);
+      await resolve({ ...target, expectedConfigurationRevision: entry.revision });
+      return preview;
+    }),
+    validateTask: async ({ printer, entry }, expectedTaskId) => {
+      const current = await task(printer, entry).current();
+      if (current?.taskId !== expectedTaskId) fail('stale-context', 'The current task changed.');
+      await resolve({ ...targetFor(printer.id), expectedConfigurationRevision: entry.revision });
+    },
     validateCommand: async ({ printer, entry }, command) => {
       if (!command.type.startsWith('jobs.')) {
         if (!deviceState(entry).device) await hub(printer, entry).refresh();

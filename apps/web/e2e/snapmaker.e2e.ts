@@ -32,10 +32,14 @@ test('Web U1 direct transport monitors and saves preferences without a gateway',
     await page.goto('/'); await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click(); await page.getByTestId('device-select-u1').click();
     await page.locator('#device-tab-monitor').click();
+    const preview = page.getByRole('img', { name: 'Current print preview', exact: true });
+    await expect(preview).toBeVisible();
+    await expect.poll(() => preview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
     await expect(page.getByRole('button', { name: 'Load to Toolhead 2', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'Load to Toolhead 2', exact: true }).click();
     await expect.poll(() => fixture.scripts).toContain('FEED_AUTO MODULE=left CHANNEL=0 LOAD=1');
-    await page.getByLabel('Auto-refill', { exact: true }).selectOption('true');
+    await page.getByRole('combobox', { name: 'Auto-refill', exact: true }).click();
+    await page.getByRole('option', { name: 'On', exact: true }).click();
     await page.getByRole('button', { name: 'Save printer preferences' }).click();
     await expect(page.getByText('Printer preferences saved and verified.')).toBeVisible();
     expect(fixture.scripts).toContain('SET_PRINT_PREFERENCES AUTO_REPLENISH_FILAMENT=1');

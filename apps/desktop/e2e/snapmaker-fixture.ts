@@ -21,6 +21,12 @@ export async function startSnapmakerFixture(filament?: { vendor: string; type: s
         heater_bed: { temperature: 60, target: 60 }, purifier: { power_detected: true, mode: 1, inner_fan: { speed: .2 }, exhaust_fan: { speed: .4 } },
         configfile: { settings: { extruder: { max_temp: 300 }, heater_bed: { max_temp: 100 } } },
       } } };
+    } else if (path === '/server/files/metadata') value = { result: { job_id: '000001', print_start_time: 1234, uuid: 'fixture',
+      thumbnails: [{ width: 1, height: 1, relative_path: '.thumbs/external.png' }] } };
+    else if (path === '/server/files/gcodes/.thumbs/external.png') {
+      response.writeHead(200, { 'content-type': 'image/png' });
+      response.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
+      return;
     } else if (path === '/printer/gcode/script') {
       const parts = []; for await (const part of request) parts.push(Buffer.from(part));
       const script = JSON.parse(Buffer.concat(parts).toString()).script as string; scripts.push(script);

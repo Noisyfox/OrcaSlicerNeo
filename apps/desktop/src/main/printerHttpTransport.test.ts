@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { createServer } from 'node:http';
 import { createPrinterTransportIpcHandlers, encodePrinterTransportBody, type NativeHttpClient, type NativeHttpRequestHandle } from './printerHttpTransport';
 
-function response(statusCode: number, text: string) {
+function response(statusCode: number, body: string | Uint8Array) {
   return {
     statusCode,
-    onData(listener: (chunk: Uint8Array) => void) { queueMicrotask(() => listener(new TextEncoder().encode(text))); },
+    onData(listener: (chunk: Uint8Array) => void) { queueMicrotask(() => listener(typeof body === 'string' ? new TextEncoder().encode(body) : body)); },
     onEnd(listener: () => void) { queueMicrotask(listener); },
     onError() {},
   };
@@ -31,10 +31,22 @@ class FakeClient implements NativeHttpClient {
       abort: () => { this.aborted = true; handlers.error(new Error('aborted')); },
     };
   }
-  complete(statusCode = 200, text = '{}') { this.handlers?.response(response(statusCode, text)); }
+  complete(statusCode = 200, body: string | Uint8Array = '{}') { this.handlers?.response(response(statusCode, body)); }
 }
 
 describe('Electron printer HTTP main transport', () => {
+  it('delivers image bytes unchanged while sanitizing failed binary responses', async () => {
+    const client = new FakeClient();
+    const handlers = createPrinterTransportIpcHandlers({ isCurrentRenderer: () => true, client, sendProgress() {} });
+    const request = { method: 'GET', url: 'http://printer.local/image.png', responseType: 'bytes' };
+    const image = new Uint8Array([137, 80, 78, 71, 0, 255]);
+    const pending = handlers.request({}, 'image', request);
+    client.complete(200, image);
+    await expect(pending).resolves.toEqual({ status: 200, bytes: image });
+    const failed = handlers.request({}, 'failed', request);
+    client.complete(401, 'private server error');
+    await expect(failed).resolves.toEqual({ status: 401 });
+  });
   it.each(['cube"quoted.GCODE', '测试 café.custom', 'cube\\part.gcode'])('delivers multipart filename %s and bytes to a real HTTP parser', async (fileName) => {
     let received: { name: string; bytes: number[] } | undefined;
     const server = createServer(async (request, response) => {

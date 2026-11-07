@@ -622,6 +622,9 @@ test('Snapmaker Device uses Electron transport for physical controls and verifie
     await page.locator('#device-tab-web').click();
     await expect(page.locator('#device-tab-web')).toHaveAttribute('aria-selected', 'true');
     await page.locator('#device-tab-monitor').click();
+    const preview = page.getByRole('img', { name: 'Current print preview', exact: true });
+    await expect(preview).toBeVisible();
+    await expect.poll(() => preview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
     await expect(page.getByRole('button', { name: 'Load to Toolhead 1', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'Load to Toolhead 1', exact: true }).click({ noWaitAfter: true });
     await expect.poll(() => fixture.scripts).toContain('FEED_AUTO MODULE=left CHANNEL=1 LOAD=1');

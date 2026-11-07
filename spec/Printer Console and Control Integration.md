@@ -2874,6 +2874,9 @@ fresh agent observations supply actual toolheads, nozzles, loaded materials
 and readiness. Model equality alone does not validate a material binding.
 
 Defer live camera preview and printer-file browsing/management in this delivery.
+The current-task image in Monitor uses the printer's available thumbnail,
+including for jobs started outside Neo. It remains scoped to the reported task
+and route, and uses the shared placeholder when no image is available.
 Do not add a Snapmaker Storage browser, file-list/thumbnail browsing, remote-file
 downloads or user-triggered file deletion. These features are not completion
 requirements for the accepted SnapSend scope. Keep the accepted timelapse

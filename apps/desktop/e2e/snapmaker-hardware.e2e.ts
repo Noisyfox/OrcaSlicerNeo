@@ -30,7 +30,7 @@ test('real U1 reads hardware, inventory, preferences and consumer-owned monitori
       expect(request.method).toBe('GET');
       requests.push(new URL(request.url).pathname);
       const response = await fetch(request.url, { method: request.method, headers: request.headers, signal: request.signal });
-      return { status: response.status, json: () => response.json() };
+      return { status: response.status, bytes: async () => new Uint8Array(await response.arrayBuffer()), json: () => response.json() };
     } } });
   const target = { printerId: id<'printer'>(selected.id), routeId: id<'route'>(`snapmaker:${selected.id}`) };
   const topics = ['status', 'descriptor', 'materials', 'thermal', 'actuators', 'sensors', 'preferences'] as const;
@@ -107,6 +107,42 @@ test('real U1 Device displays current materials, controls and preferences throug
   } finally { await app.close(); }
 });
 
+test('real U1 Monitor displays the current task thumbnail', async ({}, info) => {
+  test.setTimeout(90000);
+  const selected = selectedPrinter();
+  const headers = selected.apiKey ? { 'X-Api-Key': selected.apiKey } : undefined;
+  const base = selected.apiBaseUrl.replace(/\/$/, '');
+  const status = await fetch(`${base}/printer/objects/query?print_stats`, { headers });
+  expect(status.ok).toBe(true);
+  const stats = (await status.json()).result.status.print_stats;
+  test.skip(!stats.filename || stats.state === 'standby', 'Requires a retained current U1 job.');
+  const metadataResponse = await fetch(`${base}/server/files/metadata?filename=${encodeURIComponent(stats.filename)}`, { headers });
+  expect(metadataResponse.ok).toBe(true);
+  const metadata = (await metadataResponse.json()).result;
+  test.skip(!metadata.thumbnails?.length, 'Requires a current job with embedded thumbnails.');
+  const expected = [...metadata.thumbnails].sort((a, b) => b.width * b.height - a.width * a.height)[0];
+  const directory = mkdtempSync(join(tmpdir(), 'neo-u1-preview-'));
+  const config = join(directory, 'printer-config.json');
+  writeFileSync(config, JSON.stringify({ version: 1, printers: [{ ...selected, driverId: 'snapmaker' }] }));
+  const env: Record<string, string> = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PRINTER_CONFIG: config };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.', `--user-data-dir=${join(directory, 'user-data')}`], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60000 });
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByTestId(`device-select-${selected.id}`).click();
+    const image = page.getByRole('img', { name: 'Current print preview', exact: true });
+    await expect(image).toBeVisible();
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => ({ width: element.naturalWidth, height: element.naturalHeight })))
+      .toEqual({ width: expected.width, height: expected.height });
+    await page.locator('.printer-print-preview').screenshot({ path: info.outputPath('u1-current-task-preview.png') });
+    writeFileSync(info.outputPath('u1-preview-readback.json'), JSON.stringify({ filename: stats.filename, jobId: metadata.job_id, thumbnail: expected }, null, 2));
+  } finally { await app.close(); }
+});
+
 test('real U1 Monitor shows completed job layers, zero remaining time and an idle stage', async ({}, info) => {
   test.setTimeout(90000);
   const selected = selectedPrinter();
@@ -169,7 +205,7 @@ test('real U1 prepares six materials, restores light/preferences and uploads wit
       }
       requests.push({ method: request.method, path, ...(script ? { script } : {}) });
       const response = await fetch(request.url, { method: request.method, headers: request.headers, body, signal: request.signal });
-      return { status: response.status, json: async () => { const value = await response.json(); if (path === '/server/files/upload') uploadedPath = value.item?.path; return value; } };
+      return { status: response.status, bytes: async () => new Uint8Array(await response.arrayBuffer()), json: async () => { const value = await response.json(); if (path === '/server/files/upload') uploadedPath = value.item?.path; return value; } };
     } } });
   const target = { printerId: id<'printer'>(selected.id), routeId: id<'route'>(`snapmaker:${selected.id}`) };
   const headers = selected.apiKey ? { 'X-Api-Key': selected.apiKey } : undefined;
@@ -255,7 +291,7 @@ test('real U1 restores every reported device preference and the installed part/c
         scripts.push(script);
       }
       const response = await fetch(request.url, { method: request.method, headers: request.headers, body: request.body?.kind === 'json' ? request.body.json : undefined, signal: request.signal });
-      return { status: response.status, json: () => response.json() };
+      return { status: response.status, bytes: async () => new Uint8Array(await response.arrayBuffer()), json: () => response.json() };
     } } });
   const read = async () => {
     const result = await service.observations.read({ target, topics: ['status', 'preferences', 'actuators'], source: 'device' });

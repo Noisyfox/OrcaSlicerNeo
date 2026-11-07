@@ -2448,13 +2448,25 @@ labels and main-state fallback. Idle action/state reports a known null stage.
 Missing or invalid layer/state data stays unknown. These observations also
 describe completed jobs while the firmware retains their layer information.
 
+The Snapmaker agent reads the current task's embedded thumbnail from file
+metadata and the printer's authenticated HTTP file endpoint. It selects the
+largest reported image and delivers its PNG/JPEG bytes through the shared
+current-task media boundary. Task identity includes the filename, history job
+ID, print start time and file UUID. A fresh identity read after image transfer
+and a configuration-generation check reject results from a changed task or
+connection. The same identity guards current-task cancellation. Missing images
+or unavailable task identity leave the shared Monitor placeholder visible and
+do not block observations or controls. This capability is independent of
+Storage browsing and live-camera playback.
+
 The Snapmaker agent estimates remaining print seconds with Snapmaker Orca's
 executable-byte progress formula. It reads `estimated_time`, `gcode_start_byte`
 and `gcode_end_byte` from Moonraker file metadata, then multiplies the estimate
 by the remaining fraction of that byte range and truncates to whole seconds.
-Valid metadata is reused during printing and pauses. A changed filename,
-observed non-active phase, lower total duration or connection configuration
-change invalidates it. Missing/invalid metadata, unavailable byte positions and
+Valid metadata is reused during printing, pauses and retained terminal jobs.
+A changed filename, a new active job after an observed terminal/idle state,
+lower total duration or connection configuration change invalidates it.
+Missing/invalid metadata, unavailable byte positions and
 preparation before the executable range report unknown. Later observations retry
 metadata failures while other status readings remain available. Completion
 reports zero seconds. The calculation consumes server metadata, with the slicer

@@ -13,7 +13,7 @@ function fixture(matchFilaments?: import('./observation').FilamentMatcher) {
     id: driverId, driverId, displayName: 'Same name', apiBaseUrl: 'http://printer/proxy', apiKey: 'secret', consoleUrl: '',
   })) });
   const configuration = { load: async () => structuredClone(doc), save: async (value: PrinterConfigurationDocument) => { doc = structuredClone(value); } };
-  const request = vi.fn(async ({ url }: PrinterTransportRequest): Promise<PrinterTransportResponse> => ({ status: 200, json: async () => url.endsWith('/objects/list')
+  const request = vi.fn(async ({ url }: PrinterTransportRequest): Promise<PrinterTransportResponse> => ({ status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => url.endsWith('/objects/list')
     ? { result: { objects: ['print_task_config', 'filament_motion_sensor e0_filament'] } }
     : { result: { status: { print_task_config: { filament_exist: [true, false], filament_type: ['PLA', 'PETG'], filament_color_rgba: ['ff0000ff'] },
       'filament_motion_sensor e0_filament': { enabled: true, filament_detected: false } } } } }));
@@ -29,12 +29,13 @@ describe('Snapmaker remaining print time', () => {
     const data = {
       stats: { state: 'printing', filename: 'folder/test #1.gcode', total_duration: 20 },
       sd: { file_position: 350 as unknown, progress: .9 },
-      metadata: { gcode_start_byte: 100, gcode_end_byte: 1100, estimated_time: 101.5 } as Record<string, unknown>,
+      metadata: { gcode_start_byte: 100, gcode_end_byte: 1100, estimated_time: 101.5,
+        job_id: '000001', print_start_time: 1234, uuid: 'file-version' } as Record<string, unknown>,
       metadataStatus: 200,
     };
     f.request.mockImplementation(async request => ({
       status: request.url.includes('/server/files/metadata?') ? data.metadataStatus : 200,
-      json: async () => request.url.endsWith('/objects/list')
+      bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => request.url.endsWith('/objects/list')
         ? { result: { objects: ['print_stats', 'virtual_sdcard', 'print_task_config'] } }
         : request.url.includes('/server/files/metadata?') ? { result: data.metadata }
           : { result: { status: { print_stats: data.stats, virtual_sdcard: data.sd,
@@ -126,6 +127,32 @@ describe('Snapmaker remaining print time', () => {
     expect(f.metadataReads()).toHaveLength(2);
   });
 
+  it('retains zero remaining time when a completed job no longer reports a filename', async () => {
+    const f = setup();
+    f.data.stats.state = 'complete';
+    f.data.stats.filename = '';
+    expect((await f.read()).remainingSeconds).toMatchObject({ kind: 'known', value: 0 });
+    expect(f.metadataReads()).toHaveLength(0);
+  });
+
+  it('keeps task identity through pause/completion and refreshes it for a repeated filename', async () => {
+    const f = setup();
+    const readTaskId = async () => {
+      const task = (await f.read()).taskId;
+      if (task.kind !== 'known') throw new Error('Expected current task identity');
+      return task.value;
+    };
+    const first = await readTaskId();
+    f.data.stats.state = 'paused';
+    expect(await readTaskId()).toBe(first);
+    f.data.stats.state = 'complete';
+    expect(await readTaskId()).toBe(first);
+    f.data.stats.state = 'printing';
+    f.data.metadata.print_start_time = 5678;
+    expect(await readTaskId()).not.toBe(first);
+    expect(f.metadataReads()).toHaveLength(2);
+  });
+
   it('publishes fresh estimates through polling and retains their stale cache provenance', async () => {
     const f = setup();
     const controller = new AbortController();
@@ -164,6 +191,127 @@ describe('Snapmaker remaining print time', () => {
   });
 });
 
+describe('Snapmaker current-task preview', () => {
+  function setup() {
+    const f = fixture();
+    const data = {
+      stats: { state: 'paused', filename: 'folder/测试 #1.gcode', total_duration: 20 },
+      metadata: { job_id: '000009', print_start_time: 1234, uuid: 'file-version',
+        thumbnails: [
+          { width: 96, height: 96, relative_path: '.thumbs/测试 #1-96x96.png' },
+          { width: 300, height: 300, relative_path: '.thumbs/测试 #1-300x300.png' },
+        ] } as Record<string, unknown>,
+      bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+      imageStatus: 200,
+      onImage: () => {},
+    };
+    f.request.mockImplementation(async request => {
+      if (request.responseType === 'bytes') {
+        data.onImage();
+        return { status: data.imageStatus, bytes: async () => data.bytes, json: async () => { throw new Error('Unexpected JSON image read'); } };
+      }
+      const body = request.url.endsWith('/objects/list') ? { objects: ['print_stats', 'virtual_sdcard'] }
+        : request.url.includes('/server/files/metadata?') ? structuredClone(data.metadata)
+          : { status: { print_stats: { ...data.stats }, virtual_sdcard: {} } };
+      return { status: 200, json: async () => ({ result: body }), bytes: async () => { throw new Error('Unexpected binary read'); } };
+    });
+    const preview = (service = f.snapmaker, target = f.target, signal?: AbortSignal) => service.media.readCurrentPrintPreview(target, { signal });
+    return { ...f, data, preview };
+  }
+
+  it('reads the largest thumbnail with its exact task identity through the authenticated proxy', async () => {
+    const f = setup();
+    const observed = await f.snapmaker.observations.read({ target: f.target, topics: ['status'], source: 'device' });
+    const result = await f.preview();
+    expect(result).toMatchObject({ ok: true, value: { ...f.target, mimeType: 'image/png', bytes: f.data.bytes } });
+    if (!result.ok) throw new Error('Missing image');
+    expect(observed).toMatchObject({ ok: true, value: { values: { status: { value: { printStatus: { taskId: { kind: 'known', value: result.value.taskId } } } } } } });
+    expect(f.request.mock.calls.find(([request]) => request.responseType === 'bytes')?.[0]).toMatchObject({
+      method: 'GET', url: 'http://printer/proxy/server/files/gcodes/folder/.thumbs/%E6%B5%8B%E8%AF%95%20%231-300x300.png', headers: { 'X-Api-Key': 'secret' },
+    });
+    expect((await f.snapmaker.describe(f.target))).toMatchObject({ ok: true, value: { capabilities: { currentPrintPreview: { kind: 'supported' } } } });
+    expect((await f.moonraker.media.readCurrentPrintPreview({ printerId: id('moonraker'), routeId: id('moonraker:moonraker') }))).toMatchObject({ ok: false, error: { code: 'unsupported' } });
+    expect(f.request.mock.calls.every(([request]) => request.method === 'GET')).toBe(true);
+  });
+
+  it.each(['complete', 'cancelled', 'error'])('retains previews for the reported %s task', async state => {
+    const f = setup();
+    f.data.stats.state = state;
+    expect(await f.preview()).toMatchObject({ ok: true });
+  });
+
+  it.each([
+    { change: 'filename', apply: (f: ReturnType<typeof setup>) => { f.data.stats.filename = 'other.gcode'; } },
+    { change: 'same-file restart', apply: (f: ReturnType<typeof setup>) => { f.data.metadata.print_start_time = 5678; } },
+    { change: 'file replacement', apply: (f: ReturnType<typeof setup>) => { f.data.metadata.uuid = 'replaced'; } },
+  ])('rejects a preview after $change', async ({ apply }) => {
+    const f = setup();
+    f.data.onImage = () => apply(f);
+    expect(await f.preview()).toMatchObject({ ok: false, error: { code: 'stale-context' } });
+  });
+
+  it.each(['standby', ''])('leaves an absent current task unavailable for %s', async state => {
+    const f = setup();
+    f.data.stats.state = state;
+    expect(await f.preview()).toMatchObject({ ok: false, error: { code: 'preview-unavailable' } });
+    expect(f.request.mock.calls.some(([request]) => request.responseType === 'bytes')).toBe(false);
+  });
+
+  it.each([
+    { thumbnails: [] },
+    { thumbnails: [{ relative_path: '.thumbs/missing.png' }] },
+    { thumbnails: [{ width: 300, height: 300, relative_path: '../secret.png' }] },
+    { thumbnails: [{ width: 300, height: 300, relative_path: 'https://other-host/image.png' }] },
+  ])('rejects missing or invalid thumbnail descriptors $thumbnails', async ({ thumbnails }) => {
+    const f = setup();
+    f.data.metadata.thumbnails = thumbnails;
+    expect(await f.preview()).toMatchObject({ ok: false, error: { code: 'preview-unavailable' } });
+    expect(f.request.mock.calls.some(([request]) => request.responseType === 'bytes')).toBe(false);
+  });
+
+  it.each([new Uint8Array(), new TextEncoder().encode('<html>error</html>'), new Uint8Array(4 * 1024 * 1024 + 1)])('rejects invalid image data', async bytes => {
+    const f = setup();
+    f.data.bytes = bytes;
+    expect(await f.preview()).toMatchObject({ ok: false });
+  });
+
+  it('accepts JPEG data and reports authorization errors without exposing credentials', async () => {
+    const f = setup();
+    f.data.bytes = new Uint8Array([255, 216, 255, 224]);
+    expect(await f.preview()).toMatchObject({ ok: true, value: { mimeType: 'image/jpeg' } });
+    f.data.imageStatus = 401;
+    expect(await f.preview()).toEqual({ ok: false, error: { code: 'authentication-required', message: 'Printer image is unavailable' } });
+  });
+
+  it('honors cancellation and rejects responses from a replaced connection', async () => {
+    const f = setup();
+    const abort = new AbortController();
+    abort.abort();
+    expect(await f.preview(f.snapmaker, f.target, abort.signal)).toMatchObject({ ok: false, error: { code: 'cancelled' } });
+    expect(f.request).not.toHaveBeenCalled();
+    f.data.onImage = () => {
+      f.configuration.load = async () => normalizePrinterConfigurationDocument({ version: 1, printers: [{
+        id: 'snapmaker', driverId: 'snapmaker', displayName: 'Changed', apiBaseUrl: 'http://other-printer', apiKey: '', consoleUrl: '',
+      }] });
+    };
+    expect(await f.preview()).toMatchObject({ ok: false, error: { code: 'stale-context' } });
+  });
+
+  it('validates the newly published task identity before guarded cancel dispatch', async () => {
+    const f = setup();
+    const image = await f.preview();
+    if (!image.ok) throw new Error('Missing task');
+    const submit = () => f.snapmaker.controls.submit({ target: f.target, requestId: id(crypto.randomUUID()),
+      command: { type: 'jobs.cancel', params: {} }, guard: { expectedTaskId: image.value.taskId } });
+    f.data.metadata.print_start_time = 5678;
+    expect(await submit()).toMatchObject({ kind: 'rejected', error: { code: 'stale-context' } });
+    expect(f.request.mock.calls.some(([request]) => request.method === 'POST')).toBe(false);
+    f.data.metadata.print_start_time = 1234;
+    expect(await submit()).toMatchObject({ kind: 'recorded' });
+    await vi.waitFor(() => expect(f.request.mock.calls.some(([request]) => request.method === 'POST')).toBe(true));
+  });
+});
+
 describe('Snapmaker provider foundation', () => {
   it.each([
     { state: { main_state: 1, action_code: 1 }, stage: { code: '1:1', label: 'Homing' } },
@@ -178,7 +326,7 @@ describe('Snapmaker provider foundation', () => {
     { state: undefined, stage: undefined },
   ])('acquires and normalizes U1 stage $state', async ({ state, stage }) => {
     const f = fixture();
-    f.request.mockImplementation(async request => ({ status: 200, json: async () => request.url.endsWith('/objects/list')
+    f.request.mockImplementation(async request => ({ status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => request.url.endsWith('/objects/list')
       ? { result: { objects: ['print_stats', 'print_task_config', 'machine_state_manager'] } }
       : { result: { status: { print_stats: { state: 'printing' }, machine_state_manager: state,
         print_task_config: { filament_exist: [true], filament_type: ['PLA'], filament_color_rgba: ['080A0DFF'] } } } } }));
@@ -201,7 +349,7 @@ describe('Snapmaker provider foundation', () => {
     { label: 'text', state: 'printing', info: { current_layer: '7', total_layer: '15' }, current: null, total: null },
   ])('normalizes $label layer observations for both HTTP agents', async ({ state, info, current, total }) => {
     const f = fixture();
-    f.request.mockImplementation(async request => ({ status: 200, json: async () => request.url.endsWith('/objects/list')
+    f.request.mockImplementation(async request => ({ status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => request.url.endsWith('/objects/list')
       ? { result: { objects: ['print_stats', 'virtual_sdcard', 'print_task_config'] } }
       : { result: { status: { print_stats: { state, filename: 'acceptance.gcode', info }, virtual_sdcard: { progress: .5 },
         print_task_config: { filament_exist: [true, false, false, false], filament_type: ['PLA'], filament_color_rgba: ['080A0DFF'] } } } } }));
@@ -255,7 +403,7 @@ describe('Snapmaker provider foundation', () => {
   });
   it('reports the Device model selection to Printer sync and follows changes without hardware inference', async () => {
     const f = fixture();
-    f.request.mockImplementation(async ({ url }) => ({ status: 200, json: async () => url.endsWith('/objects/list')
+    f.request.mockImplementation(async ({ url }) => ({ status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => url.endsWith('/objects/list')
       ? { result: { objects: ['gcode', 'print_task_config', 'extruder', 'extruder1', 'extruder2', 'extruder3'] } }
       : { result: { status: { gcode: { commands: { SET_PRINT_FILAMENT_CONFIG: {} } }, print_task_config: { filament_exist: [true, true, true, true] },
         ...Object.fromEntries(['extruder', 'extruder1', 'extruder2', 'extruder3'].map(name => [name, { nozzle_diameter: .4, nozzle_volume_type: 'standard' }])) } } } }));
@@ -328,7 +476,7 @@ describe('Snapmaker provider foundation', () => {
 
   it('reports missing protocol objects as unsupported rather than an empty successful inventory', async () => {
     const f = fixture();
-    f.request.mockImplementation(async () => ({ status: 200, json: async () => ({ result: { objects: [] } }) }));
+    f.request.mockImplementation(async () => ({ status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => ({ result: { objects: [] } }) }));
     const result = await f.snapmaker.observations.read({ target: f.target, source: 'device', topics: ['materials'] });
     expect(result).toMatchObject({ ok: false, error: { code: 'unsupported' } });
   });
@@ -426,7 +574,7 @@ it('isolates command request identities and operation lookup between concrete ag
 
 it('shares prepared submissions across service facades and keeps upload-only free of job settings', async () => {
   const f = fixture();
-  f.request.mockImplementation(async request => ({ status: 200, json: async () => request.url.endsWith('/objects/list')
+  f.request.mockImplementation(async request => ({ status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => request.url.endsWith('/objects/list')
     ? { result: { objects: ['gcode', 'print_task_config', 'extruder'] } }
       : request.url.includes('/objects/query?') ? { result: { status: { gcode: { commands: { SET_PRINT_EXTRUDER_MAP: {}, SET_PRINT_USED_EXTRUDERS: {}, SET_PRINT_PREFERENCES: {} } }, print_task_config: { filament_exist: [true], filament_type: ['PLA'] }, extruder: { nozzle_diameter: .4, nozzle_volume_type: 'standard' } } } }
         : request.body?.kind === 'multipart' ? { item: { root: 'gcodes', path: 'unchanged.gcode' } } : { result: 'ok' } }));
@@ -459,7 +607,7 @@ it('retains one individual load operation across observers and rejects a second 
   const wait = new Promise<void>(resolve => { finish = resolve; });
   f.request.mockImplementation(async request => {
     if (request.method === 'POST') await wait;
-    return { status: 200, json: async () => request.url.endsWith('/objects/list') ? { result: { objects: ['gcode', 'print_task_config', 'filament_feed left', 'filament_feed right'] } }
+    return { status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => request.url.endsWith('/objects/list') ? { result: { objects: ['gcode', 'print_task_config', 'filament_feed left', 'filament_feed right'] } }
         : request.method === 'POST' ? { result: 'ok' } : { result: { status: { gcode: { commands: { FEED_AUTO: {} } }, print_task_config: { filament_exist: [true] } } } } };
   });
   const first = await f.snapmaker.controls.submit({ target: f.target, requestId: id('load-1'), command: { type: 'materials.load', params: { pathId: id('snapmaker-path:0') } } });
@@ -484,7 +632,7 @@ it('saves preferences with fresh comparison and readback, and retains partial ef
       if (script.includes('AUTO_REPLENISH_FILAMENT=1')) autoRefill = true;
       // Simulate an ACK which failed to apply the color preference.
     }
-    return { status: 200, json: async () => request.url.endsWith('/objects/list') ? { result: { objects: ['gcode', 'print_task_config'] } }
+    return { status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => request.url.endsWith('/objects/list') ? { result: { objects: ['gcode', 'print_task_config'] } }
         : request.method === 'POST' ? { result: 'ok' } : { result: { status: { gcode: { commands: { SET_PRINT_PREFERENCES: {} } }, print_task_config: { auto_replenish_filament: autoRefill, replenish_ignore_color: ignoreColor } } } } };
   });
   async function save(key: 'autoRefill' | 'allowDifferentColors') {

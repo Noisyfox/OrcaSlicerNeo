@@ -17,7 +17,7 @@ function fixture() {
       weightGrams: 1, timelapseWarningCode: 0, toolpathOutside: false, warnings: [] } };
   const artifact = (): D.PrintArtifactSource => ({ role: 'print', fileName: 'print.gcode', sizeBytes: bytes.length, chunks: (async function* () { yield bytes; })() });
   const printer = normalizePrinterConfigurationDocument({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1', apiBaseUrl: 'http://printer', apiKey: '', consoleUrl: '' }] }).printers[0];
-  const transport = vi.fn(async (request: PrinterTransportRequest) => ({ status: 200, json: async () => request.body?.kind === 'multipart'
+  const transport = vi.fn(async (request: PrinterTransportRequest) => ({ status: 200, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => request.body?.kind === 'multipart'
     ? { item: { root: 'gcodes', path: 'print.gcode' } } : { result: 'ok' } }));
   const prepare = vi.fn(async (input: D.PrintPreparationRequest): Promise<D.Result<D.PrintPreparation>> => ({ ok: true, value: { configurationRevision: 'r1', route: 'lan',
     nozzleLabels: [], bindings: input.bindings, candidates: [], materialCatalogIds: [], options: { bedLeveling: 'on', flowCalibration: 'on', timelapse: false }, optionDescriptors: [], issues: [] } }));
@@ -65,7 +65,7 @@ it.each(['upload', 'preparation', 'start'])('stops at %s failure and uses generi
 });
 it('stops after an explicit preparation rejection without rollback or start', async () => {
   const f = fixture(), normal = f.transport.getMockImplementation()!;
-  f.transport.mockImplementation(async request => script(request)?.startsWith('SET_PRINT_USED') ? { status: 400, json: async () => ({ result: 'ok' }) } : normal(request));
+  f.transport.mockImplementation(async request => script(request)?.startsWith('SET_PRINT_USED') ? { status: 400, bytes: async () => { throw new Error('Unexpected binary read'); }, json: async () => ({ result: 'ok' }) } : normal(request));
   expect((await f.done(await f.submit())).phase).toBe('failed');
   expect(f.transport.mock.calls).toHaveLength(3);
 });

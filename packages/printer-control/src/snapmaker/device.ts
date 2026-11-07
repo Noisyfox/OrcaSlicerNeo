@@ -19,6 +19,7 @@ export interface U1DeviceSnapshot {
   commands: readonly string[];
   status: Record<string, unknown>;
   remainingSeconds?: number;
+  taskId?: D.Id<'device-task'>;
   receivedAtMs: number;
 }
 export async function readU1Device(http: MoonrakerHttp, printer: PrinterConfiguration, signal?: AbortSignal): Promise<U1DeviceSnapshot> {
@@ -58,51 +59,6 @@ export function u1PrintStage(status: Record<string, unknown>): { code: string; l
   if (main === 0 && action === 0) return null;
   const label = actionLabels.get(action) ?? mainStates[main];
   return label ? { code: `${main}:${action}`, label } : undefined;
-}
-
-/** Snapmaker Orca estimates time from progress within the file's executable byte range. */
-export class U1PrintTime {
-  private file?: { name: string; duration: number | null; metadata?: Record<string, unknown> };
-  constructor(private readonly http: MoonrakerHttp, private readonly printer: PrinterConfiguration) {}
-
-  async read(status: Record<string, unknown>, signal?: AbortSignal): Promise<number | undefined> {
-    const stats = record(status.print_stats), sd = record(status.virtual_sdcard);
-    if (stats.state !== 'printing' && stats.state !== 'paused') {
-      this.file = undefined;
-      return stats.state === 'complete' ? 0 : undefined;
-    }
-    const name = stats.filename, duration = finite(stats.total_duration);
-    if (typeof name !== 'string' || !name) {
-      this.file = undefined;
-      return undefined;
-    }
-    if (!this.file || this.file.name !== name ||
-        duration !== null && this.file.duration !== null && duration < this.file.duration) {
-      this.file = { name, duration };
-    }
-    const file = this.file;
-    file.duration = duration;
-    const position = finite(sd.file_position);
-    if (position === null || !Number.isSafeInteger(position) || position < 0) return undefined;
-    if (!file.metadata) {
-      try {
-        file.metadata = await this.http.get(this.printer, `/server/files/metadata?filename=${encodeURIComponent(name)}`, signal);
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        return undefined;
-      }
-    }
-    const start = finite(file.metadata.gcode_start_byte), end = finite(file.metadata.gcode_end_byte);
-    const estimate = finite(file.metadata.estimated_time);
-    if (start === null || end === null || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
-        start < 0 || end <= start || estimate === null || estimate <= 0) {
-      file.metadata = undefined;
-      return undefined;
-    }
-    if (position < start) return undefined;
-    const progress = Math.min(1, (position - start) / (end - start));
-    return Math.trunc(estimate * (1 - progress));
-  }
 }
 
 function fans(snapshot: U1DeviceSnapshot) {
