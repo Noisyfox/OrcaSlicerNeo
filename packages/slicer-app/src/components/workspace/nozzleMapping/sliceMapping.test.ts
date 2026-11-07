@@ -9,6 +9,7 @@ import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { glVolumeCollection } from '../viewport/GLVolume';
 vi.mock('./nozzleMappingActions', () => ({ commitNozzleMapping: vi.fn() }));
+vi.mock('../projectThumbnails', () => ({ captureSliceThumbnail: vi.fn(async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) })) }));
 
 const snapshot = (mode: 0 | 1 | 2 | 3 = 2): NozzleMappingSnapshot => ({
   ok: true, plateId: 'A', revision: 10, eligible: true,
@@ -59,7 +60,7 @@ it('confirms one complete map and slices exactly the committed Plate revision', 
   mappingConfirmation.finish(await dialog(), { mode: 2, filamentMap: [2, 1] });
   await task;
   expect(commitNozzleMapping).toHaveBeenCalledExactlyOnceWith(platform, mapping, 42, { kind: 'mapping', mode: 2, filamentMap: [2, 1] });
-  expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'A', inputRevision: 11 }, {}, expect.any(Function), expect.any(Function));
+  expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'A', inputRevision: 11 }, {}, expect.any(Function), expect.any(Function), expect.objectContaining({ width: 1, height: 1 }));
   expect(useSlicerStore.getState().plateResults.A.receipt?.inputStamp).toBe(11);
 });
 
@@ -80,7 +81,7 @@ it('commits an automatic mode chosen in the dialog with its map before slicing o
   await task;
   expect(commitNozzleMapping).toHaveBeenCalledExactlyOnceWith(platform, mapping, 42,
     { kind: 'mapping', mode: 0, filamentMap: [2, 1] });
-  expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'A', inputRevision: 11 }, {}, expect.any(Function), expect.any(Function));
+  expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'A', inputRevision: 11 }, {}, expect.any(Function), expect.any(Function), expect.objectContaining({ width: 1, height: 1 }));
   expect(mappingConfirmation.getSnapshot()).toBeNull();
 });
 

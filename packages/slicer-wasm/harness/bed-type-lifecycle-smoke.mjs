@@ -40,7 +40,7 @@ function draft(key, value) {
 }
 const receipts = new Map();
 async function slice(id) {
-  const result = must(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'], ['{}', id, session().input_revisions[id]]));
+  const result = must(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'], ['{}', id, session().input_revisions[id], 'null']));
   receipts.set(id, result.receipt);
   must(getSliceResult(call, result.receipt));
 }
@@ -175,7 +175,7 @@ const both = must(mutateNativeScopedConfig(call, 'set', [{ scope: 'project' }],
   { values: { curr_bed_type: 'Engineering Plate', layer_height: '0.1' } }));
 assert.deepEqual(new Set(both.plate_session.affected_plate_ids), new Set([a, b]));
 pass('combined shared setting edit retains all-plate invalidation');
-const activeOverrideSlice = call('orc_slice_plate', ['string', 'string', 'number'], ['{}', b, session().input_revisions[b]]);
+const activeOverrideSlice = call('orc_slice_plate', ['string', 'string', 'number', 'string'], ['{}', b, session().input_revisions[b], 'null']);
 let completedOverride;
 if (activeOverrideSlice.accepted === true) {
   const mailbox = call('orc_drain_async_task_mailbox');

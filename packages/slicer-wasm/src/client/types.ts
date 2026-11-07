@@ -1284,13 +1284,15 @@ export type ExportPrintResult =
   | { ok: false; status: Exclude<ResultReadStatus, 'ok'>; error: string };
 
 /** Fresh ordinary plate images, with WebGL bottom-up RGBA rows. */
-export interface ProjectPlateThumbnail {
-  plateId: string;
+export interface RgbaThumbnail {
   /** Positive integer dimensions, within the native PNG encoder's limits. */
   width: number;
   height: number;
-  /** Export takes ownership; Worker transports may detach this buffer. */
+  /** Worker transports may take ownership and detach this buffer. */
   rgba: Uint8Array;
+}
+export interface ProjectPlateThumbnail extends RgbaThumbnail {
+  plateId: string;
 }
 export interface ExportProjectRequest {
   expectedRevision: number;
@@ -1914,7 +1916,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods, UserPrese
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   /** Slice only the captured current plate; stale/non-current targets reject. */
   slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void,
-    onDiagnostics?: (event: SliceDiagnosticEvent) => void): Promise<SliceResultStatus>;
+    onDiagnostics?: (event: SliceDiagnosticEvent) => void, thumbnail?: RgbaThumbnail): Promise<SliceResultStatus>;
   /** Materialize a renderer projection for exactly one retained native result. */
   getSliceResult(receipt: SliceResultReceipt): Promise<ClientSliceResult>;
   /** Read a bounded UTF-8 chunk from the current completed slice result. */

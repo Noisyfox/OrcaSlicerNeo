@@ -118,13 +118,13 @@ assert.equal(ok(call('orc_get_filament_session_snapshot')).slots.length,1);
 function configure(scope,value,operation='set') {
   const tx=ok(call('orc_history_begin',['string','string','string','string'],['Change Scoped Configuration','project',JSON.stringify(context),'']));
   const result=ok(command('orc_mutate_native_scoped_config',{version:1,operation,targets:[{scope,...(scope==='object'?{id:String(session.objectId)}:scope==='part'?{id:String(session.parts[0].volumeId)}:{})}],...(operation==='set'?{values:{fuzzy_skin:value}}:{key:'fuzzy_skin'})}));
-  const committed=call('orc_history_commit',['string','string'],[tx.transactionId,JSON.stringify(context)]); assert.ok(committed.status && !committed.error); 
+  const committed=call('orc_history_commit',['string','string'],[tx.transactionId,JSON.stringify(context)]); assert.ok(committed.status && !committed.error);
   refresh(); return result;
 }
 function extrusion(gcode) { return gcode.split('\n').filter(line=>/^G[0123] /.test(line)&&/\bE-?[\d.]+/.test(line)); }
 async function slice(label) {
   const plates=ok(call('orc_get_plate_session_snapshot')), id=plates.current_plate_id;
-  const messages=[]; const result=ok(await awaitAsyncTask(call,call('orc_slice_plate',['string','string','number'],['{}',id,plates.input_revisions[id]]),120000,batch=>messages.push(...batch))); 
+  const messages=[]; const result=ok(await awaitAsyncTask(call,call('orc_slice_plate',['string','string','number', 'string'],['{}',id,plates.input_revisions[id], 'null']),120000,batch=>messages.push(...batch)));
   const exported=ok(exportGcode(call, { receipt: result.receipt, filenameBase: '' }));
   const gcode=Module.FS.readFile(exported.path,{encoding:'utf8'}); if(exported.bytes_ptr)Module._free(exported.bytes_ptr);
   await writeFile(resolve(output,`${label}.gcode`),gcode);

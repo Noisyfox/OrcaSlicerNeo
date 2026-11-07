@@ -44,8 +44,8 @@ console.log('U1 slicing');
 map(3);
 const settings = { enable_prime_tower: false, layer_height: 0.3, initial_layer_print_height: 0.3, sparse_infill_density: '5%' };
 async function slice(head) {
-  const sliced = ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'],
-    [JSON.stringify(settings), plateId, ok(projection(plateId)).revision]));
+  const sliced = ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+    [JSON.stringify(settings), plateId, ok(projection(plateId)).revision, 'null']));
   const output = ok(exportGcode(call, { receipt: sliced.receipt, filenameBase: '' }));
   const gcode = Module.FS.readFile(output.path, { encoding: 'utf8' });
   assert.match(gcode, /^T5\s*$/m, 'U1 emits logical filament ID, not mapped physical head');

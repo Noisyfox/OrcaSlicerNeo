@@ -20,8 +20,8 @@ function ok(result) { assert.equal(result.ok, true, JSON.stringify(result)); ret
 const session = () => ok(call('orc_get_plate_session_snapshot'));
 async function slice(format, plateId = session().current_plate_id) {
   const config = format === undefined ? {} : { filename_format: format };
-  return ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'],
-    [JSON.stringify(config), plateId, session().input_revisions[plateId]]));
+  return ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+    [JSON.stringify(config), plateId, session().input_revisions[plateId], 'null']));
 }
 const exported = (receipt, filenameBase = '') => ok(exportGcode(call, { receipt, filenameBase }));
 ok(call('orc_init', ['string'], [fixtureProfileOptions(Module)]));

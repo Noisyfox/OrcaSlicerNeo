@@ -126,7 +126,7 @@ function outerStarts(gcode) {
 }
 async function slice(label) {
   const plates=ok(call('orc_get_plate_session_snapshot')), id=plates.current_plate_id;
-  const result=ok(await callAsyncTask(call,'orc_slice_plate',['string','string','number'],['{}',id,plates.input_revisions[id]]));
+  const result=ok(await callAsyncTask(call,'orc_slice_plate',['string','string','number', 'string'],['{}',id,plates.input_revisions[id], 'null']));
   const exported=ok(exportGcode(call, { receipt: result.receipt, filenameBase: '' }));
   const gcode=Module.FS.readFile(exported.path,{encoding:'utf8'}); if(exported.bytes_ptr)Module._free(exported.bytes_ptr);
   await writeFile(resolve(output,`${label}.gcode`),gcode);

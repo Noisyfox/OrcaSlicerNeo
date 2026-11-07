@@ -657,7 +657,7 @@ scopeSet([scopeObject],0,12);
 scopeSet([scopePart],0,10);
 const sliceScoped=async()=>{
   const session=must(call('orc_get_plate_session_snapshot')), plate=session.current_plate_id;
-  const sliced=must(await callAsyncTask(call,'orc_slice_plate',['string','string','number'],['{}',plate,session.input_revisions[plate]]));
+  const sliced=must(await callAsyncTask(call,'orc_slice_plate',['string','string','number', 'string'],['{}',plate,session.input_revisions[plate], 'null']));
   const exported=must(exportGcode(call,{receipt:sliced.receipt,filenameBase:''}));
   const gcode=new TextDecoder().decode(Module.FS.readFile(exported.path));
   let type='',feed=0;const outerFeeds=[];

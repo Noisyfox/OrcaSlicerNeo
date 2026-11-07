@@ -44,8 +44,8 @@ async function slice(expected, sequence = 'by layer', reuseSettings = false) {
   // normal slicing-config change when proving fresh grouping on a reused Print.
   if (!reuseSettings) layerHeight = layerHeight === 0.3 ? 0.29 : 0.3;
   const before = inputs();
-  const result = ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'],
-    [JSON.stringify({ enable_prime_tower: false, layer_height: layerHeight, initial_layer_print_height: 0.3, sparse_infill_density: '5%', print_sequence: sequence }), plate, ok(projection(plate)).revision]));
+  const result = ok(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+    [JSON.stringify({ enable_prime_tower: false, layer_height: layerHeight, initial_layer_print_height: 0.3, sparse_infill_density: '5%', print_sequence: sequence }), plate, ok(projection(plate)).revision, 'null']));
   const exported = ok(exportGcode(call, { receipt: result.receipt, filenameBase: '' }));
   const gcode = Module.FS.readFile(exported.path, { encoding: 'utf8' });
   writeFileSync('/tmp/neo-convenience.gcode', gcode);
@@ -78,7 +78,7 @@ await slice(); // Empty candidates use native Flush fallback, retaining saved Ma
 assert.equal(ok(projection(plate)).saved.mode, 1);
 set(null);
 assert.equal(ok(projection(plate)).modes[1].available, false);
-const rejected = await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'], ['{}', plate, ok(projection(plate)).revision]);
+const rejected = await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number', 'string'], ['{}', plate, ok(projection(plate)).revision, 'null']);
 assert.match(rejected.error, /Connect to and select a printer matching/);
 assert.deepEqual(inputs(), baseline);
 set(source([supply(0, '#0000FF'), supply(1, '#FF0000')]));

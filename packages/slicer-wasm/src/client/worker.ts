@@ -435,7 +435,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       pending.set(id, { resolve, reject, op, startedAt: historyNow(), onDiagnostics });
       try {
         transport.post({ type: 'request', id, op, args, serialTerminalEpoch },
-          op === 'exportProject' ? collectTransferables(args) : undefined);
+          op === 'exportProject' || op === 'slicePlate' ? collectTransferables(args) : undefined);
       } catch (error) {
         pending.delete(id);
         if (op === 'arrange') arrangementActive = false;
@@ -539,10 +539,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       if (prop === 'slice' || prop === 'slicePlate') {
         if (prop === 'slicePlate') {
           return (target: unknown, config: Record<string, string>, onProgress?: (percent: number, text: string) => void,
-            onDiagnostics?: (event: SliceDiagnosticEvent) => void) => {
-            if (!onProgress) return sendScoped('slicePlate', [target, config], onDiagnostics);
+            onDiagnostics?: (event: SliceDiagnosticEvent) => void, thumbnail?: import('./types').RgbaThumbnail) => {
+            if (!onProgress) return sendScoped('slicePlate', [target, config, undefined, undefined, thumbnail], onDiagnostics);
             progressListeners.add(onProgress);
-            return sendScoped('slicePlate', [target, config], onDiagnostics).finally(() => {
+            return sendScoped('slicePlate', [target, config, undefined, undefined, thumbnail], onDiagnostics).finally(() => {
               progressListeners.delete(onProgress);
             });
           };

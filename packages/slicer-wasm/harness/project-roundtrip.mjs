@@ -201,7 +201,7 @@ const oldPlateIds = beforeExportSession.plates?.map((plate) => plate.plate_id) ?
 const oldCurrentPlateId = beforeExportSession.current_plate_id;
 const oldCurrentRevision = beforeExportSession.input_revisions?.[oldCurrentPlateId] ?? 0;
 const seededSlice = await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', oldCurrentPlateId, oldCurrentRevision]);
+  ['string', 'string', 'number', 'string'], ['{}', oldCurrentPlateId, oldCurrentRevision, 'null']);
 check('materialize an old-session result before replacement', seededSlice.ok === true,
       JSON.stringify(seededSlice));
 const seededResult = getSliceResult(callJson, seededSlice.receipt);

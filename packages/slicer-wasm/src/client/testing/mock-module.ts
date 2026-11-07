@@ -3911,7 +3911,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { accepted: true, kind: 'arrange', task_id: taskId };
     },
     orc_cancel_arrangement(_taskId: string) { return { ok: false, error: 'No cancellable mock arrangement' }; },
-    orc_slice_plate(_config: string, plateId: string, revision: number) {
+    orc_slice_plate(_config: string, plateId: string, revision: number, _thumbnailJson: string) {
       return runMockSlice(plateId, revision);
     },
     orc_get_slice_result(plateId: string, inputStamp: number, resultGeneration: number) {
@@ -4286,7 +4286,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_slice: { ret: 'number', args: ['string'] },
     orc_arrange: { ret: 'number', args: ['string'] },
     orc_cancel_arrangement: { ret: 'number', args: ['string'] },
-    orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number'] },
+    orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number', 'string'] },
     orc_get_slice_result: { ret: 'number', args: ['string', 'number', 'number'] },
     orc_export_gcode_plate: { ret: 'number', args: ['string'] },
     orc_describe_print_plate: { ret: 'number', args: ['string'] },

@@ -45,6 +45,18 @@ function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | 
 }
 
 describe('worker protocol', () => {
+  it('transfers slice image buffers with progress and diagnostics positions preserved', async () => {
+    const { workerClient: client, channel } = setup();
+    await client.init(MOCK_PROFILE_ACTIVATION);
+    await client.addShape('Cube', 'thumbnail');
+    const snapshot = await client.getPlateSessionSnapshot();
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    const image = { width: 1, height: 1, rgba: new Uint8Array([255, 0, 0, 255]) };
+    const result = await client.slicePlate({ plateId: snapshot.currentPlateId,
+      inputRevision: snapshot.inputRevisions![snapshot.currentPlateId] }, {}, () => {}, () => {}, image);
+    expect(result.ok).toBe(true);
+    expect(channel.transfers.some(buffers => buffers.includes(image.rgba.buffer))).toBe(true);
+  });
   it('routes durable diagnostics to their requesting slice without transferring callbacks', async () => {
     const diagnostic = { key: 'native', severity: 'warning' as const, message: 'Native warning', objectIds: ['42'] };
     const module = createMockModule({ sliceValidationDiagnostics: [diagnostic], sliceWarnings: [diagnostic] });

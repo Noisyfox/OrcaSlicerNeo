@@ -42,6 +42,7 @@
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_arrangement.hpp"
 #include "bridge_state.hpp"
+#include "bridge_thumbnails.hpp"
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
@@ -354,11 +355,11 @@ std::string generation_gcode_path(const PlateRuntimeRegistry::Entry& entry,
            std::to_string(generation) + ".gcode";
 }
 
-void materialize_completed_generation(PlateRuntimeRegistry::Entry& entry)
+void materialize_completed_generation(PlateRuntimeRegistry::Entry& entry, const ThumbnailData& thumbnail)
 {
     const std::uint64_t generation = entry.result_generation + 1;
     const std::string path = generation_gcode_path(entry, generation);
-    entry.print->export_gcode(path, entry.gcode_result.get(), nullptr);
+    entry.print->export_gcode(path, entry.gcode_result.get(), Slic3r::Neo::Bridge::Thumbnails::generator(thumbnail));
 
     std::ifstream source(path, std::ios::binary | std::ios::ate);
     if (!source.good()) {
@@ -397,6 +398,7 @@ struct SliceTask {
     json unrecognized_keys = json::array();
     json warnings = json::array();
     json errors = json::array();
+    ThumbnailData thumbnail;
 };
 
 struct PendingSliceRequest {
@@ -404,6 +406,8 @@ struct PendingSliceRequest {
     std::string config_json;
     std::string plate_id;
     std::uint64_t entry_incarnation = 0;
+    std::uint64_t input_revision = 0;
+    ThumbnailData thumbnail;
 };
 
 json slice_diagnostic(const std::string& message, const std::string& key,
@@ -515,7 +519,7 @@ std::pair<std::string, json> finalize_slice_task(
     }
     try {
         auto& entry = task->lease.entry();
-        materialize_completed_generation(entry);
+        materialize_completed_generation(entry, task->thumbnail);
     } catch (const std::bad_alloc&) {
         registry.mark_process_failed(task->lease);
         release_active_slice_task(task);
@@ -696,6 +700,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_check_serial_admission(const cha
 
 const char* slice_for_plate(const char* config_json, const std::string& plate_id,
                             const std::uint64_t revision,
+                            ThumbnailData thumbnail = {},
                             const std::optional<std::uint64_t> reserved_task_id = std::nullopt,
                             const std::optional<std::uint64_t> expected_incarnation = std::nullopt) {
     std::shared_ptr<SliceTask> task;
@@ -719,7 +724,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
                     replaced = std::move(g_pending_slice_request);
                     g_pending_slice_request = PendingSliceRequest{
                         replacement_task_id, config_json ? config_json : "", plate_id,
-                        replacement_incarnation};
+                        replacement_incarnation, revision, std::move(thumbnail)};
                 }
             }
             if (active) {
@@ -785,6 +790,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             ? *reserved_task_id : allocate_async_task_id();
         task = std::make_shared<SliceTask>(slice_task_id, plate_id, revision,
             state().plate_runtime_registry.begin_slice(plate_id, slice_task_id, revision));
+        task->thumbnail = std::move(thumbnail);
         {
             std::lock_guard<std::mutex> lock(g_slice_job_mutex);
             if (g_active_slice_task)
@@ -1103,8 +1109,14 @@ void start_pending_slice_if_any()
         return;
     }
     const std::uint64_t revision = current_input_revision_for_plate(pending->plate_id);
+    if (pending->thumbnail.is_valid() && revision != pending->input_revision) {
+        enqueue_task_terminal(pending->task_id, "slice", "stale",
+            json{{"error", "slice thumbnail inputs changed before replacement admission"}},
+            pending->plate_id, pending->entry_incarnation);
+        return;
+    }
     const char* response = slice_for_plate(pending->config_json.c_str(), pending->plate_id,
-                                           revision, pending->task_id,
+                                           revision, std::move(pending->thumbnail), pending->task_id,
                                            pending->entry_incarnation);
     std::free(const_cast<char*>(response));
 #endif
@@ -1118,14 +1130,17 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
 
 extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_slice_plate(const char* config_json,
                                                   const char* plate_id,
-                                                  double revision_number) {
+                                                  double revision_number,
+                                                  const char* thumbnail_json) {
     try {
         if (!plate_id || !std::isfinite(revision_number) || revision_number < 0.0 ||
             std::floor(revision_number) != revision_number ||
             revision_number > static_cast<double>(std::numeric_limits<std::uint64_t>::max()))
             return error_json("invalid plate operation target");
+        const json image = json::parse(thumbnail_json ? thumbnail_json : "null");
+        auto thumbnail = image.is_null() ? ThumbnailData{} : Slic3r::Neo::Bridge::Thumbnails::read_rgba(image);
         return slice_for_plate(config_json, plate_id,
-                               static_cast<std::uint64_t>(revision_number));
+                               static_cast<std::uint64_t>(revision_number), std::move(thumbnail));
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {

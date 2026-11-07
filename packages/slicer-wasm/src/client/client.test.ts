@@ -24,6 +24,42 @@ function wireColour(effective: string, provenance: 'preset' | 'user' = 'preset')
 }
 
 describe('SlicerClient bridge contract', () => {
+  it.each([false, true])('copies slice thumbnail pixels into native admission and frees the input on failure=%s', async fail => {
+    const module = createMockModule();
+    const client = createClient(async () => module);
+    await client.init(MOCK_PROFILE_ACTIVATION);
+    await client.addModel(new Uint8Array(4), 'stl');
+    const snapshot = await client.getPlateSessionSnapshot();
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    const image = { width: 2, height: 1, rgba: new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]) };
+    const original = module.ccall.bind(module);
+    let pixels = 0;
+    module.ccall = (name, ret, types, args) => {
+      if (name === 'orc_slice_plate') {
+        const payload = JSON.parse(String(args?.[3]));
+        pixels = payload.pixels_ptr;
+        expect(payload).toMatchObject({ width: 2, height: 1, pixels_length: 8 });
+        expect(module.HEAPU8.slice(pixels, pixels + 8)).toEqual(image.rgba);
+        if (fail) throw new Error('admission failed');
+      }
+      return original(name, ret, types, args);
+    };
+    const result = client.slicePlate({ plateId: snapshot.currentPlateId,
+      inputRevision: snapshot.inputRevisions![snapshot.currentPlateId] }, {}, undefined, undefined, image);
+    if (fail) await expect(result).rejects.toThrow('admission failed');
+    else expect((await result).ok).toBe(true);
+    expect(pixels).toBeGreaterThan(0);
+    expect(module._freedPointers).toContain(pixels);
+  });
+
+  it('rejects malformed slice thumbnail buffers before native allocation', async () => {
+    const module = createMockModule();
+    const allocate = vi.spyOn(module, '_malloc');
+    await expect(createClient(async () => module).slicePlate({ plateId: 'a', inputRevision: 1 }, {}, undefined, undefined,
+      { width: 2, height: 2, rgba: new Uint8Array(4) })).rejects.toThrow('invalid RGBA thumbnail');
+    expect(allocate).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])('delivers durable phase diagnostics before the terminal (threaded=%s)', async threaded => {
     const diagnostic = { key: 'native:12', severity: 'warning' as const, message: 'Detail '.repeat(1000), objectIds: ['42'] };
     const module = createMockModule({ threaded, sliceWarnings: [diagnostic], sliceValidationDiagnostics: [diagnostic] });
@@ -3362,7 +3398,7 @@ describe('SlicerClient bridge contract', () => {
     const client = createClient(async () => module);
     await expect(client.exportProject({ expectedRevision: 1,
       thumbnails: [{ plateId: 'plate-1', width, height, rgba: new Uint8Array(length) }] }))
-      .rejects.toThrow('invalid project plate thumbnail');
+      .rejects.toThrow('invalid RGBA thumbnail');
     expect(call).not.toHaveBeenCalled();
     expect(allocate).not.toHaveBeenCalled();
   });

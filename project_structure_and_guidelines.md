@@ -205,7 +205,7 @@ See [WASM Build and Runtime Reference](doc/2026-08-12-wasm-build-notes.md). Key 
   selected at runtime when the host is cross-origin isolated) and `serial`
   (the TBB shim, no pthreads). Both share one bridge/client contract.
 - **Formats**: STL + 3MF + DRC + STEP/STP in the current WASM delivery.
-  Thumbnails remain dropped (`ThumbnailsGeneratorCallback` = nullptr).
+  G-code thumbnails use the core encoder with renderer-provided plate pixels.
 - **Profile resources**: system profiles ship as versioned ZIP packages
   (manifest + core/vendor) built deterministically by
   `packages/profile-resources`; a Worker-side installer materializes them

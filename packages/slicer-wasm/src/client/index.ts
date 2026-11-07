@@ -63,7 +63,7 @@ export type {
   PreviewAnalysisSummary, PreviewFeatureStatistics, PreviewMoveStatistics, PreviewAnalysis,
   PreviewSourceKind, PreviewTextChunkRequest, PreviewTextChunk, PreviewTextLinesRequest, PreviewTextLines, PreviewSource,
   ExportGcodeRequest, ExportGcodeResult, PrintManifest, PrintManifestResult, ExportPrintResult, ExportPrintRequest,
-  ExportProjectRequest, ProjectPlateThumbnail, ExportProjectResult, CancelResult,
+  ExportProjectRequest, RgbaThumbnail, ProjectPlateThumbnail, ExportProjectResult, CancelResult,
   FilesystemEntry,
 } from './types';
 export type {

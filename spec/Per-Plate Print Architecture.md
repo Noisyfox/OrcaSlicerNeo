@@ -671,6 +671,20 @@ for multiple plates coexist, and Export/text paging read the target entry's
 file without rerunning `Print::export_gcode()`. The file is runtime-only and
 is never serialized into a project.
 
+Normal UI slicing captures the requested plate's printable geometry and material
+colours with the shared plate-thumbnail renderer before native admission. The
+bottom-up RGBA source is bound to that plate's input stamp and copied into the
+native task before the client frees its upload buffer. A pending replacement
+with captured pixels becomes stale if its input stamp changes before admission.
+Headless callers may omit the pixel source.
+
+During generation, Orca's thumbnail callback fits and resamples that source to
+the sizes requested by the retained printer configuration. The core handles
+compression, encoding and thumbnail-block placement using its configured
+formats. PNG transparency and aspect ratio are preserved. The resulting
+thumbnail blocks belong to the immutable retained G-code used by local Export
+and every plain-G-code submission route.
+
 Result generations are immutable after publication. Projection, text paging,
 and Export acquire a short result-generation lease. A successful replacement
 publishes its new generation atomically; the prior result and its temporary

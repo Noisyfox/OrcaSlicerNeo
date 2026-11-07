@@ -1,9 +1,10 @@
 /** Opt-in real U1 acceptance. No print-start or motion/heater/material commands. */
 import { test, expect } from '@playwright/test';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { _electron } from './electron-fixture';
+import { selectFixturePrinter } from './printer-selection';
 import { createSnapmakerService, normalizePrinterConfigurationDocument, readSynchronizationSource, type PrinterTransportRequest } from '@orca/printer-control';
 import type * as D from '@orca/printer-control/domain';
 
@@ -140,6 +141,80 @@ test('real U1 Monitor displays the current task thumbnail', async ({}, info) => 
       .toEqual({ width: expected.width, height: expected.height });
     await page.locator('.printer-print-preview').screenshot({ path: info.outputPath('u1-current-task-preview.png') });
     writeFileSync(info.outputPath('u1-preview-readback.json'), JSON.stringify({ filename: stats.filename, jobId: metadata.job_id, thumbnail: expected }, null, 2));
+  } finally { await app.close(); }
+});
+
+test('real U1 recognizes thumbnails from Neo exported G-code without printing', async ({}, info) => {
+  test.skip(process.env.NEO_U1_ACCEPTANCE_THUMBNAIL_UPLOAD !== '1', 'Explicit opt-in for a new upload-only thumbnail acceptance file.');
+  test.setTimeout(180000);
+  const selected = selectedPrinter();
+  const directory = mkdtempSync(join(tmpdir(), 'neo-u1-export-thumbnail-'));
+  const config = join(directory, 'printer-config.json');
+  const model = join(directory, 'Neo thumbnail acceptance.stl');
+  const exportedPath = info.outputPath('neo-thumbnail.gcode');
+  copyFileSync(resolve(__dirname, '../../../packages/slicer-wasm/fixtures/cube.stl'), model);
+  writeFileSync(config, JSON.stringify({ version: 1, printers: [{ ...selected, driverId: 'snapmaker' }] }));
+  const env: Record<string, string> = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PRINTER_CONFIG: config,
+    ORCA_E2E_MODEL: model, ORCA_E2E_EXPORT: exportedPath };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.', `--user-data-dir=${join(directory, 'user-data')}`], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 90000 });
+    await page.locator('#app-tab-prepare').click();
+    await selectFixturePrinter(page, 'Snapmaker U1 0.4 nozzle');
+    await page.getByTestId('btn-add-model').click();
+    await page.getByTestId('btn-slice').click();
+    const mapping = page.getByRole('dialog', { name: 'Confirm filament mapping', exact: true });
+    await mapping.getByRole('button', { name: 'Confirm and slice', exact: true }).click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 90000 });
+    await page.getByTestId('output-mode-select').click();
+    await page.getByRole('menuitemradio', { name: 'Export', exact: true }).click();
+    await page.getByTestId('btn-export').click();
+    await expect.poll(() => existsSync(exportedPath)).toBe(true);
+    const bytes = readFileSync(exportedPath);
+    const sizes = [...bytes.toString('utf8').matchAll(/; thumbnail begin (\d+)x(\d+) /g)].map(match => `${match[1]}x${match[2]}`);
+    expect(sizes).toEqual(['48x48', '300x300']);
+    const document = normalizePrinterConfigurationDocument({ version: 1, printers: [{ ...selected, driverId: 'snapmaker' }] });
+    const service = createSnapmakerService({ configuration: { load: async () => document, save: async () => { throw new Error('No configuration writes'); } },
+      host: { id: id('thumbnail-acceptance'), name: 'U1 thumbnail acceptance', execution: 'desktop' },
+      transport: { async request(request) {
+        let body: FormData | undefined;
+        if (request.method === 'POST') {
+          expect(new URL(request.url).pathname).toBe('/server/files/upload');
+          if (request.body?.kind !== 'multipart') throw new Error('Expected a file upload');
+          body = new FormData();
+          for (const [key, value] of Object.entries(request.body.fields)) body.append(key, value);
+          body.append('file', new Blob([request.body.file.bytes.slice().buffer]), request.body.file.fileName);
+        }
+        const response = await fetch(request.url, { method: request.method, headers: request.headers, body, signal: request.signal });
+        return { status: response.status, json: () => response.json(), bytes: async () => new Uint8Array(await response.arrayBuffer()) };
+      } } });
+    const target = { printerId: id<'printer'>(selected.id), routeId: id<'route'>(`snapmaker:${selected.id}`) };
+    const fileName = `NEO_thumbnail_acceptance_${Date.now()}.gcode`;
+    const upload = await service.files.upload({ target, requestId: id(crypto.randomUUID()), destination: { kind: 'default' },
+      fileName, format: 'gcode', sizeBytes: bytes.length, collisionPolicy: 'overwrite' }, { chunks: (async function* () { yield bytes; })() });
+    if (upload.kind !== 'recorded') throw new Error('Upload rejected');
+    let phase: string | undefined;
+    for await (const operation of service.operations.watch(upload.operation)) phase = operation.phase.kind;
+    expect(phase).toBe('completed');
+    const base = selected.apiBaseUrl.replace(/\/$/, '');
+    const headers = selected.apiKey ? { 'X-Api-Key': selected.apiKey } : undefined;
+    const response = await fetch(`${base}/server/files/metadata?filename=${encodeURIComponent(fileName)}`, { headers });
+    expect(response.ok).toBe(true);
+    const metadata = (await response.json()).result;
+    expect(metadata.thumbnails.map((image: { width: number; height: number }) => `${image.width}x${image.height}`)).toEqual(expect.arrayContaining(sizes));
+    const large = metadata.thumbnails.find((image: { width: number; height: number }) => image.width === 300 && image.height === 300);
+    const image = await fetch(`${base}/server/files/gcodes/${large.relative_path.split('/').map(encodeURIComponent).join('/')}`, { headers });
+    expect(image.ok).toBe(true);
+    const png = new Uint8Array(await image.arrayBuffer());
+    writeFileSync(info.outputPath('u1-neo-export-thumbnail.png'), png);
+    const decoded = await page.evaluate(async values => {
+      const image = await createImageBitmap(new Blob([new Uint8Array(values)], { type: 'image/png' }));
+      try { return [image.width, image.height]; } finally { image.close(); }
+    }, [...png]);
+    expect(decoded).toEqual([300, 300]);
+    writeFileSync(info.outputPath('u1-thumbnail-metadata.json'), JSON.stringify({ fileName, metadata }, null, 2));
   } finally { await app.close(); }
 });
 

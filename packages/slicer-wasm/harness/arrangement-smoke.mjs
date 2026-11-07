@@ -146,14 +146,14 @@ if (call('orc_get_threading_info').threaded) {
   call('orc_history_reset', ['string'], [JSON.stringify(context)]);
   function startSlice(plate) {
     ok('select slice target', call('orc_select_plate', ['string'], [plate]));
-    return call('orc_slice_plate', ['string', 'string', 'number'], ['{"layer_height":"0.05"}', plate, observe().plates.input_revisions[plate]]);
+    return call('orc_slice_plate', ['string', 'string', 'number', 'string'], ['{"layer_height":"0.05"}', plate, observe().plates.input_revisions[plate], 'null']);
   }
   const slicingA = startSlice(plateA);
   check('slice A accepted', slicingA.accepted, slicingA);
   ok('select B while A slices', call('orc_select_plate', ['string'], [plateB]));
   const arrangingB = startArrangement({ scope: 'current' });
   check('arrangement starts while slice active', arrangingB.accepted, arrangingB);
-  const rejectedSlice = call('orc_slice_plate', ['string', 'string', 'number'], ['{}', plateB, observe().plates.input_revisions[plateB]]);
+  const rejectedSlice = call('orc_slice_plate', ['string', 'string', 'number', 'string'], ['{}', plateB, observe().plates.input_revisions[plateB], 'null']);
   check('new slice blocked while arranging', rejectedSlice.error === 'arrangement_busy', rejectedSlice);
   const resultB = ok('arrange B during slice A', await awaitAsyncTask(call, arrangingB));
   check('only B affected', resultB.plate_session.affected_plate_ids.includes(plateB) && !resultB.plate_session.affected_plate_ids.includes(plateA), resultB);

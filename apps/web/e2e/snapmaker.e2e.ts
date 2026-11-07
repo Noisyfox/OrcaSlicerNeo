@@ -1,5 +1,30 @@
 import { startSnapmakerFixture } from '../../desktop/e2e/snapmaker-fixture';
 import { test, expect } from './browser-fixture';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
+
+test('Web U1 exports configured G-code thumbnails from the shared renderer', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120000 });
+  await page.locator('#app-tab-prepare').click();
+  await selectFixturePrinter(page, 'Snapmaker U1 0.4 nozzle');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await chooser).setFiles(resolve(import.meta.dirname, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+  await page.getByTestId('btn-slice').click();
+  await page.getByRole('dialog', { name: 'Confirm filament mapping', exact: true })
+    .getByRole('button', { name: 'Confirm and slice', exact: true }).click();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 90000 });
+  await page.getByTestId('output-mode-select').click();
+  await page.getByRole('menuitemradio', { name: 'Export', exact: true }).click();
+  const downloading = page.waitForEvent('download');
+  await page.getByTestId('btn-export').click();
+  const path = await (await downloading).path();
+  if (!path) throw new Error('Missing downloaded G-code');
+  const gcode = readFileSync(path, 'utf8');
+  expect([...gcode.matchAll(/; thumbnail begin (\d+)x(\d+) /g)].map(match => `${match[1]}x${match[2]}`)).toEqual(['48x48', '300x300']);
+});
 
 test('Web persists a manual Snapmaker connection without a model or printer access', async ({ page }) => {
   await page.goto('/');

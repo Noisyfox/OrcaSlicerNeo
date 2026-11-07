@@ -34,7 +34,7 @@ import type {
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, ModelScenePatchResult, SliceResultStatus, SliceDiagnostic, SliceDiagnosticEvent, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
   ExportGcodeRequest, ExportGcodeResult, PrintManifest, PrintManifestResult, ExportPrintResult, ExportPrintRequest,
-  ExportProjectRequest, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
+  ExportProjectRequest, ExportProjectResult, RgbaThumbnail, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   AddVolumeRequest, AddVolumeResult, ModelStructureResult, ModelObjectStructure, MutationResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, MeshBooleanRequest, MeshBooleanResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
@@ -67,6 +67,15 @@ import { writeBytes, callJson, readBytes } from './heap';
 
 const REAL_PROJECT_PROFILE_BUILD = import.meta.env.VITE_REAL_PROJECT_PROFILE === '1';
 const REAL_PROJECT_PROFILE_JS_SENTINEL = 'ORCA_REAL_PROJECT_PROFILE_JS_V1';
+
+function validateRgbaThumbnail(image: RgbaThumbnail): void {
+  const length = image.width * image.height * 4;
+  if (!Number.isInteger(image.width) || image.width <= 0 || image.width > 0xffff ||
+      !Number.isInteger(image.height) || image.height <= 0 || image.height > 0xffff ||
+      length + image.height > 0x7fffffff - 57 ||
+      !(image.rgba instanceof Uint8Array) || image.rgba.byteLength !== length)
+    throw new RangeError('invalid RGBA thumbnail');
+}
 
 function emptyHistoryTiming(): HistoryTimingDiagnostic {
   return { count: 0, totalMs: 0, maxMs: 0, lastMs: 0 };
@@ -3246,18 +3255,29 @@ export function createClient(
     },
 
     async slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void,
-      onDiagnostics?: (event: SliceDiagnosticEvent) => void): Promise<SliceResultStatus> {
+      onDiagnostics?: (event: SliceDiagnosticEvent) => void, thumbnail?: RgbaThumbnail): Promise<SliceResultStatus> {
+      if (thumbnail) validateRgbaThumbnail(thumbnail);
       const m = await module();
+      let pixels = 0;
       if (onProgress) progressListeners.add(onProgress);
       try {
         if (!runtimeThreaded) serialSliceAdmissionInProgress = true;
         sliceDiagnosticAdmission = true;
         let raw: unknown;
         try {
-          raw = callJson(m, 'orc_slice_plate', ['string', 'string', 'number'], [
-            JSON.stringify(config), target.plateId, target.inputRevision,
+          if (thumbnail) {
+            pixels = Number(m._malloc(thumbnail.rgba.byteLength));
+            if (!pixels) throw new Error('slice thumbnail allocation failed');
+            m.HEAPU8.set(thumbnail.rgba, pixels);
+          }
+          raw = callJson(m, 'orc_slice_plate', ['string', 'string', 'number', 'string'], [
+            JSON.stringify(config), target.plateId, target.inputRevision, JSON.stringify(thumbnail ? {
+              width: thumbnail.width, height: thumbnail.height, pixels_ptr: pixels, pixels_length: thumbnail.rgba.byteLength,
+            } : null),
           ]);
         } finally {
+          // Native admission owns a copy before an asynchronous task or replacement is accepted.
+          if (pixels) m._free(pixels);
           serialSliceAdmissionInProgress = false;
           sliceDiagnosticAdmission = false;
         }
@@ -3602,12 +3622,8 @@ export function createClient(
         for (const image of request.thumbnails) {
           // miniz writes 16-bit PNG dimensions and computes its scanline
           // buffer capacity (57 + (width * 4 + 1) * height) as a signed int.
-          const length = image.width * image.height * 4;
-          if (!image.plateId || ids.has(image.plateId) ||
-              !Number.isInteger(image.width) || image.width <= 0 || image.width > 0xffff ||
-              !Number.isInteger(image.height) || image.height <= 0 || image.height > 0xffff ||
-              length + image.height > 0x7fffffff - 57 ||
-              !(image.rgba instanceof Uint8Array) || image.rgba.byteLength !== length)
+          validateRgbaThumbnail(image);
+          if (!image.plateId || ids.has(image.plateId))
             throw new RangeError('invalid project plate thumbnail');
           ids.add(image.plateId);
         }

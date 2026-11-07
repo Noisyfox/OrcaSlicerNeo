@@ -152,7 +152,7 @@ const thirdTower = callJson('orc_get_prime_tower_projection').plates.find((plate
 assert.equal(thirdTower.used_slots.length, 1, JSON.stringify(thirdTower));
 trace('third plate slice starting');
 const thirdSlice = await callAsyncTask(callJson, 'orc_slice_plate',
-  ['string', 'string', 'number'], ['{}', thirdPlate, thirdRevision]);
+  ['string', 'string', 'number', 'string'], ['{}', thirdPlate, thirdRevision, 'null']);
 assert.equal(thirdSlice.ok, true, JSON.stringify(thirdSlice));
 trace('third plate slice complete');
 assert.equal(getSliceResult(callJson, thirdSlice.receipt).ok, true);
@@ -278,8 +278,8 @@ trace('mixed history navigation complete');
 
 const targetRevision = session().input_revisions[secondPlate];
 trace('second plate slice starting');
-const secondSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', secondPlate, targetRevision]);
+const secondSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
+  ['{}', secondPlate, targetRevision, 'null']);
 assert.equal(secondSlice.ok, true);
 trace('second plate slice complete');
 assert.equal(getSliceResult(callJson, secondSlice.receipt).ok, true);
