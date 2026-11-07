@@ -8,7 +8,7 @@ export function isDownloadRequest(value: unknown): value is DownloadRequest {
   const { method, args } = value as DownloadRequest;
   if (!Array.isArray(args)) return false;
   if (['list', 'directory', 'chooseDirectory'].includes(method)) return args.length === 0;
-  if (['cancel', 'retry', 'continue', 'open'].includes(method)) return args.length === 1 && typeof args[0] === 'string' && args[0].length > 0 && args[0].length <= 512;
+  if (['cancel', 'retry', 'continue', 'open', 'saveDirectory'].includes(method)) return args.length === 1 && typeof args[0] === 'string' && args[0].length > 0 && args[0].length <= 512;
   if (method !== 'start' || args.length !== 1 || !args[0] || typeof args[0] !== 'object') return false;
   const request = args[0];
   return Object.keys(request).every(key => ['files', 'destination'].includes(key)) && ['default', 'choose'].includes(request.destination) &&

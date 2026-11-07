@@ -804,7 +804,7 @@ view after payload preparation and before `change_user`, matching Orca's modal
 handoff. Its dedicated sandboxed preload exposes only the official page's
 `wx.postMessage` bridge; the application bridge is absent. Loopback callbacks
 stay in main/utility and survive an embedded-window close after browser handoff.
-The Home entry and immediate provider settings use only the common account
+The Home entry and provider settings use only the common account
 contract. Match Orca's User-Agent structure, including a space after the client
 version: the official page uses this delimiter to recognize supported login
 features. Third-party login requests and popup links open the system browser
@@ -3854,13 +3854,20 @@ It resolves the source provider, chooses the destination through host facilities
 consumes the agent stream, manages temporary output, and exposes task progress,
 results and cancellation to shared UI. Only successful stream completion and
 successful file publication establish a completed desktop download. Destination
-paths and file handles remain host-private. Desktop ordinary downloads use the
+paths and file handles remain host-private, except for the default-directory
+display metadata in Preferences. Desktop ordinary downloads use the
 configured default directory, preserving existing files through numeric filename suffixes.
 This is one application-wide host preference shared by every agent, exposed under
 Preferences → Downloads. The desktop host retains the existing private
 `downloads/download-directory.json` setting, so moving the UI preserves previously
-chosen directories. A successful chooser saves immediately; cancellation preserves
-the prior setting. No default destination is stored in per-printer configuration,
+chosen directories. Preferences shows the full currently configured directory
+path, or the OS Downloads path when no custom directory is saved. The chooser
+returns the full selected path as display-only metadata and an opaque draft-selection
+ID without changing that setting. Preferences Save commits the selection; Cancel
+leaves the saved location unchanged. The host retains at most one pending
+selection and rejects superseded or unknown IDs. Filesystem operations continue
+to resolve that ID in the host rather than accept the displayed path, and
+a failed write leaves the selection available for retry. No default destination is stored in per-printer configuration,
 agent credentials or renderer-visible user preferences. The shared Preferences UI
 uses the provider-neutral download service and explains browser-managed saving on
 hosts without managed-download support.

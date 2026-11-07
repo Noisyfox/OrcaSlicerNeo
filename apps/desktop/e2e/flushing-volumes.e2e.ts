@@ -68,6 +68,7 @@ test('flushing editor uses the Material toolbar, keeps Cancel local and stores r
     await page.getByTestId('file-preferences').click();
     const preferences = page.getByTestId('project-preferences-dialog');
     await expect(preferences).toBeVisible();
+    await preferences.getByRole('tab', { name: 'Control', exact: true }).click();
     await preferences.getByRole('combobox', { name: 'Auto flush after changing' }).click();
     await page.getByRole('option', { name: 'None', exact: true }).click();
     await preferences.getByTestId('project-preferences-save').click(); await expect(preferences).toBeHidden();
@@ -76,6 +77,7 @@ test('flushing editor uses the Material toolbar, keeps Cancel local and stores r
     await page.getByTestId('menu-file-trigger').focus();
     await page.getByTestId('menu-file-trigger').press('ArrowRight');
     await page.getByTestId('file-preferences').click();
+    await preferences.getByRole('tab', { name: 'Control', exact: true }).click();
     await expect(preferences.getByRole('combobox', { name: 'Auto flush after changing' })).toContainText('None');
     await preferences.getByTestId('project-preferences-cancel').click();
     if (process.env.ORCA_E2E_REAL === '1') {

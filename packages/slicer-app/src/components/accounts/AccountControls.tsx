@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { UserRound } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
-import type { AccountProvider, AccountResult, AccountSetting, AccountState } from '@orca/service-provider';
+import type { AccountProvider, AccountResult, AccountState } from '@orca/service-provider';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 function AccountAvatar({ url }: { url: string | null }) {
   const [failed, setFailed] = useState(false);
@@ -57,41 +56,4 @@ function AccountCard({ provider }: { provider: AccountProvider }) {
 export function HomeAccounts() {
   const { accounts } = usePlatform();
   return accounts.length ? <div className="space-y-3">{accounts.map(provider => <AccountCard key={provider.id} provider={provider} />)}</div> : null;
-}
-function ProviderSettings({ provider }: { provider: AccountProvider }) {
-  const [settings, setSettings] = useState<readonly AccountSetting[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let live = true; let generation = 0;
-    const read = () => { const current = ++generation; void provider.account.getSettings().then(value => { if (live && current === generation) setSettings(value); })
-      .catch(() => { if (live && current === generation) setError('Account settings are unavailable.'); }); };
-    const stop = provider.account.onStateChanged(read); read();
-    return () => { live = false; stop(); };
-  }, [provider]);
-  const change = async (key: string, value: string) => {
-    setBusy(true); setError(null);
-    try {
-      const result = await provider.account.setSetting(key, value);
-      if (!result.ok) setError(result.error.message);
-      else setSettings(await provider.account.getSettings());
-    } catch { setError('The account setting could not be changed.'); }
-    finally { setBusy(false); }
-  };
-  return <section aria-label={`${provider.name} settings`} className="space-y-2 border-t pt-4">
-    <h3 className="text-sm font-medium">{provider.name}</h3>
-    {settings.map(setting => <div key={setting.key} className="space-y-1">
-      <label className="text-sm" htmlFor={`account-${provider.id}-${setting.key}`}>{setting.label}</label>
-      <Select value={setting.value} items={setting.choices} disabled={busy} onValueChange={value => { if (value !== null) void change(setting.key, value); }}>
-        <SelectTrigger id={`account-${provider.id}-${setting.key}`} aria-label={`${provider.name} ${setting.label}`}><SelectValue /></SelectTrigger>
-        <SelectContent>{setting.choices.map(choice => <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}</SelectContent>
-      </Select>
-    </div>)}
-    <p className="text-xs text-muted-foreground">Account settings apply immediately. Changing region signs out the current account.</p>
-    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-  </section>;
-}
-export function AccountSettings() {
-  const { accounts } = usePlatform();
-  return <>{accounts.map(provider => <ProviderSettings key={provider.id} provider={provider} />)}</>;
 }

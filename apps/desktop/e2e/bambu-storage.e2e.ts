@@ -126,7 +126,11 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
       ipcMain.handle(channels.request, (event, { method, args }) => {
         if (method === 'list') return { ok: true, value: tasks };
         if (method === 'directory') return { ok: true, value: { label: folder } };
-        if (method === 'chooseDirectory') { folder = 'Shared downloads'; return { ok: true, value: { status: 'selected', label: folder } }; }
+        if (method === 'chooseDirectory') return { ok: true, value: { status: 'selected', label: 'Shared downloads', id: 'fixture-directory' } };
+        if (method === 'saveDirectory') {
+          if (args[0] !== 'fixture-directory') throw new Error('Unexpected directory selection');
+          folder = 'Shared downloads'; return { ok: true, value: null };
+        }
         if (method === 'start') {
           for (const [index, file] of args[0].files.entries()) tasks.push({ ...file, id: `task-${index}`, batchId: 'batch', attempt: 1,
             state: 'running', phase: 'transferring', writtenBytes: 1024, totalBytes: 4096, canCancel: true, canRetry: false, error: null, warning: null });
@@ -176,6 +180,11 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
     await expect(preferences.getByLabel('Default download folder', { exact: true })).toHaveText('Shared downloads');
     await preferences.getByTestId('project-preferences-cancel').click();
     await expect(preferences).not.toBeVisible();
+    await openPreferences();
+    await expect(preferences.getByLabel('Default download folder', { exact: true })).toHaveText('Fixture downloads');
+    await preferences.getByRole('button', { name: 'Change…', exact: true }).click();
+    await preferences.getByTestId('project-preferences-save').click();
+    await expect(preferences).toHaveCount(0);
     await openPreferences();
     await expect(preferences.getByLabel('Default download folder', { exact: true })).toHaveText('Shared downloads');
     await preferences.screenshot({ path: test.info().outputPath('download-preferences.png') });

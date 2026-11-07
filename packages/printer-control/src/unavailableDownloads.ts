@@ -4,5 +4,5 @@ export function unavailablePrinterDownloads(reason = 'Managed printer downloads 
   const unavailable = async () => ({ ok: false as const, error: { code: 'unsupported' as const, message: reason } });
   return { capability: { kind: 'unsupported', layer: 'adapter', reason }, start: unavailable, list: unavailable,
     cancel: unavailable, retry: unavailable, continue: unavailable, open: unavailable, directory: unavailable,
-    chooseDirectory: unavailable, onChanged: () => () => {} };
+    chooseDirectory: unavailable, saveDirectory: unavailable, onChanged: () => () => {} };
 }

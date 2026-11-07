@@ -99,6 +99,7 @@ const bridge: ElectronBridge = {
       list: () => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'list', args: [] }),
       directory: () => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'directory', args: [] }),
       chooseDirectory: () => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'chooseDirectory', args: [] }),
+      saveDirectory: id => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'saveDirectory', args: [id] }),
       cancel: id => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'cancel', args: [id] }),
       retry: id => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'retry', args: [id] }),
       continue: id => ipcRenderer.invoke(Ipc.printerDownloadRequest, { method: 'continue', args: [id] }),

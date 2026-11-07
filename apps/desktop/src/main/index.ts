@@ -490,6 +490,7 @@ function registerIpc(): void {
       case 'list': return printerDownloads.list();
       case 'directory': return printerDownloads.directory();
       case 'chooseDirectory': return printerDownloads.chooseDirectory();
+      case 'saveDirectory': return printerDownloads.saveDirectory(request.args[0]);
       case 'cancel': return printerDownloads.cancel(request.args[0]);
       case 'retry': return printerDownloads.retry(request.args[0]);
       case 'continue': return printerDownloads.continue(request.args[0]);

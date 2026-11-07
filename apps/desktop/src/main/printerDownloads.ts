@@ -12,7 +12,8 @@ export interface DownloadBinding {
 export interface DownloadHost {
   destination(files: readonly D.DownloadSelection[], choose: boolean): Promise<ManagedDownloadDestination | null>;
   directory(): Promise<{ label: string }>;
-  chooseDirectory(): Promise<{ status: 'selected'; label: string } | { status: 'cancelled' }>;
+  chooseDirectory(): Promise<{ status: 'selected'; label: string; id: D.DownloadDirectorySelectionId } | { status: 'cancelled' }>;
+  saveDirectory(id: D.DownloadDirectorySelectionId): Promise<null>;
   open(path: string): Promise<void>;
 }
 const fail = (code: D.ErrorCode, message: string): D.Result<never> => ({ ok: false, error: { code, message } });
@@ -81,6 +82,10 @@ export class DesktopPrinterDownloads implements D.PrinterDownloads {
   }
   async chooseDirectory() {
     try { return { ok: true as const, value: await this.host.chooseDirectory() }; }
+    catch { return fail('device-failed', 'The download folder could not be selected.'); }
+  }
+  async saveDirectory(id: D.DownloadDirectorySelectionId) {
+    try { return { ok: true as const, value: await this.host.saveDirectory(id) }; }
     catch { return fail('device-failed', 'The download folder could not be saved.'); }
   }
   hasUnfinished() { return this.tasks.hasUnfinished(); }
