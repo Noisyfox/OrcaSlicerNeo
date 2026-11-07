@@ -2411,9 +2411,17 @@ The provider-private [U1 preparation encoder](../packages/printer-control/src/sn
 implements structured logical-material bindings, physical-head deduplication,
 protocol index validation and print-option command construction. Its protocol
 fixtures cover sparse IDs and many-to-one bindings; no file inspection is used.
-The [HTTP provider](../packages/printer-control/src/service.ts) registers distinct
-Moonraker and Snapmaker routes in both hosts, sharing the configuration write
-queue while isolating operations by provider. The manual Device form can save
+The [Moonraker entry](../packages/printer-control/src/service.ts) and
+[Snapmaker entry](../packages/printer-control/src/snapmaker/service.ts) register
+distinct routes in both hosts. They reuse [HTTP service assembly](../packages/printer-control/src/http-service.ts)
+for configuration management, uploads and operation records, with one
+[configuration coordinator](../packages/printer-control/src/http-configuration.ts)
+per host repository serializing reads and writes across both providers.
+Operations and request identities remain provider-owned. Snapmaker owns U1
+capabilities, state projection, command dispatch, observation leases and prepared
+submission assembly. Device state follows configuration-generation identity,
+while prepared submissions follow the host repository across fresh service
+facades. The manual Device form can save
 and reopen Snapmaker connections without a model or network probe. On-demand
 [U1 inventory normalization](../packages/printer-control/src/snapmaker/observation.ts)
 keeps inserted, empty and unknown material observations distinct from the

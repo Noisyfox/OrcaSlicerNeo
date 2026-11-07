@@ -1,13 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createMoonrakerService, createSnapmakerService } from './service';
-import { createPrinterService } from './providers';
-import { readSynchronizationSource } from './synchronization';
-import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocument } from './configuration';
-import type * as D from './domain';
-import type { PrinterTransportRequest, PrinterTransportResponse } from './transport';
+import { createMoonrakerService } from '../service';
+import { createSnapmakerService } from './service';
+import { createPrinterService } from '../providers';
+import { readSynchronizationSource } from '../synchronization';
+import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocument } from '../configuration';
+import type * as D from '../domain';
+import type { PrinterTransportRequest, PrinterTransportResponse } from '../transport';
 
 const id = <K extends string>(value: string) => value as D.Id<K>;
-function fixture(matchFilaments?: import('./snapmaker/observation').FilamentMatcher) {
+function fixture(matchFilaments?: import('./observation').FilamentMatcher) {
   let doc: PrinterConfigurationDocument = normalizePrinterConfigurationDocument({ version: 1, printers: ['moonraker', 'snapmaker'].map(driverId => ({
     id: driverId, driverId, displayName: 'Same name', apiBaseUrl: 'http://printer/proxy', apiKey: 'secret', consoleUrl: '',
   })) });
@@ -333,6 +334,96 @@ describe('Snapmaker provider foundation', () => {
   });
 });
 
+it('shares polling across fresh Snapmaker facades and releases the final observation lease', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const reopened = createSnapmakerService(f.options);
+  const firstAbort = new AbortController(), secondAbort = new AbortController();
+  const first = f.snapmaker.observations.watch({ target: f.target, topics: ['materials'] }, { signal: firstAbort.signal })[Symbol.asyncIterator]();
+  const second = reopened.observations.watch({ target: f.target, topics: ['materials'] }, { signal: secondAbort.signal })[Symbol.asyncIterator]();
+  try {
+    await first.next(); await second.next();
+    expect((await reopened.observations.read({ target: f.target, source: 'device', topics: ['materials'] })).ok).toBe(true);
+    f.request.mockClear();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.request).toHaveBeenCalledTimes(2);
+    firstAbort.abort(); await first.return?.();
+    f.request.mockClear();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.request).toHaveBeenCalledTimes(2);
+    secondAbort.abort(); await second.return?.();
+    const cached = await reopened.observations.read({ target: f.target, source: 'cache', topics: ['materials'] });
+    expect(cached).toMatchObject({ ok: true, value: { values: { materials: { freshness: 'stale' } } } });
+    f.request.mockClear();
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(f.request).not.toHaveBeenCalled();
+    const moonrakerTarget = { printerId: id<'printer'>('moonraker'), routeId: id<'route'>('moonraker:moonraker') };
+    await expect(f.moonraker.observations.watch({ target: moonrakerTarget, topics: ['status'] })[Symbol.asyncIterator]().next()).rejects.toThrow('Not implemented');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.request).not.toHaveBeenCalled();
+  } finally {
+    firstAbort.abort(); secondAbort.abort();
+    await first.return?.(); await second.return?.();
+    vi.useRealTimers();
+  }
+});
+
+it('shares queued configuration writes, generations and notifications across concrete agents', async () => {
+  const f = fixture();
+  const moonrakerTarget = { printerId: id<'printer'>('moonraker'), routeId: id<'route'>('moonraker:moonraker') };
+  const before = await f.snapmaker.describe(f.target);
+  if (!before.ok) throw new Error('Expected configured Snapmaker');
+  const snapmaker = createSnapmakerService(f.options), moonraker = createMoonrakerService(f.options);
+  const snapmakerChanged = vi.fn(), moonrakerChanged = vi.fn();
+  const unsubscribeSnapmaker = snapmaker.onSavedChanged(snapmakerChanged);
+  const unsubscribeMoonraker = moonraker.onSavedChanged(moonrakerChanged);
+  let release!: () => void, started!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const entered = new Promise<void>(resolve => { started = resolve; });
+  const save = f.configuration.save;
+  let first = true;
+  f.configuration.save = async document => {
+    if (first) { first = false; started(); await pending; }
+    await save(document);
+  };
+  try {
+    const snapmakerWrite = snapmaker.rename(f.target, 'Renamed U1');
+    await entered;
+    const moonrakerWrite = moonraker.rename(moonrakerTarget, 'Renamed Moonraker');
+    const queuedRead = f.snapmaker.describe(f.target);
+    expect(snapmakerChanged).not.toHaveBeenCalled();
+    expect(moonrakerChanged).not.toHaveBeenCalled();
+    release();
+    expect((await Promise.all([snapmakerWrite, moonrakerWrite])).every(result => result.ok)).toBe(true);
+    const after = await queuedRead;
+    expect(after).toMatchObject({ ok: true, value: { configurationRevision: before.value.configurationRevision } });
+    expect((await f.configuration.load()).printers.map(printer => printer.displayName)).toEqual(['Renamed Moonraker', 'Renamed U1']);
+    expect(snapmakerChanged).toHaveBeenCalledTimes(2);
+    expect(moonrakerChanged).toHaveBeenCalledTimes(2);
+    expect(f.request).not.toHaveBeenCalled();
+  } finally { release(); unsubscribeSnapmaker(); unsubscribeMoonraker(); }
+});
+
+it('isolates command request identities and operation lookup between concrete agents', async () => {
+  const f = fixture();
+  const moonrakerTarget = { printerId: id<'printer'>('moonraker'), routeId: id<'route'>('moonraker:moonraker') };
+  const request = { requestId: id<'request'>('same-request'), command: { type: 'jobs.pause' as const, params: {} } };
+  const [snapmaker, moonraker] = await Promise.all([
+    f.snapmaker.controls.submit({ ...request, target: f.target }),
+    f.moonraker.controls.submit({ ...request, target: moonrakerTarget }),
+  ]);
+  if (snapmaker.kind !== 'recorded' || moonraker.kind !== 'recorded') throw new Error('Expected both provider operations');
+  expect(snapmaker.operation.id).not.toBe(moonraker.operation.id);
+  const reopened = createSnapmakerService(f.options);
+  expect(await reopened.controls.submit({ ...request, target: f.target })).toEqual(snapmaker);
+  expect(await createMoonrakerService(f.options).controls.submit({ ...request, target: moonrakerTarget })).toEqual(moonraker);
+  expect(await f.moonraker.operations.get(snapmaker.operation)).toMatchObject({ ok: true, value: { kind: 'unknown' } });
+  expect(await reopened.operations.get(moonraker.operation)).toMatchObject({ ok: true, value: { kind: 'unknown' } });
+  for await (const _operation of reopened.operations.watch(snapmaker.operation)) { /* drain */ }
+  for await (const _operation of f.moonraker.operations.watch(moonraker.operation)) { /* drain */ }
+  expect(f.request.mock.calls.filter(([request]) => request.method === 'POST')).toHaveLength(2);
+});
+
 it('shares prepared submissions across service facades and keeps upload-only free of job settings', async () => {
   const f = fixture();
   f.request.mockImplementation(async request => ({ status: 200, json: async () => request.url.endsWith('/objects/list')
@@ -344,10 +435,13 @@ it('shares prepared submissions across service facades and keeps upload-only fre
       nozzleDiameters: [.4, .4, .4, .4], nozzleFlowTypes: [], filamentMap: [1, 1, 1, 1, 1, 1], requiresDynamicMapping: false, bedType: 'plate', durationSeconds: 60, layerCount: 10, weightGrams: 1, timelapseWarningCode: 0, toolpathOutside: false, warnings: [] } };
   const prepared = await f.snapmaker.submissions.prepare(request);
   if (!prepared.ok) throw new Error(prepared.error.message);
-  const sent = await f.snapmaker.submissions.submit({ ...request, bindings: prepared.value.bindings, jobName: 'Print', requestId: id('submit'), acknowledgedIssues: prepared.value.issues.filter(i => i.severity === 'warning').map(i => i.id) },
+  const submissionRequest = { ...request, bindings: prepared.value.bindings, jobName: 'Print', requestId: id<'request'>('submit'), acknowledgedIssues: prepared.value.issues.filter(i => i.severity === 'warning').map(i => i.id) };
+  const sent = await f.snapmaker.submissions.submit(submissionRequest,
     [{ role: 'print', fileName: 'unchanged.gcode', sizeBytes: 3, chunks: (async function* () { yield new Uint8Array([255, 0, 10]); })() }]);
   if (!sent.ok) throw new Error(sent.error.message);
   const reopened = createSnapmakerService(f.options);
+  expect(await reopened.submissions.submit(submissionRequest, [{ role: 'print', fileName: 'unchanged.gcode', sizeBytes: 3,
+    chunks: (async function* () { throw new Error('Duplicate artifact must remain unread'); })() }])).toEqual(sent);
   const states = []; for await (const state of reopened.submissions.watch(sent.value)) states.push(state);
   expect(states.at(-1)?.phase).toBe('sent');
   f.request.mockClear();

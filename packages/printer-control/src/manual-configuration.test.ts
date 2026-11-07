@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
-import { createMoonrakerService, createSnapmakerService } from './service';
+import { createMoonrakerService } from './service';
+import { createSnapmakerService } from './snapmaker/service';
 import { createPrinterService } from './providers';
 import type { PrinterConfigurationDocument } from './configuration';
 import type * as D from './domain';
