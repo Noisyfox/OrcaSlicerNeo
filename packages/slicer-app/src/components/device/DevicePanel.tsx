@@ -404,7 +404,7 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
                 </SelectContent>
               </Select>
               {selectedPrinter && <div className="flex shrink-0 items-center gap-1">
-                {selectedPrinter.routes.some(route => (route.providerId === 'moonraker' || route.providerId === 'snapmaker') && route.management.configure) && <TooltipFor content={`Edit ${selectedPrinter.identity.displayName}`}>
+                {selectedPrinter.routes.some(route => route.management.configure) && <TooltipFor content={`Edit ${selectedPrinter.identity.displayName}`}>
                   <Button size="icon-xs" variant="ghost" onClick={event => void beginEdit(selectedPrinter, event.currentTarget)} aria-label={`Edit ${selectedPrinter.identity.displayName}`} data-testid={`device-edit-${selectedPrinter.identity.id}`}><Pencil /></Button>
                 </TooltipFor>}
                 {selectedPrinter.routes.filter(route => route.management.forget).map(route => <TooltipFor key={route.id} content={`Delete ${selectedPrinter.identity.displayName} (${route.label})`}>
