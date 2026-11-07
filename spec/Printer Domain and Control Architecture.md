@@ -18,7 +18,8 @@ its product decisions are accepted, with explicit implementation gates and
 deferred scope. That design record does not authorize implementation.
 Section 2.5 records the delivered Snapmaker agent and its separate software
 acceptance and physical qualification boundaries, including non-printing U1 LAN
-acceptance. Actual printing remains unqualified.
+acceptance and one completed single-head PLA print. Multi-head printing and
+shared-heater qualification remain pending.
 
 **Scope:** The shared printer domain: discovery, identity, hardware properties,
 capabilities, controls, material systems, read-only sensors, cameras, remote
@@ -2068,9 +2069,10 @@ does not establish a device, Cloud or cross-platform delivery claim.
 **Status:** Implemented and software-qualified in independently tested commits.
 Manual connection, U1 project/mapping integration, prepared submission, Device
 controls and preferences, scoped monitoring and shared unfinished-send exit
-handling are delivered. Software checks and bounded non-printing real-U1 LAN
-acceptance are recorded in the interaction specification; actual printing
-remains unqualified.
+handling are delivered. Software checks, bounded non-printing real-U1 LAN
+acceptance and one completed single-head PLA print are recorded in the
+interaction specification. Multi-head printing and shared-heater qualification
+remain pending.
 Scope, behavior and
 acceptance policy are settled. The
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#snapmaker-agent-design)

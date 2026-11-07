@@ -2574,8 +2574,8 @@ memory/size limits require the artifact feasibility check.
 The selected scope includes U1 independent project materials, preparation and
 submission, Device metadata/individual material controls, persistent preferences,
 consumer-owned monitoring and all-agent unfinished-send exit handling.
-Non-printing real-U1 LAN acceptance is recorded below; physical printing remains
-unqualified and separate from software acceptance.
+Non-printing real-U1 LAN acceptance and one completed single-head PLA print are
+recorded below. Physical qualification covers that recorded case.
 Protocol ownership, slicing semantics and evidence limits are maintained in
 [the Snapmaker agent architecture](Printer%20Domain%20and%20Control%20Architecture.md#25-snapmaker-agent-design).
 
@@ -3027,9 +3027,9 @@ heater, movement, material-feed and deletion requests. Test reports retain
 observation snapshots, command/upload evidence and a Monitor screenshot; they
 must not include API keys.
 
-Still **unrun**: actual start/printing; physical many-to-one material and
+Still **unrun**: multi-head printing; physical many-to-one material and
 shared-heater behavior; inserted-but-unloaded startup; flow-calibration subsets;
-individual load/unload; heating/motion; successful non-official material-metadata
+individual load/unload; standalone heating/motion controls; successful non-official material-metadata
 writes (which may alter the association with RFID-reported metadata); disconnected top-cover controls;
 physical disconnect/cancel/exit races; real-Web-to-U1 networking; other models,
 firmware or installer platforms. The calibration-subset field discrepancy
@@ -3058,6 +3058,43 @@ requires the real-WASM build and selected configuration above, plus the explicit
 The test records before/after values and a rejection screenshot without API
 keys. Production behavior continues to let firmware decide admission and
 preserves the existing exclusion of forced official-filament edits.
+
+### Real U1 single-head print (2026-11-07)
+
+The operator confirmed a clear, installed build plate. Windows Electron with
+real threaded WASM used the U1 0.4 mm Printer, `0.20 Standard` Process and
+Snapmaker PLA SnapSpeed preset to slice a nominal 10 × 10 × 3 mm block into 15
+layers. Plate Manual mapping assigned logical filament 0 to physical Toolhead 1.
+The Send & Print form selected the real U1 with bed leveling On, flow
+calibration Off and timelapse Off. The sole warning concerned unreported nozzle
+hardness with a required value of zero and was acknowledged explicitly.
+
+The uploaded job was
+`NEO_U1_10x10x3_1794043971969_PLA_0.3g_1m28s.gcode`. The printer heated Toolhead 1
+and the bed, performed its preparation/probing sequence, printed and reported
+`complete` at 15/15 layers with progress 1. The operator confirmed normal
+printing. Firmware recorded total duration 465.66 s, print duration 102.20 s and
+104.69 mm filament used. During printing only Toolhead 1 was marked used, and
+the other three nozzle targets stayed zero. At completion all five heater
+targets were zero. Dimensional accuracy was not measured.
+
+The [explicit print harness](../apps/desktop/e2e/snapmaker-print-hardware.e2e.ts)
+requires `NEO_U1_ACCEPTANCE_CONFIG` and `NEO_U1_ACCEPTANCE_PRINT=1` together with
+a freshly cleared plate. Its original final assertion expected the used-head
+flags to survive completion, while the firmware clears them. The harness now
+checks a retained printing observation. The corrected completion checks passed
+against the 91 retained observations through its recorded-telemetry test. The
+full modified print harness has not been rerun on a second physical print.
+
+This run exposed missing layer/stage normalization. The agent now consumes
+`print_stats.info` and the firmware machine-state/action codes. A subsequent
+read-only real-Electron check against the completed job rendered `Layer 15 / 15`
+and an idle-stage dash. Active stage labels have protocol-fixture coverage.
+The device status has no remaining-seconds field, while file metadata provides
+an 88 s slicer estimate. No live remaining-time estimate was qualified. The
+queried filament inventory also supplied no valid remaining-spool quantity.
+Multi-head switching, many-to-one logical materials, inserted-but-unloaded
+startup and shared-heater execution need their own physical cases.
 
 ### Comparison baseline and evidence limits
 
