@@ -25,12 +25,40 @@ export async function readU1Device(http: MoonrakerHttp, printer: PrinterConfigur
   if (!Array.isArray(list.objects) || !list.objects.every(x => typeof x === 'string')) fail('device-failed', 'Invalid device object list');
   const objects: string[] = list.objects;
   // gcode/help omits registered commands without descriptions (including U1 commands).
-  const names = ['gcode', 'print_task_config', 'print_stats', 'virtual_sdcard', 'defect_detection', 'configfile', 'purifier', 'heater_bed', 'fan', 'led cavity_led', 'filament_feed left', 'filament_feed right',
+  const names = ['gcode', 'print_task_config', 'print_stats', 'virtual_sdcard', 'machine_state_manager', 'defect_detection', 'configfile', 'purifier', 'heater_bed', 'fan', 'led cavity_led', 'filament_feed left', 'filament_feed right',
     ...heads.flatMap(i => [extruder(i), `fan_generic e${i}_fan`, `filament_motion_sensor e${i}_filament`]), 'fan_generic cavity_fan'];
   const query = names.filter(name => objects.includes(name));
   const result = query.length ? await http.get(printer, `/printer/objects/query?${query.map(encodeURIComponent).join('&')}`, signal) : { status: {} };
   return { printerModel: printer.printerModel, objects, commands: Object.keys(record(record(record(result.status).gcode).commands)), status: record(result.status), receivedAtMs: Date.now() };
 }
+
+// Snapmaker u1-klipper machine_state_manager.py main states and action codes.
+const mainStates = ['Idle', 'Printing', 'XYZ offset calibration', 'Bed leveling', 'Flow calibration', 'Vibration calibration',
+  'Firmware upgrade', 'Abnormal', 'Bed screw adjustment', 'Loading filament', 'Unloading filament', 'Manual filament loading',
+  'Tool parking calibration', 'Homing origin calibration'];
+const actionLabels = new Map<number, string>([
+  [1, 'Homing'], [2, 'Detecting build plate'], [3, 'Preheating chamber'],
+  [128, 'Restoring interrupted print'], [129, 'Paused'], [130, 'Resuming'], [131, 'Replenishing filament'],
+  [132, 'Checking tool change'], [133, 'Loading filament'], [134, 'Priming filament'], [135, 'Unloading filament'], [136, 'Detecting print bed'],
+  [192, 'Cleaning toolhead 1'], [193, 'Cleaning toolhead 2'], [194, 'Cleaning toolhead 3'], [195, 'Cleaning toolhead 4'],
+  [196, 'Probing toolhead 1 offset'], [197, 'Probing toolhead 2 offset'], [198, 'Probing toolhead 3 offset'], [199, 'Probing toolhead 4 offset'],
+  [200, 'Cleaning nozzle'], [201, 'Cooling nozzle'], [256, 'Bed leveling'], [257, 'Preheating bed'], [258, 'Prescanning bed'],
+  [320, 'Calibrating toolhead 1 flow'], [321, 'Calibrating toolhead 2 flow'], [322, 'Calibrating toolhead 3 flow'], [323, 'Calibrating toolhead 4 flow'],
+  [384, 'Vibration calibration'], [512, 'Resetting bed screws'], [513, 'Probing reference points'], [514, 'Adjusting bed screws'], [515, 'Verifying bed adjustment'],
+  [576, 'Loading filament'], [640, 'Unloading filament'], [704, 'Manual filament loading'], [768, 'Tool parking calibration'],
+  [769, 'Verifying tool pickup'], [770, 'Verifying tool parking'], [832, 'Homing origin calibration'],
+]);
+
+export function u1PrintStage(status: Record<string, unknown>): { code: string; label: string } | null | undefined {
+  const state = record(status.machine_state_manager);
+  const main = state.main_state, action = state.action_code;
+  if (typeof main !== 'number' || !Number.isSafeInteger(main) || main < 0 ||
+      typeof action !== 'number' || !Number.isSafeInteger(action) || action < 0) return undefined;
+  if (main === 0 && action === 0) return null;
+  const label = actionLabels.get(action) ?? mainStates[main];
+  return label ? { code: `${main}:${action}`, label } : undefined;
+}
+
 function fans(snapshot: U1DeviceSnapshot) {
   return [
     { object: 'fan', name: 'Toolhead 1 part fan', role: 'part' as const, command: 'M106', script: (n: number) => `M106 S${Math.round(n * 255)}` },

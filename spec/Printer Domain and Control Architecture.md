@@ -2431,6 +2431,13 @@ in the shared editor. Without a model association, `materials.writeMetadata`
 retains direct brand/type/color editing without a fabricated preset; device
 rejection retains that draft. Official-filament restrictions are not bypassed
 with `FORCE` in either path.
+U1 print status normalizes the current and total layer counts from
+`print_stats.info`. Its stage comes from the advertised
+`machine_state_manager` main-state/action codes, using the firmware's action
+labels and main-state fallback. Idle action/state reports a known null stage.
+Missing or invalid layer/state data stays unknown. These observations also
+describe completed jobs while the firmware retains their layer information.
+
 Monitor material cards display normalized `materialType` consistently across
 agents. The material editor displays the matched preset's name. Snapmaker uses
 the reported vendor/type/series as input to exact system-name matching, which

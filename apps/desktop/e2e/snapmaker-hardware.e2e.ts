@@ -101,6 +101,39 @@ test('real U1 Device displays current materials, controls and preferences throug
   } finally { await app.close(); }
 });
 
+test('real U1 Monitor shows completed job layers and an idle stage', async ({}, info) => {
+  test.setTimeout(90000);
+  const selected = selectedPrinter();
+  const response = await fetch(new URL('/printer/objects/query?print_stats&machine_state_manager', selected.apiBaseUrl), {
+    headers: selected.apiKey ? { 'X-Api-Key': selected.apiKey } : undefined,
+  });
+  expect(response.ok).toBe(true);
+  const raw = (await response.json()).result.status;
+  test.skip(raw.print_stats.state !== 'complete', 'Requires a completed real U1 job with retained layer information.');
+  expect(raw.print_stats.info.current_layer).toBeGreaterThan(0);
+  expect(raw.print_stats.info.total_layer).toBeGreaterThan(0);
+  expect(raw.machine_state_manager).toEqual({ main_state: 0, action_code: 0 });
+  const directory = mkdtempSync(join(tmpdir(), 'neo-u1-layer-'));
+  const config = join(directory, 'printer-config.json');
+  writeFileSync(config, JSON.stringify({ version: 1, printers: [{ ...selected, driverId: 'snapmaker' }] }));
+  const env: Record<string, string> = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PRINTER_CONFIG: config };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.', `--user-data-dir=${join(directory, 'user-data')}`], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60000 });
+    await page.getByTestId('tab-device').click();
+    await page.getByTestId('device-printer-select').click();
+    await page.getByTestId(`device-select-${selected.id}`).click();
+    const facts = page.locator('.printer-print-facts');
+    await expect(facts).toContainText(`${raw.print_stats.info.current_layer} / ${raw.print_stats.info.total_layer}`);
+    await expect(facts.locator('dt:has-text("Stage") + dd')).toHaveText('—');
+    writeFileSync(info.outputPath('u1-layer-readback.json'), JSON.stringify({ raw, rendered: await facts.innerText() }, null, 2));
+    await page.screenshot({ path: info.outputPath('u1-monitor-completed-layers.png'), fullPage: true });
+  } finally { await app.close(); }
+});
+
 test('real U1 prepares six materials, restores light/preferences and uploads without starting', async ({}, info) => {
   test.skip(process.env.NEO_U1_ACCEPTANCE_WRITES !== '1', 'Explicit opt-in for restored light/preferences and upload-only.');
   test.setTimeout(90000);

@@ -23,6 +23,57 @@ function fixture(matchFilaments?: import('./snapmaker-observation').FilamentMatc
 }
 
 describe('Snapmaker provider foundation', () => {
+  it.each([
+    { state: { main_state: 1, action_code: 1 }, stage: { code: '1:1', label: 'Homing' } },
+    { state: { main_state: 1, action_code: 256 }, stage: { code: '1:256', label: 'Bed leveling' } },
+    { state: { main_state: 1, action_code: 257 }, stage: { code: '1:257', label: 'Preheating bed' } },
+    { state: { main_state: 1, action_code: 0 }, stage: { code: '1:0', label: 'Printing' } },
+    { state: { main_state: 0, action_code: 0 }, stage: null },
+    { state: { main_state: 1, action_code: 9999 }, stage: { code: '1:9999', label: 'Printing' } },
+    { state: { main_state: 9999, action_code: 9999 }, stage: undefined },
+    { state: { main_state: -1, action_code: 0 }, stage: undefined },
+    { state: { main_state: '1', action_code: '257' }, stage: undefined },
+    { state: undefined, stage: undefined },
+  ])('acquires and normalizes U1 stage $state', async ({ state, stage }) => {
+    const f = fixture();
+    f.request.mockImplementation(async request => ({ status: 200, json: async () => request.url.endsWith('/objects/list')
+      ? { result: { objects: ['print_stats', 'print_task_config', 'machine_state_manager'] } }
+      : { result: { status: { print_stats: { state: 'printing' }, machine_state_manager: state,
+        print_task_config: { filament_exist: [true], filament_type: ['PLA'], filament_color_rgba: ['080A0DFF'] } } } } }));
+    const result = await f.snapmaker.observations.read({ target: f.target, source: 'device', topics: ['status'] });
+    expect(result).toMatchObject({ ok: true, value: { values: { status: { value: { printStatus: {
+      stage: stage === undefined ? { kind: 'unknown' } : { kind: 'known', value: stage },
+    } } } } } });
+    expect(f.request.mock.calls.some(([request]) => request.url.includes('/objects/query?') && request.url.includes('machine_state_manager'))).toBe(true);
+  });
+
+  it.each([
+    { label: 'preparing', state: 'printing', info: { current_layer: 0, total_layer: 15 }, current: 0, total: 15 },
+    { label: 'printing', state: 'printing', info: { current_layer: 7, total_layer: 15 }, current: 7, total: 15 },
+    { label: 'completed', state: 'complete', info: { current_layer: 15, total_layer: 15 }, current: 15, total: 15 },
+    { label: 'idle with retained layers', state: 'standby', info: { current_layer: 15, total_layer: 15 }, current: null, total: null },
+    { label: 'missing', state: 'printing', info: undefined, current: null, total: null },
+    { label: 'null', state: 'printing', info: { current_layer: null, total_layer: null }, current: null, total: null },
+    { label: 'negative and zero', state: 'printing', info: { current_layer: -1, total_layer: 0 }, current: null, total: null },
+    { label: 'fractional', state: 'printing', info: { current_layer: 1.5, total_layer: 15.5 }, current: null, total: null },
+    { label: 'text', state: 'printing', info: { current_layer: '7', total_layer: '15' }, current: null, total: null },
+  ])('normalizes $label layer observations for both HTTP agents', async ({ state, info, current, total }) => {
+    const f = fixture();
+    f.request.mockImplementation(async request => ({ status: 200, json: async () => request.url.endsWith('/objects/list')
+      ? { result: { objects: ['print_stats', 'virtual_sdcard', 'print_task_config'] } }
+      : { result: { status: { print_stats: { state, filename: 'acceptance.gcode', info }, virtual_sdcard: { progress: .5 },
+        print_task_config: { filament_exist: [true, false, false, false], filament_type: ['PLA'], filament_color_rgba: ['080A0DFF'] } } } } }));
+    for (const driver of ['snapmaker', 'moonraker'] as const) {
+      const result = await f[driver].observations.read({ target: { printerId: id<'printer'>(driver), routeId: id<'route'>(`${driver}:${driver}`) },
+        source: 'device', topics: ['status'] });
+      expect(result.ok, JSON.stringify({ driver, result })).toBe(true);
+      expect(result).toMatchObject({ ok: true, value: { values: { status: { value: { printStatus: {
+        currentLayer: current === null ? { kind: 'unknown' } : { kind: 'known', value: current },
+        totalLayers: total === null ? { kind: 'unknown' } : { kind: 'known', value: total },
+      } } } } } });
+    }
+  });
+
   it('publishes native matching results through live and cached material observations', async () => {
     const matcher = vi.fn(async () => ['native-filament-id']);
     const f = fixture(matcher);

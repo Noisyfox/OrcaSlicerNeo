@@ -1,6 +1,6 @@
 import { U1ObservationHub } from './snapmaker-monitor';
 import { u1PreferenceScripts, verifyU1Preferences } from './snapmaker-preferences';
-import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, type U1DeviceSnapshot } from './snapmaker-device';
+import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, u1PrintStage, type U1DeviceSnapshot } from './snapmaker-device';
 import { U1Submissions } from './snapmaker-submissions';
 import { prepareU1Submission, u1PreparationFromDevice, type U1PreparationSnapshot } from './snapmaker-preparation';
 import { u1MaterialInventory, matchU1Materials, type FilamentMatcher } from './snapmaker-observation';
@@ -202,6 +202,11 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
       : stats.state === 'printing' || stats.state === 'paused' || stats.state === 'cancelled' ? stats.state : null;
     const operationalState = phase === 'printing' || phase === 'paused' ? 'busy'
       : phase === 'idle' || phase === 'completed' || phase === 'cancelled' ? 'ready' : phase === 'failed' ? 'error' : null;
+    const layerInfo = record(stats.info);
+    const currentLayer = layerInfo.current_layer, totalLayers = layerInfo.total_layer;
+    const hasCurrentLayer = typeof currentLayer === 'number' && Number.isSafeInteger(currentLayer) && currentLayer >= 0;
+    const hasTotalLayers = typeof totalLayers === 'number' && Number.isSafeInteger(totalLayers) && totalLayers > 0;
+    const stage = driver === 'snapmaker' ? u1PrintStage(status) : undefined;
     return {
       operationalState: operationalState ? known(target, operationalState) : unknown,
       activeToolIds: unknown,
@@ -209,7 +214,10 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
         phase: phase ? known(target, phase) : unknown,
         name: phase === 'idle' ? known(target, null) : typeof stats.filename === 'string' && stats.filename.length > 0 ? known(target, stats.filename) : unknown,
         progressFraction: phase !== 'idle' && typeof sd.progress === 'number' && Number.isFinite(sd.progress) && sd.progress >= 0 && sd.progress <= 1 ? known(target, sd.progress) : unknown,
-        remainingSeconds: unknown, taskId: unknown, stage: unknown, currentLayer: unknown, totalLayers: unknown, speedModeId: unknown,
+        remainingSeconds: unknown, taskId: unknown, stage: stage === undefined ? unknown : known(target, stage),
+        currentLayer: phase !== 'idle' && hasCurrentLayer ? known(target, currentLayer) : unknown,
+        totalLayers: phase !== 'idle' && hasTotalLayers ? known(target, totalLayers) : unknown,
+        speedModeId: unknown,
       },
       actions: known(target, []),
     };
