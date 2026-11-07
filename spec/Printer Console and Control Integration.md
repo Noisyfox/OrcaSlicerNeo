@@ -2012,6 +2012,9 @@ agent. It does not extend any provider's supported hosts or protocols.
 
 While a send is unfinished, closing the main desktop window or explicitly
 quitting must offer returning to wait or stopping unfinished sending and exiting.
+Use the shared Dialog surface with the return action initially focused. Keep
+Tab navigation inside this confirmation, including when a send dialog remains
+open underneath it. Escape returns to the application, matching the return action.
 Coordinate this with project-save and managed-download close guards. Track
 actual sends independently of the currently visible page or dialog, from their
 active artifact preparation through upload, preparation commands, start dispatch

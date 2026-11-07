@@ -610,7 +610,7 @@ test('Send & Print works with a keyless Moonraker printer and sends no API-key h
 });
 
 
-test('Snapmaker Device uses Electron transport for physical controls and verified preferences', async () => {
+test('Snapmaker Device uses Electron transport for physical controls and verified preferences', async ({}, testInfo) => {
   const fixture = await startSnapmakerFixture();
   const { app } = await launchApp({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture', apiBaseUrl: fixture.baseUrl, apiKey: '', consoleUrl: '' }] });
   try {
@@ -628,12 +628,18 @@ test('Snapmaker Device uses Electron transport for physical controls and verifie
     await page.getByRole('button', { name: 'Material information for Toolhead 1 · Filament 1', exact: true }).click({ noWaitAfter: true });
     await page.getByLabel('Brand', { exact: true }).fill('Generic');
     await page.getByLabel('Material type', { exact: true }).fill('PLA-Silk');
+    await page.screenshot({ path: testInfo.outputPath('snapmaker-material-editor.png'), fullPage: true, animations: 'disabled' });
     await page.getByRole('button', { name: 'Save material information', exact: true }).click({ noWaitAfter: true });
     await expect(page.getByRole('heading', { name: 'Material information', exact: true })).toBeHidden();
     expect(fixture.scripts.some(script => script.includes('FILAMENT_TYPE="PLA" FILAMENT_SUBTYPE="Silk"'))).toBe(true);
-    await page.getByLabel('Auto-refill', { exact: true }).selectOption('true');
+    await page.getByRole('combobox', { name: 'Auto-refill', exact: true }).focus();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
     await page.getByRole('button', { name: 'Save printer preferences' }).click({ noWaitAfter: true });
     await expect(page.getByText('Printer preferences saved and verified.')).toBeVisible();
+    await expect(page.locator('[data-testid="device-monitor"] .printer-control-column').getByRole('heading', { name: 'Printer preferences', exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('snapmaker-preferences.png'), fullPage: true, animations: 'disabled' });
     expect(fixture.scripts).toContain('SET_PRINT_PREFERENCES AUTO_REPLENISH_FILAMENT=1');
     await page.locator('#app-tab-prepare').click();
     await page.waitForTimeout(500); const count = fixture.queryCount(); await page.waitForTimeout(2300); expect(fixture.queryCount()).toBe(count);
@@ -641,7 +647,7 @@ test('Snapmaker Device uses Electron transport for physical controls and verifie
 });
 
 
-test('unfinished sending guards desktop close after the project decision and cancels before exit', async () => {
+test('unfinished sending guards desktop close after the project decision and cancels before exit', async ({}, testInfo) => {
   const fixture = await startMoonrakerFixture(0);
   const { app } = await launchApp({ version: 1, printers: [{ id: 'exit-printer', driverId: 'moonraker', displayName: 'Exit fixture', apiBaseUrl: fixture.baseUrl, apiKey: '', consoleUrl: '' }] });
   try {
@@ -656,10 +662,26 @@ test('unfinished sending guards desktop close after the project decision and can
       await page.getByTestId('project-dirty-dont-save').click({ noWaitAfter: true });
       await expect(page.getByText('Sending is still in progress', { exact: true })).toBeVisible();
     }
-    await requestClose(); await page.getByRole('button', { name: 'Return to app', exact: true }).click();
+    await requestClose();
+    const dialog = page.getByRole('alertdialog', { name: 'Sending is still in progress', exact: true });
+    const returnButton = dialog.getByRole('button', { name: 'Return to app', exact: true });
+    const stopButton = dialog.getByRole('button', { name: 'Stop sending and exit', exact: true });
+    await expect(returnButton).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(stopButton).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(returnButton).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath('unfinished-send-dialog.png'), fullPage: true, animations: 'disabled' });
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    expect(page.isClosed()).toBe(false); expect(fixture.state.startPaths).toHaveLength(0);
+    await requestClose(); await returnButton.click();
     expect(page.isClosed()).toBe(false); expect(fixture.state.startPaths).toHaveLength(0);
     await requestClose(); const closed = page.waitForEvent('close');
-    await page.getByRole('button', { name: 'Stop sending and exit', exact: true }).click({ noWaitAfter: true });
+    await stopButton.click({ noWaitAfter: true }).catch(error => {
+      // Successful exit can close the renderer before the click acknowledgement.
+      if (!page.isClosed()) throw error;
+    });
     await closed; expect(fixture.state.startPaths).toHaveLength(0);
   } finally {
     fixture.releaseUploadResponse();

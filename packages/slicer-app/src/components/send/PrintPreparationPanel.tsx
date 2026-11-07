@@ -1,5 +1,5 @@
 import { Checkbox } from '@/components/ui/checkbox';
-import { Field, FieldLabel } from '@/components/ui/field';
+import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field';
 import { useEffect, useId, type ReactNode } from 'react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { MaterialSourcePicker } from './MaterialSourcePicker';
@@ -69,12 +69,14 @@ export function PrintPreparationView({ state, printer, onClose, onBusyChange, pr
         }}>{option.choices.map(choice => <ToggleGroupItem key={String(choice.value)} value={String(choice.value)} aria-label={choice.label} className="h-6 min-w-10 rounded-sm! px-2 text-xs transition-none aria-pressed:bg-background aria-pressed:text-primary aria-pressed:shadow-[inset_0_0_0_1px_var(--primary)]">{choice.label}</ToggleGroupItem>)}</ToggleGroup>
       </div>)}
     </fieldset>}
-    {prepared?.calibrationTools && prepared.options.flowCalibration !== 'off' && <fieldset disabled={state.active} className="space-y-2" aria-label="Flow calibration toolheads">
-      <legend className="text-sm">Flow calibration toolheads</legend>
+    {prepared?.calibrationTools && prepared.options.flowCalibration !== 'off' && <FieldSet disabled={state.active} aria-label="Flow calibration toolheads">
+      <FieldLegend>Flow calibration toolheads</FieldLegend>
+      <FieldGroup className="gap-2">
       {prepared.calibrationTools.map(tool => <Field key={tool.index} orientation="horizontal">
         <Checkbox id={`${calibrationId}-${tool.index}`} checked={tool.selected} onCheckedChange={selected => state.changeCalibration?.(tool.index, selected === true)} /><FieldLabel htmlFor={`${calibrationId}-${tool.index}`}>{tool.label}</FieldLabel>
       </Field>)}
-    </fieldset>}
+      </FieldGroup>
+    </FieldSet>}
     {state.error && (!requirements || !state.refreshing) && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
     {state.saveError && <p role="alert" className="text-sm text-destructive">Print preferences could not be saved. You can still print with the current options. Adjust an option to retry saving.</p>}
     {operation && <div role="status" className="flex flex-col gap-2 text-sm"><p>{operation.message}</p>{state.active && <Progress value={operation.progress === null ? null : operation.progress * 100} aria-label="Sending print" />}</div>}

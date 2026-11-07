@@ -1,16 +1,26 @@
 import { useLayoutEffect } from 'react';
 import { useProjectDialogStore } from '@/stores/useProjectDialogStore';
+const modals = new Map<symbol, boolean>();
+function updateModalState() {
+  useProjectDialogStore.setState({ open: modals.size > 0, deviceObservationPaused: [...modals.values()].some(Boolean) });
+}
 /** Covers keyboard/drop routes and focus as well as the visible pointer backdrop. */
 export function useProjectModal(open: boolean, selector: string, { pauseDeviceObservation = false }: { pauseDeviceObservation?: boolean } = {}) {
   useLayoutEffect(() => {
     if (!open) return;
-    useProjectDialogStore.setState({ open: true, deviceObservationPaused: pauseDeviceObservation });
+    const token = Symbol();
+    modals.set(token, pauseDeviceObservation);
+    updateModalState();
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = document.querySelector<HTMLElement>(selector);
     const focusable = () => [...(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled),select:not(:disabled),input:not(:disabled),[tabindex="0"]') ?? [])];
     focusable()[0]?.focus();
     const guard = (event: Event) => {
+      if ([...modals.keys()].at(-1) !== token) return;
       const target = event.target instanceof Element ? event.target : null;
+      // A shared dialog opened above this modal owns its keyboard and focus.
+      const sharedDialog = target?.closest('[data-slot="dialog-content"][data-open]');
+      if (event.type === 'keydown' && sharedDialog && !dialog?.contains(sharedDialog)) return;
       const inside = !!target?.closest(`${selector},[data-slot="select-content"],[data-print-dialog-popover]`);
       if (event instanceof KeyboardEvent && event.key === 'Tab' && inside && !target?.closest('[data-slot="select-content"],[data-print-dialog-popover]')) {
         const nodes = focusable(), first = nodes[0], last = nodes.at(-1);
@@ -21,9 +31,11 @@ export function useProjectModal(open: boolean, selector: string, { pauseDeviceOb
     };
     for (const type of ['keydown', 'drop', 'dragover']) window.addEventListener(type, guard, true);
     return () => {
-      useProjectDialogStore.setState({ open: false, deviceObservationPaused: false });
+      const wasTopmost = [...modals.keys()].at(-1) === token;
+      modals.delete(token);
+      updateModalState();
       for (const type of ['keydown', 'drop', 'dragover']) window.removeEventListener(type, guard, true);
-      previous?.focus();
+      if (wasTopmost && previous?.isConnected) previous.focus();
     };
   }, [open, selector, pauseDeviceObservation]);
 }

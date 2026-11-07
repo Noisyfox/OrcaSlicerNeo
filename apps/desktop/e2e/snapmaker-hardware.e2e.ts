@@ -88,15 +88,17 @@ test('real U1 Device displays current materials, controls and preferences throug
     await page.getByTestId(`device-select-${selected.id}`).click();
     await page.locator('#device-tab-monitor').click();
     for (let i = 1; i <= 4; i++) await expect(page.getByRole('button', { name: `Load to Toolhead ${i}`, exact: true })).toBeEnabled();
-    await expect(page.getByLabel('Auto-refill', { exact: true })).toHaveValue('true');
-    await expect(page.getByLabel('Filament motion sensitivity', { exact: true })).toHaveValue('medium');
+    await expect(page.getByRole('combobox', { name: 'Auto-refill', exact: true })).toContainText('On');
+    await expect(page.getByRole('combobox', { name: 'Filament motion sensitivity', exact: true })).toContainText('medium');
     await page.screenshot({ path: info.outputPath('u1-monitor.png'), fullPage: true });
     writeFileSync(info.outputPath('u1-monitor.txt'), await page.locator('body').innerText());
     // Editing a local draft and refreshing must not mutate the printer or discard the draft.
-    await page.getByLabel('Turn lights off after printing', { exact: true }).selectOption('true');
+    await page.getByRole('combobox', { name: 'Turn lights off after printing', exact: true }).click();
+    await page.getByRole('option', { name: 'On', exact: true }).click();
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-    await expect(page.getByLabel('Turn lights off after printing', { exact: true })).toHaveValue('true');
-    await page.getByLabel('Turn lights off after printing', { exact: true }).selectOption('false');
+    await expect(page.getByRole('combobox', { name: 'Turn lights off after printing', exact: true })).toContainText('On');
+    await page.getByRole('combobox', { name: 'Turn lights off after printing', exact: true }).click();
+    await page.getByRole('option', { name: 'Off', exact: true }).click();
     await page.locator('#app-tab-home').click();
   } finally { await app.close(); }
 });

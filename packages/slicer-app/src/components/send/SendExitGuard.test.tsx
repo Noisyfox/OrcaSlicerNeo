@@ -15,11 +15,14 @@ it('offers return without cancellation, then requests local cancellation before 
     await act(async () => root.render(<Fixture />));
     let closing!: Promise<boolean>;
     await act(async () => { closing = confirm(); });
-    expect(element.textContent).toContain('Sending is still in progress');
-    await act(async () => element.querySelector('button')!.click());
+    const dialog = () => document.querySelector<HTMLElement>('[role="alertdialog"]')!;
+    expect(dialog().textContent).toContain('Sending is still in progress');
+    expect(dialog().hasAttribute('aria-labelledby')).toBe(true);
+    expect(dialog().hasAttribute('aria-describedby')).toBe(true);
+    await act(async () => dialog().querySelector('button')!.click());
     expect(await closing).toBe(false); expect(cancelled).not.toHaveBeenCalled();
     await act(async () => { closing = confirm(); });
-    await act(async () => element.querySelectorAll('button')[1].click());
+    await act(async () => dialog().querySelectorAll('button')[1].click());
     expect(await closing).toBe(true); expect(cancelled).toHaveBeenCalledOnce(); expect(lease.signal.aborted).toBe(true);
     lease.finish(); expect(await confirm()).toBe(true);
   } finally { await act(async () => root.unmount()); element.remove(); }

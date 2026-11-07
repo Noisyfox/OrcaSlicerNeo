@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type * as D from '@orca/printer-control/domain';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Field, FieldLabel } from '@/components/ui/field';
+import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
 import { colorSwatchStyle } from '@/components/ui/color-swatch';
@@ -38,12 +38,31 @@ export function MaterialMetadataDialog({ service, target, slot, material, fields
     } catch { if (!abort.signal.aborted) setError('Unable to write material information. Your edits have been retained.'); }
     finally { busy.current = false; if (!abort.signal.aborted) setPending(false); }
   }
-  return <Dialog open onOpenChange={open => { if (!open && !pending) onClose(); }} disablePointerDismissal={pending}><DialogContent className="max-w-md">
-    <DialogHeader><DialogTitle>Material information</DialogTitle><DialogDescription>{slot.name}</DialogDescription></DialogHeader>
-    {fields.includes('manufacturer') && <Field><FieldLabel htmlFor="material-brand">Brand</FieldLabel><Input id="material-brand" value={manufacturer} disabled={pending} onChange={e => setManufacturer(e.target.value)} /></Field>}
-    {fields.includes('materialType') && <Field><FieldLabel htmlFor="material-type">Material type</FieldLabel><Input id="material-type" value={type} disabled={pending} placeholder="PLA, PETG, PLA-Silk…" onChange={e => setType(e.target.value)} /></Field>}
-    {fields.includes('color') && <UserColorPickerPopover open={colorOpen} onOpenChange={setColorOpen} value={picker.value} enableAlpha enableGradient={false} disabled={pending} onConfirm={value => setColor(materialColorConfiguration(value))}
-      trigger={<Button variant="input" aria-label="Change material color">{shown && <span className="size-4 rounded-sm border" style={colorSwatchStyle(materialColorSwatch(shown))} />}{shown?.kind === 'solid' ? shown.rgba : 'Choose color'}</Button>} />}
-    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}<DialogFooter><Button variant="secondary" disabled={pending} onClick={onClose}>Cancel</Button><Button disabled={pending} onClick={() => void save()}>{pending ? 'Saving…' : 'Save material information'}</Button></DialogFooter>
-  </DialogContent></Dialog>;
+  return <Dialog open onOpenChange={open => { if (!open && !pending) onClose(); }} disablePointerDismissal={pending}>
+    <DialogContent className="max-w-md">
+      <form className="flex flex-col gap-4" onSubmit={event => { event.preventDefault(); void save(); }}>
+        <DialogHeader><DialogTitle>Material information</DialogTitle><DialogDescription>{slot.name}</DialogDescription></DialogHeader>
+        <FieldGroup className="gap-3">
+          {fields.includes('manufacturer') && <Field data-disabled={pending}>
+            <FieldLabel htmlFor="material-brand">Brand</FieldLabel>
+            <Input id="material-brand" value={manufacturer} disabled={pending} onChange={e => setManufacturer(e.target.value)} />
+          </Field>}
+          {fields.includes('materialType') && <Field data-disabled={pending}>
+            <FieldLabel htmlFor="material-type">Material type</FieldLabel>
+            <Input id="material-type" value={type} disabled={pending} placeholder="PLA, PETG, PLA-Silk…" onChange={e => setType(e.target.value)} />
+          </Field>}
+          {fields.includes('color') && <Field data-disabled={pending}>
+            <FieldLabel htmlFor="material-color">Color</FieldLabel>
+            <UserColorPickerPopover open={colorOpen} onOpenChange={setColorOpen} value={picker.value} enableAlpha enableGradient={false} disabled={pending} onConfirm={value => setColor(materialColorConfiguration(value))}
+              trigger={<Button id="material-color" type="button" variant="input" aria-label="Change material color">{shown && <span className="size-4 rounded-sm border" style={colorSwatchStyle(materialColorSwatch(shown))} />}{shown?.kind === 'solid' ? shown.rgba : 'Choose color'}</Button>} />
+          </Field>}
+        </FieldGroup>
+        {error && <FieldError>{error}</FieldError>}
+        <DialogFooter>
+          <Button type="button" variant="secondary" disabled={pending} onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={pending}>{pending ? 'Saving…' : 'Save material information'}</Button>
+        </DialogFooter>
+      </form>
+    </DialogContent>
+  </Dialog>;
 }

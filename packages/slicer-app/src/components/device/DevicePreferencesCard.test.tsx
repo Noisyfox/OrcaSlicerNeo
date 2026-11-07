@@ -14,10 +14,17 @@ it('preserves edited fields after verification failure and saves only explicit c
   const element = document.createElement('div'); document.body.append(element); const root = createRoot(element), saved = vi.fn();
   try {
     await act(async () => root.render(<DevicePreferencesCard service={service} target={target} preferences={preferences} onSaved={saved} />));
-    await act(async () => { const select = element.querySelector('select')!; select.value = 'true'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-    await act(async () => element.querySelector('button')!.click());
-    expect(element.textContent).toContain('Readback mismatch'); expect(element.querySelector('select')!.value).toBe('true'); expect(saved).not.toHaveBeenCalled();
-    success = true; await act(async () => element.querySelector('button')!.click());
+    const select = element.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+    await act(async () => select.click());
+    await act(async () => {
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(option => option.textContent === 'On')!;
+      option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      option.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
+    const save = element.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    await act(async () => save.click());
+    expect(element.textContent).toContain('Readback mismatch'); expect(select.textContent).toContain('On'); expect(saved).not.toHaveBeenCalled();
+    success = true; await act(async () => save.click());
     expect(submit).toHaveBeenCalledTimes(2); expect(submit.mock.calls[0]?.[0]).toMatchObject({ command: { type: 'preferences.set', params: { changes: [{ key: 'autoRefill', value: true }] } } });
     expect(element.textContent).toContain('saved and verified'); expect(saved).toHaveBeenCalledOnce();
   } finally { await act(async () => root.unmount()); element.remove(); }
