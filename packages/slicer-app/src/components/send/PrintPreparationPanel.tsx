@@ -9,6 +9,7 @@ import type { SliceResultReceipt } from '@slicer/client';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { usePrintPreparation } from './usePrintPreparation';
 
@@ -35,6 +36,12 @@ export function PrintPreparationView({ state, printer, onClose, onBusyChange, pr
 }) {
   const { requirements, prepared, operation, confirmation } = state;
   const calibrationId = useId();
+  const recordingId = useId();
+  const recordingActions = [
+    { value: '', label: 'Choose an action' },
+    { value: 'disable-timelapse', label: 'Disable timelapse for this print' },
+    ...(confirmation?.recordingSpace?.canClean ? [{ value: 'clean-oldest', label: 'Delete oldest timelapse recordings' }] : []),
+  ];
   useEffect(() => { onBusyChange(state.active); }, [state.active, onBusyChange]);
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
   return <div className="flex flex-col gap-4" data-testid="print-preparation">
@@ -83,12 +90,14 @@ export function PrintPreparationView({ state, printer, onClose, onBusyChange, pr
     {confirmation && <div className="flex flex-col gap-3 rounded border p-3" role="group" aria-label="Confirm print warnings">
       <p className="font-medium">Review before printing</p>
       {confirmation.issues.filter(i => i.severity === 'warning').map(issue => <p key={issue.id} className="text-sm">{issue.message}</p>)}
-      {confirmation.recordingSpace?.status === 'insufficient' && <label className="flex flex-col gap-2 text-sm">Recording space is insufficient.
-        <select aria-label="Recording space action" value={state.recordingAction ?? ''} onChange={event => state.setRecordingAction(event.target.value as D.PrintSubmissionRequest['recordingSpaceAction'])}>
-          <option value="">Choose an action</option><option value="disable-timelapse">Disable timelapse for this print</option>
-          {confirmation.recordingSpace.canClean && <option value="clean-oldest">Delete oldest timelapse recordings</option>}
-        </select>
-      </label>}
+      {confirmation.recordingSpace?.status === 'insufficient' && <Field data-disabled={state.active}>
+        <FieldLabel htmlFor={recordingId}>Recording space is insufficient.</FieldLabel>
+        <Select items={recordingActions} value={state.recordingAction ?? ''} disabled={state.active}
+          onValueChange={value => { if (value !== null) state.setRecordingAction(value as D.PrintSubmissionRequest['recordingSpaceAction']); }}>
+          <SelectTrigger id={recordingId} aria-label="Recording space action"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectGroup>{recordingActions.map(action => <SelectItem key={action.value} value={action.value}>{action.label}</SelectItem>)}</SelectGroup></SelectContent>
+        </Select>
+      </Field>}
       <div className="flex justify-end gap-2"><Button variant="ghost" disabled={state.active} onClick={state.dismissConfirmation}>Back</Button><Button disabled={!state.canPrint || confirmation.recordingSpace?.status === 'insufficient' && !state.recordingAction} onClick={() => void state.send(true)}>Confirm and print</Button></div>
     </div>}
     <div className="flex justify-end gap-2">

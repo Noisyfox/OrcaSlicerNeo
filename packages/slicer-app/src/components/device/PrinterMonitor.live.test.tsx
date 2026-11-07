@@ -42,7 +42,18 @@ async function fixture() {
     snapshot = { ...snapshot, values: { ...snapshot.values, status: reading } }; wake?.(); await Promise.resolve();
   });
   const click = async (label: string) => act(async () => { [...element.querySelectorAll('button')].find(button => (button.getAttribute('aria-label') ?? button.textContent) === label)!.click(); });
-  return { platform, service, printer, route, snapshot, known, material, element, render, update, click, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
+  const choose = async (label: string, option: string) => {
+    const trigger = element.querySelector<HTMLElement>(`[aria-label="${label}"]`)!;
+    expect(trigger.getAttribute('data-slot')).toBe('select-trigger');
+    await act(async () => trigger.click());
+    const popup = document.getElementById(trigger.getAttribute('aria-controls')!)!;
+    const item = [...popup.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent === option)!;
+    await act(async () => {
+      item.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      item.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
+  };
+  return { platform, service, printer, route, snapshot, known, material, element, render, update, click, choose, watch, submit, caps, topology, fail: async () => act(async () => { broken = true; wake?.(); await Promise.resolve(); }), close: async () => { await act(async () => root.unmount()); element.remove(); } };
 }
 it('shares one icon-only pause/resume control beside progress and respects state and capabilities', async () => {
   const f = await fixture(); try {
@@ -79,7 +90,7 @@ it('collapses lights independently and places speed below fans and lighting', as
     f.topology.lights = [{ id: lightId, name: 'Chamber light' }];
     f.topology.fans = [{ id: 'part-fan' as D.Id<'fan'>, name: 'Part fan', role: 'part' }];
     f.caps.commands['lights.set'] = { kind: 'supported', constraints: { lightIds: [lightId] } };
-    f.caps.commands['jobs.setSpeed'] = { kind: 'supported', constraints: { modes: [{ id: '2', label: 'Standard' }] } };
+    f.caps.commands['jobs.setSpeed'] = { kind: 'supported', constraints: { modes: [{ id: '2', label: 'Standard' }, { id: '1', label: 'Silent' }] } };
     await f.render();
     const summary = [...f.element.querySelectorAll('summary')].find(item => item.textContent === 'Lights · 1')!;
     const disclosure = summary.closest('details')!;
@@ -92,16 +103,48 @@ it('collapses lights independently and places speed below fans and lighting', as
     expect(light.getAttribute('aria-checked')).toBe('false');
     await act(async () => light.click());
     expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'lights.set', params: { lightId, on: true } } });
-    const speed = f.element.querySelector<HTMLSelectElement>('[aria-label="Print speed"]')!;
+    const speed = f.element.querySelector<HTMLButtonElement>('[aria-label="Print speed"]')!;
     const lightingCard = disclosure.closest('.printer-control-card')!;
     expect(lightingCard.compareDocumentPosition(speed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(speed.closest('.printer-environment-controls')).not.toBeNull();
     expect(f.element.querySelector('.printer-print-column [aria-label="Print speed"]')).toBeNull();
+    await f.choose('Print speed', 'Silent');
+    expect((f.submit.mock.calls[1] as unknown[])[0]).toMatchObject({ command: { type: 'jobs.setSpeed', params: { modeId: '1' } } });
     await f.update('External task');
     expect(disclosure.open).toBe(true);
     f.caps.commands['lights.set'] = { kind: 'unsupported', layer: 'adapter', reason: 'Not supported' };
     await f.render();
     expect(light.getAttribute('aria-disabled')).toBe('true');
+  } finally { await f.close(); }
+});
+
+it.each([undefined, .72])('uses the shared fan selector with unknown or out-of-range current speed %s', async current => {
+  const f = await fixture(); try {
+    const fanId = 'part-fan' as D.Id<'fan'>;
+    f.topology.fans = [{ id: fanId, name: 'Part fan', role: 'part' }];
+    f.snapshot.values.actuators = f.known({ fans: [{ fanId, speedFraction: current === undefined ? unknown : f.known(current) }], lights: [] });
+    f.caps.commands['fans.setSpeed'] = { kind: 'supported', constraints: [{ fanId, speedFraction: { min: .25, max: .65, step: .01 } }] };
+    await f.render();
+    const summary = [...f.element.querySelectorAll('summary')].find(item => item.textContent === 'Fans · 1')!;
+    await act(async () => summary.click());
+    const trigger = f.element.querySelector<HTMLButtonElement>('[aria-label="Part fan speed"]')!;
+    expect(trigger.querySelector('[data-slot="select-value"]')?.textContent).toBe(current === undefined ? 'Not reported' : '72%');
+    expect(f.element.querySelector('select')).toBeNull();
+    expect(f.submit).not.toHaveBeenCalled();
+    await act(async () => trigger.click());
+    const popup = document.getElementById(trigger.getAttribute('aria-controls')!)!;
+    const options = [...popup.querySelectorAll<HTMLElement>('[role="option"]')];
+    expect(options.find(item => item.textContent === 'Not reported')?.getAttribute('aria-disabled')).toBe('true');
+    expect(options.filter(item => item.getAttribute('aria-disabled') !== 'true').map(item => item.textContent)).toEqual(['25%', '30%', '40%', '50%', '60%', '65%']);
+    await act(async () => {
+      const option = options.find(item => item.textContent === '30%')!;
+      option.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      option.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
+    expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'fans.setSpeed', params: { fanId, speedFraction: .3 } } });
+    f.caps.commands['fans.setSpeed'] = { kind: 'unsupported', layer: 'adapter', reason: 'Not supported' };
+    await f.render();
+    expect(trigger.disabled).toBe(true);
   } finally { await f.close(); }
 });
 
@@ -290,9 +333,8 @@ it('never substitutes a different movement step for an axis that lacks the selec
     await f.render();
     const x = f.element.querySelector<HTMLButtonElement>('[aria-label="Move X positive"]')!, y = f.element.querySelector<HTMLButtonElement>('[aria-label="Move Y positive"]')!;
     expect(x.disabled).toBe(false); expect(y.disabled).toBe(true);
-    const select = f.element.querySelector<HTMLSelectElement>('[aria-label="Movement step"]')!;
-    expect(select.value).toBe('fine-x');
-    await act(async () => { select.value = 'fine-y'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(f.element.querySelector('[aria-label="Movement step"] [data-slot="select-value"]')?.textContent).toBe('Fine X');
+    await f.choose('Movement step', 'Fine Y');
     expect(x.disabled).toBe(true); expect(y.disabled).toBe(false);
     await act(async () => y.click());
     expect((f.submit.mock.calls[0] as unknown[])[0]).toMatchObject({ command: { type: 'motion.jog', params: { motionGroupId: group, axis: 'y', stepId: 'fine-y' } } });

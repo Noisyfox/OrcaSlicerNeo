@@ -301,9 +301,15 @@ it.each(['disable-timelapse', 'clean-oldest'] as const)('retains the capacity de
   const f = await setup(); f.recordingSpace({ status: 'insufficient', canClean: true });
   await f.click('Send'); expect(f.submissions.submit).not.toHaveBeenCalled();
   f.recordingSpace({ status: 'enough', canClean: false });
+  const trigger = container.querySelector<HTMLElement>('[aria-label="Recording space action"]')!;
+  expect(trigger.getAttribute('data-slot')).toBe('select-trigger');
+  await act(async () => trigger.click());
+  const popup = document.getElementById(trigger.getAttribute('aria-controls')!)!;
+  const label = action === 'clean-oldest' ? 'Delete oldest timelapse recordings' : 'Disable timelapse for this print';
   await act(async () => {
-    const select = container.querySelector('[aria-label="Recording space action"]') as HTMLSelectElement;
-    select.value = action; select.dispatchEvent(new Event('change', { bubbles: true }));
+    const option = [...popup.querySelectorAll<HTMLElement>('[role="option"]')].find(option => option.textContent === label)!;
+    option.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    option.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
   });
   await f.click('Confirm and print');
   expect(f.submissions.submit).toHaveBeenCalledWith(expect.objectContaining({ recordingSpaceAction: action }), expect.anything());

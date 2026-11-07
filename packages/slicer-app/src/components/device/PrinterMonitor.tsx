@@ -1,11 +1,13 @@
 import { MaterialMetadataDialog } from './MaterialMetadataDialog';
 import { DevicePreferencesCard } from './DevicePreferencesCard';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Pause, Play, Square } from 'lucide-react';
 import { PrinterMonitorLayout, PrintProgressCard } from './PrinterMonitorLayout';
 import { usePlatform } from '@orca/platform-contract';
 import type * as D from '@orca/printer-control/domain';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { usePrinterCommands, useCurrentPrintPreview } from './usePrinterControl';
 import { usePrinterObservation } from './usePrinterObservation';
 import { ActuatorCard, ControlCard, display, MotionCard, ThermalCard, valueOf } from './PrinterControlCards';
@@ -24,6 +26,7 @@ export function supportsMonitor(capabilities: D.PrinterCapabilities): boolean {
 }
 
 export function PrinterMonitor({ printer, route, visible = true, observeWhileHidden = false }: { printer: D.SavedPrinter; route: D.PrinterRoute; visible?: boolean; observeWhileHidden?: boolean }) {
+  const speedFieldId = useId();
   const { printers: { service } } = usePlatform();
   const { snapshot, capabilities, error, refreshing, refresh, live, liveStatus, canRefresh } = usePrinterObservation(service, printer, route, visible, observeWhileHidden);
   const target = { printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision };
@@ -88,7 +91,17 @@ export function PrinterMonitor({ printer, route, visible = true, observeWhileHid
       {hasThermal && (topology?.heaters.length ? <ThermalCard {...controls} /> : <ControlCard title="Heater targets">{thermal?.map(heater => <p key={heater.heaterId}>{heater.heaterId}: {display(heater.targetC, value => `${value} °C`)}</p>) ?? 'Not reported'}</ControlCard>)}
       {hasSensors && !topology?.heaters.length && <ControlCard title="Sensors">{sensors?.definitions.map(sensor => <p key={sensor.id}>{sensor.name}: {display<unknown>(sensors.readings.find(state => state.sensorId === sensor.id)?.reading, value => typeof value === 'object' ? Object.entries(value ?? {}).map(([axis, number]) => `${axis}: ${number}`).join(', ') : String(value))}{sensor.unit ? ` ${sensor.unit}` : ''}</p>) ?? 'Not reported'}</ControlCard>}
       {hasActuators && <ActuatorCard {...controls} />}
-      {speeds.kind === 'supported' && <div className="printer-print-actions"><label className="printer-print-speed"><span>Print speed</span><select aria-label="Print speed" className="rounded border bg-background p-1 text-sm" value={valueOf(status?.printStatus.speedModeId) ?? ''} disabled={controls.disabled || !['printing', 'paused'].includes(phase ?? '')} onChange={event => void send({ type: 'jobs.setSpeed', params: { modeId: event.target.value } })}><option value="" disabled>Print speed</option>{speeds.constraints.modes.map(mode => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select></label></div>}
+      {speeds.kind === 'supported' && <div className="printer-print-actions">
+        <Field orientation="horizontal" data-disabled={controls.disabled || !['printing', 'paused'].includes(phase ?? '')}>
+          <FieldLabel htmlFor={speedFieldId}>Print speed</FieldLabel>
+          <Select items={speeds.constraints.modes.map(mode => ({ value: mode.id, label: mode.label }))}
+            value={valueOf(status?.printStatus.speedModeId) ?? null} disabled={controls.disabled || !['printing', 'paused'].includes(phase ?? '')}
+            onValueChange={modeId => { if (modeId !== null) void send({ type: 'jobs.setSpeed', params: { modeId } }); }}>
+            <SelectTrigger id={speedFieldId} aria-label="Print speed"><SelectValue placeholder="Print speed" /></SelectTrigger>
+            <SelectContent><SelectGroup>{speeds.constraints.modes.map(mode => <SelectItem key={mode.id} value={mode.id}>{mode.label}</SelectItem>)}</SelectGroup></SelectContent>
+          </Select>
+        </Field>
+      </div>}
       {!hasThermal && !hasSensors && !hasActuators && !hasMotion && <p className="text-sm text-muted-foreground">Temperature and sensor readings are not available on this route.</p>}
     </div>{hasMotion && <MotionCard {...controls} />}</div></ControlCard>}
     materials={<>

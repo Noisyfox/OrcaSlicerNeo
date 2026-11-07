@@ -625,6 +625,14 @@ test('Snapmaker Device uses Electron transport for physical controls and verifie
     const preview = page.getByRole('img', { name: 'Current print preview', exact: true });
     await expect(preview).toBeVisible();
     await expect.poll(() => preview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
+    const fans = page.getByTestId('device-monitor').locator('details').filter({ has: page.locator('summary').filter({ hasText: /^Fans ·/ }) });
+    await fans.locator('summary').click();
+    const fanSpeed = fans.getByRole('combobox', { name: 'Top cover inner fan speed', exact: true });
+    await expect(fanSpeed).toHaveAttribute('data-slot', 'select-trigger');
+    await fanSpeed.click();
+    await page.screenshot({ path: testInfo.outputPath('snapmaker-fan-select.png'), fullPage: true, animations: 'disabled' });
+    await page.getByRole('option', { name: '30%', exact: true }).click();
+    await expect.poll(() => fixture.scripts).toContain('SET_PURIFIER FAN=inner SPEED=0.3');
     await expect(page.getByRole('button', { name: 'Load to Toolhead 1', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'Load to Toolhead 1', exact: true }).click({ noWaitAfter: true });
     await expect.poll(() => fixture.scripts).toContain('FEED_AUTO MODULE=left CHANNEL=1 LOAD=1');

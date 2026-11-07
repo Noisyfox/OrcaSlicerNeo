@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 export function valueOf<T>(reading: D.Reading<T> | undefined): T | undefined { return reading?.kind === 'known' ? reading.value : undefined; }
 export function display<T>(reading: D.Reading<T> | undefined, format: (value: T) => string = String) { return reading?.kind === 'known' ? `${format(reading.value)}${reading.freshness === 'stale' ? ' (stale)' : ''}` : 'Not reported'; }
 export function ControlCard({ title, children }: { title: string; children: ReactNode }) { return <section className="printer-control-card"><h3 className="text-sm font-semibold">{title}</h3>{children}</section>; }
@@ -40,10 +41,10 @@ export function ThermalCard({ capabilities, snapshot, disabled, send }: CardCont
   }) : <p className="text-sm text-muted-foreground">Waiting for heater information.</p>}</ControlCard>;
 }
 export function ActuatorCard({ capabilities, snapshot, disabled, send }: CardControls) {
-  const lightFieldId = useId();
+  const fieldId = useId();
   const topology = valueOf(snapshot?.values.descriptor)?.topology, actuators = valueOf(snapshot?.values.actuators);
   const fans = capabilities.commands['fans.setSpeed'], lights = capabilities.commands['lights.set'];
-  return <ControlCard title="Fans and lighting">{!!topology?.fans.length && <details className="printer-actuator-controls"><summary>Fans · {topology.fans.length}</summary><div>{topology.fans.map(fan => {
+  return <ControlCard title="Fans and lighting">{!!topology?.fans.length && <details className="printer-actuator-controls"><summary>Fans · {topology.fans.length}</summary><FieldGroup className="gap-2">{topology.fans.map(fan => {
     const limit = fans.kind === 'supported' ? fans.constraints.find(item => item.fanId === fan.id)?.speedFraction : undefined;
     const current = valueOf(actuators?.fans.find(item => item.fanId === fan.id)?.speedFraction);
     const percentage = current === undefined ? -1 : Math.round(current * 100);
@@ -52,14 +53,24 @@ export function ActuatorCard({ capabilities, snapshot, disabled, send }: CardCon
       ...(limit?.min === null || limit?.min === undefined ? [] : [Math.ceil(limit.min * 100)]),
       ...(limit?.max === null || limit?.max === undefined ? [] : [Math.floor(limit.max * 100)])])]
       .filter(value => value >= 0 && (value === percentage || allowed(value))).sort((a, b) => a - b);
-    return <label key={fan.id} className="flex items-center justify-between gap-3 text-sm"><span>{fan.name}</span>
-      <select aria-label={`${fan.name} speed`} className="rounded border bg-background p-1" disabled={disabled || !limit} value={String(percentage)}
-        onChange={event => send({ type: 'fans.setSpeed', params: { fanId: fan.id, speedFraction: Number(event.target.value) / 100 } })}>
-        <option value="-1" disabled>Not reported</option>{options.map(value => <option key={value} value={value} disabled={!allowed(value)}>{value}%</option>)}</select></label>;
-  })}</div></details>}
+    const id = `${fieldId}-${fan.id}`;
+    const blocked = disabled || !limit;
+    const items = [{ value: '-1', label: 'Not reported' }, ...options.map(value => ({ value: String(value), label: `${value}%` }))];
+    return <Field key={fan.id} orientation="horizontal" data-disabled={blocked}>
+      <FieldLabel htmlFor={id}>{fan.name}</FieldLabel>
+      <Select items={items} disabled={blocked} value={String(percentage)}
+        onValueChange={value => { if (value !== null) send({ type: 'fans.setSpeed', params: { fanId: fan.id, speedFraction: Number(value) / 100 } }); }}>
+        <SelectTrigger id={id} aria-label={`${fan.name} speed`} className="w-32"><SelectValue /></SelectTrigger>
+        <SelectContent><SelectGroup>
+          <SelectItem value="-1" disabled>Not reported</SelectItem>
+          {options.map(value => <SelectItem key={value} value={String(value)} disabled={!allowed(value)}>{value}%</SelectItem>)}
+        </SelectGroup></SelectContent>
+      </Select>
+    </Field>;
+  })}</FieldGroup></details>}
     {!!topology?.lights.length && <details className="printer-actuator-controls"><summary>Lights · {topology.lights.length}</summary>
       <FieldGroup className="gap-2">{topology.lights.map(light => {
-        const id = `${lightFieldId}-${light.id}`;
+        const id = `${fieldId}-${light.id}`;
         const label = light.name.replaceAll('_', ' ');
         const blocked = disabled || lights.kind !== 'supported' || !lights.constraints.lightIds.includes(light.id);
         return <Field key={light.id} orientation="horizontal" data-disabled={blocked}>
@@ -92,6 +103,7 @@ function extrusionDistances(range: D.Range | undefined): number[] {
   });
 }
 export function MotionCard({ capabilities, snapshot, disabled, send }: CardControls) {
+  const stepFieldId = useId();
   const [selectedStep, setStep] = useState<string | null>(null); const home = capabilities.commands['motion.home'], jog = capabilities.commands['motion.jog'], extrusion = capabilities.commands['extrusion.move'], tools = capabilities.commands['tools.select'];
   const topology = valueOf(snapshot?.values.descriptor)?.topology;
   const active = valueOf(valueOf(snapshot?.values.status)?.activeToolIds) ?? [];
@@ -115,7 +127,13 @@ export function MotionCard({ capabilities, snapshot, disabled, send }: CardContr
         </div>
         <div className="printer-z-controls"><span>Z axis</span>{move(group.id, 'z', 'negative')}{move(group.id, 'z', 'positive')}</div>
       </div>)}
-      {!!steps.length && <label className="printer-movement-step"><span>Movement step</span><select aria-label="Movement step" value={step} onChange={event => setStep(event.target.value)}>{steps.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
+      {!!steps.length && <Field>
+        <FieldLabel htmlFor={stepFieldId}>Movement step</FieldLabel>
+        <Select items={steps.map(item => ({ value: item.id, label: item.label }))} value={step ?? null} onValueChange={setStep}>
+          <SelectTrigger id={stepFieldId} aria-label="Movement step"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectGroup>{steps.map(item => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</SelectGroup></SelectContent>
+        </Select>
+      </Field>}
       {!groups.length && <p className="text-xs text-muted-foreground">Waiting for motion information.</p>}
     </section>
     <section className="printer-tool-controls" aria-label="Extruders"><h4>Extruders</h4>

@@ -21,7 +21,6 @@
 .printer-print-facts dd { text-align: right; overflow-wrap: anywhere; }
 .printer-print-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .printer-environment-controls > .printer-print-actions { margin-top: 12px; }
-.printer-print-speed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--color-muted-foreground); }
 .printer-machine-controls { display: grid; grid-template-columns: minmax(175px, .8fr) minmax(330px, 1.5fr); }
 .printer-environment-controls { min-width: 0; border-right: 1px solid var(--color-border); padding-right: 12px; }
 .printer-environment-controls .printer-control-card { border: 0; padding: 0; border-radius: 0; gap: 10px; }
@@ -29,7 +28,6 @@
 .printer-environment-controls .printer-control-card + .printer-control-card { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--color-border); }
 .printer-temperature-row label { font-size: 11px; gap: 6px; }
 .printer-temperature-row .printer-temperature-input { width: 60px; height: 28px; padding: 4px 6px; font-size: 12px; }
-.printer-environment-controls select { max-width: 90px; font-size: 11px; }
 .printer-environment-controls label { font-size: 11px; }
 .printer-motion-controls { min-width: 0; display: grid; grid-template-columns: minmax(185px, 1fr) minmax(120px, .65fr); }
 .printer-motion-controls h4 { font-size: 11px; color: var(--color-muted-foreground); font-weight: 500; }
@@ -45,8 +43,6 @@
 .printer-jog-wheel .printer-home { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; border-radius: 50%; margin: 0; color: var(--color-primary-hover); background: var(--color-background); }
 .printer-z-controls { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 12px; font-size: 11px; color: var(--color-muted-foreground); }
 .printer-z-controls .printer-jog { background: var(--color-secondary); padding: 6px 12px; }
-.printer-movement-step { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--color-muted-foreground); }
-.printer-movement-step select { padding: 5px; background: var(--color-background); border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-foreground); }
 .printer-tool-controls { display: flex; flex-direction: column; gap: 10px; border-left: 1px solid var(--color-border); padding-left: 12px; }
 .printer-tool { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; font-size: 11px; }
 .printer-tool[data-active='true'] > strong { color: var(--color-primary); }
