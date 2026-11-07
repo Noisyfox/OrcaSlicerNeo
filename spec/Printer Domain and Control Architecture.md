@@ -2412,10 +2412,18 @@ motion sensor's loaded state. Unreported hardware is not filled from presets.
 Prepared submission uploads unchanged G-code before applying the structured
 map/options and requesting start. Remote-file start remains intentionally
 unavailable for Snapmaker. These implementations do not qualify physical
-firmware execution. Device metadata editing uses `materials.writeMetadata` and
-the shared capability-driven editor, so an absent model association does not
-require a fabricated preset or block brand/type/color edits. Device rejection
-retains the draft; official-filament restrictions are not bypassed with `FORCE`.
+firmware execution. With a manually associated model, the Snapmaker agent
+publishes Confirm-only `materials.configure` targets with each physical head's
+nozzle context, reusing the existing Material information dialog and native
+device catalogue. Native catalogue lookup matches the exact printer variant,
+so a mixed-diameter U1 variant does not make a uniform variant ambiguous.
+Confirm translates the selected canonical preset name's vendor/type/series to
+the existing metadata command, with no calibration or Reset command. Local
+rejection retains the dialog; later operation feedback belongs to Monitor as
+in the shared editor. Without a model association, `materials.writeMetadata`
+retains direct brand/type/color editing without a fabricated preset; device
+rejection retains that draft. Official-filament restrictions are not bypassed
+with `FORCE` in either path.
 In particular, the inspected firmware's calibration-subset
 handler references both `flow_calibrate_extruders` and `flow_calib_extruders`;
 successful subset execution needs firmware qualification rather than assuming

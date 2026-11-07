@@ -14,6 +14,7 @@ const heaterId = (name: string) => id<'heater'>(`snapmaker-heater:${name}`);
 const fanId = (name: string) => id<'fan'>(`snapmaker-fan:${name}`);
 const slotId = (i: number) => id<'slot'>(`snapmaker-slot:${i}`);
 export interface U1DeviceSnapshot {
+  printerModel?: PrinterConfiguration['printerModel'];
   objects: readonly string[];
   commands: readonly string[];
   status: Record<string, unknown>;
@@ -28,7 +29,7 @@ export async function readU1Device(http: MoonrakerHttp, printer: PrinterConfigur
     ...heads.flatMap(i => [extruder(i), `fan_generic e${i}_fan`, `filament_motion_sensor e${i}_filament`]), 'fan_generic cavity_fan'];
   const query = names.filter(name => objects.includes(name));
   const result = query.length ? await http.get(printer, `/printer/objects/query?${query.map(encodeURIComponent).join('&')}`, signal) : { status: {} };
-  return { objects, commands: Object.keys(record(record(record(result.status).gcode).commands)), status: record(result.status), receivedAtMs: Date.now() };
+  return { printerModel: printer.printerModel, objects, commands: Object.keys(record(record(record(result.status).gcode).commands)), status: record(result.status), receivedAtMs: Date.now() };
 }
 function fans(snapshot: U1DeviceSnapshot) {
   return [
@@ -79,7 +80,7 @@ export function u1DeviceValues(snapshot: U1DeviceSnapshot, target: D.PrinterTarg
 /** Capability support is independent of idle/printing/paused and the top cover's presence. */
 export function u1DeviceCapabilities(snapshot?: U1DeviceSnapshot): Partial<D.CommandCapabilities> {
   const result: Partial<D.CommandCapabilities> = { 'preferences.set': u1PreferenceCapability(snapshot) };
-  const names: D.CommandName[] = ['thermal.setTarget', 'fans.setSpeed', 'lights.set', 'materials.load', 'materials.unload', 'materials.writeMetadata'];
+  const names: D.CommandName[] = ['thermal.setTarget', 'fans.setSpeed', 'lights.set', 'materials.load', 'materials.unload', 'materials.writeMetadata', 'materials.configure'];
   for (const name of names) Object.assign(result, { [name]: snapshot ? { kind: 'unsupported', layer: 'device', reason: 'Required firmware command or object is not reported' } : { kind: 'unknown', reason: 'Device capabilities have not been read' } });
   if (!snapshot) return result;
   const has = (command: string) => snapshot.commands.includes(command);
@@ -97,6 +98,17 @@ export function u1DeviceCapabilities(snapshot?: U1DeviceSnapshot): Partial<D.Com
     result['materials.unload'] = supported({ toolIds: heads.map(u1ToolId) as unknown as D.NonEmptyReadonlyArray<D.Id<'tool'>> });
   }
   if (has('SET_PRINT_FILAMENT_CONFIG') && snapshot.objects.includes('print_task_config')) result['materials.writeMetadata'] = supported(heads.map(i => ({ slotId: slotId(i), writableFields: ['manufacturer', 'materialType', 'color'] })) as unknown as D.NonEmptyReadonlyArray<{ slotId: D.Id<'slot'>; writableFields: D.NonEmptyReadonlyArray<keyof D.MaterialMetadata> }>);
+  // A manually associated model supplies the existing native device catalogue.
+  // The protocol writes metadata only; it has no Bambu calibration/reset action.
+  if (result['materials.writeMetadata']?.kind === 'supported' && snapshot.printerModel) {
+    const installed = heads.filter(i => snapshot.objects.includes(extruder(i)));
+    if (installed.length) result['materials.configure'] = supported(installed.map(i => ({
+      slotId: slotId(i), informationWritable: true, maxGradientColors: null, actions: ['confirm'] as const, restriction: null,
+      catalogue: { mainNozzleDiameterMm: finite(record(snapshot.status[extruder(i)]).nozzle_diameter), toolIndex: i,
+        nozzleFlowType: typeof record(snapshot.status[extruder(i)]).nozzle_volume_type === 'string' ? record(snapshot.status[extruder(i)]).nozzle_volume_type as string : null,
+        supportsUserPresets: true },
+    })) as unknown as D.NonEmptyReadonlyArray<D.MaterialConfigurationTarget>);
+  }
   return result;
 }
 function head(value: string, prefix: string): number {
@@ -135,6 +147,22 @@ export function u1DeviceCommand(snapshot: U1DeviceSnapshot, command: D.PrinterCo
     case 'lights.set':
       if (command.params.lightId !== 'snapmaker-light' || typeof command.params.on !== 'boolean') fail('invalid-request', 'Invalid light');
       return `SET_LED LED=cavity_led WHITE=${command.params.on ? 1 : 0}`;
+    case 'materials.configure': {
+      const p = command.params;
+      if (p.intent !== 'confirm' || !p.preset) fail('unsupported', 'Select a material to configure this toolhead');
+      const constraint = cap.constraints as readonly D.MaterialConfigurationTarget[];
+      if (!constraint.some(item => item.slotId === p.slotId)) fail('invalid-target', 'Unknown physical toolhead');
+      const preset = p.preset;
+      if (!preset.manufacturer || !preset.materialType || !preset.key) fail('invalid-request', 'Select a material with a brand and type');
+      // Native preset keys are canonical names. Snapmaker's separate series is
+      // the suffix of vendor + type (e.g. Snapmaker PLA SnapSpeed @U1).
+      const name = preset.key.split('@')[0].trim(), prefix = `${preset.manufacturer} ${preset.materialType}`;
+      const series = name.toLowerCase().startsWith(`${prefix.toLowerCase()} `) ? name.slice(prefix.length).trim() : '';
+      const materialType = series ? `${preset.materialType}-${series}` : preset.materialType.includes('-') ? preset.materialType : `${preset.materialType}-Basic`;
+      if (p.color && p.color.kind !== 'solid') fail('unsupported', 'This toolhead supports a solid color only');
+      return u1DeviceCommand(snapshot, { type: 'materials.writeMetadata', params: { slotId: p.slotId,
+        patch: { manufacturer: preset.manufacturer, materialType, ...(p.color ? { color: p.color } : {}) } } });
+    }
     case 'materials.writeMetadata': {
       const p = command.params, i = head(p.slotId, 'slot');
       if (!p.patch || !Object.keys(p.patch).length || Object.keys(p.patch).some(key => !['manufacturer', 'materialType', 'color'].includes(key))) fail('invalid-request', 'Unsupported material fields');

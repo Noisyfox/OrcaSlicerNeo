@@ -63,8 +63,8 @@ describe('Snapmaker provider foundation', () => {
   it('reports the Device model selection to Printer sync and follows changes without hardware inference', async () => {
     const f = fixture();
     f.request.mockImplementation(async ({ url }) => ({ status: 200, json: async () => url.endsWith('/objects/list')
-      ? { result: { objects: ['print_task_config', 'extruder', 'extruder1', 'extruder2', 'extruder3'] } }
-      : { result: { status: { print_task_config: { filament_exist: [true, true, true, true] },
+      ? { result: { objects: ['gcode', 'print_task_config', 'extruder', 'extruder1', 'extruder2', 'extruder3'] } }
+      : { result: { status: { gcode: { commands: { SET_PRINT_FILAMENT_CONFIG: {} } }, print_task_config: { filament_exist: [true, true, true, true] },
         ...Object.fromEntries(['extruder', 'extruder1', 'extruder2', 'extruder3'].map(name => [name, { nozzle_diameter: .4, nozzle_volume_type: 'standard' }])) } } } }));
     const doc = await f.configuration.load();
     await f.configuration.save({ ...doc, printers: doc.printers.map(p => p.driverId === 'snapmaker'
@@ -79,6 +79,9 @@ describe('Snapmaker provider foundation', () => {
       identity: { manufacturer: 'Snapmaker', model: 'Snapmaker U1' },
       tools: Array.from({ length: 4 }, () => ({ diameterMm: .4 })),
     } });
+    expect(await f.snapmaker.describe(f.target)).toMatchObject({ ok: true, value: { capabilities: { commands: {
+      'materials.configure': { kind: 'supported', constraints: Array.from({ length: 4 }, () => ({ actions: ['confirm'] })) },
+    } } } });
     for (const model of [{ vendorId: 'Other vendor', model: 'Other model' }, undefined]) {
       const current = await f.configuration.load();
       await f.configuration.save({ ...current, printers: current.printers.map(p => {
@@ -90,6 +93,9 @@ describe('Snapmaker provider foundation', () => {
       expect(updated).toMatchObject({ ok: true, value: { identity: {
         manufacturer: model?.vendorId ?? null, model: model?.model ?? null,
       } } });
+      expect(await f.snapmaker.describe(f.target)).toMatchObject({ ok: true, value: { capabilities: { commands: {
+        'materials.configure': { kind: model ? 'supported' : 'unsupported' },
+      } } } });
     }
     expect(f.request.mock.calls.every(([request]) => request.method === 'GET')).toBe(true);
   });

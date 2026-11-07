@@ -110,6 +110,33 @@ describe('U1 physical Device controls', () => {
     expect(() => u1DeviceCommand(snapshot, { type: 'materials.writeMetadata', params: { ...params, patch: { manufacturer: 'bad\nCANCEL_PRINT', materialType: 'PLA' } } })).toThrow();
     expect(() => u1DeviceCommand(snapshot, { type: 'materials.writeMetadata', params: { ...params, patch: { diameterMm: 2 } } })).toThrow();
   });
+  it('offers the existing material catalogue editor only with a manually configured model and physical tools', () => {
+    expect(u1DeviceCapabilities(snapshot)['materials.configure']?.kind).toBe('unsupported');
+    const configured = { ...snapshot, printerModel: { vendorId: 'Snapmaker', model: 'Snapmaker U1' } };
+    const capability = u1DeviceCapabilities(configured)['materials.configure'];
+    expect(capability).toMatchObject({ kind: 'supported', constraints: Array.from({ length: 4 }, (_, i) => ({
+      slotId: `snapmaker-slot:${i}`, maxGradientColors: null, actions: ['confirm'],
+      catalogue: { mainNozzleDiameterMm: i === 0 ? .6 : null, toolIndex: i, supportsUserPresets: true },
+    })) });
+    expect(u1DeviceCapabilities({ ...configured, commands: [] })['materials.configure']?.kind).toBe('unsupported');
+    expect(u1DeviceCapabilities({ ...configured, objects: ['print_task_config'] })['materials.configure']?.kind).toBe('unsupported');
+  });
+  it.each([
+    ['Snapmaker PLA SnapSpeed @U1', 'Snapmaker', 'PLA', 'PLA', 'SnapSpeed'],
+    ['Generic PLA @U1', 'Generic', 'PLA', 'PLA', 'Basic'],
+    ['Generic PA-CF @U1', 'Generic', 'PA-CF', 'PA', 'CF'],
+  ])('writes the selected catalogue material %s without calibration, reset or a color override', (key, manufacturer, materialType, type, series) => {
+    const configured = { ...snapshot, printerModel: { vendorId: 'Snapmaker', model: 'Snapmaker U1' } };
+    const command: D.CommandOf<'materials.configure'> & { params: { intent: 'confirm' } } = { type: 'materials.configure', params: { slotId: id('snapmaker-slot:2'), intent: 'confirm',
+      preset: { key, label: key, manufacturer, materialType, catalogRefs: [], presetRef: null, nozzleTemperatureRangeC: { min: 190, max: 240 } },
+      color: null, acknowledgedWarningIds: [] } };
+    expect(u1DeviceCommand(configured, command)).toBe(`SET_PRINT_FILAMENT_CONFIG CONFIG_EXTRUDER=2 VENDOR="${manufacturer}" FILAMENT_TYPE="${type}" FILAMENT_SUBTYPE="${series}"`);
+    expect(u1DeviceCommand(configured, { ...command, params: { ...command.params, color: { kind: 'solid', rgba: '#12345600' } } }))
+      .toContain('FILAMENT_COLOR_RGBA=12345600');
+    expect(() => u1DeviceCommand(configured, { ...command, params: { ...command.params, slotId: id('snapmaker-slot:4') } })).toThrow('Unknown physical toolhead');
+    expect(() => u1DeviceCommand(configured, { ...command, params: { ...command.params, color: { kind: 'gradient', rgba: ['#FFFFFFFF', '#000000FF'] } } })).toThrow('solid color only');
+    expect(() => u1DeviceCommand(configured, { type: 'materials.configure', params: { slotId: id('snapmaker-slot:2'), intent: 'reset', acknowledgedWarningIds: [] } })).toThrow('Select a material');
+  });
   it('preserves the device series when saving an unchanged normalized type', () => {
     const current = { ...snapshot, status: { ...snapshot.status, print_task_config: {
       filament_vendor: ['Snapmaker'], filament_type: ['PLA'], filament_sub_type: ['SnapSpeed'],

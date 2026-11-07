@@ -1515,6 +1515,13 @@ those temporary identities into the device catalogue.
 The shared React presentation must use normalized capabilities, observations,
 the slicer runtime and printer service. Initial Bambu execution uses the existing
 Electron provider; this design adds no browser Bambu transport or gateway.
+Snapmaker printers with a manually associated model reuse this same Material
+information dialog and native device catalogue. The agent supplies physical-head
+nozzle context and supports Confirm with solid RGBA colors. It translates the
+selected material's vendor, type and canonical-name series to the U1 metadata
+command, retaining color unless explicitly edited. This does not enable Reset
+or Bambu calibration operations. Without an associated model, the existing
+capability-driven direct metadata editor remains available without a catalogue.
 Mobile interaction remains deferred under the shared architecture. The native
 query stays on the existing slicer Worker and returns bounded catalogue data;
 this feature requires no additional renderer-side profile parser or background
@@ -2905,12 +2912,13 @@ is in the existing native bridge; send code does not inspect G-code contents.
 | Verification | Result and boundary |
 | --- | --- |
 | `pnpm typecheck` | Pass across the workspace. |
-| `pnpm --filter @orca/printer-control test` | 229 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. Includes stable U1 material revisions across telemetry/timestamp updates and invalidation for real material/load changes. |
-| `pnpm --filter @orca/slicer-app test` | 1692 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
+| `pnpm --filter @orca/printer-control test` | 233 passed: protocol, observations, hardware commands, preferences/readback, upload/start/failure/cancel/retry and shared exit ownership. Includes stable U1 material revisions and Confirm-only catalogue editing with physical-head and series translation. |
+| `pnpm --filter @orca/slicer-app test` | 1696 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
 | Affected package tests | Web 46; WASM client/bridge contracts 700 with 28 skipped; runtime 65 with 3 skipped; platform contracts 57; profile resources 4 passed. Skips remain excluded from acceptance. |
 | Electron production-path E2E build | `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` passed; this test build uses the mock slicer and real host IPC/HTTP transport. |
 | Electron printer E2E | All nine cases passed for Snapmaker manual setup, physical-head control while printing, metadata without a model, verified preference save, hidden-view polling release, model filtering, Moonraker send/start retry, and dirty-project then unfinished-send exit decisions. |
-| Electron Prepare synchronization E2E | Both `prepare-synchronization.e2e.ts` cases passed with real WASM: Bambu mixed-hardware import and a nonempty U1 project continuing from Printer to Filament sync. U1 review stays valid across two telemetry polls, invalidates on actual color change, and applies after explicit Refresh. Uses a loopback protocol fixture; no printer commands or real hardware access. |
+| Electron Prepare/device material E2E | All three `prepare-synchronization.e2e.ts` cases passed with real WASM: U1 reuses the existing material catalogue dialog, selects SnapSpeed and writes its series to physical head 3 without a color override or calibration; Bambu mixed-hardware import; and nonempty U1 Printer-to-Filament sync with telemetry, real material change and Refresh. Uses loopback protocol fixtures, without real hardware access. |
+| Native device material catalogue | Both threaded and serial quick builds and `device-material-catalogue-smoke.mjs` passed. Covers Bambu root/variant selection, U1 heads 1–4, exact 0.4 variant selection despite the mixed 0.4+0.6 variant, 0.6 lookup, and preservation of an unrelated Bambu project. |
 | Bambu submission E2E | Both `bambu-print.e2e.ts` cases passed for model selection, remembered options, cancellation, unknown outcome and successful closure. |
 | Bambu Storage E2E | Both `bambu-storage.e2e.ts` cases passed. The preference-persistence fixture uses keyboard submenu navigation and waits for dialog closure; the initial mouse-hover version was blocked by an inert overlay when reopening Preferences. This is not physical transport qualification. |
 | Web E2E | Both `snapmaker.e2e.ts` cases passed using real Web WASM and a CORS-enabled loopback printer: manual persistence/reload, direct transport, individual load and verified preferences. No gateway or U1 hardware is involved. |

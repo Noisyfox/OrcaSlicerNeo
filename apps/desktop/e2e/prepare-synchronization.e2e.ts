@@ -7,6 +7,34 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startSnapmakerFixture } from './snapmaker-fixture';
 
+test('U1 reuses the existing material information catalogue and writes the selected series to the physical head', async () => {
+  const fixture = await startSnapmakerFixture();
+  const directory = mkdtempSync(join(tmpdir(), 'neo-u1-material-editor-'));
+  const config = join(directory, 'printers.json');
+  writeFileSync(config, JSON.stringify({ version: 1, printers: [{ id: 'u1', driverId: 'snapmaker', displayName: 'U1 fixture',
+    apiBaseUrl: fixture.baseUrl, apiKey: '', consoleUrl: '', printerModel: { vendorId: 'Snapmaker', model: 'Snapmaker U1' } }] }));
+  const app = await _electron.launch({ ...desktopLaunchOptions(), env: { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PRINTER_CONFIG: config } });
+  try {
+    const page = await app.firstWindow(); await page.setViewportSize({ width: 1440, height: 1000 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
+    await page.getByTestId('device-select-u1').click();
+    await page.getByRole('button', { name: 'Material information for Toolhead 3 · Filament 3', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Material information', exact: true });
+    await expect(dialog.getByRole('combobox', { name: 'Material preset', exact: true })).toBeEnabled();
+    await expect(dialog.getByLabel('Brand', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByLabel('Material type', { exact: true })).toHaveCount(0);
+    await dialog.getByRole('combobox', { name: 'Material preset', exact: true }).click();
+    await page.getByRole('option', { name: 'Snapmaker PLA SnapSpeed', exact: true }).click();
+    await expect(dialog.getByLabel('Nozzle temperature range', { exact: true })).not.toHaveText('Not reported');
+    await expect(dialog.getByRole('button', { name: 'Change material color', exact: true })).toHaveText('#0000FFFF');
+    await expect(dialog.getByRole('button', { name: 'Reset', exact: true })).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(() => fixture.scripts).toEqual(['SET_PRINT_FILAMENT_CONFIG CONFIG_EXTRUDER=2 VENDOR="Snapmaker" FILAMENT_TYPE="PLA" FILAMENT_SUBTYPE="SnapSpeed"']);
+  } finally { await app.close(); await fixture.close(); }
+});
+
 test('U1 Printer-to-Filament sync keeps a nonempty project mapping valid across telemetry polls', async () => {
   const fixture = await startSnapmakerFixture();
   const directory = mkdtempSync(join(tmpdir(), 'neo-u1-sync-'));
