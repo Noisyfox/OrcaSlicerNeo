@@ -74,6 +74,11 @@ test('U1 Printer-to-Filament sync keeps a nonempty project mapping valid across 
     await dialog.getByRole('button', { name: 'Refresh device', exact: true }).click();
     await expect(apply).toBeEnabled();
     await apply.click(); await expect(dialog).toHaveCount(0);
+    const indicator = page.getByTestId('preset-select').getByTestId('printer-connection-indicator');
+    await expect(indicator).toBeVisible();
+    const connected = fixture.queryCount();
+    await expect.poll(() => fixture.queryCount(), { timeout: 10_000 }).toBeGreaterThanOrEqual(connected + 2);
+    await expect(indicator).toBeVisible();
     expect(fixture.scripts).toEqual([]);
   } finally { await app.close(); await fixture.close(); }
 });

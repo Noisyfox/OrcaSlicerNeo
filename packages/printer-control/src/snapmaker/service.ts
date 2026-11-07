@@ -47,7 +47,6 @@ function createSnapmakerBehavior(options: SnapmakerServiceOptions, context: Http
   }
   function capabilities(entry?: ConfigurationEntry): D.PrinterCapabilities {
     const result = context.capabilities();
-    result.observationLifetime = 'visible-consumers';
     result.submission = supported({ formats: ['gcode'], failurePolicy: 'retry' });
     result.currentPrintPreview = supported({ mimeTypes: ['image/png', 'image/jpeg'] });
     result.commands = { ...result.commands, 'jobs.start': unsupported, ...u1DeviceCapabilities(entry ? deviceState(entry).device : undefined) };

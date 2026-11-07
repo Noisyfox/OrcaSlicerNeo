@@ -2849,14 +2849,15 @@ fails is not presented as successfully verified, and an interrupted response
 does not prove that no device change occurred. Preserve the actual response and
 execution evidence without adding an automatic recovery sequence.
 
-Keep status acquisition active while the relevant Device view is visible, a
-send dialog needs the printer's state, or an unfinished upload/device operation
-needs tracking. When no such consumer remains, stop ordinary status acquisition
-and retain the last snapshot with its observation time and non-live indication.
-Reopening a relevant surface reacquires current state. Leaving the page or
-closing the dialog does not cancel a submitted operation or stop printing on
-the device. A print already running on the printer does not by itself require
-continuous background observation after those consumers have gone.
+After the selected printer's Monitor starts, retain its observation while the
+application is open, including on Prepare, Home and the Web Interface tab, as
+for Bambu. Selecting another printer, removing the connection or closing the
+application releases that Monitor subscription. The Prepare model-match
+indicator reuses these fresh observations. Send dialogs and unfinished
+upload/device operations retain their own acquisition leases. When the final
+consumer leaves, stop acquisition and retain the last snapshot with its
+observation time and non-live indication. Leaving a page or closing a dialog
+does not cancel a submitted operation or stop printing on the device.
 
 While observation is needed, connection loss triggers a bounded sequence of
 automatic reconnection attempts with backoff. Keep manual retry available;
@@ -2939,7 +2940,7 @@ is in the existing native bridge; send code does not inspect G-code contents.
 | `pnpm --filter @orca/slicer-app test` | 1696 passed, including capability-driven metadata edits without a model, retained drafts on failure, visibility lifetime, preparation choices and exit confirmation. |
 | Affected package tests | Web 46; WASM client/bridge contracts 700 with 28 skipped; runtime 65 with 3 skipped; platform contracts 57; profile resources 4 passed. Skips remain excluded from acceptance. |
 | Electron production-path E2E build | `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` passed; this test build uses the mock slicer and real host IPC/HTTP transport. |
-| Electron printer E2E | All nine cases passed for Snapmaker manual setup, physical-head control while printing, metadata without a model, verified preference save, hidden-view polling release, model filtering, Moonraker send/start retry, and dirty-project then unfinished-send exit decisions. |
+| Electron printer E2E | All nine cases passed for Snapmaker manual setup, physical-head control while printing, metadata without a model, verified preference save, model filtering, Moonraker send/start retry, and dirty-project then unfinished-send exit decisions. Focused follow-up covers retained polling in Prepare and the model-match indicator after U1 Printer/Filament sync with real WASM. |
 | Electron Prepare/device material E2E | All three `prepare-synchronization.e2e.ts` cases passed with real WASM. A Bambu project shows U1's normalized PLA HIGH SPEED card labels and preselects SnapSpeed in the editor, then writes its series to physical head 3. The other cases cover Bambu mixed-hardware import and nonempty U1 Printer-to-Filament sync with telemetry, material change and Refresh. Acceptance uses loopback protocol fixtures. |
 | Native device material catalogue | Both threaded and serial quick builds and `device-material-catalogue-smoke.mjs` passed. Covers Bambu root/variant selection, U1 heads 1–4, exact 0.4 variant selection despite the mixed 0.4+0.6 variant, 0.6 lookup, and preservation of an unrelated Bambu project. |
 | Bambu submission E2E | Both `bambu-print.e2e.ts` cases passed for model selection, remembered options, cancellation, unknown outcome and successful closure. |

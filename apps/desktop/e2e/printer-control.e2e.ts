@@ -645,7 +645,8 @@ test('Snapmaker Device uses Electron transport for physical controls and verifie
     await page.screenshot({ path: testInfo.outputPath('snapmaker-preferences.png'), fullPage: true, animations: 'disabled' });
     expect(fixture.scripts).toContain('SET_PRINT_PREFERENCES AUTO_REPLENISH_FILAMENT=1');
     await page.locator('#app-tab-prepare').click();
-    await page.waitForTimeout(500); const count = fixture.queryCount(); await page.waitForTimeout(2300); expect(fixture.queryCount()).toBe(count);
+    const count = fixture.queryCount();
+    await expect.poll(() => fixture.queryCount()).toBeGreaterThan(count);
   } finally { await app.close(); await fixture.close(); }
 });
 

@@ -2336,9 +2336,12 @@ manufacturing a loaded observation or unconditionally issuing a separate load
 operation before submission.
 
 Preparation currently assumes observation watching; the extension must honor
-each agent's advertised delivery modes. Scope Snapmaker observation to active
-Device/send consumers and independent tracking for unfinished upload/device
-operations. The implemented U1 acquisition hub shares concurrent reads and uses a two-second
+each agent's advertised delivery modes. Snapmaker uses the shared default
+Monitor lifetime, retaining observation for the selected printer after the
+Monitor starts, including while its page is hidden. Selection replacement,
+connection removal or host teardown releases that subscription. Send consumers
+and unfinished upload/device operations retain independent acquisition leases.
+The implemented U1 acquisition hub shares concurrent reads and uses a two-second
 normal poll interval. Failed reads mark retained snapshots stale; recovery stops
 after three consecutive failures with exponential delay. Explicit Refresh or a
 new consumer restarts acquisition without replaying commands.
