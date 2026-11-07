@@ -22,6 +22,147 @@ function fixture(matchFilaments?: import('./snapmaker-observation').FilamentMatc
   return { configuration, request, snapmaker, moonraker, target, options };
 }
 
+describe('Snapmaker remaining print time', () => {
+  function setup() {
+    const f = fixture();
+    const data = {
+      stats: { state: 'printing', filename: 'folder/test #1.gcode', total_duration: 20 },
+      sd: { file_position: 350 as unknown, progress: .9 },
+      metadata: { gcode_start_byte: 100, gcode_end_byte: 1100, estimated_time: 101.5 } as Record<string, unknown>,
+      metadataStatus: 200,
+    };
+    f.request.mockImplementation(async request => ({
+      status: request.url.includes('/server/files/metadata?') ? data.metadataStatus : 200,
+      json: async () => request.url.endsWith('/objects/list')
+        ? { result: { objects: ['print_stats', 'virtual_sdcard', 'print_task_config'] } }
+        : request.url.includes('/server/files/metadata?') ? { result: data.metadata }
+          : { result: { status: { print_stats: data.stats, virtual_sdcard: data.sd,
+            print_task_config: { filament_exist: [true], filament_type: ['PLA'] } } } },
+    }));
+    const read = async (service = f.snapmaker, target = f.target) => {
+      const result = await service.observations.read({ target, source: 'device', topics: ['status'] });
+      if (!result.ok) throw new Error(JSON.stringify(result.error));
+      if (result.value.values.status.kind !== 'known') throw new Error('Expected printer status');
+      return result.value.values.status.value.printStatus;
+    };
+    const metadataReads = () => f.request.mock.calls.filter(([request]) => request.url.includes('/server/files/metadata?'));
+    return { ...f, data, read, metadataReads };
+  }
+
+  it.each([
+    { position: 99, remaining: undefined },
+    { position: 100, remaining: 101 },
+    { position: 350, remaining: 76 },
+    { position: 1100, remaining: 0 },
+    { position: 1200, remaining: 0 },
+    { position: undefined, remaining: undefined },
+    { position: -1, remaining: undefined },
+    { position: 100.5, remaining: undefined },
+    { position: '350', remaining: undefined },
+    { position: NaN, remaining: undefined },
+  ])('estimates executable-byte progress at $position', async ({ position, remaining }) => {
+    const f = setup();
+    f.data.sd.file_position = position;
+    expect((await f.read()).remainingSeconds).toMatchObject(remaining === undefined
+      ? { kind: 'unknown' } : { kind: 'known', value: remaining });
+  });
+
+  it('reuses metadata through fresh facades and pause/resume, then refreshes on a new job or restart', async () => {
+    const f = setup();
+    expect((await f.read()).remainingSeconds).toMatchObject({ value: 76 });
+    const request = f.metadataReads()[0][0];
+    expect(request.url).toBe('http://printer/proxy/server/files/metadata?filename=folder%2Ftest%20%231.gcode');
+    expect(request.headers).toMatchObject({ 'X-Api-Key': 'secret' });
+    f.data.stats.state = 'paused';
+    f.data.stats.total_duration = 30;
+    f.data.sd.file_position = 600;
+    expect((await f.read(createSnapmakerService(f.options))).remainingSeconds).toMatchObject({ value: 50 });
+    f.data.stats.state = 'printing';
+    await f.read();
+    expect(f.metadataReads()).toHaveLength(1);
+    f.data.stats.filename = 'second.gcode';
+    f.data.metadata.estimated_time = 200;
+    expect((await f.read()).remainingSeconds).toMatchObject({ value: 100 });
+    expect(f.metadataReads()).toHaveLength(2);
+    f.data.stats.total_duration = 1;
+    f.data.metadata.estimated_time = 400;
+    expect((await f.read()).remainingSeconds).toMatchObject({ value: 200 });
+    expect(f.metadataReads()).toHaveLength(3);
+    expect(f.request.mock.calls.every(([request]) => request.method === 'GET')).toBe(true);
+  });
+
+  it.each(['standby', 'complete', 'cancelled', 'error'])('clears the estimate for %s and reloads a repeated filename', async state => {
+    const f = setup();
+    await f.read();
+    f.data.stats.state = state;
+    expect((await f.read()).remainingSeconds).toMatchObject(state === 'complete'
+      ? { kind: 'known', value: 0 } : { kind: 'unknown' });
+    expect(f.metadataReads()).toHaveLength(1);
+    f.data.stats.state = 'printing';
+    await f.read();
+    expect(f.metadataReads()).toHaveLength(2);
+  });
+
+  it.each([
+    {}, { estimated_time: 0 }, { estimated_time: -1 }, { estimated_time: Infinity }, { estimated_time: '100' },
+    { gcode_start_byte: -1 }, { gcode_start_byte: 100.5 }, { gcode_start_byte: null },
+    { gcode_end_byte: 100 }, { gcode_end_byte: 50 }, { gcode_end_byte: NaN },
+  ])('keeps invalid or unavailable metadata unknown and retries $0', async invalid => {
+    const f = setup();
+    f.data.metadata = Object.keys(invalid).length ? { ...f.data.metadata, ...invalid } : {};
+    expect((await f.read()).remainingSeconds).toMatchObject({ kind: 'unknown' });
+    f.data.metadata = { gcode_start_byte: 100, gcode_end_byte: 1100, estimated_time: 200 };
+    expect((await f.read()).remainingSeconds).toMatchObject({ kind: 'known', value: 150 });
+    expect(f.metadataReads()).toHaveLength(2);
+  });
+
+  it('keeps status available after metadata failure and retries on the next refresh', async () => {
+    const f = setup();
+    f.data.metadataStatus = 503;
+    expect(await f.read()).toMatchObject({ phase: { value: 'printing' }, remainingSeconds: { kind: 'unknown' } });
+    f.data.metadataStatus = 200;
+    expect((await f.read()).remainingSeconds).toMatchObject({ kind: 'known', value: 76 });
+    expect(f.metadataReads()).toHaveLength(2);
+  });
+
+  it('publishes fresh estimates through polling and retains their stale cache provenance', async () => {
+    const f = setup();
+    const controller = new AbortController();
+    const stream = f.snapmaker.observations.watch({ target: f.target, topics: ['status'] }, { signal: controller.signal })[Symbol.asyncIterator]();
+    async function nextRemaining() {
+      for (let count = 0; count < 4; count++) {
+        const event = await stream.next();
+        const status = event.value?.snapshot.values.status;
+        if (status?.kind === 'known' && status.freshness === 'fresh') return status.value.printStatus.remainingSeconds;
+      }
+      throw new Error('Expected fresh print time');
+    }
+    try {
+      expect(await nextRemaining()).toMatchObject({ kind: 'known', value: 76, freshness: 'fresh' });
+      f.data.sd.file_position = 600;
+      expect(await nextRemaining()).toMatchObject({ kind: 'known', value: 50, freshness: 'fresh' });
+      expect(f.metadataReads()).toHaveLength(1);
+    } finally { controller.abort(); await stream.return?.(); }
+    const cache = await f.snapmaker.observations.read({ target: f.target, source: 'cache', topics: ['status'] });
+    expect(cache).toMatchObject({ ok: true, value: { values: { status: { freshness: 'stale', value: {
+      printStatus: { remainingSeconds: { kind: 'known', value: 50, freshness: 'stale' } },
+    } } } } });
+  });
+
+  it('invalidates metadata after connection changes and leaves Moonraker status unchanged', async () => {
+    const f = setup();
+    await f.read();
+    const doc = await f.configuration.load();
+    await f.configuration.save({ ...doc, printers: doc.printers.map(printer => printer.driverId === 'snapmaker'
+      ? { ...printer, apiBaseUrl: 'http://other-printer/' } : printer) });
+    await f.read();
+    expect(f.metadataReads()).toHaveLength(2);
+    expect(f.metadataReads()[1][0].url).toContain('http://other-printer/server/files/metadata?');
+    expect((await f.read(f.moonraker, { printerId: id('moonraker'), routeId: id('moonraker:moonraker') })).remainingSeconds).toMatchObject({ kind: 'unknown' });
+    expect(f.metadataReads()).toHaveLength(2);
+  });
+});
+
 describe('Snapmaker provider foundation', () => {
   it.each([
     { state: { main_state: 1, action_code: 1 }, stage: { code: '1:1', label: 'Homing' } },

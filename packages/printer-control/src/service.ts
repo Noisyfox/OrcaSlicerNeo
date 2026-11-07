@@ -1,6 +1,6 @@
 import { U1ObservationHub } from './snapmaker-monitor';
 import { u1PreferenceScripts, verifyU1Preferences } from './snapmaker-preferences';
-import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, u1PrintStage, type U1DeviceSnapshot } from './snapmaker-device';
+import { readU1Device, u1DeviceValues, u1DeviceCapabilities, u1DeviceCommand, u1PrintStage, U1PrintTime, type U1DeviceSnapshot } from './snapmaker-device';
 import { U1Submissions } from './snapmaker-submissions';
 import { prepareU1Submission, u1PreparationFromDevice, type U1PreparationSnapshot } from './snapmaker-preparation';
 import { u1MaterialInventory, matchU1Materials, type FilamentMatcher } from './snapmaker-observation';
@@ -192,7 +192,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
     if (!path || path.includes('\0') || path.split('/').includes('..')) fail('invalid-target', 'Invalid Moonraker file path');
     return path;
   }
-  async function readStatus(printer: PrinterConfiguration, signal?: AbortSignal, reported?: Record<string, unknown>): Promise<D.PrinterObservationMap['status']> {
+  async function readStatus(printer: PrinterConfiguration, signal?: AbortSignal, reported?: Record<string, unknown>, remainingSeconds?: number): Promise<D.PrinterObservationMap['status']> {
     const target = targetFor(printer.id);
     const result = reported ? { status: reported } : await http.get(printer, '/printer/objects/query?print_stats&virtual_sdcard&extruder&heater_bed&fan', signal);
     if (!result.status || typeof result.status !== 'object' || Array.isArray(result.status)) fail('device-failed', 'Invalid printer status response');
@@ -214,7 +214,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
         phase: phase ? known(target, phase) : unknown,
         name: phase === 'idle' ? known(target, null) : typeof stats.filename === 'string' && stats.filename.length > 0 ? known(target, stats.filename) : unknown,
         progressFraction: phase !== 'idle' && typeof sd.progress === 'number' && Number.isFinite(sd.progress) && sd.progress >= 0 && sd.progress <= 1 ? known(target, sd.progress) : unknown,
-        remainingSeconds: unknown, taskId: unknown, stage: stage === undefined ? unknown : known(target, stage),
+        remainingSeconds: remainingSeconds === undefined ? unknown : known(target, remainingSeconds), taskId: unknown, stage: stage === undefined ? unknown : known(target, stage),
         currentLayer: phase !== 'idle' && hasCurrentLayer ? known(target, currentLayer) : unknown,
         totalLayers: phase !== 'idle' && hasTotalLayers ? known(target, totalLayers) : unknown,
         speedModeId: unknown,
@@ -223,21 +223,25 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
     };
   }
   function hub(printer: PrinterConfiguration, entry: ConfigurationEntry) {
-    if (!entry.observationHub) entry.observationHub = new U1ObservationHub(async signal => {
-      const { printer: currentPrinter } = await resolve({ ...targetFor(printer.id), expectedConfigurationRevision: entry.revision });
-      const snapshot = await readU1Device(http, currentPrinter, signal);
-      entry.snapmakerDevice = snapshot;
-      const target = targetFor(printer.id);
-      const values = u1DeviceValues(snapshot, target, entry.revision, descriptor(currentPrinter, entry, entry.cache.firmware ?? unknown), currentPrinter.printerModel);
-      if (values.materials && matchFilaments) await matchU1Materials(values.materials, matchFilaments, snapshot.status);
-      values.status = await readStatus(currentPrinter, signal, snapshot.status);
-      for (const [topic, value] of Object.entries(values)) Object.assign(entry.cache, { [topic]: known(target, value) });
-      if (values.materials) entry.snapmakerPreparation = u1PreparationFromDevice(snapshot.status, snapshot.commands, target, entry.revision, snapshot.receivedAtMs);
-      return snapshot;
-    }, () => {
-      for (const [topic, value] of Object.entries(entry.cache)) Object.assign(entry.cache, { [topic]: retained(value) });
-      if (entry.snapmakerPreparation) entry.snapmakerPreparation = { ...entry.snapmakerPreparation, inventory: retained(entry.snapmakerPreparation.inventory) };
-    });
+    if (!entry.observationHub) {
+      const printTime = new U1PrintTime(http, printer);
+      entry.observationHub = new U1ObservationHub(async signal => {
+        const { printer: currentPrinter } = await resolve({ ...targetFor(printer.id), expectedConfigurationRevision: entry.revision });
+        const snapshot = await readU1Device(http, currentPrinter, signal);
+        entry.snapmakerDevice = snapshot;
+        const target = targetFor(printer.id);
+        const values = u1DeviceValues(snapshot, target, entry.revision, descriptor(currentPrinter, entry, entry.cache.firmware ?? unknown), currentPrinter.printerModel);
+        if (values.materials && matchFilaments) await matchU1Materials(values.materials, matchFilaments, snapshot.status);
+        snapshot.remainingSeconds = await printTime.read(snapshot.status, signal);
+        values.status = await readStatus(currentPrinter, signal, snapshot.status, snapshot.remainingSeconds);
+        for (const [topic, value] of Object.entries(values)) Object.assign(entry.cache, { [topic]: known(target, value) });
+        if (values.materials) entry.snapmakerPreparation = u1PreparationFromDevice(snapshot.status, snapshot.commands, target, entry.revision, snapshot.receivedAtMs);
+        return snapshot;
+      }, () => {
+        for (const [topic, value] of Object.entries(entry.cache)) Object.assign(entry.cache, { [topic]: retained(value) });
+        if (entry.snapmakerPreparation) entry.snapmakerPreparation = { ...entry.snapmakerPreparation, inventory: retained(entry.snapmakerPreparation.inventory) };
+      });
+    }
     return entry.observationHub;
   }
   const observations: D.PrinterObservations = {
@@ -254,7 +258,7 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
           // Explicit reads return current values even when there is no ongoing consumer.
           const values = u1DeviceValues(entry.snapmakerDevice!, request.target, entry.revision, descriptor(printer, entry, entry.cache.firmware ?? unknown), printer.printerModel);
           if (values.materials && matchFilaments) await matchU1Materials(values.materials, matchFilaments, entry.snapmakerDevice!.status);
-          values.status = await readStatus(printer, options?.signal, entry.snapmakerDevice!.status);
+          values.status = await readStatus(printer, options?.signal, entry.snapmakerDevice!.status, entry.snapmakerDevice!.remainingSeconds);
           for (const [topic, value] of Object.entries(values)) Object.assign(observed, { [topic]: known(request.target, value) });
           if (request.topics.some(topic => topic === 'materials') && !values.materials) fail('unsupported', 'U1 material information is unavailable');
         }

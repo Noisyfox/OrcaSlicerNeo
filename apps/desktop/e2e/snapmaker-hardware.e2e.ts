@@ -101,7 +101,7 @@ test('real U1 Device displays current materials, controls and preferences throug
   } finally { await app.close(); }
 });
 
-test('real U1 Monitor shows completed job layers and an idle stage', async ({}, info) => {
+test('real U1 Monitor shows completed job layers, zero remaining time and an idle stage', async ({}, info) => {
   test.setTimeout(90000);
   const selected = selectedPrinter();
   const response = await fetch(new URL('/printer/objects/query?print_stats&machine_state_manager', selected.apiBaseUrl), {
@@ -128,6 +128,7 @@ test('real U1 Monitor shows completed job layers and an idle stage', async ({}, 
     await page.getByTestId(`device-select-${selected.id}`).click();
     const facts = page.locator('.printer-print-facts');
     await expect(facts).toContainText(`${raw.print_stats.info.current_layer} / ${raw.print_stats.info.total_layer}`);
+    await expect(facts.locator('dt:has-text("Remaining") + dd')).toHaveText('0 min');
     await expect(facts.locator('dt:has-text("Stage") + dd')).toHaveText('—');
     writeFileSync(info.outputPath('u1-layer-readback.json'), JSON.stringify({ raw, rendered: await facts.innerText() }, null, 2));
     await page.screenshot({ path: info.outputPath('u1-monitor-completed-layers.png'), fullPage: true });

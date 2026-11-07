@@ -2440,6 +2440,18 @@ labels and main-state fallback. Idle action/state reports a known null stage.
 Missing or invalid layer/state data stays unknown. These observations also
 describe completed jobs while the firmware retains their layer information.
 
+The Snapmaker agent estimates remaining print seconds with Snapmaker Orca's
+executable-byte progress formula. It reads `estimated_time`, `gcode_start_byte`
+and `gcode_end_byte` from Moonraker file metadata, then multiplies the estimate
+by the remaining fraction of that byte range and truncates to whole seconds.
+Valid metadata is reused during printing and pauses. A changed filename,
+observed non-active phase, lower total duration or connection configuration
+change invalidates it. Missing/invalid metadata, unavailable byte positions and
+preparation before the executable range report unknown. Later observations retry
+metadata failures while other status readings remain available. Completion
+reports zero seconds. The calculation consumes server metadata, with the slicer
+time estimate as its timing basis throughout the job.
+
 Monitor material cards display normalized `materialType` consistently across
 agents. The material editor displays the matched preset's name. Snapmaker uses
 the reported vendor/type/series as input to exact system-name matching, which

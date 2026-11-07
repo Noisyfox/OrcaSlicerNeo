@@ -3088,11 +3088,14 @@ full modified print harness has not been rerun on a second physical print.
 
 This run exposed missing layer/stage normalization. The agent now consumes
 `print_stats.info` and the firmware machine-state/action codes. A subsequent
-read-only real-Electron check against the completed job rendered `Layer 15 / 15`
-and an idle-stage dash. Active stage labels have protocol-fixture coverage.
+read-only real-Electron check against the completed job rendered `Layer 15 / 15`,
+zero remaining minutes and an idle-stage dash. Active stage labels have
+protocol-fixture coverage.
 The device status has no remaining-seconds field, while file metadata provides
-an 88 s slicer estimate. No live remaining-time estimate was qualified. The
-queried filament inventory also supplied no valid remaining-spool quantity.
+an 88 s slicer estimate. The agent now derives remaining time from executable-byte
+progress, with protocol-fixture coverage. A live countdown during physical
+printing remains unqualified. The queried filament inventory also supplied no
+valid remaining-spool quantity.
 Multi-head switching, many-to-one logical materials, inserted-but-unloaded
 startup and shared-heater execution need their own physical cases.
 
