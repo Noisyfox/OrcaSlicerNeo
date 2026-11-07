@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startSnapmakerFixture } from './snapmaker-fixture';
 
-test('U1 displays and preselects its reported SnapSpeed material independently of the project printer', async () => {
+test('U1 displays normalized material types and preselects SnapSpeed independently of the project printer', async () => {
   const fixture = await startSnapmakerFixture({ vendor: 'Snapmaker', type: 'PLA', subtype: 'SnapSpeed' });
   const directory = mkdtempSync(join(tmpdir(), 'neo-u1-material-editor-'));
   const config = join(directory, 'printers.json');
@@ -21,7 +21,7 @@ test('U1 displays and preselects its reported SnapSpeed material independently o
     await expect(page.getByTestId('preset-select')).not.toContainText('Snapmaker');
     await page.getByTestId('tab-device').click(); await page.getByTestId('device-printer-select').click();
     await page.getByTestId('device-select-u1').click();
-    await expect(page.getByText('Snapmaker PLA SnapSpeed', { exact: true })).toHaveCount(4);
+    await expect(page.getByText('PLA HIGH SPEED', { exact: true })).toHaveCount(4);
     await page.getByRole('button', { name: 'Material information for Toolhead 3 · Filament 3', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Material information', exact: true });
     await expect(dialog.getByRole('combobox', { name: 'Material preset', exact: true })).toBeEnabled();
