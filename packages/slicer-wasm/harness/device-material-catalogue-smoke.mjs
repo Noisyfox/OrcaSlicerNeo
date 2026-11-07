@@ -20,9 +20,13 @@ assert.equal(JSON.stringify(observe()), before, 'failed reads are also pure');
 
 // A 0.4+0.6 U1 preset must not make a uniform 0.4 catalogue ambiguous.
 const u1 = { manufacturer: 'Snapmaker', model: 'Snapmaker U1', externalRefs: [] };
+const snapSpeedId = ok(command('orc_match_filament_presets', [{ presetName: 'Snapmaker PLA SnapSpeed', manufacturer: 'Snapmaker',
+  materialType: 'PLA HIGH SPEED', colorRgba: '#080A0DFF' }])).filamentIds[0];
 for (const toolIndex of [0, 1, 2, 3]) {
   const catalogue = ok(query({ identity: u1, mainNozzleDiameterMm: .4, toolIndex, supportsUserPresets: true }));
   assert.ok(catalogue.presets.some(preset => preset.label === 'Snapmaker PLA SnapSpeed' && preset.nozzleTemperatureRangeC?.min > 0));
+  assert.ok(catalogue.presets.find(preset => preset.label === 'Snapmaker PLA SnapSpeed').catalogRefs.some(ref => ref.value === snapSpeedId),
+    'a reported U1 material matches the device catalogue even while the project is Bambu');
 }
 ok(query({ identity: u1, mainNozzleDiameterMm: .6, toolIndex: 2 }));
 assert.equal(JSON.stringify(observe()), before, 'U1 catalogue reads preserve an unrelated Bambu project');

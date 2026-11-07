@@ -2117,7 +2117,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_match_filament_presets(const cha
             if (name.is_string() && !normalize_name(name.get<std::string>()).empty()) {
                 const auto wanted = normalize_name(name.get<std::string>());
                 for (const auto& preset : filaments.get_presets())
-                    if (preset.is_system && preset.is_compatible && normalize_name(preset.name.substr(0, preset.name.find('@'))) == wanted) {
+                    // A reported full name identifies a library filament, not
+                    // a variant of the active project printer. Device editors
+                    // resolve that identity in their own physical catalogue.
+                    if (preset.is_system && !preset.filament_id.empty() && normalize_name(preset.name.substr(0, preset.name.find('@'))) == wanted) {
                         id = preset.filament_id; break;
                     }
             }
