@@ -44,12 +44,15 @@ describe('project dialogs', () => {
   }
 
   async function chooseOption(selector: string, label: string) {
-    await act(async () => document.querySelector<HTMLElement>(selector)!.click());
-    const option = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find(item => item.textContent === label)!;
+    const trigger = document.querySelector<HTMLElement>(selector)!;
+    await act(async () => trigger.click());
+    const popup = document.getElementById(trigger.getAttribute('aria-controls')!)!;
+    const option = Array.from(popup.querySelectorAll<HTMLElement>('[role="option"]')).find(item => item.textContent === label)!;
     await act(async () => {
       option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
       option.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
     });
+    expect(trigger.textContent).toContain(label);
   }
 
   async function chooseDownloadFolder() {
@@ -267,7 +270,14 @@ describe('project dialogs', () => {
     await act(async () => document.querySelector<HTMLElement>('[role="checkbox"][aria-describedby="mesh-boolean-keep-painting-description"]')!.click());
     await selectPreferencesTab('Online');
     await chooseOption('#account-bambu-region', 'China');
+    // A closing popup may retain an identically named option outside the active listbox.
+    const closingOption = document.createElement('div');
+    closingOption.setAttribute('role', 'option');
+    closingOption.hidden = true;
+    closingOption.textContent = 'China';
+    document.body.prepend(closingOption);
     await chooseOption('#account-other-region', 'China');
+    closingOption.remove();
     await clickPreferencesButton('save');
     expect(onSave).toHaveBeenCalledOnce();
     expect(first.account.setSetting).not.toHaveBeenCalled();
