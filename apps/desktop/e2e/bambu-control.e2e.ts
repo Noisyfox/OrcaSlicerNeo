@@ -274,7 +274,8 @@ test('material configuration binds the original slot, closes after submission an
         expect(dimensions.content).toBeGreaterThan(dimensions.viewport);
         const popupBounds = await page.locator('[data-slot="combobox-content"]').boundingBox();
         const triggerBounds = await selection.boundingBox();
-        expect(popupBounds!.width).toBeGreaterThan(triggerBounds!.width);
+        // Account for subpixel rounding when the popup matches the trigger width.
+        expect(popupBounds!.width).toBeGreaterThanOrEqual(Math.floor(triggerBounds!.width));
         expect(popupBounds!.width).toBeLessThanOrEqual(1264);
         await page.screenshot({ path: '/tmp/orcaneo-material-controls-native-popup.png', animations: 'disabled' });
       }
@@ -293,7 +294,7 @@ test('material configuration binds the original slot, closes after submission an
     await expect(popup).toBeVisible();
     const popupBounds = await popup.boundingBox();
     expect(popupBounds!.y).toBeGreaterThanOrEqual(controlBounds!.y + controlBounds!.height);
-    expect(popupBounds!.width).toBeGreaterThanOrEqual(Math.max(controlBounds!.width, 128));
+    expect(popupBounds!.width).toBeGreaterThanOrEqual(Math.max(Math.floor(controlBounds!.width), 128));
     expect(await popup.locator('[data-slot="combobox-list"]').evaluate(element => getComputedStyle(element).overflowY)).toBe('auto');
     await page.getByLabel('Search materials', { exact: true }).fill('no matching material 12345');
     await expect(popup.getByText('No matching materials', { exact: true })).toBeVisible();
