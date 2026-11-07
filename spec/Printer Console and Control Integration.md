@@ -1,6 +1,6 @@
 # Printer Console and Control Integration
 
-**Updated:** 2026-11-06
+**Updated:** 2026-11-07
 
 **Status:** Console/Send, Moonraker Monitor and the Electron Bambu control
 implementation are delivered. Bambu protocol fixtures and desktop interaction
@@ -612,6 +612,15 @@ network waits.
 Device is a top-level page alongside Workspace. Workspace contains only the
 profile/settings sidebar and the 3D scene. Switching between pages preserves
 the state of both surfaces.
+
+Add and Edit use a shared agent-defined configuration form. Adapter choices
+come from the locally reported printer types with supported manual
+configuration. Each agent supplies its connection fields and optional model
+selection support. The selected agent owns validation and persistence, including
+explicit reads of editable credentials. Failed saves retain the entered values
+and show a generic error. Loading the type catalogue or editing a connection
+does not contact the printer. Bambu uses its existing discovery/account flows
+and reports manual configuration unsupported.
 
 The Device page uses the same card-style visual language as Workspace:
 

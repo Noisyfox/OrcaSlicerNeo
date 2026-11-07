@@ -1,6 +1,6 @@
 # Printer Domain and Control Architecture
 
-**Updated:** 2026-11-06
+**Updated:** 2026-11-07
 
 **Status:** Explicit requirements and selected architecture direction recorded;
 TypeScript domain contracts and the existing Moonraker subset are implemented.
@@ -159,9 +159,16 @@ no network I/O. Startup and selection never establish a printer connection.
 Configuration remains the existing version-1 host repository, including its API
 key storage and console URL fallback. The domain projects opaque credential
 references; it never includes keys in descriptions, snapshots, operations or
-errors. Existing settings still edit the host configuration repository and
-Electron retains its existing built-in console authentication script. This is
-not a credential-storage migration. Route changes invalidate cached readings
+errors. Explicit configuration-form reads can return credentials for editing.
+Agents advertise manual configuration support and its host, input fields,
+labels, required flags, defaults and optional model selection through the local
+type catalogue. The shared form reads and saves through the agent configuration
+API. Agents validate and persist locally, serialize repository mutations, check
+route revisions on edits and recognize repeated save requests. The HTTP agents
+continue using the version-1 host repository, including stable printer IDs,
+model associations and independent print preferences. Switching between the two
+HTTP adapters preserves the printer ID. Electron retains its existing built-in
+console authentication script. Route changes invalidate cached readings
 and change an opaque configuration revision. In-flight operations retain their
 submission configuration; later actions on old file references reject as stale.
 

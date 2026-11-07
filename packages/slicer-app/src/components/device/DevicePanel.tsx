@@ -1,7 +1,7 @@
 import { useProjectDialogStore } from '@/stores/useProjectDialogStore';
 import { useDeviceSelectionStore } from '@/stores/useDeviceSelectionStore';
 import { PrinterDiscovery } from './PrinterDiscovery';
-import { PrinterModelSelector } from './PrinterModelSelector';
+import { PrinterConfigurationDialog } from './PrinterConfigurationDialog';
 import {
   useEffect,
   useMemo,
@@ -14,14 +14,11 @@ import {
 import { Pencil, Plus, Trash2, Monitor } from 'lucide-react';
 import type { SavedPrinter, PrinterRoute, TargetRequest } from '@orca/printer-control/domain';
 import { usePrinterCatalogue } from './usePrinterCatalogue';
-import type { PrinterConfiguration, PrinterConfigurationDocument } from '@orca/printer-control';
-import { normalizePrinterConfiguration, normalizePrinterConfigurationDocument } from '@orca/printer-control';
+import type { PrinterConfiguration } from '@orca/printer-control';
+import { normalizePrinterConfigurationDocument } from '@orca/printer-control';
 import { updateUserPreferences, usePlatform, type WebViewHost, type WebViewPanelState } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
-import { Input } from '@/components/ui/input';
-import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
 import { PrinterMonitor, supportsMonitor } from './PrinterMonitor';
@@ -29,19 +26,9 @@ import { PrinterStorage } from './PrinterStorage';
 
 type DialogState =
   | { kind: 'add' }
-  | { kind: 'edit'; printerId: string }
+  | { kind: 'edit'; printerId: string; target: TargetRequest }
   | { kind: 'delete'; printerId: string; target: TargetRequest }
   | null;
-
-export type PrinterDraft = Omit<PrinterConfiguration, 'id'> & { id?: string };
-
-const EMPTY_DRAFT: PrinterDraft = {
-  displayName: '',
-  driverId: 'moonraker',
-  consoleUrl: '',
-  apiBaseUrl: '',
-  apiKey: '',
-};
 
 const DEFAULT_DEVICE_SIDEBAR_WIDTH = 288;
 const MIN_DEVICE_SIDEBAR_WIDTH = 220;
@@ -50,15 +37,6 @@ const MAX_DEVICE_SIDEBAR_WIDTH = 560;
 function clampDeviceSidebarWidth(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_DEVICE_SIDEBAR_WIDTH;
   return Math.min(MAX_DEVICE_SIDEBAR_WIDTH, Math.max(MIN_DEVICE_SIDEBAR_WIDTH, value!));
-}
-
-let printerIdSequence = 0;
-function newPrinterId(): string {
-  // Stable IDs are generated locally and never exposed to the console page.
-  const randomUuid = globalThis.crypto?.randomUUID;
-  if (typeof randomUuid === 'function') return randomUuid.call(globalThis.crypto);
-  printerIdSequence += 1;
-  return `printer-${Date.now().toString(36)}-${printerIdSequence.toString(36)}`;
 }
 
 export function panelMessage(state: WebViewPanelState): string | null {
@@ -100,19 +78,6 @@ export function mountPrinterConsolePanel(
   };
 }
 
-export function savePrinterDraft(
-  document: PrinterConfigurationDocument,
-  draft: PrinterDraft,
-  mode: 'add' | 'edit',
-  printerId = newPrinterId(),
-) {
-  const normalized = normalizePrinterConfiguration({ ...draft, id: printerId });
-  const next = mode === 'edit'
-    ? document.printers.map((printer) => printer.id === printerId ? normalized : printer)
-    : [...document.printers, normalized];
-  return normalizePrinterConfigurationDocument({ ...document, printers: next });
-}
-
 export function removePrinter(printers: readonly PrinterConfiguration[], printerId: string) {
   return normalizePrinterConfigurationDocument({
     version: 1,
@@ -131,7 +96,6 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   const [selectedPage, setSelectedPage] = useState<'web' | 'monitor' | 'storage' | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
   const dialogOpener = useRef<HTMLButtonElement>(null);
-  const [draft, setDraft] = useState<PrinterDraft>(EMPTY_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
   const [panelState, setPanelState] = useState<WebViewPanelState>({ status: 'idle', url: null, error: null });
   const webviewContainerRef = useRef<HTMLDivElement>(null);
@@ -313,20 +277,17 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   function beginAdd(event: ReactMouseEvent<HTMLButtonElement>) {
     dialogOpener.current = event.currentTarget;
     setFormError(null);
-    setDraft({ ...EMPTY_DRAFT });
     setDialog({ kind: 'add' });
   }
 
-  async function beginEdit(printer: SavedPrinter, opener: HTMLButtonElement) {
+  function beginEdit(printer: SavedPrinter, opener: HTMLButtonElement) {
+    const route = printer.routes.find(value => value.management.configure);
+    if (!route) return;
     dialogOpener.current = opener;
-    try {
-      const document = await platform.printers.configuration.load();
-      const configuration = document.printers.find(value => value.id === printer.identity.id);
-      if (!configuration) return;
-      setFormError(null);
-      setDraft({ ...configuration });
-      setDialog({ kind: 'edit', printerId: printer.identity.id });
-    } catch { setFormError('Unable to load this printer configuration.'); }
+    setFormError(null);
+    setDialog({ kind: 'edit', printerId: printer.identity.id, target: {
+      printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision,
+    } });
   }
 
   function beginDelete(printer: SavedPrinter, route: PrinterRoute) {
@@ -339,21 +300,6 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
   function closeDialog() {
     setDialog(null);
     setFormError(null);
-  }
-
-  async function saveDraft() {
-    const id = dialog?.kind === 'edit' ? dialog.printerId : newPrinterId();
-    try {
-      const current = await platform.printers.configuration.load();
-      const document = savePrinterDraft(current, draft, dialog?.kind === 'edit' ? 'edit' : 'add', id);
-      await platform.printers.configuration.save(document);
-      await refresh();
-      closeDialog();
-    } catch {
-      // Normalizer messages contain field names only; keep the visible copy
-      // generic so malformed input or host errors can never echo a secret.
-      setFormError('Unable to save this printer configuration. Check each field and try again.');
-    }
   }
 
   async function confirmDelete() {
@@ -494,61 +440,8 @@ export function DevicePanel({ initialSelection = null, sidebarVisible = true, vi
       )}
 
       {(dialog?.kind === 'add' || dialog?.kind === 'edit') && (
-        <Dialog open onOpenChange={open => { if (!open) closeDialog(); }} disablePointerDismissal>
-          <DialogContent finalFocus={dialogOpener} className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-lg overflow-y-auto" data-testid="device-config-dialog">
-            <form className="flex flex-col gap-4" onSubmit={(event) => { event.preventDefault(); void saveDraft(); }}>
-              <DialogHeader>
-                <DialogTitle>{dialog.kind === 'add' ? 'Add printer' : 'Edit printer'}</DialogTitle>
-                <DialogDescription>Configure the printer console and Moonraker API separately.</DialogDescription>
-              </DialogHeader>
-              <FieldGroup>
-                <Field orientation="responsive">
-                  <FieldLabel className="@md/field-group:w-40! @md/field-group:flex-none!" htmlFor="device-display-name">Display name</FieldLabel>
-                  <FieldContent className="min-w-0">
-                    <Input id="device-display-name" data-testid="device-display-name" value={draft.displayName} onChange={(event) => setDraft({ ...draft, displayName: event.target.value })} autoFocus required />
-                  </FieldContent>
-                </Field>
-                <Field orientation="responsive">
-                  <FieldLabel className="@md/field-group:w-40! @md/field-group:flex-none!" htmlFor="device-adapter">Adapter</FieldLabel>
-                  <FieldContent className="min-w-0">
-                    <Select value={draft.driverId} items={[{ value: 'moonraker', label: 'Moonraker' }, { value: 'snapmaker', label: 'Snapmaker' }]} onValueChange={(value) => setDraft({ ...draft, driverId: value as PrinterConfiguration['driverId'] })}>
-                      <SelectTrigger id="device-adapter" className="w-full" data-testid="device-adapter">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup><SelectItem value="moonraker">Moonraker</SelectItem><SelectItem value="snapmaker">Snapmaker</SelectItem></SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </FieldContent>
-                </Field>
-                <PrinterModelSelector value={draft.printerModel} onChange={printerModel => setDraft({ ...draft, printerModel })} />
-                <Field orientation="responsive">
-                  <FieldLabel className="@md/field-group:w-40! @md/field-group:flex-none!" htmlFor="device-api-base-url">API base URL</FieldLabel>
-                  <FieldContent className="min-w-0">
-                    <Input id="device-api-base-url" data-testid="device-api-base-url" type="url" placeholder="http://printer.local:7125/" value={draft.apiBaseUrl} onChange={(event) => setDraft({ ...draft, apiBaseUrl: event.target.value })} required />
-                  </FieldContent>
-                </Field>
-                <Field orientation="responsive">
-                  <FieldLabel className="@md/field-group:w-40! @md/field-group:flex-none!" htmlFor="device-console-url">Console URL <span className="text-muted-foreground">(optional)</span></FieldLabel>
-                  <FieldContent className="min-w-0">
-                    <Input id="device-console-url" data-testid="device-console-url" type="url" placeholder="Uses API base URL when blank" value={draft.consoleUrl} onChange={(event) => setDraft({ ...draft, consoleUrl: event.target.value })} />
-                  </FieldContent>
-                </Field>
-                <Field orientation="responsive">
-                  <FieldLabel className="@md/field-group:w-40! @md/field-group:flex-none!" htmlFor="device-api-key">API key</FieldLabel>
-                  <FieldContent className="min-w-0">
-                    <Input id="device-api-key" data-testid="device-api-key" type="password" autoComplete="off" value={draft.apiKey} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} />
-                  </FieldContent>
-                </Field>
-              </FieldGroup>
-              {formError && <FieldError>{formError}</FieldError>}
-              <DialogFooter>
-                <Button type="button" variant="ghost" onClick={closeDialog}>Cancel</Button>
-                <Button type="submit" data-testid="device-save-printer">Save</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <PrinterConfigurationDialog target={dialog.kind === 'edit' ? dialog.target : null} opener={dialogOpener}
+          onClose={closeDialog} onSaved={async () => { await refresh(); closeDialog(); }} />
       )}
     </section>
   );

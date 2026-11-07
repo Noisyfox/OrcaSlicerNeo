@@ -8,6 +8,7 @@ import type { PrinterFiles } from './files';
 import type { PrinterMedia } from './media';
 import type { PrinterOperations, PrinterControls } from './control';
 import type { PrinterWebInterfaces } from './web-interface';
+import type { PrinterConfigurationForm, PrinterConfigurations } from './configuration';
 
 /**
  * K bounds possible keys, not the actual requested set. A widened/dynamic topic
@@ -82,6 +83,7 @@ export interface PrinterTypeDescriptor {
   providerId: Id<'provider'>;
   name: string;
   description: string;
+  manualConfiguration: Capability<PrinterConfigurationForm>;
 }
 export interface DiscoveryCandidate {
   id: Id<'candidate'>;
@@ -119,6 +121,7 @@ export interface PrinterProvider extends ServiceProvider {
   readonly printers: PrinterService;
 }
 export interface PrinterService {
+  readonly configurations: PrinterConfigurations;
   readonly submissions: PrinterSubmissions;
   readonly remotePrints: PrinterRemotePrints;
   readonly operations: PrinterOperations;

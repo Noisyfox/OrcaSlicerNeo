@@ -6,7 +6,7 @@ import { prepareU1Submission, u1PreparationFromDevice, type U1PreparationSnapsho
 import { u1MaterialInventory, matchU1Materials, type FilamentMatcher } from './snapmaker-observation';
 import { unsupportedSubmissions } from './submission';
 /** Shared request-based HTTP service with provider-owned routes and operation records. */
-import { normalizePrinterConfigurationDocument, type PrinterConfiguration, type PrinterConfigurationDocument } from './configuration';
+import { BUILT_IN_PRINTER_DRIVER_IDS, normalizePrinterConfiguration, normalizePrinterConfigurationDocument, type PrinterConfiguration, type PrinterConfigurationDocument } from './configuration';
 import type { PrinterTransport } from './transport';
 import type * as D from './domain';
 import { MoonrakerHttp, MoonrakerFailure, fail, publicError, record } from './moonraker-http';
@@ -72,6 +72,11 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
   const typeId = driver as D.Id<'printer-type'>;
   const webId = `${driver}-web` as D.Id<'web-interface'>;
   const name = driver === 'snapmaker' ? 'Snapmaker' : 'Moonraker';
+  const configurationForm = supported<D.PrinterConfigurationForm>({ hostId: options.host.id, supportsModelSelection: true, fields: [
+    { key: 'apiBaseUrl', label: 'API base URL', type: 'url', required: true, placeholder: 'http://printer.local:7125/', defaultValue: '' },
+    { key: 'consoleUrl', label: 'Console URL', type: 'url', required: false, placeholder: 'Uses API base URL when blank', defaultValue: '' },
+    { key: 'apiKey', label: 'API key', type: 'password', required: false, placeholder: '', defaultValue: '' },
+  ] });
   const routeId = (id: string) => `${driver}:${id}` as D.Id<'route'>;
   const targetFor = (id: string): D.PrinterTarget => ({ printerId: id as D.Id<'printer'>, routeId: routeId(id) });
   const filePrefix = `${driver}-file:`;
@@ -432,7 +437,40 @@ function createHttpPrinterService(options: MoonrakerServiceOptions, driver: Prin
     operations: operations.api, controls, files, observations,
     media: { readPrintObjectMap: async () => rejected(), readStream: unsupportedStream, readCurrentPrintPreview: async () => rejected(), open: async () => rejected(), watch: unsupportedStream, renew: async () => rejected(), sendSignal: async () => rejected(), readContent: async () => rejected(), close: async () => rejected(), captureSnapshot: async () => rejected() },
     listProviders: async () => ({ ok: true, value: [{ id: providerId, name, hosts: [{ ...options.host, discovery: unsupported }] }] }),
-    listTypes: async () => ({ ok: true, value: [{ id: typeId, providerId, name, description: `${name} HTTP and Web interface` }] }),
+    configurations: {
+      read: target => mutate(async snapshot => {
+        const { printer } = resolveSnapshot(snapshot, target);
+        return { typeId, displayName: printer.displayName,
+          values: { apiBaseUrl: printer.apiBaseUrl, consoleUrl: printer.consoleUrl, apiKey: printer.apiKey },
+          printerModel: printer.printerModel ?? null };
+      }),
+      save: request => mutate(async snapshot => {
+        const requestedDriver = BUILT_IN_PRINTER_DRIVER_IDS.find(value => value === request.typeId);
+        if (!requestedDriver || request.hostId !== options.host.id) fail('unsupported', 'Unsupported manual printer configuration');
+        if (Object.keys(request.values).some(key => !['apiBaseUrl', 'consoleUrl', 'apiKey'].includes(key)))
+          fail('invalid-request', 'Unknown printer configuration field');
+        const signature = requestSignature(request);
+        const requestKey = `${driver}:configuration:${request.requestId}`;
+        const previousRequest = state.additions.get(requestKey);
+        if (previousRequest) {
+          if (previousRequest.signature !== signature) fail('invalid-request', 'Request identity was already used with different parameters');
+          if (!snapshot.document.printers.some(printer => printer.id === previousRequest.printerId)) fail('invalid-target', 'Previously configured printer was removed');
+          return null;
+        }
+        const previous = request.target ? resolveSnapshot(snapshot, request.target).printer : undefined;
+        const printerId = previous?.id ?? newId<'printer'>();
+        const printer = normalizePrinterConfiguration({ id: printerId, driverId: requestedDriver,
+          displayName: request.displayName, apiBaseUrl: request.values.apiBaseUrl,
+          consoleUrl: request.values.consoleUrl, apiKey: request.values.apiKey,
+          ...(request.printerModel ? { printerModel: request.printerModel } : {}) });
+        const document = snapshot.document;
+        const printers = previous ? document.printers.map(value => value.id === printerId ? printer : value) : [...document.printers, printer];
+        await saveConfiguration({ ...document, printers });
+        state.additions.set(requestKey, { signature, printerId });
+        return null;
+      }),
+    },
+    listTypes: async () => ({ ok: true, value: [{ id: typeId, providerId, name, description: `${name} HTTP and Web interface`, manualConfiguration: configurationForm }] }),
     listSaved: () => safe(async () => (await withConfiguration(loadConfiguration)).printers.map(saved)),
     onSavedChanged: listener => {
       if (options.configuration.onChanged) return options.configuration.onChanged(listener);
