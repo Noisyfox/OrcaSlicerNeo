@@ -964,7 +964,7 @@ json device_material_catalogue_json(const json& request)
     const std::string diameter_text = diameter == 0. ? "0.4" : text.str();
     const Preset* machine = nullptr;
     for (const auto& preset : bundle.printers) {
-        if (!preset.is_system || !device_model_matches(preset, identity) || preset.name.find(diameter_text) == std::string::npos) continue;
+        if (!preset.is_system || !device_model_matches(preset, identity) || preset.config.opt_string("printer_variant") != diameter_text) continue;
         if (machine) throw std::runtime_error("Device model and nozzle do not identify one system printer preset");
         machine = &preset;
     }

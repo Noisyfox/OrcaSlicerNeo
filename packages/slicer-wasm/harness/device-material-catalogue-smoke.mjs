@@ -18,6 +18,15 @@ assert.equal(query({ toolIndex: .5 }).ok, false);
 assert.equal(query({ identity: { ...identity, model: 'Unknown', externalRefs: [] } }).ok, false);
 assert.equal(JSON.stringify(observe()), before, 'failed reads are also pure');
 
+// A 0.4+0.6 U1 preset must not make a uniform 0.4 catalogue ambiguous.
+const u1 = { manufacturer: 'Snapmaker', model: 'Snapmaker U1', externalRefs: [] };
+for (const toolIndex of [0, 1, 2, 3]) {
+  const catalogue = ok(query({ identity: u1, mainNozzleDiameterMm: .4, toolIndex, supportsUserPresets: true }));
+  assert.ok(catalogue.presets.some(preset => preset.label === 'Snapmaker PLA SnapSpeed' && preset.nozzleTemperatureRangeC?.min > 0));
+}
+ok(query({ identity: u1, mainNozzleDiameterMm: .6, toolIndex: 2 }));
+assert.equal(JSON.stringify(observe()), before, 'U1 catalogue reads preserve an unrelated Bambu project');
+
 // Saved derived user material and its unsaved/history variants are not independent device identities.
 const base = first.presets.find(p => p.label.includes('Bambu PLA Basic')).key;
 let saved = ok(command('orc_prepare_user_preset', { history_context: context, action: 'save-as', kind: 'filament',
