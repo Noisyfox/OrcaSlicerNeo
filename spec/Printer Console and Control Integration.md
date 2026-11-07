@@ -3029,12 +3029,35 @@ must not include API keys.
 
 Still **unrun**: actual start/printing; physical many-to-one material and
 shared-heater behavior; inserted-but-unloaded startup; flow-calibration subsets;
-individual load/unload; heating/motion; material-metadata writes (which may alter
-the association with RFID-reported metadata); disconnected top-cover controls;
+individual load/unload; heating/motion; successful non-official material-metadata
+writes (which may alter the association with RFID-reported metadata); disconnected top-cover controls;
 physical disconnect/cancel/exit races; real-Web-to-U1 networking; other models,
 firmware or installer platforms. The calibration-subset field discrepancy
 remains a physical qualification item. No claim of universal U1 compatibility
 is made by this bounded acceptance.
+
+#### Material information write admission (2026-11-07)
+
+The same Windows/LAN U1 and firmware were tested through the real Electron
+Material information dialog and threaded WASM catalogue. All four heads
+reported official Snapmaker PLA SnapSpeed, `filament_official=true` and
+`filament_edit=false`. Toolhead 1's color was changed locally from `080A0DFF`
+to `12A4EFFF` and submitted through Confirm. The firmware rejected the command
+with `official filament, not configurable!`. Monitor displayed the generic
+printer-rejection feedback. Reopening the editor showed the original material
+and color. Fresh reads verified all four heads' vendor/type/series/color,
+presence, official/edit flags and SKU against the baseline, together with
+unchanged standby/filename state and five zero heater targets. No restoration
+write was needed. This qualifies the device-decided rejection path. Successful
+non-official material writes remain unqualified.
+
+The separate [material hardware test](../apps/desktop/e2e/snapmaker-material-hardware.e2e.ts)
+requires the real-WASM build and selected configuration above, plus the explicit
+`NEO_U1_ACCEPTANCE_MATERIAL_WRITES=1` opt-in. Run it with
+`pnpm --filter @orca/desktop exec playwright test e2e/snapmaker-material-hardware.e2e.ts`.
+The test records before/after values and a rejection screenshot without API
+keys. Production behavior continues to let firmware decide admission and
+preserves the existing exclusion of forced official-filament edits.
 
 ### Comparison baseline and evidence limits
 
