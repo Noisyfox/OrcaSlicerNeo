@@ -23,6 +23,8 @@ export interface PrinterTransportRequest {
   url: string;
   /** Defaults to JSON. Binary responses bypass host text/JSON decoding. */
   responseType?: 'json' | 'bytes';
+  /** Optional receive ceiling, enforced by the host while reading the response. */
+  maxResponseBytes?: number;
   headers?: Readonly<Record<string, string>>;
   body?: PrinterTransportBody;
   signal?: AbortSignal;

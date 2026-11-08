@@ -72,6 +72,7 @@ export class U1CameraControl {
   private ended: MoonrakerFailure | undefined;
   private endResolve!: () => void;
   readonly closed: Promise<void>;
+  get connected(): boolean { return !this.ended && this.socket.readyState === 1; }
 
   private constructor(private readonly socket: PrinterWebSocket, private readonly base: string, readonly clientId: string) {
     this.ready = new Promise((resolve, reject) => { this.readyResolve = resolve; this.readyReject = reject; });
@@ -194,4 +195,29 @@ export class U1CameraControl {
     await this.request('camera.stop_monitor', { domain: 'lan', clientid: this.clientId }, signal);
   }
   close(): void { this.finish(failure('cancelled', 'Camera connection closed.')); }
+}
+
+export const U1_CAMERA_MAX_FRAME_BYTES = 16 * 1024 * 1024;
+
+/** Host transports enforce the receive ceiling; this also validates the delivered buffer. */
+export async function readU1CameraFrame(printer: Pick<PrinterConfiguration, 'apiKey'>, source: string, http: PrinterTransport, caller?: AbortSignal): Promise<Uint8Array> {
+  const scope = deadline(caller);
+  try {
+    if (scope.signal.aborted) throw interrupted(caller);
+    const url = new URL(source);
+    url.searchParams.set('_nocache', `${Date.now()}-${crypto.randomUUID()}`);
+    const response = await bounded(http.request({ method: 'GET', url: url.href, responseType: 'bytes',
+      maxResponseBytes: U1_CAMERA_MAX_FRAME_BYTES, signal: scope.signal,
+      headers: printer.apiKey ? { 'X-Api-Key': printer.apiKey } : {} }), scope.signal, caller);
+    if (response.status === 401) fail('authentication-required', 'Camera authentication required.');
+    if (response.status === 403) fail('permission-denied', 'Camera access denied.');
+    if (response.status < 200 || response.status >= 300) fail('transport', 'Camera image unavailable.');
+    const bytes = await bounded(response.bytes(), scope.signal, caller);
+    if (bytes.length < 4 || bytes.length > U1_CAMERA_MAX_FRAME_BYTES || bytes[0] !== 255 || bytes[1] !== 216
+      || bytes.at(-2) !== 255 || bytes.at(-1) !== 217) fail('device-failed', 'Invalid camera JPEG frame.');
+    return bytes;
+  } catch (error) {
+    if (error instanceof MoonrakerFailure) throw error;
+    throw interrupted(caller);
+  } finally { scope.dispose(); }
 }
