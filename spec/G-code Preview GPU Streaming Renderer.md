@@ -109,7 +109,10 @@ and visibility controls.
 
 The template is created once per renderer context and shared by all pages. Its
 `vertex_id` attribute contains libvgcode's eight logical vertex IDs expanded to
-24 vertex invocations. Each page uses a Three.js `InstancedMesh`; the vertex
+24 vertex invocations. Each ID is a four-byte float matching the GLSL input,
+with a four-byte attribute stride; the IDs remain exactly the integers 0–7.
+This avoids the packed one-byte layout without changing the nonindexed draws
+or opaque rendering contract. Each page uses a Three.js `InstancedMesh`; the vertex
 shader reads the page's selected local ID, adds `segment_base`, fetches the
 global textures, and emits the camera-facing physical-width/height band.
 
