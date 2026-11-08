@@ -1,5 +1,8 @@
 #include <CGAL/CORE_Expr.h>
 #include <CGAL/Exact_predicates_exact_constructions_kernel_with_sqrt.h>
+#include <CGAL/tags.h>
+#include "libslic3r/MeshRepair.hpp"
+#include "libslic3r/TriangleMesh.hpp"
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -7,6 +10,9 @@
 #include <igl/copyleft/cgal/assign_scalar.h>
 #include <mpfr.h>
 #include <stdexcept>
+#include <string>
+#include <type_traits>
+#include <utility>
 #if !defined(CGAL_USE_GMP) || !defined(CGAL_USE_MPFR) || !defined(CGAL_USE_CORE)
 #error Full GMP MPFR CORE configuration is required.
 #endif
@@ -16,6 +22,15 @@ static void require(bool condition, const char *message) {
 }
 void run_numeric_backend_tests() {
     static_assert(sizeof(mp_limb_t) * 8 == GMP_LIMB_BITS, "GMP ABI mismatch");
+#if defined(ORCA_WASM_THREADING)
+    static_assert(std::is_same_v<CGAL::Parallel_if_available_tag, CGAL::Parallel_tag>,
+                  "Threaded CGAL must use the real TBB interface");
+    constexpr bool cgal_parallel = true;
+#else
+    static_assert(std::is_same_v<CGAL::Parallel_if_available_tag, CGAL::Sequential_tag>,
+                  "Serial CGAL must not select parallel algorithms");
+    constexpr bool cgal_parallel = false;
+#endif
     for (unsigned i = 1; i <= 64; i++) {
         mpz_class a = (mpz_class(1) << (512 + i * 3)) + 1234567;
         mpz_class b = (mpz_class(1) << (255 + i * 2)) - 76543;
@@ -57,10 +72,22 @@ void run_numeric_backend_tests() {
     const CGAL::Epeck::FT rational = CGAL::Epeck::FT(1) / 3;
     igl::copyleft::cgal::assign_scalar(rational, d);
     require(std::abs(d - 1.0 / 3.0) < 1e-15, "unmodified libigl rational conversion failed");
+
+    // Exercise the production repair path, including CGAL's configured
+    // Parallel_if_available_tag self-intersection pass, in both variants.
+    auto open_cube = Slic3r::its_make_cube(20., 20., 20.);
+    open_cube.indices.erase(open_cube.indices.begin(), open_cube.indices.begin() + 3);
+    Slic3r::TriangleMesh repaired(std::move(open_cube));
+    Slic3r::MeshRepairStats repair_stats;
+    std::string repair_error;
+    require(Slic3r::repair_mesh(repaired, &repair_stats, &repair_error), "CGAL mesh repair failed");
+    require(repair_stats.filled_holes > 0 && Slic3r::its_num_open_edges(repaired.its) == 0 &&
+                std::abs(Slic3r::its_volume(repaired.its) - 8000.) < .8,
+            "CGAL mesh repair did not restore the closed cube");
     std::printf("{\"kind\":\"numeric\",\"passed\":true,\"pointerBits\":%zu,\"longBits\":%zu,"
                 "\"gmpLimbBits\":%d,\"gmpVersion\":\"%s\",\"mpfrVersion\":\"%s\",\"mpfrTLS\":%d,"
-                "\"coreEnabled\":true,\"libiglModified\":false}\n",
+                "\"coreEnabled\":true,\"libiglModified\":false,\"cgalParallel\":%s,\"meshRepair\":true}\n",
                 sizeof(void *) * 8, sizeof(long) * 8, GMP_LIMB_BITS, gmp_version,
-                mpfr_get_version(), mpfr_buildopt_tls_p());
+                mpfr_get_version(), mpfr_buildopt_tls_p(), cgal_parallel ? "true" : "false");
     mpfr_free_cache();
 }

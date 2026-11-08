@@ -46,6 +46,7 @@ for (const route of ['lan', 'cloud', 'device-file']) test(`${route} dispatch dis
     await closed;
     const text = await readFile(trace, 'utf8');
     assert(text.indexOf('print-published') < text.indexOf('destroy'));
+    assert(text.includes('print-queue:empty'));
   });
 });
 test('device-file start preserves remote archive and plate without invoking upload', async () => {

@@ -195,7 +195,7 @@ const exclusionSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string
   [JSON.stringify({ bed_exclude_area: collisionArea }), exclusionContext.current_plate_id,
     exclusionContext.input_revisions[exclusionContext.current_plate_id], 'null']);
 assert.notEqual(exclusionSlice.ok, true, JSON.stringify(exclusionSlice));
-assert.match(exclusionSlice.error ?? '', /Prime Tower is too close to an exclusion area, and collisions will be caused/,
+assert.match(exclusionSlice.error ?? '', /Prime tower is too close to an exclusion area, and collisions will be caused/,
   JSON.stringify(exclusionSlice));
 const combinedPlate = assertNoPlateCoordinates();
 const combinedCollisionAndInvalidConfig = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
@@ -211,7 +211,7 @@ const wrappingSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string'
   [JSON.stringify({ enable_wrapping_detection: '1', wrapping_exclude_area: collisionArea }), wrappingContext.current_plate_id,
     wrappingContext.input_revisions[wrappingContext.current_plate_id], 'null']);
 assert.notEqual(wrappingSlice.ok, true, JSON.stringify(wrappingSlice));
-assert.match(wrappingSlice.error ?? '', /Prime Tower is too close to clumping detection area, and collisions will be caused/,
+assert.match(wrappingSlice.error ?? '', /Prime tower is too close to the clumping detection area, and collisions will be caused/,
   JSON.stringify(wrappingSlice));
 
 // Unrelated native validation remains a hard error.

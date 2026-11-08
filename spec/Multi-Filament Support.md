@@ -1841,6 +1841,13 @@ native catalogue lookup with Orca's unknown fallback. Preserve the distinction
 between AMS and external supply so the native per-extruder AMS-first/external
 fallback remains effective.
 
+For Convenience/Match, pass the observed `orca-filament` catalogue identity to
+native `filament_id`, and populate the model-side `filament_ids` from every
+selected native preset, including multi-slot configurations. Orca 2.5.0 uses
+that identity to distinguish same-color material subtypes. Missing identities
+retain the native fallback and do not make a supply ineligible. Flush's loaded
+material preference remains a separate native rule.
+
 Add no presence/placeholder filter ahead of the native converter. An observed
 empty slot or unknown presence can remain a candidate when its metadata meets
 the native converter's requirements. Missing metadata is not fabricated.

@@ -80,7 +80,7 @@ jobs:
       - name: Select compiled dependency cache key
         id: dependency-key
         env:
-          DEPS_INPUT_HASH: ${{ hashFiles('scripts/download-dependency.mjs', 'packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/cgal/**/*.test.*') }}
+          DEPS_INPUT_HASH: ${{ hashFiles('scripts/download-dependency.mjs', 'packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/dependencies/external/**', 'packages/slicer-wasm/cpp/deps/EXPAT/expat/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/**/*.test.*') }}
         run: echo "key=${{ runner.os }}-wasm64-deps-emsdk-${EMSDK_VERSION}-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Select tested WASM artifact cache key
         id: build-key
@@ -114,6 +114,11 @@ jobs:
           WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build-occt-wasm64.sh
           node packages/slicer-wasm/dependencies/cgal/build.mjs build --target wasm64 --variant threaded
           node packages/slicer-wasm/dependencies/cgal/build.mjs build --target wasm64 --variant serial
+          for variant in threaded serial; do
+            for library in qhull expat; do
+              node packages/slicer-wasm/dependencies/external/build.mjs build --library "$library" --target wasm64 --variant "$variant"
+            done
+          done
       - name: Verify staged WASM dependencies
         run: |
           deps=packages/slicer-wasm/.work/deps
@@ -129,9 +134,9 @@ jobs:
             require_file "$deps/nlopt-2.5.0/stage-wasm64-$variant/include/nlopt.hpp"
             require_file "$deps/nlopt-2.5.0/stage-wasm64-$variant/lib/libnlopt.a"
             require_file "$deps/draco-1.5.7/stage-wasm64-$variant/lib/libdraco.a"
-            require_file "$deps/occt-7.6.0/stage-wasm64-$variant/include/opencascade/Standard.hxx"
-            require_file "$deps/occt-7.6.0/stage-wasm64-$variant/lib/libTKXDESTEP.a"
-            grep -qx 'USE_FREETYPE=OFF' "$deps/occt-7.6.0/stage-wasm64-$variant/manifest.txt"
+            for library in occt qhull expat; do
+              node packages/slicer-wasm/dependencies/external/build.mjs verify --library "$library" --target wasm64 --variant "$variant"
+            done
             node packages/slicer-wasm/dependencies/cgal/build.mjs verify --target wasm64 --variant "$variant"
           done
       - name: Save compiled WASM dependencies
@@ -350,8 +355,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Keep wasm64's key expressions and native inputs above unchanged: existing
-  # dependency and tested-artifact caches remain exact hits after this addition.
+  # Both address widths track the same native recipes and source identity;
+  # wasm32 additionally tracks its scaffold generator and uses a separate cache.
   wasm32_deps:
     name: WASM32 dependencies
     runs-on: ubuntu-latest
@@ -371,7 +376,7 @@ jobs:
       - name: Select compiled wasm32 dependency cache key
         id: dependency-key
         env:
-          DEPS_INPUT_HASH: ${{ hashFiles('scripts/download-dependency.mjs', 'packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/cgal/**/*.test.*', 'scripts/build-wasm32.mjs') }}
+          DEPS_INPUT_HASH: ${{ hashFiles('scripts/download-dependency.mjs', 'packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/dependencies/cgal/**', 'packages/slicer-wasm/dependencies/external/**', 'packages/slicer-wasm/cpp/deps/EXPAT/expat/**', 'packages/slicer-wasm/cpp/deps/GMP/0001-GMP_GCC15.patch', '!packages/slicer-wasm/dependencies/**/*.test.*', 'scripts/build-wasm32.mjs') }}
         run: echo "key=${{ runner.os }}-wasm32-deps-emsdk-${EMSDK_VERSION}-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Select tested wasm32 artifact cache key
         id: build-key
@@ -394,6 +399,9 @@ jobs:
           node scripts/build-wasm32.mjs verify-deps
           for variant in threaded serial; do
             WORK_DIR=packages/slicer-wasm/.work/wasm32 node packages/slicer-wasm/dependencies/cgal/build.mjs verify --target wasm32 --variant "$variant"
+            for library in occt qhull expat; do
+              WORK_DIR=packages/slicer-wasm/.work/wasm32 node packages/slicer-wasm/dependencies/external/build.mjs verify --library "$library" --target wasm32 --variant "$variant"
+            done
           done
       - name: Save compiled wasm32 dependencies before core compilation
         if: steps.dependency-cache.outputs.cache-hit != 'true'
@@ -505,7 +513,7 @@ jobs:
       - run: pnpm -r test
       - run: pnpm -r typecheck
       - name: Verify wasm32 build scaffold and host/Pages artifact boundaries
-        run: node --test scripts/download-dependency.test.mjs packages/slicer-wasm/dependencies/cgal/build.test.mjs scripts/build-wasm32.test.mjs scripts/stage.test.mjs scripts/prepare-web-pages.test.mjs
+        run: node --test scripts/download-dependency.test.mjs packages/slicer-wasm/dependencies/cgal/build.test.mjs packages/slicer-wasm/dependencies/external/build.test.mjs scripts/build-wasm32.test.mjs scripts/stage.test.mjs scripts/prepare-web-pages.test.mjs
 
   e2e-mock:
     name: e2e (mock module)

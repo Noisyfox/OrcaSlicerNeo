@@ -329,6 +329,29 @@ int main()
     metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
     CHECK(metadata_before.mutable_objects[0].data != metadata_after.mutable_objects[0].data);
 
+    metadata_before = metadata_after;
+    metadata_object->auto_drop = false;
+    metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    CHECK(metadata_before.mutable_objects[0].data != metadata_after.mutable_objects[0].data);
+    CHECK(stage_model(metadata_model, metadata_after).objects[0]->auto_drop == false);
+    CHECK(stage_model(metadata_model, metadata_before).objects[0]->auto_drop == true);
+
+    // UV and texture data have no revision counter: each capture must keep the
+    // current payload even when the object and mesh identities are unchanged.
+    metadata_volume->texture_uv.assign(metadata_volume->mesh().its.indices.size() * 3, Vec2f(.2f, .3f));
+    metadata_before = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    metadata_volume->texture_uv[0] = Vec2f(.8f, .9f);
+    metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    CHECK(metadata_before.mutable_objects[0].data != metadata_after.mutable_objects[0].data);
+    CHECK(stage_model(metadata_model, metadata_before).objects[0]->volumes[0]->texture_uv[0] == Vec2f(.2f, .3f));
+    CHECK(stage_model(metadata_model, metadata_after).objects[0]->volumes[0]->texture_uv[0] == Vec2f(.8f, .9f));
+    metadata_volume->reset_texture_uv();
+    metadata_before = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    metadata_volume->texture_displacement_options.smooth_enabled = true;
+    metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    CHECK(metadata_before.mutable_objects[0].data != metadata_after.mutable_objects[0].data);
+    CHECK(stage_model(metadata_model, metadata_after).objects[0]->volumes[0]->texture_displacement_options.smooth_enabled);
+
     // Consecutive retained states still restore complete, self-sufficient
     // object records. This exercises both navigation directions after the
     // timestamp-gated captures rather than reconstructing deltas.

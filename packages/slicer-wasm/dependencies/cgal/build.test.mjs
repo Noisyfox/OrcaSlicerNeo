@@ -9,7 +9,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { settings, source, verifyStage } from './build.mjs';
 
-for (const [extension, flags] of [['zip', ['cf', '--format=zip']], ['tar.bz2', ['cjf']]]) {
+for (const [extension, flags] of [['zip', ['cf', '--format=zip']], ['tar.bz2', ['cjf']], ['tar.xz', ['cJf']]]) {
   test(`cold ${extension} source retries HTTP failures, verifies and extracts with CMake`, async t => {
     const root = await mkdtemp(join(tmpdir(), 'orca-source-'));
     const directory = 'fixture-1';

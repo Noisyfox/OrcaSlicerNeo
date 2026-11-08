@@ -33,14 +33,59 @@ export function createDesktopUserPresetStorage(directory: string): UserPresetSto
       }
       return files;
     },
-    async write(change) {
-      validateUserPresetPath(change.path);
+    async write(changes) {
+      const writes = changes.map(change => ({ ...change }));
+      const paths = new Set<string>();
+      for (const change of writes) {
+        validateUserPresetPath(change.path);
+        if (paths.has(change.path)) throw new Error('Duplicate user preset path');
+        paths.add(change.path);
+      }
+      if (writes.length === 0) return;
       await ensureDirectories();
-      const target = join(directory, change.path);
-      // Atomic replacement deliberately ignores external edits since the last load.
-      if (change.content === null) {
+      const previous = new Map<string, Uint8Array | null>();
+      for (const { path } of writes) {
+        const target = join(directory, path);
+        try {
+          if (!(await lstat(target)).isFile()) throw new Error(`User preset is not a regular file: ${path}`);
+          previous.set(path, await readFile(target));
+        } catch (error) {
+          if (!missing(error)) throw error;
+          previous.set(path, null);
+        }
+      }
+      const remove = async (target: string) => {
         try { await unlink(target); } catch (error) { if (!missing(error)) throw error; }
-      } else await writeFileAtomically(target, new TextEncoder().encode(change.content));
+      };
+      // One native action may move a preset out of base/. Capture every old file
+      // before writing so a later failure restores the complete previous set.
+      // Write every replacement before deleting old paths: an interruption can
+      // leave both copies, but cannot delete the only copy before its replacement.
+      // Per-file replacement is atomic; this adds in-process failure rollback,
+      // not a cross-process transaction or a durable recovery journal.
+      const applied = new Set<string>();
+      const replacements = writes.filter(change => change.content !== null);
+      const deletions = writes.filter(change => change.content === null);
+      try {
+        for (const change of [...replacements, ...deletions]) {
+          const target = join(directory, change.path);
+          // Explicit saves still overwrite external edits since the last load.
+          if (change.content === null) await remove(target);
+          else await writeFileAtomically(target, new TextEncoder().encode(change.content));
+          applied.add(change.path);
+        }
+      } catch (error) {
+        const failures: unknown[] = [];
+        for (const path of [...applied].reverse()) {
+          try {
+            const target = join(directory, path), bytes = previous.get(path)!;
+            if (bytes === null) await remove(target);
+            else await writeFileAtomically(target, bytes);
+          } catch (failure) { failures.push(failure); }
+        }
+        if (failures.length) throw new AggregateError([error, ...failures], 'User preset write failed and rollback was incomplete');
+        throw error;
+      }
     },
   };
 }

@@ -3,7 +3,7 @@ export interface UserPresetFile { path: string; content: string }
 export interface UserPresetWrite { path: string; content: string | null }
 export interface UserPresetStorage {
   load(): Promise<UserPresetFile[]>;
-  write(change: UserPresetWrite): Promise<void>;
+  write(changes: readonly UserPresetWrite[]): Promise<void>;
 }
 
 export type UserPresetKind = 'printer' | 'filament' | 'print';

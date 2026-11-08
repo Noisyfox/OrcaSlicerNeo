@@ -20,6 +20,7 @@ if (!moduleArg || !fixtureDirArg) {
 
 const fixtureDir = resolve(fixtureDirArg);
 const repoRoot = resolve(import.meta.dirname, '../../..');
+const upstreamFixtureDir = resolve(repoRoot, 'packages/slicer-wasm/cpp/tests/data');
 const profileRoot = resolve(profileRootArg ?? `${repoRoot}/packages/profile-resources/dist`);
 const factory = await loadModuleFactory(moduleArg);
 const Module = await factory({ noInitialRun: true, print: console.error, printErr: console.error });
@@ -62,6 +63,9 @@ function meshSummary() {
     const raw = Module.HEAPU8.slice(Number(entry.vertex_ptr),
       Number(entry.vertex_ptr) + entry.vertex_count * 3 * Float32Array.BYTES_PER_ELEMENT);
     const vertices = new Float32Array(raw.buffer);
+    const rawIndices = Module.HEAPU8.slice(Number(entry.index_ptr),
+      Number(entry.index_ptr) + entry.index_count * Uint32Array.BYTES_PER_ELEMENT);
+    const indices = new Uint32Array(rawIndices.buffer);
     const min = [Infinity, Infinity, Infinity];
     const max = [-Infinity, -Infinity, -Infinity];
     for (let i = 0; i < vertices.length; i += 3) {
@@ -70,7 +74,23 @@ function meshSummary() {
         max[axis] = Math.max(max[axis], vertices[i + axis]);
       }
     }
-    summaries.push({ entry, min, max });
+    const validIndices = indices.length % 3 === 0 && indices.every(index => index < entry.vertex_count);
+    const edges = new Map();
+    let area = 0;
+    if (validIndices) for (let i = 0; i < indices.length; i += 3) {
+      const [a, b, c] = indices.subarray(i, i + 3);
+      for (const [from, to] of [[a, b], [b, c], [c, a]]) {
+        const key = from < to ? `${from}:${to}` : `${to}:${from}`;
+        edges.set(key, (edges.get(key) ?? 0) + 1);
+      }
+      const u = [0, 1, 2].map(axis => vertices[b * 3 + axis] - vertices[a * 3 + axis]);
+      const v = [0, 1, 2].map(axis => vertices[c * 3 + axis] - vertices[a * 3 + axis]);
+      area += Math.hypot(u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0]) / 2;
+    }
+    summaries.push({ entry, min, max, validIndices, finiteVertices: vertices.every(Number.isFinite), area,
+      openEdges: [...edges.values()].filter(count => count === 1).length,
+      nonManifoldEdges: [...edges.values()].filter(count => count > 2).length });
     Module._free(Number(entry.vertex_ptr));
     Module._free(Number(entry.index_ptr));
   }
@@ -124,6 +144,53 @@ const afterMalformed = JSON.stringify(callJson('orc_get_model_structure', [], []
 check('malformed STEP is rejected atomically',
       rejected.ok !== true && afterMalformed === beforeMalformed,
       JSON.stringify({ rejected, beforeMalformed, afterMalformed }));
+
+// Reuse the pinned core's regression assets, with the same assertions as
+// cpp/tests/libslic3r/test_step.cpp. The public bridge keeps compounds atomic;
+// native split-compound=true coverage remains in the upstream test suite.
+async function upstreamImport(name, bytes) {
+  callJson('orc_clear_model', [], []);
+  const imported = addModel(bytes ?? await readFile(resolve(upstreamFixtureDir, name)), 'step', name);
+  const structure = callJson('orc_get_model_structure', [], []);
+  const mesh = meshSummary();
+  check(`${name} imports one named object`, imported.ok === true && imported.objects === 1 &&
+    structure.objects?.length === 1 && structure.objects[0].name === name, JSON.stringify(imported));
+  check(`${name} triangulates every part with finite indexed geometry`, mesh.response.ok === true &&
+    mesh.summaries.length > 0 && mesh.summaries.length === structure.objects?.[0]?.volumes?.length &&
+    mesh.summaries.every(summary => summary.entry.index_count > 0 && summary.validIndices &&
+      summary.finiteVertices && Number.isFinite(summary.area) && summary.area > 0));
+  return { object: structure.objects?.[0], summaries: mesh.summaries };
+}
+const cone = await upstreamImport('cone_tilted_seam_pcurve.step');
+check('tilted cone seam remains closed after OCCT triangulation', cone.object?.volumes?.length === 1 &&
+  cone.summaries.length === 1 && cone.summaries[0].openEdges === 0 && cone.summaries[0].nonManifoldEdges === 0,
+JSON.stringify(cone.summaries.map(({ openEdges, nonManifoldEdges }) => ({ openEdges, nonManifoldEdges }))));
+const surfaces = await upstreamImport('surface_model_geometric_set.step');
+const surface = surfaces.summaries[0];
+check('loose faces remain one part containing both 10 mm square planes', surfaces.object?.volumes?.length === 1 &&
+  surfaces.summaries.length === 1 && near(surface.area, 200) &&
+  surface.max.every((value, axis) => near(value - surface.min[axis], 10)),
+JSON.stringify(surface && { min: surface.min, max: surface.max, area: surface.area }));
+
+const namedBoxes = await readFile(resolve(upstreamFixtureDir, 'utf8_part_names.step'));
+const expectedNames = ['pièce', 'Gehäuse', 'bracket'];
+function checkNamedParts(label, imported) {
+  check(`${label} preserves UTF-8 part names and ASCII control`,
+    JSON.stringify(imported.object?.volumes?.map(volume => volume.name)) === JSON.stringify(expectedNames));
+  check(`${label} retains three closed box meshes`, imported.summaries.length === 3 &&
+    imported.summaries.every(summary => summary.openEdges === 0 && summary.nonManifoldEdges === 0));
+}
+checkNamedParts('solid import', await upstreamImport('utf8_part_names.step', namedBoxes));
+// Exercise the shell-without-solid branch with exactly the same faces, units,
+// and names. Only their STEP representation changes; no duplicate asset needed.
+let shellCount = 0;
+const namedShells = namedBoxes.toString('utf8')
+  .replace(/MANIFOLD_SOLID_BREP\('([^']*)',\s*(#\d+)\)/g, (_match, name, shell) => {
+    ++shellCount;
+    return `SHELL_BASED_SURFACE_MODEL('${name}',(${shell}))`;
+  }).replaceAll('ADVANCED_BREP_SHAPE_REPRESENTATION', 'MANIFOLD_SURFACE_SHAPE_REPRESENTATION');
+check('named shell fixture converts all three solid wrappers', shellCount === 3);
+checkNamedParts('shell import', await upstreamImport('utf8-part-shells.step', Buffer.from(namedShells)));
 
 // Slice one valid STEP object through the same bridge path used by the app.
 callJson('orc_clear_model', [], []);

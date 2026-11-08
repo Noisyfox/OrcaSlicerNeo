@@ -2363,9 +2363,17 @@ export function createClient(
       let durable = false;
       try {
         const raw = prepared.result;
-        if (!isRecord(raw) || !isRecord(raw.profile_snapshot) || !isRecord(prepared.change) || typeof prepared.change.path !== 'string' ||
-            (prepared.change.content !== null && typeof prepared.change.content !== 'string')) throw new Error('Invalid preset operation receipt');
-        validateUserPresetPath(prepared.change.path);
+        if (!isRecord(raw) || !isRecord(raw.profile_snapshot) || !Array.isArray(prepared.changes) || prepared.changes.length === 0)
+          throw new Error('Invalid preset operation receipt');
+        const paths = new Set<string>();
+        const changes = prepared.changes.map((change: unknown) => {
+          if (!isRecord(change) || typeof change.path !== 'string' ||
+              (change.content !== null && typeof change.content !== 'string')) throw new Error('Invalid preset file change');
+          validateUserPresetPath(change.path);
+          if (paths.has(change.path)) throw new Error('Duplicate preset file change');
+          paths.add(change.path);
+          return { path: change.path, content: change.content };
+        });
         const profileSnapshot = normalizeProfileSnapshot(raw.profile_snapshot);
         const filamentSession = normalizeFilamentSessionResult(raw.filament_session);
         const plateSession = normalizePlateMutationResult(raw.plate_session);
@@ -2376,7 +2384,7 @@ export function createClient(
           throw new Error('Invalid preset operation state');
         const result: UserPresetMutation = { ok: true, kind: request.kind, canonicalName: raw.canonical_name,
           historyEntryDelta: raw.history_entry_delta, profileSnapshot, filamentSession, plateSession, nativeScopedConfig, historyStatus };
-        await userPresets.write({ path: prepared.change.path, content: prepared.change.content });
+        await userPresets.write(changes);
         durable = true;
         const committed = finish(true);
         if (!isRecord(committed) || committed.ok !== true) throw new Error('Preset was saved, but the runtime failed to commit; reload the application');

@@ -6,6 +6,12 @@
 #include <set>
 
 namespace Slic3r::Neo::Painting {
+// Orca's painter adds one degree before calling the strict native selector.
+// Zero remains the sentinel that disables restriction.
+inline float support_overhang_angle(double angle) {
+    return angle > 0. ? std::min(float(angle) + 1.f, 90.f) : 0.f;
+}
+
 // Non-GUI adapter over the pinned selector. The only ported algorithm is Orca's
 // TriangleSelectorPatch::update_triangles_per_patch/update_selector_triangles
 // (GLGizmoPainterBase.cpp). Rendering/VBO/wx dependencies are intentionally absent.
@@ -81,7 +87,7 @@ public:
     // native filter; no determinant flip is applied to mirrored normals.
     std::set<int> overhang_facets(const Transform3d& transform, double angle) const {
         const Matrix3f normal_matrix = transform.linear().inverse().transpose().cast<float>();
-        const float native_angle = float(angle);
+        const float native_angle = support_overhang_angle(angle);
         const float limit = -cos(Geometry::deg2rad(native_angle));
         std::set<int> result;
         for (int i = 0; i < int(m_triangles.size()); ++i) {

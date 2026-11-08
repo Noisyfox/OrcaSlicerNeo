@@ -7,7 +7,7 @@ import { readZipEntries } from './native-3mf-parser.mjs';
 const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 
 const modulePath = process.argv[2];
-if (!modulePath) throw new Error('usage: node user-presets-smoke.mjs <orca_slice.js>');
+if (!modulePath) throw new Error('usage: node user-preset-3mf-smoke.mjs <orca_slice.js>');
 const Module = await (await loadModuleFactory(resolve(modulePath)))({ noInitialRun: true, print: () => {}, printErr: () => {} });
 await installProfilePackages(Module, createNodeProfileSource(resolve(import.meta.dirname, '../../profile-resources/dist')));
 function call(name, args = [], types = args.map(() => 'string')) {
@@ -21,9 +21,9 @@ const draft = name => ok(call('orc_get_preset_draft', ['filament', name]));
 const disk = new Map();
 function mutate(action, kind, canonical_name, extra = {}, commit = true) {
   const prepared = ok(request('orc_prepare_user_preset', { history_context: editingContext, action, kind, canonical_name, expected_revision: status().revision, ...extra }));
-  if (commit) {
-    if (prepared.change.content === null) disk.delete(prepared.change.path);
-    else disk.set(prepared.change.path, prepared.change.content);
+  if (commit) for (const change of prepared.changes) {
+    if (change.content === null) disk.delete(change.path);
+    else disk.set(change.path, change.content);
   }
   ok(request('orc_finish_user_preset', { token: prepared.token, commit }));
   return prepared.result;
@@ -55,7 +55,7 @@ ok(request('orc_select_filament_slot_preset', { version: 1, revision: deviceRack
 let roundtripRack = ok(call('orc_get_filament_session_snapshot'));
 ok(request('orc_add_filament_slot', { version: 1, revision: roundtripRack.revisions.session }));
 function roundtripExport() {
-  const archive = ok(call('orc_export_project', ['string'], ['{}']));
+  const archive = ok(call('orc_export_project', ['{}']));
   const content = Module.HEAPU8.slice(Number(archive.bytes_ptr), Number(archive.bytes_ptr) + archive.bytes_length);
   Module._free(Number(archive.bytes_ptr));
   for (const entry of readZipEntries(content).filter(entry => /Metadata\/.+\.(config|json)$/.test(entry.name)))

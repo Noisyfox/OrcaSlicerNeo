@@ -703,11 +703,18 @@ and loading checks, not a separate per-platform ABI qualification project.
 
 **Delivered native boundary:** [@orca/bambu-native](../packages/bambu-native/src/index.ts)
 uses the [pinned v2.2.0 artifacts](../packages/bambu-native/artifacts.json), selecting
-the `02.08.01` library series supported by the checked-in Orca declarations. All six
-archives have been downloaded, SHA-256 verified and staged. The macOS ARM64
-plugin reports `02.08.01.99` through the addon in both Node and Electron's Node
-runtime. The six-platform packaged checks in step 8 verify the same plugin
-version during ordinary startup.
+the `02.08.04` library series supported by the Orca 2.5.0 declarations. The release
+URLs and checksums remain unchanged. All six archives have been SHA-256 verified
+and their complete selected ABI directories re-staged, including camera libraries.
+The macOS ARM64 plugin reports `02.08.04.99` through the rebuilt addon in both Node
+and Electron's Node runtime. No-credentials print-ABI smoke calls return before
+network dispatch. Ordinary prints leave the new `queue_plate_id` field empty;
+camera URLs use the loaded plugin version, while the upstream HTTP client identity
+remains `02.08.01.55`.
+
+Earlier six-platform packaged startup checks in step 8 covered the `02.08.01`
+series. They do not qualify startup or packaging of the newly selected series
+on the other five targets; that platform execution remains unverified.
 
 The addon copies the required common public typedefs from Orca into one header;
 its build checks them against the checked-in source. `LoadLibraryExW` or `dlopen`

@@ -1,15 +1,18 @@
 import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
 import { selectGcodeOutput, expectCurrentPlate, clickPlateControl } from './plate-controls.helpers';
+import { openProjectMenu, waitForProjectLoad } from './project-menu';
 // apps/desktop/e2e/app.e2e.ts — the full v1 flow against the built app.
 // Mock mode (default): expects the mock gcode marker. Real mode
 // (ORCA_E2E_REAL=1, CI e2e-real job): expects real extruder moves (G1).
 // The ORCA_E2E env contract replaces native dialogs in main (see
 // apps/desktop/src/main/index.ts) — Playwright cannot drive them.
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { unzipSync } from 'fflate';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = process.env.ORCA_E2E_MODEL
@@ -142,18 +145,38 @@ async function launchApp({
   initialTab = 'prepare',
   modelPath = MODEL_PATH,
   nativeSaveDialog = false,
+  projectSavePath,
+  isolatePrinterServices = false,
 }: {
   initialTab?: 'home' | 'prepare';
   modelPath?: string;
   nativeSaveDialog?: boolean;
+  projectSavePath?: string;
+  isolatePrinterServices?: boolean;
 } = {}): Promise<LaunchResult> {
   const exportDir = mkdtempSync(join(tmpdir(), 'orca-e2e-'));
   const exportPath = join(exportDir, 'out.gcode');
+  const printerConfigPath = join(exportDir, 'printer-config.json');
+  const unavailableBambuDirectory = join(exportDir, 'bambu-unavailable');
+  if (isolatePrinterServices) {
+    writeFileSync(printerConfigPath, JSON.stringify({ version: 1, printers: [] }));
+    // BambuRepository rejects this invalid local state before native plugin
+    // loading or discovery. Keep the directory usable for download recovery.
+    // This core journey does not qualify Bambu startup; the independent
+    // provider fixtures and ABI smoke do.
+    mkdirSync(unavailableBambuDirectory);
+    writeFileSync(join(unavailableBambuDirectory, 'provider.json'), JSON.stringify({ version: 0 }));
+  }
   const env = {
     ...process.env,
     ORCA_E2E: '1',
     ORCA_E2E_MODEL: modelPath,
     ORCA_E2E_EXPORT: exportPath,
+    ...(projectSavePath ? { ORCA_E2E_PROJECT_SAVE: projectSavePath } : {}),
+    ...(isolatePrinterServices ? {
+      ORCA_E2E_PRINTER_CONFIG: printerConfigPath,
+      ORCA_E2E_BAMBU_DIRECTORY: unavailableBambuDirectory,
+    } : {}),
   } as Record<string, string>;
   // Ambient shells sometimes carry ELECTRON_RUN_AS_NODE=1, which forces
   // Electron to run as plain node (the app cannot boot) — never valid here.
@@ -621,13 +644,38 @@ test('native G-code Save As receives generated suggestion and supports cancellat
   } finally { await app.close(); }
 });
 
-test('full v1 flow: add models → slice → preview → export gcode', async () => {
-  const { app, exportPath } = await launchApp();
+test('full v1 flow: add models → slice → preview → export gcode', async ({}, testInfo) => {
+  const projectSavePath = REAL ? join(mkdtempSync(join(tmpdir(), 'orca-real-flow-')), 'saved-cube.3mf') : undefined;
+  if (REAL) {
+    const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
+    const artifacts: Record<string, string> = {};
+    for (const name of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']) {
+      const expected = hash(resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/out/threaded', name));
+      expect(hash(resolve(DESKTOP_ROOT, 'src/renderer/public/wasm/threaded', name))).toBe(expected);
+      expect(hash(resolve(DESKTOP_ROOT, 'out/renderer/wasm/threaded', name))).toBe(expected);
+      artifacts[name] = expected;
+    }
+    console.log('[real-flow-artifacts]', JSON.stringify({ variant: 'threaded', artifacts }));
+  }
+  const { app, exportPath } = await launchApp({ projectSavePath, isolatePrinterServices: REAL });
+  let editedLayerHeight = '';
+  let savedProjectByteLength = 0;
+  let tracingStarted = false;
   try {
+    if (REAL) {
+      await app.context().tracing.start({ screenshots: true, snapshots: true, sources: true });
+      tracingStarted = true;
+    }
     const page = await app.firstWindow();
     const diag = attachRendererDiagnostics(page);
     await page.setViewportSize({ width: 1280, height: 800 });
     try {
+
+    if (REAL) {
+      await expect.poll(() => page.evaluate(() => (window as unknown as {
+        orca: import('../src/shared/ipc').ElectronBridge;
+      }).orca.bambu.read('account.state'))).toMatchObject({ status: 'unavailable' });
+    }
 
     // App ready: settings panel rendered from bridge metadata (mock presets).
     // Real mode: the module fetches the ~90 MB preload bundle, instantiates
@@ -700,6 +748,24 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
       await page.getByTestId('btn-add-model').click();
     }
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+
+    if (REAL) {
+      // Commit through the ordinary settings UI, then prove native Undo/Redo
+      // restores that value before the existing slice and Preview journey.
+      await page.getByTestId('config-mode-project').click();
+      await page.getByTestId('config-page-Quality').click();
+      const layerHeight = page.getByTestId('config-input-layer_height');
+      await expect(layerHeight).toBeVisible();
+      const originalHeight = await layerHeight.inputValue();
+      editedLayerHeight = originalHeight === '0.21' ? '0.22' : '0.21';
+      await layerHeight.fill(editedLayerHeight);
+      await layerHeight.press('Enter');
+      await expect(layerHeight).toHaveValue(editedLayerHeight);
+      await page.getByTestId('history-undo').click();
+      await expect(layerHeight).toHaveValue(originalHeight);
+      await page.getByTestId('history-redo').click();
+      await expect(layerHeight).toHaveValue(editedLayerHeight);
+    }
 
     // Sharp edges must not interpolate shared vertex normals across faces.
     await expect.poll(() => page.evaluate(() => {
@@ -874,6 +940,22 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     await page.mouse.up({ button: 'right' });
     await expect(page.getByTestId('ctx-menu')).toBeHidden();
 
+    if (projectSavePath) {
+      // Wait for the completed host save before inspecting the native 3MF;
+      // destination existence alone can precede the final close/rename.
+      const save = page.getByTestId('titlebar-save-project');
+      await expect(save).toBeEnabled();
+      await save.click();
+      await expect(save).toBeDisabled({ timeout: 30_000 });
+      await expect(page.getByTestId('titlebar-project-name')).toHaveText('saved-cube');
+      const bytes = readFileSync(projectSavePath);
+      savedProjectByteLength = bytes.byteLength;
+      const entries = unzipSync(bytes);
+      expect(entries['3D/3dmodel.model'].byteLength).toBeGreaterThan(0);
+      const savedConfig = JSON.parse(new TextDecoder().decode(entries['Metadata/project_settings.config']));
+      expect(Number(savedConfig.layer_height)).toBe(Number(editedLayerHeight));
+    }
+
     // Clear Scene now lives in the scene context menu: right-click empty
     // space is suppressed in Preview, so switch back to Prepare first. It
     // resets the model and invalidates the finished export.
@@ -887,11 +969,46 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     await page.getByTestId('btn-clear-scene').click();
     await expect(page.getByTestId('btn-slice')).toBeDisabled();
     await expect(page.getByTestId('btn-export')).toHaveCount(0);
+    if (projectSavePath) {
+      // Only the existing test file-dialog override changes in the host;
+      // project loading, dirty protection and settings stay on the UI path.
+      await app.evaluate((_, path) => { process.env.ORCA_E2E_MODEL = path; }, projectSavePath);
+      await openProjectMenu(page, app);
+      await page.getByTestId('project-dirty-dont-save').click();
+      await waitForProjectLoad(page);
+      await expect.poll(() => page.evaluate(() => (window as unknown as {
+        __orcaE2e?: { projectLoadEvidence?: () => unknown };
+      }).__orcaE2e?.projectLoadEvidence?.()), { timeout: 300_000 }).toMatchObject({
+        receipt: { sourceDisplayName: basename(projectSavePath), sourceByteLength: savedProjectByteLength,
+          commitRoute: 'load-project', nativeResult: { ok: true, mode: 'project', objects: MODEL_COUNT } },
+        session: { hasContent: true, scope: 'project', hasLocation: true },
+      });
+      await expect(page.getByTestId('btn-slice')).toBeEnabled();
+      await expect(page.getByTestId('titlebar-save-project')).toBeDisabled();
+      await page.getByTestId('config-mode-scoped').click();
+      await expect(page.getByTestId('object-list').getByTestId(/^object-\d+$/)).toHaveCount(MODEL_COUNT);
+      await page.getByTestId('config-mode-project').click();
+      await page.getByTestId('config-page-Quality').click();
+      await expect(page.getByTestId('config-input-layer_height')).toHaveValue(editedLayerHeight);
+      const screenshot = testInfo.outputPath('reopened-project.png');
+      await page.screenshot({ path: screenshot });
+      await testInfo.attach('reopened-project', { path: screenshot, contentType: 'image/png' });
+    }
     } catch (err) {
       await diag.dump();
       throw err;
     }
   } finally {
+    if (tracingStarted) {
+      try {
+        const trace = testInfo.outputPath('electron-context-trace.zip');
+        await app.context().tracing.stop({ path: trace });
+        await testInfo.attach('electron-context-trace', { path: trace, contentType: 'application/zip' });
+      } catch (error) {
+        // Evidence cleanup must not replace a failure from the actual journey.
+        console.warn('[real-flow-trace]', String(error));
+      }
+    }
     await app.close();
   }
 });

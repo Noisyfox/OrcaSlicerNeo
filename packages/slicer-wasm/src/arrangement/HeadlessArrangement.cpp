@@ -2,7 +2,10 @@
 #include "libslic3r/ModelArrange.hpp"
 #include "libslic3r/GCode/WipeTowerEstimate.hpp"
 #include "libslic3r/Flow.hpp"
+#include "libslic3r/ExclusionVolumeGeometry.hpp"
+#include "libslic3r/FilamentMixer.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <set>
@@ -62,6 +65,29 @@ bool intersects(const BoundingBoxf3& box, const PlateInput& plate,
         box.max.z() >= 0 && box.min.z() <= height;
 }
 void exclusions(Prepared& out) {
+    const auto mode = active_bed_exclude_volume_mode(out.config);
+    if (has_bed_exclude_volumes(out.config)) {
+        const auto groups = get_bed_excluded_regions_by_extruder(out.config);
+        const auto count = mode == BedExcludeVolumeMode::Shared ? std::min<std::size_t>(1, groups.size()) : groups.size();
+        for (std::size_t nozzle = 0; nozzle < count; ++nozzle) {
+            for (const auto& region : groups[nozzle]) {
+                if (!region.is_collision_volume() || region.polygon.points.size() < 3 ||
+                    (region.has_z_range && region.z_max <= region.z_min + EPSILON)) continue;
+                ArrangePolygon blocker;
+                blocker.poly.contour = bed_exclusion_arrange_polygon(region.polygon);
+                blocker.bed_idx = 0;
+                blocker.is_virt_object = blocker.is_bed_exclusion = true;
+                blocker.bed_exclusion_extruder_id = mode == BedExcludeVolumeMode::Shared ? -1 : int(nozzle);
+                blocker.height = std::max(0., region.z_max - region.z_min);
+                blocker.z_min = region.z_min;
+                blocker.z_max = region.z_max;
+                blocker.has_z_range = region.has_z_range;
+                blocker.inflation = scaled(1.);
+                out.params.excluded_regions.push_back(std::move(blocker));
+            }
+        }
+    }
+    // Legacy material keepouts remain additive to the conditional volumes.
     const auto* areas = out.config.option<ConfigOptionPoints>("bed_exclude_area");
     if (areas) for (std::size_t i = 0; i + 3 < areas->values.size(); i += 4) {
         BoundingBoxf box;
@@ -79,6 +105,76 @@ void exclusions(Prepared& out) {
             out.params.excluded_regions.push_back(std::move(p));
         }
     }
+}
+// The unsliced placement policy from PartPlate::get_object_filament_extruders:
+// include active feature assignments, support, painted and mixed materials.
+std::vector<int> exclusion_filaments(const ModelObject& object, const DynamicPrintConfig& config) {
+    auto effective = [&](const char* key) {
+        const auto* value = object.config.option(key);
+        return value ? value : config.option(key);
+    };
+    const auto integer = [&](const char* key) { const auto* value = effective(key); return value ? value->getInt() : 0; };
+    const auto number = [&](const char* key) { const auto* value = effective(key); return value ? value->getFloat() : 0.; };
+    const bool brim = integer("brim_type") != int(btNoBrim) && number("brim_width") > 0;
+    const int walls = integer("wall_loops"), top = integer("top_shell_layers"), bottom = integer("bottom_shell_layers");
+    const double infill = number("sparse_infill_density");
+    const std::array<std::pair<const char*, bool>, 6> features = {{
+        {"outer_wall_filament_id", walls > 0 || brim}, {"inner_wall_filament_id", walls > 1},
+        {"sparse_infill_filament_id", infill > 0}, {"internal_solid_filament_id", infill > 0 || top > 0 || bottom > 0},
+        {"top_surface_filament_id", top > 0}, {"bottom_surface_filament_id", bottom > 0}
+    }};
+    std::set<int> ids;
+    const auto collect = [&](const DynamicConfig& source) {
+        for (const auto& [key, active] : features)
+            if (const auto* value = source.option(key); active && value && value->getInt() > 0) ids.insert(value->getInt());
+        if (const auto* value = source.option("extruder"); value && value->getInt() > 0) ids.insert(value->getInt());
+    };
+    for (const auto* volume : object.volumes) {
+        const auto used = volume->get_extruders();
+        ids.insert(used.begin(), used.end());
+        collect(volume->config.get());
+    }
+    collect(object.config.get());
+    for (const auto& range : object.layer_config_ranges) collect(range.second.get());
+    for (const auto& [key, active] : features)
+        if (active && !object.config.has(key) && config.has(key) && config.opt_int(key) > 0) ids.insert(config.opt_int(key));
+    const auto* support = effective("enable_support");
+    if ((support && support->getBool()) || integer("raft_layers") > 0) {
+        if (integer("support_filament") > 0) ids.insert(integer("support_filament"));
+        if (integer("support_interface_filament") > 0) ids.insert(integer("support_interface_filament"));
+    }
+    auto result = expand_mixed_filament_ids(std::vector<int>(ids.begin(), ids.end()), config);
+    if (result.empty()) result.push_back(1);
+    return result;
+}
+void exclusion_extruders(ArrangePolygon& polygon, const ModelObject& object, const SceneInput& scene, Scope scope) {
+    if (active_bed_exclude_volume_mode(scene.config) == BedExcludeVolumeMode::Shared) return;
+    const auto* nozzles = scene.config.option<ConfigOptionFloats>("nozzle_diameter");
+    if (!nozzles || nozzles->values.empty()) return;
+    std::set<int> ids;
+    for (std::size_t plate = 0; plate < scene.plates.size(); ++plate) {
+        if (scope == Scope::CurrentPlate && plate != scene.current_plate) continue;
+        auto config = scene.config;
+        config.apply(scene.plates[plate].settings);
+        auto mode = config.opt_enum<FilamentMapMode>("filament_map_mode");
+        if (mode == fmmDefault) mode = scene.config.opt_enum<FilamentMapMode>("filament_map_mode");
+        // Bambu automatic grouping can change after arrangement. Matching the
+        // native arranger, leave this empty so every nozzle volume is checked.
+        if (scene.bambu && is_auto_filament_map_mode(mode)) return;
+        const auto* map = scene.plates[plate].settings.option<ConfigOptionInts>("filament_map");
+        if (!map || map->values.empty()) map = scene.config.option<ConfigOptionInts>("filament_map");
+        const std::vector<int> configured = map ? map->values : std::vector<int>{};
+        std::set<int> plate_ids;
+        for (int filament : exclusion_filaments(object, config)) {
+            if (filament <= 0) continue;
+            const int nozzle = bed_exclusion_extruder_for_filament(std::size_t(filament - 1), configured,
+                mode, scene.bambu, true, nozzles->values.size());
+            if (nozzle >= 0) plate_ids.insert(nozzle);
+        }
+        if (plate_ids.empty()) return;
+        ids.insert(plate_ids.begin(), plate_ids.end());
+    }
+    polygon.bed_exclusion_extruder_ids.assign(ids.begin(), ids.end());
 }
 ArrangePolygon estimated_tower(const SceneInput& scene, const DynamicPrintConfig& config,
                                std::size_t index, std::size_t filament_count, const BoundingBox& bed,
@@ -177,6 +273,7 @@ Prepared prepare(const SceneInput& scene, const Settings& settings) {
             record.parking = ParkingReason::NonPrintable; out.parked.push_back(record); continue;
         }
         auto poly = get_instance_arrange_poly(instance, out.config);
+        exclusion_extruders(poly, *object, scene, settings.scope);
         poly.setter = nullptr;
         if (poly.poly.contour.points.size() < 3 || std::abs(poly.poly.area()) < .001) record.parking = ParkingReason::Degenerate;
         else if (poly.height > p.printable_height) record.parking = ParkingReason::TooTall;

@@ -193,6 +193,16 @@ int main()
     volume->seam_facets.set_triangle_from_string(1, "2");
     volume->mmu_segmentation_facets.set_triangle_from_string(2, "3A");
     volume->fuzzy_skin_facets.set_triangle_from_string(3, "4");
+    for (int slot = 0; slot < int(TEXTURE_DISPLACEMENT_MAX_LAYERS); ++slot)
+        volume->texture_displacement_facet(slot).set_triangle_from_string(slot, "1");
+    TextureDisplacementLayer texture;
+    texture.slot = 3;
+    texture.name = "History payload";
+    texture.depth_mm = .73f;
+    texture.image_data = std::make_shared<std::vector<unsigned char>>(std::initializer_list<unsigned char>{1, 2, 3, 4});
+    volume->texture_displacement_layers.push_back(texture);
+    volume->texture_displacement_options.smooth_enabled = true;
+    volume->texture_uv.assign(volume->mesh().its.indices.size() * 3, Vec2f(.2f, .8f));
 
     ModelInstance* first = object->add_instance();
     Geometry::Transformation first_transform;
@@ -208,7 +218,7 @@ int main()
     first->set_offset_to_assembly(Vec3d(31.0, 32.0, 33.0));
     first->print_volume_state = ModelInstancePVS_Partly_Outside;
     first->printable = false;
-    first->auto_drop = false;
+    object->auto_drop = false;
 
     ModelInstance* second = object->add_instance();
     Geometry::Transformation second_transform;
@@ -281,7 +291,7 @@ int main()
     CHECK(restored_object->instances[0]->is_assemble_initialized());
     CHECK(restored_first->print_volume_state == first->print_volume_state);
     CHECK(restored_first->printable == first->printable);
-    CHECK(restored_first->auto_drop == first->auto_drop);
+    CHECK(restored_object->auto_drop == object->auto_drop);
     CHECK(restored_second->get_transformation().get_matrix().isApprox(
         second->get_transformation().get_matrix()));
     CHECK(!restored_object->instances[1]->is_assemble_initialized());
@@ -292,6 +302,14 @@ int main()
     CHECK(restored_volume->seam_facets.equals(volume->seam_facets));
     CHECK(restored_volume->mmu_segmentation_facets.equals(volume->mmu_segmentation_facets));
     CHECK(restored_volume->fuzzy_skin_facets.equals(volume->fuzzy_skin_facets));
+    for (int slot = 0; slot < int(TEXTURE_DISPLACEMENT_MAX_LAYERS); ++slot)
+        CHECK(restored_volume->texture_displacement_facet(slot).equals(volume->texture_displacement_facet(slot)));
+    CHECK(restored_volume->texture_displacement_layers.size() == 1);
+    CHECK(restored_volume->texture_displacement_layers[0].slot == 3);
+    CHECK(restored_volume->texture_displacement_layers[0].depth_mm == .73f);
+    CHECK(*restored_volume->texture_displacement_layers[0].image_data == *texture.image_data);
+    CHECK(restored_volume->texture_displacement_options.smooth_enabled);
+    CHECK(restored_volume->texture_uv == volume->texture_uv);
     CHECK(restored_volume->get_extruders() == volume->get_extruders());
     const ModelVolume* copied_volume = restored_object->add_volume(*restored_volume);
     CHECK(copied_volume->get_extruders() == volume->get_extruders());

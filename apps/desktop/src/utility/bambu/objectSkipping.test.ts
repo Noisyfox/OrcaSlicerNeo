@@ -24,7 +24,7 @@ function fixture() {
   let devices: BambuDevice[] = [{ deviceId: 'a', name: 'Printer', model: 'H2D', modelId: 'O1D', routes: [{ channel: 'cloud', revision: 'c1' }, { channel: 'lan', revision: 'l1', address: '192.0.2.1' }] }];
   const native = Object.fromEntries(['setSelectedMachine', 'startSubscribe', 'stopSubscribe', 'sendMessage', 'sendMessageToPrinter', 'disconnectPrinter', 'connectPrinter', 'installDeviceCertificate'].map(method => [method, vi.fn(async () => 0)])) as unknown as BambuNative;
   native.getCameraUrl = vi.fn(async () => 'bambu:///tutk/fixture?ticket=PRIVATE');
-  native.getVersion = vi.fn(async () => '02.08.01.99');
+  native.getVersion = vi.fn(async () => '02.08.04.99');
   const repository = { read: async () => ({ version: 1 as const, region: 'Others' as const, clientId: 'client', lan: [{ deviceId: 'a', name: 'Printer', model: 'H2D', ip: '192.0.2.1', accessCode: 'SECRET', revision: 'l1' }] }) };
   const catalogueChanged = vi.fn();
   const access = new BambuDeviceAccess(native, { list: async () => devices }, repository, async () => {}, () => {}, () => now, 100);

@@ -32,6 +32,7 @@
 #include "libslic3r/GCode/WipeTower.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/ClipperUtils.hpp"
 
 using namespace Slic3r;
 
@@ -234,8 +235,6 @@ struct UsedSlotContext {
         global_internal_solid = option_int("internal_solid_filament_id");
         global_top_surface = option_int("top_surface_filament_id");
         global_bottom_surface = option_int("bottom_surface_filament_id");
-        if (global_top_surface == 0) global_top_surface = global_internal_solid;
-        if (global_bottom_surface == 0) global_bottom_surface = global_internal_solid;
         const ConfigOption* support = config.option("enable_support");
         global_support_enabled = (support != nullptr && support->getBool()) ||
             option_int("raft_layers") > 0;
@@ -313,10 +312,8 @@ struct UsedSlotContext {
         const int internal_solid = object_int("internal_solid_filament_id");
         append(slots, internal_solid != 0 ? internal_solid : global_internal_solid);
         int top_surface = object_int("top_surface_filament_id");
-        if (top_surface == 0) top_surface = internal_solid;
         append(slots, top_surface != 0 ? top_surface : global_top_surface);
         int bottom_surface = object_int("bottom_surface_filament_id");
-        if (bottom_surface == 0) bottom_surface = internal_solid;
         append(slots, bottom_surface != 0 ? bottom_surface : global_bottom_surface);
         return slots;
     }
@@ -1073,8 +1070,15 @@ json slice_warnings_for_plate(const std::string& plate_id)
         }
         return intersects(area_min_x, area_max_x, area_min_y, area_max_y);
     };
-    if (area_intersects(config.opt<ConfigOptionPoints>("bed_exclude_area")))
-        warnings.push_back("Prime Tower intersects an exclusion area.");
+    const Polygon tower_bounds{{scaled(min_x), scaled(min_y)}, {scaled(max_x), scaled(min_y)},
+                               {scaled(max_x), scaled(max_y)}, {scaled(min_x), scaled(max_y)}};
+    for (const auto& region : get_bed_excluded_regions(config)) {
+        if (region.has_z_range && (region.z_min > placement.height || region.z_max <= 0.)) continue;
+        if (!intersection(Polygons{tower_bounds}, Polygons{region.polygon}).empty()) {
+            warnings.push_back("Prime Tower intersects an exclusion area.");
+            break;
+        }
+    }
     if (area_intersects(config.opt<ConfigOptionPoints>("wrapping_exclude_area")))
         warnings.push_back("Prime Tower intersects a wrapping-detection area.");
     const PlateBounds bounds = selected_plate_bounds();

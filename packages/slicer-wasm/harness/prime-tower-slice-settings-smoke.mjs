@@ -3,7 +3,7 @@ import { fixtureProfileOptions } from './profile-installer.mjs';
 // slice at a manually placed tower instead of cached Settings coordinates.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { callAsyncTask, exportGcode } from './async-task-mailbox.mjs';
+import { awaitAsyncTask, callAsyncTask, exportGcode } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
@@ -131,7 +131,7 @@ const staleSettings = must(callJson('orc_get_preset_snapshot')).project_config;
 move(id, -60, -50); assertInside(tower(id));
 const staleSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number', 'string'],
   [JSON.stringify(staleSettings), id, session().input_revisions[id], 'null']);
-assert.match(staleSlice.error ?? '', /Prime Tower is partially outside the printable area/,
+assert.match(staleSlice.error ?? '', /Prime tower is partially outside the printable area/,
   'pre-drag Settings coordinates reproduce the reported failure');
 assert.deepEqual(tower(id).position, { x: -60, y: -50 }, 'the native position is already legal');
 must(callJson('orc_history_undo'));
@@ -180,5 +180,70 @@ for (let i = 0; i < firstMotion.points.length; i++)
       `tower extrusion endpoint ${i} ${axis} must translate with Prepare: expected ${delta}, got ${actualDelta}`);
   }
 
+// An automatic brim is only estimated during validate(). Place a thin excluded
+// strip just outside the legal rectangular body but inside that brim. The exact
+// generated footprint must fail in process(), not merely be rejected by validate
+// or downgraded to a successful slice with an advisory.
+set('prime_tower_brim_width', '-1');
+const autoBrim = tower(id);
+assert.equal(autoBrim.rotation, 0);
+assert.ok(autoBrim.brim_margin > 0.2 && autoBrim.depth > 2, JSON.stringify(autoBrim));
+assertInside(autoBrim);
+const strip = [
+  [autoBrim.position.x - 0.2, autoBrim.position.y + 1],
+  [autoBrim.position.x - 0.1, autoBrim.position.y + 1],
+  [autoBrim.position.x - 0.1, autoBrim.position.y + 2],
+  [autoBrim.position.x - 0.2, autoBrim.position.y + 2],
+];
+assert.ok(strip.every(([x, y]) => x < autoBrim.position.x && x > autoBrim.position.x - autoBrim.brim_margin &&
+  y > autoBrim.position.y && y < autoBrim.position.y + autoBrim.depth), 'only the brim intersects the strip');
+const beforeExclusion = must(callJson('orc_get_preset_draft', ['string', 'string'], ['printer', 'DeltaMaker 2 0.35 nozzle']));
+function setExcludedArea(value) {
+  return must(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'printer',
+    canonical_name: 'DeltaMaker 2 0.35 nozzle', expected_revision: callJson('orc_history_status').revision,
+    key: 'bed_exclude_area', value }));
+}
+async function sliceWithDiagnostics() {
+  const revision = session().input_revisions[id];
+  // Use current native configuration, including auto brim and Printer exclusion;
+  // the older Settings snapshot above intentionally belongs to another test.
+  const accepted = callJson('orc_slice_plate', ['string', 'string', 'number', 'string'], ['{}', id, revision, 'null']);
+  assert.equal(accepted.accepted, true, JSON.stringify(accepted));
+  const messages = [];
+  const result = await awaitAsyncTask(callJson, accepted, 120000, batch => messages.push(...batch));
+  const taskMessages = messages.filter(message => message.task_id === accepted.task_id);
+  const diagnostics = taskMessages.filter(message => message.type === 'slice-diagnostics');
+  assert.ok(diagnostics.every(message => message.plate_id === id && message.input_revision === revision));
+  assert.deepEqual(diagnostics.map(message => message.phase), ['validation', 'processing', 'slicing']);
+  const terminal = taskMessages.find(message => message.type === 'task-terminal');
+  assert.ok(terminal, JSON.stringify(taskMessages));
+  assert.ok(taskMessages.findIndex(message => message.type === 'slice-diagnostics' && message.phase === 'slicing') <
+    taskMessages.indexOf(terminal), 'processing diagnostics precede the terminal');
+  return { result, diagnostics, terminal };
+}
+setExcludedArea(strip.map(([x, y]) => `${x}x${y}`).join(','));
+assert.deepEqual(tower(id).position, autoBrim.position, 'adding an exclusion does not move the tower away from this fixture');
+const failedFootprint = await sliceWithDiagnostics();
+assert.notEqual(failedFootprint.result.ok, true, JSON.stringify(failedFootprint.result));
+assert.equal(failedFootprint.result.receipt, undefined, 'a processing failure cannot publish an exportable generation');
+assert.equal(failedFootprint.terminal.terminal, 'failed', 'this is a process failure, not validation invalid_input');
+assert.ok(failedFootprint.diagnostics[0].diagnostics.some(diagnostic => diagnostic.severity === 'warning' &&
+  /Prime tower is too close to an exclusion area/.test(diagnostic.message)), JSON.stringify(failedFootprint.diagnostics));
+assert.ok(failedFootprint.diagnostics[0].diagnostics.every(diagnostic => diagnostic.severity !== 'error'),
+  'pre-generation validation must allow processing to begin');
+const footprintError = failedFootprint.diagnostics[2].diagnostics.find(diagnostic =>
+  diagnostic.key === 'slicing-error' && diagnostic.severity === 'error' &&
+  /Prime tower is too close to an exclusion area, and collisions will be caused/.test(diagnostic.message));
+assert.ok(footprintError, JSON.stringify(failedFootprint.diagnostics));
+assert.equal(failedFootprint.result.error, footprintError.message);
+
+setExcludedArea(beforeExclusion.effective_values.bed_exclude_area);
+const recovered = await sliceWithDiagnostics();
+must(recovered.result);
+assert.equal(recovered.terminal.terminal, 'completed');
+assert.ok(recovered.diagnostics.every(event => event.diagnostics.every(diagnostic => diagnostic.severity !== 'error')));
+const recoveredExport = must(exportGcode(callJson, { receipt: recovered.result.receipt, filenameBase: '' }));
+towerMotion(Module.FS.readFile(recoveredExport.path, { encoding: 'utf8' }));
+
 console.log(JSON.stringify({ ok: true, printer: 'DeltaMaker 2', multiFilamentSlice: true,
-  gcodeMotionMatchesPreview: true, motionDelta: { x: 20, y: 10 } }));
+  gcodeMotionMatchesPreview: true, motionDelta: { x: 20, y: 10 }, generatedBrimExclusionFailure: true, recoverySlice: true }));

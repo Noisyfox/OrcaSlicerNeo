@@ -848,7 +848,12 @@ Slice diagnostics use ordered `slice-diagnostics` records carrying the task,
 plate, entry incarnation and input revision. Validation publishes its complete
 warning/error set before processing admission, including a rejected validation;
 processing start is an explicit phase, and current step diagnostics precede the
-terminal. They retain native diagnostic identity and stable model-object owners,
+terminal. Successful slicing collects those diagnostics after G-code export,
+which can add path-collision warnings; failed processing still publishes its
+diagnostics before failure. Threaded finalization appends the public terminal
+after export diagnostics in the FIFO, including when the internal native
+terminal is being drained. Repeated slices report each current warning once.
+They retain native diagnostic identity and stable model-object owners,
 independently of progress text. The Worker routes these records to the requesting
 slice callback by request identity. A diagnostic never replaces the authoritative
 task terminal or grants a result receipt. Only a native cancelled terminal marks

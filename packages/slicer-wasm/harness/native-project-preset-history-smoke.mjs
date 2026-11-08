@@ -80,7 +80,34 @@ check('failed Project Print mutation rolls back native materialization',
 // The metadata catalogue must expose region defaults at Project scope, and
 // the same real Project mutation path must retain their native Print ownership.
 const fuzzyValues = { fuzzy_skin: 'all', fuzzy_skin_thickness: '0.42', fuzzy_skin_point_distance: '1.1' };
-const printValues = { ...fuzzyValues, wipe_tower_rotation_angle: '63' };
+const upgradeValues = {
+  adaptive_infill_mode: 'distance_warp', adaptive_infill_interior_density: '12%', adaptive_infill_gradient: 'exponential',
+  infill_complete_top: '1', top_color_penetration_layers: '7', bottom_color_penetration_layers: '6',
+  high_precision_gcode: '1', exclude_object_tolerance: '0.3', enable_arc_fitting: 'sparse_infill',
+};
+const upgradeDefinitions = {
+  adaptive_infill_mode: { type: 'enum', default: 'disabled', mode: 1,
+    enum_values: ['disabled', 'distance_warp', 'smooth_blend', 'stepped_shells', 'lobes', 'normal_z', 'normal_y', 'normal_x'] },
+  adaptive_infill_interior_density: { type: 'percent', default: '5%', min: 1, max: 100 },
+  adaptive_infill_gradient: { type: 'enum', default: 'linear', enum_values: ['linear', 'quadratic', 'exponential'] },
+  infill_complete_top: { type: 'bool', default: '0' },
+  top_color_penetration_layers: { type: 'int', default: '0', min: 0 },
+  bottom_color_penetration_layers: { type: 'int', default: '0', min: 0 },
+  high_precision_gcode: { type: 'bool', default: '0', mode: 2 },
+  exclude_object_tolerance: { type: 'float', default: '0.1', min: 0, max: 5 },
+  enable_arc_fitting: { type: 'enum', default: 'disabled', enum_values: ['disabled', 'enabled', 'sparse_infill'] },
+};
+const printEditor = requireOk('read native Print editor', callJson('orc_get_print_config_editor'));
+for (const [key, definition] of Object.entries(upgradeDefinitions)) {
+  const meta = printEditor.option_metadata[key];
+  check(`native editor exposes ${key}`, meta && Object.hasOwn(printEditor.effective_values, key) &&
+    printEditor.editor_selection.field_bindings[key]?.kind === 'shared');
+  for (const [property, value] of Object.entries(definition))
+    check(`native ${key} metadata ${property}`, JSON.stringify(meta[property]) === JSON.stringify(value), JSON.stringify(meta));
+}
+for (const key of ['adaptive_infill_mode', 'high_precision_gcode'])
+  check(`${key} retains experimental label`, /experimental/i.test(printEditor.option_metadata[key].label));
+const printValues = { ...fuzzyValues, ...upgradeValues, wipe_tower_rotation_angle: '63' };
 const tx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Project Print override', 'project', JSON.stringify(historyContext), '']);
 requireOk('begin Project Print history transaction', tx);
@@ -127,7 +154,7 @@ check('Redo restores the ordinary Project Print diff', nativeSnapshot().project.
 check('Redo restores the Print-owned rotation', nativeSnapshot().project.wipe_tower_rotation_angle === '63' &&
   afterRedo.project_config.wipe_tower_rotation_angle === '63');
 
-for (const [key, value] of Object.entries(fuzzyValues))
+for (const [key, value] of Object.entries(printValues))
   check(`Redo restores Project ${key}`, nativeSnapshot().project[key] === value &&
     presetSnapshot().project_config[key] === value);
 
@@ -218,7 +245,7 @@ check('Process-only save/reopen preserves the edited value',
   reloaded.preset_snapshot.project_config.layer_height === '0.24',
   JSON.stringify(reloaded.preset_snapshot.project_config.layer_height));
 
-for (const [key, value] of Object.entries(fuzzyValues)) {
+for (const [key, value] of Object.entries(printValues)) {
   check(`3MF Process diff records ${key}`, String(Array.isArray(processDiffs) ? processDiffs[0] : processDiffs).includes(key));
   check(`3MF reopen preserves Project ${key}`, reloaded.preset_snapshot.project_config[key] === value &&
     nativeSnapshot().project[key] === value);
@@ -227,6 +254,30 @@ for (const [key, value] of Object.entries(fuzzyValues)) {
 function withProjectConfig(changes) {
   return replaceEntry(projectBytes, 'Metadata/project_settings.config',
     JSON.stringify({ ...projectConfig, ...changes }));
+}
+
+// Saved Process JSON also keeps the current scalar/enum schema. This exercises
+// native serialization, independently of the shared UI's generic enum control.
+const savedUpgrade = requireOk('prepare upgraded Process preset', callJson('orc_prepare_user_preset', ['string'], [JSON.stringify({
+  history_context: editingContext, action: 'save-as', kind: 'print',
+  canonical_name: reloaded.preset_snapshot.print.name, name: 'Upgrade Settings Fixture',
+  expected_revision: callJson('orc_history_status').revision,
+})]));
+const savedJson = savedUpgrade.changes.find(change => change.content !== null);
+check('Process save returns JSON-only changes', savedJson && savedUpgrade.changes.every(change => change.path.endsWith('.json')));
+const savedConfig = JSON.parse(savedJson.content);
+for (const [key, value] of Object.entries(upgradeValues))
+  check(`saved Process retains ${key}`, savedConfig[key] === value, JSON.stringify(savedConfig[key]));
+requireOk('commit upgraded Process preset', callJson('orc_finish_user_preset', ['string'], [JSON.stringify({ token: savedUpgrade.token, commit: true })]));
+
+// Compatibility exists at the old file boundary only. The loaded editor and
+// effective configuration must expose the current enum, never bool strings.
+for (const [legacy, normalized] of [['1', 'enabled'], ['0', 'disabled']]) {
+  const loaded = loadArchive(withProjectConfig({ enable_arc_fitting: legacy }), `legacy-arc-${legacy}.3mf`);
+  check(`legacy arc ${legacy} normalizes on 3MF read`, loaded.preset_snapshot.project_config.enable_arc_fitting === normalized);
+  const editor = requireOk('read normalized arc editor', callJson('orc_get_print_config_editor'));
+  check(`legacy arc ${legacy} has the current editor contract`, editor.option_metadata.enable_arc_fitting.type === 'enum' &&
+    editor.effective_values.enable_arc_fitting === normalized);
 }
 
 // Ordinary Orca archives may select an installed Process directly and apply

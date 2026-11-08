@@ -729,7 +729,7 @@ const userPreset = (action, canonical_name, extra = {}, commit = true) => {
   const prepared = request('orc_prepare_user_preset', { history_context: editingContext, action, kind: 'printer',
     canonical_name, expected_revision: callJson('orc_history_status').revision, ...extra });
   assert.equal(prepared.ok, true, JSON.stringify(prepared));
-  lastUserPresetChange = prepared.change;
+  lastUserPresetChange = prepared.changes.find(change => change.content !== null);
   const finished = request('orc_finish_user_preset', { token: prepared.token, commit });
   assert.equal(finished.ok, true, JSON.stringify(finished));
   return prepared.result;

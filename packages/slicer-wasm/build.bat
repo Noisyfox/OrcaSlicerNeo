@@ -69,7 +69,7 @@ set "DRACO_ROOT=%WORK_DIR%\deps\draco-1.5.7\stage-wasm64-%ARTIFACT_VARIANT%"
 if not defined NLOPT_ROOT set "NLOPT_ROOT=%WORK_DIR%\deps\nlopt-2.5.0\stage-wasm64-%ARTIFACT_VARIANT%"
 if defined DRACO_INCLUDE (set "DRACO_INCLUDE=%DRACO_INCLUDE%") else (set "DRACO_INCLUDE=%DRACO_ROOT%\include")
 if defined DRACO_ARCHIVE (set "DRACO_ARCHIVE=%DRACO_ARCHIVE%") else (set "DRACO_ARCHIVE=%DRACO_ROOT%\lib\libdraco.a")
-if defined OCCT_ROOT (set "OCCT_ROOT=%OCCT_ROOT%") else (set "OCCT_ROOT=%WORK_DIR%\deps\occt-7.6.0\stage-wasm64-%ARTIFACT_VARIANT%")
+if defined OCCT_ROOT (set "OCCT_ROOT=%OCCT_ROOT%") else (set "OCCT_ROOT=%WORK_DIR%\deps\occt-8.0.1\stage-wasm64-%ARTIFACT_VARIANT%")
 
 REM ---------------- TBB shim header generation ----------------
 REM Every <tbb/NAME.h> libslic3r may include forwards to shim\_serial.hpp. Add
@@ -205,22 +205,15 @@ if not exist "%DRACO_ARCHIVE%" (
   call "%PKG_DIR%\build-draco-wasm64.bat"
   if errorlevel 1 exit /b 1
 )
-set "OCCT_NEEDS_BUILD=0"
-if not exist "%OCCT_ROOT%\include\opencascade\Standard.hxx" set "OCCT_NEEDS_BUILD=1"
-if not exist "%OCCT_ROOT%\lib\libTKXDESTEP.a" set "OCCT_NEEDS_BUILD=1"
-findstr /x /c:"USE_FREETYPE=OFF" "%OCCT_ROOT%\manifest.txt" >nul 2>nul
-if errorlevel 1 set "OCCT_NEEDS_BUILD=1"
-if "%OCCT_NEEDS_BUILD%"=="1" (
-  echo [wasm] Building OCCT 7.6.0 XCAF/STEP closure ^(%ARTIFACT_VARIANT% wasm64^)
-  call "%PKG_DIR%\build-occt-wasm64.bat"
-  if errorlevel 1 exit /b 1
-)
-if not exist "%OCCT_ROOT%\lib\libTKXDESTEP.a" (
-  echo [wasm] ERROR: staged OCCT archive missing: %OCCT_ROOT%\lib\libTKXDESTEP.a
-  exit /b 1
-)
-
-if not defined CGAL_ROOT set "CGAL_ROOT=%WORK_DIR%\deps\cgal-5.6.3\stage-wasm64-%ARTIFACT_VARIANT%"
+if not defined CGAL_ROOT set "CGAL_ROOT=%WORK_DIR%\deps\cgal-6.2.1\stage-wasm64-%ARTIFACT_VARIANT%"
+if not defined QHULL_ROOT set "QHULL_ROOT=%WORK_DIR%\deps\qhull-8.0.2\stage-wasm64-%ARTIFACT_VARIANT%"
+if not defined EXPAT_ROOT set "EXPAT_ROOT=%WORK_DIR%\deps\expat-2.5.0\stage-wasm64-%ARTIFACT_VARIANT%"
+node "%PKG_DIR%\dependencies\external\build.mjs" build --library occt --target wasm64 --variant "%ARTIFACT_VARIANT%" --stage "%OCCT_ROOT%"
+if errorlevel 1 exit /b 1
+node "%PKG_DIR%\dependencies\external\build.mjs" build --library qhull --target wasm64 --variant "%ARTIFACT_VARIANT%" --stage "%QHULL_ROOT%"
+if errorlevel 1 exit /b 1
+node "%PKG_DIR%\dependencies\external\build.mjs" build --library expat --target wasm64 --variant "%ARTIFACT_VARIANT%" --stage "%EXPAT_ROOT%"
+if errorlevel 1 exit /b 1
 node "%PKG_DIR%\dependencies\cgal\build.mjs" build --target wasm64 --variant "%ARTIFACT_VARIANT%" --stage "%CGAL_ROOT%"
 if errorlevel 1 exit /b 1
 
@@ -243,6 +236,8 @@ set "DRACO_ARCHIVE_CM=%DRACO_ARCHIVE:\=/%"
 set "NLOPT_ROOT_CM=%NLOPT_ROOT:\=/%"
 set "OCCT_ROOT_CM=%OCCT_ROOT:\=/%"
 set "CGAL_ROOT_CM=%CGAL_ROOT:\=/%"
+set "QHULL_ROOT_CM=%QHULL_ROOT:\=/%"
+set "EXPAT_ROOT_CM=%EXPAT_ROOT:\=/%"
 set "TBB_CM=%TBB_ROOT:\=/%"
 
 REM ---------------- Configure + build ----------------
@@ -267,6 +262,8 @@ emcmake cmake -S "%PKG_DIR%" -B "%BUILD_DIR%" -G Ninja ^
   -DNLOPT_ROOT="%NLOPT_ROOT_CM%" ^
   -DOCCT_ROOT="%OCCT_ROOT_CM%" ^
   -DCGAL_ROOT="%CGAL_ROOT_CM%" ^
+  -DQHULL_ROOT="%QHULL_ROOT_CM%" ^
+  -DEXPAT_ROOT="%EXPAT_ROOT_CM%" ^
   -DWASM_THREADING=%WASM_THREADING% ^
   -DWASM_PTHREAD_POOL_SIZE=%WASM_PTHREAD_POOL_SIZE% ^
   -DTBB_ROOT="%TBB_CM%" ^

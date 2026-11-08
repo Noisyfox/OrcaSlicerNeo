@@ -11,3 +11,6 @@
 # blanks). Check source whitespace normally, rather than treating that data
 # as newly added C++ indentation.
 /packages/slicer-wasm/patches/mcut/*.patch whitespace=-blank-at-eol,-space-before-tab
+
+# Unified diff context represents an empty OCCT source line with one space.
+/packages/slicer-wasm/patches/occt/*.patch whitespace=-blank-at-eol

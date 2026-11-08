@@ -11,6 +11,7 @@
 // means no spurious NON_PLANAR_VORONOI_DIAGRAM issue is ever raised.
 #include "libslic3r/Geometry/VoronoiUtilsCgal.hpp"
 #include "libslic3r/Geometry/Voronoi.hpp"
+#include "libslic3r/Arachne/utils/PolygonsSegmentIndex.hpp"
 #include "libslic3r/Line.hpp"
 #include "libslic3r/MultiMaterialSegmentation.hpp"
 

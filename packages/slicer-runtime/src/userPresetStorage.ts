@@ -34,17 +34,28 @@ export function createBrowserUserPresetStorage(factory: IDBFactory = indexedDB):
         tx.onerror = () => {};
       });
     },
-    async write(change: UserPresetWrite) {
-      validateUserPresetPath(change.path);
+    async write(changes: readonly UserPresetWrite[]) {
+      const writes = changes.map(change => ({ ...change }));
+      for (const change of writes) validateUserPresetPath(change.path);
+      if (writes.length === 0) return;
       const db = await database();
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction('default', 'readwrite');
         const store = tx.objectStore('default');
-        if (change.content === null) store.delete(change.path);
-        else store.put(change);
+        let failure: unknown;
         tx.oncomplete = () => resolve();
-        tx.onabort = () => reject(tx.error ?? new Error('User preset write failed'));
+        tx.onabort = () => reject(failure ?? tx.error ?? new Error('User preset write failed'));
         tx.onerror = () => {};
+        try {
+          for (const change of writes) {
+            if (change.content === null) store.delete(change.path);
+            else store.put(change);
+          }
+        } catch (error) {
+          // A synchronous enqueue failure must also roll back earlier requests.
+          failure = error;
+          tx.abort();
+        }
       });
     },
   };

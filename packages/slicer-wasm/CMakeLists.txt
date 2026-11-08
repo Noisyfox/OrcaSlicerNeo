@@ -27,10 +27,12 @@ if(WASM_THREADING)
 else()
   set(_DEPS_DEFAULT_VARIANT serial)
 endif()
-set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
+set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-8.0.1/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
 set(NLOPT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/nlopt-2.5.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged NLopt wasm64 prefix (include/ and lib/)")
+set(QHULL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/qhull-8.0.2/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Qhull WASM prefix")
+set(EXPAT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/expat-2.5.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Expat WASM prefix")
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone history tests" OFF)
-set(CGAL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/cgal-5.6.3/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "CGAL and numerical WASM prefix")
+set(CGAL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/cgal-6.2.1/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "CGAL and numerical WASM prefix")
 option(NEO_MESH_BOOLEAN_TEST "Build real MeshBoolean backend acceptance tests" OFF)
 option(NEO_MESH_BOOLEAN_COMMAND_TEST "Enable Mesh Boolean command fault injection" OFF)
 option(NEO_ARRANGEMENT_TEST "Build arrangement publication fault injection for rollback tests" OFF)
@@ -105,7 +107,7 @@ file(GLOB_RECURSE LIBSLIC3R_SRC CONFIGURE_DEPENDS "${LIBSLIC3R_ROOT}/*.cpp")
 
 # Denylist: dropped for the FDM v1 (pull in OpenVDB/CGAL/OCCT/networking).
 # NOTE: "/Format/3mf" is intentionally NOT here — 3MF is re-added for v1
-# (Format/3mf.cpp + Format/bbs_3mf.cpp; expat/miniz/fast_float are in-tree).
+# (Format/3mf.cpp + Format/bbs_3mf.cpp; Expat is staged, miniz/fast_float are in-tree).
 set(DROP_PATTERNS
   # SLA/ is dropped wholesale EXCEPT IndexedMesh.cpp: ContourZ.cpp (kept, Z
   # contouring) calls sla::IndexedMesh. The resin pipeline (supports, hollowing,
@@ -184,10 +186,8 @@ target_include_directories(slic3r_core PUBLIC
   "${ORCA_SRC}/deps_src/libigl"
   "${ORCA_SRC}/deps_src/miniz"
   "${ORCA_SRC}/deps_src/clipper2/Clipper2Lib/include"
-  "${ORCA_SRC}/deps_src/expat"
   "${ORCA_SRC}/deps_src/glu-libtess/include"
   "${ORCA_SRC}/deps_src/libnest2d/include"
-  "${ORCA_SRC}/deps_src/qhull/src"
 )
 
 # Compile defines libslic3r expects (spike-proven set + WASM guards). The
@@ -203,14 +203,8 @@ target_compile_definitions(slic3r_core PUBLIC
 if(NOT OCCT_ROOT OR NOT EXISTS "${OCCT_ROOT}/include/opencascade/Standard.hxx")
   message(FATAL_ERROR "OCCT_ROOT must name the staged OCCT wasm64 prefix (include/opencascade/Standard.hxx missing).")
 endif()
-# Reject pre-removal OCCT stages even during a quick build: their archives
-# still reference FreeType and must be rebuilt with the current dependency flags.
-if(EXISTS "${OCCT_ROOT}/manifest.txt")
-  file(STRINGS "${OCCT_ROOT}/manifest.txt" OCCT_FREETYPE_DISABLED REGEX "^USE_FREETYPE=OFF$")
-endif()
-if(NOT OCCT_FREETYPE_DISABLED)
-  message(FATAL_ERROR "OCCT_ROOT must be rebuilt with USE_FREETYPE=OFF. Run build-occt-wasm64 for this variant, then reconfigure.")
-endif()
+# Reject stale compiler, source, patches, width or threading even in quick builds.
+include("${CMAKE_CURRENT_SOURCE_DIR}/dependencies/external.cmake")
 target_include_directories(slic3r_core SYSTEM PUBLIC
   "${OCCT_ROOT}/include"
   "${OCCT_ROOT}/include/opencascade"
@@ -246,16 +240,16 @@ else()
 endif()
 target_compile_options(slic3r_core PRIVATE ${SLIC3R_COMPILE_OPTS})
 include("${CMAKE_CURRENT_SOURCE_DIR}/dependencies/cgal.cmake")
-target_link_libraries(slic3r_core PRIVATE cgal_dependencies)
+target_link_libraries(slic3r_core PUBLIC cgal_dependencies)
 
 # ---- Vendored deps (deps_src/ inside the submodule) ----
 # The upstream two-stage build compiles these as separate static libs; the
 # scaffold folds the needed ones into one deps_core archive. Sources mirror
 # each deps_src/<dep>/CMakeLists.txt source list. Compiled here because they
-# live outside the libslic3r GLOB and the link needs them (expat=3MF XML,
+# live outside the libslic3r GLOB and the link needs them:
 # miniz=3MF zip, admesh=STL load/repair, clipper2=clipping/offset/triangulation,
-# qhull=convex hull, glu-libtess=tesselation, mcut=mesh boolean,
-# semver=Semver.hpp, qoi=thumbnail PNG). Keep in sync with upstream lists.
+# glu-libtess=tesselation, mcut=mesh boolean,
+# semver=Semver.hpp, qoi=thumbnail PNG. Keep in sync with upstream lists.
 enable_language(C)
 
 # Compiled independently by build-nlopt-wasm64 so CI can cache both variants.
@@ -298,9 +292,6 @@ set_property(SOURCE ${MCUT_SRC} APPEND PROPERTY COMPILE_OPTIONS
 
 set(DEPS_CORE_SRC
   ${MCUT_SRC}
-  "${ORCA_SRC}/deps_src/expat/xmlparse.c"
-  "${ORCA_SRC}/deps_src/expat/xmlrole.c"
-  "${ORCA_SRC}/deps_src/expat/xmltok.c"
   "${ORCA_SRC}/deps_src/miniz/miniz.c"
   "${ORCA_SRC}/deps_src/admesh/connect.cpp"
   "${ORCA_SRC}/deps_src/admesh/normals.cpp"
@@ -324,42 +315,6 @@ set(DEPS_CORE_SRC
   "${ORCA_SRC}/deps_src/glu-libtess/src/sweep.c"
   "${ORCA_SRC}/deps_src/glu-libtess/src/tess.c"
   "${ORCA_SRC}/deps_src/glu-libtess/src/tessmono.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/geom2_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/geom_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/global_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/io_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/libqhull_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/mem_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/merge_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/poly2_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/poly_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/qset_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/random_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/rboxlib_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/stat_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/user_r.c"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhull_r/usermem_r.c"
-  # qhullcpp: the Qt-bound qt-qhull.cpp and usermem_r-cpp.cpp are omitted
-  # (usermem_r.c provides the allocator hooks).
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/Coordinates.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/PointCoordinates.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/Qhull.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullFacet.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullFacetList.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullFacetSet.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullHyperplane.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullPoint.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullPointSet.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullPoints.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullQh.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullRidge.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullSet.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullStat.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullVertex.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/QhullVertexSet.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/RboxPoints.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/RoadError.cpp"
-  "${ORCA_SRC}/deps_src/qhull/src/libqhullcpp/RoadLogEvent.cpp"
   "${ORCA_SRC}/deps_src/semver/semver.c"
   "${ORCA_SRC}/deps_src/qoi/qoilib.c"
 )
@@ -384,10 +339,8 @@ target_include_directories(deps_core PUBLIC
   "${ORCA_SRC}/deps_src"
   "${ORCA_SRC}/deps_src/admesh"
   "${ORCA_SRC}/deps_src/clipper2/Clipper2Lib/include"
-  "${ORCA_SRC}/deps_src/expat"
   "${ORCA_SRC}/deps_src/glu-libtess/include"
   "${ORCA_SRC}/deps_src/miniz"
-  "${ORCA_SRC}/deps_src/qhull/src"
   "${ORCA_SRC}/deps_src/qoi"
   "${ORCA_SRC}/deps_src/semver"
 )
@@ -503,6 +456,7 @@ if(NEO_PROJECT_HISTORY_TEST)
 
   add_executable(history_mesh_capture_test
     ${ORCA_BRIDGE_SRC}
+    "${ORCA_SRC}/src/slic3r/Utils/ASCIIFolding.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/history/MeshCaptureCache.test.cpp")
   target_compile_definitions(history_mesh_capture_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
   target_compile_options(history_mesh_capture_test PRIVATE -fexceptions)
@@ -547,7 +501,7 @@ else()
 endif()
 target_link_libraries(orca_slice PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
 set(OCCT_TOOLKITS
-  TKXDESTEP TKSTEP TKSTEP209 TKSTEPAttr TKSTEPBase TKXCAF TKXSBase
+  TKDESTEP TKDE TKXCAF TKXSBase
   TKVCAF TKCAF TKLCAF TKCDF TKV3d TKService TKMesh TKBO TKPrim TKHLR
   TKShHealing TKTopAlgo TKGeomAlgo TKBRep TKGeomBase TKG3d TKG2d TKMath TKernel
 )
@@ -724,7 +678,12 @@ if(NEO_MESH_BOOLEAN_TEST)
     -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node
     -sEXPORTED_RUNTIME_METHODS=HEAPU8)
   if(WASM_THREADING)
-    target_link_options(mesh_boolean_backend_test PRIVATE -pthread -sPTHREAD_POOL_SIZE=8)
+    # This synchronous stress suite retains TBB's workers while libigl starts
+    # another hardware-sized group, or while two MCUT contexts coexist.
+    # A blocked browser Worker cannot initialize dynamically added pthreads.
+    # Reserve both groups here; the production pool remains configured above.
+    target_link_options(mesh_boolean_backend_test PRIVATE -pthread
+      "-sPTHREAD_POOL_SIZE=Math.max(8,2*(navigator.hardwareConcurrency||1))")
   endif()
   set_target_properties(mesh_boolean_backend_test PROPERTIES SUFFIX ".mjs")
 endif()

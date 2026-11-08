@@ -6,7 +6,7 @@ PrintResult PluginAgent::print(const std::string& route, Slic3r::PrintParams par
 {
     if (!agent_) throw std::runtime_error("Agent not created");
     // A by-value layout mismatch corrupts memory. Only the pinned ABI is callable.
-    if (get_version_().rfind("02.08.01.", 0) != 0)
+    if (get_version_().rfind("02.08.04.", 0) != 0)
         throw std::runtime_error("Unsupported print plugin ABI");
     auto update = [state, sink, route, library = library_](int stage, int code, std::string) {
         // Pinned v2.2.0: LAN publishes after Waiting; Cloud POSTs and device-file

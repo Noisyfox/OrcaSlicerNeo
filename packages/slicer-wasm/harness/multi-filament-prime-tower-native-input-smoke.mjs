@@ -24,7 +24,7 @@ function textEntry(entries, name) {
   return decoder.decode(entry.content);
 }
 
-function buildPaintedProject() {
+function buildPaintedProject(projectOverrides = {}) {
   const entries = readZipEntries(buildIndependentReader3mf());
   const model = textEntry(entries, '3D/3dmodel.model')
     .replace('transform="1 0 0 0 1 0 0 0 1 0 0 10"', 'transform="1 0 0 0 1 0 0 0 1 100 100 10"');
@@ -46,7 +46,7 @@ function buildPaintedProject() {
     filament_self_index: ['0', '0', '0', '0'], filament_extruder_variant: ['0', '0', '0', '0'],
     flush_volumes_matrix: ['0', '100', '110', '120', '100', '0', '130', '140',
       '110', '130', '0', '150', '120', '140', '150', '0'],
-  });
+  }, projectOverrides);
   const modelSettings = textEntry(entries, 'Metadata/model_settings.config')
     .replace('filament_maps" value="1 1"', 'filament_maps" value="2 1 1 1"')
     .replace('filament_volume_maps" value="0 0"', 'filament_volume_maps" value="0 0 0 0"')
@@ -98,19 +98,52 @@ function setRouting(selector, slot) {
 }
 const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 assert.equal(init.ok, true, JSON.stringify(init));
-const archive = buildPaintedProject();
-const pointer = Module._malloc(archive.byteLength); Module.HEAPU8.set(archive, pointer);
-const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'], [pointer, archive.byteLength, 0, 'prime-tower-painted.3mf']);
-Module._free(pointer); assert.equal(loaded.ok, true, JSON.stringify(loaded));
+function loadPaintedProject(projectOverrides = {}) {
+  const archive = buildPaintedProject(projectOverrides);
+  const pointer = Module._malloc(archive.byteLength); Module.HEAPU8.set(archive, pointer);
+  const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'], [pointer, archive.byteLength, 0, 'prime-tower-painted.3mf']);
+  Module._free(pointer); assert.equal(loaded.ok, true, JSON.stringify(loaded));
+  setProject('enable_prime_tower', '1'); setProject('prime_tower_width', '25'); setProject('wipe_tower_wall_type', 'rectangle');
+  setProject('print_sequence', 'by object');
+  setProject('enable_support', '0'); setProject('raft_layers', '0');
+}
 
-setProject('enable_prime_tower', '1'); setProject('prime_tower_width', '25'); setProject('wipe_tower_wall_type', 'rectangle');
-setProject('print_sequence', 'by object');
+loadPaintedProject();
 for (const selector of ['support-base', 'support-interface', 'outer-wall', 'inner-wall',
   'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']) setRouting(selector, 0);
 setProject('enable_support', '0'); setProject('raft_layers', '0');
 let projection = callJson('orc_get_prime_tower_projection');
 assert.equal(projection.plates[0].eligible, true, JSON.stringify(projection));
 assert.deepEqual(projection.plates[0].used_slots, [1, 2, 4], 'painted slots plus custom tool change');
+
+// Every infill/surface selector can return to Default independently. The
+// painted mesh and custom G-code remain the only sources of slots 1, 2 and 4.
+for (const selector of ['sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']) {
+  setRouting(selector, 3);
+  assert.deepEqual(callJson('orc_get_prime_tower_projection').plates[0].used_slots, [1, 2, 3, 4], `${selector} explicit slot`);
+  setRouting(selector, 0);
+  assert.deepEqual(callJson('orc_get_prime_tower_projection').plates[0].used_slots, [1, 2, 4], `${selector} Default removes its explicit slot`);
+}
+
+// The old bridge substituted object internal-solid=2 for top/bottom Default,
+// hiding the global same-feature slot 3 from the unsliced PartPlate used set.
+// In 2.5 each feature falls back independently. This conservative projection
+// is not an assertion that every collected slot necessarily extrudes G-code.
+for (const [selector, key] of [['top-surface', 'top_surface_filament_id'], ['bottom-surface', 'bottom_surface_filament_id']]) {
+  // Global feature routes can arrive through 3MF. The scoped-config API
+  // intentionally does not write routing keys, and the routing UI exposes
+  // these selectors at object/part scope rather than project scope.
+  loadPaintedProject({ [key]: '3' });
+  setRouting('internal-solid-infill', 2);
+  assert.deepEqual(callJson('orc_get_prime_tower_projection').plates[0].used_slots, [1, 2, 3, 4],
+    `${selector} absent object override uses global slot, not internal solid's slot`);
+  setRouting(selector, 2);
+  assert.deepEqual(callJson('orc_get_prime_tower_projection').plates[0].used_slots, [1, 2, 4], `${selector} explicit object slot wins`);
+  setRouting(selector, 0);
+  assert.deepEqual(callJson('orc_get_prime_tower_projection').plates[0].used_slots, [1, 2, 3, 4], `${selector} Default follows native unsliced collection`);
+}
+loadPaintedProject();
+assert.deepEqual(callJson('orc_get_prime_tower_projection').plates[0].used_slots, [1, 2, 4]);
 
 // Native feature/support routing adds the remaining slot through the exact
 // fallback families used by PartPlate::get_extruders(true).

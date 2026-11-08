@@ -131,11 +131,15 @@ void apply_device_materials(Print& print)
             material.set_key_value("filament_colour", new ConfigOptionStrings{item.at("colour").is_null() ? "" : item.at("colour").get<std::string>()});
             material.set_key_value("tray_name", new ConfigOptionStrings{item.at("external").get<bool>() ? "Ext" : item.at("slotId").get<std::string>()});
             bool support = false;
+            std::string filament_id;
             for (const auto& ref : item.at("catalogRefs")) {
                 if (ref.at("namespace") != "orca-filament") continue;
-                const auto info = state().presets.get_filament_by_filament_id(ref.at("value").get<std::string>());
-                if (info) { support = info->is_support; break; }
+                const auto candidate_id = ref.at("value").get<std::string>();
+                if (filament_id.empty()) filament_id = candidate_id;
+                const auto info = state().presets.get_filament_by_filament_id(candidate_id);
+                if (info) { filament_id = candidate_id; support = info->is_support; break; }
             }
+            material.set_key_value("filament_id", new ConfigOptionStrings{filament_id});
             material.set_key_value("filament_is_support", new ConfigOptionBools{support});
             materials[item.at("toolIndex").get<unsigned>()].push_back(std::move(material));
         }

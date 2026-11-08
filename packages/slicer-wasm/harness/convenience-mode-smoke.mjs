@@ -39,6 +39,7 @@ assert.deepEqual(inputs(), baseline, 'device list is outside project/history inp
 assert.equal(command('orc_set_device_material_context', source([{ ...supply(0, '#FF0000'), toolIndex: 3 }])).ok, false);
 assert.equal(ok(projection(plate)).modes[1].available, true, 'invalid publication leaves the previous context intact');
 let layerHeight = 0.3;
+let expectedProjectFilamentId;
 async function slice(expected, sequence = 'by layer', reuseSettings = false) {
   // Device-list changes alone do not invalidate Orca's cached grouping. Use a
   // normal slicing-config change when proving fresh grouping on a reused Print.
@@ -49,6 +50,9 @@ async function slice(expected, sequence = 'by layer', reuseSettings = false) {
   const exported = ok(exportGcode(call, { receipt: result.receipt, filenameBase: '' }));
   const gcode = Module.FS.readFile(exported.path, { encoding: 'utf8' });
   writeFileSync('/tmp/neo-convenience.gcode', gcode);
+  if (expectedProjectFilamentId !== undefined)
+    assert.equal(gcode.match(/^; filament_ids = ([^;\r\n]*)/m)?.[1], expectedProjectFilamentId,
+      'the native multi-slot slice must receive the selected project filament identity');
   const native = ok(call('orc_test_nozzle_mapping_slice', ['string'], [plate]));
   if (expected !== undefined) {
     assert.equal(native.filamentMap[0], expected + 1);
@@ -64,6 +68,49 @@ console.log(`Device-only update on cached Print produced nozzle ${materialOnlyUp
 await slice(0); // Normal config invalidation makes grouping consume the new colors.
 set(source([supply(0, '#0000FF'), supply(1, '#FF0000')]));
 await slice(1);
+
+// The 2.5 core breaks equal-colour/type Match ties by native filament identity.
+// Resolve both IDs through the real catalogue instead of baking profile IDs
+// into this fixture; the project already uses Generic PLA @BBL H2D.
+const [projectId, otherId] = ok(command('orc_match_filament_presets', ['Generic PLA', 'Bambu PLA Basic'].map(presetName => ({
+  presetName, manufacturer: presetName.startsWith('Generic') ? 'Generic' : 'Bambu Lab',
+  materialType: 'PLA', colorRgba: '#FF0000FF',
+})))).filamentIds;
+const catalogue = ok(command('orc_get_device_material_catalogue', { identity, mainNozzleDiameterMm: .4,
+  toolIndex: 0, nozzleFlowType: 'Standard', supportsUserPresets: false }));
+assert.ok(projectId && otherId && projectId !== otherId, 'fixture requires two distinct native PLA identities');
+expectedProjectFilamentId = projectId;
+for (const id of [projectId, otherId])
+  assert.ok(catalogue.presets.some(preset => preset.materialType === 'PLA' &&
+    preset.catalogRefs.some(ref => ref.namespace === 'orca-filament' && ref.value === id)),
+  'both same-type identities belong to the selected device catalogue');
+const ref = value => ({ namespace: 'orca-filament', value });
+const sameColour = (tool, refs) => ({ ...supply(tool, '#FF0000'), catalogRefs: refs });
+const unknownId = 'neo-fixture-unreported-filament-id';
+assert.ok(!catalogue.presets.some(preset => preset.catalogRefs.some(reference => reference.value === unknownId)));
+const identityCases = [
+  { name: 'same ID on first nozzle', refs: [[ref(projectId)], [ref(otherId)]], expected: 0 },
+  { name: 'swapping only device IDs swaps effective nozzle', refs: [[ref(otherId)], [ref(projectId)]], expected: 1 },
+  { name: 'unknown ID cannot beat a known exact match', refs: [[ref(unknownId)], [ref(projectId)]], expected: 1 },
+  { name: 'empty ID cannot beat a known exact match', refs: [[ref(projectId)], [ref('')]], expected: 0 },
+  { name: 'unknown and empty references before a known ID',
+    refs: [[ref(otherId)], [ref(unknownId), ref(''), ref(projectId)]], expected: 1 },
+  { name: 'first catalogue-resolved ID owns a supply',
+    refs: [[ref(otherId), ref(projectId)], [ref(projectId), ref(otherId)]], expected: 1 },
+  { name: 'another namespace does not impersonate an Orca ID',
+    refs: [[{ namespace: 'vendor-private', value: projectId }, ref(otherId)], [ref(projectId)]], expected: 1 },
+];
+for (const test of identityCases) {
+  set(source(test.refs.map((refs, tool) => sameColour(tool, refs))));
+  await slice(test.expected); // Includes native Print map and actual extrusion-tool assertions.
+  console.log(`PASS Match identity: ${test.name}`);
+}
+// Identity is a tie-breaker, below colour. Flush has its own cost model and is
+// deliberately not assigned these Match-mode expectations.
+set(source([{ ...supply(0, '#0000FF'), catalogRefs: [ref(projectId)] },
+  { ...supply(1, '#FF0000'), catalogRefs: [ref(otherId)] }]));
+await slice(1);
+
 set(source([supply(0, '#0000FF'), supply(1, '#FF0000')].map(s => ({ ...s, materialType: 'Unreported family' }))));
 await slice(1); // Native type relaxation still prefers the closest device color.
 await slice(1, 'by object');

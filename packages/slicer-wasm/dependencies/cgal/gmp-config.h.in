@@ -1,4 +1,4 @@
-// GMP 6.2.1 generic-C Emscripten configuration (no assembly/nails).
+// GMP 6.3.0 generic-C Emscripten configuration (no assembly/nails).
 // Capabilities match the upstream configure probe for wasm32 and wasm64.
 #pragma once
 #if __SIZEOF_POINTER__ != @WASM_BYTES@ || __SIZEOF_LONG__ != @WASM_BYTES@
@@ -79,10 +79,10 @@
 #define PACKAGE "gmp"
 #define PACKAGE_BUGREPORT "gmp-bugs@gmplib.org, see https://gmplib.org/manual/Reporting-Bugs.html"
 #define PACKAGE_NAME "GNU MP"
-#define PACKAGE_STRING "GNU MP 6.2.1"
+#define PACKAGE_STRING "GNU MP 6.3.0"
 #define PACKAGE_TARNAME "gmp"
 #define PACKAGE_URL "http://www.gnu.org/software/gmp/"
-#define PACKAGE_VERSION "6.2.1"
+#define PACKAGE_VERSION "6.3.0"
 #define RETSIGTYPE void
 #define SIZEOF_MP_LIMB_T @WASM_BYTES@
 #define SIZEOF_UNSIGNED 4
@@ -92,7 +92,7 @@
 #define STDC_HEADERS 1
 #define TIME_WITH_SYS_TIME 1
 #define TUNE_SQR_TOOM2_MAX SQR_TOOM2_MAX_GENERIC
-#define VERSION "6.2.1"
+#define VERSION "6.3.0"
 #define WANT_FFT 1
 #define WANT_TMP_ALLOCA 1
 #define restrict __restrict

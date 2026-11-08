@@ -21,9 +21,9 @@ const draft = name => ok(call('orc_get_preset_draft', ['filament', name]));
 const disk = new Map();
 function mutate(action, kind, canonical_name, extra = {}, commit = true) {
   const prepared = ok(request('orc_prepare_user_preset', { history_context: editingContext, action, kind, canonical_name, expected_revision: status().revision, ...extra }));
-  if (commit) {
-    if (prepared.change.content === null) disk.delete(prepared.change.path);
-    else disk.set(prepared.change.path, prepared.change.content);
+  if (commit) for (const change of prepared.changes) {
+    if (change.content === null) disk.delete(change.path);
+    else disk.set(change.path, change.content);
   }
   ok(request('orc_finish_user_preset', { token: prepared.token, commit }));
   return prepared.result;
@@ -256,16 +256,23 @@ assert.ok(ok(call('orc_get_filament_session_snapshot')).slots.every(row => row.p
 // create a self-inheritance cycle in the durable destination.
 overwriteRack = ok(call('orc_get_filament_session_snapshot'));
 ok(request('orc_select_filament_slot_preset', { version: 1, revision: overwriteRack.revisions.session, slot: 1, preset: 'Local Child' }));
+const parentFileBefore = [...disk].find(([path]) => path.endsWith('/Neo Local PLA.json'));
+assert.ok(parentFileBefore);
+const originalParentInherits = JSON.parse(parentFileBefore[1]).inherits ?? '';
+assert.equal(originalParentInherits, '', 'the destination in this regression must be a root user preset');
+console.log('user-presets progress: cross-overwrite passed; preparing child-over-parent save');
 const parentOverwrite = mutate('save-as', 'filament', 'Local Child', { name: 'Neo Local PLA', confirm_overwrite: true });
 assert.equal(parentOverwrite.history_entry_delta, 1);
 assert.equal(parentOverwrite.filament_session.slots[0].preset.name, 'Neo Local PLA');
 const parentFile = [...disk].find(([path]) => path.endsWith('/Neo Local PLA.json'));
 assert.ok(parentFile, 'the destination may be stored in the native base subdirectory');
-assert.notEqual(JSON.parse(parentFile[1]).inherits, 'Neo Local PLA');
+assert.equal(JSON.parse(parentFile[1]).inherits ?? '', originalParentInherits,
+  'child-over-parent save preserves the original empty parent instead of creating an inheritance cycle');
 ok(call('orc_history_undo'));
 assert.match(ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name, /snapshot/);
 ok(call('orc_history_redo'));
 assert.equal(ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name, 'Neo Local PLA');
+console.log('user-presets progress: child-over-parent save and Undo/Redo passed');
 // Deleted child snapshots follow the nearest surviving original ancestor.
 ok(call('orc_init', [fixtureProfileOptions(Module)]));
 mutate('save-as', 'filament', first, { name: 'Parent Chain' });
@@ -440,5 +447,90 @@ assert.equal(frozenOrdinary.projection_kind, 'ordinary-edit');
 assert.deepEqual(frozenOrdinary.editor_candidates, { kind: 'unchanged' },
   'continuous snapshot edits use the same safe path');
 
-console.log('user-presets PASS shared save dialog, self/cross overwrite, snapshots, delete, Undo/Redo, Reset, shared slots, dormant editor, Printer, Process, 3MF, name reuse, failed persistence, required renderer context and selection/gizmo roundtrips');
+// Replacing a detached base preset with another source changes its native path.
+// Rollback must cover the old JSON/info and both possible destination paths;
+// the host receipt persists JSON only, including the old-path deletion.
+ok(call('orc_init', [fixtureProfileOptions(Module)]));
+let migrationRack = ok(call('orc_get_filament_session_snapshot'));
+ok(request('orc_select_filament_slot_preset', { version: 1, revision: migrationRack.revisions.session, slot: 1, preset: first }));
+mutate('save-as', 'filament', first, { name: 'Migration Retained' });
+mutate('delete', 'filament', 'Migration Retained');
+ok(call('orc_history_undo'));
+const detachedSource = ok(call('orc_get_filament_session_snapshot')).slots[0].preset.name;
+assert.match(detachedSource, /snapshot/);
+mutate('save-as', 'filament', detachedSource, { name: 'Migration Target' });
+const basePath = 'filament/base/Migration Target.json';
+const flatPath = 'filament/Migration Target.json';
+assert.equal(disk.has(basePath), true, 'saving a retained snapshot creates a detached base preset');
+assert.equal(disk.has(flatPath), false);
+mutate('save-as', 'filament', first, { name: 'Migration Source' });
+ok(request('orc_mutate_preset_draft', { history_context: editingContext, action: 'set', kind: 'filament', canonical_name: 'Migration Source',
+  key: 'nozzle_temperature', value: '217', expected_revision: status().revision }));
+mutate('save', 'filament', 'Migration Source');
+const migrationFiles = [basePath, basePath.replace(/\.json$/, '.info'), flatPath, flatPath.replace(/\.json$/, '.info')];
+const nativeFile = path => Module.FS.analyzePath(`/user/default/${path}`).exists
+  ? Module.FS.readFile(`/user/default/${path}`, { encoding: 'utf8' }) : null;
+// A pre-existing destination info file must also survive an aborted replacement.
+Module.FS.writeFile(`/user/default/${migrationFiles[3]}`, 'sync_info = local\nupdated_time = 123\n');
+const migrationBeforeFiles = migrationFiles.map(nativeFile);
+assert.equal(typeof migrationBeforeFiles[1], 'string', 'the detached source has transient native info');
+const migrationBeforeDisk = [...disk];
+const migrationBeforeStatus = status();
+const migrationBeforeSession = ok(call('orc_get_filament_session_snapshot'));
+const prepareMigration = () => ok(request('orc_prepare_user_preset', {
+  history_context: editingContext, action: 'save-as', kind: 'filament', canonical_name: 'Migration Source',
+  name: 'Migration Target', confirm_overwrite: true, expected_revision: status().revision,
+}));
+const checkMigrationChanges = prepared => {
+  assert.deepEqual(prepared.changes.map(({ path, content }) => ({ path, deleted: content === null })), [
+    { path: basePath, deleted: true }, { path: flatPath, deleted: false },
+  ]);
+  assert.equal(prepared.changes.some(change => change.path.endsWith('.info')), false);
+  assert.equal(nativeFile(basePath), null);
+  assert.equal(nativeFile(flatPath), prepared.changes[1].content);
+};
+const abortedMigration = prepareMigration();
+checkMigrationChanges(abortedMigration);
+ok(request('orc_finish_user_preset', { token: abortedMigration.token, commit: false }));
+assert.deepEqual(migrationFiles.map(nativeFile), migrationBeforeFiles, 'abort restores all JSON/info paths byte for byte');
+assert.deepEqual([...disk], migrationBeforeDisk, 'failed persistence leaves the host library unchanged');
+assert.deepEqual(status(), migrationBeforeStatus);
+assert.deepEqual(ok(call('orc_get_filament_session_snapshot')), migrationBeforeSession);
+
+const committedMigration = prepareMigration();
+checkMigrationChanges(committedMigration);
+for (const change of committedMigration.changes) {
+  if (change.content === null) disk.delete(change.path);
+  else disk.set(change.path, change.content);
+}
+ok(request('orc_finish_user_preset', { token: committedMigration.token, commit: true }));
+assert.equal(disk.has(basePath), false);
+assert.equal(disk.has(flatPath), true);
+assert.equal(nativeFile(migrationFiles[1]), null, 'commit removes the old base info');
+assert.ok(draft('Migration Target').effective_values.nozzle_temperature.split(',').every(value => value === '217'));
+
+// A fresh module starts with only host-persisted JSON, proving that neither
+// stale base copies nor session-only info are needed to recover the saved head.
+console.log('user-presets progress: native JSON/info rollback passed; restarting from persisted JSON');
+Module.PThread?.terminateAllThreads?.();
+const restarted = await (await loadModuleFactory(resolve(modulePath)))({ noInitialRun: true, print: () => {}, printErr: () => {} });
+await installProfilePackages(restarted, createNodeProfileSource(resolve(import.meta.dirname, '../../profile-resources/dist')));
+for (const [path, content] of disk) {
+  assert.ok(path.endsWith('.json'));
+  restarted.FS.mkdirTree(`/user/default/${path.slice(0, path.lastIndexOf('/'))}`);
+  restarted.FS.writeFile(`/user/default/${path}`, content);
+}
+assert.equal(restarted.FS.analyzePath(`/user/default/${basePath}`).exists, false);
+assert.equal(restarted.FS.analyzePath(`/user/default/${migrationFiles[3]}`).exists, false);
+function restartCall(name, args = []) {
+  const pointer = Number(restarted.ccall(name, 'number', args.map(() => 'string'), args));
+  try { return JSON.parse(restarted.UTF8ToString(pointer)); } finally { restarted._free(pointer); }
+}
+ok(restartCall('orc_init', [fixtureProfileOptions(restarted)]));
+const restartedTarget = ok(restartCall('orc_get_preset_draft', ['filament', 'Migration Target']));
+assert.ok(restartedTarget.effective_values.nozzle_temperature.split(',').every(value => value === '217'));
+assert.equal(ok(restartCall('orc_user_preset_info', ['filament', 'Migration Target'])).can_save, true);
+restarted.PThread?.terminateAllThreads?.();
+
+console.log('user-presets PASS shared save dialog, self/cross overwrite, snapshots, delete, Undo/Redo, Reset, shared slots, dormant editor, Printer, Process, 3MF, name reuse, failed persistence, required renderer context, selection/gizmo roundtrips and base-to-flat JSON/info rollback/restart');
 process.exit(0);

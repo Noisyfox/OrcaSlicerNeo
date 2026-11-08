@@ -1,5 +1,5 @@
-// AGPL-3.0. Exact 02.08.01 PrintParams ABI from the pinned Orca header.
-// Verified against Open Bamboo Networking v2.2.0 (ABI_VERSION=0x020801).
+// AGPL-3.0. Exact 02.08.04 PrintParams ABI from the pinned Orca header.
+// Verified against Open Bamboo Networking v2.2.0 (ABI_VERSION=0x020804).
 #pragma once
 #include <string>
 namespace Slic3r {
@@ -54,5 +54,6 @@ struct PrintParams {
     bool            try_emmc_print;
     std::string     svc_context;
     std::string     slicer_uid;
+    std::string     queue_plate_id;
 };
 }

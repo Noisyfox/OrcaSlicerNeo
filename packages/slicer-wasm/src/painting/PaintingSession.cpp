@@ -336,7 +336,7 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
             if (session.tool == Tool::SmartFill) {
                 if (!settings.angle) throw std::invalid_argument("Smart Fill requires an angle");
                 part.selector->seed_fill_select_triangles(hit.local.cast<float>(), hit.original_facet, linear,
-                    clipping, float(*settings.angle), settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f, true);
+                    clipping, float(*settings.angle), settings.restrict_to_overhangs ? support_overhang_angle(*settings.overhang_angle) : 0.f, Vec3f::UnitZ(), true);
             } else part.selector->bucket_fill_select_triangles(hit.local.cast<float>(), hit.original_facet,
                 clipping, session.tool == Tool::Region && settings.angle ? float(*settings.angle) : -1.f,
                 session.tool == Tool::Region, true);
@@ -355,7 +355,7 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
             else cursor = TriangleSelector::SinglePointCursor::cursor_factory(hit.local.cast<float>(), source,
                 float(settings.radius), type, transform, clipping);
             part.selector->select_patch(capsule ? previous->original_facet : hit.original_facet, std::move(cursor), state, linear, true,
-                settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f);
+                settings.restrict_to_overhangs ? support_overhang_angle(*settings.overhang_angle) : 0.f, Vec3f::UnitZ());
         }
         // Conservatively invalidate after an admitted edit, including same-colour
         // painting. The native selector exposes no cheap exact mutation result.
@@ -617,7 +617,7 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
             Transform3d transform = current.instance_transform * current.parts[hit->part].volume_transform;
             transform.translation().setZero();
             selected->seed_fill_select_triangles(hit->local.cast<float>(), hit->original_facet, transform, {},
-                float(*settings.angle), settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f, true);
+                float(*settings.angle), settings.restrict_to_overhangs ? support_overhang_angle(*settings.overhang_angle) : 0.f, Vec3f::UnitZ(), true);
         } else selected->bucket_fill_select_triangles(hit->local.cast<float>(), hit->original_facet, {},
             tool == Tool::Region && settings.angle ? float(*settings.angle) : -1.f, tool == Tool::Region, true);
         }

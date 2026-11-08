@@ -1087,6 +1087,7 @@ MutableObjectCaptureCache::MutationFingerprint mutation_fingerprint(const ModelO
     result.module_name = object.module_name;
     result.input_file = object.input_file;
     result.printable = object.printable;
+    result.auto_drop = object.auto_drop;
     // Native fields without a mutation timestamp still participate exactly.
     // Derived bounding-box caches are deliberately excluded; restore
     // invalidates them after applying the authoritative transform overlay.
@@ -1104,11 +1105,14 @@ MutableObjectCaptureCache::MutationFingerprint mutation_fingerprint(const ModelO
         fingerprint.name = volume->name;
         fingerprint.material_id = volume->material_id();
         fingerprint.type = static_cast<int>(volume->type());
-        fingerprint.metadata = metadata_fingerprint(volume->source, volume->cut_info);
+        fingerprint.metadata = metadata_fingerprint(volume->source, volume->cut_info,
+            volume->texture_displacement_options);
         // These complex, unversioned payloads have no cheap identity proof.
         // Conservatively capture such volumes rather than assuming they are
         // unchanged. They are not present in the ordinary mesh Move path.
-        fingerprint.reusable = !volume->text_configuration && !volume->emboss_shape;
+        fingerprint.reusable = !volume->text_configuration && !volume->emboss_shape &&
+            volume->texture_uv.empty() && volume->texture_displacement_layers.empty() &&
+            volume->texture_displacement_facets_all_empty();
         result.volumes.push_back(std::move(fingerprint));
     }
     result.instances.reserve(object.instances.size());
@@ -1117,7 +1121,6 @@ MutableObjectCaptureCache::MutationFingerprint mutation_fingerprint(const ModelO
         fingerprint.transform = transform_fingerprint(instance->get_transformation().get_matrix());
         fingerprint.assemble_transform = transform_fingerprint(instance->get_assemble_transformation().get_matrix());
         fingerprint.printable = instance->printable;
-        fingerprint.auto_drop = instance->auto_drop;
         fingerprint.print_volume_state = static_cast<int>(instance->print_volume_state);
         fingerprint.arrange_order = instance->arrange_order;
         fingerprint.loaded_id = instance->loaded_id;
@@ -1223,9 +1226,9 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
     ModelState result;
     // Model-level layer events are outside the keyed object archives. Keep
     // their small manifest in the model root so rack normalization is undoable.
-    json layer_events = json::array();
+    nlohmann::json layer_events = nlohmann::json::array();
     for (const auto& [plate, info] : model.plates_custom_gcodes) {
-        json items = json::array();
+        nlohmann::json items = nlohmann::json::array();
         for (const auto& item : info.gcodes)
             items.push_back({{"print_z", item.print_z}, {"type", static_cast<int>(item.type)},
                 {"extruder", item.extruder}, {"color", item.color}, {"extra", item.extra}});
@@ -1331,7 +1334,7 @@ Model stage_model(const Model& model_template, const ModelState& restored,
     const double mutable_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
     Model rebuilt_model = model_template;
     if (!restored.serialized.empty()) {
-        const auto layer_events = json::parse(std::string(restored.serialized.begin(), restored.serialized.end()));
+        const auto layer_events = nlohmann::json::parse(std::string(restored.serialized.begin(), restored.serialized.end()));
         rebuilt_model.plates_custom_gcodes.clear();
         for (const auto& record : layer_events) {
             CustomGCode::Info info;

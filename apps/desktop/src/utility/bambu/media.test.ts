@@ -18,7 +18,8 @@ function fixture() {
   const target = { printerId: printer.identity.id, routeId: route.id, expectedConfigurationRevision: route.configurationRevision };
   const monitor = { acquire: vi.fn(async () => ({ ok: true as const, value: 'lease' })), stop: vi.fn(async () => ({ ok: true as const, value: null })),
     context: vi.fn(async () => ({ ok: true as const, value: { report: { ipcam: { ipcam_dev: '1', liveview: { local: 'local' } } } } })) };
-  const native = { installDeviceCertificate: vi.fn(async () => {}), getCameraUrl: vi.fn(async () => 'bambu:///local/192.0.2.1?port=6000&passwd=cloud-secret') } as unknown as BambuNative;
+  const native = { installDeviceCertificate: vi.fn(async () => {}), getVersion: vi.fn(async () => '02.08.04.99'),
+    getCameraUrl: vi.fn(async () => 'bambu:///local/192.0.2.1?port=6000&passwd=cloud-secret') } as unknown as BambuNative;
   let read = false;
   const camera: NativeCamera = { close: vi.fn(async () => {}), poll: vi.fn(() => {
     const samples = read ? [] : [{ bytes: new Uint8Array([255, 216, 255, 217]), flags: 1, time100ns: 0n }]; read = true;
@@ -48,6 +49,12 @@ it('opens independently, deduplicates a request and separates private connection
   expect(await f.media.call('other', { method: 'get', input: a.value.ref })).toMatchObject({ ok: false });
   await f.media.closeOwner('document'); expect(f.camera.close).toHaveBeenCalledOnce(); expect(f.monitor.stop).toHaveBeenCalledWith('lease');
   expect(await f.media.call('document', { method: 'renew', input: a.value.ref })).toMatchObject({ ok: false });
+});
+it('uses the loaded networking version when opening the companion camera library', async () => {
+  const f = fixture(); vi.mocked(f.native.getVersion).mockResolvedValue('02.08.04.camera-fixture');
+  expect((await f.media.open('document', f.request)).ok).toBe(true);
+  expect(f.load).toHaveBeenCalledWith('/addon.node', expect.stringMatching(/BambuSource\.(?:dll|dylib|so)$/),
+    expect.stringContaining('&net_ver=02.08.04.camera-fixture'));
 });
 it('releases a late-open lease after its document has closed', async () => {
   const f = fixture(); let resolve!: (value: { ok: true; value: string }) => void;

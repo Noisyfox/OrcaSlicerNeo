@@ -1,6 +1,6 @@
 # Orca Core Upgrade
 
-**Status:** Accepted upgrade plan; staged implementation in progress.
+**Status:** Implemented and locally qualified, with platform limits recorded below.
 **Target:** OrcaSlicer 2.5.0 official release.
 **Updated:** 2026-11-08
 
@@ -13,8 +13,8 @@ the React application or the independently built Bambu plugin interface.
 Implementation is authorized in independently validated commits. The integration
 branch was rebased onto `origin/main` at `abc00595` before implementation; the
 original analysis baseline below remains the comparison reference. Preserve the
-new main-branch Snapmaker and thumbnail integrations. Accepted requirements
-below are completion gates, not claims that every gate has already passed.
+new main-branch Snapmaker and thumbnail integrations. The evidence section
+records completed local checks and distinguishes unavailable platform coverage.
 
 ## Accepted decisions
 
@@ -61,7 +61,7 @@ delivery status with the existing topic owner: [history](Undo%20and%20Redo.md),
 | Role | Immutable revision |
 | --- | --- |
 | Neo superproject at analysis | `87c2faffaeff42d3cc03863ea2485376fe36985e` |
-| Current Orca gitlink | `e2cd10ba84a6f96e23827d2f851d0c4064a9eea3` |
+| Orca gitlink at analysis | `e2cd10ba84a6f96e23827d2f851d0c4064a9eea3` |
 | Common ancestor with the target | `a6dbf2502d0e0d6d6fcd7aa7b9089c397f3493a0` |
 | Orca 2.5.0 target | `40ecc66f78ed72dc368e0c1ebe40d77f00cc8a19` |
 
@@ -368,11 +368,16 @@ out-of-bounds footprint or intersection with the excluded bed area. Neo's
 existing processing-exception path already reports this as slicing failure.
 Verify that result through the existing pipeline; do not implement a second
 check or change the native execution path to continue after this failure.
+The previous Neo pin already contains these generated-footprint processing
+checks. Preserve them during the merge; do not describe them as a newly added
+Neo policy. The target changes the wording of the two existing pre-slice
+exclusion/clumping diagnostics, so their exact matches must follow the target
+while retaining the same advisory boundary.
 
 Pre-slice `print.validate()` and `print.process()` are separate failure points.
 An existing Neo validation advisory permits processing to start; it does not
 guarantee that processing will succeed. Do not extend the validation downgrade
-logic to suppress the newly inherited processing errors, or report an interrupted
+logic to suppress native processing errors, or report an interrupted
 process as successful. Geometry adapter work remains necessary where Neo itself
 consumes exclusion regions, independently of this directly inherited check.
 
@@ -403,8 +408,9 @@ condition and contract adaptation rather than a new control framework.
 | `exclude_object_tolerance` | Simplify the object contour in Klipper `EXCLUDE_OBJECT_DEFINE`, not printed geometry. Default 0.1 mm, range 0–5 mm; 0 retains every point. Show only for Klipper with object exclusion enabled. |
 | `enable_arc_fitting` | Replace the boolean presentation with disabled/enabled/sparse-infill enum modes. Definition default is disabled; retain the target's extrusion-rate-smoothing availability rule. |
 
-Update separable/smoothable infill predicates
-and applicable firmware conditions together with the fields. In particular,
+Update separable/smoothable infill predicates and applicable firmware conditions
+together with the fields. The fixed target shows Wipe inward distance solely
+when `wipe_inward` is enabled; it has no wall-order visibility gate. In particular,
 the existing `gyroid_optimized` option is hidden when adaptive density is enabled;
 it is not itself a newly added setting.
 
@@ -446,6 +452,12 @@ to identify support material. Pass that existing identity into native
 materials is a separate upstream algorithm change and arrives through the
 merge; do not describe both modes as using the new identity tie-breaker.
 
+The model side also needs the selected presets' identities. Neo's static
+`PresetBundle::construct_full_config()` previously omitted `filament_ids` in
+its multi-slot branch. Collect each preset's metadata ID there, matching the
+ordinary native GUI assembler. Verify the actual model IDs before checking a
+same-color mapping, so an accidental color tie is not mistaken for ID matching.
+
 Keep these algorithms in the core. Verify same-color materials of different
 subtypes, mixed nozzle diameters, loaded-slot preference, external holders and
 missing device/material identities through the existing Neo interfaces.
@@ -478,7 +490,7 @@ normalization rather than implementing local conversions for each profile.
 ### Accepted Bambu ABI upgrade
 
 Upstream selects ABI series `02.08.04` and adds `queue_plate_id` to PrintParams.
-Neo currently selects `02.08.01`; its declaration guard will detect the drift.
+Neo selected `02.08.01` at analysis; its declaration guard detects the drift.
 The current OBN v2.2.0 archives for all six desktop targets already contain
 `v02.08.04`. Keep the OBN release at v2.2.0 and retain the archive URLs/checksums;
 change the selected ABI series, source identity and exact runtime-version
@@ -560,7 +572,7 @@ The upstream fixes concern two different GPU inputs:
 - `812ce9f055` changes the template `vertex_id` attribute from uint8 to uint32,
   giving it a four-byte stride for a Parallels/Metal-backed OpenGL issue. This
   is a vertex-fetch compatibility fix, not an increase in path identifier
-  capacity. Neo currently uses a packed one-byte `Uint8BufferAttribute` for
+  capacity. At analysis, Neo used a packed one-byte `Uint8BufferAttribute` for
   that input, so assess the corresponding WebGL/Electron/browser behavior.
 
 The native driver result does not establish that Neo has the same failure.
@@ -653,7 +665,93 @@ and any skipped checks in the implementation handoff.
 This upgrade uses software-only acceptance. Physical printing and other real
 device operations are outside the accepted work. Keep existing hardware
 qualification limits in the owning printer specifications; software checks do
-not replace that evidence. The current documentation-only commit requires
-whitespace, local-link/command and consistency checks, not product builds or
-tests. None of the implementation acceptance gates above has been run by this
-documentation task.
+not replace that evidence.
+
+### Implementation evidence
+
+The implementation preserves the accepted exclusions. Moonraker, transparent
+preview, libnoise and the newer oneTBB pin remain unchanged. Native code is
+committed on `dev/orcaslicerneo-wasm` at
+`8f2cfb8c79ab5374fd1ead4f1f3ac2f3e42934f4`, merging the immutable target above.
+The superproject deliberately pins that commit. Commits are local; neither
+repository has been pushed as part of this work.
+
+| Area | Verified local evidence | Remaining qualification |
+| --- | --- | --- |
+| Settings and preview inputs | 117 focused settings/editor tests; 13 renderer tests; complete workspace typecheck and tests | Default-concurrency test limitation below |
+| Dependencies and builds | SDK 6.0.13; all four production artifacts build and validate; all 16 numerical/OCCT/Qhull/Expat stage verifiers and four-mode arithmetic/hull/XML probes pass; 12 recipe/scaffold tests pass | Windows execution |
+| Native state adapters | Eight standalone C++ suites pass: timestamped history, instance identity, mesh capture, painting, preset erase, plate registry and both arrangement suites | Native GUI build is not covered |
+| Real bridge contracts | Nine final threaded harnesses pass: Project preset/history, user presets, user-preset 3MF, scene geometry, Convenience, native tower inputs, slice notifications, tower settings and multi-filament step 13 | Physical devices are excluded |
+| Numerical and Boolean | All four backend variants pass in Node and Chrome; serial creates no internal Workers and uses no shared memory. Typed operation suites pass 25 tests per variant, with two fault-build-only cases skipped. Real Chrome slice followed by a single-context union passes | Dedicated fault-injection build not rerun |
+| Import and arcs | All four variants pass STEP and AMF/arc harnesses; 26 STEP assertions per variant include seam closure, loose faces, named solids/shells, slicing and malformed-input atomicity | Broader algorithm equivalence is not claimed |
+| Profiles | Rebuilt all 73 packages from the committed native tree; all 15,777 archive members match source bytes; complete packages match the already-tested distribution byte for byte | None for this catalogue rebuild |
+| Hosts and preview | Final Electron import/edit/Undo/Redo/slice/Preview/export/save/Clear/reopen passes with matching source/public/renderer assets. Real Web serial download and WebKit wasm32 threaded/serial selection and download pass; hashes and Worker states match each selected variant | Other OS host startup |
+| Bambu | Declaration guard, addon build, print/camera fixtures and all six archive/stage identities pass; actual macOS ARM64 plugin version and no-credentials print ABI are exercised in Node and Electron | Other five target startups; authenticated discovery/device operations |
+
+The final host journeys retain trace and screenshot evidence. The Electron
+journey deliberately makes Bambu unavailable before native loading and uses an
+empty printer configuration; it does not qualify authenticated printer startup.
+
+Repository checks were `pnpm typecheck` and `VITEST_MAX_WORKERS=2 pnpm test`, both
+exit 0. The initial default-concurrency `pnpm test` run failed three 5-second UI
+timeouts in `projectThumbnails.test.ts` and `PresetEditorDialog.test.tsx`; the
+complete bounded-concurrency rerun passed without changing tests or timeout
+values. This establishes that run's result, not a root-cause fix for those
+timeouts. Recipe checks used `pnpm exec node --test` with
+`dependencies/cgal/build.test.mjs`, `dependencies/external/build.test.mjs`
+(under `packages/slicer-wasm`) and `scripts/build-wasm32.test.mjs`.
+
+Each variant's backend was run with `run-mesh-boolean-backend.mjs <module> --browser`;
+typed operation checks used `ORCA_MESH_BOOLEAN_MODULE=<production module>` with
+`pnpm --filter @orca/slicer-wasm exec vitest run harness/mesh-boolean.native.test.mjs`.
+The primary host ran the real `full v1 flow:` case in `apps/desktop/e2e/app.e2e.ts`.
+The secondary host ran `real Web G-code export downloads` in the Web config,
+then the wasm32 Playwright config with isolation enabled and disabled. No
+test timeout was increased.
+
+Local production WASM SHA-256 identities after the final native adaptation:
+
+| Variant | SHA-256 |
+| --- | --- |
+| wasm64 threaded | `32a5cc89f8eec2dd7d9951df62c8c2f14bb48151d23dd5c46ca51a31345efc1a` |
+| wasm64 serial | `cd179de3de404fec5a775db16df28253d79c2b16f790599d4c3fb0ce0ca25cc8` |
+| wasm32 threaded | `db4db438013e898442100a0545b426c4b32f8d4dad04ccbfe79282f6d336b5ae` |
+| wasm32 serial | `415f0cbd05250a9c8e395c033b2728918b4305cac69de0c418da5d4ab81e8597` |
+
+The official macOS 2.5.0 CLI sliced the same three pre-slice 3MF inputs used by
+the arc fixture. Both engines produced 50 layers and identical feature-level
+arc counts: enabled has 185 G2 and 1,037 G3 moves, sparse-infill-only has 504 G3
+moves exclusively in Sparse infill, and disabled has none. All four Neo variants
+agree. Final input ZIP members and resolved snapshots are byte-identical to
+those used for the official comparison. Neo's existing layer-before `G92 E0`
+injection, synthetic AMS capacities and inheritance/compatibility metadata still
+differ from the CLI's effective output. This validates the fixture's arc-mode
+semantics, not complete G-code/config equality, a performance comparison with
+old Neo, or equivalence of every upstream algorithm.
+
+The preset regression exposed an integration detail that textual merging did
+not catch. Orca now removes and recreates an overwritten library preset. When
+Neo saves a child over a root ancestor, native Save As would otherwise replace
+the intended empty parent with the source child, forming a cycle. The bridge
+preserves the empty parent through native detachment; the existing overwrite
+test now asserts the exact parent and passes Undo/Redo and durable reload.
+
+The combined backend test also needs more precreated browser pthreads than the
+product's single-context Boolean operation: it retains TBB workers and exercises
+additional libigl threads and two MCUT contexts. Its dedicated pool is bounded
+by `max(8, 2 * hardwareConcurrency)`. This is a test-only resource requirement;
+the product pool and execution contract remain unchanged. The runner now retains
+ordinary stderr so thread-pool exhaustion is visible on failure.
+
+Focused native clang-tidy checks cover 18 adapted files using the WASM compile
+database: 17 pass, while STEP retains one known include-cleaner mapping warning
+for the Boost.Thread shim. STEP directly includes the correct public Boost
+header; the shim's private forwarding layout is not understood by this check.
+The local tool is 22.1.4 rather than CI's 22.1.8, and unsupported Emscripten
+backend flags were removed from the analysis-only compile database. This is not
+a claim of a clean native GUI or cross-platform clang-tidy run.
+
+Windows cmd recipes receive syntax/CRLF and source checks locally; Windows
+execution and the unavailable Bambu startup platforms remain unverified.
+Physical-device operations remain outside the accepted scope. Remote CI and
+publication were not requested and have not been performed.

@@ -1,4 +1,4 @@
-// Execute the real test module on the same Worker boundary as the product.
+// Execute the synchronous backend suite inside a Node or browser Worker.
 // Usage: node harness/run-mesh-boolean-backend.mjs <module.mjs> [--browser]
 import assert from 'node:assert/strict';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
@@ -10,12 +10,12 @@ import { createRequire } from 'node:module';
 
 async function run(create) {
   const output = [];
-  const record = line => {
+  const record = (line, stderr = false) => {
     output.push(line);
-    if (line.startsWith('{"kind":')) parentPort.postMessage({ progress: line });
+    if (stderr || line.startsWith('{"kind":')) parentPort.postMessage({ progress: line, stderr });
   };
   parentPort.postMessage({ progress: '[mesh-boolean-backend] Initializing Node module' });
-  const module = await create({ print: record, printErr: record });
+  const module = await create({ print: record, printErr: line => record(line, true) });
   const code = module._neo_test_mesh_boolean();
   return { code, shared: module.HEAPU8.buffer instanceof SharedArrayBuffer, output };
 }
@@ -39,8 +39,10 @@ if (!isMainThread) {
   try {
     const result = await new Promise((resolveResult, reject) => {
       worker.on('message', result => {
-        if (typeof result.progress === 'string') console.log(result.progress);
-        else resolveResult(result);
+        if (typeof result.progress === 'string') {
+          if (result.stderr) console.error('[node-worker stderr]', result.progress);
+          else console.log(result.progress);
+        } else resolveResult(result);
       });
       worker.once('error', reject);
       worker.once('exit', code => reject(new Error(`Test Worker exited before reporting (${code})`)));
@@ -52,13 +54,13 @@ if (!isMainThread) {
   if (process.argv.includes('--browser')) {
     const browserWorker = `
       const output=[]; let nestedWorkers=0;
-      const record=s=>{output.push(s); if(s.startsWith('{"kind":')) console.log(s)};
+      const record=(s,stderr=false)=>{output.push(s); if(stderr) console.error('[mesh-boolean-backend stderr]',s); else if(s.startsWith('{"kind":')) console.log(s)};
       if(globalThis.Worker) globalThis.Worker=new Proxy(globalThis.Worker,{construct(t,a,n){nestedWorkers++; return Reflect.construct(t,a,n)}});
       try {
         console.log('[mesh-boolean-backend] Importing browser module');
         const {default:create}=await import('./${basename(path)}');
         console.log('[mesh-boolean-backend] Initializing browser module');
-        const m=await create({print:record,printErr:record});
+        const m=await create({print:record,printErr:s=>record(s,true)});
         const code=m._neo_test_mesh_boolean();
         postMessage({code,output,nestedWorkers,shared:typeof SharedArrayBuffer!=='undefined' && m.HEAPU8.buffer instanceof SharedArrayBuffer,crossOriginIsolated,sharedArrayBufferAvailable:typeof SharedArrayBuffer!=='undefined'});
       } catch(e){postMessage({code:-1,error:String(e),output,nestedWorkers})}`;
@@ -85,7 +87,8 @@ if (!isMainThread) {
       const page = await browser.newPage();
       page.on('console', message => {
         const text = message.text();
-        if (text.startsWith('{"kind":') || text.startsWith('[mesh-boolean-backend]'))
+        if (text.startsWith('[mesh-boolean-backend stderr]')) console.error('[browser]', text);
+        else if (text.startsWith('{"kind":') || text.startsWith('[mesh-boolean-backend]'))
           console.log('[browser]', text);
       });
       await page.goto(`http://127.0.0.1:${server.address().port}`);
