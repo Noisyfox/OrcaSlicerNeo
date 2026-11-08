@@ -13,7 +13,7 @@ export class SnapmakerCameraIpc {
   private readonly owners = new Map<WebContents, Owner>();
   private readonly installed = new WeakSet<WebContents>();
   private epoch = 0;
-  constructor(private readonly utility: () => SnapmakerCameraUtility, private readonly isApp: (contents: WebContents) => boolean,
+  constructor(private readonly utility: (create?: boolean) => SnapmakerCameraUtility | undefined, private readonly isApp: (contents: WebContents) => boolean,
     private readonly load: () => Promise<PrinterConfigurationDocument>) {}
   private owner(event: IpcMainEvent | IpcMainInvokeEvent): Owner {
     if (!this.isApp(event.sender) || event.senderFrame !== event.sender.mainFrame) throw new Error('Camera request rejected.');
@@ -23,7 +23,7 @@ export class SnapmakerCameraIpc {
       this.installed.add(event.sender);
       const close = () => {
         const previous = this.owners.get(event.sender); this.owners.delete(event.sender);
-        if (previous) { previous.active = false; this.utility().closeOwner(previous.id); }
+        if (previous) { previous.active = false; this.utility()?.closeOwner(previous.id); }
       };
       event.sender.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) close(); });
       event.sender.on('render-process-gone', close); event.sender.once('destroyed', close);
@@ -32,12 +32,13 @@ export class SnapmakerCameraIpc {
   }
   async configurationChanged(): Promise<void> {
     const epoch = ++this.epoch, document = await this.load();
-    if (epoch === this.epoch) this.utility().configuration(document);
+    if (epoch === this.epoch) this.utility()?.configuration(document);
   }
   async call(event: IpcMainInvokeEvent, value: unknown): Promise<unknown> {
     const owner = this.owner(event);
     if (!isCameraRequest(value)) throw new Error('Camera request rejected.');
-    const utility = this.utility();
+    const utility = this.utility(value.method === 'open');
+    if (!utility) return rejected('transport');
     if (value.method === 'cancelOpen') {
       const pending = owner.pending.get(value.input.requestId); if (pending) pending.cancelled = true;
     }
@@ -65,8 +66,10 @@ export class SnapmakerCameraIpc {
   connect(event: IpcMainEvent, request: unknown): void {
     const owner = this.owner(event);
     if (!isCameraAttachment(request)) throw new Error('Camera attachment rejected.');
+    const utility = this.utility();
+    if (!utility) throw new Error('Camera host unavailable.');
     const { port1, port2 } = new MessageChannelMain();
     event.senderFrame!.postMessage(Ipc.snapmakerCameraPort, request.token, [port2]);
-    void this.utility().connect(owner.id, request, port1, () => owner.active).catch(() => port1.close());
+    void utility.connect(owner.id, request, port1, () => owner.active).catch(() => port1.close());
   }
 }

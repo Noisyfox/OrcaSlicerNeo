@@ -54,3 +54,10 @@ it('rejects an open whose configuration changes while loading', async () => {
   expect(await opening).toMatchObject({ ok: false, error: { code: 'stale-context' } });
   expect(f.utility.call).not.toHaveBeenCalled();
 });
+it('does not start a camera utility merely to publish saved configuration', async () => {
+  const f = await fixture(), utility = vi.fn(() => undefined);
+  const ipc = new SnapmakerCameraIpc(utility, () => true, f.load);
+  await ipc.configurationChanged(); expect(utility).toHaveBeenCalledWith();
+  expect(await ipc.call(f.event, f.request)).toMatchObject({ ok: false });
+  expect(utility).toHaveBeenLastCalledWith(true);
+});

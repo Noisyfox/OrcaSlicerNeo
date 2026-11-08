@@ -461,9 +461,14 @@ function registerIpc(): void {
     close: (owner, ref) => bambuUtility!.media(owner, { method: 'close', input: ref }),
   });
   const cameraIpc = new BambuMediaIpc(() => bambuUtility, isCurrentRenderer, storedMedia);
-  const snapmakerCameraIpc = new SnapmakerCameraIpc(() => snapmakerCameraUtility ??= new SnapmakerCameraUtility(join(__dirname, 'snapmaker-camera-host.js'), () => {
-    for (const window of BrowserWindow.getAllWindows()) if (isCurrentRenderer(window.webContents)) window.webContents.send(Ipc.snapmakerCameraChanged);
-  }), isCurrentRenderer, () => loadPrinterConfigurationFile(printerConfigurationPath(), { readText: path => readFile(path, 'utf8') }));
+  const snapmakerCameraIpc = new SnapmakerCameraIpc(create => {
+    if (create && !snapmakerCameraUtility) {
+      snapmakerCameraUtility = new SnapmakerCameraUtility(join(__dirname, 'snapmaker-camera-host.js'), () => {
+        for (const window of BrowserWindow.getAllWindows()) if (isCurrentRenderer(window.webContents)) window.webContents.send(Ipc.snapmakerCameraChanged);
+      });
+    }
+    return snapmakerCameraUtility;
+  }, isCurrentRenderer, () => loadPrinterConfigurationFile(printerConfigurationPath(), { readText: path => readFile(path, 'utf8') }));
   ipcMain.handle(Ipc.snapmakerCamera, (event, request: unknown) => snapmakerCameraIpc.call(event, request));
   ipcMain.on(Ipc.snapmakerCameraConnect, (event, request: unknown) => { try { snapmakerCameraIpc.connect(event, request); } catch { /* Ignore invalid or retired documents. */ } });
   ipcMain.handle(Ipc.bambuMedia, (event, request: unknown) => cameraIpc.call(event, request));

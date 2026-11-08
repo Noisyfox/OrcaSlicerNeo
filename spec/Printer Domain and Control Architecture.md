@@ -3502,6 +3502,8 @@ Browser transport enforces receive budgets. Shared playback handles bounded
 JPEG recovery and activity renewal. The independent
 [Electron camera utility](../apps/desktop/src/utility/snapmaker-camera-host.ts)
 owns WebSocket control, bounded HTTP reads and managed resources. Its
+process starts on the first camera-open operation. Saving configuration alone
+does not create it. The
 [main-process binding](../apps/desktop/src/main/snapmakerCameraIpc.ts) verifies
 the renderer's configuration digest against persisted configuration before
 granting access. Main supplies document ownership, invalidates saved connection

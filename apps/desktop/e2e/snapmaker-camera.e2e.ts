@@ -26,6 +26,7 @@ test('U1 Monitor uses the real camera utility and binary preload channel, recove
     const card = page.getByTestId('camera-card'), image = card.locator('img');
     await expect(card.getByRole('button', { name: 'Play camera' })).toBeVisible();
     expect(starts()).toHaveLength(0); expect(fixture.cameraRequests()).toBe(0);
+    expect(await app.evaluate(({ app }) => app.getAppMetrics().map(metric => metric.name))).not.toContain('Orca Snapmaker Camera');
     await card.getByRole('button', { name: 'Play camera' }).click();
     await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(64);
     expect(starts()).toHaveLength(1);
