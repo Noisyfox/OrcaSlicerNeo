@@ -6,9 +6,10 @@ import { readZipEntries } from './native-3mf-parser.mjs';
 
 const editingContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 
-const modulePath = process.argv[2];
-if (!modulePath) throw new Error('usage: node user-presets-smoke.mjs <orca_slice.js>');
-const Module = await (await loadModuleFactory(resolve(modulePath)))({ noInitialRun: true, print: () => {}, printErr: () => {} });
+const moduleArgument = process.argv[2];
+if (!moduleArgument) throw new Error('usage: node user-presets-smoke.mjs <orca_slice.js>');
+const modulePath = resolve(moduleArgument);
+const Module = await (await loadModuleFactory(modulePath))({ noInitialRun: true, print: () => {}, printErr: () => {} });
 await installProfilePackages(Module, createNodeProfileSource(resolve(import.meta.dirname, '../../profile-resources/dist')));
 function call(name, args = [], types = args.map(() => 'string')) {
   const pointer = Number(Module.ccall(name, 'number', types, args));
@@ -513,7 +514,7 @@ assert.ok(draft('Migration Target').effective_values.nozzle_temperature.split(',
 // stale base copies nor session-only info are needed to recover the saved head.
 console.log('user-presets progress: native JSON/info rollback passed; restarting from persisted JSON');
 Module.PThread?.terminateAllThreads?.();
-const restarted = await (await loadModuleFactory(resolve(modulePath)))({ noInitialRun: true, print: () => {}, printErr: () => {} });
+const restarted = await (await loadModuleFactory(modulePath))({ noInitialRun: true, print: () => {}, printErr: () => {} });
 await installProfilePackages(restarted, createNodeProfileSource(resolve(import.meta.dirname, '../../profile-resources/dist')));
 for (const [path, content] of disk) {
   assert.ok(path.endsWith('.json'));
