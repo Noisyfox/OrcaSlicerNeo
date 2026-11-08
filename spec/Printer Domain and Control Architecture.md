@@ -2229,12 +2229,13 @@ Only a current valid Neo slice result is accepted for submission in this
 delivery. Do not expose remote-file start or history-based reprint for the
 Snapmaker agent. Repeating a print may re-submit that valid slice through the
 normal preparation flow; upload-only does not persist a prepared remote-file
-binding or create a later-start workflow. Live camera preview and remote printer
-file browsing/management are also deferred: no Snapmaker Storage browser,
-file-list/thumbnail browsing, download or user-triggered file deletion is part
-of this delivery. Do not expose these unimplemented operations merely because
-the device protocol supports them. Timelapse recording options and submission
-remain included; camera/Storage integration is not a completion requirement.
+binding or create a later-start workflow. Remote printer file browsing/management
+remains deferred. Snapmaker Storage browsing, file-list/thumbnail browsing,
+download and user-triggered file deletion remain outside this delivery.
+Timelapse recording options and submission remain included. The separate
+[Snapmaker camera follow-up](#82-snapmaker-u1-lan-live-view) owns the accepted
+live-view design; camera/Storage integration is not
+a completion requirement for the delivered SnapSend scope.
 
 The accepted delivery covers the SnapSend scope and explicit deferrals in the
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#accepted-snapmaker-delivery-and-connection).
@@ -3486,6 +3487,321 @@ resolution on hardware, wrong credentials, forced network loss/reconnect,
 longer unattended runs and six-platform packaged camera playback remain open.
 The six v2.2.0 artifact pins, including macOS x64, are unchanged. Earlier
 six-platform plugin-startup qualification does not qualify this new video path.
+
+### 8.2 Snapmaker U1 LAN live view
+
+**Decision status** — WebSocket camera control, HTTP JPEG acquisition and shared
+`jpeg-frames` playback are accepted with the host, lifecycle and acceptance
+decisions below. Production implementation and qualification are pending.
+The [Snapmaker camera interaction](Printer%20Console%20and%20Control%20Integration.md#snapmaker-camera-live-view)
+owns presentation and viewing intent. The delivered Snapmaker submission and
+current-task thumbnail boundaries in section 2.5 remain independent.
+
+#### Initial delivery and image coverage
+
+Electron and Web are both initial delivery targets. They share the Snapmaker
+protocol/resource logic and JPEG presentation, with separate acceptance for
+each host's networking, authorization and document-lifetime boundary. Web
+availability remains subject to deployed-origin restrictions, mixed content,
+CORS and local-network permission. Report those restrictions through the
+camera's availability/error path and retain unrelated printer operations.
+
+Initial qualification targets stock U1 firmware exposing the selected
+Moonraker WebSocket control and HTTP JPEG path. Resolve support per function;
+a firmware version string alone neither enables nor disables the feature.
+Community firmware can use this path where compatible. Its additional
+WebRTC/MJPEG services require a separate follow-up adapter and qualification.
+
+Initial image support covers ordinary JPEG acquisition over the selected LAN
+route. An encrypted image source produces an explicit playback-unavailable
+result. Password-derivation fields in a start response do not trigger decryption
+of a plain JPEG. Unsupported encryption and a malformed ordinary frame need
+distinct diagnostics. Encrypted delivery requires its own samples and
+qualification before it can be advertised as supported.
+
+#### Connection configuration and capability discovery
+
+Camera access reuses the saved Snapmaker API base URL and optional API key.
+Host adapters establish and authorize the WebSocket connection from that
+configuration. The camera adds no independent endpoint or credential fields.
+Resolve the device's WebSocket and image endpoints consistently with the
+configured scheme, port and proxy prefix. Keep any authentication exchange
+and temporary credentials inside the host/provider boundary. A change to the
+saved connection invalidates its camera resources and derived access state.
+
+Interpret the relative camera URL in the device's `/server` file-service
+namespace and retain any configured reverse-proxy prefix. Validate absolute
+source URLs against the configured device origin before attaching credentials.
+Use URL-aware resolution for scheme, port, query and IPv6 handling; acquisition
+must retain its authorized route when a descriptor or configuration changes.
+
+For API-key authorization, the host may obtain a single-use WebSocket token
+through the configured device's authenticated
+[Moonraker token endpoint](https://github.com/Snapmaker/u1-moonraker/blob/ed7b3752a9a938c87ee086f3b7b21a9352a2a0c9/moonraker/components/authorization.py#L263).
+The browser WebSocket API requires an authorization mechanism compatible with
+its handshake. Obtain a fresh token for a new connection and keep temporary
+tokens out of persisted configuration, shared descriptors and logs. HTTP
+image requests retain the configured API-key authorization. Fixture tests
+must cover authorized and rejected handshakes; hardware evidence remains
+limited to the authorization mode actually exercised.
+
+When a connected Snapmaker route has no reliable device camera-capability
+report, Monitor still exposes a camera card with an explicit Play action.
+Play performs on-demand camera validation. Rendering the card does not start
+the device monitor or imply that the firmware has confirmed camera support.
+Represent adapter delivery support separately from unknown device state.
+An explicit unsupported-method response produces a visible unsupported reason;
+authentication, permission, transport and temporary acquisition failures keep
+their own meanings. Do not treat a timeout as proof of absent hardware.
+Capability findings are scoped to the connection/configuration context rather
+than persisted as a permanent property of a printer model.
+
+#### Protocol evidence and qualification boundary
+
+The official Snapmaker Orca
+[committed device-page bundle](https://github.com/Snapmaker/OrcaSlicer/blob/bac6fd5c1e1c23ddf057cf6471ba4ed7ed621c4c/resources/web/flutter_web/main.b347974c91352c2f.js)
+encodes `camera.start_monitor` and `camera.stop_monitor`. Its camera control
+uses WCP/MQTT; the selected Neo route uses the Moonraker WebSocket endpoint.
+The shared RPC method names do not establish identical transport or
+authorization requirements.
+
+A LAN probe on 2026-11-08 used one U1 reporting firmware
+`2.0.0.205_20260914173503` and Moonraker `2.0.0`, with its existing Neo
+configuration and no API key. HTTP JSON-RPC accepted a device information
+request but rejected both camera methods with `-32601`, indicating an
+unsupported HTTP transport. The same camera methods succeeded through
+`/websocket`. Start used LAN domain, interval zero, password-parameter request
+and a probe-owned client ID. Its response supplied a relative image URL and
+password-derivation fields. HTTP acquisition through
+`/server/files/camera/monitor.jpg` returned ordinary, decodable JPEG images.
+The presence of password fields alone does not identify an encrypted payload.
+
+Continuous acquisition crossed five minutes and an explicit repeated start
+succeeded as renewal. The firmware lease duration remains unmeasured.
+Request completion and distinct image
+content were checked separately. A response-body interruption and a truncated
+JPEG establish the need to handle individual failed frames. The measured
+image dimensions and update rate remain specific to this probe.
+
+Stop returned success, but the image continued updating after the probe
+connection closed. Another connection existed before the probe, with unknown
+ownership. Client-ID isolation, immediate device capture shutdown and the
+unrenewed expiry duration remain unqualified. Browser image access was checked
+from one localhost development origin only. Authenticated access, encrypted
+images, production HTTPS Web access, forced reconnect and other firmware
+versions require separate qualification. Integrated Neo feature acceptance
+remains pending.
+
+Third-party implementations provide corroborating design references.
+[PrintsNCode](https://github.com/PrintsNCode/Anycubic-Snapmaker-remote-cam-lan/blob/712621696a1c60626097f1d9adbdc911cccccb38/Remote-cam-Multi-V2.html)
+uses WebSocket wake-up and JPEG polling. The
+[Stock Camera Fluidd bridge](https://github.com/Dr-Hack-N-Sniff/Snapmaker-U1-Stock-Camera-Fluidd/blob/de618429684169c6f4f68d7e5de8051f964bea4e/u1_mjpeg_bridge.py)
+uses printer-local MQTT and JPEG-to-MJPEG delivery. Hardware-encoded
+[WebRTC delivery](https://github.com/Bespok3d/u1-hw-camera/blob/d35d95f7ad0c0e33b30f4c8ca7e6cbfc86bf117d/plugin/files/etc/init.d/s65camera-hw)
+adds printer-side services. These projects inform protocol and lifecycle
+analysis; their performance and compatibility claims are not Neo qualification.
+
+#### Selected data path and ownership
+
+The Snapmaker agent owns camera RPC encoding, response validation, acquisition
+URL resolution, renewal and conversion into complete JPEG packets. Host
+adapters own HTTP and WebSocket networking. Shared application code consumes
+the existing [managed media contract](../packages/printer-control/src/domain/media.ts)
+and [JPEG player](../packages/slicer-app/src/components/device/media/playback.ts).
+The existing [HTTP transport](../packages/printer-control/src/transport.ts)
+needs a complementary host-injected WebSocket seam with cancellable
+connection, message, error and close handling. Correlate JSON-RPC responses by
+request ID and validate their result/error payloads. Notifications and
+unrelated responses must not complete a pending camera request. Bound pending
+requests and subscription buffers and retire them when their connection ends.
+
+Electron executes the camera protocol, resource owner and acquisition loop in
+a utility-process host, independently of slicing and printer-operation queues.
+Main coordinates configuration access and main-frame document ownership. It
+retires that document's resources on navigation, renderer loss or window
+destruction, including late opens. Frame delivery reuses the existing
+document-owned binary-channel pattern from section 8.1. The renderer adapter
+exposes the domain media interface and keeps Electron objects behind its host
+boundary. The existing HTTP-agent assembly gains a narrow media implementation
+injection point; this does not relocate unrelated Snapmaker operations.
+
+Web executes the same protocol/resource logic through its browser host
+adapters and document-owned lifetime. Browser asynchronous HTTP/WebSocket
+networking and the shared browser image decoder provide this JPEG path.
+Capability negotiation and cleanup use the same domain contract in both
+hosts. The camera path is independent of the Emscripten module and its
+slicing Worker.
+
+The intended sequence is media open, acknowledged camera start, frame
+acquisition, complete JPEG packet delivery and shared image decode/display.
+Connection acknowledgement and the first valid displayed frame are separate
+states. Camera networking and delivery remain independent of slicing and
+printer-control operation queues. Frame bytes use `readStream`; media `watch`
+carries descriptors, states and errors. Source URLs, authentication material
+and password-derivation data remain provider-private.
+
+Reuse the resource identities and configuration guards in section 8. Opening
+and closing retain their request-idempotency and late-result cleanup
+requirements. A configuration change cannot redirect an old resource to a new
+endpoint. The concurrency and release policy below defines how local and
+device resources are retired.
+
+Acquisition requires bounded pending bytes, cancellable requests, serial frame
+fetches and cache avoidance. URL resolution must preserve configured scheme,
+port, proxy prefix and IPv6 handling. Delivery accepts complete JPEG frames;
+failed or undecodable individual frames retain the previous valid image while
+the recovery policy below runs. Neither HTTP success nor a new URL query
+proves a fresh frame.
+
+Renewal of the device monitor and the Neo media-resource lease are separate
+responsibilities. Renewal may change private source or decryption information.
+Any change that invalidates delivery must respect media generations and reject
+late packets from the previous generation. Keep the current stream and image
+through a renewal that preserves delivery configuration.
+
+Neo adopts the manufacturer's LAN renewal policy. An acknowledged start or
+renewal arms a 300-second timer. Expiry repeats `camera.start_monitor` with the
+same session client ID, then rearms the timer after success. Direct pointer,
+touch or keyboard interaction with the active camera card can also renew,
+with interaction-triggered attempts throttled to at most once per minute.
+Coalesce overlapping timer/interaction requests into one in-flight operation.
+Qualifying activity belongs to the visible camera's user interaction path.
+Hiding, Stop and resource retirement cancel all renewal triggers.
+
+This policy follows the committed Orca
+[timer and restart implementation](https://github.com/Snapmaker/OrcaSlicer/blob/bac6fd5c1e1c23ddf057cf6471ba4ed7ed621c4c/resources/web/flutter_web/main.b347974c91352c2f.js#L153072).
+The chosen interval is a client policy. Firmware TTL remains unqualified.
+A failed required renewal enters bounded recovery. Keep device renewal
+independent of resource-lease refreshes, and preserve session/client identity
+when re-establishing its transport.
+
+#### Acquisition cadence and bounded recovery
+
+Initial acquisition permits at most five image requests per second, with one
+request in flight per viewing session. Enforce spacing between request starts
+and avoid catch-up bursts after slow requests or suspended execution. This is
+Neo's request budget; advertised source FPS remains unknown unless reported
+or independently established. The image source may update less frequently
+than requests complete.
+
+Recoverable transport interruptions and consecutive invalid frames permit an
+automatic recovery window of at most 30 seconds while viewing remains
+requested and visible. Keep the last valid displayed image and expose recovery
+status. Discard individual malformed frames and retry with bounded pacing.
+Successful control acknowledgements alone do not end recovery or reset its
+budget. Recovery requires valid displayed playback and restoration of any
+failed required control/renewal path. Continued image reads cannot mask a
+failed control connection indefinitely. A new failure after recovered
+playback starts a new recovery window.
+
+If the window expires without recovery, release the view and expose an error
+with explicit Retry. Authentication failure, denied permission, confirmed lack
+of camera support and unsupported encryption require user action directly.
+Stop, context change and hidden-view release cancel retries immediately.
+Retry after a terminal failure opens a new resource rather than extending an
+expired recovery budget.
+
+The acquisition and shared JPEG player paths must distinguish an isolated bad
+frame from a terminal delivery failure without bypassing media generations or
+resource ownership. A retained image must not imply healthy live playback
+during interruption. The shared viewing owner coordinates the user-visible
+recovery window across provider state and local decoder feedback. Recoverable
+acquisition uses a nonterminal connecting state while retaining the media
+resource. The shared player reports isolated decode failures and successful
+presentation to that owner without turning each bad JPEG into a terminal
+error. A pending-stream watchdog must respect this bounded recovery window.
+Terminal source errors retire the resource through the normal error path.
+
+The UI exposes connection and recovery status. Last-received timestamps and
+source-freshness indicators are outside the selected presentation. Identical
+image content alone does not establish a stall in a static scene. Tests and
+hardware acceptance still distinguish receipt, decoding and source updates.
+Per-attempt timeouts and bounded backoff must fit inside the remaining
+recovery budget. Their implementation values may be tuned through fixtures
+without extending the accepted 30-second user-visible window.
+
+Enforce packet/byte ceilings before unbounded response accumulation, using
+the existing shared-player admission limits as the outer bound. Keep encoded
+delivery and pending decode storage bounded independently of session length,
+replacing obsolete pending JPEGs through the established latest-frame policy.
+Within a generation, delivered sequence numbers remain contiguous. Reopening
+an interrupted source starts a new generation with a complete JPEG.
+
+#### Viewing concurrency and release
+
+Each Neo application instance permits at most one active Snapmaker camera
+view. This cap is an adapter resource policy. U1 hardware viewer limits remain
+unqualified.
+Selecting another device releases the old view before opening a replacement.
+Concurrent open/retry calls must respect that limit and request-ID idempotency.
+The host-wide admission owner returns busy to a competing document rather
+than silently taking over its active view. Same-document device switching
+releases its previous resource before requesting the next one.
+Separate Neo instances and other vendor applications are external viewers;
+their limits and interaction remain separate qualification cases.
+
+Release follows the manufacturer's explicit monitor-release convention.
+Cancel local acquisition and renewal, then make a bounded best-effort
+`camera.stop_monitor` call using the viewing session's LAN domain and the same
+client ID used by its start/renew calls. A session owns its client identity;
+do not borrow a different application's identity or omit a previously used
+client ID to retry a failed stop. Finish local connection, timer and buffer
+cleanup even if the stop request fails or times out. A cleanup attempt must
+retain its original configuration context rather than resolve a newly edited
+endpoint. A late successful start after cancellation also requires cleanup
+against its original context.
+
+Explicit Stop clears viewing intent. Leaving Monitor, hiding/closing the
+document, changing route/configuration and reaching a terminal playback error
+all release the view and cancel recovery. Temporary hiding may retain the
+shared viewing intent for the same selected device and reopen on return, as
+specified by the shared Camera interaction. Serialize local release/reopen
+through the bounded cleanup attempt and ignore completions for a retired
+session. Device-side ordering after a transport timeout remains part of the
+unqualified monitor-isolation behavior.
+
+Stop acknowledgement is not proof of client-ID isolation or immediate device
+capture shutdown. Preserve those qualification limits and test coexistence
+with external viewers without promising device-wide camera power control.
+
+#### Verification requirements
+
+Protocol and resource fixtures must exercise RPC result correlation, device
+errors, cancellation, late starts, renewal changes, configuration invalidation
+and idempotent release. Acquisition/player coverage must distinguish a
+completed response, a decodable image, a newly received frame and actual
+source freshness. Cover corrupted images, response interruptions, bounded
+buffering and resource release while preserving unrelated printer controls.
+
+Implementation completion requires both the applicable software checks and
+real-U1 acceptance in Electron and Web, with at least 30 minutes of continuous
+viewing in each host. Cover renewal across repeated intervals, the first
+displayed frame, a short network interruption and recovery, explicit Stop,
+Retry, document visibility/closure, device switching and coexistence with
+another client. Observe the other client's viewing before and after Neo's
+release and report any interference. A failed coexistence case is a design
+issue to resolve before claiming completion. Keep device-side shutdown and
+client-isolation claims limited to what the acceptance actually establishes.
+
+Web qualification records the actual application origin, transport security
+and local-network authorization conditions for the successful viewing path.
+Also verify the unavailable/error presentation under denied or incompatible
+browser conditions. Successful localhost playback alone does not qualify a
+production HTTPS deployment. The selected scope uses direct device access;
+the shared architecture's gateway deferral still applies.
+
+Record firmware and authorization mode for each hardware run. Fixture-only
+authorization or encrypted-source rejection coverage is not physical
+qualification of authenticated or encrypted acquisition. Apply the
+[testing guidelines](../doc/testing_guidelines.md) to software verification;
+the real-U1 gates above are additional feature completion requirements.
+
+Mobile qualification remains deferred under the shared application's initial
+desktop-browser policy. The shared card retains its existing narrow-width
+layout and touch-compatible buttons. One active view and bounded JPEG storage
+constrain media memory independently of session duration. Mobile fullscreen,
+network permissions, sustained decoding and background behavior need separate
+qualification before mobile support is claimed.
 
 ## 9. Remote files, previews and transfers
 

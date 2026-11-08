@@ -2876,7 +2876,9 @@ The configured model and native model matcher narrow the target list, while
 fresh agent observations supply actual toolheads, nozzles, loaded materials
 and readiness. Model equality alone does not validate a material binding.
 
-Defer live camera preview and printer-file browsing/management in this delivery.
+Printer-file browsing/management remains deferred in this delivery. The separate
+[camera follow-up](#snapmaker-camera-live-view) records the selected live-view
+design and its separate completion requirements.
 The current-task image in Monitor uses the printer's available thumbnail,
 including for jobs started outside Neo. It remains scoped to the reported task
 and route, and uses the shared placeholder when no image is available.
@@ -2892,6 +2894,78 @@ remembered defaults retain the separate save/apply behavior above. UI state
 refresh should preserve user assignments and unsaved edits, while reporting
 changed compatibility or availability.
 
+### Snapmaker camera live view
+
+**Decision status** — The accepted follow-up uses WebSocket camera control,
+HTTP JPEG acquisition and the shared Camera card/player. Production
+integration and qualification are pending. The
+[camera architecture](Printer%20Domain%20and%20Control%20Architecture.md#82-snapmaker-u1-lan-live-view)
+owns protocol evidence, transport, media resources and qualification boundaries.
+
+Electron and Web are initial delivery targets, each with host-specific
+acceptance. Initial playback supports plain JPEG. An encrypted image source
+shows an explicit playback-unavailable explanation. Browser networking or
+permission restrictions are camera-specific failures and do not disable
+unrelated Monitor controls.
+
+Initial qualification covers stock U1 firmware on the selected WS/JPEG route.
+Compatible community firmware can use the same path; its additional streaming
+services remain follow-up work. Completion includes software checks and at
+least 30 minutes of real-U1 viewing per host, including renewal, recovery,
+lifecycle and coexistence cases owned by the architecture. Mobile
+qualification follows the shared application's deferred first-release status.
+
+The camera reuses the saved Snapmaker address and optional API key through its
+host adapter. It introduces no separate camera-connection form. A connected
+Snapmaker route with unknown camera support shows a card and permits explicit
+Play to validate the function. Loading Monitor alone does not start a camera.
+Confirmed lack of support shows its reason. Authentication, access permission
+and temporary connection failures retain distinct explanations; a missing
+capability report is not presented as confirmed hardware absence.
+
+Use the existing Monitor camera presentation and managed viewing intent as the
+baseline. User Play, connection progress, first displayed image, Stop, Retry and
+fullscreen follow the [shared Camera interaction](#camera-live-view). The
+current-task thumbnail remains a separate task-scoped presentation. Viewing
+does not enable recording or change a print job's timelapse setting.
+
+Connection readiness and the first displayed image are separate states.
+Acquisition permits at most five image requests per second, with one request
+in flight. Actual source FPS remains unknown unless established independently.
+
+During a recoverable network interruption or consecutive invalid images, keep
+the last valid displayed image with a visible recovery state. Automatic
+recovery lasts at most 30 seconds. Recovery requires valid displayed playback
+and restoration of any failed required control path. A successful start/renew
+response alone does not end recovery. After that window, stop the view and
+provide explicit Retry. Authentication, permission, unsupported-camera
+and unsupported-encryption errors require user action directly. Explicit Stop
+or leaving the viewing context cancels recovery. This Snapmaker policy extends
+the shared Camera baseline with bounded recoverable-frame handling.
+
+Each application instance permits one Snapmaker camera view. Switching devices
+releases the old view before a new one opens. Stop clears viewing intent;
+temporary hiding follows the shared release/reopen behavior for the same
+device. Release cancels local acquisition and renewal and makes a bounded
+best-effort stop request with the session's client ID. Local cleanup completes
+even if that request fails. Device capture shutdown and isolation from other
+applications remain subject to unqualified firmware behavior. The UI reports
+the local viewing state. Device-side capture state remains unknown.
+The presentation exposes connection and recovery status. Last-received time
+and source-freshness indicators are outside the selected UI. An unchanged
+scene alone must not be reported as a failed camera.
+
+LAN viewing renews every 300 seconds after an acknowledged start/renew.
+Direct user interaction with the active camera card can trigger an extra
+renewal, throttled to once per minute. These operations use the existing
+session and preserve displayed playback when delivery is unchanged. A failed
+required renewal enters the same bounded recovery policy. The architecture
+owns serialization and the separation from Neo media-resource lease renewal.
+
+Electron owns protocol/acquisition in a utility-process host with main-frame
+lifetime coordination and binary frame delivery. Web uses the browser host
+adapter. Shared UI continues to consume the same media/player boundary.
+
 ### Snapmaker acceptance and physical qualification
 
 Implementation may be delivered and marked complete after the full accepted
@@ -2900,6 +2974,10 @@ Electron and Web host boundaries. Real U1 qualification is a separate track;
 unavailable hardware does not block code delivery. Record unrun physical cases
 as unverified, never as passed or implied by mocks. A basic upload-only increment
 does not complete the broader accepted scope.
+
+The separate [live-camera follow-up](#snapmaker-camera-live-view) adds real-U1
+completion gates for that feature. The software-only completion policy above
+continues to govern the delivered agent/send scope.
 
 Follow the [testing guidelines](../doc/testing_guidelines.md) for execution
 levels. Prove shared behavior at its lowest practical layer and exercise each
