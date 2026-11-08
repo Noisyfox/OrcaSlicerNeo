@@ -8,7 +8,7 @@ export function useCameraView(media: D.PrinterMedia, target: D.TargetRequest, ca
   const [descriptor, setDescriptor] = useState<D.MediaDescriptor | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<'connecting' | 'ready'>('connecting');
-  const activity = useRef<{ id: string; at: number } | null>(null);
+  const activity = useRef<Promise<D.Result<null>> | null>(null);
   const [documentVisible, setDocumentVisible] = useState(document.visibilityState !== 'hidden');
   const previous = useRef(Promise.resolve()), active = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -76,15 +76,14 @@ export function useCameraView(media: D.PrinterMedia, target: D.TargetRequest, ca
         if (current) await media.close(current.ref).catch(() => {});
       }
     })();
-    return () => { abort.abort(); clearTimeout(renewTimer); if (active.current === abort) active.current = null; };
+    return () => { abort.abort(); clearTimeout(renewTimer); activity.current = null; if (active.current === abort) active.current = null; };
   }, [media, target.printerId, target.routeId, target.expectedConfigurationRevision, cameraId, wanted, attempt, visible, documentVisible, available]);
   return { descriptor, error, wanted, connectionState,
     interact: () => {
-      const presentation = descriptor?.presentation;
-      if (!descriptor || !wanted || presentation?.kind !== 'video' || presentation.delivery.transport !== 'jpeg-frames' || !presentation.delivery.interactionRenewal) return;
-      if (activity.current?.id === descriptor.ref.id && Date.now() - activity.current.at < 60_000) return;
-      activity.current = { id: descriptor.ref.id, at: Date.now() };
-      void media.interact(descriptor.ref).catch(() => {});
+      if (!descriptor?.acceptsUserActivity || !wanted || !visible || !documentVisible || !available || !active.current || active.current.signal.aborted || activity.current) return;
+      const request = media.interact(descriptor.ref, { signal: active.current.signal });
+      activity.current = request;
+      void request.finally(() => { if (activity.current === request) activity.current = null; }).catch(() => {});
     },
     play: () => { setError(null); setWanted(true); setAttempt(value => value + 1); },
     stop: () => { active.current?.abort(); setDescriptor(null); setError(null); setWanted(false); },

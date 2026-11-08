@@ -49,6 +49,8 @@ afterEach(async () => { await Promise.all(owners.splice(0).map(owner => owner.di
 describe('U1 camera media resources', () => {
   it('opens, emits complete JPEGs and releases the same monitor identity idempotently', async () => {
     const f = fixture(), descriptor = await f.open(), reader = f.reader(descriptor);
+    expect(descriptor.acceptsUserActivity).toBe(true);
+    expect(descriptor.presentation).toMatchObject({ playbackRecovery: { timeoutMs: 30_000 } });
     expect(descriptor.presentation).toMatchObject({ live: true, seekable: false, delivery: { transport: 'jpeg-frames' } });
     expect((await reader.next()).value).toMatchObject({ kind: 'jpeg', generation: 1, sequence: 0, bytes: jpeg() });
     expect(f.request).toHaveBeenCalledWith(expect.objectContaining({ maxResponseBytes: 16 * 1024 * 1024, responseType: 'bytes' }));

@@ -6,7 +6,7 @@ import type { MediaDescriptor, MediaStreamPacket, PrinterMedia } from '@orca/pri
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-function jpegPlayer() {
+function jpegPlayer(timeoutMs: number | null = 30_000) {
   vi.useFakeTimers();
   let decodeFails = false, blob = 0;
   const decode = vi.fn(async () => { if (decodeFails) throw new Error('Bad JPEG'); });
@@ -19,8 +19,8 @@ function jpegPlayer() {
   const iterator = { next: () => new Promise<IteratorResult<MediaStreamPacket>>(resolve => { deliver = resolve; }),
     return: async () => ({ done: true as const, value: undefined }) };
   const media: Pick<PrinterMedia, 'readStream'> = { readStream: () => ({ [Symbol.asyncIterator]: () => iterator }) };
-  const descriptor = { ref: { printerId: 'p', routeId: 'r', id: 'm' }, expiresAtMs: null, revision: 1,
-    presentation: { kind: 'video', live: true, delivery: { transport: 'jpeg-frames', streamId: 's', mimeType: 'image/jpeg', recoveryWindowMs: 30_000 } } } as MediaDescriptor;
+  const descriptor = { ref: { printerId: 'p', routeId: 'r', id: 'm' }, expiresAtMs: null, revision: 1, acceptsUserActivity: false,
+    presentation: { kind: 'video', live: true, playbackRecovery: timeoutMs === null ? undefined : { timeoutMs }, delivery: { transport: 'jpeg-frames', streamId: 's', mimeType: 'image/jpeg' } } } as MediaDescriptor;
   const video = document.createElement('video'), image = document.createElement('img');
   Object.assign(video, { pause: () => {}, load: () => {}, requestVideoFrameCallback: () => 1, cancelVideoFrameCallback: () => {} });
   const states: PlaybackState[] = [];
@@ -48,6 +48,19 @@ it('caps continuous decoder recovery at 30 seconds', async () => {
   const failed = expect(f.player.done).rejects.toThrow('Camera recovery timed out');
   for (let i = 0; i < 29; i++) { await vi.advanceTimersByTimeAsync(1000); await f.feed(); }
   await vi.advanceTimersByTimeAsync(1000); await failed;
+});
+
+it('uses the resource presentation recovery budget', async () => {
+  const f = jpegPlayer(5000); await f.feed(); f.setBad(true); await f.feed();
+  const failed = expect(f.player.done).rejects.toThrow('Camera recovery timed out');
+  for (let i = 0; i < 4; i++) { await vi.advanceTimersByTimeAsync(1000); await f.feed(); }
+  await vi.advanceTimersByTimeAsync(1000); await failed;
+});
+
+it('ends playback on decoder failure when the presentation has no recovery policy', async () => {
+  const f = jpegPlayer(null); await f.feed();
+  const failed = expect(f.player.done).rejects.toThrow('Media playback failed');
+  f.setBad(true); await f.feed(); await failed;
 });
 
 it('requires a restored control path even while valid JPEGs continue arriving', async () => {

@@ -3664,11 +3664,15 @@ printer-control operation queues. Frame bytes use `readStream`; media `watch`
 carries descriptors, states and errors. Source URLs, authentication material
 and password-derivation data remain provider-private.
 
-JPEG delivery advertises its optional recovery window and activity-renewal
-behavior in the media descriptor. Shared presentation uses those delivery
-properties and provider connection state to coordinate recovery. Direct user
-activity routes through `media.interact`, independently of lease renewal.
-Providers without activity renewal report that action unsupported.
+Video presentation advertises its optional `playbackRecovery.timeoutMs` policy.
+Shared playback uses that budget and provider connection state to coordinate
+recovery across transport acquisition and client decoding. Delivery describes
+transport, encoding and access. Each media resource declares
+`acceptsUserActivity`, independently of its presentation or transport. Shared
+UI forwards direct user activity through `media.interact` for accepting resources
+and coalesces overlapping notifications. The provider owns any resulting
+session maintenance and its rate limits. Media-resource lease renewal remains
+a separate operation.
 
 Reuse the resource identities and configuration guards in section 8. Opening
 and closing retain their request-idempotency and late-result cleanup
@@ -3878,20 +3882,13 @@ Public HTTPS deployment, its mixed-content/local-network authorization path,
 API-key-authenticated hardware and encrypted-image delivery require their own
 qualification. The recorded run establishes the empty-key, plain-JPEG path.
 
-The utility observer was removed before final fixture regression. Software
-acceptance uses `pnpm test`, `pnpm typecheck`, the desktop renderer CSS smoke,
-the primary Electron application E2E path and the Electron/Web camera E2E
-fixtures. Final repository tests and typechecks passed. The affected suites
-passed 355 printer-control, 1,708 shared-application, 585 desktop and 49 Web
-tests, with the desktop suite retaining its existing resource-dependent skip.
-The final Electron application/camera E2E run passed 38 cases and retained
-three existing real-WASM-only skips for DRC, STEP and native G-code event
-vertices. The real-Web camera E2E passed its case. Renderer CSS smoke passed.
-A concurrent repository-test attempt hit Windows' loaded native
-extension file lock. Closing the acceptance application allowed the full
-repository tests to pass on rerun. The testing-guideline handoff scope applies
-to this feature. The full dual-WASM/platform release matrix remains a release
-qualification activity.
+The utility observer was removed before fixture regression. Software acceptance
+covers repository tests/typechecks, renderer CSS smoke, the primary Electron
+application journey and Electron/Web camera fixtures. Resource-dependent
+object-package checks and real-WASM-only DRC, STEP and native G-code event
+checks follow their existing artifact gates. The testing-guideline handoff
+scope applies to this feature. The full dual-WASM/platform release matrix
+remains a release qualification activity.
 
 ## 9. Remote files, previews and transfers
 

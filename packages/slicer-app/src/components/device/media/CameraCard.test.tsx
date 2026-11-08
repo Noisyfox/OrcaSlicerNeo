@@ -10,7 +10,7 @@ vi.mock('./MediaPlayer', () => ({ MediaPlayer: ({ descriptor, onError }: { descr
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 const target = { printerId: 'p', routeId: 'r', expectedConfigurationRevision: 'c' } as D.TargetRequest;
 const capability: D.CameraMediaCapability = { cameraId: 'c' as D.Id<'camera'>, liveView: { kind: 'supported', constraints: { transports: ['jpeg-frames'], profiles: [], maxConcurrentViews: 1, requestIdRetentionMs: 300000 } }, snapshot: { kind: 'unknown', reason: 'Unknown' } };
-const descriptor = (id = 'm', expiresAtMs: number | null = null): D.MediaDescriptor => ({ ref: { ...target, id } as D.MediaRef, source: { kind: 'camera', cameraId: capability.cameraId }, configurationRevision: 'c', revision: 1, expiresAtMs,
+const descriptor = (id = 'm', expiresAtMs: number | null = null): D.MediaDescriptor => ({ ref: { ...target, id } as D.MediaRef, source: { kind: 'camera', cameraId: capability.cameraId }, configurationRevision: 'c', revision: 1, expiresAtMs, acceptsUserActivity: false,
   presentation: { kind: 'video', delivery: { transport: 'jpeg-frames', streamId: 's' as D.Id<'media-stream'>, mimeType: 'image/jpeg' }, profile: null, codecId: 'jpeg', live: true, seekable: false, durationSeconds: null } });
 async function mount(overrides: Partial<D.PrinterMedia> = {}) {
   let count = 0;
@@ -35,21 +35,50 @@ it('opens only on Play, releases hidden views, resumes intent and keeps explicit
   } finally { await view.dispose(); }
 });
 
-it('throttles direct interaction renewal for an opted-in JPEG view', async () => {
-  vi.useFakeTimers();
+it('reports activity for an advertised resource independently of its video transport and coalesces in-flight notifications', async () => {
   const current = descriptor();
-  if (current.presentation.kind !== 'video' || current.presentation.delivery.transport !== 'jpeg-frames') throw new Error('Fixture');
-  current.presentation.delivery.interactionRenewal = true;
-  const interact = vi.fn(async () => ({ ok: true as const, value: null }));
+  if (current.presentation.kind !== 'video') throw new Error('Fixture');
+  current.acceptsUserActivity = true;
+  current.presentation.delivery = { transport: 'webrtc', negotiationId: 'negotiation' as D.Id<'negotiation'>, offerer: 'agent', iceServers: [] };
+  let complete!: (result: D.Result<null>) => void;
+  const interact = vi.fn<D.PrinterMedia['interact']>(() => new Promise(resolve => { complete = resolve; }));
   const view = await mount({ open: async () => ({ ok: true, value: current }), interact });
   const activity = async () => act(async () => { view.element.querySelector('[data-testid="camera-card"]')!.dispatchEvent(new Event('pointermove', { bubbles: true })); });
   try {
     await view.click('Play camera'); await activity(); await activity();
     expect(interact).toHaveBeenCalledTimes(1);
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); }); await activity();
+    expect(interact).toHaveBeenCalledWith(current.ref, { signal: expect.any(AbortSignal) });
+    await act(async () => complete({ ok: true, value: null })); await activity();
     expect(interact).toHaveBeenCalledTimes(2);
+    await act(async () => complete({ ok: false, error: { code: 'transport', message: 'Activity unavailable' } }));
     await view.click('Stop camera'); await activity();
     expect(interact).toHaveBeenCalledTimes(2);
+  } finally { await view.dispose(); }
+});
+it('keeps user activity local when the resource does not accept notifications', async () => {
+  const interact = vi.fn(async () => ({ ok: true as const, value: null }));
+  const view = await mount({ interact });
+  try {
+    await view.click('Play camera');
+    await act(async () => { view.element.querySelector('[data-testid="camera-card"]')!.dispatchEvent(new Event('pointermove', { bubbles: true })); });
+    expect(interact).not.toHaveBeenCalled();
+  } finally { await view.dispose(); }
+});
+it('retires an old activity notification when a new view opens', async () => {
+  const completions: ((value: D.Result<null>) => void)[] = [];
+  const interact = vi.fn<D.PrinterMedia['interact']>(() => new Promise(resolve => { completions.push(resolve); }));
+  let id = 0;
+  const view = await mount({ open: async () => ({ ok: true, value: { ...descriptor(`active-${++id}`), acceptsUserActivity: true } }), interact });
+  const activity = async () => act(async () => { view.element.querySelector('[data-testid="camera-card"]')!.dispatchEvent(new Event('pointermove', { bubbles: true })); });
+  try {
+    await view.click('Play camera'); await activity();
+    await view.click('Stop camera'); await view.click('Play camera'); await activity();
+    expect(interact).toHaveBeenCalledTimes(2);
+    expect(interact.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    await act(async () => completions[0]({ ok: true, value: null })); await activity();
+    expect(interact).toHaveBeenCalledTimes(2);
+    await act(async () => completions[1]({ ok: true, value: null })); await activity();
+    expect(interact).toHaveBeenCalledTimes(3);
   } finally { await view.dispose(); }
 });
 it('closes a late open after Stop before another viewer can open', async () => {

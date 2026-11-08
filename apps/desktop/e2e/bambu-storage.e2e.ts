@@ -153,7 +153,7 @@ test('Storage scopes selection, retains download tasks and distinguishes confirm
         state.storageThumbnailOpens[file] = (state.storageThumbnailOpens[file] ?? 0) + 1;
         return { ok: true, value: {
           ref: { ...input.target, id: input.requestId }, configurationRevision: input.source.target.configurationRevision,
-          revision: 1, source: input.source, expiresAtMs: null,
+          revision: 1, source: input.source, expiresAtMs: null, acceptsUserActivity: false,
           presentation: { kind: 'image', mimeType: 'image/png', url: file === 'external-part-000.gcode.3mf' ? urls.large : urls.small },
         } };
       });

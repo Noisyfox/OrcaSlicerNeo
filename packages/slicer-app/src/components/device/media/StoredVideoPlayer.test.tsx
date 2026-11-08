@@ -11,7 +11,7 @@ it('seeks within the downloaded range using the shared slider keyboard controls'
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
-  const descriptor = { ref: { printerId: 'p', routeId: 'r', id: 'video' }, presentation: {
+  const descriptor = { acceptsUserActivity: false, ref: { printerId: 'p', routeId: 'r', id: 'video' }, presentation: {
     kind: 'video', live: false, durationSeconds: 20, cachedRanges: [{ startSeconds: 0, endSeconds: 10 }],
   } } as unknown as MediaDescriptor;
   try {

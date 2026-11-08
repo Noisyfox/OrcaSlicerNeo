@@ -176,8 +176,8 @@ export class U1CameraMedia {
       let accept!: (result: D.Result<D.MediaDescriptor>) => void;
       const opened = new Promise<D.Result<D.MediaDescriptor>>(resolve => { accept = resolve; });
       const descriptor: D.MediaDescriptor = { ref: { printerId: request.target.printerId, routeId: request.target.routeId, id: newId<'media'>() },
-        configurationRevision: request.target.expectedConfigurationRevision ?? '', revision: 1, source: copy(request.source), expiresAtMs: Date.now() + LEASE_MS,
-        presentation: { kind: 'video', delivery: { transport: 'jpeg-frames', streamId: newId<'media-stream'>(), mimeType: 'image/jpeg', recoveryWindowMs: RECOVERY_MS, interactionRenewal: true },
+        configurationRevision: request.target.expectedConfigurationRevision ?? '', revision: 1, source: copy(request.source), expiresAtMs: Date.now() + LEASE_MS, acceptsUserActivity: true,
+        presentation: { kind: 'video', playbackRecovery: { timeoutMs: RECOVERY_MS }, delivery: { transport: 'jpeg-frames', streamId: newId<'media-stream'>(), mimeType: 'image/jpeg' },
           profile: null, durationSeconds: null, seekable: false, codecId: 'jpeg', live: true } };
       const resource: Resource = { descriptor, signature, requestKey, clientId: `neo-camera-${newId<'request'>()}`, controller: new AbortController(),
         needStart: true, renewalAt: 0, interactionAt: -Infinity, generation: 0, attached: false, attachDeadline: Infinity,

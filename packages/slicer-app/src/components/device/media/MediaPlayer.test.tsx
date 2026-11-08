@@ -16,7 +16,7 @@ beforeEach(() => {
 });
 it('renews expiry without reattaching the binary stream; new delivery and unmount release playback', async () => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const descriptor = { ref: { printerId: 'p', routeId: 'r', id: 'm' }, expiresAtMs: 10000, revision: 1,
+  const descriptor = { ref: { printerId: 'p', routeId: 'r', id: 'm' }, expiresAtMs: 10000, revision: 1, acceptsUserActivity: false,
     presentation: { kind: 'video', delivery: { transport: 'jpeg-frames', streamId: 's', mimeType: 'image/jpeg' } } } as MediaDescriptor;
   const media = { readStream: vi.fn() } as unknown as PrinterMedia;
   const root = createRoot(document.createElement('div'));
@@ -33,7 +33,7 @@ it('renews expiry without reattaching the binary stream; new delivery and unmoun
 
 it('does not consume or close a camera stream during StrictMode effect replay', async () => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const descriptor = { ref: { printerId: 'p', routeId: 'r', id: 'm' }, expiresAtMs: null, revision: 1,
+  const descriptor = { ref: { printerId: 'p', routeId: 'r', id: 'm' }, expiresAtMs: null, revision: 1, acceptsUserActivity: false,
     presentation: { kind: 'video', delivery: { transport: 'jpeg-frames', streamId: 's', mimeType: 'image/jpeg' } } } as MediaDescriptor;
   const root = createRoot(document.createElement('div'));
   try {
@@ -56,7 +56,7 @@ it('retains a renewed remote URL after the previous real player finishes asynchr
       canPlayType: () => 'probably', requestVideoFrameCallback: () => 1, cancelVideoFrameCallback: () => {} });
     return actual.startMediaPlayback(options);
   });
-  const descriptor = (url: string): MediaDescriptor => ({ ref: { printerId: 'p', routeId: 'r', id: 'm' }, expiresAtMs: null, revision: 1,
+  const descriptor = (url: string): MediaDescriptor => ({ ref: { printerId: 'p', routeId: 'r', id: 'm' }, expiresAtMs: null, revision: 1, acceptsUserActivity: false,
     presentation: { kind: 'video', delivery: { transport: 'progressive-http', url, mimeType: 'video/mp4', credentials: 'same-origin' }, live: true } } as MediaDescriptor);
   const element = document.createElement('div'), root = createRoot(element);
   const media = { readStream: vi.fn() } as unknown as PrinterMedia, onError = vi.fn();

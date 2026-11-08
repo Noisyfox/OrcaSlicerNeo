@@ -16,7 +16,7 @@ export async function installCameraFixture(app: ElectronApplication, page: Page)
       const state = globalThis.cameraFixture;
       if (method === 'open') {
         const id = `camera-${++state.opened}`;
-        const value: D.MediaDescriptor = { ref: { printerId: input.target.printerId, routeId: input.target.routeId, id: id as D.Id<'media'> }, source: input.source, revision: 1, configurationRevision: 'fixture', expiresAtMs: Date.now() + 300000,
+        const value: D.MediaDescriptor = { ref: { printerId: input.target.printerId, routeId: input.target.routeId, id: id as D.Id<'media'> }, source: input.source, revision: 1, configurationRevision: 'fixture', expiresAtMs: Date.now() + 300000, acceptsUserActivity: false,
           presentation: { kind: 'video', delivery: { transport: 'jpeg-frames', streamId: id as D.Id<'media-stream'>, mimeType: 'image/jpeg' }, profile: null, codecId: 'jpeg', live: true, seekable: false, durationSeconds: null } };
         state.resources[id] = value; return { ok: true, value };
       }

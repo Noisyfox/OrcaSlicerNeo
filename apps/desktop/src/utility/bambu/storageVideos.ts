@@ -101,7 +101,7 @@ export class BambuStorageVideos {
     if (this.resources.size >= 2) return failure('busy', 'Close another stored video before opening this one.');
     const id = `storage-video:${randomUUID()}` as D.Id<'media'>;
     const resource: Resource = { owner, request, descriptor: { ref: { printerId: ref.printerId, routeId: ref.routeId, id }, source: request.source,
-      configurationRevision: ref.configurationRevision, revision: 1, expiresAtMs: Date.now() + 60_000,
+      configurationRevision: ref.configurationRevision, revision: 1, expiresAtMs: Date.now() + 60_000, acceptsUserActivity: false,
       presentation: { kind: 'video', delivery: { transport: 'mse-fmp4', streamId: randomUUID() as D.Id<'media-stream'>, mimeType: '' },
         profile: null, durationSeconds: null, seekable: true, codecId: 'h264', live: false, cachedRanges: [] } },
       cache: new StoredVideoCache(this.root, signal => this.files.download({ target: ref }, { signal }), () => {

@@ -66,8 +66,8 @@ export function startMediaPlayback(options: PlaybackOptions) {
   const controller = new AbortController();
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
   const presentation = descriptor.presentation;
-  const recoveryWindow = presentation.kind === 'video' && presentation.delivery.transport === 'jpeg-frames' ? presentation.delivery.recoveryWindowMs : undefined;
-  if (recoveryWindow !== undefined && (!Number.isFinite(recoveryWindow) || recoveryWindow <= 0 || recoveryWindow > 30_000)) throw new PlaybackError('Invalid camera recovery window');
+  const recoveryWindow = presentation.kind === 'video' ? presentation.playbackRecovery?.timeoutMs : undefined;
+  if (recoveryWindow !== undefined && (!Number.isSafeInteger(recoveryWindow) || recoveryWindow <= 0 || recoveryWindow > 2 ** 31 - 1)) throw new PlaybackError('Invalid camera recovery window');
   let connectionReady = options.connectionState !== 'connecting', decodedReady = false, displayed = false;
   let recoveryAt: number | undefined;
   let blobUrl: string | undefined, hls: { destroy(): void } | undefined;

@@ -134,7 +134,7 @@ export class BambuMedia {
     const emit = (packet: D.MediaStreamPacket) => {
       if (!r.descriptor) {
         if (packet.kind !== 'init' && packet.kind !== 'jpeg') throw new Error('Missing camera initialization');
-        r.descriptor = { ref: { printerId: request.target.printerId, routeId: request.target.routeId, id }, source: request.source, configurationRevision: connection.route.configurationRevision, revision: 1, expiresAtMs: Date.now() + 300_000,
+        r.descriptor = { ref: { printerId: request.target.printerId, routeId: request.target.routeId, id }, source: request.source, configurationRevision: connection.route.configurationRevision, revision: 1, expiresAtMs: Date.now() + 300_000, acceptsUserActivity: false,
           presentation: { kind: 'video', delivery: packet.kind === 'init' ? { transport: 'mse-fmp4', streamId, mimeType: packet.mimeType } : { transport: 'jpeg-frames', streamId, mimeType: 'image/jpeg' },
             profile: null, codecId: packet.kind === 'init' ? 'h264' : 'jpeg', live: true, seekable: false, durationSeconds: null } };
         this.resources.set(id, r); r.attachDeadline = Date.now() + 10_000; resolveReady(r.descriptor); this.changed();

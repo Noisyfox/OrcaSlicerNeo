@@ -14,7 +14,7 @@ async function fixture() {
   vi.stubGlobal('IntersectionObserver', class { constructor(callback: IntersectionObserverCallback) { observers.push(callback); } observe() {} disconnect() {} });
   const file = { name: 'part', ref: { printerId: 'p', routeId: 'r', configurationRevision: 'c', storageId: 's', fileId: 'f' } } as D.RemoteFile;
   const descriptor: D.MediaDescriptor = { ref: { printerId: 'p', routeId: 'r', id: 'image' } as D.MediaRef,
-    source: { kind: 'file-preview', target: file.ref, previewId: 'thumb' as D.Id<'preview-option'> }, configurationRevision: 'c', revision: 1, expiresAtMs: null,
+    source: { kind: 'file-preview', target: file.ref, previewId: 'thumb' as D.Id<'preview-option'> }, configurationRevision: 'c', revision: 1, expiresAtMs: null, acceptsUserActivity: false,
     presentation: { kind: 'image', mimeType: 'image/png', url: 'data:image/png;base64,aGVsbG8=' } };
   const list = vi.fn(async () => ({ ok: true, value: { file: file.ref, options: [{ id: 'thumb', kind: 'thumbnail', label: 'Image', contentFormat: null }] } }));
   const open = vi.fn(async (): Promise<D.Result<D.MediaDescriptor>> => ({ ok: true, value: descriptor }));
