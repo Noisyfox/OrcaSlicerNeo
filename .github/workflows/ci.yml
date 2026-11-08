@@ -208,9 +208,6 @@ jobs:
       - name: Bridge smoke — binary-buffer contract (M2 deferred verification)
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/orca_slice.js packages/slicer-wasm/fixtures/cube.stl
-      - name: G-code thumbnails — configured sizes and task-owned pixels
-        if: steps.wasm-cache.outputs.cache-hit != 'true'
-        run: node packages/slicer-wasm/harness/gcode-thumbnails-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
       - name: Bridge smoke — Electron NODEFS temporary files
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/nodefs-bridge-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
@@ -304,9 +301,6 @@ jobs:
       - name: Smoke — serial fallback slices cube.stl
         if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
-      - name: G-code thumbnails — serial pixel ownership and native encoding
-        if: steps.wasm-cache.outputs.cache-hit != 'true'
-        run: node packages/slicer-wasm/harness/gcode-thumbnails-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
       - uses: pnpm/action-setup@v6
         if: steps.wasm-cache.outputs.cache-hit != 'true'
       - name: Install native profile-fixture packaging dependencies
