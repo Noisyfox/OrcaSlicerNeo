@@ -673,8 +673,9 @@ The implementation preserves the accepted exclusions. Moonraker, transparent
 preview, libnoise and the newer oneTBB pin remain unchanged. Native code is
 committed on `dev/orcaslicerneo-wasm` at
 `8f2cfb8c79ab5374fd1ead4f1f3ac2f3e42934f4`, merging the immutable target above.
-The superproject deliberately pins that commit. Commits are local; neither
-repository has been pushed as part of this work.
+The superproject deliberately pins that commit. Publish the native commit on
+its fork branch before publishing the superproject branch so CI and reviewers
+can fetch the pin.
 
 | Area | Verified local evidence | Remaining qualification |
 | --- | --- | --- |
@@ -753,5 +754,5 @@ a claim of a clean native GUI or cross-platform clang-tidy run.
 
 Windows cmd recipes receive syntax/CRLF and source checks locally; Windows
 execution and the unavailable Bambu startup platforms remain unverified.
-Physical-device operations remain outside the accepted scope. Remote CI and
-publication were not requested and have not been performed.
+Physical-device operations remain outside the accepted scope. The results
+above record local qualification before the PR.
