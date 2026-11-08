@@ -3036,7 +3036,7 @@ heater, movement, material-feed and deletion requests. Test reports retain
 observation snapshots, command/upload evidence and a Monitor screenshot; they
 must not include API keys.
 
-Still **unrun**: multi-head printing; physical many-to-one material and
+Still **unrun**: physical many-to-one material and
 shared-heater behavior; inserted-but-unloaded startup; flow-calibration subsets;
 individual load/unload; standalone heating/motion controls; successful non-official material-metadata
 writes (which may alter the association with RFID-reported metadata); disconnected top-cover controls;
@@ -3102,11 +3102,51 @@ zero remaining minutes and an idle-stage dash. Active stage labels have
 protocol-fixture coverage.
 The device status has no remaining-seconds field, while file metadata provides
 an 88 s slicer estimate. The agent now derives remaining time from executable-byte
-progress, with protocol-fixture coverage. A live countdown during physical
-printing remains unqualified. The queried filament inventory also supplied no
+progress, with protocol-fixture coverage. The subsequent four-head print below
+qualifies live estimate rendering during printing. The queried filament inventory also supplied no
 valid remaining-spool quantity.
-Multi-head switching, many-to-one logical materials, inserted-but-unloaded
-startup and shared-heater execution need their own physical cases.
+Many-to-one logical materials, inserted-but-unloaded startup and shared-heater
+execution need their own physical cases.
+
+### Real U1 four-head print (2026-11-08)
+
+The operator confirmed a clear, installed build plate. The same Windows/LAN U1
+with firmware `2.0.0.205_20260914173503` reported four inserted Snapmaker PLA
+supplies and four 0.4 mm nozzles. An isolated real-Electron project used four
+10 × 10 × 1 mm blocks, the U1 Printer and Snapmaker PLA SnapSpeed presets,
+with project colors copied from the device's black/red/white/yellow observations.
+Plate Manual mapping assigned the four logical materials to heads 1–4 in order;
+the Send & Print preparation retained the same four physical bindings. Bed
+leveling was On, flow calibration and timelapse Off. The four unreported-nozzle-
+hardness advisories each required zero hardness and were acknowledged.
+
+`NEO_U1_4heads_1794105416233_PLA_1.8g_7m1s.gcode` completed at 5/5 layers and
+progress 1. Firmware reported total duration 862.78 s, print duration 517.80 s
+and 649.00 mm filament used. All five heater targets were zero at completion.
+The 167 retained observations showed each physical head active and heated to
+printing targets during deposited layers, with mapping `[0,1,2,3]` and all four
+used-head flags set while printing. The operator confirmed normal first-layer
+adhesion and switching, followed by four complete black/red/white/yellow pieces.
+Dimensions were not measured.
+
+An independent read-only real-Electron check during this same job decoded the
+printer's 300 × 300 thumbnail and rendered `Layer 4 / 5`, `Stage Printing` and
+`Remaining 2 min`; the initial Monitor showed 7 min. Completion readback rendered
+5/5 layers, zero remaining minutes and the idle-stage dash. This qualifies live
+status/preview rendering for this job; estimate accuracy is not established by
+those displayed values.
+
+The existing [print harness](../apps/desktop/e2e/snapmaker-print-hardware.e2e.ts)
+accepts `NEO_U1_ACCEPTANCE_HEADS=4` with its existing explicit print/configuration
+opt-ins. `NEO_U1_ACCEPTANCE_PREPARE_ONLY=1` stops after slicing and reviewing the
+prepared form. Both retained single-head and four-head telemetry passed the
+completion verifier, including a check that each requested head was active and
+heated during nonzero layers. Local ignored evidence is under
+`test-results/u1-four-head-print/`, `test-results/u1-four-head-live-monitor/` and
+`test-results/u1-four-head-completion-monitor/`. This case qualifies four distinct
+logical-to-physical bindings with PLA. More than four logical materials,
+many-to-one mappings, shared-heater effects, unloaded startup and calibration
+subsets retain their separate physical qualification requirements.
 
 ### Comparison baseline and evidence limits
 

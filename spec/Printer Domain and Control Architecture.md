@@ -2070,9 +2070,9 @@ does not establish a device, Cloud or cross-platform delivery claim.
 Manual connection, U1 project/mapping integration, prepared submission, Device
 controls and preferences, scoped monitoring and shared unfinished-send exit
 handling are delivered. Software checks, bounded non-printing real-U1 LAN
-acceptance and one completed single-head PLA print are recorded in the
-interaction specification. Multi-head printing and shared-heater qualification
-remain pending.
+acceptance and completed single-head and four-head PLA prints are recorded in
+the interaction specification. Many-to-one logical materials and shared-heater
+qualification remain pending.
 Scope, behavior and
 acceptance policy are settled. The
 [interaction specification](Printer%20Console%20and%20Control%20Integration.md#snapmaker-agent-design)

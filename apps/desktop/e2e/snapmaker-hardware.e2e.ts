@@ -140,7 +140,9 @@ test('real U1 Monitor displays the current task thumbnail', async ({}, info) => 
     await expect.poll(() => image.evaluate((element: HTMLImageElement) => ({ width: element.naturalWidth, height: element.naturalHeight })))
       .toEqual({ width: expected.width, height: expected.height });
     await page.locator('.printer-print-preview').screenshot({ path: info.outputPath('u1-current-task-preview.png') });
-    writeFileSync(info.outputPath('u1-preview-readback.json'), JSON.stringify({ filename: stats.filename, jobId: metadata.job_id, thumbnail: expected }, null, 2));
+    await page.locator('.printer-print-column').screenshot({ path: info.outputPath('u1-current-task-monitor.png') });
+    writeFileSync(info.outputPath('u1-preview-readback.json'), JSON.stringify({ filename: stats.filename, jobId: metadata.job_id,
+      thumbnail: expected, monitorText: await page.locator('.printer-print-column').innerText() }, null, 2));
   } finally { await app.close(); }
 });
 
