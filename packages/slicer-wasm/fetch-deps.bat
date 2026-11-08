@@ -22,6 +22,8 @@ set "GEN=%WORK_DIR%\gen"
 
 REM Versions match OrcaSlicer v2.5.0 deps/ recipes (cereal 1.3.x is API-compatible).
 set "EIGEN_VER=5.0.1"
+REM Same Eigen release tree. The mirror avoids GitLab HTTP 406 on CI.
+set "EIGEN_SHA256=41b2d9d288e701b6cce3bf7ee2c14c573f979de53ae6d4a118b2ece696c96d52"
 set "BOOST_VER=1.84.0"
 set "CEREAL_VER=1.3.0"
 set "NLOPT_VER=2.5.0"
@@ -35,7 +37,7 @@ if not exist "%GEN%\openssl" mkdir "%GEN%\openssl"
 REM ---- Eigen (header-only) ----
 if not exist "%DEPS%\eigen-%EIGEN_VER%\Eigen" (
   echo [deps] Fetching Eigen %EIGEN_VER%
-  node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://gitlab.com/libeigen/eigen/-/archive/%EIGEN_VER%/eigen-%EIGEN_VER%.zip" "%DEPS%\eigen.zip"
+  node "%PKG_DIR%\..\..\scripts\download-dependency.mjs" "https://codeload.github.com/eigen-mirror/eigen/zip/refs/tags/%EIGEN_VER%" "%DEPS%\eigen.zip" "%EIGEN_SHA256%"
   if errorlevel 1 (
     echo [deps] ERROR: Eigen download failed.
     exit /b 1

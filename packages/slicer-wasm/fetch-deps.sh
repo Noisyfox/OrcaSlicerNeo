@@ -15,6 +15,9 @@ mkdir -p "$DEPS" "$GEN/openssl"
 
 # Versions match OrcaSlicer v2.5.0 deps/ recipes (cereal 1.3.x is API-compatible).
 EIGEN_VER="5.0.1"
+# Same release tree as GitLab's archive. The GitHub mirror avoids GitLab's
+# HTTP 406 responses on cold CI runners.
+EIGEN_SHA256="41b2d9d288e701b6cce3bf7ee2c14c573f979de53ae6d4a118b2ece696c96d52"
 BOOST_VER="1.84.0"
 CEREAL_VER="1.3.0"
 NLOPT_VER="2.5.0"
@@ -28,7 +31,7 @@ die() { printf '\033[1;31m[deps]\033[0m ERROR: %s\n' "$*" >&2; exit 1; }
 # ---- Eigen (header-only) ----
 if [[ ! -d "$DEPS/eigen-$EIGEN_VER/Eigen" ]]; then
   log "Fetching Eigen $EIGEN_VER"
-  node "$SPIKE_DIR/../../scripts/download-dependency.mjs" "https://gitlab.com/libeigen/eigen/-/archive/$EIGEN_VER/eigen-$EIGEN_VER.zip" "$DEPS/eigen.zip"
+  node "$SPIKE_DIR/../../scripts/download-dependency.mjs" "https://codeload.github.com/eigen-mirror/eigen/zip/refs/tags/$EIGEN_VER" "$DEPS/eigen.zip" "$EIGEN_SHA256"
   unzip -q -o "$DEPS/eigen.zip" -d "$DEPS"
 fi
 
