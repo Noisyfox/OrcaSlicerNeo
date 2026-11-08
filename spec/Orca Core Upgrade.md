@@ -1,8 +1,8 @@
 # Orca Core Upgrade
 
-**Status:** Accepted upgrade plan; implementation not started.
+**Status:** Accepted upgrade plan; staged implementation in progress.
 **Target:** OrcaSlicer 2.5.0 official release.
-**Updated:** 2026-11-07
+**Updated:** 2026-11-08
 
 Upgrade the pinned Orca core while preserving Neo's delivered application,
 project, preset and host contracts. The integration includes the native merge,
@@ -10,10 +10,11 @@ Neo's independently implemented adapters and interfaces, external dependencies,
 bundled profiles and verification. Updating the submodule alone does not update
 the React application or the independently built Bambu plugin interface.
 
-The current authorization covers finalizing and committing this document only.
-Product implementation, the native merge and the gitlink update remain future
-work requiring a separate instruction to begin. Accepted requirements below
-must not be read as delivered behavior or completed verification.
+Implementation is authorized in independently validated commits. The integration
+branch was rebased onto `origin/main` at `abc00595` before implementation; the
+original analysis baseline below remains the comparison reference. Preserve the
+new main-branch Snapmaker and thumbnail integrations. Accepted requirements
+below are completion gates, not claims that every gate has already passed.
 
 ## Accepted decisions
 
@@ -27,8 +28,8 @@ must not be read as delivered behavior or completed verification.
 | D6 Preview | Preserve opaque toolpaths; defer transparency and retain necessary core/renderer compatibility checks | Accepted; implementation requirements below |
 | D7 Verification and delivery | Software-only acceptance across affected features, hosts and WASM variants; staged integration and deliberate native/pin publication | Accepted; implementation requirements below |
 
-All seven groups are accepted. The documentation is one complete change;
-later implementation follows the independently testable commit policy in D7.
+All seven groups are accepted. Implementation follows the independently testable
+commit policy in D7.
 
 ## Owning specifications
 
@@ -402,7 +403,7 @@ condition and contract adaptation rather than a new control framework.
 | `exclude_object_tolerance` | Simplify the object contour in Klipper `EXCLUDE_OBJECT_DEFINE`, not printed geometry. Default 0.1 mm, range 0–5 mm; 0 retains every point. Show only for Klipper with object exclusion enabled. |
 | `enable_arc_fitting` | Replace the boolean presentation with disabled/enabled/sparse-infill enum modes. Definition default is disabled; retain the target's extrusion-rate-smoothing availability rule. |
 
-Update separable/smoothable infill predicates, Wipe inward wall-order conditions
+Update separable/smoothable infill predicates
 and applicable firmware conditions together with the fields. In particular,
 the existing `gyroid_optimized` option is hidden when adaptive density is enabled;
 it is not itself a newly added setting.

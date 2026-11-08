@@ -76,6 +76,92 @@ function calculate(scope: SettingConditionContext['scope'], values: Record<strin
 }
 
 describe('central Orca option presentation', () => {
+  it.each(['gyroid', 'tpmsd', 'tpmsfk'])('offers adaptive density only for non-solid %s infill', pattern => {
+    const keys = ['adaptive_infill_mode', 'adaptive_infill_interior_density', 'adaptive_infill_gradient', 'gyroid_optimized'];
+    const values = { sparse_infill_pattern: pattern, sparse_infill_density: '15%', adaptive_infill_mode: 'disabled' };
+    const off = calculate('project', values, keys);
+    expect(off('adaptive_infill_mode').visible).toBe(true);
+    expect(off('adaptive_infill_interior_density').visible).toBe(false);
+    expect(off('adaptive_infill_gradient').visible).toBe(false);
+    expect(off('gyroid_optimized').visible).toBe(pattern === 'gyroid');
+    for (const mode of ['distance_warp', 'smooth_blend', 'stepped_shells', 'lobes', 'normal_z', 'normal_y', 'normal_x']) {
+      const on = calculate('object', { ...values, adaptive_infill_mode: mode }, keys);
+      expect(on('adaptive_infill_interior_density').visible).toBe(true);
+      expect(on('adaptive_infill_gradient').visible).toBe(true);
+      expect(on('gyroid_optimized').visible).toBe(false);
+    }
+    for (const density of ['0%', '100%']) {
+      const unavailable = calculate('part', { ...values, sparse_infill_density: density, adaptive_infill_mode: 'distance_warp' }, keys);
+      for (const key of keys.slice(0, 3)) expect(unavailable(key).visible).toBe(false);
+      expect(unavailable('gyroid_optimized').visible).toBe(pattern === 'gyroid' && density === '100%');
+    }
+  });
+
+  it('keeps 3D Honeycomb top completion separate from shell and adaptive density controls', () => {
+    const keys = ['adaptive_infill_mode', 'adaptive_infill_interior_density', 'infill_complete_top', 'top_color_penetration_layers', 'bottom_color_penetration_layers'];
+    const values = { sparse_infill_density: '15%', adaptive_infill_mode: 'distance_warp', top_shell_layers: '0', bottom_shell_layers: '0' };
+    for (const pattern of ['3dhoneycomb', 'honeycomb', 'rectilinear']) {
+      const get = calculate('project', { ...values, sparse_infill_pattern: pattern }, keys);
+      expect(get('infill_complete_top').visible).toBe(pattern === '3dhoneycomb');
+      expect(get('adaptive_infill_mode').visible).toBe(false);
+      expect(get('adaptive_infill_interior_density').visible).toBe(false);
+      expect(get('top_color_penetration_layers')).toEqual({ visible: true, readOnly: false });
+      expect(get('bottom_color_penetration_layers')).toEqual({ visible: true, readOnly: false });
+    }
+    expect(calculate('project', { ...values, sparse_infill_pattern: '3dhoneycomb', sparse_infill_density: '0%' }, keys)('infill_complete_top').visible).toBe(false);
+  });
+
+  it('uses pattern support for separated infills without rotation-template overrides', () => {
+    for (const pattern of ['monotonic', 'monotonicline', 'line', 'honeycomb', '3dhoneycomb', 'crosshatch', 'tpmsd', 'tpmsfk', 'gyroid']) {
+      expect(calculate('object', { sparse_infill_pattern: pattern }, ['separated_infills'])('separated_infills').visible).toBe(true);
+    }
+    for (const pattern of ['concentric', 'spiralinset', 'lightning', 'adaptivecubic', 'supportcubic']) {
+      const get = calculate('object', { sparse_infill_pattern: pattern, sparse_infill_rotate_template: '0,90', solid_infill_rotate_template: '45' }, ['separated_infills']);
+      expect(get('separated_infills').visible).toBe(false);
+    }
+  });
+
+  it('requires sparse infill before offering smoothing and respects multiline patterns', () => {
+    for (const pattern of ['honeycomb', '3dhoneycomb', 'crosshatch', 'grid', 'triangles', 'tri-hexagon', 'cubic', 'gyroid']) {
+      for (const density of ['0%', '15%']) {
+        for (const multiline of ['1', '2']) {
+          const get = calculate('project', { sparse_infill_pattern: pattern, sparse_infill_density: density, fill_multiline: multiline }, ['sparse_infill_smooth_factor']);
+          const supported = ['honeycomb', '3dhoneycomb', 'crosshatch'].includes(pattern) || (pattern !== 'gyroid' && multiline === '2');
+          expect(get('sparse_infill_smooth_factor').visible).toBe(density !== '0%' && supported);
+        }
+      }
+    }
+  });
+
+  it.each(['klipper', 'marlin', 'marlin2', 'reprapfirmware'])('shows outline tolerance only for enabled Klipper object exclusion: %s', flavor => {
+    for (const exclude of ['0', '1']) {
+      const get = calculate('project', { exclude_object: exclude }, ['exclude_object_tolerance'], { gcode_flavor: flavor });
+      expect(get('exclude_object_tolerance').visible).toBe(flavor === 'klipper' && exclude === '1');
+    }
+  });
+
+  it('retains arc enum availability under extrusion smoothing without changing its saved mode', () => {
+    for (const mode of ['disabled', 'enabled', 'sparse_infill']) {
+      for (const slope of ['0', '1']) {
+        const get = calculate('project', { enable_arc_fitting: mode, max_volumetric_extrusion_rate_slope: slope }, ['enable_arc_fitting']);
+        expect(get('enable_arc_fitting')).toEqual({ visible: true, readOnly: slope === '1' });
+      }
+    }
+  });
+
+  it.each(['inner wall/outer wall', 'outer wall/inner wall', 'inner-outer-inner wall'])('uses the inward-wipe switch independently of wall order: %s', order => {
+    for (const wipe of ['0', '1']) {
+      const get = calculate('project', { wall_sequence: order, wipe_inward: wipe }, ['wipe_inward_distance']);
+      expect(get('wipe_inward_distance').visible).toBe(wipe === '1');
+    }
+  });
+
+  it('retains unknown controlling values without introducing presentation restrictions', () => {
+    const keys = ['adaptive_infill_mode', 'adaptive_infill_interior_density', 'adaptive_infill_gradient', 'gyroid_optimized', 'infill_complete_top', 'exclude_object_tolerance'];
+    const get = calculate('project', {}, keys);
+    for (const key of keys) expect(get(key)).toEqual({ visible: true, readOnly: false });
+  });
+
   it('computes tower visibility and enablement without normalizing configuration', () => {
     const get = calculate('project', { enable_prime_tower: '1', wipe_tower_wall_type: 'rib', enable_tower_interface_features: '0', wipe_tower_no_sparse_layers: '1' },
       ['prime_tower_width', 'wipe_tower_rib_width', 'wipe_tower_cone_angle', 'enable_tower_interface_cooldown_during_tower', 'wipe_tower_sparse_layers_combination', 'flush_into_objects'],
@@ -133,7 +219,13 @@ describe('central Orca option presentation', () => {
     expect(get('cooling_filter_enabled').visible).toBe(true);
     for (const key of ['extruders_count', 'retraction_length', 'retraction_speed', 'retract_lift_above', 'extruder_printable_area', 'min_resonance_avoidance_speed']) expect(get(key).readOnly).toBe(true);
     expect(get('extruder_printable_area').visible).toBe(true);
-    expect(get('machine_max_acceleration_travel').visible).toBe(false);
+    expect(get('machine_max_acceleration_travel')).toEqual({ visible: true, readOnly: true });
+  });
+
+  it.each(['marlin', 'marlin2', 'klipper', 'reprapfirmware'])('keeps unsupported motion limits visible but disabled for %s', flavor => {
+    const get = calculate('printer', { gcode_flavor: flavor }, ['machine_max_acceleration_travel', 'machine_max_junction_deviation']);
+    expect(get('machine_max_acceleration_travel')).toEqual({ visible: true, readOnly: flavor === 'marlin' || flavor === 'klipper' });
+    expect(get('machine_max_junction_deviation')).toEqual({ visible: true, readOnly: flavor !== 'marlin2' });
   });
 
   it('covers Filament cooling, PA, bed selection and machine accessory conditions', () => {
