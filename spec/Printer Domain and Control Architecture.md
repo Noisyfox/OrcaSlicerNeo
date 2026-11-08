@@ -3492,8 +3492,10 @@ six-platform plugin-startup qualification does not qualify this new video path.
 
 **Decision status** — WebSocket camera control, HTTP JPEG acquisition and shared
 `jpeg-frames` playback are accepted with the host, lifecycle and acceptance
-decisions below. Both hosts are implemented within fixture acceptance;
-sustained real-U1 qualification remains pending.
+decisions below. Both hosts have software acceptance and the Windows
+development-host U1 qualification recorded below. Web physical acceptance
+covers the tested HTTP loopback origin. Production HTTPS deployment needs
+its own origin and browser-permission qualification.
 The provider-private [camera RPC client](../packages/printer-control/src/snapmaker/camera-protocol.ts)
 and host-created socket contract are implemented with protocol-fixture coverage.
 The [managed camera owner](../packages/printer-control/src/snapmaker/camera.ts)
@@ -3513,8 +3515,8 @@ consumer and a 16 MiB JPEG ceiling. Shutdown allows seven seconds for cleanup
 before terminating an unresponsive camera utility.
 Electron and browser E2E fixtures cover real JPEG decoding, recovery, interaction
 renewal and hidden/document release. Electron additionally verifies the actual
-utility process and isolated preload/binary path. These fixtures leave the
-required sustained hardware qualification pending.
+utility process and isolated preload/binary path. Sustained hardware results
+and their deployment limits are recorded in this section.
 The [Snapmaker camera interaction](Printer%20Console%20and%20Control%20Integration.md#snapmaker-camera-live-view)
 owns presentation and viewing intent. The delivered Snapmaker submission and
 current-task thumbnail boundaries in section 2.5 remain independent.
@@ -3631,7 +3633,7 @@ adapters own HTTP and WebSocket networking. Shared application code consumes
 the existing [managed media contract](../packages/printer-control/src/domain/media.ts)
 and [JPEG player](../packages/slicer-app/src/components/device/media/playback.ts).
 The existing [HTTP transport](../packages/printer-control/src/transport.ts)
-needs a complementary host-injected WebSocket seam with cancellable
+is complemented by a host-injected WebSocket seam with cancellable
 connection, message, error and close handling. Correlate JSON-RPC responses by
 request ID and validate their result/error payloads. Notifications and
 unrelated responses must not complete a pending camera request. Bound pending
@@ -3644,7 +3646,7 @@ retires that document's resources on navigation, renderer loss or window
 destruction, including late opens. Frame delivery reuses the existing
 document-owned binary-channel pattern from section 8.1. The renderer adapter
 exposes the domain media interface and keeps Electron objects behind its host
-boundary. The existing HTTP-agent assembly gains a narrow media implementation
+boundary. The HTTP-agent assembly uses a narrow media implementation
 injection point; this does not relocate unrelated Snapmaker operations.
 
 Web executes the same protocol/resource logic through its browser host
@@ -3830,6 +3832,66 @@ layout and touch-compatible buttons. One active view and bounded JPEG storage
 constrain media memory independently of session duration. Mobile fullscreen,
 network permissions, sustained decoding and background behavior need separate
 qualification before mobile support is claimed.
+
+#### Windows development-host camera qualification
+
+Acceptance on 2026-11-08 used stock U1 firmware
+`2.0.0.205_20260914173503`, plain 1920×1080 JPEG and the saved LAN API
+configuration with an empty API key. Electron 43.4.0 ran the development E2E
+application with mock slicing. Chrome 156.0.8078.81 ran the built Web application
+with real threaded WASM. Camera execution is independent of the slicing module.
+
+| Host | Sustained viewing | Repeated timer renewal | Display evidence |
+| --- | --- | --- | --- |
+| Electron on Windows x64 | 1,835.109 seconds | Five observed intervals of 300.066–300.170 seconds | 8,678 displayed-image changes by the last periodic sample, with 122 distinct sampled JPEG hashes. |
+| Web on Windows x64 | 1,834.928 seconds | Four observed intervals of 300.093–300.103 seconds | 8,765 displayed-image changes by the last periodic sample, with 122 distinct sampled JPEG hashes. |
+
+Each sustained session retained one client ID across acknowledged starts and
+renewals. Additional starts were acknowledged with the retained session
+identity. These counts describe client delivery and sampled image changes.
+The existing distinction between request cadence and camera source FPS applies.
+
+Electron transport observation used a temporary utility-entry observer around
+the production WebSocket/fetch APIs. Fault injection closed that socket and
+interrupted image reads briefly. Web used browser offline mode for the short
+interruption. Both hosts retained the displayed image and recovered inside the
+30-second budget. Separate physical cases exhausted the recovery budget,
+exposed Retry and resumed viewing with a new resource. Device switching was
+tested by selecting a configured offline route and returning to the same U1.
+Electron minimize/restore and Web background-tab/foreground transitions
+released and resumed their views. Explicit Stop, leaving/returning to Monitor
+and document/application closure were also exercised. Monitor status remained
+live after the recovery and visibility cases.
+
+The two application instances viewed concurrently. After Electron stopped and
+closed, Web delivered another 100 displayed frames over 20 seconds and the
+displayed JPEG hash changed. This qualifies that bounded two-Neo-client case
+on the recorded firmware. Vendor-client coexistence, general hardware viewer
+limits and device-wide capture shutdown require further qualification.
+
+Web used `http://127.0.0.1:4173` with direct HTTP/WS device access, default
+browser permissions and ordinary CORS enforcement. The harness applied no
+transport-security bypass. A separate browser case supplied an incompatible
+CORS origin on image responses, verified camera-unavailable/Retry presentation
+while Monitor remained live, then restored valid CORS and retried successfully.
+Public HTTPS deployment, its mixed-content/local-network authorization path,
+API-key-authenticated hardware and encrypted-image delivery require their own
+qualification. The recorded run establishes the empty-key, plain-JPEG path.
+
+The utility observer was removed before final fixture regression. Software
+acceptance uses `pnpm test`, `pnpm typecheck`, the desktop renderer CSS smoke,
+the primary Electron application E2E path and the Electron/Web camera E2E
+fixtures. Final repository tests and typechecks passed. The affected suites
+passed 355 printer-control, 1,708 shared-application, 585 desktop and 49 Web
+tests, with the desktop suite retaining its existing resource-dependent skip.
+The final Electron application/camera E2E run passed 38 cases and retained
+three existing real-WASM-only skips for DRC, STEP and native G-code event
+vertices. The real-Web camera E2E passed its case. Renderer CSS smoke passed.
+A concurrent repository-test attempt hit Windows' loaded native
+extension file lock. Closing the acceptance application allowed the full
+repository tests to pass on rerun. The testing-guideline handoff scope applies
+to this feature. The full dual-WASM/platform release matrix remains a release
+qualification activity.
 
 ## 9. Remote files, previews and transfers
 

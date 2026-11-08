@@ -2896,11 +2896,13 @@ changed compatibility or availability.
 
 ### Snapmaker camera live view
 
-**Decision status** — The accepted follow-up uses WebSocket camera control,
+**Decision status** — Snapmaker live view uses WebSocket camera control,
 HTTP JPEG acquisition and the shared Camera card/player. Web/shared UI
 and Electron utility/binary delivery have fixture acceptance.
-Sustained real-U1 qualification remains pending. The
-[camera architecture](Printer%20Domain%20and%20Control%20Architecture.md#82-snapmaker-u1-lan-live-view)
+Windows development-host real-U1 viewing passed for over 30 minutes per host,
+with the tested Web HTTP loopback origin and qualification limits recorded in
+the [camera acceptance](Printer%20Domain%20and%20Control%20Architecture.md#windows-development-host-camera-qualification).
+The [camera architecture](Printer%20Domain%20and%20Control%20Architecture.md#82-snapmaker-u1-lan-live-view)
 owns protocol evidence, transport, media resources and qualification boundaries.
 
 Electron and Web are initial delivery targets, each with host-specific
