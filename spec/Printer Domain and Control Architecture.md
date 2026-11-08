@@ -3493,6 +3493,9 @@ six-platform plugin-startup qualification does not qualify this new video path.
 **Decision status** — WebSocket camera control, HTTP JPEG acquisition and shared
 `jpeg-frames` playback are accepted with the host, lifecycle and acceptance
 decisions below. Production implementation and qualification are pending.
+The provider-private [camera RPC client](../packages/printer-control/src/snapmaker/camera-protocol.ts)
+and host-created socket contract are implemented with protocol-fixture coverage.
+Managed camera resources, host wiring and shared UI integration remain pending.
 The [Snapmaker camera interaction](Printer%20Console%20and%20Control%20Integration.md#snapmaker-camera-live-view)
 owns presentation and viewing intent. The delivered Snapmaker submission and
 current-task thumbnail boundaries in section 2.5 remain independent.

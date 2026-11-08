@@ -40,3 +40,9 @@ export interface PrinterTransportResponse {
 export interface PrinterTransport {
   request(request: PrinterTransportRequest): Promise<PrinterTransportResponse>;
 }
+
+/** Host-created standard WebSocket; the provider owns its listeners and lifetime. */
+export type PrinterWebSocket = Pick<WebSocket, 'readyState' | 'send' | 'close' | 'addEventListener' | 'removeEventListener'>;
+export interface PrinterWebSocketTransport {
+  create(url: string): PrinterWebSocket;
+}
