@@ -494,7 +494,7 @@ assert.deepEqual(readPrint().editor_vectors,printMixedAfter.editor_vectors);
 assert.deepEqual(readPrint().effective_values,printMixedAfter.effective_values);
 // Load actual project HF/Hybrid context through Orca's standard 3MF reader,
 // rather than a production test hook or a mock of the mapping function.
-const exported = must(call('orc_export_project'));
+const exported = must(call('orc_export_project', ['string'], ['{}']));
 const archiveBytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length));
 Module._free(Number(exported.bytes_ptr));
 const settingsName = 'Metadata/project_settings.config';
@@ -503,6 +503,11 @@ assert.ok(settingsEntry);
 const settings = JSON.parse(new TextDecoder().decode(settingsEntry.content));
 settings.nozzle_volume_type = ['Standard', 'High Flow', 'Hybrid', 'Standard'];
 settings.extruder_max_nozzle_count = ['1','1','2','1'];
+// Keep the authored capacity when the reader resolves the installed U1 preset.
+const printerDiffIndex = settings.different_settings_to_system.length - 1;
+settings.different_settings_to_system[printerDiffIndex] = [
+  settings.different_settings_to_system[printerDiffIndex], 'extruder_max_nozzle_count',
+].filter(Boolean).join(';');
 const hybridArchive = replaceEntry(archiveBytes, settingsName, JSON.stringify(settings));
 // Optional real-host fixture: the same native-exported archive and project
 // flow context validated below, without a production injection mechanism.
@@ -674,7 +679,7 @@ await sliceScoped();
 const sourceEqualValue=scopeValues().source_values[4];
 scopeSet([scopeObject],4,sourceEqualValue);
 const sparseBefore=scopeValues().override_values,partBefore=scopeValues(scopePart).override_values;
-const scopedExport=must(call('orc_export_project'));
+const scopedExport=must(call('orc_export_project', ['string'], ['{}']));
 const sparseArchive=Module.HEAPU8.slice(Number(scopedExport.bytes_ptr),Number(scopedExport.bytes_ptr)+Number(scopedExport.bytes_length));Module._free(Number(scopedExport.bytes_ptr));
 const sparseEntries=readZipEntries(sparseArchive);
 assert.ok(!sparseEntries.some(entry=>/orca_neo/.test(entry.name)),'sparse values use standard native archive owners');
@@ -696,19 +701,20 @@ assert.equal(scopeValues(scopePart).effective_values[0],10);
 scopeSet([scopePart],0,null);
 scopeSet([scopeObject],0,14);
 assert.equal(scopeValues(scopePart).effective_values[0],14,'reopened reset Part slot follows later parent change');
-const missingExport=must(call('orc_export_project'));
+const missingExport=must(call('orc_export_project', ['string'], ['{}']));
 const missingBytes=Module.HEAPU8.slice(Number(missingExport.bytes_ptr),Number(missingExport.bytes_ptr)+Number(missingExport.bytes_length));Module._free(Number(missingExport.bytes_ptr));
 const missingSettings=JSON.parse(new TextDecoder().decode(readZipEntries(missingBytes).find(entry=>entry.name===settingsName).content));
-// Orca rebuilds Print variant identity columns while loading. An actual XHF
-// project flow on this SF/HF Printer is retained but has no native Print map.
-missingSettings.nozzle_volume_type[2]='Extra High Flow';
+// Open repairs an unsupported XHF flow to the Printer's Standard default.
+// Scoped bindings must follow that repaired flow on the same head.
+missingSettings.nozzle_volume_type[2] = 'Extra High Flow';
 const missingArchive=replaceEntry(missingBytes,settingsName,JSON.stringify(missingSettings));
 const missingPointer=Number(Module._malloc(missingArchive.length));Module.HEAPU8.set(missingArchive,missingPointer);
 try{must(call('orc_load_project',['pointer','number','number','string'],[missingPointer,missingArchive.length,0,'Scoped-missing-map.3mf']));}
 finally{Module._free(missingPointer);}
 scopeObject.id=String(must(call('orc_get_model_structure')).objects[0].id);
 const missingRead=scopeRead();
-assert.deepEqual(choiceBinding(missingRead,'outer_wall_speed',2,6),{kind:'unavailable'},'missing native Scoped mapping never falls back to index zero');
+assert.deepEqual(missingRead.editor_selection.choices.filter(choice => choice.extruder_index === 2).map(choice => choice.flow_type), [0]);
+assert.deepEqual(choiceBinding(missingRead,'outer_wall_speed',2,0),{kind:'indexed',index:4},'repaired flow keeps its physical head binding');
 assert.deepEqual(choiceBinding(missingRead,'outer_wall_speed',0,0),{kind:'indexed',index:0});
 console.log('PASS native mappings, atomic scoped/Project mixed reset/history, sparse ownership/provenance, singleton normalization, actual object/region slicing and 3MF round-trip; shared vectors:',sharedVectors);
 process.exit(0);

@@ -79,7 +79,8 @@ std::optional<std::string> editor_vector_type(const std::string& key, const Conf
 bool printer_extruder_key(const std::string& key)
 {
     const auto& keys = print_config_def.extruder_option_keys();
-    return key == "extruder_printable_area" || std::find(keys.begin(), keys.end(), key) != keys.end();
+    return key == "extruder_printable_area" || key == "extruder_max_nozzle_count" ||
+        std::find(keys.begin(), keys.end(), key) != keys.end();
 }
 
 bool selection_dependent(const Preset::Type type, const std::string& key)
