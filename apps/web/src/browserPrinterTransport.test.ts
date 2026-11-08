@@ -29,19 +29,6 @@ class FakeXHR extends EventTarget {
 describe('BrowserPrinterTransport', () => {
   beforeEach(() => vi.stubGlobal('XMLHttpRequest', FakeXHR));
 
-  it('aborts an oversized response during receive progress', async () => {
-    const request = new BrowserPrinterTransport().request({ method: 'GET', url: 'http://printer/image', responseType: 'bytes', maxResponseBytes: 4 });
-    FakeXHR.latest.dispatchEvent(new ProgressEvent('progress', { loaded: 5 }));
-    await expect(request).rejects.toThrow('Printer request failed');
-  });
-
-  it('validates the final byte ceiling and rejects invalid limits', async () => {
-    const request = new BrowserPrinterTransport().request({ method: 'GET', url: 'http://printer/image', responseType: 'bytes', maxResponseBytes: 4 });
-    FakeXHR.latest.complete(200, new Uint8Array(5));
-    await expect(request).rejects.toThrow('Printer request failed');
-    await expect(new BrowserPrinterTransport().request({ method: 'GET', url: 'http://printer/image', maxResponseBytes: -1 })).rejects.toThrow('Printer request failed');
-  });
-
   it('sends GET headers and parses JSON', async () => {
     const promise = new BrowserPrinterTransport().request({ method: 'GET', url: 'http://printer.local/server/info', headers: { 'X-Api-Key': 'secret-key' } });
     expect(FakeXHR.latest.method).toBe('GET');

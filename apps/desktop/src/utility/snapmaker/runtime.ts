@@ -47,14 +47,8 @@ export class SnapmakerCameraRuntime {
         || request.input.request.target.routeId !== `snapmaker:${grant.printer.id}`) return unavailable();
       for (const [id, view] of this.views) if (view.status.state === 'closed' && Date.now() >= view.retainedUntil) this.views.delete(id);
       const original = request.input.request, id = key(original.requestId);
-      if (this.pending.size >= 128 && !this.pending.has(id)) return unavailable();
       const grantKey = JSON.stringify([original.target.printerId, original.target.routeId, grant.revision]);
       this.grants.set(grantKey, grant);
-      if (this.grants.size > 128) {
-        const retained = new Set([...this.views.values()].filter(view => view.status.state !== 'closed')
-          .map(view => JSON.stringify([view.descriptor.ref.printerId, view.descriptor.ref.routeId, view.descriptor.configurationRevision])));
-        for (const key of this.grants.keys()) if (key !== grantKey && !retained.has(key)) { this.grants.delete(key); break; }
-      }
       const pending = this.pending.get(id) ?? { controller: new AbortController(), callers: 0 };
       pending.callers++; this.pending.set(id, pending);
       const { controller } = pending;
@@ -69,7 +63,14 @@ export class SnapmakerCameraRuntime {
           void this.watch(view);
         }
         return result;
-      } finally { if (--pending.callers === 0) this.pending.delete(id); }
+      } finally {
+        if (--pending.callers === 0) this.pending.delete(id);
+        if (!this.pending.size) {
+          const retained = new Set([...this.views.values()].filter(view => view.status.state !== 'closed')
+            .map(view => JSON.stringify([view.descriptor.ref.printerId, view.descriptor.ref.routeId, view.descriptor.configurationRevision])));
+          for (const key of this.grants.keys()) if (!retained.has(key)) this.grants.delete(key);
+        }
+      }
     }
     const view = this.views.get(request.input.id);
     if (!view || view.owner !== owner || view.descriptor.ref.printerId !== request.input.printerId || view.descriptor.ref.routeId !== request.input.routeId) return unavailable();
@@ -102,7 +103,7 @@ export class SnapmakerCameraRuntime {
       || view.descriptor.presentation.kind !== 'video' || view.descriptor.presentation.delivery.transport !== 'jpeg-frames'
       || view.descriptor.presentation.delivery.streamId !== request.streamId) { port.close(); return; }
     const controller = new AbortController(); view.stream = controller;
-    const channel = new CameraChannel(() => { void this.close(view); }, 16 * 1024 * 1024); view.channel = channel;
+    const channel = new CameraChannel(() => { void this.close(view); }, Infinity); view.channel = channel;
     channel.attach(port);
     void (async () => {
       try { for await (const packet of this.media.api.readStream(request, { signal: controller.signal })) channel.push(packet); }

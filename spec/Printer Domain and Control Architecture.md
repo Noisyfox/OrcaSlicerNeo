@@ -3500,18 +3500,18 @@ The provider-private [camera RPC client](../packages/printer-control/src/snapmak
 and host-created socket contract are implemented with protocol-fixture coverage.
 The [managed camera owner](../packages/printer-control/src/snapmaker/camera.ts)
 and Web/shared Camera integration are implemented within fixture acceptance.
-Browser transport enforces receive budgets. Shared playback handles bounded
+Host transports perform HTTP acquisition. Shared playback handles bounded
 JPEG recovery and activity renewal. The independent
 [Electron camera utility](../apps/desktop/src/utility/snapmaker-camera-host.ts)
-owns WebSocket control, bounded HTTP reads and managed resources. Its
+owns WebSocket control, HTTP reads and managed resources. Its
 process starts on the first camera-open operation. Saving configuration alone
 does not create it. The
 [main-process binding](../apps/desktop/src/main/snapmakerCameraIpc.ts) verifies
 the renderer's configuration digest against persisted configuration before
 granting access. Main supplies document ownership, invalidates saved connection
 changes and retires viewers on navigation, renderer loss and window destruction.
-Binary frames reuse the existing bounded pull-based camera channel, with one
-consumer and a 16 MiB JPEG ceiling. Shutdown allows seven seconds for cleanup
+Binary frames reuse the pull-based camera channel, with one consumer and
+latest-frame replacement for queued JPEGs. Shutdown allows seven seconds for cleanup
 before terminating an unresponsive camera utility.
 Electron and browser E2E fixtures cover real JPEG decoding, recovery, interaction
 renewal and hidden/document release. Electron additionally verifies the actual
@@ -3636,8 +3636,9 @@ The existing [HTTP transport](../packages/printer-control/src/transport.ts)
 is complemented by a host-injected WebSocket seam with cancellable
 connection, message, error and close handling. Correlate JSON-RPC responses by
 request ID and validate their result/error payloads. Notifications and
-unrelated responses must not complete a pending camera request. Bound pending
-requests and subscription buffers and retire them when their connection ends.
+unrelated responses must not complete a pending camera request. Pending
+requests retain their cancellation/deadline scopes and retire when their
+connection ends.
 
 Electron executes the camera protocol, resource owner and acquisition loop in
 a utility-process host, independently of slicing and printer-operation queues.
@@ -3680,7 +3681,7 @@ requirements. A configuration change cannot redirect an old resource to a new
 endpoint. The concurrency and release policy below defines how local and
 device resources are retired.
 
-Acquisition requires bounded pending bytes, cancellable requests, serial frame
+Acquisition requires latest-frame buffering, cancellable requests, serial frame
 fetches and cache avoidance. URL resolution must preserve configured scheme,
 port, proxy prefix and IPv6 handling. Delivery accepts complete JPEG frames;
 failed or undecodable individual frames retain the previous valid image while
@@ -3754,10 +3755,10 @@ Per-attempt timeouts and bounded backoff must fit inside the remaining
 recovery budget. Their implementation values may be tuned through fixtures
 without extending the accepted 30-second user-visible window.
 
-Enforce packet/byte ceilings before unbounded response accumulation, using
-the existing shared-player admission limits as the outer bound. Keep encoded
-delivery and pending decode storage bounded independently of session length,
-replacing obsolete pending JPEGs through the established latest-frame policy.
+HTTP acquisition buffers the current response under its cancellation/deadline
+scope. Encoded delivery and pending decoding retain the latest queued frame,
+replacing obsolete JPEGs independently of session length. The shared media
+consumer applies its established packet-admission contract.
 Within a generation, delivered sequence numbers remain contiguous. Reopening
 an interrupted source starts a new generation with a complete JPEG.
 

@@ -53,7 +53,7 @@ describe('U1 camera media resources', () => {
     expect(descriptor.presentation).toMatchObject({ playbackRecovery: { timeoutMs: 30_000 } });
     expect(descriptor.presentation).toMatchObject({ live: true, seekable: false, delivery: { transport: 'jpeg-frames' } });
     expect((await reader.next()).value).toMatchObject({ kind: 'jpeg', generation: 1, sequence: 0, bytes: jpeg() });
-    expect(f.request).toHaveBeenCalledWith(expect.objectContaining({ maxResponseBytes: 16 * 1024 * 1024, responseType: 'bytes' }));
+    expect(f.request).toHaveBeenCalledWith(expect.objectContaining({ responseType: 'bytes' }));
     await f.owner.api.close(descriptor.ref); await f.owner.api.close(descriptor.ref);
     expect(f.stops()).toHaveLength(1);
     expect(f.stops()[0].params.clientid).toBe(f.starts()[0].params.clientid);

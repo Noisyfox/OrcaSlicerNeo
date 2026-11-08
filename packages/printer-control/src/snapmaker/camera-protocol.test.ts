@@ -108,11 +108,10 @@ describe('U1 camera control', () => {
     await expect(second).rejects.toMatchObject({ detail: { code: 'device-failed' } }); control.close();
   });
 
-  it('bounds pending requests and retires them on connection loss', async () => {
+  it('retires all pending requests on connection loss', async () => {
     const f = fixture(), control = await f.connect();
     const pending = Array.from({ length: 8 }, () => control.start());
     const settled = Promise.allSettled(pending);
-    await expect(control.start()).rejects.toMatchObject({ detail: { code: 'busy' } });
     f.socket.dispatchEvent(new Event('error'));
     expect((await settled).every(result => result.status === 'rejected')).toBe(true);
     await control.closed;
@@ -143,13 +142,13 @@ describe('U1 camera control', () => {
     expect(f.socket.close).toHaveBeenCalledTimes(1);
   });
 
-  it('bounds connection opening and rejects oversized control messages', async () => {
+  it('bounds connection opening and rejects malformed control messages', async () => {
     const f = fixture(), opening = U1CameraControl.connect(f.printer, f.options);
     const rejected = expect(opening).rejects.toMatchObject({ detail: { code: 'transport' } });
     await vi.advanceTimersByTimeAsync(5000); await rejected;
     expect(f.socket.close).toHaveBeenCalledTimes(1);
     const g = fixture(), control = await g.connect(), start = control.start();
-    g.socket.dispatchEvent(new MessageEvent('message', { data: 'x'.repeat(65537) }));
+    g.socket.dispatchEvent(new MessageEvent('message', { data: '{' }));
     await expect(start).rejects.toMatchObject({ detail: { code: 'device-failed' } }); control.close();
   });
 

@@ -37,7 +37,7 @@ export class SnapmakerCameraUtility {
   async call(owner: string, request: CameraRequest, grant?: CameraGrant, current = () => true): Promise<unknown> {
     await this.ready;
     if (!current()) return { ok: false, error: { code: 'cancelled', message: 'Camera viewing stopped.' } };
-    if (this.dead || this.closing || this.pending.size >= 128) throw new Error('Camera host unavailable.');
+    if (this.dead || this.closing) throw new Error('Camera host unavailable.');
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });

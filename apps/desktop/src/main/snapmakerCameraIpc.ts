@@ -47,7 +47,6 @@ export class SnapmakerCameraIpc {
       catch { return rejected('transport'); }
     }
     const { request, configurationDigest } = value.input;
-    if (owner.pending.size >= 128 && !owner.pending.has(request.requestId)) return rejected('invalid-target');
     const pending = owner.pending.get(request.requestId) ?? { cancelled: false, callers: 0 }, epoch = this.epoch;
     pending.callers++;
     owner.pending.set(request.requestId, pending);

@@ -5,8 +5,6 @@ import { endpoint, fail, MoonrakerFailure, record } from '../moonraker-http';
 import type { PrinterError } from '../domain';
 
 const REQUEST_TIMEOUT_MS = 5000;
-const MAX_MESSAGE_CHARS = 64 * 1024;
-const MAX_PENDING_REQUESTS = 8;
 interface PendingRequest {
   resolve(value: Record<string, unknown>): void;
   reject(error: MoonrakerFailure): void;
@@ -41,7 +39,7 @@ async function bounded<T>(operation: Promise<T>, signal: AbortSignal, caller?: A
 }
 
 function cameraImageUrl(base: string, source: unknown): string {
-  if (typeof source !== 'string' || !source || source.length > 8192) fail('device-failed', 'Invalid camera image location.');
+  if (typeof source !== 'string' || !source) fail('device-failed', 'Invalid camera image location.');
   const root = new URL(endpoint(base, '/server/files/'));
   let url: URL;
   try {
@@ -86,7 +84,7 @@ export class U1CameraControl {
   }
 
   static async connect(printer: Pick<PrinterConfiguration, 'apiBaseUrl' | 'apiKey'>, options: U1CameraControlOptions): Promise<U1CameraControl> {
-    if (!options.clientId || options.clientId.length > 128 || /[\x00-\x1f]/.test(options.clientId)) {
+    if (typeof options.clientId !== 'string' || !options.clientId) {
       fail('invalid-request', 'Invalid camera client identity.');
     }
     let base: URL;
@@ -103,7 +101,7 @@ export class U1CameraControl {
         let response;
         try {
           response = await bounded(options.http.request({ method: 'GET', url: endpoint(base.href, '/access/oneshot_token'),
-          headers: { 'X-Api-Key': printer.apiKey }, maxResponseBytes: MAX_MESSAGE_CHARS, signal }), signal, options.signal);
+          headers: { 'X-Api-Key': printer.apiKey }, signal }), signal, options.signal);
         } catch (error) {
           if (error instanceof MoonrakerFailure) throw error;
           throw interrupted(options.signal);
@@ -117,7 +115,7 @@ export class U1CameraControl {
           if (error instanceof MoonrakerFailure) throw error;
           fail('device-failed', 'Invalid camera authorization response.');
         }
-        if (typeof token !== 'string' || !token || token.length > 4096) fail('device-failed', 'Invalid camera authorization response.');
+        if (typeof token !== 'string' || !token) fail('device-failed', 'Invalid camera authorization response.');
         url.searchParams.set('token', token);
       }
       if (signal.aborted) throw interrupted(options.signal);
@@ -134,7 +132,7 @@ export class U1CameraControl {
   private readonly onError = () => this.finish(failure('transport', 'Camera connection failed.'));
   private readonly onMessage = (event: Event) => {
     const data: unknown = (event as MessageEvent).data;
-    if (typeof data !== 'string' || data.length > MAX_MESSAGE_CHARS) {
+    if (typeof data !== 'string') {
       this.finish(failure('device-failed', 'Invalid camera control response.')); return;
     }
     let response: Record<string, unknown>;
@@ -176,7 +174,6 @@ export class U1CameraControl {
   private async request(method: string, params: Record<string, unknown>, caller?: AbortSignal): Promise<Record<string, unknown>> {
     if (caller?.aborted) throw interrupted(caller);
     if (this.ended) throw this.ended;
-    if (this.pending.size >= MAX_PENDING_REQUESTS) fail('busy', 'Camera control queue is full.');
     const id = ++this.nextId, scope = deadline(caller);
     const response = new Promise<Record<string, unknown>>((resolve, reject) => { this.pending.set(id, { resolve, reject }); });
     try {
@@ -197,9 +194,7 @@ export class U1CameraControl {
   close(): void { this.finish(failure('cancelled', 'Camera connection closed.')); }
 }
 
-export const U1_CAMERA_MAX_FRAME_BYTES = 16 * 1024 * 1024;
-
-/** Host transports enforce the receive ceiling; this also validates the delivered buffer. */
+/** Acquire a JPEG and validate its framing before media delivery. */
 export async function readU1CameraFrame(printer: Pick<PrinterConfiguration, 'apiKey'>, source: string, http: PrinterTransport, caller?: AbortSignal): Promise<Uint8Array> {
   const scope = deadline(caller);
   try {
@@ -207,13 +202,13 @@ export async function readU1CameraFrame(printer: Pick<PrinterConfiguration, 'api
     const url = new URL(source);
     url.searchParams.set('_nocache', `${Date.now()}-${crypto.randomUUID()}`);
     const response = await bounded(http.request({ method: 'GET', url: url.href, responseType: 'bytes',
-      maxResponseBytes: U1_CAMERA_MAX_FRAME_BYTES, signal: scope.signal,
+      signal: scope.signal,
       headers: printer.apiKey ? { 'X-Api-Key': printer.apiKey } : {} }), scope.signal, caller);
     if (response.status === 401) fail('authentication-required', 'Camera authentication required.');
     if (response.status === 403) fail('permission-denied', 'Camera access denied.');
     if (response.status < 200 || response.status >= 300) fail('transport', 'Camera image unavailable.');
     const bytes = await bounded(response.bytes(), scope.signal, caller);
-    if (bytes.length < 4 || bytes.length > U1_CAMERA_MAX_FRAME_BYTES || bytes[0] !== 255 || bytes[1] !== 216
+    if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216
       || bytes.at(-2) !== 255 || bytes.at(-1) !== 217) fail('device-failed', 'Invalid camera JPEG frame.');
     return bytes;
   } catch (error) {

@@ -171,7 +171,6 @@ export class U1CameraMedia {
         return copy(previous.descriptor);
       }
       if (this.active) fail('busy', 'Another Snapmaker camera view is active.');
-      if (this.requests.size >= 128) fail('busy', 'Camera request history is full.');
       // Reserve admission before configuration I/O, including concurrent opens.
       let accept!: (result: D.Result<D.MediaDescriptor>) => void;
       const opened = new Promise<D.Result<D.MediaDescriptor>>(resolve => { accept = resolve; });
